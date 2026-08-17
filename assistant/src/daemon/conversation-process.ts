@@ -60,6 +60,10 @@ import {
 } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
 import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
+import {
+  bindInteractiveTurnSender,
+  resetInteractiveTurnSenderIfBound,
+} from "./interactive-turn-sender.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import { buildTransportHints } from "./transport-hints.js";
 import { sameTrustIdentity, type TrustContext } from "./trust-context-types.js";
@@ -1292,10 +1296,26 @@ async function drainSingleMessage(
     drainLoopOptions.isHiddenPrompt = true;
   }
 
+  // By the time the drain runs, the conversation-level sender is the no-op
+  // the just-finished interactive turn's reset (or conversation birth) left
+  // behind, and the drain bypasses `processMessage`, so without a fresh bind
+  // the PermissionPrompter's confirmation_request (which reads the
+  // conversation-level sender, not the turn's `onEvent`) would be emitted
+  // into nothing and hang until the permission timeout. Same bind/reset
+  // contract as `processMessage`.
+  if (next.isInteractive === true) {
+    bindInteractiveTurnSender(conversation);
+  }
+
   conversation
     .runAgentLoop(agentLoopContent, userMessageId, {
       ...drainLoopOptions,
       onEvent: next.onEvent,
+    })
+    .finally(() => {
+      if (next.isInteractive === true) {
+        resetInteractiveTurnSenderIfBound(conversation);
+      }
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -1779,12 +1799,24 @@ async function drainBatch(
     drainLoopOptions.isHiddenPrompt = true;
   }
 
+  // Same sender contract as drainSingleMessage: an interactive drained batch
+  // must rebind the conversation-level sender or prompter confirmations
+  // raised during this turn reach no client.
+  if (drainLoopOptions.isInteractive === true) {
+    bindInteractiveTurnSender(conversation);
+  }
+
   // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue
   // when this run completes. Mirrors drainSingleMessage.
   conversation
     .runAgentLoop(lastSuccessfulContent, lastUserMessageId, {
       ...drainLoopOptions,
       onEvent: fanOutOnEvent,
+    })
+    .finally(() => {
+      if (drainLoopOptions.isInteractive === true) {
+        resetInteractiveTurnSenderIfBound(conversation);
+      }
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);

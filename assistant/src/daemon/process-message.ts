@@ -34,7 +34,6 @@ import { updateMetaFile } from "../persistence/conversation-disk-view.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
-import { getSubagentManager } from "../subagent/index.js";
 import {
   readTurnFailure,
   type TurnFailure,
@@ -70,6 +69,10 @@ import {
   preactivateHostProxySkills,
   shouldAttachHostProxyForCapability,
 } from "./host-proxy-preactivation.js";
+import {
+  bindInteractiveTurnSender,
+  resetInteractiveTurnSenderIfBound,
+} from "./interactive-turn-sender.js";
 import type { SubagentToolGateMode } from "./tool-setup-types.js";
 import { restingTrust } from "./trust-context-types.js";
 
@@ -710,8 +713,7 @@ export async function processMessage(
   }
 
   if (options?.isInteractive === true) {
-    conversation.updateClient(broadcastMessage, false);
-    getSubagentManager().updateParentSender(conversationId, broadcastMessage);
+    bindInteractiveTurnSender(conversation);
   }
 
   const restoreToolScope = applyTurnToolAllowlist(conversation, options);
@@ -731,11 +733,8 @@ export async function processMessage(
     });
   } finally {
     restoreToolScope();
-    if (
-      options?.isInteractive === true &&
-      conversation.getCurrentSender() === broadcastMessage
-    ) {
-      conversation.updateClient(() => {}, true);
+    if (options?.isInteractive === true) {
+      resetInteractiveTurnSenderIfBound(conversation);
     }
   }
 
@@ -796,8 +795,7 @@ export async function processMessageInBackground(
   }
 
   if (options?.isInteractive === true) {
-    conversation.updateClient(broadcastMessage, false);
-    getSubagentManager().updateParentSender(conversationId, broadcastMessage);
+    bindInteractiveTurnSender(conversation);
   }
 
   const restoreToolScope = applyTurnToolAllowlist(conversation, options);
@@ -814,11 +812,8 @@ export async function processMessageInBackground(
     })
     .finally(() => {
       restoreToolScope();
-      if (
-        options?.isInteractive === true &&
-        conversation.getCurrentSender() === broadcastMessage
-      ) {
-        conversation.updateClient(() => {}, true);
+      if (options?.isInteractive === true) {
+        resetInteractiveTurnSenderIfBound(conversation);
       }
     })
     .catch((err) => {
