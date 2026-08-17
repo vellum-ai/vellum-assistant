@@ -16,7 +16,6 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import type { TFunction } from "i18next";
 import type { LucideIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
@@ -27,7 +26,7 @@ import {
 } from "@/domains/chat/components/panel-menu-item";
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
-import { useTranslation } from "@/i18n";
+import { useTranslation, type TFunction } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { BottomSheet, ContextMenu, Menu } from "@vellumai/design-library";

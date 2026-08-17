@@ -15,12 +15,12 @@
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import i18next from "i18next";
+import { fixedT } from "@/i18n";
 
 // The builders take a namespace-bound `t`, the same thing
-// `useTranslation("chat")` hands their component callers. The bare export
-// resolves against `common` and would return the key instead of the copy.
-const t = i18next.getFixedT(null, "chat");
+// `useTranslation("chat")` hands their component callers. The unbound `t`
+// resolves against `common` and returns the key instead of the copy.
+const t = fixedT("chat");
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -589,8 +589,7 @@ describe("ConversationActionsSheet", () => {
       />,
     );
     expect(html).toContain('data-testid="sheet-grabber"');
-    // Both strings come from the `chat` catalog, so this also pins them to
-    // `t()` rather than the literals they replaced.
+    // Both strings come from the `chat` catalog.
     expect(html).toContain('data-testid="sheet-close"');
     expect(html).toContain('aria-label="Close"');
   });
@@ -633,9 +632,8 @@ describe("ConversationActionsSheet", () => {
         onArchive={() => {}}
       />,
     );
-    // No trigger, but the sheet body still renders the item set. Asserted
-    // against the trigger's own marker rather than `<button`, which the
-    // header's close control now legitimately contributes.
+    // The header always carries a close button, so absence of a trigger is
+    // asserted against the trigger's own marker rather than `<button`.
     expect(html).not.toContain('data-testid="trigger"');
     expect(html).toContain("Archive");
   });
