@@ -566,7 +566,10 @@ describe("ConversationActionsSheet", () => {
       />,
     );
     expect(html).toContain('data-testid="sheet-grabber"');
-    expect(html).toContain('aria-label="Close conversation actions"');
+    // Both strings come from the `chat` catalog, so this also pins them to
+    // `t()` rather than the literals they replaced.
+    expect(html).toContain('data-testid="sheet-close"');
+    expect(html).toContain('aria-label="Close"');
   });
 
   test("gives every action row a leading chip", () => {

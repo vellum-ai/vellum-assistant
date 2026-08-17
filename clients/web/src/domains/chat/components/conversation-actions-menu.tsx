@@ -26,6 +26,7 @@ import {
 } from "@/domains/chat/components/panel-menu-item";
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
+import { useTranslation } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { BottomSheet, ContextMenu, Menu } from "@vellumai/design-library";
@@ -735,6 +736,12 @@ export function ConversationActionsSheet({
   trigger?: ReactNode;
 }) {
   const isNativePlatform = useIsNativePlatform();
+  // The sheet's own chrome reads from the catalog. The action labels below
+  // still do not: they are built by `renderConversationMenuItemsAsPanelItems`,
+  // a plain function rather than a component, so translating them means
+  // threading a `t` through both builders and every call site. That is the
+  // file's conversion into `i18nEnforcedPaths`, not this sheet's header.
+  const { t } = useTranslation("chat");
   return (
     <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
       {trigger ? (
@@ -759,10 +766,10 @@ export function ConversationActionsSheet({
         <BottomSheet.Grabber />
         <BottomSheet.Header className="flex-row items-center justify-between px-4 pt-3 pb-2">
           <BottomSheet.Title className="text-body-large-default text-[var(--content-tertiary)]">
-            Conversation Actions
+            {t("conversationActionsSheet.title")}
           </BottomSheet.Title>
           <BottomSheet.Close
-            aria-label="Close conversation actions"
+            aria-label={t("conversationActionsSheet.closeAriaLabel")}
             className="flex size-4 shrink-0 items-center justify-center text-[var(--content-tertiary)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
           >
             <X size={16} aria-hidden />

@@ -205,7 +205,7 @@ function Grabber({ className, ...props }: ComponentProps<"div">) {
       data-slot="bottom-sheet-grabber"
       aria-hidden="true"
       className={cn(
-        "mx-auto h-1 w-14 shrink-0 rounded-full bg-[var(--content-disabled)]",
+        "mx-auto h-1 w-14 shrink-0 rounded-full bg-[var(--border-element)]",
         className,
       )}
       {...props}

@@ -138,6 +138,10 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Trigger"
   },
+  "conversationActionsSheet": {
+    "closeAriaLabel": "Close",
+    "title": "Conversation Actions"
+  },
   "conversationAssets": {
     "ariaLabel": "Conversation assets, {count, plural, one {# item} other {# items}}",
     "ariaLabelUnseen": "Conversation assets, {count, plural, one {# item} other {# items}} (unseen changes)",
