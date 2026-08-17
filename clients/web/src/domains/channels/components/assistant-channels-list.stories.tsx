@@ -106,6 +106,24 @@ export const ChannelsTabSlackConnected: Story = {
   },
 };
 
+/**
+ * The pane this tab actually gets on a 768px window: the chat layout's sidebar
+ * and the page shell's padding leave roughly 470px, which is not enough for the
+ * adapter rail beside a detail panel. The rail moves behind the hamburger,
+ * decided on the pane rather than the window, so it does not matter that the
+ * window itself is wide. Storybook's own frame is the window here.
+ */
+export const ChannelsTabInNarrowPane: Story = {
+  parameters: selectedAdapter("slack"),
+  decorators: [
+    (Story) => (
+      <div style={{ width: 470 }}>
+        <Story />
+      </div>
+    ),
+  ],
+};
+
 /** Disconnected Slack: the setup wizard in the "Slack setup" card. */
 export const ChannelsTabSlackDisconnected: Story = {
   parameters: selectedAdapter("slack"),
