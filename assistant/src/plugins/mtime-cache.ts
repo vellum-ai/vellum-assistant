@@ -26,9 +26,9 @@
  * - Plugins are never "registered" as a unit — we register their tools into
  *   the global tool registry.
  *
- * Tools are populated at boot by `loadUserPlugins()`; `getHooksFor` reads
- * hooks on every dispatch via {@link getUserHookEntriesFor}, which resolves
- * each hook through the hook loader on demand.
+ * Tools are populated at boot by `loadUserPlugins()`; hook dispatch reads
+ * discovered plugin names from this cache via {@link getDiscoveredUserPluginNames}
+ * and resolves each hook through the hook loader on demand.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -38,7 +38,6 @@ import type { Logger } from "pino";
 
 import {
   clearPluginHooks,
-  collectUserHookEntries,
   evictHooksForOwner,
   hasWorkspaceHooks,
   type HookOwnerKind,
@@ -47,7 +46,7 @@ import {
   runShutdownHook,
   WORKSPACE_HOOKS_OWNER,
 } from "../hooks/hook-loader.js";
-import type { HookFunction, ShutdownReason } from "../plugin-api/types.js";
+import type { ShutdownReason } from "../plugin-api/types.js";
 import {
   registerPluginSecretPatterns,
   resetPluginSecretPatternsForTests,
@@ -76,11 +75,7 @@ import {
   importWithTimeout,
   setSurfaceImportTimeout,
 } from "./surface-import.js";
-import type { HookEntry, PluginCredentialKeyPattern } from "./types.js";
-
-// Re-export for type compat — consumers that import HookFunction from
-// the mtime cache module still resolve.
-export type { HookFunction } from "./types.js";
+import type { PluginCredentialKeyPattern } from "./types.js";
 
 const log = getLogger("plugin-mtime-cache");
 
@@ -206,48 +201,15 @@ let lastVersions: Record<string, PluginSourceVersion> = {};
 /** In-flight reconcile — concurrent imperative pokes await it rather than racing. */
 let reconcileInFlight: Promise<void> | null = null;
 
-// ─── Hook reads ──────────────────────────────────────────────────────────────
+// ─── Discovery reads ─────────────────────────────────────────────────────────
 
 /**
- * Get all hooks for a given event name from user plugins and standalone
- * workspace hooks, from the hook loader's in-memory cache. Plugin hooks run
- * in install-date order, the workspace hook runs last.
- *
- * This is a pure cache read: it never scans disk, activates a plugin, or
- * runs `init`. Activation happens only at boot ({@link populateCacheAtBoot})
- * and through the imperative install/uninstall poke
- * ({@link reconcilePluginSourcesNow}) — both main-daemon paths — so a
- * sidecar process that dispatches hooks (a worker running conversation
- * turns) can never bring a plugin up in its own process.
- *
- * `effectiveEnabledPlugins` carries the per-chat plugin scope: when non-null,
- * user plugins outside the set are skipped (standalone workspace hooks always
- * run). `null`/omitted means no per-chat restriction.
+ * Plugin names currently in the discovery cache, in install-date order.
+ * Hook lookup in `hooks/registry.ts` walks this set; the cache itself does
+ * not resolve hooks.
  */
-export async function getUserHookEntriesFor<TCtx = unknown>(
-  hookName: string,
-  effectiveEnabledPlugins?: Set<string> | null,
-): Promise<HookEntry<TCtx>[]> {
-  return collectUserHookEntries<TCtx>(
-    hookName,
-    discoveredPluginDirs.values(),
-    effectiveEnabledPlugins,
-  );
-}
-
-/**
- * {@link getUserHookEntriesFor} without owner attribution — returns just the
- * hook functions in the same order.
- */
-export async function getUserHooksFor<TCtx = unknown>(
-  hookName: string,
-  effectiveEnabledPlugins?: Set<string> | null,
-): Promise<HookFunction<TCtx>[]> {
-  const entries = await getUserHookEntriesFor<TCtx>(
-    hookName,
-    effectiveEnabledPlugins,
-  );
-  return entries.map((e) => e.fn);
+export function getDiscoveredUserPluginNames(): Iterable<string> {
+  return discoveredPluginDirs.values();
 }
 
 // ─── Source-versions reconcile ───────────────────────────────────────────────

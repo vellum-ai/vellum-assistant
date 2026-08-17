@@ -4,6 +4,7 @@
 
 import { skillsInstallPost } from "@/generated/daemon/sdk.gen";
 import type { SkillsInstallPostResponse } from "@/generated/daemon/types.gen";
+import { t } from "@/i18n";
 import {
   ApiError,
   assertHasResponse,
@@ -20,11 +21,14 @@ export async function installSkill(
     body: version ? { slug, version } : { slug },
     throwOnError: false,
   });
-  assertHasResponse(response, error, "Failed to install skill.");
+  const failureMessage = t("installSkill.failureMessage", {
+    ns: "intelligence",
+  });
+  assertHasResponse(response, error, failureMessage);
   if (!response.ok) {
     throw new ApiError(
       response.status,
-      extractErrorMessage(error, response, "Failed to install skill."),
+      extractErrorMessage(error, response, failureMessage),
     );
   }
   return data ?? { ok: true };

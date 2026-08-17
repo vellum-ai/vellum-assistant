@@ -7,6 +7,7 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { Tooltip } from "@vellumai/design-library/components/tooltip";
 
 import { resolveModelDisplayName } from "@/domains/settings/ai/model-display";
+import { useTranslation } from "@/i18n";
 import type {
   InferenceProfileSummary,
   ProviderConnection,
@@ -59,6 +60,7 @@ export function ProfileRow({
   onSetStatus,
   onDelete,
 }: ProfileRowProps) {
+  const { t } = useTranslation("settings");
   const isManaged = profile.source === "managed";
   const isDisabled = profile.status === "disabled";
   const displayName = profile.label ?? profile.name;
@@ -74,7 +76,7 @@ export function ProfileRow({
     );
   }
   if (isManaged) {
-    subtitleParts.push("Managed by Vellum");
+    subtitleParts.push(t("profileRow.managedByVellum"));
   }
 
   const availability = profile.availability;
@@ -84,9 +86,15 @@ export function ProfileRow({
   // `incomplete` case invites a click: promising a fix the editor cannot
   // perform would send the user somewhere that does not help.
   const fixableHere = availability?.status === "incomplete";
+  const availabilityMessage =
+    availability?.message ?? t("profileRow.providerUnavailableDefault");
   const availabilityProblem =
     availability != null && availability.status !== "ok"
-      ? `${availability.message ?? "This profile's provider is not available."}${fixableHere ? " Click to fix." : ""}`
+      ? fixableHere
+        ? t("profileRow.providerUnavailableFixable", {
+            message: availabilityMessage,
+          })
+        : availabilityMessage
       : null;
 
   return (
@@ -103,7 +111,9 @@ export function ProfileRow({
       showChevron={false}
       selected={selected}
       disabled={deletePending}
-      contentAriaLabel={`Open profile ${displayName}`}
+      contentAriaLabel={t("profileRow.openProfileAriaLabel", {
+        displayName,
+      })}
       trailingInteractive
       trailing={
         <>
@@ -132,15 +142,19 @@ export function ProfileRow({
               )}
             </Tooltip>
           ) : null}
-          {isDisabled ? <Tag tone="neutral">Disabled</Tag> : null}
-          {isActiveProfile ? <Tag tone="positive">Default</Tag> : null}
+          {isDisabled ? (
+            <Tag tone="neutral">{t("profileRow.disabledTag")}</Tag>
+          ) : null}
+          {isActiveProfile ? (
+            <Tag tone="positive">{t("profileRow.defaultTag")}</Tag>
+          ) : null}
           <Menu.Root>
             <Menu.Trigger asChild>
               <Button
                 variant="ghost"
                 size="compact"
                 iconOnly={<EllipsisVertical />}
-                aria-label={`Actions for ${displayName}`}
+                aria-label={t("profileRow.actionsAriaLabel", { displayName })}
                 // The kebab sits outside the row's interactive content area,
                 // so ListRow's own `disabled` does not reach it.
                 disabled={deletePending}
@@ -148,18 +162,24 @@ export function ProfileRow({
             </Menu.Trigger>
             <Menu.Content align="end" sideOffset={4}>
               <Menu.Item onSelect={onOpen}>
-                {isManaged ? "View" : "Edit"}
+                {isManaged
+                  ? t("profileRow.view")
+                  : t("profileRow.edit")}
               </Menu.Item>
               {!isActiveProfile && !isDisabled ? (
-                <Menu.Item onSelect={onMakeActive}>Make Default</Menu.Item>
+                <Menu.Item onSelect={onMakeActive}>
+                  {t("profileRow.makeDefault")}
+                </Menu.Item>
               ) : null}
               {/* Managed profiles are enable-only: the daemon rejects the
                   disable direction. */}
               {isDisabled ? (
-                <Menu.Item onSelect={() => onSetStatus(true)}>Enable</Menu.Item>
+                <Menu.Item onSelect={() => onSetStatus(true)}>
+                  {t("profileRow.enable")}
+                </Menu.Item>
               ) : !isManaged ? (
                 <Menu.Item onSelect={() => onSetStatus(false)}>
-                  Disable
+                  {t("profileRow.disable")}
                 </Menu.Item>
               ) : null}
               {!isManaged ? (
@@ -167,7 +187,7 @@ export function ProfileRow({
                   onSelect={onDelete}
                   className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
                 >
-                  Delete
+                  {t("profileRow.delete")}
                 </Menu.Item>
               ) : null}
             </Menu.Content>

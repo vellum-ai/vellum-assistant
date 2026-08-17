@@ -27,6 +27,7 @@ import { ArrowRight } from "lucide-react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { EYES_VISIBLE_FRACTION } from "@/components/avatar/peeking-eyes";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
@@ -145,14 +146,6 @@ const AVATAR_TOPS = ["9%", "27%", "45%", "62%", "79%"];
 
 /** Sliders start centered — no axis is nudged either way until the user acts. */
 const DEFAULT_VALUE = 50;
-
-/**
- * Fraction of the stage's smaller dimension covered by the backdrop eyes'
- * visible portion — mirrors `OnboardingPeekingEyes` (EYE_TARGET_HEIGHT 0.3 ×
- * (1 − EYE_REST_CUTOFF 0.25)). The content column reserves this much at the
- * bottom so the Continue button always clears the eyes.
- */
-const EYES_VISIBLE_FRACTION = 0.3 * (1 - 0.25);
 
 /**
  * Slider styling from Figma (node 6279-576): a thick, uniformly-tinted track

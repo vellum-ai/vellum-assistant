@@ -5,6 +5,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { profilePickerLabel } from "@/assistant/profile-pickers";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
+import { t, useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,49 +55,6 @@ export function movesSchedules(blocked: BlockedDeleteState): boolean {
 /** How many schedule names to spell out before summarizing the remainder. */
 const SCHEDULE_PREVIEW_LIMIT = 5;
 
-function pluralize(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
-
-function joinClauses(clauses: string[]): string {
-  if (clauses.length === 1) {
-    return clauses[0]!;
-  }
-  if (clauses.length === 2) {
-    return `${clauses[0]} and ${clauses[1]}`;
-  }
-  return `${clauses.slice(0, -1).join(", ")}, and ${clauses.at(-1)}`;
-}
-
-function buildSummary(blocked: BlockedDeleteState): string {
-  const display = blocked.label || blocked.name;
-  const uses: string[] = [];
-  if (blocked.isActive) {
-    uses.push("is your default profile");
-  }
-  if (blocked.callSiteIds.length > 0) {
-    uses.push(
-      `is used by ${pluralize(blocked.callSiteIds.length, "action override")}`,
-    );
-  }
-  const runs: string[] = [];
-  if (blocked.scheduleNames.length > 0) {
-    runs.push(pluralize(blocked.scheduleNames.length, "schedule"));
-  }
-  if (blocked.deferredReminderCount > 0) {
-    runs.push(pluralize(blocked.deferredReminderCount, "reminder"));
-  }
-  if (runs.length > 0) {
-    uses.push(`runs ${joinClauses(runs)}`);
-  }
-  if (uses.length === 0) {
-    return `Choose a replacement profile for "${display}". Anything still pointing at it moves there before it is deleted.`;
-  }
-  return `"${display}" ${joinClauses(
-    uses,
-  )}. Pick a replacement below and those references move to it, then "${display}" is deleted.`;
-}
-
 // ---------------------------------------------------------------------------
 // BlockedDeleteModal
 // ---------------------------------------------------------------------------
@@ -133,6 +91,69 @@ function ReferenceList({
   );
 }
 
+function buildSummary(blocked: BlockedDeleteState): string {
+  const display = blocked.label || blocked.name;
+  const clauses: string[] = [];
+  if (blocked.isActive) {
+    clauses.push(
+      t("settings:manageProfilesBlockedDeleteModal.clauseDefaultProfile"),
+    );
+  }
+  if (blocked.callSiteIds.length > 0) {
+    clauses.push(
+      t("settings:manageProfilesBlockedDeleteModal.clauseActionOverrides", {
+        count: blocked.callSiteIds.length,
+      }),
+    );
+  }
+  const scheduleCount = blocked.scheduleNames.length;
+  const reminderCount = blocked.deferredReminderCount;
+  if (scheduleCount > 0 && reminderCount > 0) {
+    clauses.push(
+      t("settings:manageProfilesBlockedDeleteModal.clauseRunsBoth", {
+        schedules: scheduleCount,
+        reminders: reminderCount,
+      }),
+    );
+  } else if (scheduleCount > 0) {
+    clauses.push(
+      t("settings:manageProfilesBlockedDeleteModal.clauseRunsSchedules", {
+        count: scheduleCount,
+      }),
+    );
+  } else if (reminderCount > 0) {
+    clauses.push(
+      t("settings:manageProfilesBlockedDeleteModal.clauseRunsReminders", {
+        count: reminderCount,
+      }),
+    );
+  }
+  if (clauses.length === 0) {
+    return t("settings:manageProfilesBlockedDeleteModal.summaryNoReferences", {
+      display,
+    });
+  }
+  if (clauses.length === 1) {
+    return t("settings:manageProfilesBlockedDeleteModal.summaryOneClause", {
+      display,
+      clause1: clauses[0],
+    });
+  }
+  if (clauses.length === 2) {
+    return t("settings:manageProfilesBlockedDeleteModal.summaryTwoClauses", {
+      display,
+      clause1: clauses[0],
+      clause2: clauses[1],
+    });
+  }
+  return t("settings:manageProfilesBlockedDeleteModal.summaryThreeClauses", {
+    display,
+    clause1: clauses[0],
+    clause2: clauses[1],
+    clause3: clauses[2],
+  });
+}
+
 export function BlockedDeleteModal({
   blocked,
   availableReplacements,
@@ -152,6 +173,7 @@ export function BlockedDeleteModal({
   onClose: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useTranslation("settings");
   const scheduleNames = blocked?.scheduleNames ?? [];
   const shownSchedules = scheduleNames.slice(0, SCHEDULE_PREVIEW_LIMIT);
   const hiddenScheduleCount = scheduleNames.length - shownSchedules.length;
@@ -172,7 +194,9 @@ export function BlockedDeleteModal({
     >
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>Choose a Replacement Profile</Modal.Title>
+          <Modal.Title>
+            {t("manageProfilesBlockedDeleteModal.title")}
+          </Modal.Title>
         </Modal.Header>
         <Modal.Body className="space-y-4">
           {blocked && (
@@ -182,21 +206,26 @@ export function BlockedDeleteModal({
           )}
           {blocked && blocked.callSiteIds.length > 0 && (
             <ReferenceList
-              title="Action overrides"
+              title={t("manageProfilesBlockedDeleteModal.actionOverridesTitle")}
               items={blocked.callSiteIds}
               mono
             />
           )}
           {shownSchedules.length > 0 && (
             <div className="space-y-1">
-              <ReferenceList title="Schedules" items={shownSchedules} />
+              <ReferenceList
+                title={t("manageProfilesBlockedDeleteModal.schedulesTitle")}
+                items={shownSchedules}
+              />
               {hiddenScheduleCount > 0 && (
                 <Typography
                   variant="body-small-default"
                   as="p"
                   className="pl-1 text-(--content-tertiary)"
                 >
-                  and {hiddenScheduleCount} more
+                  {t("manageProfilesBlockedDeleteModal.moreSchedules", {
+                    count: hiddenScheduleCount,
+                  })}
                 </Typography>
               )}
             </div>
@@ -207,19 +236,20 @@ export function BlockedDeleteModal({
               as="p"
               className="text-(--system-mid-strong)"
             >
-              We could not check which schedules use this profile. Any schedule
-              pinned to it moves to the replacement as well.
+              {t("manageProfilesBlockedDeleteModal.scheduleLookupFailed")}
             </Typography>
           )}
           <div className="space-y-1">
             <label className="block text-body-small-default text-(--content-tertiary)">
-              Replacement profile
+              {t("manageProfilesBlockedDeleteModal.replacementLabel")}
             </label>
             <Select
-              aria-label="Replacement profile"
+              aria-label={t("manageProfilesBlockedDeleteModal.replacementLabel")}
               value={replacement}
               onChange={onReplacementChange}
-              placeholder="Select a replacement…"
+              placeholder={t(
+                "manageProfilesBlockedDeleteModal.replacementPlaceholder",
+              )}
               options={availableReplacements.map((p) => {
                 const unusable =
                   disabledTargetsBlocked && p.status === "disabled";
@@ -228,7 +258,7 @@ export function BlockedDeleteModal({
                   label: profilePickerLabel(p),
                   disabled: unusable,
                   tooltip: unusable
-                    ? "Enable this profile to move schedules onto it."
+                    ? t("manageProfilesBlockedDeleteModal.disabledTargetTooltip")
                     : undefined,
                 };
               })}
@@ -246,7 +276,7 @@ export function BlockedDeleteModal({
         </Modal.Body>
         <Modal.Footer>
           <Button variant="ghost" size="compact" onClick={onClose}>
-            Cancel
+            {t("manageProfilesBlockedDeleteModal.cancel")}
           </Button>
           <Button
             variant="primary"
@@ -254,7 +284,9 @@ export function BlockedDeleteModal({
             disabled={!replacement || saving}
             onClick={onConfirm}
           >
-            {saving ? "Saving…" : "Reassign and Delete"}
+            {saving
+              ? t("manageProfilesBlockedDeleteModal.saving")
+              : t("manageProfilesBlockedDeleteModal.reassignAndDelete")}
           </Button>
         </Modal.Footer>
       </Modal.Content>

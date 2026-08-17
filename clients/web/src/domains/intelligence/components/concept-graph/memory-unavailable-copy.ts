@@ -8,11 +8,13 @@
  * owner switched Memory off (Settings), or the assistant is still on a legacy
  * engine (migrate to v3). `GET /memory/stats` reports which via `tier`.
  *
- * Pure, so the copy-per-tier decision is testable without a router or a query
- * client — the component in `memory-upgrade-prompt.tsx` only renders it.
+ * Pure aside from catalog reads, so the copy-per-tier decision is testable
+ * without a router or a query client — the component in
+ * `memory-upgrade-prompt.tsx` only renders it.
  */
 
 import type { MemoryTier } from "@/domains/intelligence/memory-graph/get-memory-stats";
+import { t } from "@/i18n";
 
 /**
  * Seeds the upgrade chat on a **v2** assistant.
@@ -24,9 +26,9 @@ import type { MemoryTier } from "@/domains/intelligence/memory-graph/get-memory-
  * pages and read those rules. "Work out what my corpus actually needs" is what
  * lets it deviate; "follow it exactly" is what keeps it honest once it picks.
  */
-export const MEMORY_V2_UPGRADE_PROMPT = `Migrate my memory from v2 to v3. That's most likely your "Memory v3 Migration" skill, but work out what my corpus actually needs and follow whichever skill you use exactly.
-
-Run it in the background and tell me when it's done, or if something blocks.`;
+export function memoryV2UpgradePrompt(): string {
+  return t("memoryUnavailable.prompts.v2", { ns: "intelligence" });
+}
 
 /**
  * Seeds the upgrade chat on a **v1** assistant, whose memory lives in the
@@ -41,9 +43,9 @@ Run it in the background and tell me when it's done, or if something blocks.`;
  * change. Stated as a mandate, this seed would describe a sequence that cannot
  * run.
  */
-export const MEMORY_V1_UPGRADE_PROMPT = `Migrate my memory from v1 to v3. That's most likely two hops, your "Memory v2 Migration" skill and then your "Memory v3 Migration" skill, but work out what my assistant actually needs and follow whichever skills you use exactly.
-
-Run it in the background and tell me when it's done, or if something blocks.`;
+export function memoryV1UpgradePrompt(): string {
+  return t("memoryUnavailable.prompts.v1", { ns: "intelligence" });
+}
 
 /**
  * Seeds the turn-memory-back-on chat. The Memory toggle lives on the Developer
@@ -51,9 +53,9 @@ Run it in the background and tell me when it's done, or if something blocks.`;
  * General Settings without it — so for most users the assistant is the only
  * reachable way to flip `memory.enabled`, not a fallback for one.
  */
-export const MEMORY_ENABLE_PROMPT =
-  "Turn my memory back on. I'd like you to start remembering things from our " +
-  "conversations again.";
+export function memoryEnablePrompt(): string {
+  return t("memoryUnavailable.prompts.enable", { ns: "intelligence" });
+}
 
 /** Which way out this surface offers, if any. */
 export type MemoryUnavailableAction = "upgrade" | "settings" | "retry" | "none";
@@ -82,12 +84,13 @@ export interface MemoryUnavailableCopy {
  * and a request that never landed is the case where we know least of all. Say
  * the read failed, and offer the only action that can help.
  */
-export const MEMORY_STATUS_ERROR_COPY: MemoryUnavailableCopy = {
-  title: "Couldn't check your memory settings",
-  detail:
-    "Something went wrong reading this assistant's memory status, so there's nothing reliable to tell you yet.",
-  action: "retry",
-};
+export function memoryStatusErrorCopy(): MemoryUnavailableCopy {
+  return {
+    title: t("memoryUnavailable.statusError.title", { ns: "intelligence" }),
+    detail: t("memoryUnavailable.statusError.detail", { ns: "intelligence" }),
+    action: "retry",
+  };
+}
 
 /**
  * Tier → what to say about the missing graph.
@@ -113,27 +116,24 @@ export function describeMemoryUnavailable(
 ): MemoryUnavailableCopy {
   if (tier === "off") {
     return {
-      title: "Memory is turned off",
-      detail:
-        "Your assistant isn't keeping anything from your conversations, so there's no map to draw. Turn Memory back on to start remembering again.",
+      title: t("memoryUnavailable.off.title", { ns: "intelligence" }),
+      detail: t("memoryUnavailable.off.detail", { ns: "intelligence" }),
       action: "settings",
-      prompt: MEMORY_ENABLE_PROMPT,
+      prompt: memoryEnablePrompt(),
     };
   }
   if (tier === "v1" || tier === "v2") {
     return {
-      title: "Upgrade to memory v3",
-      detail:
-        "Your assistant is on an older memory engine. Memory v3 reorganizes what it knows into a linked wiki of concepts, and that wiki is what this map draws.",
+      title: t("memoryUnavailable.legacy.title", { ns: "intelligence" }),
+      detail: t("memoryUnavailable.legacy.detail", { ns: "intelligence" }),
       action: "upgrade",
       prompt:
-        tier === "v1" ? MEMORY_V1_UPGRADE_PROMPT : MEMORY_V2_UPGRADE_PROMPT,
+        tier === "v1" ? memoryV1UpgradePrompt() : memoryV2UpgradePrompt(),
     };
   }
   return {
-    title: "Memory graph isn't available",
-    detail:
-      "This assistant's memory backend doesn't report enough to say why. Update your assistant, and this page will tell you what it needs.",
+    title: t("memoryUnavailable.unknown.title", { ns: "intelligence" }),
+    detail: t("memoryUnavailable.unknown.detail", { ns: "intelligence" }),
     action: "none",
   };
 }

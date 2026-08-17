@@ -1,4 +1,4 @@
-import { Trash2 } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 import { useEffect, useMemo } from "react";
 
 import { useQuery } from "@tanstack/react-query";
@@ -17,6 +17,7 @@ import {
   configGetOptions,
   inferenceProviderconnectionsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 
 interface ProfileDetailPanelProps {
   assistantId: string;
@@ -42,6 +43,7 @@ export function ProfileDetailPanel({
   profileName,
   onClose,
 }: ProfileDetailPanelProps) {
+  const { t } = useTranslation("settings");
   const { data: config } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
     staleTime: 30_000,
@@ -114,8 +116,10 @@ export function ProfileDetailPanel({
   const isManaged = mode === "view";
   const title =
     editor.effectiveMode === "create"
-      ? "New Profile"
-      : (initialValues?.label ?? profileName ?? "Profile");
+      ? t("profileDetailPanel.newProfileTitle")
+      : (initialValues?.label ??
+        profileName ??
+        t("profileDetailPanel.defaultTitle"));
 
   return (
     <>
@@ -125,25 +129,35 @@ export function ProfileDetailPanel({
         onClose={onClose}
         headerTrailing={
           isManaged && editor.effectiveMode !== "create" ? (
-            <Tag tone="neutral">Managed by Vellum</Tag>
+            <Tag tone="neutral">{t("profileDetailPanel.managedTag")}</Tag>
           ) : null
         }
         headerActions={
           editor.effectiveMode !== "create" && !editor.isReadOnly ? (
             <Button
-              variant="outlined"
-              size="compact"
-              leftIcon={<Trash2 />}
-              tintColor="var(--system-negative-strong)"
+              variant="dangerOutline"
+              // Icon-only, so the in-flight state rides the glyph and the
+              // accessible name rather than a visible "Deleting…" label.
+              iconOnly={
+                deletePending ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <Trash2 />
+                )
+              }
+              aria-label={
+                deletePending
+                  ? t("profileDetailPanel.deleting")
+                  : t("profileDetailPanel.delete")
+              }
+              tooltip={t("profileDetailPanel.delete")}
               onClick={() => {
                 if (profileName != null) {
                   deleteFlow.requestDelete(profileName);
                 }
               }}
               disabled={editor.saving || deletePending}
-            >
-              {deletePending ? "Deleting…" : "Delete"}
-            </Button>
+            />
           ) : null
         }
         footer={
@@ -154,7 +168,7 @@ export function ProfileDetailPanel({
                 onClick={editor.switchToSaveAsNew}
                 disabled={editor.saving}
               >
-                Save As New
+                {t("profileDetailPanel.saveAsNew")}
               </Button>
               {editor.hasViewModeChanges ? (
                 <Button
@@ -162,7 +176,9 @@ export function ProfileDetailPanel({
                   onClick={() => void editor.handleSave()}
                   disabled={editor.saving}
                 >
-                  {editor.saving ? "Saving…" : "Save"}
+                  {editor.saving
+                    ? t("profileDetailPanel.saving")
+                    : t("profileDetailPanel.save")}
                 </Button>
               ) : null}
             </div>
@@ -174,10 +190,10 @@ export function ProfileDetailPanel({
                 disabled={editor.isInvalid || editor.saving}
               >
                 {editor.saving
-                  ? "Saving…"
+                  ? t("profileDetailPanel.saving")
                   : editor.effectiveMode === "create"
-                    ? "Create Profile"
-                    : "Save Changes"}
+                    ? t("profileDetailPanel.createProfile")
+                    : t("profileDetailPanel.saveChanges")}
               </Button>
             </div>
           )

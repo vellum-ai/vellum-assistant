@@ -9,6 +9,7 @@
 import { ArrowUpCircle, Loader2 } from "lucide-react";
 import { createElement } from "react";
 
+import { useTranslation } from "@/i18n";
 import { Tag } from "@vellumai/design-library";
 
 interface UpdateAvailableBadgeProps {
@@ -25,6 +26,7 @@ export function UpdateAvailableBadge({
   onClick,
   isUpgrading = false,
 }: UpdateAvailableBadgeProps = {}) {
+  const { t } = useTranslation("intelligence");
   const badge = (
     <Tag
       tone="warning"
@@ -33,7 +35,7 @@ export function UpdateAvailableBadge({
       })}
       className="shrink-0"
     >
-      Update available
+      {t("updateAvailableBadge.updateAvailable")}
     </Tag>
   );
 
@@ -49,7 +51,7 @@ export function UpdateAvailableBadge({
         onClick();
       }}
       disabled={isUpgrading}
-      aria-label="Upgrade plugin"
+      aria-label={t("updateAvailableBadge.upgradePluginAriaLabel")}
       className="shrink-0 rounded-[6px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] disabled:cursor-not-allowed"
     >
       {badge}
