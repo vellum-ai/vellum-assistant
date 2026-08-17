@@ -28,16 +28,16 @@ describe("copyIdToClipboard", () => {
 
     expect(copyToClipboardMock).toHaveBeenCalledWith("conv_123", {
       successMessage: "Conversation ID copied to clipboard.",
-      errorMessage: "Couldn't copy the conversation id.",
+      errorMessage: "Conversation ID could not be copied.",
     });
   });
 
-  test("lower-cases the label in the failure message only", () => {
+  test("keeps the label's own casing in both messages", () => {
     copyIdToClipboard("grp_456", "Group ID");
 
     expect(copyToClipboardMock).toHaveBeenCalledWith("grp_456", {
       successMessage: "Group ID copied to clipboard.",
-      errorMessage: "Couldn't copy the group id.",
+      errorMessage: "Group ID could not be copied.",
     });
   });
 });

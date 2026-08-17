@@ -13,6 +13,6 @@ import { copyToClipboard } from "@/lib/copy-to-clipboard";
 export function copyIdToClipboard(id: string, label: string): void {
   copyToClipboard(id, {
     successMessage: `${label} copied to clipboard.`,
-    errorMessage: `Couldn't copy the ${label.toLowerCase()}.`,
+    errorMessage: `${label} could not be copied.`,
   });
 }
