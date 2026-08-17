@@ -1071,7 +1071,7 @@ async function deactivatePlugin(
  * Called by `loadUserPlugins()` during daemon startup. After boot, the same
  * `activatePlugin`/`deactivatePlugin` reconciliation runs only through the
  * imperative poke ({@link reconcilePluginSourcesNow}) the install/uninstall/
- * enable/disable routes call, so plugin lifecycle stays confined to the main
+ * upgrade/enable routes call, so plugin lifecycle stays confined to the main
  * daemon — dispatch-time hook and tool reads never activate anything.
  */
 export async function populateCacheAtBoot(

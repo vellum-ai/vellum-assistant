@@ -1643,7 +1643,7 @@ function mapTogglePluginError(err: unknown): RouteError {
 
 /**
  * Converge plugin-declared schedules against the sentinel this route just
- * wrote, so a toggled plugin's rows disarm or re-arm now rather than at the
+ * wrote, so a disabled plugin's rows disarm now rather than at the
  * reconciler's next backstop sweep.
  *
  * Fire-and-forget: the toggle itself already succeeded on disk, so a reconcile
@@ -1675,7 +1675,19 @@ function handleEnablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {
   try {
     enablePlugin(pathParams.name ?? "");
     publishPluginsChanged(getOriginClientId(headers));
-    reconcilePluginSchedulesInBackground();
+    // A plugin the boot scan skipped for its sentinel has no hooks, tools or
+    // MCP servers in the caches, so clearing the sentinel is not enough to
+    // bring it up. Run the same imperative source reconcile the install and
+    // upgrade routes use, which activates the plugin and then converges its
+    // schedules and MCP servers. Fire-and-forget: the sentinel is already off
+    // disk, so a reconcile failure must not turn a successful enable into a
+    // route error.
+    void reconcilePluginSourcesNow().catch((err: unknown) => {
+      log.error(
+        { err },
+        "plugin source reconcile after a plugin enable failed",
+      );
+    });
     return { ok: true };
   } catch (err) {
     throw mapTogglePluginError(err);
