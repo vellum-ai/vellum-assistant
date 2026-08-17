@@ -139,9 +139,9 @@ final class SelfHostedServer {
                     String canonical = canonicalString(url);
                     if (indexOfUrl(entries, canonical) < 0) {
                         // isNull guards platform org.json, whose optString
-                        // stringifies JSON null to "null"; the JVM test
-                        // artifact returns the default, so tests cannot
-                        // regression-protect this. Keep the guard.
+                        // stringifies JSON null to "null". The AOSP-derived
+                        // test artifact shares that behavior, so the unnamed
+                        // read is test-covered.
                         String name = item.isNull("name") ? null : item.optString("name", null);
                         entries.add(new Entry(normalizedName(name), canonical));
                     }
