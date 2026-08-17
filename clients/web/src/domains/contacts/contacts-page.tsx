@@ -4,10 +4,8 @@ import { Navigate, useSearchParams } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
-import {
-  MobileSidebarDrawer,
-  MobileSidebarTrigger,
-} from "@/components/mobile-sidebar-drawer";
+import { SideListDrawer, SideListTrigger } from "@/components/side-list-drawer";
+import { useSideListRoom } from "@/hooks/use-side-list-room";
 import { isVerifiedContactChannel } from "@/domains/contacts/channel-linking";
 import { channelTypeLabel } from "@/domains/contacts/channel-type-labels";
 import { DRAFT_CONTACT_NAME } from "@/domains/contacts/draft-contact";
@@ -130,7 +128,13 @@ export function ContactsPage({
   });
 
   const inviteDialog = useInviteLinkDialog(assistantId);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const { paneRef, hasRoomForList, drawerOpen, openDrawer, closeDrawer } =
+    useSideListRoom();
+  // Above the inline/drawer branch below, which remounts whichever list
+  // surface it swaps to: held inside `ContactsList` the filter would be
+  // dropped whenever the pane crosses the threshold, and dragging the chat
+  // sidebar is enough to cross it.
+  const [contactSearch, setContactSearch] = useState("");
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
 
   const assistantName = assistantDisplayName(identityName);
@@ -321,11 +325,11 @@ export function ContactsPage({
   const handleSelect = useCallback(
     (sel: ContactSelection) => {
       setSelection(sel);
-      setDrawerOpen(false);
+      closeDrawer();
       setMergeDialogOpen(false);
       mergeMutation.reset();
     },
-    [mergeMutation],
+    [closeDrawer, mergeMutation],
   );
 
   const handleOpenMerge = useCallback(() => {
@@ -510,25 +514,36 @@ export function ContactsPage({
     selection,
     onAddContact: handleAddContact,
     addingContact: createMutation.isPending,
+    search: contactSearch,
+    onSearchChange: setContactSearch,
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden sm:flex-row sm:gap-6">
-      <div className="flex items-center sm:hidden">
-        <MobileSidebarTrigger onClick={() => setDrawerOpen(true)} />
-      </div>
+    <div
+      ref={paneRef}
+      className={`flex min-h-0 flex-1 overflow-hidden ${
+        hasRoomForList ? "flex-row gap-6" : "flex-col gap-4"
+      }`}
+    >
+      {hasRoomForList ? (
+        <aside className="min-h-0 w-[320px] shrink-0 overflow-y-auto self-stretch">
+          <ContactsList {...contactsListProps} onSelect={handleSelect} />
+        </aside>
+      ) : (
+        <>
+          <div className="flex items-center">
+            <SideListTrigger onClick={openDrawer} />
+          </div>
 
-      <MobileSidebarDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        title={t("contactsPage.title")}
-      >
-        <ContactsList {...contactsListProps} onSelect={handleSelect} />
-      </MobileSidebarDrawer>
-
-      <aside className="hidden min-h-0 w-[320px] shrink-0 overflow-y-auto self-stretch sm:block">
-        <ContactsList {...contactsListProps} onSelect={handleSelect} />
-      </aside>
+          <SideListDrawer
+            open={drawerOpen}
+            onClose={closeDrawer}
+            title={t("contactsPage.title")}
+          >
+            <ContactsList {...contactsListProps} onSelect={handleSelect} />
+          </SideListDrawer>
+        </>
+      )}
 
       <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
         {selection.kind === "assistant" ||

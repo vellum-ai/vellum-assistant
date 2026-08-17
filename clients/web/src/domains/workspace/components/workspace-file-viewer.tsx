@@ -466,6 +466,11 @@ export function WorkspaceFileViewer({
   showHidden?: boolean;
   viewMode: WorkspaceViewMode;
   onChangeViewMode: (mode: WorkspaceViewMode) => void;
+  /**
+   * Opens the file tree's drawer from the empty state. Passed only while the
+   * tree is behind that drawer, so the button exists exactly when the tree is
+   * not already on screen beside this.
+   */
   onBrowse?: () => void;
   /** Last successful workspace rename, so edit state can follow the file. */
   pathRename?: { from: string; to: string } | null;
@@ -589,7 +594,6 @@ export function WorkspaceFileViewer({
             type="button"
             onClick={onBrowse}
             leftIcon={<FolderOpen aria-hidden />}
-            className="sm:hidden"
           >
             {t("workspaceFileViewer.browseFiles")}
           </Button>
