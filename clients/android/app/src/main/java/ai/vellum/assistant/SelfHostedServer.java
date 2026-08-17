@@ -268,6 +268,11 @@ final class SelfHostedServer {
         }
         int query = trimmed.indexOf('?');
         String pathPart = query < 0 ? trimmed : trimmed.substring(0, query);
+        // Query-only input has an empty path component; iOS appRouteURL
+        // rejects it, so fall back to the entry URL here too.
+        if (pathPart.isEmpty()) {
+            return null;
+        }
         String[] segments = pathPart.split("/", -1);
         // A colon in the first segment reads as a scheme (mailto:x,
         // host:8080/x), matching the iOS URLComponents rejection.
