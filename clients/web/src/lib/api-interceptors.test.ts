@@ -1090,9 +1090,9 @@ describe("api-interceptors / recovery interceptor registration", () => {
 
   test("gatewayClient deliberately does not carry it", () => {
     // A 401 raised through the generated gateway SDK surfaces to the caller
-    // rather than reloading the app. Widening the set of responses that can
-    // restart the app is the opposite of what the budget is for, so this
-    // exclusion is intentional and tracked separately.
+    // unrecovered. The exclusion is a scope boundary, not a safety one:
+    // now that recovery is in place (no reload) and budgeted, extending it
+    // to this client is a separate, deliberate registration change.
     expect(responseFns(gatewayClient)).not.toContain(
       localGatewayAuthRecoveryInterceptor,
     );
