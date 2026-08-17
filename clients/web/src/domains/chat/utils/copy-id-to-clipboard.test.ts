@@ -5,10 +5,16 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const copyToClipboardMock = mock((_text: string, _options: unknown) => {});
-mock.module("@/lib/copy-to-clipboard", () => ({
-  copyToClipboard: copyToClipboardMock,
-}));
+import type * as CopyToClipboardModule from "@/lib/copy-to-clipboard";
+
+const copyToClipboardMock =
+  mock<typeof CopyToClipboardModule.copyToClipboard>();
+mock.module(
+  "@/lib/copy-to-clipboard",
+  (): Partial<typeof CopyToClipboardModule> => ({
+    copyToClipboard: copyToClipboardMock,
+  }),
+);
 
 const { copyIdToClipboard } = await import("./copy-id-to-clipboard");
 
