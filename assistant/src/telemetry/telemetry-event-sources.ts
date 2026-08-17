@@ -15,6 +15,7 @@ import {
   getCachedShareDiagnosticsVersion,
 } from "../platform/consent-cache.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
+import { classifyWorkOrigin } from "../usage/work-origin.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
 import {
@@ -281,6 +282,18 @@ const usageSource = simpleSource(
     turn_index: e.turnIndex,
     parent_conversation_id: e.parentConversationId,
     parent_turn_index: e.parentTurnIndex,
+    // `conversation_source` is the raw record-time source; `work_origin` is
+    // the coarse bucket derived from it plus the type, call site, and parent
+    // linkage. Source is null for calls with no conversation; work_origin is
+    // still classified from the call site, falling back to `unknown` and
+    // never null.
+    conversation_source: e.conversationSource,
+    work_origin: classifyWorkOrigin({
+      conversationType: e.conversationType,
+      conversationSource: e.conversationSource,
+      callSite: e.callSite,
+      parentConversationId: e.parentConversationId,
+    }),
     // Delegated-work decomposition. Every subagent variety shares
     // `llm_call_site = "subagentSpawn"`; these two orthogonal dimensions are
     // what make advisor consults, forks, and regular spawns separable. Null
