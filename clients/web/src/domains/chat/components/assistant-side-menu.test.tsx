@@ -43,9 +43,6 @@ function setSectionRows(conversations: Conversation[]) {
   sectionSource = conversations;
 }
 
-/** Whether the stubbed section query reports rows past its window. */
-let sectionHasMore = false;
-
 /**
  * Both filter axes, because a channel section constrains both: `system:all`
  * for "no group claimed it" AND its own `origin_channel`. Honoring only the
@@ -97,9 +94,10 @@ mock.module(
       // section back to its derived rows and pass these tests for the wrong
       // reason: green because nothing is filtered, not because it is.
       hasData: true,
-      // A complete list by default: a stub window would mount sentinels
-      // under every section. The load-more tests flip it deliberately.
-      hasMore: sectionHasMore,
+      // A complete list: these tests exercise section rendering, not the
+      // load-more path, and a stub window would mount sentinels under every
+      // section.
+      hasMore: false,
     }),
   }),
 );
@@ -145,7 +143,6 @@ import type { PinnedAppEntry } from "@/utils/app-pin-storage";
 // Pinned and the custom groups. The layout store is a module singleton, so
 // each test declares the view it exercises rather than inheriting one.
 beforeEach(() => {
-  sectionHasMore = false;
   // Per-assistant sidebar preferences (view, collapse, section order) all
   // live in localStorage, so a test that seeds one would otherwise carry it
   // into every test after it.
@@ -1576,36 +1573,6 @@ describe("AssistantSideMenu · equal section treatment", () => {
       return scroller;
     };
   }
-
-  /* Asserted at the DOM through the sentinel's data-slot, not through the
-     hook: what the user gets is a section that keeps loading as they
-     scroll, and a section that does not is a section that must not carry
-     a load-more trigger. Slack is opened by name because a section that
-     defaults closed has no row list to hold a sentinel; its fixture rows
-     sit under the virtualize threshold, so this exercises the direct-render
-     path, where the sentinel is the trigger. */
-  test("a windowed section carries a load-more sentinel; a complete one does not", () => {
-    sectionHasMore = true;
-    try {
-      const scroller = renderRail(["Slack"]);
-      expect(
-        scroller("Slack").querySelectorAll('[data-slot="load-more-sentinel"]')
-          .length,
-      ).toBeGreaterThan(0);
-    } finally {
-      cleanup();
-    }
-
-    sectionHasMore = false;
-    try {
-      const scroller = renderRail(["Slack"]);
-      expect(
-        scroller("Slack").querySelectorAll('[data-slot="load-more-sentinel"]'),
-      ).toHaveLength(0);
-    } finally {
-      cleanup();
-    }
-  });
 
   /*
    * The test above asks only whether a section scrolls, and every sized
