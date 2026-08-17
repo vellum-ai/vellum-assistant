@@ -262,7 +262,9 @@ export const routeTree = [
     HydrateFallback: RootHydrateFallback,
     lazy: {
       Component: () =>
-        import("@/pages/BundleConfirmPage").then((m) => m.BundleConfirmPage),
+        import("@/components/bundle-confirm-page").then(
+          (m) => m.BundleConfirmPage,
+        ),
     },
   },
 
