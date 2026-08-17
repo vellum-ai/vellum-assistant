@@ -1801,7 +1801,7 @@ export class Conversation {
   } {
     return enqueueMessageImpl(this, {
       ...options,
-      onEvent: options.onEvent ?? this.sendToClient,
+      onEvent: options.onEvent ?? broadcastMessage,
     });
   }
 
@@ -1977,7 +1977,7 @@ export class Conversation {
       ...params,
     } as AssistantEvent;
     try {
-      this.sendToClient(msg);
+      broadcastMessage(msg);
     } catch (err) {
       log.warn(
         { err, conversationId: this.conversationId },
@@ -2009,7 +2009,7 @@ export class Conversation {
     } as AssistantEvent;
     this.lastActivityStateMsg = msg;
     try {
-      this.sendToClient(msg);
+      broadcastMessage(msg);
     } catch (err) {
       log.warn(
         { err, conversationId: this.conversationId },
@@ -2069,7 +2069,7 @@ export class Conversation {
     onEvent?: (msg: AssistantEvent) => void,
   ): void {
     try {
-      (onEvent ?? this.sendToClient)({
+      (onEvent ?? broadcastMessage)({
         type: "context_window_usage",
         conversationId: this.conversationId,
         tokens,
@@ -2722,7 +2722,7 @@ export class Conversation {
       this,
       content,
       userMessageId,
-      onEvent ?? this.sendToClient,
+      onEvent ?? broadcastMessage,
       rest,
     );
   }
@@ -2748,7 +2748,7 @@ export class Conversation {
     this.cacheWarmAbort = undefined;
     return processMessageImpl(this, {
       ...options,
-      onEvent: options.onEvent ?? this.sendToClient,
+      onEvent: options.onEvent ?? broadcastMessage,
     });
   }
 
