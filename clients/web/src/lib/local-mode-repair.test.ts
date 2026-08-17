@@ -4,6 +4,7 @@ import { useLockfileStore } from "@/stores/lockfile-store";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
 import { isLocalGatewayRestartInProgress } from "@/lib/auth/local-gateway-restart";
 import { writeSelectedAssistantId } from "@/assistant/selected-assistant-storage";
+import type { EnsureGatewayTokenOptions } from "@/lib/auth/gateway-session";
 
 // The wrapper under test orchestrates the real connect primitive, so we drive
 // its external seams rather than the primitive itself: the local guardian-token
@@ -21,6 +22,7 @@ let wakeLocalAssistantHost = mock(
   }),
 );
 let clearGatewayTokenMock = mock(() => {});
+let seedGatewayTokenMock = mock((_token: unknown) => {});
 let setSelfHostedConnectionMock = mock((_connection: unknown) => {});
 
 mock.module("@/runtime/local-mode-host", () => ({
@@ -49,12 +51,26 @@ mock.module("@/runtime/local-mode-host", () => ({
 // mutable impl so a test can inject a transient gateway-startup failure.
 const realGatewaySession = await import("@/lib/auth/gateway-session");
 const { GatewayTokenError } = realGatewaySession;
-let ensureGatewayTokenImpl: (tokenUrl?: string) => Promise<void> = async () => {};
+let ensureGatewayTokenImpl: (
+  tokenUrl?: string,
+) => Promise<string | void> = async () => {};
 
 mock.module("@/lib/auth/gateway-session", () => ({
   ...realGatewaySession,
   clearGatewayToken: () => clearGatewayTokenMock(),
-  ensureGatewayToken: (tokenUrl?: string) => ensureGatewayTokenImpl(tokenUrl),
+  ensureGatewayToken: async (
+    tokenUrl?: string,
+    _guardianToken?: string,
+    options?: EnsureGatewayTokenOptions,
+  ) => {
+    const token = (await ensureGatewayTokenImpl(tokenUrl)) ?? "gateway-tok";
+    options?.commit?.({
+      token,
+      expiresAtEpochSeconds: 9_999_999_999,
+      source: tokenUrl ?? "/auth/token",
+    });
+    return token;
+  },
   getGatewayToken: () => "gateway-tok",
   // Mirror the real chain (token URL derives from the assistant's gateway port)
   // so a portless entry yields no URL until wake records one.
@@ -62,6 +78,7 @@ mock.module("@/lib/auth/gateway-session", () => ({
     const port = a?.resources?.gatewayPort;
     return port == null ? undefined : `http://127.0.0.1:${port}/token`;
   },
+  seedGatewayToken: (token: unknown) => seedGatewayTokenMock(token),
 }));
 
 mock.module("@/lib/self-hosted/connection", () => ({
@@ -116,6 +133,7 @@ beforeEach(() => {
     }),
   );
   clearGatewayTokenMock = mock(() => {});
+  seedGatewayTokenMock = mock((_token: unknown) => {});
   setSelfHostedConnectionMock = mock((_connection: unknown) => {});
   selectLocalAssistant();
 });
@@ -175,6 +193,7 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
     writeSelectedAssistantId("local-b");
     releaseRestartedMint?.();
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(seedGatewayTokenMock).not.toHaveBeenCalled();
     expect(setSelfHostedConnectionMock).not.toHaveBeenCalled();
 
     const latestAssistant = {
@@ -198,6 +217,7 @@ describe("primeLocalGatewayConnectionAfterRestart", () => {
       "http://127.0.0.1:7831/token",
       "http://127.0.0.1:7833/token",
     ]);
+    expect(seedGatewayTokenMock).toHaveBeenCalledTimes(1);
     expect(setSelfHostedConnectionMock).toHaveBeenCalledTimes(1);
   });
 

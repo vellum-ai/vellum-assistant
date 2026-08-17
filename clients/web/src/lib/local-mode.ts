@@ -15,6 +15,7 @@ import {
   type EnsureGatewayTokenOptions,
   GatewayTokenError,
   getLocalTokenUrl,
+  seedGatewayToken,
 } from "@/lib/auth/gateway-session";
 import { beginLocalGatewayRestart } from "@/lib/auth/local-gateway-restart";
 import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
@@ -830,10 +831,10 @@ export class UnresolvedPairedGatewayError extends Error {
  * rejecting that token. Paired assistants mint no renderer token, so the
  * option is a no-op for them.
  */
-export type PrimeLocalGatewayConnectionOptions = Pick<
-  EnsureGatewayTokenOptions,
-  "commitIf" | "forceMint"
->;
+export interface PrimeLocalGatewayConnectionOptions
+  extends Pick<EnsureGatewayTokenOptions, "forceMint"> {
+  commitIf?: () => boolean;
+}
 
 export async function primeLocalGatewayConnection(
   target?: LockfileAssistant,
@@ -898,20 +899,25 @@ export async function primeLocalGatewayConnection(
   const guardianToken = assistant
     ? await fetchGuardianTokenHost(assistant.assistantId)
     : undefined;
-  const gatewayToken = await ensureGatewayToken(tokenUrl, guardianToken, {
-    commitIf: options.commitIf,
-    forceMint: options.forceMint,
-  });
-  if (options.commitIf && !options.commitIf()) {
-    return;
-  }
   const ingressUrl = getAuthGatewayIngressUrl(assistant);
   if (!ingressUrl) {
     return;
   }
-  setSelfHostedConnection({
-    url: ingressUrl,
-    token: gatewayToken,
+  if (options.commitIf && !options.commitIf()) {
+    return;
+  }
+  await ensureGatewayToken(tokenUrl, guardianToken, {
+    commit: (gatewayToken) => {
+      if (options.commitIf && !options.commitIf()) {
+        return;
+      }
+      seedGatewayToken(gatewayToken);
+      setSelfHostedConnection({
+        url: ingressUrl,
+        token: gatewayToken.token,
+      });
+    },
+    forceMint: options.forceMint,
   });
 }
 

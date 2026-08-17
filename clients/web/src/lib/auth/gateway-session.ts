@@ -149,11 +149,13 @@ export function getGatewayToken(): string | null {
  * slots used by `getGatewayToken()`. Paired guardian credentials never enter
  * this module; their trusted host proxy owns acquisition and injection.
  */
-export function seedGatewayToken(params: {
+export interface GatewayTokenSeed {
   token: string;
   expiresAtEpochSeconds: number;
   source: string;
-}): void {
+}
+
+export function seedGatewayToken(params: GatewayTokenSeed): void {
   try {
     localStorage.setItem(LS_TOKEN_KEY, params.token);
     localStorage.setItem(LS_EXPIRES_KEY, String(params.expiresAtEpochSeconds));
@@ -169,7 +171,7 @@ export function seedGatewayToken(params: {
 async function acquireGatewayToken(
   tokenUrl?: string,
   guardianToken?: string,
-  commitIf: () => boolean = () => true,
+  commit: (token: GatewayTokenSeed) => void = seedGatewayToken,
 ): Promise<string> {
   const url = tokenUrl ?? "/auth/token";
   const headers: Record<string, string> = {};
@@ -187,9 +189,7 @@ async function acquireGatewayToken(
     token: string;
     expiresAt: number;
   };
-  if (commitIf()) {
-    seedGatewayToken({ token, expiresAtEpochSeconds: expiresAt, source: url });
-  }
+  commit({ token, expiresAtEpochSeconds: expiresAt, source: url });
   return token;
 }
 
@@ -202,32 +202,40 @@ async function acquireGatewayToken(
  * signing key rejects it early). The cached token stays in place until
  * the mint seeds its replacement, so `getGatewayToken()` never reads null
  * mid-mint and predicates such as `isGatewayAuthMode()` hold steady.
+ * `commit` lets a caller install the token with related session state in one
+ * synchronous step.
  */
 export interface EnsureGatewayTokenOptions {
   forceMint?: boolean;
-  commitIf?: () => boolean;
+  commit?: (token: GatewayTokenSeed) => void;
 }
 
 export async function ensureGatewayToken(
   tokenUrl?: string,
   guardianToken?: string,
-  { forceMint = false, commitIf = () => true }: EnsureGatewayTokenOptions = {},
+  { forceMint = false, commit }: EnsureGatewayTokenOptions = {},
 ): Promise<string> {
   const source = tokenUrl ?? "/auth/token";
   const storedSource =
     cachedTokenSource ??
     localStorage.getItem(LS_TOKEN_SOURCE_KEY) ??
     localStorage.getItem(LEGACY_TOKEN_SOURCE_KEY);
-  if (storedSource && storedSource !== source && !forceMint) {
+  const sourceChanged = storedSource != null && storedSource !== source;
+  if (sourceChanged && !forceMint && !commit) {
     clearGatewayToken();
   }
-  if (!forceMint) {
+  if (!forceMint && !sourceChanged) {
     const existing = getGatewayToken();
     if (existing) {
+      commit?.({
+        token: existing,
+        expiresAtEpochSeconds: cachedExpiresAt,
+        source,
+      });
       return existing;
     }
   }
-  return acquireGatewayToken(tokenUrl, guardianToken, commitIf);
+  return acquireGatewayToken(tokenUrl, guardianToken, commit);
 }
 
 export function getLocalTokenUrl(

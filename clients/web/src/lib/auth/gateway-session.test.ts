@@ -173,7 +173,7 @@ describe("ensureGatewayToken mint failure", () => {
   });
 });
 
-describe("ensureGatewayToken forced mint", () => {
+describe("ensureGatewayToken replacement minting", () => {
   test("keeps the active session available until its replacement is minted", async () => {
     selectLocalWithToken();
 
@@ -220,8 +220,9 @@ describe("ensureGatewayToken forced mint", () => {
     expect(isGatewayAuthMode()).toBe(true);
   });
 
-  test("does not install a replacement when its commit guard expires", async () => {
+  test("leaves a replacement uninstalled for caller-controlled commit", async () => {
     selectLocalWithToken();
+    const deferredTokens: Parameters<typeof seedGatewayToken>[0][] = [];
     globalThis.fetch = mock(async () =>
       Response.json({
         token: "replacement-token",
@@ -233,11 +234,20 @@ describe("ensureGatewayToken forced mint", () => {
       ensureGatewayToken(
         "/assistant/__gateway/20101/auth/token",
         "guardian-token",
-        { forceMint: true, commitIf: () => false },
+        {
+          commit: (token) => deferredTokens.push(token),
+        },
       ),
     ).resolves.toBe("replacement-token");
 
     expect(getGatewayToken()).toBe("current-token");
+    expect(deferredTokens).toEqual([
+      {
+        token: "replacement-token",
+        expiresAtEpochSeconds: 9_999_999_999,
+        source: "/assistant/__gateway/20101/auth/token",
+      },
+    ]);
   });
 });
 
