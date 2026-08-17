@@ -77,9 +77,11 @@ export interface RemoteWebPairingVerificationResponse {
 /**
  * One pending challenge as shown on a host approval surface.
  *
- * The plaintext `userCode` is exposed **only** on the loopback-gated list
- * route: displaying it is what lets the approver match the code against the
- * requesting device's screen — the device-flow anti-phishing binding.
+ * The requesting device already sees the plaintext `userCode` in its own
+ * challenge response ({@link RemoteWebPairingChallengeResponse.userCode});
+ * the loopback-gated list route is the only host-side re-exposure. Displaying
+ * it there is what lets the approver match the code against the requesting
+ * device's screen: the device-flow anti-phishing binding.
  */
 export interface RemoteWebPairingRequestSummary {
   /** Opaque server-side id used to approve or deny this request. */
