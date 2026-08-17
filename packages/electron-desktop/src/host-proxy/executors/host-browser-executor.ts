@@ -8,10 +8,10 @@
  * cooperative cancellation.
  */
 
-import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
-import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
-import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
-import log from "../logger";
+import type { HostProxyExecutor } from "../router";
+import type { HostProxySseMessage } from "../sse";
+import type { HostProxyPoster } from "../poster";
+import log from "./logger";
 
 // ---------------------------------------------------------------------------
 // Constants

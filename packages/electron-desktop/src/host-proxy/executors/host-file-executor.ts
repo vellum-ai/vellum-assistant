@@ -2,7 +2,7 @@
  * Host file executor — handles read/write/edit operations on the local
  * filesystem via the host proxy bridge.
  *
- * The macOS adapter injects it into the shared host-proxy router.
+ * Desktop client adapters inject it into the shared host-proxy router.
  * Results are posted back to the daemon through HostProxyPoster.postFileResult.
  */
 
@@ -10,10 +10,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Stats } from "node:fs";
 
-import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
-import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
-import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
-import log from "../logger";
+import type { HostProxyExecutor } from "../router";
+import type { HostProxyPoster } from "../poster";
+import type { HostProxySseMessage } from "../sse";
+import log from "./logger";
 
 // ---------------------------------------------------------------------------
 // Host filesystem safety checks

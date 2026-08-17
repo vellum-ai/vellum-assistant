@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import { createWindowsHostProxyRuntime } from "./host-proxy-adapter";
 
-test("creates a Windows runtime with unavailable executors", () => {
+test("creates a Windows runtime with only the committed portable executors", () => {
   const runtime = createWindowsHostProxyRuntime({
     acquireGuardianToken: async () => null,
     getSessionToken: () => null,
@@ -13,7 +13,13 @@ test("creates a Windows runtime with unavailable executors", () => {
     logger: console,
   });
 
-  expect(runtime.executors).toEqual({});
+  expect(Object.keys(runtime.executors).sort()).toEqual([
+    "host_bash",
+    "host_browser",
+    "host_file",
+    "host_transfer",
+    "host_ui_snapshot",
+  ]);
   expect(runtime.sseClientHeaders()).toMatchObject({
     "X-Vellum-Client-Id": "client-123",
     "X-Vellum-Interface-Id": "windows",
@@ -21,4 +27,5 @@ test("creates a Windows runtime with unavailable executors", () => {
   expect(runtime.posterClientHeaders()).toEqual({
     "X-Vellum-Client-Id": "client-123",
   });
+  expect(() => runtime.teardownExecutors?.()).not.toThrow();
 });
