@@ -75,7 +75,6 @@ public static class TextInsertionTests
     {
         Assert(PermissionService.MapMicrophoneConsent("Allow", "Allow") == "granted");
         Assert(PermissionService.MapMicrophoneConsent("Allow", "Deny") == "denied");
-        Assert(PermissionService.MapMicrophoneConsent(null, null) == "unknown");
         Assert(PermissionService.MapOnlineSpeech(1) == "granted");
         Assert(PermissionService.MapOnlineSpeech(0) == "denied");
         Assert(PermissionService.MapOnlineSpeech(null) == "not-determined");

@@ -163,14 +163,14 @@ internal sealed class Win32TextInsertionHost : ITextInsertionHost
         {
             var entries = new List<ClipboardEntry>();
             var sawBitmap = false;
+            var droppedSupplementary = false;
             uint format = 0;
             while ((format = EnumClipboardFormats(format)) != 0)
             {
-                // App-private and display-variant formats are supplementary
-                // and have no byte-wise copy; they are dropped, keeping the
-                // primary interchange formats.
+                // App-private and display-variant formats have no byte-wise copy.
                 if (format is (>= 0x0200 and < 0x0400) or 0x0082 or 0x0083 or 0x008E)
                 {
+                    droppedSupplementary = true;
                     continue;
                 }
                 // CF_BITMAP is handle-based but synthesized back from a DIB.
@@ -179,8 +179,7 @@ internal sealed class Win32TextInsertionHost : ITextInsertionHost
                     sawBitmap = true;
                     continue;
                 }
-                // Metafiles and owner-rendered content cannot be copied, so a
-                // faithful restore is impossible; refuse to take a snapshot.
+                // Metafiles and owner-rendered content cannot be copied at all.
                 if (format is 3 or 14 or 0x0080)
                 {
                     return null;
@@ -194,6 +193,11 @@ internal sealed class Win32TextInsertionHost : ITextInsertionHost
                 entries.Add(new ClipboardEntry(format, bytes));
             }
             if (sawBitmap && !entries.Any(entry => entry.Format is 8 or 17))
+            {
+                return null;
+            }
+            // Content living only in dropped formats cannot be restored.
+            if (droppedSupplementary && entries.Count == 0)
             {
                 return null;
             }
@@ -347,16 +351,11 @@ internal sealed class Win32TextInsertionHost : ITextInsertionHost
         return handle;
     }
 
-    private static Input KeyInput(ushort key, bool keyUp)
+    private static Input KeyInput(ushort key, bool keyUp) => new()
     {
-        const uint inputKeyboard = 1;
-        const uint keyEventKeyUp = 0x0002;
-        return new Input
-        {
-            Type = inputKeyboard,
-            Keyboard = new KeyboardInput { Vk = key, Flags = keyUp ? keyEventKeyUp : 0 },
-        };
-    }
+        Type = 1, // INPUT_KEYBOARD
+        Keyboard = new KeyboardInput { Vk = key, Flags = keyUp ? 0x0002u : 0 }, // KEYEVENTF_KEYUP
+    };
 
     // Explicit layout matches 64-bit INPUT (both published RIDs are 64-bit):
     // the input union starts at offset 8 and MOUSEINPUT sets the 40-byte size.
