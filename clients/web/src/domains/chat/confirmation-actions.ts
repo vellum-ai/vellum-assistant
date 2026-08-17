@@ -10,6 +10,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { resolveConfirmationDecisions } from "@/domains/chat/confirmation-decisions";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -186,11 +187,11 @@ export async function handleConfirmationSubmit(
       .getState()
       .confirmationToolCallMap.get(snapshot.requestId);
 
-  // Auto-select first pattern/scope when persistent decisions are allowed
+  // Auto-select first pattern/scope when the request permits a durable rule.
+  // Same predicate the cards render from, so the hint cannot be sent for a
+  // request whose card withheld the option (or withheld for one that offered).
   const ruleHint =
-    decision === "allow" &&
-    snapshot.persistentDecisionsAllowed !== false &&
-    (snapshot.allowlistOptions?.length ?? 0) > 0
+    decision === "allow" && resolveConfirmationDecisions(snapshot).offersRule
       ? {
           selectedPattern: snapshot.allowlistOptions![0]!.pattern,
           selectedScope:

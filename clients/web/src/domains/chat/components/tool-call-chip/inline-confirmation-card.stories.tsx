@@ -17,6 +17,9 @@ function makeConfirmationToolCall(
     riskReason?: string | null;
     allowlistOptions?: boolean;
     input?: Record<string, unknown> | null;
+    confirmLabel?: string;
+    denyLabel?: string;
+    persistentDecisionsAllowed?: boolean;
   } = {},
 ): ChatMessageToolCall {
   const {
@@ -25,6 +28,9 @@ function makeConfirmationToolCall(
     riskReason = null,
     allowlistOptions = true,
     input = { command: "ls -lt ~/Downloads | head -20" },
+    confirmLabel,
+    denyLabel,
+    persistentDecisionsAllowed,
   } = overrides;
   return {
     id: "tc-confirm",
@@ -37,6 +43,11 @@ function makeConfirmationToolCall(
     pendingConfirmation: {
       requestId: "req-1",
       riskLevel: "high",
+      ...(confirmLabel ? { confirmLabel } : {}),
+      ...(denyLabel ? { denyLabel } : {}),
+      ...(persistentDecisionsAllowed !== undefined
+        ? { persistentDecisionsAllowed }
+        : {}),
       ...(description ? { description } : {}),
       ...(riskReason ? { riskReason } : {}),
       ...(input ? { input } : {}),
@@ -116,5 +127,33 @@ export const Submitting: Story = {
   args: {
     toolCall: makeConfirmationToolCall(),
     isSubmitting: true,
+  },
+};
+
+/**
+ * The daemon can name the decision itself. Both confirmation surfaces read
+ * those verbs, so the same request never reads "Allow" in one place and
+ * "Run it" in the other.
+ */
+export const DaemonSuppliedVerbs: Story = {
+  args: {
+    toolCall: makeConfirmationToolCall({
+      confirmLabel: "Run it",
+      denyLabel: "Skip",
+    }),
+  },
+};
+
+/**
+ * A tool that demanded fresh approval every time. It still carries allowlist
+ * options (the generator falls back to "Everything"), so gating the rule menu
+ * on options alone would offer the standing permission the daemon asked to
+ * prevent: no chevron here, only the plain decision.
+ */
+export const FreshApprovalRequired: Story = {
+  args: {
+    toolCall: makeConfirmationToolCall({
+      persistentDecisionsAllowed: false,
+    }),
   },
 };

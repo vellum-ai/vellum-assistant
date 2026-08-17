@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight, Loader2, Shield } from "lucide-react";
 import { useState } from "react";
 
 import { AllowOptionsMenu } from "@/domains/chat/components/allow-options-menu";
+import { resolveConfirmationDecisions } from "@/domains/chat/confirmation-decisions";
 import { getRiskBadgeStyle } from "@/domains/chat/utils/risk";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
@@ -39,6 +40,7 @@ export function ConfirmationPromptCard({
   onAllowAndCreateRule,
 }: ConfirmationPromptCardProps) {
   const [showDetails, setShowDetails] = useState(false);
+  const decisions = resolveConfirmationDecisions(confirmation);
 
   const hasDetails =
     !!confirmation.toolName ||
@@ -47,7 +49,6 @@ export function ConfirmationPromptCard({
   const riskBadge = confirmation.riskLevel
     ? getRiskBadgeStyle(confirmation.riskLevel)
     : null;
-  const hasAllowlistOptions = (confirmation.allowlistOptions?.length ?? 0) > 0;
 
   return (
     <Card>
@@ -77,7 +78,7 @@ export function ConfirmationPromptCard({
 
         <div className="flex shrink-0 gap-2">
           {/* Allow button — split when allowlistOptions present */}
-          {hasAllowlistOptions && onAllowAndCreateRule ? (
+          {decisions.offersRule && onAllowAndCreateRule ? (
             <div className="flex">
               {/* Primary: plain Allow */}
               <button
@@ -89,7 +90,7 @@ export function ConfirmationPromptCard({
                 {isSubmitting ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : null}
-                {confirmation.confirmLabel || "Allow"}
+                {decisions.confirmLabel}
               </button>
               <AllowOptionsMenu
                 align="end"
@@ -115,7 +116,7 @@ export function ConfirmationPromptCard({
               {isSubmitting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : null}
-              {confirmation.confirmLabel || "Allow"}
+              {decisions.confirmLabel}
             </button>
           )}
           <button
@@ -124,7 +125,7 @@ export function ConfirmationPromptCard({
             onClick={() => onSubmit("deny")}
             className="flex items-center gap-1.5 rounded-md bg-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-white transition-colors hover:opacity-90 disabled:opacity-50"
           >
-            {confirmation.denyLabel || "Deny"}
+            {decisions.denyLabel}
           </button>
         </div>
       </div>
