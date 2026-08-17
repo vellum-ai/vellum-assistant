@@ -74,11 +74,25 @@ function assistantLabel(a: ResolvedAssistant): string {
   return a.isLocal ? "Local Assistant" : "Cloud Assistant";
 }
 
+/** A hub-listed self-hosted entry lives on another machine; name its host. */
+function selfHostedHostLabel(ingressUrl: string | null | undefined): string {
+  if (ingressUrl) {
+    try {
+      return `Self-hosted · ${new URL(ingressUrl).hostname}`;
+    } catch {
+      // Unparseable ingress url: plain label.
+    }
+  }
+  return "Self-hosted";
+}
+
 function assistantSubtitle(a: ResolvedAssistant): string {
   const hosting = a.isPaired
     ? pairedHostLabel(a.runtimeUrl)
     : a.isLocal
-      ? "On this computer"
+      ? isLocalClient()
+        ? "On this computer"
+        : selfHostedHostLabel(a.ingressUrl)
       : "Cloud-hosted";
   if (!a.hatchedAt) {
     return hosting;
@@ -167,8 +181,11 @@ export function SelectAssistantScreen() {
   // render.
   const cloudOriginOffered = cloudOrigin !== null;
 
+  // A local entry is session-free only where a local transport exists; on
+  // the hub it connects through the platform path, so like a managed entry
+  // it needs the platform session.
   const isAccessible = (a: ResolvedAssistant): boolean =>
-    a.isLocal || a.isPaired || hasPlatformSession;
+    a.isPaired || (a.isLocal && localClient) || hasPlatformSession;
 
   // `setFromApi` already drops unreachable local registrations, but a
   // lifecycle upsert of a stale persisted selection can still land one in the
@@ -736,7 +753,9 @@ export function SelectAssistantScreen() {
                 }
                 loginDisabled={connecting}
                 onLogin={
-                  !accessible && assistant.isPlatformHosted
+                  // Locked platform-hosted and hub-local cards both unlock
+                  // with a platform login (both connect via the platform).
+                  !accessible && (assistant.isPlatformHosted || assistant.isLocal)
                     ? loginLoading
                       ? cancelLogin
                       : () => void login()
@@ -1151,7 +1170,7 @@ function AssistantCard({
   onSelect: () => void;
   loginLabel: string;
   loginDisabled: boolean;
-  /** Present only on locked platform cards: log in to unlock this assistant. */
+  /** Present only on locked platform-routed cards: log in to unlock. */
   onLogin?: () => void;
   /** Present when the entry can be forgotten on this device: opens the confirm. */
   onRemove?: () => void;

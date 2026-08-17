@@ -1610,6 +1610,35 @@ describe("SelectAssistantScreen local registrations on the platform hub", () => 
     expect(connectLocalAssistantMock).not.toHaveBeenCalled();
   });
 
+  test("labels a hub-listed self-hosted entry with its ingress host", async () => {
+    assistantsValue = [
+      makeLocalRegistration({ ingressUrl: "https://mac.example.com" }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Self-hosted · mac.example.com")).toBeTruthy(),
+    );
+    expect(screen.queryByText("On this computer")).toBeNull();
+  });
+
+  test("locks an ingress-backed local entry behind login when the platform session is gone", async () => {
+    hasPlatformSessionValue = false;
+    assistantsValue = [
+      makeLocalRegistration({ ingressUrl: "https://mac.example.com" }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    // Locked: no selectable radio, and the card offers the login affordance.
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.getByText("Log in to use")).toBeTruthy();
+  });
+
   test("a local entry on a local client still connects through the local path", async () => {
     isLocalClientValue = true;
     hasPlatformSessionValue = false;
