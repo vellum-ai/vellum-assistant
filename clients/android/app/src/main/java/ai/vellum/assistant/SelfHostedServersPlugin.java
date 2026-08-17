@@ -15,7 +15,8 @@ import java.util.List;
  * mirroring iOS's {@code SelfHostedServersPlugin.swift}. Per the skew rule in
  * {@code clients/web/docs/CAPACITOR.md}, one result shape encodes every
  * state: empty state resolves with an empty list and nulls; only an
- * {@code add}/{@code switchTo} url failing {@link SelfHostedServer#validate}
+ * {@code add}/{@code switchTo}/{@code switchToPath} url failing
+ * {@link SelfHostedServer#validate} (or a malformed switchToPath path)
  * rejects.
  */
 @CapacitorPlugin(name = "SelfHostedServers")
@@ -74,7 +75,7 @@ public class SelfHostedServersPlugin extends Plugin {
         // down, so a web caller awaiting this call would otherwise never settle.
         call.resolve(okResult());
         if (removedActive) {
-            scheduleRecreate();
+            scheduleRecreate(null);
         }
     }
 
@@ -87,28 +88,59 @@ public class SelfHostedServersPlugin extends Plugin {
      */
     @PluginMethod
     public void switchTo(PluginCall call) {
+        if (!applySwitchUrl(call)) {
+            return;
+        }
+        // Same ordering constraint as remove: settle the call, then recreate.
+        call.resolve(okResult());
+        scheduleRecreate(null);
+    }
+
+    /**
+     * switchTo plus an initial in-app route under the destination's entry
+     * URL, mirroring iOS. An invalid path rejects before any state changes.
+     */
+    @PluginMethod
+    public void switchToPath(PluginCall call) {
+        String raw = call.getString("path");
+        String path = raw == null ? "" : raw.trim();
+        if (path.isEmpty() || path.startsWith("/") || path.contains("://") || path.contains("#")) {
+            call.reject("invalid path");
+            return;
+        }
+        if (!applySwitchUrl(call)) {
+            return;
+        }
+        call.resolve(okResult());
+        scheduleRecreate(path);
+    }
+
+    /**
+     * Shared switchTo/switchToPath url handling: absent or empty returns to
+     * the baked origin; a valid url is stored and remembered nameless,
+     * keeping any stored label; invalid rejects and returns false.
+     */
+    private boolean applySwitchUrl(PluginCall call) {
         String raw = call.getString("url");
         String trimmed = raw == null ? "" : raw.trim();
         if (trimmed.isEmpty()) {
             SelfHostedServer.clear(getContext());
-        } else {
-            URI url = SelfHostedServer.validate(trimmed);
-            if (url == null) {
-                call.reject("invalid url");
-                return;
-            }
-            SelfHostedServer.store(getContext(), url);
-            SelfHostedServer.append(getContext(), url, null);
+            return true;
         }
-        // Same ordering constraint as remove: settle the call, then recreate.
-        call.resolve(okResult());
-        scheduleRecreate();
+        URI url = SelfHostedServer.validate(trimmed);
+        if (url == null) {
+            call.reject("invalid url");
+            return false;
+        }
+        SelfHostedServer.store(getContext(), url);
+        SelfHostedServer.append(getContext(), url, null);
+        return true;
     }
 
-    private void scheduleRecreate() {
+    private void scheduleRecreate(String routePath) {
         Activity activity = getActivity();
         if (activity instanceof MainActivity mainActivity) {
-            activity.runOnUiThread(mainActivity::recreateForServerChange);
+            activity.runOnUiThread(() -> mainActivity.recreateForServerChange(routePath));
         }
     }
 

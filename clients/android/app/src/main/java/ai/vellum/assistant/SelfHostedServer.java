@@ -210,6 +210,48 @@ final class SelfHostedServer {
         return active != null && url != null && canonicalString(active).equals(canonicalString(url));
     }
 
+    /**
+     * The SPA entry point for a server base, {@code <base>/assistant}. The
+     * ingress redirects a bare base to a prefixless {@code /assistant/},
+     * dropping a hosting prefix, so the segment is appended here instead,
+     * mirroring iOS {@code appEntryURL}. Stored identity keeps the bare base.
+     */
+    static URI appEntryUrl(URI base) {
+        String path = base.getRawPath();
+        if (path != null && path.endsWith("/assistant")) {
+            return base;
+        }
+        try {
+            return new URI(base.toASCIIString() + "/assistant");
+        } catch (URISyntaxException exception) {
+            return base;
+        }
+    }
+
+    /**
+     * A route under an entry URL: {@code <entry>/<path>}, the path's query
+     * kept verbatim. Null (caller falls back to the entry) when the path is
+     * unusable: blank, absolute, scheme-ful, fragment-carrying, or climbing.
+     */
+    static String appRoute(String entryUrl, String path) {
+        String trimmed = path == null ? "" : path.trim();
+        if (trimmed.isEmpty() || trimmed.startsWith("/") || trimmed.contains("://") || trimmed.contains("#")) {
+            return null;
+        }
+        int query = trimmed.indexOf('?');
+        String pathPart = query < 0 ? trimmed : trimmed.substring(0, query);
+        for (String segment : pathPart.split("/", -1)) {
+            if ("..".equals(segment)) {
+                return null;
+            }
+        }
+        String base = entryUrl;
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        return base + "/" + trimmed;
+    }
+
     /** The baked server.url from the bundled Capacitor config, or null when unreadable. */
     static String bakedServerUrl(Context context) {
         try {
@@ -348,7 +390,7 @@ final class SelfHostedServer {
         String source = readAsset(context, CONFIG_FILE);
         JSONObject root = new JSONObject(source);
         JSONObject serverConfig = root.getJSONObject("server");
-        serverConfig.put("url", server.toASCIIString());
+        serverConfig.put("url", appEntryUrl(server).toASCIIString());
 
         File directory = new File(context.getCacheDir(), CONFIG_DIRECTORY);
         if (!directory.exists() && !directory.mkdirs()) {
