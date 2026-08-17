@@ -95,6 +95,11 @@ import {
   handleCredentialRequestSubmit,
 } from "./http/routes/credential-requests.js";
 import { handleCreateRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-challenge.js";
+import {
+  handleApproveRemoteWebPairingRequest,
+  handleDenyRemoteWebPairingRequest,
+  handleListRemoteWebPairingRequests,
+} from "./http/routes/remote-web-pairing-requests.js";
 import { handleRemoteWebPairingToken } from "./http/routes/remote-web-pairing-token.js";
 import { handleVerifyRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-verification.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
@@ -896,6 +901,27 @@ async function main() {
       method: "POST",
       auth: "none",
       handler: (req) => handleRemoteWebPairingToken(req),
+    },
+    {
+      path: "/v1/remote-web/pairing-requests",
+      method: "GET",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        handleListRemoteWebPairingRequests(req, getClientIp()),
+    },
+    {
+      path: "/v1/remote-web/pairing-requests/approve",
+      method: "POST",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        handleApproveRemoteWebPairingRequest(req, getClientIp()),
+    },
+    {
+      path: "/v1/remote-web/pairing-requests/deny",
+      method: "POST",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        handleDenyRemoteWebPairingRequest(req, getClientIp()),
     },
     // ── Credential requests (one-time credential-collection links) ──
     // Unauthenticated by design: the single-use token in the request BODY is
