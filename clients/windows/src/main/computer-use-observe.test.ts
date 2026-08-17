@@ -9,12 +9,12 @@ mock.module("electron", () => ({
   },
 }));
 
-mock.module("../logger", () => ({
+mock.module("./logger", () => ({
   default: { info: () => undefined, warn: () => undefined },
 }));
 
 const { captureDisplay, getWindowsHelperPath, observeAutomation } =
-  await import("./computer-use-observe");
+  await import("./features/computer-use-observe");
 
 describe("getWindowsHelperPath", () => {
   test("resolves the dev helper per architecture", () => {
