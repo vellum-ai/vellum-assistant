@@ -37,6 +37,7 @@ import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
+import { isLocalGatewayRestartInProgress } from "@/lib/auth/local-gateway-restart";
 import { ApiError, toApiError } from "@/utils/api-errors";
 import {
   isLocalClient,
@@ -544,6 +545,9 @@ export function localGatewayAuthRecoveryInterceptor(
   }
 
   if (response.status !== 401) {
+    return response;
+  }
+  if (isLocalGatewayRestartInProgress()) {
     return response;
   }
   if (gw401RecoveryFired) {

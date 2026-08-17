@@ -1,36 +1,16 @@
 import { Loader2, RotateCcw } from "lucide-react";
 import { useState } from "react";
-
-import { restartAssistant } from "@/assistant/api";
-import { isCliWakeableAssistant } from "@/lib/local-mode";
-import {
-  isLocalModeHostAvailable,
-  sleepLocalAssistantHost,
-  wakeLocalAssistantHost,
-} from "@/runtime/local-mode-host";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
-async function restartLocalAssistant(
-  assistantId: string,
-): Promise<{ ok: boolean; error?: string }> {
-  const sleepResult = await sleepLocalAssistantHost(assistantId);
-  if (!sleepResult.ok) {
-    return {
-      ok: false,
-      error: sleepResult.error ?? "Failed to stop assistant.",
-    };
-  }
-  const wakeResult = await wakeLocalAssistantHost(assistantId);
-  if (!wakeResult.ok) {
-    return {
-      ok: false,
-      error: wakeResult.error ?? "Failed to start assistant.",
-    };
-  }
-  return { ok: true };
-}
+import { restartAssistant } from "@/assistant/api";
+import {
+  isCliWakeableAssistant,
+  restartLocalAssistant,
+} from "@/lib/local-mode";
+import { captureError } from "@/lib/sentry/capture-error";
+import { isLocalModeHostAvailable } from "@/runtime/local-mode-host";
 
 export function RestartAssistant({
   assistantId,
@@ -75,7 +55,8 @@ export function RestartAssistant({
           toast.error(detail);
         }
       }
-    } catch {
+    } catch (error) {
+      captureError(error, { context: "restart_assistant" });
       toast.error("Failed to restart assistant.");
     } finally {
       setRestarting(false);

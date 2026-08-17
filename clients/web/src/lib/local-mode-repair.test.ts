@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { useLockfileStore } from "@/stores/lockfile-store";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
+import { isLocalGatewayRestartInProgress } from "@/lib/auth/local-gateway-restart";
 
 // The wrapper under test orchestrates the real connect primitive, so we drive
 // its external seams rather than the primitive itself: the local guardian-token
@@ -12,11 +13,14 @@ const host = await import("@/runtime/local-mode-host");
 
 let primeShouldSucceed: () => boolean;
 let fetchGuardianTokenHost = mock(async (_id: string) => "tok");
+let sleepLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));
 let wakeLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));
+let clearGatewayTokenMock = mock(() => {});
 
 mock.module("@/runtime/local-mode-host", () => ({
   ...host,
   fetchGuardianTokenHost: (id: string) => fetchGuardianTokenHost(id),
+  sleepLocalAssistantHost: (id: string) => sleepLocalAssistantHost(id),
   wakeLocalAssistantHost: (id: string) => wakeLocalAssistantHost(id),
   // The post-wake reload reads back the lockfile; serve the in-store copy so the
   // retry resolves the selected assistant rather than hitting the real host.
@@ -37,7 +41,7 @@ let ensureGatewayTokenImpl: () => Promise<void> = async () => {};
 
 mock.module("@/lib/auth/gateway-session", () => ({
   ...realGatewaySession,
-  clearGatewayToken: () => {},
+  clearGatewayToken: () => clearGatewayTokenMock(),
   ensureGatewayToken: () => ensureGatewayTokenImpl(),
   getGatewayToken: () => "gateway-tok",
   // Mirror the real chain (token URL derives from the assistant's gateway port)
@@ -54,8 +58,10 @@ mock.module("@/lib/self-hosted/connection", () => ({
 
 const { GuardianTokenError } = host;
 const {
+  primeLocalGatewayConnectionAfterRestart,
   primeLocalGatewayConnectionWithRepair,
   primeLocalGatewayConnectionWithStartupRetry,
+  restartLocalAssistant,
   LOCAL_GATEWAY_STARTUP_RETRY,
 } = await import("@/lib/local-mode");
 
@@ -86,7 +92,9 @@ beforeEach(() => {
     }
     return "tok";
   });
+  sleepLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));
   wakeLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));
+  clearGatewayTokenMock = mock(() => {});
   selectLocalAssistant();
 });
 
@@ -94,6 +102,43 @@ afterEach(() => {
   useLockfileStore.setState({ lockfile: null });
   localStorage.clear();
   process.env.VITE_PLATFORM_MODE = "true";
+});
+
+describe("primeLocalGatewayConnectionAfterRestart", () => {
+  test("clears the stale token and rides out transport failures without waking", async () => {
+    let mintAttempts = 0;
+    ensureGatewayTokenImpl = async () => {
+      if (mintAttempts++ < 2) {
+        throw new TypeError("Failed to fetch");
+      }
+    };
+
+    await primeLocalGatewayConnectionAfterRestart("local-a");
+
+    expect(clearGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(mintAttempts).toBe(3);
+    expect(wakeLocalAssistantHost).not.toHaveBeenCalled();
+  });
+});
+
+describe("restartLocalAssistant", () => {
+  test("sleeps, wakes, and reconnects before reporting success", async () => {
+    const ensureGatewayTokenMock = mock(async () => {});
+    ensureGatewayTokenImpl = ensureGatewayTokenMock;
+    sleepLocalAssistantHost = mock(async () => {
+      expect(isLocalGatewayRestartInProgress()).toBe(true);
+      return { ok: true };
+    });
+
+    const result = await restartLocalAssistant("local-a");
+
+    expect(result).toEqual({ ok: true });
+    expect(sleepLocalAssistantHost).toHaveBeenCalledWith("local-a");
+    expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a");
+    expect(clearGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(ensureGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(isLocalGatewayRestartInProgress()).toBe(false);
+  });
 });
 
 describe("primeLocalGatewayConnectionWithRepair", () => {

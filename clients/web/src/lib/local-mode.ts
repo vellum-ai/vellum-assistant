@@ -16,6 +16,7 @@ import {
   getGatewayToken,
   getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
+import { withLocalGatewayRestart } from "@/lib/auth/local-gateway-restart";
 import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
 import {
   getSelfHostedIngressUrl,
@@ -31,6 +32,7 @@ import {
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
   saveLockfileAssistantHost,
+  sleepLocalAssistantHost,
   unpairAssistantHost,
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
@@ -993,6 +995,55 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
   target?: LockfileAssistant,
 ): Promise<void> {
   await primeLocalGatewayWithStartupRideout(target, isGatewayStillStarting);
+}
+
+/**
+ * Reacquire the selected local assistant's gateway session after an explicit
+ * restart. Reloads the lockfile for any port changes and rides out both
+ * transport failures and transient gateway responses without waking again.
+ */
+export async function primeLocalGatewayConnectionAfterRestart(
+  assistantId: string,
+): Promise<void> {
+  clearGatewayToken();
+  const lockfile = await loadLockfile();
+  const assistant = lockfile.assistants.find(
+    (entry) => entry.assistantId === assistantId,
+  );
+  if (!assistant) {
+    throw new Error("Restarted assistant is missing from local configuration");
+  }
+  await primeLocalGatewayWithStartupRideout(
+    assistant,
+    isGatewayRestartTransient,
+  );
+}
+
+/**
+ * Restart a local assistant and restore its renderer gateway session before
+ * allowing ordinary gateway 401 recovery to resume.
+ */
+export async function restartLocalAssistant(
+  assistantId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  return withLocalGatewayRestart(async () => {
+    const sleepResult = await sleepLocalAssistantHost(assistantId);
+    if (!sleepResult.ok) {
+      return {
+        ok: false,
+        error: sleepResult.error ?? "Failed to stop assistant.",
+      };
+    }
+    const wakeResult = await wakeLocalAssistantHost(assistantId);
+    if (!wakeResult.ok) {
+      return {
+        ok: false,
+        error: wakeResult.error ?? "Failed to start assistant.",
+      };
+    }
+    await primeLocalGatewayConnectionAfterRestart(assistantId);
+    return { ok: true };
+  });
 }
 
 /**
