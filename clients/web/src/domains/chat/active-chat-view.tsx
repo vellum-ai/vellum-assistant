@@ -303,6 +303,7 @@ export function ActiveChatView() {
     isAssistantActive: assistantState.kind === "active",
     activeConversationId,
     conversationExistsOnServer,
+    activeConversationArchived: activeConversation?.archivedAt != null,
     sendMessage,
   });
 

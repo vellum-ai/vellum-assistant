@@ -20,8 +20,12 @@
  * - https://tanstack.com/query/latest/docs/framework/react/guides/updates-from-mutation-responses
  */
 
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
+import {
+  partialMatchKey,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import { groupsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
@@ -32,8 +36,10 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
+import { findConversation } from "@/utils/conversation-cache";
 import { countUnreadConversationsInList } from "@/utils/conversation-predicates";
 import {
+  conversationListPrefix,
   archivedConversationListOptions,
   backgroundConversationListOptions,
   conversationListOptions,
@@ -372,6 +378,58 @@ export function useArchivedConversationListQuery(
       void query.refetch();
     },
   };
+}
+
+/**
+ * Subscribe to one conversation's row, wherever it lives among the list
+ * caches, by id.
+ *
+ * A row has exactly one home under the `conversation-list` prefix
+ * (foreground, background, scheduled, archived, or a section window), and
+ * which home moves as the row is pinned, filed, archived, or surfaced. A
+ * consumer that wants the row therefore cannot subscribe to a fixed list;
+ * it has to follow the row. This is the subscribing twin of
+ * `findConversation`: the same prefix-wide lookup, re-read whenever any
+ * cache under the prefix changes.
+ *
+ * Every optimistic write and every fetch lands through `setQueryData` or a
+ * query resolving, both of which notify the query cache, so a global cache
+ * subscription filtered to the prefix sees exactly the changes that could
+ * move or alter the row and nothing else. `useSyncExternalStore` then reads
+ * the row by identity: an event that touched a different row leaves the
+ * same object reference in place and causes no re-render.
+ *
+ * Reads only. It never fetches; a consumer that needs the row present when
+ * no cache holds it (a deep-linked open) fetches it into its home cache
+ * first (`refreshConversationRow`) and this subscription picks it up.
+ */
+export function useConversationRow(
+  assistantId: string | null,
+  conversationId: string | null | undefined,
+): Conversation | undefined {
+  const queryClient = useQueryClient();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (!assistantId) {
+        return () => {};
+      }
+      const prefix = conversationListPrefix(assistantId);
+      return queryClient.getQueryCache().subscribe((event) => {
+        if (partialMatchKey(event.query.queryKey, prefix)) {
+          onChange();
+        }
+      });
+    },
+    [queryClient, assistantId],
+  );
+  const getSnapshot = useCallback(
+    () =>
+      conversationId
+        ? findConversation(queryClient, assistantId, conversationId)
+        : undefined,
+    [queryClient, assistantId, conversationId],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 /**

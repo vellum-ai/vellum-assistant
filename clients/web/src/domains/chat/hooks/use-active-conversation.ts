@@ -1,21 +1,22 @@
 /**
  * Resolve the metadata row for the currently-open conversation.
  *
- * The foreground list query holds only foreground conversations, while the
- * Background and Scheduled lists load lazily through separate queries — only
- * once the user reveals their sidebar sections. A background or scheduled
- * thread opened directly (by URL or a deep link) is therefore absent from
- * every loaded list, which would leave the chat header, action menu,
- * read-state, and the SSE subscription (gated on `conversationExistsOnServer`)
- * without a row to work from.
+ * The row lives in exactly one list cache, and which one depends on the
+ * conversation (foreground, background, scheduled, archived, or a section
+ * window) and moves as it is pinned, filed, archived, or surfaced. A thread
+ * opened directly (by URL or a deep link) may be in none of them yet, which
+ * would leave the chat header, action menu, read-state, and the SSE
+ * subscription (gated on `conversationExistsOnServer`) without a row.
  *
- * This hook reads the row from whichever list cache already holds it and,
- * when it is in none, fetches that single row into the cache. Fetching one
- * row keeps the active thread fully functional without pulling the entire
- * background or scheduled backlog onto the initial-render path.
+ * This hook follows the row wherever it lives (`useConversationRow`) and,
+ * when no cache holds it, fetches that single row into its home cache.
+ * Fetching one row keeps the active thread fully functional without
+ * pulling any list onto the initial-render path, and reading it from the
+ * list caches keeps one owner for the row: a placement or seen-state write
+ * reaches this consumer the same way it reaches the sidebar.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -23,12 +24,7 @@ import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 
 import type { Conversation } from "@/types/conversation-types";
 
-import {
-  useArchivedConversationListQuery,
-  useBackgroundConversationListQuery,
-  useConversationListQuery,
-  useScheduledConversationListQuery,
-} from "@/hooks/conversation-queries";
+import { useConversationRow } from "@/hooks/conversation-queries";
 import { refreshConversationRow } from "@/utils/conversation-cache-mutations";
 
 export function useActiveConversation(
@@ -38,37 +34,7 @@ export function useActiveConversation(
 ): Conversation | undefined {
   const queryClient = useQueryClient();
   const isOrgReady = useIsOrgReady();
-  const { conversations: foreground } = useConversationListQuery(
-    assistantId,
-    enabled,
-  );
-  // Read-only subscriptions (`enabled: false`): reflect background, scheduled,
-  // and archived rows already in cache — including the single row fetched below
-  // — without triggering any lazy list fetch.
-  const { conversations: background } = useBackgroundConversationListQuery(
-    assistantId,
-    false,
-  );
-  const { conversations: scheduled } = useScheduledConversationListQuery(
-    assistantId,
-    false,
-  );
-  const { conversations: archived } = useArchivedConversationListQuery(
-    assistantId,
-    false,
-  );
-
-  const activeConversation = useMemo(() => {
-    if (!conversationId) {
-      return undefined;
-    }
-    return (
-      foreground.find((c) => c.conversationId === conversationId) ??
-      background.find((c) => c.conversationId === conversationId) ??
-      scheduled.find((c) => c.conversationId === conversationId) ??
-      archived.find((c) => c.conversationId === conversationId)
-    );
-  }, [foreground, background, scheduled, archived, conversationId]);
+  const activeConversation = useConversationRow(assistantId, conversationId);
 
   const fetchedConversationIdRef = useRef<string | null>(null);
   useEffect(() => {

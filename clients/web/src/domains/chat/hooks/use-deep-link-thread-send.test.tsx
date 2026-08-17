@@ -10,26 +10,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { createElement, type ReactNode } from "react";
 
 import { cleanup, renderHook } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import type { Conversation } from "@/types/conversation-types";
-
-// The hook observes the foreground list to decide "definitively absent".
-// Full module surface: `mock.module` is process-global in bun.
-let listState: {
-  conversations: Conversation[];
-  isPending: boolean;
-  isError: boolean;
-} = { conversations: [], isPending: true, isError: false };
-mock.module("@/hooks/conversation-queries", () => ({
-  useConversationListQuery: () => ({
-    ...listState,
-    isLoading: listState.isPending,
-    error: null,
-    refetch: () => {},
-  }),
-}));
+import { conversationsByIdGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { ConversationNotFoundError } from "@/utils/fetch-conversation-detail";
 
 const sentryBreadcrumbMock = mock((_args: unknown) => undefined);
 mock.module("@sentry/react", () => ({
@@ -48,14 +35,49 @@ import {
   usePendingDeepLinkStore,
 } from "@/stores/pending-deep-link-store";
 
-const conversation = (id: string): Conversation => ({
-  conversationId: id,
-  title: id,
-});
-
 interface Props {
   activeConversationId: string | null;
   conversationExistsOnServer: boolean;
+  activeConversationArchived?: boolean;
+}
+
+/* The hook reads the target's single-row fetch outcome straight from the
+   query cache (the same key `fetchConversationDetail` populates), so each
+   test gets a real client and seeds that key: absent (never fetched), or
+   settled into the error the real fetch leaves on a 404. */
+let queryClient: QueryClient;
+
+function rowKey(conversationId: string) {
+  return conversationsByIdGetOptions({
+    path: { assistant_id: "assistant-1", id: conversationId },
+  }).queryKey;
+}
+
+/** Settle the target's row query into the state a 404 leaves behind. */
+async function seedRowNotFound(conversationId: string): Promise<void> {
+  await queryClient
+    .prefetchQuery({
+      queryKey: rowKey(conversationId),
+      queryFn: () =>
+        Promise.reject(new ConversationNotFoundError(conversationId)),
+      retry: false,
+    })
+    .catch(() => {});
+}
+
+/** Settle the target's row query into a transient (non-404) failure. */
+async function seedRowTransientError(conversationId: string): Promise<void> {
+  await queryClient
+    .prefetchQuery({
+      queryKey: rowKey(conversationId),
+      queryFn: () => Promise.reject(new Error("network down")),
+      retry: false,
+    })
+    .catch(() => {});
+}
+
+function wrapper({ children }: { children: ReactNode }) {
+  return createElement(QueryClientProvider, { client: queryClient }, children);
 }
 
 function renderSend(initial: Props) {
@@ -67,9 +89,10 @@ function renderSend(initial: Props) {
         isAssistantActive: true,
         activeConversationId: p.activeConversationId,
         conversationExistsOnServer: p.conversationExistsOnServer,
+        activeConversationArchived: p.activeConversationArchived ?? false,
         sendMessage,
       }),
-    { initialProps: initial },
+    { initialProps: initial, wrapper },
   );
   return { ...result, sendMessage };
 }
@@ -78,7 +101,9 @@ beforeEach(() => {
   __resetPendingDeepLinkForTesting();
   consumePendingComposerFocus();
   sentryBreadcrumbMock.mockClear();
-  listState = { conversations: [], isPending: true, isError: false };
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   const composer = useComposerStore.getState();
   composer.setInput("");
   composer.clearDraft("abc-123");
@@ -137,11 +162,6 @@ describe("useDeepLinkThreadSend", () => {
     usePendingDeepLinkStore
       .getState()
       .setPendingThreadSend("abc-123", "gym done");
-    listState = {
-      conversations: [conversation("other")],
-      isPending: false,
-      isError: false,
-    };
     const { sendMessage } = renderSend({
       activeConversationId: "other",
       conversationExistsOnServer: true,
@@ -165,15 +185,14 @@ describe("useDeepLinkThreadSend", () => {
     expect(sentryBreadcrumbMock).toHaveBeenCalledTimes(1);
   });
 
-  it("demotes to a pre-fill when the loaded foreground list does not contain the target", () => {
+  it("demotes to a pre-fill when the server reports the target does not exist", async () => {
     usePendingDeepLinkStore
       .getState()
       .setPendingThreadSend("abc-123", "gym done");
-    listState = {
-      conversations: [conversation("something-else")],
-      isPending: false,
-      isError: false,
-    };
+    // The active-conversation path fetched the row and the daemon 404ed:
+    // the one definitive "not there". A list scan could not say this, since
+    // a windowed list is missing every row past its loaded page.
+    await seedRowNotFound("abc-123");
     const { sendMessage } = renderSend({
       activeConversationId: "abc-123",
       conversationExistsOnServer: false,
@@ -190,22 +209,45 @@ describe("useDeepLinkThreadSend", () => {
     expect(sentryBreadcrumbMock).toHaveBeenCalledTimes(1);
   });
 
-  it("does not treat an errored list as proof of absence", () => {
+  it("does not treat a transient row-fetch failure as proof of absence", async () => {
     usePendingDeepLinkStore
       .getState()
       .setPendingThreadSend("abc-123", "gym done");
-    listState = { conversations: [], isPending: false, isError: true };
+    // A network failure on the single-row fetch says nothing about the
+    // target; only the daemon's 404 does. Keep waiting rather than demote
+    // on a guess (the TTL bounds the wait).
+    await seedRowTransientError("abc-123");
     const { sendMessage } = renderSend({
       activeConversationId: "abc-123",
       conversationExistsOnServer: false,
     });
-    // An errored list served the [] fallback; that says nothing about the
-    // target. Keep waiting rather than demote on a guess.
     expect(sendMessage).not.toHaveBeenCalled();
     expect(usePendingDeepLinkStore.getState().pendingThreadSend).not.toBeNull();
     expect(
       usePendingDeepLinkStore.getState().pendingComposerMessage,
     ).toBeNull();
+  });
+
+  it("demotes when the target exists but is archived", () => {
+    /* The picker offers live conversations, and the daemon does not revive
+       an archived thread on send; a target archived after the picker synced
+       is found on the server yet must not be sent into. Kept as the
+       conservative direction: the text is staged, not dropped. */
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingThreadSend("abc-123", "gym done");
+    const { sendMessage } = renderSend({
+      activeConversationId: "abc-123",
+      conversationExistsOnServer: true,
+      activeConversationArchived: true,
+    });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(usePendingDeepLinkStore.getState().pendingThreadSend).toBeNull();
+    expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
+      "gym done",
+    );
+    expect(consumePendingComposerFocus()).toBe(true);
   });
 
   it("demotes an expired park instead of sending, even when the target exists", () => {

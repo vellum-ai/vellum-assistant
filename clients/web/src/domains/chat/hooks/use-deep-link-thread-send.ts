@@ -1,10 +1,12 @@
 import { useEffect } from "react";
 import * as Sentry from "@sentry/react";
+import { useQuery } from "@tanstack/react-query";
 
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useComposerStore } from "@/domains/chat/composer-store";
-import { useConversationListQuery } from "@/hooks/conversation-queries";
+import { conversationsByIdGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
+import { ConversationNotFoundError } from "@/utils/fetch-conversation-detail";
 
 /**
  * How long a parked send-into-thread request may wait for its target to
@@ -25,6 +27,13 @@ export interface UseDeepLinkThreadSendOptions {
    * `conversationExistsOnServer`.
    */
   conversationExistsOnServer: boolean;
+  /**
+   * The confirmed row is archived. The picker only offers live
+   * conversations, so a target archived after it synced is not what the
+   * user chose to send into; the daemon does not revive an archived thread
+   * on send, so the message would land in a thread the user put away.
+   */
+  activeConversationArchived: boolean;
   sendMessage: (content: string) => Promise<void>;
 }
 
@@ -43,13 +52,17 @@ export interface UseDeepLinkThreadSendOptions {
  *   `conversationExistsOnServer` is true;
  * - **degrades to a pre-fill in the target's composer** (the unproven-link
  *   contract: text staged, focus requested, nothing sent) when, on the
- *   target thread, the foreground list has loaded and does not contain it,
- *   or the park has aged past {@link PENDING_THREAD_SEND_TTL_MS}. The
- *   picker only ever offers foreground conversations, so absence from a
- *   loaded foreground list is definitive for anything an intent can name.
- *   (A target archived *after* the picker synced is absent too and also
- *   demotes, deliberately: reviving an archived chat is worth a look before
- *   the send, and the conservative direction is the safe one.)
+ *   target thread, the server has answered that the conversation does not
+ *   exist, or the park has aged past {@link PENDING_THREAD_SEND_TTL_MS}.
+ *   "Does not exist" is the single-row fetch's 404: `useActiveConversation`
+ *   asks for any row no list cache holds, and a miss leaves that query
+ *   errored with `ConversationNotFoundError`, which this hook reads. That is
+ *   definitive in a way no list scan is: a list is a window, and a row
+ *   absent from it may simply be past the loaded page. A target archived
+ *   *after* the picker synced is found but demotes too, deliberately: the
+ *   daemon does not revive an archived thread on send, so reviving it is
+ *   worth a look before the message lands, and the conservative direction
+ *   is the safe one.
  * - **degrades to the target's persisted draft** when the user has moved to
  *   a different thread while the request was still resolving. The active id
  *   is set synchronously in the same bus callback that parks the request,
@@ -59,8 +72,8 @@ export interface UseDeepLinkThreadSendOptions {
  *   surfaces in that composer whenever they open it, and never into the
  *   composer they happen to be in, which would stage it one tap from the
  *   wrong conversation.
- * - **waits** otherwise (list still loading, single-row fetch in flight).
- *   The effect re-runs as those settle.
+ * - **waits** otherwise (the single-row fetch is still in flight, or has not
+ *   started). The effect re-runs as it settles.
  *
  * Between them the three demotions guarantee the text is never dropped:
  * every exit from the parked state either sends it or leaves it in the
@@ -76,16 +89,26 @@ export function useDeepLinkThreadSend({
   isAssistantActive,
   activeConversationId,
   conversationExistsOnServer,
+  activeConversationArchived,
   sendMessage,
 }: UseDeepLinkThreadSendOptions): void {
   const pending = usePendingDeepLinkStore.use.pendingThreadSend();
-  // Observing the foreground list is what lets "not there" be a decision
-  // rather than a guess; TanStack dedupes this with ChatLayout's subscription.
-  const {
-    conversations,
-    isPending: listPending,
-    isError: listErrored,
-  } = useConversationListQuery(assistantId, isAssistantActive);
+  // Read-only view of the target's single-row fetch (`fetchConversationDetail`
+  // runs it through this same key). Disabled, so this never fetches; it only
+  // reflects the outcome the active-conversation path already produced. An
+  // errored query holding ConversationNotFoundError is the server saying the
+  // target does not exist, which is what lets "not there" be a decision.
+  const { error: rowError } = useQuery({
+    ...conversationsByIdGetOptions({
+      path: {
+        assistant_id: assistantId ?? "",
+        id: pending?.threadId ?? "",
+      },
+    }),
+    enabled: false,
+  });
+  const targetConfirmedAbsent =
+    isAssistantActive && rowError instanceof ConversationNotFoundError;
 
   useEffect(() => {
     if (pending === null || activeConversationId === null) {
@@ -125,27 +148,26 @@ export function useDeepLinkThreadSend({
       return;
     }
     if (conversationExistsOnServer) {
+      if (activeConversationArchived) {
+        demote("target conversation is archived");
+        return;
+      }
       const parked = store.consumePendingThreadSend();
       if (parked !== null) {
         void sendMessage(parked.message);
       }
       return;
     }
-    const listLoaded = !listPending && !listErrored;
-    if (
-      listLoaded &&
-      !conversations.some((c) => c.conversationId === pending.threadId)
-    ) {
-      demote("target absent from the loaded conversation list");
+    if (targetConfirmedAbsent) {
+      demote("server reports the target conversation does not exist");
     }
     // Otherwise the target is still resolving; wait for the next change.
   }, [
     pending,
     activeConversationId,
     conversationExistsOnServer,
-    conversations,
-    listPending,
-    listErrored,
+    activeConversationArchived,
+    targetConfirmedAbsent,
     sendMessage,
   ]);
 }
