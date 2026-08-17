@@ -73,7 +73,11 @@ function assistantLabel(a: ResolvedAssistant): string {
   if (a.isPaired) {
     return "Paired Assistant";
   }
-  return a.isLocal ? "Local Assistant" : "Cloud Assistant";
+  if (a.isLocal) {
+    // Local ids are friendly generated instance names; cloud ids are UUIDs.
+    return a.id;
+  }
+  return "Cloud Assistant";
 }
 
 /** A hub-listed self-hosted entry lives on another machine; name its host. */
