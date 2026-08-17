@@ -17,6 +17,7 @@ import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { Select } from "@vellumai/design-library/components/select";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { Trans, useTranslation } from "@/i18n";
 import { ByoServiceCard, ServiceCard } from "@/domains/settings/ai/shared-ui";
 import { SaveButton } from "@/components/service-form-controls";
 import {
@@ -30,6 +31,7 @@ import type { ServiceMode } from "@/generated/daemon/types.gen";
 import { EmailManagedContent } from "@/domains/settings/ai/email-managed-content";
 
 export function EmailServiceCard() {
+  const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
 
   // assistantHandle is platform-only; used to pre-fill the email subdomain.
@@ -109,8 +111,8 @@ export function EmailServiceCard() {
 
   const handleSaveMode = useCallback(() => {
     setLocalSetting(LS_EMAIL_BYO_PROVIDER, byoProviderId);
-    toast.success("Email settings saved.");
-  }, [byoProviderId]);
+    toast.success(t("emailServiceCard.saveSuccessToast"));
+  }, [byoProviderId, t]);
 
   // -- Render ----------------------------------------------------------------
   const selectedByoProvider = useMemo(
@@ -125,13 +127,19 @@ export function EmailServiceCard() {
       <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
       <div className="flex flex-col gap-1">
         <span>
-          Configure {selectedByoProvider.displayName} via the assistant CLI: ask
-          the assistant to run the{" "}
-          <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]">
-            {selectedByoProvider.setupSkill}
-          </code>{" "}
-          skill. It walks you through storing the API key, detecting the domain,
-          and (optionally) wiring up an inbound webhook.
+          <Trans
+            i18nKey="emailServiceCard.setupInstructions"
+            ns="settings"
+            values={{
+              providerName: selectedByoProvider.displayName,
+              setupSkill: selectedByoProvider.setupSkill,
+            }}
+            components={{
+              code: (
+                <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]" />
+              ),
+            }}
+          />
         </span>
         <a
           href={selectedByoProvider.docsUrl}
@@ -139,7 +147,9 @@ export function EmailServiceCard() {
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
         >
-          Open {selectedByoProvider.displayName}
+          {t("emailServiceCard.openProvider", {
+            providerName: selectedByoProvider.displayName,
+          })}
           <ExternalLink className="h-3 w-3" />
         </a>
       </div>
@@ -150,7 +160,7 @@ export function EmailServiceCard() {
     <div className="space-y-4">
       <div className="space-y-1">
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Provider
+          {t("emailServiceCard.providerLabel")}
         </label>
         <Select
           value={byoProviderId}
@@ -171,12 +181,19 @@ export function EmailServiceCard() {
           <div className="flex items-center gap-2 rounded-lg border border-[var(--system-positive-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-default)]">
             <CircleCheck className="h-4 w-4 shrink-0 text-[var(--system-positive-strong)]" />
             <span>
-              {selectedByoProvider.displayName} API key configured. To
-              reconfigure, run the{" "}
-              <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]">
-                {selectedByoProvider.setupSkill}
-              </code>{" "}
-              skill.
+              <Trans
+                i18nKey="emailServiceCard.apiKeyConfigured"
+                ns="settings"
+                values={{
+                  providerName: selectedByoProvider.displayName,
+                  setupSkill: selectedByoProvider.setupSkill,
+                }}
+                components={{
+                  code: (
+                    <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]" />
+                  ),
+                }}
+              />
             </span>
           </div>
           <a
@@ -185,7 +202,9 @@ export function EmailServiceCard() {
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-body-small-default text-[var(--system-positive-strong)] underline hover:opacity-80"
           >
-            Open {selectedByoProvider.displayName}
+            {t("emailServiceCard.openProvider", {
+              providerName: selectedByoProvider.displayName,
+            })}
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>
@@ -203,8 +222,8 @@ export function EmailServiceCard() {
     return (
       <ByoServiceCard
         id="email"
-        title="Email"
-        subtitle="Configure how your assistant sends and receives email"
+        title={t("emailServiceCard.title")}
+        subtitle={t("emailServiceCard.subtitle")}
       >
         {yourOwnContent}
       </ByoServiceCard>
@@ -214,8 +233,8 @@ export function EmailServiceCard() {
   return (
     <ServiceCard
       id="email"
-      title="Email"
-      subtitle="Configure how your assistant sends and receives email"
+      title={t("emailServiceCard.title")}
+      subtitle={t("emailServiceCard.subtitle")}
       mode={mode}
       onModeChange={handleModeChange}
     >
@@ -223,12 +242,12 @@ export function EmailServiceCard() {
         <div className="space-y-4">
           {platformGate === "disabled" ? (
             <PlatformLoginNotice>
-              Log in to the Vellum platform to manage email settings.
+              {t("emailServiceCard.platformLoginNotice")}
             </PlatformLoginNotice>
           ) : managedAssistantId === null ? (
             <div className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)]">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Connecting to the Vellum platform…
+              {t("emailServiceCard.connecting")}
             </div>
           ) : (
             <EmailManagedContent

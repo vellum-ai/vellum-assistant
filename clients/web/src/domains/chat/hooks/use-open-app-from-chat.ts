@@ -19,11 +19,13 @@ import { haptic } from "@/utils/haptics";
  * explicit choice, never a side effect of opening:
  * - the user picks it through the viewer's "Edit" affordance
  *   (`use-edit-app.ts`), which binds a per-app edit conversation;
+ * - the user selects a conversation while an app is already open
+ *   (`keepOpenAppBesideConversation`), which binds that conversation;
  * - the app requests it through `set_view({ view: "split" })`
  *   (`app-viewer-actions.ts`), which binds the active conversation.
  *
- * Both bind `editingConversationId` themselves, and that value is only read
- * while `mainView` is `"app-editing"`, so this hook leaves it alone.
+ * Those paths bind `editingConversationId` themselves, and that value is only
+ * read while `mainView` is `"app-editing"`, so this hook leaves it alone.
  *
  * Returns a stable async callback `(appId: string) => Promise<void>` safe
  * to drop into deps arrays.

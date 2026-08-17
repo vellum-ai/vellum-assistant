@@ -36,13 +36,42 @@ describe("FileDiffView", () => {
     expect(add?.className).toContain("var(--system-positive-strong)");
 
     const ctx = container.querySelector('[data-diff-type="ctx"]');
-    expect(ctx?.className).toContain("var(--content-tertiary)");
+    expect(ctx?.className).toContain("var(--content-secondary)");
   });
 
-  test("new file renders only additions", () => {
+  test("new file renders only additions with an empty old-side gutter", () => {
     const { container } = render(
       <FileDiffView path="new.ts" newText={"x\ny"} />,
     );
     expect(rowTypes(container)).toEqual(["add", "add"]);
+
+    const cells = container
+      .querySelector('[data-diff-type="add"]')
+      ?.querySelectorAll("span");
+    expect(cells?.[0]?.textContent).toBe("");
+    expect(cells?.[1]?.textContent).toBe("1");
+  });
+
+  test("deleted file renders only deletions with an empty new-side gutter", () => {
+    const { container } = render(
+      <FileDiffView path="gone.ts" oldText={"x\ny"} />,
+    );
+    expect(rowTypes(container)).toEqual(["del", "del"]);
+
+    const cells = container
+      .querySelector('[data-diff-type="del"]')
+      ?.querySelectorAll("span");
+    expect(cells?.[0]?.textContent).toBe("1");
+    expect(cells?.[1]?.textContent).toBe("");
+  });
+
+  test("oversized input renders the too-large notice instead of rows", () => {
+    const { container } = render(
+      <FileDiffView path="big.ts" oldText={"x\n".repeat(2001)} newText="y" />,
+    );
+
+    const notice = container.querySelector('[data-diff-type="too-large"]');
+    expect(notice?.textContent).toContain("Diff too large to render");
+    expect(rowTypes(container)).toEqual(["too-large"]);
   });
 });

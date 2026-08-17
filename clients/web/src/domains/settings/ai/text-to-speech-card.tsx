@@ -6,13 +6,16 @@
 
 import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
 import { TtsProviderForm } from "@/components/speech/tts-provider-form";
+import { useTranslation } from "@/i18n";
 
 export function TextToSpeechCard() {
+  const { t } = useTranslation("settings");
+
   return (
     <ByoServiceCard
       id="text-to-speech"
-      title="Text-to-Speech"
-      subtitle="Configure how your assistant speaks"
+      title={t("textToSpeechCard.title")}
+      subtitle={t("textToSpeechCard.subtitle")}
     >
       <TtsProviderForm />
     </ByoServiceCard>

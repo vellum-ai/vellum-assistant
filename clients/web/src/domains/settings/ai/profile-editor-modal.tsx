@@ -2,6 +2,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Tag } from "@vellumai/design-library/components/tag";
 
+import { useTranslation } from "@/i18n";
+
 import { ProfileEditorFields } from "@/domains/settings/ai/profile-editor-fields";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
 import {
@@ -102,6 +104,7 @@ function ProfileEditorModalInner({
   onSave,
   onCancel,
 }: ProfileEditorModalInnerProps) {
+  const { t } = useTranslation("settings");
   const editor = useProfileEditor({
     mode,
     profileName,
@@ -114,10 +117,12 @@ function ProfileEditorModalInner({
 
   const modalTitle =
     editor.effectiveMode === "create"
-      ? "New Profile"
+      ? t("profileEditorModal.newProfileTitle")
       : editor.effectiveMode === "edit"
-        ? "Edit Profile"
-        : (initialValues?.label ?? profileName ?? "Profile");
+        ? t("profileEditorModal.editProfileTitle")
+        : (initialValues?.label ??
+          profileName ??
+          t("profileEditorModal.profileFallbackTitle"));
 
   return (
     <Modal.Content size="md">
@@ -125,7 +130,7 @@ function ProfileEditorModalInner({
         {editor.effectiveMode === "view" ? (
           <div className="flex items-center gap-2">
             <Modal.Title>{modalTitle}</Modal.Title>
-            <Tag tone="positive">Platform</Tag>
+            <Tag tone="positive">{t("profileEditorModal.platformTag")}</Tag>
           </div>
         ) : (
           <Modal.Title>{modalTitle}</Modal.Title>
@@ -155,7 +160,7 @@ function ProfileEditorModalInner({
               disabled={editor.saving}
               data-testid="modal-cancel-btn"
             >
-              Close
+              {t("profileEditorModal.close")}
             </Button>
             <Button
               variant="outlined"
@@ -163,7 +168,7 @@ function ProfileEditorModalInner({
               onClick={editor.switchToSaveAsNew}
               disabled={editor.saving}
             >
-              Save As New
+              {t("profileEditorModal.saveAsNew")}
             </Button>
             {/* Save in view mode persists ONLY the status re-enable. The
                 button is gated by `hasViewModeChanges` so an unchanged view
@@ -175,7 +180,9 @@ function ProfileEditorModalInner({
               disabled={!editor.hasViewModeChanges || editor.saving}
               data-testid="modal-save-btn"
             >
-              {editor.saving ? "Saving…" : "Save"}
+              {editor.saving
+                ? t("profileEditorModal.saving")
+                : t("profileEditorModal.save")}
             </Button>
           </>
         ) : (
@@ -187,7 +194,7 @@ function ProfileEditorModalInner({
               disabled={editor.saving}
               data-testid="modal-cancel-btn"
             >
-              Cancel
+              {t("profileEditorModal.cancel")}
             </Button>
             <Button
               variant="primary"
@@ -196,7 +203,9 @@ function ProfileEditorModalInner({
               disabled={editor.isInvalid || editor.saving}
               data-testid="modal-save-btn"
             >
-              {editor.saving ? "Saving…" : "Save"}
+              {editor.saving
+                ? t("profileEditorModal.saving")
+                : t("profileEditorModal.save")}
             </Button>
           </>
         )}

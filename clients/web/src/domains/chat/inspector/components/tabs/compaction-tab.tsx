@@ -17,6 +17,7 @@ import {
   formattedCreatedAt,
   MISSING_VALUE,
 } from "@/domains/chat/inspector/inspector-formatters";
+import { t, useTranslation } from "@/i18n";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 
 /**
@@ -49,6 +50,7 @@ export function CompactionTab({
   conversationId,
   entry,
 }: CompactionTabProps): ReactNode {
+  const { t: tChat } = useTranslation("chat");
   const { data, isLoading, isError, error, refetch } = useCompactionTrail(
     assistantId,
     conversationId,
@@ -63,7 +65,7 @@ export function CompactionTab({
             className="text-body-medium-default"
             style={{ color: "var(--content-secondary)" }}
           >
-            Loading compaction…
+            {tChat("compactionTab.loading")}
           </span>
         </Card>
       </div>
@@ -72,7 +74,9 @@ export function CompactionTab({
 
   if (isError) {
     const message =
-      error instanceof Error ? error.message : "Failed to load compaction.";
+      error instanceof Error
+        ? error.message
+        : tChat("compactionTab.loadFailedDefault");
     return (
       <div className="flex flex-col gap-4 p-4">
         <Card padding="md">
@@ -87,7 +91,7 @@ export function CompactionTab({
                 className="text-body-medium-default"
                 style={{ color: "var(--content-default)" }}
               >
-                Failed to load
+                {tChat("compactionTab.loadFailedTitle")}
               </span>
             </div>
             <p
@@ -102,7 +106,7 @@ export function CompactionTab({
                 size="compact"
                 onClick={() => refetch()}
               >
-                Retry
+                {tChat("compactionTab.retry")}
               </Button>
             </div>
           </div>
@@ -121,15 +125,13 @@ export function CompactionTab({
             className="text-body-medium-default"
             style={{ color: "var(--content-default)" }}
           >
-            No compaction is tied to this call
+            {tChat("compactionTab.emptyTitle")}
           </p>
           <p
             className="mt-1 text-body-medium-lighter"
             style={{ color: "var(--content-secondary)" }}
           >
-            A compaction is attributed to the call that ran right after it. If
-            you expect one here, check that the conversation crossed its context
-            budget just before this call.
+            {tChat("compactionTab.emptyBody")}
           </p>
         </Card>
       </div>
@@ -174,25 +176,28 @@ function describeOutcome(event: CompactionTrailEvent): CompactionOutcome {
   if (event.summaryFailed === true) {
     return {
       tone: "warning",
-      label: "Compaction failed",
-      detail: "The summarizer call errored, so the context was left intact.",
+      label: t("chat:compactionTab.outcomeFailed"),
+      detail: t("chat:compactionTab.outcomeFailedDetail"),
     };
   }
   if (event.compacted === true) {
-    return { tone: "success", label: "Compacted", detail: null };
+    return {
+      tone: "success",
+      label: t("chat:compactionTab.outcomeCompacted"),
+      detail: null,
+    };
   }
   if (event.compacted === false) {
     return {
       tone: "neutral",
-      label: "No change",
+      label: t("chat:compactionTab.outcomeNoChange"),
       detail: event.skipReason ? displayText(event.skipReason) : null,
     };
   }
   return {
     tone: "neutral",
-    label: "Outcome unavailable",
-    detail:
-      "Detailed before/after metrics weren't recorded for this compaction.",
+    label: t("chat:compactionTab.outcomeUnavailable"),
+    detail: t("chat:compactionTab.outcomeUnavailableDetail"),
   };
 }
 
@@ -205,12 +210,23 @@ function EventCard({
   index: number;
   totalCount: number;
 }): ReactNode {
+  const { t: tChat } = useTranslation("chat");
   const [expanded, setExpanded] = useState(false);
   const outcome = describeOutcome(event);
   const reduction = computeReductionRatio(
     event.contextTokensBefore,
     event.contextTokensAfter,
   );
+  const contextTokenValue = reduction
+    ? tChat("compactionTab.tokenRangeWithReduction", {
+        before: formatCount(event.contextTokensBefore),
+        after: formatCount(event.contextTokensAfter),
+        reduction,
+      })
+    : tChat("compactionTab.tokenRange", {
+        before: formatCount(event.contextTokensBefore),
+        after: formatCount(event.contextTokensAfter),
+      });
 
   return (
     <Card padding="md">
@@ -225,8 +241,7 @@ function EventCard({
               {outcome.label}
               {totalCount > 1 ? (
                 <span style={{ color: "var(--content-tertiary)" }}>
-                  {" "}
-                  · {index} of {totalCount}
+                  {tChat("compactionTab.eventIndex", { index, totalCount })}
                 </span>
               ) : null}
             </span>
@@ -249,36 +264,38 @@ function EventCard({
         ) : null}
 
         <div className="flex flex-col gap-2">
-          <MetadataRow label="Trigger" value={displayText(event.trigger)} />
           <MetadataRow
-            label="Context tokens"
-            value={`${formatCount(event.contextTokensBefore)} → ${formatCount(
-              event.contextTokensAfter,
-            )}${reduction ? `  (${reduction})` : ""}`}
+            label={tChat("compactionTab.trigger")}
+            value={displayText(event.trigger)}
           />
           <MetadataRow
-            label="Messages"
-            value={`${formatCount(event.messagesBefore)} → ${formatCount(
-              event.messagesAfter,
-            )}`}
+            label={tChat("compactionTab.contextTokens")}
+            value={contextTokenValue}
           />
           <MetadataRow
-            label="Compacted / preserved"
+            label={tChat("compactionTab.messages")}
+            value={tChat("compactionTab.messageRange", {
+              before: formatCount(event.messagesBefore),
+              after: formatCount(event.messagesAfter),
+            })}
+          />
+          <MetadataRow
+            label={tChat("compactionTab.compactedPreserved")}
             value={formatMessageBreakdown(
               event.compactedMessages,
               event.preservedTailMessages,
             )}
           />
           <MetadataRow
-            label="Duration"
+            label={tChat("compactionTab.duration")}
             value={formatDuration(event.durationMs)}
           />
           <MetadataRow
-            label="Summary model"
+            label={tChat("compactionTab.summaryModel")}
             value={displayText(event.summaryModel)}
           />
           <MetadataRow
-            label="Summary cost"
+            label={tChat("compactionTab.summaryCost")}
             value={formatSummarizerUsage(
               event.summaryInputTokens,
               event.summaryOutputTokens,
@@ -302,7 +319,9 @@ function EventCard({
               ) : (
                 <ChevronRight size={14} aria-hidden />
               )}
-              {expanded ? "Hide summary text" : "Show summary text"}
+              {expanded
+                ? tChat("compactionTab.hideSummaryText")
+                : tChat("compactionTab.showSummaryText")}
             </button>
             {expanded ? (
               <p
@@ -387,7 +406,9 @@ function computeReductionRatio(
   if (!Number.isFinite(ratio)) {
     return null;
   }
-  return `${Math.round(ratio)}× smaller`;
+  return t("chat:compactionTab.reductionRatio", {
+    ratio: Math.round(ratio),
+  });
 }
 
 /**
@@ -401,10 +422,18 @@ function formatMessageBreakdown(
 ): string {
   const parts: string[] = [];
   if (compacted != null && Number.isFinite(compacted)) {
-    parts.push(`${formatCount(compacted)} compacted`);
+    parts.push(
+      t("chat:compactionTab.compactedMessages", {
+        count: formatCount(compacted),
+      }),
+    );
   }
   if (preserved != null && Number.isFinite(preserved)) {
-    parts.push(`${formatCount(preserved)} preserved`);
+    parts.push(
+      t("chat:compactionTab.preservedMessages", {
+        count: formatCount(preserved),
+      }),
+    );
   }
   return parts.length ? parts.join(" · ") : MISSING_VALUE;
 }
@@ -413,7 +442,9 @@ function formatDuration(durationMs: number | null): string {
   if (durationMs == null || !Number.isFinite(durationMs)) {
     return MISSING_VALUE;
   }
-  return `${formatCount(Math.round(durationMs))} ms`;
+  return t("chat:compactionTab.durationMs", {
+    count: formatCount(Math.round(durationMs)),
+  });
 }
 
 /**
@@ -431,5 +462,8 @@ function formatSummarizerUsage(
   if (!haveInput && !haveOutput) {
     return MISSING_VALUE;
   }
-  return `${formatCount(input)} in / ${formatCount(output)} out`;
+  return t("chat:compactionTab.summarizerUsage", {
+    input: formatCount(input),
+    output: formatCount(output),
+  });
 }

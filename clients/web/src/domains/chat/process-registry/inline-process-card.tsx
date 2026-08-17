@@ -110,7 +110,7 @@ export function InlineProcessCard({
           <Button
             variant="dangerGhost"
             size="compact"
-            iconOnly={<Square fill="currentColor" />}
+            iconOnly={<Square />}
             aria-label={stopAriaLabel ?? "Stop"}
             data-testid="inline-process-card-stop"
             onClick={handleStop}

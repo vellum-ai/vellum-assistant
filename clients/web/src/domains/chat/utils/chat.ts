@@ -15,7 +15,10 @@ import type {
   PendingQuestionState,
   ScopeOption,
 } from "@/types/interaction-ui-types";
-import { ACP_CLAUDE_OAUTH_MISSING_CODE } from "@/domains/chat/utils/acp-connect";
+import {
+  ACP_CLAUDE_AUTH_REQUIRED_CODE,
+  ACP_CLAUDE_OAUTH_MISSING_CODE,
+} from "@/domains/chat/utils/acp-connect";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { PendingToolConfirmation } from "@vellumai/assistant-api";
 import type { ToolCallRuleContext } from "@/domains/chat/rule-editor-actions";
@@ -73,6 +76,7 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "acp_session_usage",
   "acp_session_completed",
   "acp_session_error",
+  "acp_auth_required",
   // Background-tool lifecycle events route by their `id` into the global
   // background-task store. They carry a top-level `conversationId`, but gating
   // them on the active conversation would drop a `background_tool_completed`
@@ -495,8 +499,14 @@ export function extractWirePendingAcpConnect(
     }
     for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
       const tc = msg.toolCalls[ti];
-      if (tc?.errorCode === ACP_CLAUDE_OAUTH_MISSING_CODE && tc.id) {
+      if (!tc?.id) {
+        continue;
+      }
+      if (tc.errorCode === ACP_CLAUDE_OAUTH_MISSING_CODE) {
         return { toolUseId: tc.id };
+      }
+      if (tc.errorCode === ACP_CLAUDE_AUTH_REQUIRED_CODE) {
+        return { toolUseId: tc.id, reason: "auth_required" };
       }
     }
   }

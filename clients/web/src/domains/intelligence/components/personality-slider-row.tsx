@@ -9,6 +9,7 @@
 
 import * as SliderPrimitive from "@radix-ui/react-slider";
 
+import { useTranslation } from "@/i18n";
 import type { AvatarTone } from "@/utils/avatar-tone";
 
 import {
@@ -36,6 +37,9 @@ export function PersonalitySliderRow({
   tone,
   disabled,
 }: PersonalitySliderRowProps) {
+  const { t } = useTranslation("intelligence");
+  const leftLabel = t(axis.leftKey);
+  const rightLabel = t(axis.rightKey);
   // Responsive: on mobile the labels sit on one line split to the slider's
   // two ends above a full-width track; on >=sm they flank the track in a
   // single row. Flex `order` + wrap drives the reflow.
@@ -48,13 +52,13 @@ export function PersonalitySliderRow({
         className="order-1 flex-1 text-left text-sm sm:w-32 sm:flex-none sm:text-right sm:text-[17px]"
         style={{ color: tone.fg }}
       >
-        {axis.left}
+        {leftLabel}
       </span>
       <span
         className="order-2 flex-1 text-right text-sm sm:order-3 sm:w-32 sm:flex-none sm:text-left sm:text-[17px]"
         style={{ color: tone.fg }}
       >
-        {axis.right}
+        {rightLabel}
       </span>
       <SliderPrimitive.Root
         className="relative order-3 flex h-6 w-full touch-none items-center select-none sm:order-2 sm:w-auto sm:flex-1"
@@ -66,7 +70,10 @@ export function PersonalitySliderRow({
         min={0}
         max={100}
         step={1}
-        aria-label={`${axis.left} to ${axis.right}`}
+        aria-label={t("personalitySliderRow.rangeAriaLabel", {
+          left: leftLabel,
+          right: rightLabel,
+        })}
       >
         <SliderPrimitive.Track
           className="relative h-2 w-full grow rounded-full sm:h-3"

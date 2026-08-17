@@ -22,7 +22,7 @@ exactly four things:
 | --- | --- |
 | `VoiceAudioSessionPlugin` | Owns `AVAudioSession` for the duration of a session (`.playAndRecord` / `.voiceChat`), and reports interruptions |
 | `VoiceLiveActivityPlugin` | Requests, updates, and ends the one ActivityKit activity mirroring the session |
-| `VoiceActivity` widget extension | Renders that activity on the Lock Screen and in the Dynamic Island, plus the Control Center control |
+| `VoiceActivity` widget extension | Renders that activity on the Lock Screen and in the Dynamic Island, plus the Control Center controls (the voice one below, and the non-voice "Open Vellum" app launcher) |
 | App Intents + `AppShortcutsProvider` | Turn a Siri phrase, a Spotlight hit, an Action Button press, or a control tap into a `<scheme>://voice` URL |
 
 Everything native is *additive*. Remove all of it and voice still works — that
@@ -762,7 +762,7 @@ agree character for character across the portal, the xcconfigs, and
 | `App/App/Shared/StartNewVoiceConversationIntent.swift` | In `Shared/` because the Control Center control needs the type |
 | `App/App/Shared/VoiceSessionControlIntent.swift` | The intent behind every island button; in `Shared/` so the appex can name it |
 | `App/App/Intents/` | The other two intents and `VoiceAppShortcuts` |
-| `App/VoiceActivity/` | Widget extension: bundle, Live Activity, island views, Control Center control |
+| `App/VoiceActivity/` | Widget extension: bundle, Live Activity, island views, Control Center controls |
 | `App/App/Config/Extension*.xcconfig` | Extension build settings; bundle IDs, schemes, profile specifiers |
 | `App/project.yml` | Six targets, `VOICE_ACTIVITY_EXTENSION`, embed relationships |
 

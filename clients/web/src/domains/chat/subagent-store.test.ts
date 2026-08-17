@@ -149,7 +149,6 @@ describe("spawnSubagent", () => {
     expect(entry.isFork).toBe(false);
     expect(entry.inputTokens).toBe(0);
     expect(entry.outputTokens).toBe(0);
-    expect(entry.totalCost).toBe(0);
     expect(entry.spawnedAt).toBe(NOW);
     expect(entry.events).toEqual([]);
   });
@@ -357,12 +356,10 @@ describe("changeStatus", () => {
       status: "completed",
       inputTokens: 1500,
       outputTokens: 500,
-      totalCost: 0.003,
     });
 
     expect(getState().byId["sa-1"]!.inputTokens).toBe(1500);
     expect(getState().byId["sa-1"]!.outputTokens).toBe(500);
-    expect(getState().byId["sa-1"]!.totalCost).toBe(0.003);
   });
 
   it("preserves existing values when optional fields are omitted", () => {
@@ -378,7 +375,6 @@ describe("changeStatus", () => {
       status: "running",
       inputTokens: 100,
       outputTokens: 50,
-      totalCost: 0.001,
     });
 
     getState().changeStatus({
@@ -390,7 +386,6 @@ describe("changeStatus", () => {
     expect(entry.status).toBe("completed");
     expect(entry.inputTokens).toBe(100);
     expect(entry.outputTokens).toBe(50);
-    expect(entry.totalCost).toBe(0.001);
   });
 
   it("preserves accumulated tokens when an abort ships zero usage", () => {
@@ -409,7 +404,6 @@ describe("changeStatus", () => {
       status: "running",
       inputTokens: 1200,
       outputTokens: 340,
-      totalCost: 0.002,
     });
 
     getState().changeStatus({
@@ -417,14 +411,12 @@ describe("changeStatus", () => {
       status: "aborted",
       inputTokens: 0,
       outputTokens: 0,
-      totalCost: 0,
     });
 
     const entry = getState().byId["sa-1"]!;
     expect(entry.status).toBe("aborted");
     expect(entry.inputTokens).toBe(1200);
     expect(entry.outputTokens).toBe(340);
-    expect(entry.totalCost).toBe(0.002);
   });
 
   it("still applies a real non-zero terminal total over the running tally", () => {
@@ -440,7 +432,6 @@ describe("changeStatus", () => {
       status: "running",
       inputTokens: 1200,
       outputTokens: 340,
-      totalCost: 0.002,
     });
 
     // Completion ships the authoritative final totals — non-zero, so they
@@ -450,13 +441,11 @@ describe("changeStatus", () => {
       status: "completed",
       inputTokens: 1500,
       outputTokens: 500,
-      totalCost: 0.003,
     });
 
     const entry = getState().byId["sa-1"]!;
     expect(entry.inputTokens).toBe(1500);
     expect(entry.outputTokens).toBe(500);
-    expect(entry.totalCost).toBe(0.003);
   });
 
   it("silently ignores unknown subagent ID", () => {
@@ -1059,19 +1048,16 @@ describe("updateUsage", () => {
       subagentId: "sa-1",
       inputTokens: 100,
       outputTokens: 50,
-      estimatedCost: 0.001,
     });
     getState().updateUsage({
       subagentId: "sa-1",
       inputTokens: 200,
       outputTokens: 75,
-      estimatedCost: 0.002,
     });
 
     const entry = getState().byId["sa-1"]!;
     expect(entry.inputTokens).toBe(300);
     expect(entry.outputTokens).toBe(125);
-    expect(entry.totalCost).toBeCloseTo(0.003);
   });
 
   it("skips updates after terminal status with usage", () => {
@@ -1086,7 +1072,6 @@ describe("updateUsage", () => {
       subagentId: "sa-1",
       inputTokens: 100,
       outputTokens: 50,
-      estimatedCost: 0.001,
     });
 
     // Terminal status with final usage data
@@ -1095,7 +1080,6 @@ describe("updateUsage", () => {
       status: "completed",
       inputTokens: 500,
       outputTokens: 200,
-      totalCost: 0.005,
     });
 
     // This should be ignored — terminal guard
@@ -1103,13 +1087,11 @@ describe("updateUsage", () => {
       subagentId: "sa-1",
       inputTokens: 9999,
       outputTokens: 9999,
-      estimatedCost: 99.99,
     });
 
     const entry = getState().byId["sa-1"]!;
     expect(entry.inputTokens).toBe(500);
     expect(entry.outputTokens).toBe(200);
-    expect(entry.totalCost).toBe(0.005);
   });
 
   it("no-ops for unknown subagentId", () => {
@@ -1118,7 +1100,6 @@ describe("updateUsage", () => {
       subagentId: "sa-nonexistent",
       inputTokens: 100,
       outputTokens: 50,
-      estimatedCost: 0.001,
     });
 
     expect(getState().byId).toEqual(before);
@@ -2553,7 +2534,6 @@ describe("reconcileFromDaemon", () => {
       subagentId: "sa-1",
       inputTokens: 100,
       outputTokens: 20,
-      estimatedCost: 0.001,
     });
     reconcileReply = {
       ok: true,
@@ -2577,7 +2557,6 @@ describe("reconcileFromDaemon", () => {
     expect(entry?.error).toBe("provider timed out");
     expect(entry?.inputTokens).toBe(1200);
     expect(entry?.outputTokens).toBe(340);
-    expect(entry?.totalCost).toBe(0.021);
     expect(entry?.events).toHaveLength(1);
   });
 
@@ -2594,7 +2573,6 @@ describe("reconcileFromDaemon", () => {
       subagentId: "sa-1",
       inputTokens: 100,
       outputTokens: 20,
-      estimatedCost: 0.001,
     });
     reconcileReply = {
       ok: true,
@@ -2607,7 +2585,6 @@ describe("reconcileFromDaemon", () => {
     expect(entry?.status).toBe("completed");
     expect(entry?.inputTokens).toBe(100);
     expect(entry?.outputTokens).toBe(20);
-    expect(entry?.totalCost).toBe(0.001);
     expect(entry?.error).toBeUndefined();
   });
 
@@ -2635,7 +2612,6 @@ describe("reconcileFromDaemon", () => {
     expect(entry?.error).toBe("provider timed out");
     expect(entry?.inputTokens).toBe(900);
     expect(entry?.outputTokens).toBe(120);
-    expect(entry?.totalCost).toBe(0.014);
   });
 
   it("discards a snapshot that lands after the store was reset", async () => {

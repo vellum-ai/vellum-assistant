@@ -276,6 +276,46 @@ describe("voice_config_update — tts_voice_id (managed/vellum active)", () => {
     expect(result.content).not.toContain("broadcast");
   });
 
+  test("hints the inline picker for the next managed voice change", async () => {
+    makeVellumActive();
+
+    const result = await run(
+      { setting: "tts_voice_id", value: "aura-2-zeus-en" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toStartWith("Vellum managed voice updated to");
+    expect(result.content).toContain(
+      'ui_show { surface_type: "voice_picker", data: {} }',
+    );
+  });
+
+  test("does not hint the picker when the voice is not managed", async () => {
+    writeConfig({ services: { tts: { provider: "elevenlabs" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "tts_voice_id", value: "abc123" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain("voice_picker");
+  });
+
+  test("does not hint the picker for a non-voice setting", async () => {
+    makeVellumActive();
+
+    const result = await run(
+      { setting: "conversation_timeout", value: 30 },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain("voice_picker");
+  });
+
   test("rejects a value with characters invalid for any voice id", async () => {
     makeVellumActive();
 

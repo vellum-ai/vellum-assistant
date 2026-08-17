@@ -26,7 +26,13 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createElement, type ReactNode } from "react";
+import {
+  createContext,
+  createElement,
+  useContext,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 
 // --- use-is-mobile -----------------------------------------------------------
 const isMobileRef = { value: false };
@@ -63,6 +69,7 @@ mock.module("@/lib/threshold-api", () => ({
 type QuickAddArgs = {
   existingNames?: string[];
   onCreated?: (name: string, label: string | null) => void;
+  onClosed?: () => void;
 };
 const openProfileQuickAdd = mock((_args?: QuickAddArgs) => {});
 mock.module("@/components/profile-quick-add-provider", () => ({
@@ -72,33 +79,98 @@ mock.module("@/components/profile-quick-add-provider", () => ({
 // --- design-library surfaces (render content inline) -------------------------
 const passthrough = ({ children, ...props }: Record<string, unknown>) =>
   createElement("div", props, children as ReactNode);
+// Radix owns the open state on the Root and flips it when the trigger is
+// activated. The mock hands the Root's `onOpenChange` down to its Trigger so
+// activating a trigger opens the surface the way it does in the app. Each
+// surface keeps its own activation gesture (see the two triggers below), since
+// which one a pill answers to is exactly what the mobile tests pin down.
+const OpenChangeContext = createContext<((open: boolean) => void) | undefined>(
+  undefined,
+);
+const surfaceRoot = ({
+  children,
+  open: _open,
+  onOpenChange,
+  ...props
+}: Record<string, unknown>) =>
+  createElement(
+    OpenChangeContext.Provider,
+    { value: onOpenChange as ((open: boolean) => void) | undefined },
+    createElement("div", props, children as ReactNode),
+  );
+// The sheet is a Radix Dialog underneath, whose trigger opens on click.
+const SheetTrigger = ({
+  children,
+  asChild: _asChild,
+  ...props
+}: Record<string, unknown>) => {
+  const onOpenChange = useContext(OpenChangeContext);
+  return createElement(
+    "div",
+    { ...props, onClick: () => onOpenChange?.(true) },
+    children as ReactNode,
+  );
+};
+// The menu is a Radix DropdownMenu, whose trigger opens on pointerdown rather
+// than click, through a composed handler that bails once the child's own
+// handler has called preventDefault. Both halves matter here: a trigger child
+// that cancels the press would be inert in this surface, so the mock has to be
+// able to show that.
+const MenuTrigger = ({
+  children,
+  asChild: _asChild,
+  ...props
+}: Record<string, unknown>) => {
+  const onOpenChange = useContext(OpenChangeContext);
+  return createElement(
+    "div",
+    {
+      ...props,
+      onPointerDown: (event: ReactPointerEvent) => {
+        if (event.defaultPrevented) {
+          return;
+        }
+        onOpenChange?.(true);
+      },
+    },
+    children as ReactNode,
+  );
+};
+// Radix dismisses a dropdown when one of its items is selected, so the mocked
+// item reports the close through the same Root callback after running onSelect.
+const MenuItem = ({
+  children,
+  onSelect,
+  leftIcon,
+  ...rest
+}: Record<string, unknown>) => {
+  const onOpenChange = useContext(OpenChangeContext);
+  return createElement(
+    "button",
+    {
+      "data-testid": "menu-item",
+      onClick: () => {
+        (onSelect as (() => void) | undefined)?.();
+        onOpenChange?.(false);
+      },
+      ...rest,
+    },
+    leftIcon as ReactNode,
+    children as ReactNode,
+  );
+};
 mock.module("@vellumai/design-library", () => {
   const MenuMock = {
-    Root: passthrough,
-    Trigger: passthrough,
+    Root: surfaceRoot,
+    Trigger: MenuTrigger,
     Content: passthrough,
-    Item: ({
-      children,
-      onSelect,
-      leftIcon,
-      ...rest
-    }: Record<string, unknown>) =>
-      createElement(
-        "button",
-        {
-          "data-testid": "menu-item",
-          onClick: onSelect as (() => void) | undefined,
-          ...rest,
-        },
-        leftIcon as ReactNode,
-        children as ReactNode,
-      ),
+    Item: MenuItem,
     Label: passthrough,
     Separator: () => createElement("hr"),
   };
   const BottomSheetMock = {
-    Root: passthrough,
-    Trigger: passthrough,
+    Root: surfaceRoot,
+    Trigger: SheetTrigger,
     Content: passthrough,
     Header: passthrough,
     Title: passthrough,
@@ -111,6 +183,8 @@ mock.module("@vellumai/design-library", () => {
       onClick,
       "aria-label": ariaLabel,
       iconOnly: _i,
+      leftIcon: _l,
+      expandOnMobile: _e,
       ...rest
     }: Record<string, unknown>) =>
       createElement("button", { onClick, "aria-label": ariaLabel, ...rest }),
@@ -191,20 +265,64 @@ import { ComposerSettingsMenu } from "@/domains/chat/components/composer-setting
 import { useConversationStore } from "@/stores/conversation-store";
 import { ApiError } from "@/utils/api-errors";
 
-function renderMenu() {
-  const queryClient = new QueryClient({
+/** The config payload most cases mount against: one profile, "Smart". */
+const SMART_CONFIG = {
+  llm: {
+    profileOrder: ["smart"],
+    profiles: {
+      smart: {
+        label: "Smart",
+        provider: "anthropic",
+        model: "claude-fable-5",
+      },
+    },
+    activeProfile: "smart",
+  },
+};
+
+function createQueryClient() {
+  return new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
-    createElement(
-      QueryClientProvider,
-      { client: queryClient },
-      createElement(ComposerSettingsMenu, {
-        assistantId: "assistant-1",
-        conversationId: "conv-1",
-      }),
-    ),
+}
+
+interface Scaffold {
+  /** Props for the menu under test, over the shared assistant/conversation. */
+  props?: {
+    conversationId?: string;
+    segments?: "both" | "access" | "profile";
+    onOpenChange?: (open: boolean) => void;
+  };
+  /**
+   * Mount inside a `ComposerCompactProvider` at this width. Left out, the menu
+   * mounts bare, the way the wide composer renders it.
+   */
+  compact?: boolean;
+  /** Pass a client to keep its cache across a `rerender`. */
+  queryClient?: QueryClient;
+}
+
+/**
+ * The one provider scaffold for this file: a QueryClient wrapper, optionally a
+ * compact composer around it, and the menu with the shared ids.
+ */
+function menuElement({ props, compact, queryClient }: Scaffold = {}) {
+  const menu = createElement(ComposerSettingsMenu, {
+    assistantId: "assistant-1",
+    conversationId: "conv-1",
+    ...props,
+  });
+  return createElement(
+    QueryClientProvider,
+    { client: queryClient ?? createQueryClient() },
+    compact === undefined
+      ? menu
+      : createElement(ComposerCompactProvider, { compact, children: menu }),
   );
+}
+
+function renderMenu(scaffold?: Scaffold) {
+  return render(menuElement(scaffold));
 }
 
 beforeEach(() => {
@@ -390,18 +508,9 @@ describe("Model Profile quick-add", () => {
 
 describe("Profile selection after conversation change (LUM-2279)", () => {
   test("selecting a profile works immediately after conversationId changes", async () => {
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    const tree = (convId: string) =>
-      createElement(
-        QueryClientProvider,
-        { client: qc },
-        createElement(ComposerSettingsMenu, {
-          assistantId: "assistant-1",
-          conversationId: convId,
-        }),
-      );
+    const queryClient = createQueryClient();
+    const tree = (conversationId: string) =>
+      menuElement({ props: { conversationId }, queryClient });
 
     const { rerender } = render(tree("conv-1"));
     // "Smart" now renders both on the composer trigger and in the menu row, so
@@ -474,7 +583,7 @@ describe("Profile trigger updates", () => {
     });
 
     renderMenu();
-    const trigger = await screen.findByLabelText("Model profile");
+    const trigger = await screen.findByLabelText(/^Model profile/);
     await waitFor(() => expect(trigger.textContent).toContain("Balanced"));
 
     const qualityItem = screen
@@ -510,41 +619,12 @@ describe("Profile trigger updates", () => {
 describe("Profile selection with no active conversation (new draft chat)", () => {
   test("stashes the selection for the draft instead of overwriting the global default", async () => {
     // Guard against a hanging/altered config impl leaking from a prior test.
-    configGetMock.mockImplementation(async () => ({
-      data: {
-        llm: {
-          profileOrder: ["smart"],
-          profiles: {
-            smart: {
-              label: "Smart",
-              provider: "anthropic",
-              model: "claude-fable-5",
-            },
-          },
-          activeProfile: "smart",
-        },
-      },
-    }));
+    configGetMock.mockImplementation(async () => ({ data: SMART_CONFIG }));
     // The composer is on a brand-new draft chat: a draft id lives in the store,
     // but there is no server conversation yet (conversationId prop undefined).
     useConversationStore.getState().setActiveConversationId("draft-xyz");
 
-    const qc = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
-    });
-    render(
-      createElement(
-        QueryClientProvider,
-        { client: qc },
-        createElement(ComposerSettingsMenu, {
-          assistantId: "assistant-1",
-          conversationId: undefined,
-        }),
-      ),
-    );
+    renderMenu({ props: { conversationId: undefined } });
 
     // "Smart" now renders both on the composer trigger and in the menu row, so
     // wait for at least one occurrence rather than asserting a single match.
@@ -574,21 +654,7 @@ describe("Profile activation rejected by the daemon", () => {
   /** Load the menu and click the "Smart" profile row. */
   async function selectSmart() {
     // Guard against a hanging/altered config impl leaking from a prior test.
-    configGetMock.mockImplementation(async () => ({
-      data: {
-        llm: {
-          profileOrder: ["smart"],
-          profiles: {
-            smart: {
-              label: "Smart",
-              provider: "anthropic",
-              model: "claude-fable-5",
-            },
-          },
-          activeProfile: "smart",
-        },
-      },
-    }));
+    configGetMock.mockImplementation(async () => ({ data: SMART_CONFIG }));
     renderMenu();
     await waitFor(() =>
       expect(screen.getAllByText("Smart").length).toBeGreaterThan(0),
@@ -637,42 +703,253 @@ describe("Profile activation rejected by the daemon", () => {
   });
 });
 
-describe("compact composer collapse", () => {
-  function renderCompact(segments: "both" | "access" | "profile") {
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
-    });
-    return render(
-      createElement(
-        QueryClientProvider,
-        { client: queryClient },
-        createElement(ComposerCompactProvider, {
-          compact: true,
-          children: createElement(ComposerSettingsMenu, {
-            assistantId: "assistant-1",
-            conversationId: "conv-1",
-            segments,
-          }),
-        }),
-      ),
-    );
+describe("mobile pill triggers", () => {
+  // Preset[1] ("Conservative") is what the mocked global threshold of 50
+  // resolves to, so it is the label the access trigger settles on.
+  const ACCESS_TRIGGER_LABEL = "Assistant access: Conservative";
+  // The fill the pills float on. Distinct from the composer card's own
+  // `--surface-lift`, which reads as no pill at all against the card.
+  const PILL_FILL_CLASS = "bg-[var(--border-subtle)]";
+
+  /**
+   * The pill's glyph sits at the design's 20px (Figma 7840-8818), so it rides
+   * as a child of the button rather than in the Button's own narrower icon
+   * box. Both classes matter: the box holds the space, the `svg` rule sizes
+   * the icon, which would otherwise render at its own default.
+   */
+  function expectGlyphSizedForPill(pill: HTMLElement) {
+    const glyph = pill.querySelector('span[aria-hidden="true"]');
+    const glyphClass = glyph?.getAttribute("class") ?? "";
+    expect(glyphClass).toContain("size-5");
+    expect(glyphClass).toContain("[&_svg]:size-5");
   }
 
+  beforeEach(() => {
+    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
+    // Guard against a hanging/altered impl leaking from a prior test.
+    configGetMock.mockImplementation(async () => ({ data: SMART_CONFIG }));
+    conversationsByIdGetMock.mockImplementation(async () => ({
+      data: { conversation: { inferenceProfile: null } },
+    }));
+  });
+
+  test("renders the resolved access and profile labels on the pills", async () => {
+    renderMenu();
+
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    expect(accessTrigger.textContent).toContain("Conservative");
+    expect(accessTrigger.getAttribute("class")).toContain(PILL_FILL_CLASS);
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    await waitFor(() => {
+      expect(profileTrigger.textContent).toContain("Smart");
+    });
+    expect(profileTrigger.getAttribute("class")).toContain(PILL_FILL_CLASS);
+  });
+
+  test("renders both pill glyphs at the design's 20px", async () => {
+    renderMenu();
+
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    expectGlyphSizedForPill(accessTrigger);
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    await waitFor(() => {
+      expect(profileTrigger.textContent).toContain("Smart");
+    });
+    expectGlyphSizedForPill(profileTrigger);
+  });
+
+  test("names the profile pill by the profile it displays", async () => {
+    // An aria-label overrides the pill's visible text, so a generic one leaves
+    // a screen reader unable to announce the selection and voice control unable
+    // to activate the pill by the words it shows.
+    renderMenu();
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    await waitFor(() => {
+      expect(profileTrigger.getAttribute("aria-label")).toBe(
+        "Model profile: Smart",
+      );
+    });
+    expect(profileTrigger.textContent).toContain("Smart");
+
+    // The access pill already carries its own selection in its name.
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    expect(accessTrigger.textContent).toContain("Conservative");
+  });
+
+  test("keeps the pill shape when the profile label never resolves", async () => {
+    // No profile to name, so the pill has no label to carry. It still has to
+    // hold the row's geometry: the action row's icon button would render a
+    // 40px circle beside the 32px access pill.
+    configGetMock.mockImplementation(async () => ({
+      data: { llm: { profileOrder: [], profiles: {}, activeProfile: null } },
+    }));
+    renderMenu();
+
+    const profileTrigger = await screen.findByLabelText("Model profile");
+    expect(profileTrigger.textContent).toBe("");
+    const pillClass = profileTrigger.getAttribute("class") ?? "";
+    expect(pillClass).toContain("h-8");
+    expect(pillClass).toContain("w-8");
+    expect(pillClass).toContain("rounded-full");
+    expect(pillClass).toContain(PILL_FILL_CLASS);
+    expectGlyphSizedForPill(profileTrigger);
+  });
+
+  test("tapping a pill opens the same bottom sheet and reports the open state", async () => {
+    const onOpenChange = mock((_open: boolean) => {});
+    renderMenu({ props: { onOpenChange } });
+
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    // iOS blurs the textarea before the click if pointerdown is allowed to
+    // move focus. The pill must cancel that transfer so the focus-gated row
+    // remains mounted long enough for the sheet trigger to receive the click.
+    expect(fireEvent.pointerDown(accessTrigger)).toBe(false);
+    fireEvent.click(accessTrigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    // The sheet the pill opens holds the same access rows the icon trigger
+    // opens today; picking one closes it again.
+    const relaxed = screen
+      .getAllByTestId("panel-item")
+      .find((row) => row.textContent?.includes("Relaxed"));
+    fireEvent.click(relaxed!);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
+  });
+
+  test("reports the profile sheet's open state too", async () => {
+    const onOpenChange = mock((_open: boolean) => {});
+    renderMenu({ props: { onOpenChange } });
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    fireEvent.click(profileTrigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    const smart = screen
+      .getAllByTestId("panel-item")
+      .find((row) => row.textContent?.includes("Smart"));
+    fireEvent.click(smart!);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
+  });
+
+  test("presses through to the menu in a narrow window with a mouse", async () => {
+    // Same pills, mouse pointer: the surface is a dropdown, which opens on the
+    // pointerdown itself. Cancelling that press to protect the touch sheet
+    // would leave the pill dead here, with no click activation to fall back on.
+    isTouchMobileRef.value = false;
+    const onOpenChange = mock((_open: boolean) => {});
+    renderMenu({ props: { onOpenChange } });
+
+    const accessTrigger = await screen.findByLabelText(ACCESS_TRIGGER_LABEL);
+    expect(fireEvent.pointerDown(accessTrigger)).toBe(true);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+  });
+
+  test("presses the profile pill through to its menu too", async () => {
+    isTouchMobileRef.value = false;
+    const onOpenChange = mock((_open: boolean) => {});
+    renderMenu({ props: { onOpenChange } });
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    await waitFor(() => {
+      expect(profileTrigger.textContent).toContain("Smart");
+    });
+    expect(fireEvent.pointerDown(profileTrigger)).toBe(true);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+  });
+});
+
+describe("open-state reporting across the quick-add and unmount", () => {
+  test("stays open while the quick-add modal it launched is up", async () => {
+    // The modal renders outside the composer, and opening it closes the sheet
+    // it was launched from. Reporting that close would put the pills row away
+    // mid-flow, under a modal the user is still filling in.
+    const onOpenChange = mock((_open: boolean) => {});
+    renderMenu({ props: { onOpenChange } });
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    fireEvent.pointerDown(profileTrigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    await waitFor(() => {
+      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      expect(plus.disabled).toBe(false);
+    });
+    fireEvent.click(screen.getByLabelText("New Profile"));
+    await waitFor(() => {
+      expect(openProfileQuickAdd).toHaveBeenCalledTimes(1);
+    });
+
+    // The surface closed, but the flow it started has not.
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
+
+    // The provider reports the modal's close, whether it saved or cancelled.
+    const onClosed = openProfileQuickAdd.mock.calls[0]![0]!.onClosed!;
+    act(() => onClosed());
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
+  });
+
+  test("reports closed when it unmounts with a surface open", async () => {
+    // Crossing the mobile breakpoint swaps the presentation and unmounts this
+    // instance. A parent left holding `true` would keep a row up that nothing
+    // is left to close.
+    const onOpenChange = mock((_open: boolean) => {});
+    const { unmount } = renderMenu({ props: { onOpenChange } });
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    fireEvent.pointerDown(profileTrigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    unmount();
+
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+  });
+
+  test("stays quiet when it unmounts with everything closed", async () => {
+    const onOpenChange = mock((_open: boolean) => {});
+    const { unmount } = renderMenu({ props: { onOpenChange } });
+
+    await screen.findByLabelText(/^Model profile/);
+    unmount();
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("compact composer collapse", () => {
   test("folds both segments into one hamburger trigger", async () => {
     // The composer mounts only the access-segment instance when compact, so
     // that instance has to carry the model profile too, or the picker is
     // unreachable on a narrow window.
-    renderCompact("access");
+    renderMenu({ compact: true, props: { segments: "access" } });
 
     const trigger = await screen.findByLabelText(
       "Assistant access and model profile",
     );
     expect(trigger).toBeTruthy();
     // No labelled split triggers alongside it.
-    expect(screen.queryByLabelText("Model profile")).toBeNull();
+    expect(screen.queryByLabelText(/^Model profile/)).toBeNull();
 
     await waitFor(() => {
       expect(screen.getByText("Smart")).toBeTruthy();
@@ -682,14 +959,80 @@ describe("compact composer collapse", () => {
     expect(screen.getByText("Model Profile")).toBeTruthy();
   });
 
+  test("reports the hamburger menu's open state", async () => {
+    // The compact branch is the only surface this instance opens, so a parent
+    // holding its trigger chrome visible has to hear about it too.
+    const onOpenChange = mock((_open: boolean) => {});
+    renderMenu({ compact: true, props: { segments: "access", onOpenChange } });
+
+    const trigger = await screen.findByLabelText(
+      "Assistant access and model profile",
+    );
+    fireEvent.pointerDown(trigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Smart")).toBeTruthy();
+    });
+    const smart = screen
+      .getAllByTestId("menu-item")
+      .find((row) => row.textContent?.includes("Smart"));
+    fireEvent.click(smart!);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
+  });
+
   test("stays split when the composer is wide", async () => {
     renderMenu();
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Model profile")).toBeTruthy();
+      expect(screen.getByLabelText(/^Model profile/)).toBeTruthy();
     });
     expect(
       screen.queryByLabelText("Assistant access and model profile"),
     ).toBeNull();
+  });
+
+  test("stops reporting open when the width swap unmounts the open branch", async () => {
+    // Resizing across the compact threshold unmounts whichever branch was
+    // open. Its flag survives the unmount, so the report has to follow the
+    // branch that is actually mounted or a parent holding trigger chrome
+    // visible never hears the surface close.
+    const onOpenChange = mock((_open: boolean) => {});
+    const queryClient = createQueryClient();
+    const tree = (compact: boolean) =>
+      menuElement({
+        compact,
+        queryClient,
+        props: { segments: "both", onOpenChange },
+      });
+
+    const { rerender } = render(tree(false));
+
+    const profileTrigger = await screen.findByLabelText(/^Model profile/);
+    fireEvent.pointerDown(profileTrigger);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    });
+
+    // The composer narrows: the split triggers give way to the hamburger.
+    rerender(tree(true));
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
+
+    // Widening back must not resurrect the surface the resize took away.
+    rerender(tree(false));
+    await screen.findByLabelText(/^Model profile/);
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    });
+    expect(onOpenChange.mock.calls.map((call) => call[0])).toEqual([
+      true,
+      false,
+    ]);
   });
 });

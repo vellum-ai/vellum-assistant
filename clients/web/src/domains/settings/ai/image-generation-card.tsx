@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
@@ -47,6 +48,7 @@ import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
 const DEFAULT_IMAGE_GEN_MODEL = "gemini-3.1-flash-image-preview";
 
 export function ImageGenerationCard() {
+  const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
   const isOrgReady = useIsOrgReady();
@@ -162,9 +164,7 @@ export function ImageGenerationCard() {
           body: { services: { "image-generation": imageGenService } },
         })
         .catch((error) => {
-          toast.error(
-            "Failed to update assistant configuration. Please try again.",
-          );
+          toast.error(t("imageGenerationCard.configUpdateFailedToast"));
           captureError(error, { context: "patch_daemon_config" });
           throw error;
         });
@@ -175,9 +175,7 @@ export function ImageGenerationCard() {
           throwOnError: true,
         });
       } catch (error) {
-        toast.error(
-          "Failed to update image generation model. Please try again.",
-        );
+        toast.error(t("imageGenerationCard.modelUpdateFailedToast"));
         captureError(error, { context: "set_image_gen_model" });
         throw error;
       } finally {
@@ -205,10 +203,10 @@ export function ImageGenerationCard() {
         void queryClient.invalidateQueries({ queryKey: presenceKey });
         setImageGenApiKey("");
       }
-      toast.success("Image generation settings saved.");
+      toast.success(t("imageGenerationCard.savedToast"));
     } catch (err) {
       captureError(err, { context: "settings-ai-image-gen-persist-local" });
-      toast.error("Saved, but local preferences could not be written.");
+      toast.error(t("imageGenerationCard.localPreferencesFailedToast"));
     }
   }, [
     imageGenApiKey,
@@ -219,6 +217,7 @@ export function ImageGenerationCard() {
     configMutation,
     provisionProviderKey,
     queryClient,
+    t,
   ]);
 
   const handleReset = useCallback(() => {
@@ -229,16 +228,16 @@ export function ImageGenerationCard() {
 
   return (
     <ByoServiceCard
-      title="Image Generation"
-      subtitle="Configure which model your assistant uses to generate images"
+      title={t("imageGenerationCard.title")}
+      subtitle={t("imageGenerationCard.subtitle")}
     >
       <div className="space-y-4">
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Provider
+            {t("imageGenerationCard.providerLabel")}
           </label>
           <Select
-            aria-label="Image generation provider"
+            aria-label={t("imageGenerationCard.providerAriaLabel")}
             value={provider}
             onChange={handleProviderChange}
             options={providerOptions}
@@ -247,20 +246,20 @@ export function ImageGenerationCard() {
 
         {provider === "vellum" && (
           <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            Image generation runs through your Vellum account.
+            {t("imageGenerationCard.vellumNote")}
           </p>
         )}
 
         {requiresApiKey && (
           <Input
-            label="API Key"
+            label={t("imageGenerationCard.apiKeyLabel")}
             type="password"
             value={imageGenApiKey}
             onChange={(e) => setImageGenApiKey(e.target.value)}
             placeholder={secretPlaceholder(
               provider === "openai"
-                ? "Enter your OpenAI API key"
-                : "Enter your Gemini API key",
+                ? t("imageGenerationCard.openaiApiKeyPlaceholder")
+                : t("imageGenerationCard.geminiApiKeyPlaceholder"),
               imageGenHasStoredKey,
             )}
             fullWidth
@@ -269,10 +268,10 @@ export function ImageGenerationCard() {
 
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Active Model
+            {t("imageGenerationCard.activeModelLabel")}
           </label>
           <Select
-            aria-label="Image generation model"
+            aria-label={t("imageGenerationCard.modelAriaLabel")}
             value={effectiveModel}
             onChange={setImageGenModel}
             options={modelOptions}

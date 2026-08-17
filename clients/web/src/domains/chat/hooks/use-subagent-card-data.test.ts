@@ -40,7 +40,6 @@ function makeEntry(
     isFork: false,
     inputTokens: 0,
     outputTokens: 0,
-    totalCost: 0,
     spawnedAt: NOW,
     events: [],
     ...overrides,

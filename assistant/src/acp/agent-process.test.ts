@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { AcpAgentProcess } from "./agent-process.js";
+import { AcpAuthRequiredError, isAcpAuthRequired } from "./auth-required.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const config: AcpAgentConfig = { command: "noop", args: [] };
@@ -112,5 +113,104 @@ describe("AcpAgentProcess.markStderr / stderrSince", () => {
     feed(proc, "fresh failure");
 
     expect(proc.stderrSince(mark)).toBe("fresh failure");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createSession: structured auth_required handling through the real retry path
+// ---------------------------------------------------------------------------
+
+/**
+ * Wires a process with a fake protocol connection and advertised auth methods,
+ * following the same no-child-process injection style as `feed` above. The
+ * retry logic under test (`withAuthRetry`, method selection, the typed throw)
+ * runs for real.
+ */
+function wireProcess(opts: {
+  authMethods: unknown[];
+  newSession: () => Promise<unknown>;
+  env?: Record<string, string>;
+}): { proc: AcpAgentProcess; authenticateCalls: () => number } {
+  const proc = new AcpAgentProcess("test-agent", config, clientFactory);
+  let authed = 0;
+  (proc as unknown as { connection: unknown }).connection = {
+    newSession: opts.newSession,
+    authenticate: async () => {
+      authed += 1;
+      return {};
+    },
+  };
+  (proc as unknown as { initializeResponse: unknown }).initializeResponse = {
+    authMethods: opts.authMethods,
+  };
+  (proc as unknown as { spawnedEnv: unknown }).spawnedEnv = opts.env ?? {};
+  return { proc, authenticateCalls: () => authed };
+}
+
+const TERMINAL_ONLY_METHODS = [
+  { id: "claude-ai-login", name: "Claude Subscription", type: "terminal" },
+];
+
+describe("AcpAgentProcess.createSession auth_required handling", () => {
+  test("a structured auth_required rejection with only terminal methods becomes AcpAuthRequiredError", async () => {
+    // The wire shape the adapter actually sends: a plain JSON-RPC error
+    // object, not an Error subclass. With no satisfiable env_var method the
+    // retry path must surface the typed error the session manager and the
+    // spawn tool classify on; losing the type here silently degrades the
+    // whole recovery surface back into a generic failure.
+    const { proc } = wireProcess({
+      authMethods: TERMINAL_ONLY_METHODS,
+      newSession: () =>
+        Promise.reject({ code: -32000, message: "Authentication required" }),
+    });
+
+    const err: unknown = await proc.createSession("/tmp").then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(AcpAuthRequiredError);
+    expect((err as AcpAuthRequiredError).agentId).toBe("test-agent");
+    expect(isAcpAuthRequired(err)).toBe(true);
+  });
+
+  test("a satisfiable env_var method authenticates and retries instead of throwing", async () => {
+    let calls = 0;
+    const { proc, authenticateCalls } = wireProcess({
+      authMethods: [
+        {
+          id: "api-key",
+          name: "Use SOME_KEY",
+          type: "env_var",
+          vars: [{ name: "SOME_KEY" }],
+        },
+      ],
+      env: { SOME_KEY: "value" },
+      newSession: () => {
+        calls += 1;
+        return calls === 1
+          ? Promise.reject({ code: -32000, message: "Authentication required" })
+          : Promise.resolve({ sessionId: "session-1" });
+      },
+    });
+
+    await expect(proc.createSession("/tmp")).resolves.toBe("session-1");
+    expect(authenticateCalls()).toBe(1);
+  });
+
+  test("a non-auth rejection passes through untyped", async () => {
+    const { proc } = wireProcess({
+      authMethods: TERMINAL_ONLY_METHODS,
+      newSession: () =>
+        Promise.reject({ code: -32603, message: "Internal error" }),
+    });
+
+    const err: unknown = await proc.createSession("/tmp").then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(err).not.toBeInstanceOf(AcpAuthRequiredError);
+    expect(isAcpAuthRequired(err)).toBe(false);
   });
 });

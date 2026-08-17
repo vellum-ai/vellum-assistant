@@ -20,6 +20,7 @@ import {
   packageName,
   resolvePackage,
 } from "../bundler/package-resolver.js";
+import { ensureBun } from "../util/bun-runtime.js";
 
 // ---------------------------------------------------------------------------
 // Shared temp directory
@@ -54,6 +55,29 @@ async function scaffold(
     await writeFile(filePath, content);
   }
   return appDir;
+}
+
+/**
+ * Download `pkg` into bun's global module cache via a throwaway install.
+ *
+ * `resolvePackage` bounds its own install at INSTALL_TIMEOUT_MS (10s), which a
+ * cold global cache can exceed for a large package on a slow network. Priming
+ * first is unbounded, so the install the test measures resolves from cache and
+ * stays well inside that bound.
+ */
+async function primeBunCache(pkg: string): Promise<void> {
+  const primeDir = join(tempDir, `prime-${pkg.replaceAll(/[^a-z0-9]/gi, "-")}`);
+  await mkdir(primeDir, { recursive: true });
+  await writeFile(
+    join(primeDir, "package.json"),
+    JSON.stringify({ name: "prime-cache", private: true }),
+  );
+  const proc = Bun.spawn([await ensureBun(), "install", "--no-save", pkg], {
+    cwd: primeDir,
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  await proc.exited;
 }
 
 const MINIMAL_HTML = `<!DOCTYPE html>
@@ -466,10 +490,21 @@ describe("package-resolver", () => {
     expect(ALLOWED_PACKAGES).toContain("clsx");
   });
 
-  // `lucide` (the vanilla package) unpacks to ~29 MB, far above the resolver's
-  // size cap, so it is installed then deleted and never resolves. It also
-  // exports icon data arrays, not Preact components. Apps use inline SVG.
+  // `lucide` (the vanilla package) exports icon data arrays, not Preact
+  // components, and unpacks to ~29 MB for no benefit. Apps use inline SVG.
   test("ALLOWED_PACKAGES excludes lucide", () => {
     expect(ALLOWED_PACKAGES).not.toContain("lucide");
   });
+
+  // `chart.js` is a large allowlisted package: it must install into the shared
+  // cache and resolve so apps importing it can compile.
+  test("resolvePackage installs a large allowlisted package", async () => {
+    await primeBunCache("chart.js");
+
+    const result = await resolvePackage("chart.js");
+    expect(result).not.toBeNull();
+    expect(existsSync(join(getCacheDir(), "node_modules", "chart.js"))).toBe(
+      true,
+    );
+  }, 60_000);
 });
