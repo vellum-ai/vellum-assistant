@@ -13,6 +13,7 @@ import {
   listUsageEvents,
   queryUnreportedUsageEvents,
   recordUsageEvent,
+  resolveSpawnAttribution,
 } from "../persistence/llm-usage-store.js";
 import type { PricingResult, UsageEventInput } from "../usage/types.js";
 
@@ -1761,6 +1762,90 @@ describe("countRealUserTurns", () => {
     expect(countRealUserTurns("conv-tr2")).toBe(1);
     const events = queryUnreportedUsageEvents(0, undefined, 100);
     expect(events[0].turnIndex).toBe(1);
+  });
+});
+
+// `resolveSpawnAttribution` and the flush query's `parent_conversation_id`
+// column are the same SQL expression, so the live billing-origin snapshot and
+// the telemetry row cannot disagree about who spawned a conversation.
+describe("resolveSpawnAttribution", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+  });
+
+  /** Resolve the same conversation through the telemetry flush query. */
+  function telemetryParentFor(conversationId: string): string | null {
+    insertEventAt(9000, { conversationId });
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    return events[0].parentConversationId;
+  }
+
+  test("a subagent parent wins over a fork parent", () => {
+    getDb().run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, parent_conversation_id, fork_parent_conversation_id)
+       VALUES ('child-1', 'background', 3000, 3000, 'parent-1', 'source-1')`,
+    );
+
+    expect(resolveSpawnAttribution("child-1").spawnParentConversationId).toBe(
+      "parent-1",
+    );
+    expect(telemetryParentFor("child-1")).toBe("parent-1");
+  });
+
+  test("a background fork falls back to the fork parent", () => {
+    getDb().run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, fork_parent_conversation_id)
+       VALUES ('retro-1', 'background', 3000, 3000, 'source-1')`,
+    );
+
+    expect(resolveSpawnAttribution("retro-1").spawnParentConversationId).toBe(
+      "source-1",
+    );
+    expect(telemetryParentFor("retro-1")).toBe("source-1");
+  });
+
+  test("a standard (user-initiated) fork resolves no spawn parent", () => {
+    getDb().run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, fork_parent_conversation_id)
+       VALUES ('user-fork', 'standard', 3000, 3000, 'source-1')`,
+    );
+
+    expect(
+      resolveSpawnAttribution("user-fork").spawnParentConversationId,
+    ).toBeNull();
+    expect(telemetryParentFor("user-fork")).toBeNull();
+  });
+
+  test("a missing conversation resolves to no parent and no cutoff", () => {
+    expect(resolveSpawnAttribution("conv-absent")).toEqual({
+      spawnParentConversationId: null,
+      cutoffCreatedAt: undefined,
+    });
+  });
+
+  test("the cutoff is child creation for a spawn and the fork boundary for a fork", () => {
+    const db = getDb();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('source-2', 'standard', 500, 500)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('b1', 'source-2', 'user', 'boundary', 1200)`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, parent_conversation_id)
+       VALUES ('child-2', 'background', 3000, 3000, 'parent-2')`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, fork_parent_conversation_id, fork_parent_message_id)
+       VALUES ('retro-2', 'background', 4000, 4000, 'source-2', 'b1')`,
+    );
+
+    expect(resolveSpawnAttribution("child-2").cutoffCreatedAt).toBe(3000);
+    expect(resolveSpawnAttribution("retro-2").cutoffCreatedAt).toBe(1200);
   });
 });
 

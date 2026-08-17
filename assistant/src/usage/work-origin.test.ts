@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   buildUsageOriginSnapshot,
   classifyWorkOrigin,
-  resolveSpawnParentConversationId,
   type WorkOrigin,
   type WorkOriginInput,
 } from "./work-origin.js";
@@ -484,99 +483,37 @@ describe("classifyWorkOrigin residual-bucket guard: unrecognized combinations st
   }
 });
 
-describe("resolveSpawnParentConversationId", () => {
-  test("subagent parent wins over a fork parent", () => {
-    expect(
-      resolveSpawnParentConversationId({
-        parentConversationId: "parent-1",
-        conversationType: "background",
-        forkParentConversationId: "source-1",
-      }),
-    ).toBe("parent-1");
-  });
-
-  test("background fork falls back to the fork parent", () => {
-    expect(
-      resolveSpawnParentConversationId({
-        parentConversationId: null,
-        conversationType: "background",
-        forkParentConversationId: "source-1",
-      }),
-    ).toBe("source-1");
-  });
-
-  test("standard (user-initiated) fork does NOT resolve the fork parent", () => {
-    expect(
-      resolveSpawnParentConversationId({
-        parentConversationId: null,
-        conversationType: "standard",
-        forkParentConversationId: "source-1",
-      }),
-    ).toBeNull();
-  });
-
-  test("no parent and no fork resolves to null", () => {
-    expect(
-      resolveSpawnParentConversationId({
-        parentConversationId: null,
-        conversationType: "standard",
-        forkParentConversationId: null,
-      }),
-    ).toBeNull();
-  });
-});
-
-describe("buildUsageOriginSnapshot spawn-parent resolution", () => {
-  // A retrospective-fork background conversation: no live subagent parent, but
-  // its `fork_parent_conversation_id` points back at the source. The snapshot
-  // resolves the fork parent and classifies `delegated_child`, matching the
-  // telemetry read path's `parentIdSql` fallback plus `classifyWorkOrigin` for
-  // the same conversation.
-  test("retrospective fork carries the fork parent and classifies delegated_child", () => {
+describe("buildUsageOriginSnapshot", () => {
+  // The spawn parent reaches the snapshot already resolved, by
+  // `resolveSpawnAttribution` on the store: the same expression the telemetry
+  // read path reads. A resolved parent classifies the call as delegated work
+  // whatever the conversation's own source says.
+  test("a resolved spawn parent carries through and classifies delegated_child", () => {
     const snapshot = buildUsageOriginSnapshot({
       conversationType: "background",
       conversationSource: "memory-retrospective",
       callSite: "memoryRetrospective",
       conversationId: "retro-1",
       turnIndex: 1,
-      parentConversationId: null,
-      forkParentConversationId: "source-1",
+      parentConversationId: "source-1",
       parentTurnIndex: null,
+      cronRunId: null,
     });
     expect(snapshot.parentConversationId).toBe("source-1");
     expect(snapshot.workOrigin).toBe("delegated_child");
-    // Telemetry resolves the identical parent for the same row and runs the
-    // same classifier, so the two agree.
+    // Telemetry runs the same classifier over the same resolved parent, so the
+    // two surfaces agree.
     expect(
       classifyWorkOrigin({
         conversationType: "background",
         conversationSource: "memory-retrospective",
         callSite: "memoryRetrospective",
-        parentConversationId: resolveSpawnParentConversationId({
-          parentConversationId: null,
-          conversationType: "background",
-          forkParentConversationId: "source-1",
-        }),
+        parentConversationId: "source-1",
       }),
     ).toBe("delegated_child");
   });
 
-  test("subagent spawn keeps the live parent (fork parent unset)", () => {
-    const snapshot = buildUsageOriginSnapshot({
-      conversationType: "background",
-      conversationSource: "subagent",
-      callSite: "subagentSpawn",
-      conversationId: "child-1",
-      turnIndex: 1,
-      parentConversationId: "parent-1",
-      forkParentConversationId: null,
-      parentTurnIndex: null,
-    });
-    expect(snapshot.parentConversationId).toBe("parent-1");
-    expect(snapshot.workOrigin).toBe("delegated_child");
-  });
-
-  test("standard user fork keeps itself (no delegated attribution)", () => {
+  test("no spawn parent keeps the conversation's own attribution", () => {
     const snapshot = buildUsageOriginSnapshot({
       conversationType: "standard",
       conversationSource: "user",
@@ -584,10 +521,29 @@ describe("buildUsageOriginSnapshot spawn-parent resolution", () => {
       conversationId: "user-fork-1",
       turnIndex: 2,
       parentConversationId: null,
-      forkParentConversationId: "source-1",
       parentTurnIndex: null,
+      cronRunId: null,
     });
     expect(snapshot.parentConversationId).toBeNull();
     expect(snapshot.workOrigin).toBe("user_interactive");
+  });
+
+  // A wake or defer schedule fires inside an ordinary conversation whose type
+  // and source stay standard/user, so the firing's run id is the only signal
+  // that the spend is schedule-driven. It rides the snapshot for both the
+  // billing headers and the auto-recorded usage row.
+  test("a cron run id classifies a standard conversation as user_created_schedule", () => {
+    const snapshot = buildUsageOriginSnapshot({
+      conversationType: "standard",
+      conversationSource: "user",
+      callSite: "mainAgent",
+      conversationId: "conv-123",
+      turnIndex: 3,
+      parentConversationId: null,
+      parentTurnIndex: null,
+      cronRunId: "cron-run-1",
+    });
+    expect(snapshot.cronRunId).toBe("cron-run-1");
+    expect(snapshot.workOrigin).toBe("user_created_schedule");
   });
 });

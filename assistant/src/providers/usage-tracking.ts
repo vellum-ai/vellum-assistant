@@ -93,6 +93,11 @@ export class UsageTrackingProvider implements Provider {
           rawUsage: extractRawUsage(response.rawResponse),
           conversationId: config.conversationId ?? null,
           runId: null,
+          // The schedule firing behind the call, from the turn's immutable
+          // origin snapshot. A wake or defer schedule fires inside a
+          // conversation whose type and source stay standard, so this is what
+          // classifies the row as schedule-driven work.
+          cronRunId: config.usageOriginSnapshot?.cronRunId ?? null,
           requestId: null,
           callSite: attribution.callSite,
           inferenceProfile: attribution.appliedProfile,

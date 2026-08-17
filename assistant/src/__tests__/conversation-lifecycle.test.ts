@@ -135,6 +135,50 @@ function defaultConv() {
   };
 }
 
+// Cache warming is a managed LLM call like any other. Without the conversation
+// on its config the provider layer derives conversationless `other_system`
+// billing origin for spend caused by a specific conversation.
+describe("Conversation prompt cache warming", () => {
+  test("attributes the warming call to its own conversation", async () => {
+    const sentConfigs: Array<Record<string, unknown>> = [];
+    const provider = {
+      name: "mock",
+      sendMessage: async (
+        _messages: unknown,
+        options?: { config?: Record<string, unknown> },
+      ) => {
+        if (options?.config) {
+          sentConfigs.push(options.config);
+        }
+        return {
+          content: [],
+          model: "mock",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          stopReason: "end_turn" as const,
+        };
+      },
+    };
+    const conv = new Conversation(
+      "conv-warm",
+      provider,
+      "system prompt",
+      () => {},
+      "/tmp",
+      { maxTokens: 4096 },
+    );
+
+    conv.warmPromptCache();
+    await Promise.resolve();
+
+    expect(sentConfigs).toHaveLength(1);
+    expect(sentConfigs[0]).toMatchObject({
+      callSite: "mainAgent",
+      usageTracking: "manual",
+      conversationId: "conv-warm",
+    });
+  });
+});
+
 describe("Conversation — subagent identity", () => {
   test("is not a subagent by default", () => {
     const conv = makeConversation();
@@ -153,9 +197,10 @@ describe("Conversation — subagent identity", () => {
 
   // A conversation rehydrated after eviction or a daemon restart is
   // constructed without a parent, so the row is the only place its spawn
-  // linkage survives. Losing it costs the billing-origin snapshot its
-  // parent-linkage headers while telemetry still resolves the parent.
-  test("loadFromDb hydrates the parent from the row and the snapshot carries it", async () => {
+  // linkage survives. The billing-origin snapshot reads the conversation's own
+  // metadata off the live object, so a rehydrated child still classifies as
+  // delegated work.
+  test("loadFromDb hydrates the parent and the source the snapshot classifies from", async () => {
     mockConversation = {
       ...defaultConv(),
       conversationType: "background",
@@ -171,8 +216,7 @@ describe("Conversation — subagent identity", () => {
     expect(conv.parentConversationId).toBe("parent-row");
     expect(conv.isSubagent).toBe(true);
 
-    const snapshot = buildTurnUsageOriginSnapshot(conv, "subagentSpawn");
-    expect(snapshot.parentConversationId).toBe("parent-row");
+    const snapshot = buildTurnUsageOriginSnapshot(conv, "subagentSpawn", null);
     expect(snapshot.conversationSource).toBe("subagent");
     expect(snapshot.workOrigin).toBe("delegated_child");
   });

@@ -706,6 +706,7 @@ describe("SubagentManager.spawn (fire-and-forget) — unaffected", () => {
     const snapshot = buildTurnUsageOriginSnapshot(
       conversation as ConversationUsageOriginContext,
       "subagentSpawn",
+      null,
     );
     expect(snapshot.conversationSource).toBe("subagent");
     expect(snapshot.workOrigin).toBe("delegated_child");

@@ -78,10 +78,9 @@ describe("buildTurnUsageOriginSnapshot", () => {
         conversationId: "conv-user",
         conversationType: "standard",
         source: "user",
-        parentConversationId: null,
-        forkParentConversationId: null,
       },
       "mainAgent",
+      null,
     );
 
     expect(snapshot.turnIndex).toBe(2);
@@ -111,10 +110,9 @@ describe("buildTurnUsageOriginSnapshot", () => {
         conversationId: "child-1",
         conversationType: "background",
         source: "subagent",
-        parentConversationId: "parent-1",
-        forkParentConversationId: null,
       },
       "subagentSpawn",
+      null,
     );
 
     expect(snapshot.parentConversationId).toBe("parent-1");
@@ -148,10 +146,9 @@ describe("buildTurnUsageOriginSnapshot", () => {
         conversationId: "retro-1",
         conversationType: "background",
         source: "memory-retrospective-fork",
-        parentConversationId: null,
-        forkParentConversationId: "source-1",
       },
       "memoryRetrospective",
+      null,
     );
 
     expect(snapshot.parentConversationId).toBe("source-1");
@@ -187,10 +184,9 @@ describe("buildTurnUsageOriginSnapshot", () => {
         conversationId: "retro-2",
         conversationType: "background",
         source: "memory-retrospective-fork",
-        parentConversationId: null,
-        forkParentConversationId: "source-3",
       },
       "memoryRetrospective",
+      null,
     );
 
     expect(snapshot.parentConversationId).toBe("source-3");
@@ -203,8 +199,13 @@ describe("buildTurnUsageOriginSnapshot", () => {
   });
 
   test("user-initiated (standard) fork does not inherit fork-parent attribution", () => {
+    const db = getDb();
     insertConversation("source-2");
-    insertConversation("user-fork");
+    // A user-initiated fork stamps the same fork lineage a retrospective does,
+    // but stays a first-class standard conversation whose spend is its own.
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, fork_parent_conversation_id) VALUES ('user-fork', 'standard', 2000, 2000, 'source-2')`,
+    );
     insertUserMessage("s1", "source-2", 1000);
     insertUserMessage("f1", "user-fork", 2000);
 
@@ -213,14 +214,37 @@ describe("buildTurnUsageOriginSnapshot", () => {
         conversationId: "user-fork",
         conversationType: "standard",
         source: "user",
-        parentConversationId: null,
-        forkParentConversationId: "source-2",
       },
       "mainAgent",
+      null,
     );
 
     expect(snapshot.parentConversationId).toBeNull();
     expect(snapshot.parentTurnIndex).toBeNull();
     expect(snapshot.workOrigin).toBe("user_interactive");
+  });
+
+  // A wake or defer schedule fires inside a conversation whose persisted type
+  // and source stay standard/user, so the firing's run id is the only signal
+  // that the turn is schedule-driven. Both the billing headers and the
+  // auto-recorded usage row must see it.
+  test("a schedule firing classifies a standard conversation as user_created_schedule", () => {
+    insertConversation("conv-wake");
+    insertUserMessage("w1", "conv-wake", 1000);
+
+    const snapshot = buildTurnUsageOriginSnapshot(
+      {
+        conversationId: "conv-wake",
+        conversationType: "standard",
+        source: "user",
+      },
+      "mainAgent",
+      "cron-run-1",
+    );
+
+    expect(snapshot.cronRunId).toBe("cron-run-1");
+    expect(snapshot.workOrigin).toBe("user_created_schedule");
+    expect(snapshot.conversationType).toBe("standard");
+    expect(snapshot.conversationSource).toBe("user");
   });
 });

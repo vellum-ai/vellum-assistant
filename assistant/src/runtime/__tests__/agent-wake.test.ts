@@ -350,6 +350,7 @@ mock.module("../../persistence/llm-request-log-store.js", () => ({
 const buildTurnUsageOriginSnapshotCalls: Array<{
   conversationId: string;
   callSite: string | null;
+  cronRunId: string | null;
 }> = [];
 const SENTINEL_USAGE_ORIGIN_SNAPSHOT = {
   conversationType: "background",
@@ -359,15 +360,18 @@ const SENTINEL_USAGE_ORIGIN_SNAPSHOT = {
   turnIndex: 2,
   parentConversationId: "sentinel-parent",
   parentTurnIndex: 5,
+  cronRunId: null,
 };
 mock.module("../../usage/usage-origin-snapshot.js", () => ({
   buildTurnUsageOriginSnapshot: (
     conversation: { conversationId: string },
     callSite: string | null,
+    cronRunId: string | null,
   ) => {
     buildTurnUsageOriginSnapshotCalls.push({
       conversationId: conversation.conversationId,
       callSite,
+      cronRunId,
     });
     return SENTINEL_USAGE_ORIGIN_SNAPSHOT;
   },
@@ -712,11 +716,43 @@ describe("wakeAgentForOpportunity", () => {
     // site, then forwarded the exact snapshot onto the run config, so the
     // managed proxy sends the same X-Vellum-* headers a normal turn would.
     expect(buildTurnUsageOriginSnapshotCalls).toEqual([
-      { conversationId: "retro-fork-1", callSite: "memoryRetrospective" },
+      {
+        conversationId: "retro-fork-1",
+        callSite: "memoryRetrospective",
+        cronRunId: null,
+      },
     ]);
     expect(conversation.runCalls[0]!.usageOriginSnapshot).toBe(
       SENTINEL_USAGE_ORIGIN_SNAPSHOT,
     );
+  });
+
+  // A wake fired by a schedule runs in a conversation whose type and source
+  // stay standard, so the firing's run id is the only signal the spend is
+  // schedule-driven. It has to reach the snapshot the wake stamps.
+  test("passes the wake's cron run id into the billing-origin snapshot", async () => {
+    const conversation = makeWakeConversation({
+      conversationId: "wake-scheduled-1",
+      scriptedAssistant: null,
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "scheduled",
+        source: "schedule",
+        cronRunId: "cron-run-1",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(buildTurnUsageOriginSnapshotCalls).toEqual([
+      {
+        conversationId: "wake-scheduled-1",
+        callSite: "mainAgent",
+        cronRunId: "cron-run-1",
+      },
+    ]);
   });
 
   test("blocks background wakes during disk pressure before marking processing", async () => {

@@ -469,16 +469,6 @@ export async function runAgentLoopImpl(
   // injection assembly self-resolves it for the turn's plugin contexts.
   ctx.currentCallSite = turnCallSite;
 
-  // Immutable record-time usage attribution for every LLM call this turn emits,
-  // carrying the same work-origin classification the `llm_usage` telemetry
-  // derives, so managed billing rows and usage telemetry share one vocabulary.
-  // Both turn indexes count the same real-user-turn population the telemetry
-  // read path counts, and the spawn-parent precedence matches the telemetry
-  // `parentIdSql`, so a retrospective fork classifies as `delegated_child` and
-  // carries its parent turn index on both paths. The wake path builds the
-  // identical snapshot through the same helper.
-  const usageOriginSnapshot = buildTurnUsageOriginSnapshot(ctx, turnCallSite);
-
   // Expose the turn's request origin (e.g. "memory_consolidation") on the live
   // conversation so the tool context — and through it `buildPolicyContext` —
   // can scope narrow non-interactive permission auto-grants to a specific
@@ -489,6 +479,22 @@ export async function runAgentLoopImpl(
   // conversation) so a reused conversation attributes each turn to its own
   // firing.
   const turnCronRunId = options?.cronRunId ?? null;
+
+  // Immutable record-time usage attribution for every LLM call this turn emits,
+  // carrying the same work-origin classification the `llm_usage` telemetry
+  // derives, so managed billing rows and usage telemetry share one vocabulary.
+  // Both turn indexes count the same real-user-turn population the telemetry
+  // read path counts, and the spawn parent comes from the same expression the
+  // telemetry read path reads, so a retrospective fork classifies as
+  // `delegated_child` and carries its parent turn index on both paths. The
+  // firing's run id classifies a wake or defer schedule that fired inside an
+  // ordinary conversation. The wake path builds the identical snapshot through
+  // the same helper.
+  const usageOriginSnapshot = buildTurnUsageOriginSnapshot(
+    ctx,
+    turnCallSite,
+    turnCronRunId,
+  );
 
   // Optional per-turn inference-profile override. Plumbed through to every
   // LLM call the loop emits and inherited by any subagents spawned during

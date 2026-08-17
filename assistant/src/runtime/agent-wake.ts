@@ -1477,11 +1477,12 @@ export async function wakeAgentForOpportunity(
       // Immutable record-time usage attribution for every LLM call this wake
       // emits. Built from the same helper `runAgentLoopImpl` uses, so a
       // scheduled, retrospective, or background wake carries the same
-      // work-origin classification, turn indexes, and spawn-parent linkage as a
-      // normal turn.
+      // work-origin classification, turn indexes, spawn-parent linkage, and
+      // schedule firing as a normal turn.
       const usageOriginSnapshot = buildTurnUsageOriginSnapshot(
         conversation,
         callSite,
+        opts.cronRunId ?? null,
       );
 
       let updatedHistory: Message[];

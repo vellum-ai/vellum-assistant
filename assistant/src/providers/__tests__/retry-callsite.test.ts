@@ -32,6 +32,7 @@ import { initializeDb } from "../../persistence/db-init.js";
 import { resetFallbackUsageOriginCacheForTests } from "../../usage/fallback-usage-origin.js";
 import { resetSubagentAttributionCacheForTests } from "../../usage/subagent-attribution.js";
 import {
+  buildUsageOriginSnapshot,
   classifyWorkOrigin,
   type UsageOriginSnapshot,
 } from "../../usage/work-origin.js";
@@ -98,6 +99,7 @@ function makeSnapshot(
     turnIndex: null,
     parentConversationId: null,
     parentTurnIndex: null,
+    cronRunId: null,
     ...overrides,
   };
 }
@@ -976,6 +978,32 @@ describe("RetryProvider: billing-origin headers", () => {
     expect(headers["X-Vellum-Parent-Conversation-Id"]).toBe("conv-root");
     expect(headers["X-Vellum-Parent-Turn-Index"]).toBe("5");
     expect(headers["X-Vellum-Work-Origin"]).toBe("delegated_child");
+  });
+
+  // A wake or defer schedule fires inside a conversation whose type and source
+  // stay standard/user. The firing's run id is carried on the snapshot, never
+  // as its own header: `X-Vellum-Work-Origin` is the billing signal.
+  test("a snapshot carrying a cron run id bills as user_created_schedule", async () => {
+    const config = await sendWithSnapshot(
+      buildUsageOriginSnapshot({
+        conversationType: "standard",
+        conversationSource: "user",
+        callSite: "mainAgent",
+        conversationId: "conv-wake",
+        turnIndex: 2,
+        parentConversationId: null,
+        parentTurnIndex: null,
+        cronRunId: "cron-run-1",
+      }),
+    );
+    const headers = config.usageAttributionHeaders as Record<string, string>;
+    expect(headers["X-Vellum-Work-Origin"]).toBe("user_created_schedule");
+    expect(headers["X-Vellum-Conversation-Type"]).toBe("standard");
+    expect(headers["X-Vellum-Conversation-Id"]).toBe("conv-wake");
+    // The run id itself is not a wire header.
+    expect(Object.keys(headers).some((name) => name.includes("Cron"))).toBe(
+      false,
+    );
   });
 
   test("turn index 0 is a valid non-negative integer and is emitted", async () => {

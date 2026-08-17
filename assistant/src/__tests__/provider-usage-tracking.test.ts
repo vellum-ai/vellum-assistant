@@ -6,6 +6,7 @@ import { listUsageEvents } from "../persistence/llm-usage-store.js";
 import { CallSiteConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 import { UsageTrackingProvider } from "../providers/usage-tracking.js";
+import { buildUsageOriginSnapshot } from "../usage/work-origin.js";
 import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
@@ -120,6 +121,74 @@ describe("UsageTrackingProvider", () => {
       callSite: "conversationTitle",
       conversationId: "conv-123",
     });
+  });
+
+  // The turn's origin snapshot carries the schedule firing behind the call. A
+  // wake or defer schedule fires inside a conversation whose type and source
+  // stay standard, so the run id on the row is what makes the auto-recorded
+  // usage classify as schedule-driven, exactly as the billing headers do.
+  test("stamps the origin snapshot's cron run id on the recorded row", async () => {
+    const provider = new UsageTrackingProvider(
+      makeProvider({
+        content: [{ type: "text", text: "ok" }],
+        model: "gpt-5.4-mini",
+        usage: {
+          inputTokens: 1_000,
+          outputTokens: 2_000,
+        },
+        stopReason: "end_turn",
+      }),
+    );
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Do the thing" }] }],
+      {
+        config: {
+          callSite: "conversationTitle",
+          conversationId: "conv-123",
+          usageOriginSnapshot: buildUsageOriginSnapshot({
+            conversationType: "standard",
+            conversationSource: "user",
+            callSite: "conversationTitle",
+            conversationId: "conv-123",
+            turnIndex: 1,
+            parentConversationId: null,
+            parentTurnIndex: null,
+            cronRunId: "cron-run-1",
+          }),
+        },
+      },
+    );
+
+    const events = listUsageEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      conversationId: "conv-123",
+      cronRunId: "cron-run-1",
+    });
+  });
+
+  test("records a null cron run id when the call carries no origin snapshot", async () => {
+    const provider = new UsageTrackingProvider(
+      makeProvider({
+        content: [{ type: "text", text: "ok" }],
+        model: "gpt-5.4-mini",
+        usage: {
+          inputTokens: 10,
+          outputTokens: 5,
+        },
+        stopReason: "end_turn",
+      }),
+    );
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Summarize" }] }],
+      { config: { callSite: "conversationTitle" } },
+    );
+
+    const events = listUsageEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0].cronRunId).toBeNull();
   });
 
   test("uses the transport provider when resolved attribution points elsewhere", async () => {

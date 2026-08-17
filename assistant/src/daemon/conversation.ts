@@ -1052,6 +1052,11 @@ export class Conversation {
           max_tokens: 1,
           callSite: "mainAgent",
           usageTracking: "manual",
+          // Attribution only: the managed transport derives this call's
+          // billing-origin headers from the conversation it warms the cache
+          // for, so the warming spend lands on that conversation rather than
+          // reading as conversationless system work.
+          conversationId: this.conversationId,
         },
         signal: abort.signal,
       })
