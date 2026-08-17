@@ -1483,7 +1483,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   test("a failed recovery restores the connection slot the prime nulled", async () => {
     /**
      * The paired branch of primeLocalGatewayConnection clears the slot
-     * before its readyz probe. Without the restore, a failed recovery
+     * when its readyz probe fails. Without the restore, a failed recovery
      * strands the renderer with no ingress route, and this interceptor
      * (which matches on the ingress URL) could never fire again.
      */

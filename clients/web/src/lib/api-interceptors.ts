@@ -580,7 +580,7 @@ async function recoverRemoteGatewaySessionInPlace(): Promise<boolean> {
 
 async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
   // The paired branch of primeLocalGatewayConnection clears the
-  // connection slot before its readyz probe, so a failed recovery would
+  // connection slot when its readyz probe fails, so a failed recovery would
   // otherwise leave the renderer with no ingress route and this
   // interceptor with no ingress to match, disabling every future
   // attempt. Snapshot the slot and put it back only if the prime dies
