@@ -31,8 +31,13 @@ jobs:
         with:
           global-json-file: clients/windows/native/global.json
 
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2.0.0
+      - name: Locate MSBuild
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          if (-not $msbuild) { throw "MSBuild not found" }
+          "MSBUILD_EXE_PATH=$msbuild" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Integrate vcpkg with MSBuild
         run: vcpkg integrate install
