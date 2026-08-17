@@ -19,6 +19,8 @@ import {
   isActiveAssistant,
   isPairedLockfileEntry,
   PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
+  runDevicesList,
+  runDevicesRevoke,
   runHatch,
   runRetire,
   runSleep,
@@ -102,6 +104,8 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       );
       server.middlewares.use(sleepMiddleware(baseDir));
       server.middlewares.use(wakeMiddleware(baseDir));
+      server.middlewares.use(devicesListMiddleware(baseDir));
+      server.middlewares.use(devicesRevokeMiddleware(baseDir));
       const upgradingLocalAssistantIds = new Set<string>();
       server.middlewares.use(
         upgradeMiddleware(
@@ -700,6 +704,125 @@ function wakeMiddleware(baseDir: string): Connect.NextHandleFunction {
           respondJson(
             res,
             result.ok ? 200 : result.status,
+            result.ok ? { ok: true } : { ok: false, error: result.error },
+          );
+        },
+      );
+    });
+  };
+}
+
+// Paired-device management via the CLI (`vellum devices … --json`). POST-only
+// (the renderer's postLocalCommand always POSTs); run-helper results respond
+// 200 with `ok` discriminating success so all hosts share one wire shape.
+function devicesListMiddleware(baseDir: string): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (
+      req.url !== "/assistant/__local/devices" &&
+      req.url !== "/__local/devices"
+    ) {
+      return next();
+    }
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    void readJsonBody(req).then((body) => {
+      if (!body) {
+        respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
+        return;
+      }
+
+      const assistantId = body.assistantId;
+      if (typeof assistantId !== "string" || !assistantId) {
+        respondJson(res, 400, { ok: false, error: "Missing assistantId" });
+        return;
+      }
+
+      let invocation: CliInvocation;
+      try {
+        invocation = resolveDevCliInvocation(baseDir, import.meta.url);
+      } catch (err) {
+        respondJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
+
+      void runDevicesList(invocation, assistantId).then((result) => {
+        respondJson(
+          res,
+          200,
+          result.ok
+            ? { ok: true, devices: result.devices }
+            : { ok: false, error: result.error },
+        );
+      });
+    });
+  };
+}
+
+function devicesRevokeMiddleware(baseDir: string): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (
+      req.url !== "/assistant/__local/devices-revoke" &&
+      req.url !== "/__local/devices-revoke"
+    ) {
+      return next();
+    }
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    void readJsonBody(req).then((body) => {
+      if (!body) {
+        respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
+        return;
+      }
+
+      const assistantId = body.assistantId;
+      if (typeof assistantId !== "string" || !assistantId) {
+        respondJson(res, 400, { ok: false, error: "Missing assistantId" });
+        return;
+      }
+
+      const hashedDeviceId = body.hashedDeviceId;
+      if (typeof hashedDeviceId !== "string" || !hashedDeviceId) {
+        respondJson(res, 400, { ok: false, error: "Missing hashedDeviceId" });
+        return;
+      }
+
+      let invocation: CliInvocation;
+      try {
+        invocation = resolveDevCliInvocation(baseDir, import.meta.url);
+      } catch (err) {
+        respondJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
+
+      void runDevicesRevoke(invocation, assistantId, hashedDeviceId).then(
+        (result) => {
+          respondJson(
+            res,
+            200,
             result.ok ? { ok: true } : { ok: false, error: result.error },
           );
         },
