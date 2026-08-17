@@ -68,7 +68,12 @@ export function TourOverlay({
       return;
     }
     const update = () => {
-      const header = document.querySelector<HTMLElement>("header");
+      // The chat layout's own header, by the `data-slot` it publishes. A bare
+      // `header` tag selector matches whichever `<header>` comes first in the
+      // document, which the detail panels also render.
+      const header = document.querySelector<HTMLElement>(
+        '[data-slot="chat-layout-header"]',
+      );
       setClearTop(header ? header.getBoundingClientRect().bottom : 0);
 
       const menu = document.querySelector<HTMLElement>("#chat-side-menu");
