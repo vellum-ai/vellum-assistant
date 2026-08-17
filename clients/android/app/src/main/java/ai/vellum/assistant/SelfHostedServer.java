@@ -27,6 +27,9 @@ final class SelfHostedServer {
     private static final String SERVER_URL_KEY = "server_url";
     private static final String SERVERS_KEY = "servers";
 
+    /** Serializes every read-modify-write of the servers list. */
+    private static final Object listLock = new Object();
+
     interface Store {
         String read();
 
@@ -68,10 +71,6 @@ final class SelfHostedServer {
 
     static URI configured(Store store) {
         return validate(store.read());
-    }
-
-    static boolean store(Context context, URI server) {
-        return store(new PreferencesStore(context), server);
     }
 
     static boolean store(Store store, URI server) {
@@ -139,7 +138,8 @@ final class SelfHostedServer {
                     }
                     String canonical = canonicalString(url);
                     if (indexOfUrl(entries, canonical) < 0) {
-                        entries.add(new Entry(normalizedName(item.optString("name", null)), canonical));
+                        String name = item.isNull("name") ? null : item.optString("name", null);
+                        entries.add(new Entry(normalizedName(name), canonical));
                     }
                 }
             } catch (JSONException exception) {
@@ -165,16 +165,30 @@ final class SelfHostedServer {
      * updates the label; a nameless re-append keeps the existing one.
      */
     static void append(Store store, URI url, String name) {
-        List<Entry> entries = servers(store);
-        String canonical = canonicalString(url);
-        String label = normalizedName(name);
-        int index = indexOfUrl(entries, canonical);
-        if (index < 0) {
-            entries.add(new Entry(label, canonical));
-        } else if (label != null) {
-            entries.set(index, new Entry(label, canonical));
+        synchronized (listLock) {
+            List<Entry> entries = servers(store);
+            String canonical = canonicalString(url);
+            String label = normalizedName(name);
+            int index = indexOfUrl(entries, canonical);
+            if (index < 0) {
+                entries.add(new Entry(label, canonical));
+            } else if (label != null) {
+                entries.set(index, new Entry(label, canonical));
+            }
+            persist(store, entries);
         }
-        persist(store, entries);
+    }
+
+    static void activate(Context context, URI url, String name) {
+        activate(new PreferencesStore(context), url, name);
+    }
+
+    /** Write the active slot and remember the origin as one atomic mutation. */
+    static void activate(Store store, URI url, String name) {
+        synchronized (listLock) {
+            store(store, url);
+            append(store, url, name);
+        }
     }
 
     static boolean removeEntry(Context context, URI url) {
@@ -186,22 +200,20 @@ final class SelfHostedServer {
      * slot, the slot is cleared too; returns whether that happened.
      */
     static boolean removeEntry(Store store, URI url) {
-        List<Entry> entries = servers(store);
-        String canonical = canonicalString(url);
-        int index = indexOfUrl(entries, canonical);
-        if (index >= 0) {
-            entries.remove(index);
+        synchronized (listLock) {
+            List<Entry> entries = servers(store);
+            String canonical = canonicalString(url);
+            int index = indexOfUrl(entries, canonical);
+            if (index >= 0) {
+                entries.remove(index);
+            }
+            persist(store, entries);
+            if (isActive(store, url)) {
+                clear(store);
+                return true;
+            }
+            return false;
         }
-        persist(store, entries);
-        if (isActive(store, url)) {
-            clear(store);
-            return true;
-        }
-        return false;
-    }
-
-    static boolean isActive(Context context, URI url) {
-        return isActive(new PreferencesStore(context), url);
     }
 
     /** Whether a URL canonically matches the active slot. */
@@ -229,18 +241,36 @@ final class SelfHostedServer {
     }
 
     /**
+     * The shared shape guard for in-app route paths: non-blank, relative,
+     * scheme-less, fragment-free. Callers pass a trimmed path.
+     */
+    static boolean isRoutePathShape(String path) {
+        return path != null
+            && !path.isEmpty()
+            && !path.startsWith("/")
+            && !path.contains("://")
+            && !path.contains("#");
+    }
+
+    /**
      * A route under an entry URL: {@code <entry>/<path>}, the path's query
      * kept verbatim. Null (caller falls back to the entry) when the path is
      * unusable: blank, absolute, scheme-ful, fragment-carrying, or climbing.
      */
     static String appRoute(String entryUrl, String path) {
         String trimmed = path == null ? "" : path.trim();
-        if (trimmed.isEmpty() || trimmed.startsWith("/") || trimmed.contains("://") || trimmed.contains("#")) {
+        if (!isRoutePathShape(trimmed)) {
             return null;
         }
         int query = trimmed.indexOf('?');
         String pathPart = query < 0 ? trimmed : trimmed.substring(0, query);
-        for (String segment : pathPart.split("/", -1)) {
+        String[] segments = pathPart.split("/", -1);
+        // A colon in the first segment reads as a scheme (mailto:x,
+        // host:8080/x), matching the iOS URLComponents rejection.
+        if (segments[0].indexOf(':') >= 0) {
+            return null;
+        }
+        for (String segment : segments) {
             if ("..".equals(segment)) {
                 return null;
             }
@@ -300,7 +330,8 @@ final class SelfHostedServer {
         store.writeServers(array.toString());
     }
 
-    private static String normalizedName(String name) {
+    /** A user-facing label: trimmed, with blank collapsing to null. */
+    static String normalizedName(String name) {
         if (name == null) {
             return null;
         }
@@ -332,6 +363,11 @@ final class SelfHostedServer {
 
         String scheme = parsed.getScheme() == null ? "" : parsed.getScheme().toLowerCase(Locale.US);
         String host = parsed.getHost().toLowerCase(Locale.US);
+        // Unicode hosts canonicalize differently here (percent-encoding) than
+        // in the web chooser (punycode), so they are rejected outright.
+        if (!isAscii(host)) {
+            return null;
+        }
         if (!"https".equals(scheme) && !("http".equals(scheme) && isLocalDevelopmentHost(host))) {
             return null;
         }
@@ -528,6 +564,15 @@ final class SelfHostedServer {
     private static String formatAuthority(String host, int port) {
         String authorityHost = host.indexOf(':') >= 0 && !host.startsWith("[") ? "[" + host + "]" : host;
         return port >= 0 ? authorityHost + ":" + port : authorityHost;
+    }
+
+    private static boolean isAscii(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            if (value.charAt(index) >= 0x80) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean isLocalDevelopmentHost(String host) {

@@ -68,7 +68,7 @@ final class ConnectDeepLink {
         if (pairPage == null) {
             return null;
         }
-        return new ConnectDeepLink(server, pairPage, normalizeName(query.get("name")));
+        return new ConnectDeepLink(server, pairPage, SelfHostedServer.normalizedName(query.get("name")));
     }
 
     URI server() {
@@ -81,14 +81,6 @@ final class ConnectDeepLink {
 
     String name() {
         return name;
-    }
-
-    private static String normalizeName(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static URI parseUri(String raw) {

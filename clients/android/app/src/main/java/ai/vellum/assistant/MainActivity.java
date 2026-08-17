@@ -219,6 +219,8 @@ public class MainActivity extends BridgeActivity {
 
         if (effectiveServer == null || !effectiveServer.equals(connect.server())) {
             setRecreationConnect(connect);
+            // A stale switch route must not load over the pair page.
+            setRecreationRoutePath(null);
             setIntent(withoutData(intent));
             recreate();
             return;
@@ -334,8 +336,7 @@ public class MainActivity extends BridgeActivity {
         ) {
             return;
         }
-        SelfHostedServer.store(this, pendingConnect.server());
-        SelfHostedServer.append(this, pendingConnect.server(), pendingConnect.name());
+        SelfHostedServer.activate(this, pendingConnect.server(), pendingConnect.name());
         pendingConnect = null;
     }
 
@@ -373,19 +374,15 @@ public class MainActivity extends BridgeActivity {
     private void useVellumCloud() {
         SelfHostedServer.clear(this);
         effectiveServer = null;
-        recreateForServerChange();
-    }
-
-    /**
-     * Recreate onto whatever server slot {@link SelfHostedServer} now holds.
-     * The caller has already written the slot; onCreate re-reads everything,
-     * so no field needs resetting beyond the pending launch state.
-     */
-    void recreateForServerChange() {
         recreateForServerChange(null);
     }
 
-    /** Same, plus an initial in-app route to load once the new origin is up. */
+    /**
+     * Recreate onto whatever server slot {@link SelfHostedServer} now holds,
+     * plus an optional initial in-app route to load once the new origin is up.
+     * The caller has already written the slot; onCreate re-reads everything,
+     * so no field needs resetting beyond the pending launch state.
+     */
     void recreateForServerChange(String routePath) {
         // A live voice session does not survive an origin swap.
         VoiceLiveActivityPlugin.clearStatus(this);
@@ -441,7 +438,8 @@ public class MainActivity extends BridgeActivity {
      */
     private void deliverPendingRoute() {
         String path = takeRecreationRoutePath();
-        if (path == null || bridge == null || bridge.getServerUrl() == null) {
+        // Pair-page navigation wins over a stashed route.
+        if (path == null || pendingConnect != null || bridge == null || bridge.getServerUrl() == null) {
             return;
         }
         String route = SelfHostedServer.appRoute(bridge.getServerUrl(), path);
