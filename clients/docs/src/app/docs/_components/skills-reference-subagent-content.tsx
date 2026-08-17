@@ -216,8 +216,10 @@ export function SkillsReferenceSubagentContent() {
             <li>
               <strong>Advisor.</strong> A one-shot, read-only second opinion,
               and the one kind your assistant reaches for on its own judgment:
-              to pressure-test a plan, when it&apos;s stuck, or as a final check
-              before calling a task done. It reasons from your context and can
+              to pressure-test a plan on a consequential or ambiguous task, or
+              when it&apos;s stuck. Routine work skips the consult, so
+              you&apos;re not paying for sign-off on the obvious. It reasons
+              from your context and can
               read and search the files in your workspace to check a fact, then
               replies with focused guidance. It never changes anything, and it
               cannot see your other conversations.
