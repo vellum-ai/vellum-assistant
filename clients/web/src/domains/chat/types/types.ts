@@ -82,6 +82,23 @@ export interface DisplayMessage {
    */
   isOptimistic?: boolean;
   /**
+   * Set on a user message whose send did not go through. The row stays in the
+   * transcript so the text and its attachments are still in front of the user,
+   * rendered as unsent with retry and discard actions. Retry resends this same
+   * row under its original `clientMessageId`, so a send that did reach the
+   * daemon and lost only its response is deduplicated rather than run a second
+   * time, and carries the fields here so the retried turn is identical to the
+   * one that failed.
+   */
+  sendFailed?: {
+    /** Error code from the daemon, when it answered. Drives recovery actions
+     *  a plain retry cannot resolve, e.g. `secret_blocked`. */
+    code?: string;
+    /** The original send's `scripted` flag, so a retried auto-send is still
+     *  excluded from activation metrics. */
+    scripted?: boolean;
+  };
+  /**
    * Server message ids folded into this canonical display row. Reconcile treats
    * these as aliases so a live SSE row can merge into its collapsed history row.
    */
