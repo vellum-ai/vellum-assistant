@@ -14,6 +14,19 @@ mock.module("../background-wake/publisher.js", () => ({
   refreshBackgroundWakeIntent: () => {},
 }));
 
+/**
+ * Whether the daemon activated the fixture plugin. `setUserEnabled` re-arms a
+ * sourced row only for a plugin this process brought up, and no store-level
+ * test runs the plugin loader, so the double says "activated" unless a case
+ * turns it off.
+ */
+let pluginActivated = true;
+const realMtimeCache = await import("../plugins/mtime-cache.js");
+mock.module("../plugins/mtime-cache.js", () => ({
+  ...realMtimeCache,
+  isPluginDirActivated: () => pluginActivated,
+}));
+
 import type { AssistantEventEnvelope } from "../api/index.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import {
@@ -1564,6 +1577,7 @@ describe("declared schedules", () => {
   beforeEach(() => {
     getDb().run("DELETE FROM cron_runs");
     getDb().run("DELETE FROM cron_jobs");
+    pluginActivated = true;
     rmSync(examplePluginDir(), { recursive: true, force: true });
     const declarationDir = join(examplePluginDir(), "schedules", "daily");
     mkdirSync(declarationDir, { recursive: true });
@@ -1849,6 +1863,19 @@ describe("declared schedules", () => {
     // must keep the enable probe from re-arming the row before the next
     // reconcile pass.
     writeFileSync(join(examplePluginDir(), ".disabled"), "");
+
+    const result = await setUserEnabled(created.id, true);
+
+    expect(result!.userEnabled).toBe(true);
+    expect(result!.enabled).toBe(false);
+  });
+
+  test("enabling a schedule whose plugin was never activated records the override without re-arming", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    await setUserEnabled(created.id, false);
+    // The declaration is intact on disk, but nothing brought the plugin up, so
+    // a toggle must not put its schedule back in the firing set.
+    pluginActivated = false;
 
     const result = await setUserEnabled(created.id, true);
 

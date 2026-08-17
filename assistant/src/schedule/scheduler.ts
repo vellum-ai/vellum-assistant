@@ -27,7 +27,7 @@ import {
 import { runWatchersOnce } from "../watcher/engine.js";
 import { normalizeCapabilityManifest } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
-import { declarationExistsOnDisk } from "./plugin-schedule-declarations.js";
+import { pluginScheduleSourceAvailable } from "./plugin-schedule-availability.js";
 import { isPluginSchedulesEnabled } from "./plugin-schedules-gate.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
 import { applyRetryDecision, decideRetry } from "./retry-policy.js";
@@ -528,11 +528,12 @@ export async function runDueSchedulesOnce(
     }
 
     // Fire-time gate for plugin-sourced rows, covering every way the source
-    // can go away under an armed row. `declarationExistsOnDisk` is the probe
-    // the run-now route and the enable path use, and it answers for all of
-    // them: a `.disabled` sentinel, a plugin directory a local uninstall
-    // removed, a manifest that no longer parses, and a declaration that is
-    // simply gone. Turning the feature flag off retires the whole surface.
+    // can go away under an armed row. `pluginScheduleSourceAvailable` is the
+    // probe the run-now route and the enable path use, and it answers for all
+    // of them: a plugin the daemon never activated, a `.disabled` sentinel, a
+    // plugin directory a local uninstall removed, a manifest that no longer
+    // parses, and a declaration that is simply gone. Turning the feature flag
+    // off retires the whole surface.
     // The reconciler is what disarms the rows any of these own, and it runs
     // on its own schedule, so re-reading here is what makes the change take
     // effect immediately: a row still armed (or already claimed) at that
@@ -542,7 +543,7 @@ export async function runDueSchedulesOnce(
     if (
       sourceKey !== null &&
       (!isPluginSchedulesEnabled() ||
-        !(await declarationExistsOnDisk(sourceKey)))
+        !(await pluginScheduleSourceAvailable(sourceKey)))
     ) {
       const sourcePlugin = describeScheduleSource(sourceKey) ?? sourceKey;
       log.info(

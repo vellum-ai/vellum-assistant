@@ -212,6 +212,19 @@ export function getDiscoveredUserPluginNames(): Iterable<string> {
   return discoveredPluginDirs.values();
 }
 
+/**
+ * True when this daemon process brought the plugin directory `dir` up:
+ * {@link bringUpPlugin} ran for it and its `init` was attempted. An `init` that
+ * threw still counts, because activation never aborts on init failure (see
+ * {@link activatePlugin}), and that is deliberate: an init-failed plugin's
+ * hooks and tools stay live, so its schedules must too. What membership
+ * excludes is a directory dropped in out-of-band that no boot scan and no
+ * reconcile pass has activated yet.
+ */
+export function isPluginDirActivated(dir: string): boolean {
+  return discoveredPluginDirs.has(dir);
+}
+
 // ─── Source-versions reconcile ───────────────────────────────────────────────
 
 /**

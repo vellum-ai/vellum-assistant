@@ -33,7 +33,7 @@ import {
   resolveDefaultScheduleInferenceProfile,
   resolveWakeScheduleInferenceProfile,
 } from "./inference-profile.js";
-import { declarationExistsOnDisk } from "./plugin-schedule-declarations.js";
+import { pluginScheduleSourceAvailable } from "./plugin-schedule-availability.js";
 import {
   computeNextRunAt as computeNextRunAtEngine,
   isValidScheduleExpression,
@@ -1045,16 +1045,17 @@ export async function setUserEnabled(
     updatedAt: Date.now(),
   };
   if (value !== existing.enabled && !isEngineLatched(existing)) {
-    // Enabling a row whose declaration is no longer sourceable (plugin
-    // uninstalled or disabled, manifest broken, schedule file removed) would
-    // let it fire an orphaned run before the next reconcile pass disarms it
-    // again. The reconciler is the authority on the declaration set; this
-    // probe only closes that fire-before-next-sweep window. The override
-    // itself is still recorded, so it applies if the declaration returns.
-    if (value && !(await declarationExistsOnDisk(existing.sourceKey))) {
+    // Enabling a row whose declaration is no longer available (plugin never
+    // activated, uninstalled or disabled, manifest broken, schedule file
+    // removed) would let it fire an orphaned run before the next reconcile
+    // pass disarms it again. The reconciler is the authority on the
+    // declaration set; this probe only closes that fire-before-next-sweep
+    // window. The override itself is still recorded, so it applies if the
+    // declaration returns.
+    if (value && !(await pluginScheduleSourceAvailable(existing.sourceKey))) {
       logger.info(
         { scheduleId: id, sourceKey: existing.sourceKey },
-        "Enable override recorded without re-arming: declaration missing on disk",
+        "Enable override recorded without re-arming: schedule source unavailable",
       );
     } else {
       set.enabled = value;
