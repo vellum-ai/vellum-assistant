@@ -147,6 +147,22 @@ const FLATTENED_FIRST_SEGMENTS = new Set<string>([
 ]);
 
 /**
+ * Stamp the current self-hosted actor token as the request's bearer, or
+ * strip any bearer a caller happened to set when there is none. Without a
+ * token the gateway must see an unauthenticated request and answer 401, so
+ * the chat surface lands on its error state rather than spinning on a
+ * stale credential.
+ */
+function applySelfHostedBearer(headers: Headers): void {
+  const token = getSelfHostedActorToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  } else {
+    headers.delete("Authorization");
+  }
+}
+
+/**
  * True when a path names daemon/gateway traffic, whichever client issues it.
  * Mirrors the routing decision {@link rewriteForSelfHostedIngress} makes for
  * the platform client, but is deliberately independent of whether an ingress
@@ -235,16 +251,7 @@ export async function rewriteForSelfHostedIngress(
     headers.set(NGROK_SKIP_BROWSER_WARNING_HEADER, "true");
   }
 
-  const token = getSelfHostedActorToken();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  } else {
-    // Belt-and-braces — never forward a stale Authorization header that
-    // happened to be set by a caller. Without a token we want the
-    // gateway to respond 401 so the chat surface lands on its error
-    // state rather than spinning indefinitely.
-    headers.delete("Authorization");
-  }
+  applySelfHostedBearer(headers);
 
   // In local mode the gateway proxy runs over plain HTTP, and Chrome
   // refuses to send a streaming (duplex: "half") body without TLS
@@ -311,13 +318,7 @@ export function authorizeRemoteGatewayRequest(
   headers.delete("X-CSRFToken");
   headers.delete("Vellum-Organization-Id");
   headers.set(NGROK_SKIP_BROWSER_WARNING_HEADER, "true");
-
-  const token = getSelfHostedActorToken();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  } else {
-    headers.delete("Authorization");
-  }
+  applySelfHostedBearer(headers);
 
   return new Request(request, {
     headers,
@@ -533,7 +534,7 @@ let gw401ReloadFired = false;
 let gw401RecoveryInFlight: Promise<boolean> | null = null;
 
 /** @internal Exposed for test teardown only. */
-export function resetGw401RecoveryFlag(): void {
+export function resetGw401RecoveryState(): void {
   gw401ReloadFired = false;
   gw401RecoveryInFlight = null;
 }
@@ -592,12 +593,7 @@ async function replayWithRecoveredSession(
   request: Request,
 ): Promise<Response | null> {
   const headers = new Headers(request.headers);
-  const token = getSelfHostedActorToken();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  } else {
-    headers.delete("Authorization");
-  }
+  applySelfHostedBearer(headers);
   try {
     const replayed = await fetch(new Request(request, { headers }));
     if (replayed.ok) {
@@ -645,46 +641,47 @@ export async function localGatewayAuthRecoveryInterceptor(
     return response;
   }
 
-  // A recovery is already in flight: ride it instead of spending budget,
-  // so every request in the burst that can replay does.
-  if (gw401RecoveryInFlight) {
-    const recovered = await gw401RecoveryInFlight;
-    if (recovered && request && !request.bodyUsed) {
-      return (await replayWithRecoveredSession(request)) ?? response;
-    }
-    return response;
-  }
+  // A recovery already in flight is ridden rather than charged to the
+  // budget, so every request in the burst that can replay does. Only a
+  // fresh attempt spends an attempt.
+  let recovery = gw401RecoveryInFlight;
+  if (!recovery) {
+    try {
+      const stored = Number(sessionStorage.getItem(GW_401_ATTEMPTS_KEY) ?? "0");
+      const attempts = Number.isFinite(stored) ? stored : 0;
 
-  try {
-    const stored = Number(sessionStorage.getItem(GW_401_ATTEMPTS_KEY) ?? "0");
-    const attempts = Number.isFinite(stored) ? stored : 0;
-
-    // A spent budget means recovering has not made this gateway work, and
-    // nothing since has shown that it does; let the 401 through to the
-    // error path.
-    if (attempts >= GW_401_MAX_ATTEMPTS) {
+      // A spent budget means recovering has not made this gateway work, and
+      // nothing since has shown that it does; let the 401 through to the
+      // error path.
+      if (attempts >= GW_401_MAX_ATTEMPTS) {
+        return response;
+      }
+      const lastAttempt = sessionStorage.getItem(GW_401_RECOVERY_AT_KEY);
+      if (
+        lastAttempt &&
+        Date.now() - Number(lastAttempt) < GW_401_COOLDOWN_MS
+      ) {
+        return response;
+      }
+      sessionStorage.setItem(GW_401_RECOVERY_AT_KEY, String(Date.now()));
+      sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(attempts + 1));
+    } catch {
+      // sessionStorage unavailable: cannot enforce cooldown or budget, skip
+      // recovery to avoid infinite recovery loops.
       return response;
     }
-    const lastAttempt = sessionStorage.getItem(GW_401_RECOVERY_AT_KEY);
-    if (lastAttempt && Date.now() - Number(lastAttempt) < GW_401_COOLDOWN_MS) {
+
+    if (isRemoteGatewayMode()) {
+      gw401ReloadFired = true;
+      clearGatewayToken();
+      window.location.reload();
       return response;
     }
-    sessionStorage.setItem(GW_401_RECOVERY_AT_KEY, String(Date.now()));
-    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(attempts + 1));
-  } catch {
-    // sessionStorage unavailable: cannot enforce cooldown or budget, skip
-    // recovery to avoid infinite recovery loops.
-    return response;
+
+    recovery = recoverLocalGatewaySessionInPlace();
   }
 
-  if (isRemoteGatewayMode()) {
-    gw401ReloadFired = true;
-    clearGatewayToken();
-    window.location.reload();
-    return response;
-  }
-
-  const recovered = await recoverLocalGatewaySessionInPlace();
+  const recovered = await recovery;
   if (recovered && request && !request.bodyUsed) {
     return (await replayWithRecoveredSession(request)) ?? response;
   }

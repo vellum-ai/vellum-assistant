@@ -132,7 +132,7 @@ import {
   platformAuthRecoveryInterceptor,
   platformFeaturesGate,
   requestInterceptor,
-  resetGw401RecoveryFlag,
+  resetGw401RecoveryState,
   resetPlatformAuthRecoveryFlag,
   rewriteForSelfHostedIngress,
 } from "@/lib/api-interceptors";
@@ -1165,7 +1165,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     sessionStorage.removeItem(GW_401_RECOVERY_AT_KEY);
     sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
     clearGatewayTokenStorage();
-    resetGw401RecoveryFlag();
+    resetGw401RecoveryState();
     primeGatewayWithRepairMock.mockClear();
     captureErrorMock.mockClear();
     // Model the real prime: a fresh token lands in the connection slot.
@@ -1194,7 +1194,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     sessionStorage.removeItem(GW_401_RECOVERY_AT_KEY);
     sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
     clearGatewayTokenStorage();
-    resetGw401RecoveryFlag();
+    resetGw401RecoveryState();
     primeGatewayWithRepairImpl = async () => {};
   });
 
@@ -1656,7 +1656,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     // what clearing sessionStorage models here.
     sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
     sessionStorage.removeItem(GW_401_RECOVERY_AT_KEY);
-    resetGw401RecoveryFlag();
+    resetGw401RecoveryState();
     await localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
     expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
