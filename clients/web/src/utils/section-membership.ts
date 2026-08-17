@@ -30,10 +30,11 @@ import {
   parseSectionConversationsQueryKey,
   sectionListPrefix,
   sidebarSectionsQueryKey,
+  type ConversationListPage,
   type SectionConversationFilter,
   type SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
-import { insertByRecency } from "@/utils/conversation-order";
+import { insertIntoWindow } from "@/utils/conversation-order";
 import {
   isConversationPinned,
   isCustomGroupId,
@@ -321,19 +322,20 @@ export function reconcileSectionMembership(
     return [];
   }
   const needsRefetch: (readonly unknown[])[] = [];
-  const entries = queryClient.getQueriesData<Conversation[]>({
+  const entries = queryClient.getQueriesData<ConversationListPage>({
     queryKey: sectionListPrefix(assistantId),
   });
 
-  for (const [queryKey, rows] of entries) {
+  for (const [queryKey, page] of entries) {
     const filter = parseSectionConversationsQueryKey(queryKey);
     if (!filter) {
       continue;
     }
-    if (!rows) {
+    if (!page) {
       needsRefetch.push(queryKey);
       continue;
     }
+    const rows = page.conversations;
 
     const index = rows.findIndex(
       (c) => c.conversationId === conversation.conversationId,
@@ -350,17 +352,33 @@ export function reconcileSectionMembership(
       if (belongs && rows[index] !== conversation) {
         const next = [...rows];
         next[index] = conversation;
-        queryClient.setQueryData<Conversation[]>(queryKey, next);
+        queryClient.setQueryData<ConversationListPage>(queryKey, {
+          conversations: next,
+          hasMore: page.hasMore,
+        });
       }
       continue;
     }
 
-    queryClient.setQueryData<Conversation[]>(
-      queryKey,
-      belongs
-        ? insertByRecency(rows, conversation)
-        : rows.filter((c) => c.conversationId !== conversation.conversationId),
-    );
+    if (belongs) {
+      /* A row past a window's last loaded row stays out of the cache
+         (`insertIntoWindow` returns the page unchanged): the window is
+         still a correct prefix, the row is in this section server-side,
+         and load-more reaches it. Nothing changed, so there is nothing
+         for a settle to reconcile either. */
+      const inserted = insertIntoWindow(page, conversation);
+      if (inserted === page) {
+        continue;
+      }
+      queryClient.setQueryData<ConversationListPage>(queryKey, inserted);
+    } else {
+      queryClient.setQueryData<ConversationListPage>(queryKey, {
+        conversations: rows.filter(
+          (c) => c.conversationId !== conversation.conversationId,
+        ),
+        hasMore: page.hasMore,
+      });
+    }
     needsRefetch.push(queryKey);
   }
 

@@ -15,7 +15,17 @@ import { LiveVoiceSessionManager } from "./live-voice-session-manager.js";
 
 const require = createRequire(import.meta.url);
 
+type LiveVoiceSessionFactory =
+  typeof import("./live-voice-session.js").createLiveVoiceSession;
+
 let manager: LiveVoiceSessionManager | null = null;
+let bundledSessionFactory: LiveVoiceSessionFactory | null = null;
+
+export function setBundledLiveVoiceSessionFactory(
+  factory: LiveVoiceSessionFactory | null,
+): void {
+  bundledSessionFactory = factory;
+}
 
 /**
  * The daemon-wide live voice session manager, lazily constructed on first
@@ -32,9 +42,12 @@ export function getLiveVoiceSessionManager(): LiveVoiceSessionManager {
       // module-load time. `require` keeps the factory synchronous, so the
       // manager still claims its single-session slot without an await gap.
       createSession: (context) => {
-        const { createLiveVoiceSession } =
-          require("./live-voice-session.js") as typeof import("./live-voice-session.js");
-        return createLiveVoiceSession(context);
+        const createSession =
+          bundledSessionFactory ??
+          (
+            require("./live-voice-session.js") as typeof import("./live-voice-session.js")
+          ).createLiveVoiceSession;
+        return createSession(context);
       },
     });
   }

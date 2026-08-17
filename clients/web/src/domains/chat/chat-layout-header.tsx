@@ -9,8 +9,11 @@ import {
 import { useCallback, useEffect, type ReactNode } from "react";
 
 import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
-import { isElectron } from "@/runtime/is-electron";
-import { isNativeMobile } from "@/runtime/platform-detection";
+import { WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX } from "@/runtime/electron-window-chrome";
+import {
+  detectElectronHostOS,
+  isNativeMobile,
+} from "@/runtime/platform-detection";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import {
   resolveShellBackground,
@@ -101,7 +104,8 @@ export function ChatLayoutHeader({
   // otherwise that strip, living outside `.app-shell`'s `isolation: isolate`
   // context, would out-stack and swallow clicks on the header's buttons.
   // Gated to Electron so the web/iOS layouts are byte-for-byte unchanged.
-  const electron = isElectron();
+  const electronHostOS = detectElectronHostOS();
+  const electron = electronHostOS !== null;
 
   // Mobile-only: on desktop the same affordance lives in the left cluster.
   const searchButton = isMobile ? (
@@ -145,6 +149,10 @@ export function ChatLayoutHeader({
         background: headerBackground,
         minHeight: electron ? "44px" : "40px",
         paddingTop: electron ? 0 : undefined,
+        paddingRight:
+          electronHostOS === "windows"
+            ? WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX
+            : undefined,
       }}
     >
       <div
@@ -159,7 +167,7 @@ export function ChatLayoutHeader({
           ...(isMobile
             ? {}
             : { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) }),
-          ...(electron
+          ...(electronHostOS === "macos"
             ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
             : {}),
         }}

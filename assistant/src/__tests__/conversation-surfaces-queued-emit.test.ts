@@ -22,6 +22,7 @@ function makeQueuedContext(): Conversation {
   return asConversation({
     conversationId: CONV_ID,
     sendToClient: () => {},
+    emit: () => {},
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<
       string,

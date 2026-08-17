@@ -22,6 +22,7 @@ import { Glob } from "bun";
  *     barrel. Bundled defaults are compiled into the daemon, so the barrel is
  *     their loading mechanism: the in-process analog of loading an external
  *     plugin from its manifest.
+ *   - `src/plugins/defaults/worker-entrypoints.ts`, the compiled sidecar loader.
  *   - Imports of modules directly under `defaults/` (e.g.
  *     `injector-order.js`) — those are host-level shared modules, not plugin
  *     internals.
@@ -47,8 +48,11 @@ import { Glob } from "bun";
 const DEFAULTS_REL = join("src", "plugins", "defaults");
 const DEFAULTS_ABS = join(process.cwd(), DEFAULTS_REL);
 
-/** The bundled-plugin registration barrel — the sanctioned host→plugin edge. */
-const COMPOSITION_ROOT = join(DEFAULTS_REL, "index.ts");
+/** Bundled-plugin composition roots allowed to load plugin internals. */
+const COMPOSITION_ROOTS = new Set([
+  join(DEFAULTS_REL, "index.ts"),
+  join(DEFAULTS_REL, "worker-entrypoints.ts"),
+]);
 
 /**
  * Allowed host→plugin reaches: plugin name → sorted list of host files (paths
@@ -151,7 +155,7 @@ function collectHostFiles(): HostFile[] {
       if (norm.split(sep).includes("__tests__")) {
         continue;
       }
-      if (norm === COMPOSITION_ROOT) {
+      if (COMPOSITION_ROOTS.has(norm)) {
         continue;
       }
       // A file at least two segments below defaults/ belongs to a plugin —

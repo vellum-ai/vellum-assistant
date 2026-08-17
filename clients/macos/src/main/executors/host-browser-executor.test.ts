@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // ---------------------------------------------------------------------------
 
 const MOCK_DEVICE_ID = "test-device-00000000-0000-0000-0000-000000000000";
-mock.module("../device-id", () => ({
+mock.module("@vellumai/electron-desktop/device-id", () => ({
   getDeviceId: () => MOCK_DEVICE_ID,
   resetDeviceIdCache: () => {},
 }));
@@ -153,7 +153,7 @@ function capturingPoster() {
         results.push(payload);
         return true;
       },
-    } as unknown as import("../host-proxy-poster").HostProxyPoster,
+    } as unknown as import("@vellumai/electron-desktop/host-proxy/poster").HostProxyPoster,
   };
 }
 
@@ -457,7 +457,7 @@ describe("HostBrowserExecutor", () => {
       // Cancel before the request even starts executing
       executor.handleCancel(
         { type: "host_browser_cancel", requestId: "r1" },
-        {} as import("../host-proxy-poster").HostProxyPoster,
+        {} as import("@vellumai/electron-desktop/host-proxy/poster").HostProxyPoster,
       );
 
       const { poster, results } = capturingPoster();

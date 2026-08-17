@@ -81,7 +81,7 @@ function useCanQueryDaemon(assistantId: string | null): boolean {
  * Subscribe to the foreground conversation list for the given assistant.
  *
  * Fetches foreground conversations via `listConversations()` and stores a
- * flat `Conversation[]` under `conversationsQueryKey`. Background and
+ * `ConversationListPage` under `conversationsQueryKey`. Background and
  * scheduled jobs are deliberately excluded — they load through
  * `useBackgroundConversationListQuery` only when the user reveals them — so
  * the initial chat render is never blocked on a large background backlog.
@@ -113,7 +113,7 @@ export function useConversationListQuery(
     enabled: enabled && Boolean(assistantId) && canQuery,
   });
   return {
-    conversations: query.data ?? EMPTY_CONVERSATIONS,
+    conversations: query.data?.conversations ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
     isPending: query.isPending,
     isError: query.isError,
@@ -151,7 +151,7 @@ export function useBackgroundConversationListQuery(
     enabled: enabled && Boolean(assistantId) && canQuery,
   });
   return {
-    conversations: query.data ?? EMPTY_CONVERSATIONS,
+    conversations: query.data?.conversations ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
     isPending: query.isPending,
     isError: query.isError,
@@ -189,7 +189,7 @@ export function useScheduledConversationListQuery(
     enabled: enabled && Boolean(assistantId) && canQuery,
   });
   return {
-    conversations: query.data ?? EMPTY_CONVERSATIONS,
+    conversations: query.data?.conversations ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
     isPending: query.isPending,
     isError: query.isError,
@@ -229,6 +229,12 @@ export function useSectionConversationListQuery(
   isError: boolean;
   /** Whether the query has ever resolved; survives a failed refetch. */
   hasData: boolean;
+  /**
+   * Whether the server holds rows past this window (LUM-2444). `false`
+   * until the query resolves, so nothing offers a load-more for a section
+   * that has not answered once.
+   */
+  hasMore: boolean;
 } {
   const canQuery = useCanQueryDaemon(assistantId);
   const query = useQuery({
@@ -236,11 +242,12 @@ export function useSectionConversationListQuery(
     enabled: enabled && Boolean(assistantId) && canQuery,
   });
   return {
-    conversations: query.data ?? EMPTY_CONVERSATIONS,
+    conversations: query.data?.conversations ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
     isPending: query.isPending,
     isError: query.isError,
     hasData: query.data !== undefined,
+    hasMore: query.data?.hasMore ?? false,
   };
 }
 
@@ -356,7 +363,7 @@ export function useArchivedConversationListQuery(
     enabled: enabled && Boolean(assistantId) && canQuery,
   });
   return {
-    conversations: query.data ?? EMPTY_CONVERSATIONS,
+    conversations: query.data?.conversations ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
     isPending: query.isPending,
     isError: query.isError,

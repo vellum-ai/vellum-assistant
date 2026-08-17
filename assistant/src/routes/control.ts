@@ -68,6 +68,7 @@ export async function spawnRouteHostWorkerProcess(
     return await spawnWorkerProcess({
       pidPath: routeHostPidPath(),
       entry: new URL("./worker.ts", import.meta.url),
+      packagedEntry: "routes",
       workerLabel: "Route host",
       options: opts,
     });

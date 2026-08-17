@@ -309,7 +309,15 @@ const ACTIVE_BRANDED_CLASSES = [
   "aria-[current=page]:font-medium",
 ].join(" ");
 
-const LEFT_CLUSTER_CLASSES = "flex min-w-0 flex-1 items-center gap-[8px]";
+/**
+ * `--panel-item-gap` opens the leading-icon-to-label gap to callers whose
+ * leading slot is larger than an icon (a chip, an avatar), where 8px reads as
+ * cramped. Same recipe as the `--panel-item-*` colour properties above:
+ * declare it on an ancestor, fall back to the default, and a row that never
+ * declares it is unchanged.
+ */
+const LEFT_CLUSTER_CLASSES =
+  "flex min-w-0 flex-1 items-center gap-[var(--panel-item-gap,8px)]";
 
 /**
  * `--panel-item-icon-fg` lets a caller recolor just the leading icon (e.g. the

@@ -686,9 +686,9 @@ export class SubagentManager {
       },
     );
 
-    // Mark conversation as having no direct client — it routes through parent.
-    // This ensures interactive prompts (host attachment reads) fail fast.
-    conversation.updateClient(wrappedSendToClient, true);
+    // A subagent has no client of its own: its sink (above) re-envelopes
+    // events under the parent, and its turns run non-interactive, so
+    // interactive prompts (host attachment reads) fail fast.
     // Subagents are created as background conversations (see the
     // `bootstrapConversation` call above) and never call `loadFromDb`, so cache
     // the type on the live conversation directly for the runtime-assembly path.
@@ -1494,17 +1494,13 @@ export class SubagentManager {
   }
 
   /**
-   * Update the parent sender for all active children of a conversation and
-   * re-emit each child's current status to it. Called when the parent client
-   * reconnects to a new socket, so a reconnecting client resyncs any status it
-   * missed while disconnected (e.g. a subagent marked `interrupted` during
-   * rehydration after a daemon restart, whose card would otherwise stay stuck
-   * on a stale `running`).
+   * Re-emit every child's current status through its parent sink. The send
+   * route calls this on each interactive send so a client that reconnected
+   * mid-run resyncs any status it missed while disconnected (e.g. a subagent
+   * marked `interrupted` during rehydration after a daemon restart, whose card
+   * would otherwise stay stuck on a stale `running`).
    */
-  updateParentSender(
-    parentConversationId: string,
-    newSendToClient: (msg: AssistantEvent) => void,
-  ): void {
+  reannounceChildStatuses(parentConversationId: string): void {
     const children = this.parentToChildren.get(parentConversationId);
     if (!children) {
       return;
@@ -1515,12 +1511,7 @@ export class SubagentManager {
       if (!managed) {
         continue;
       }
-      if (!TERMINAL_STATUSES.has(managed.state.status)) {
-        managed.parentSendToClient = newSendToClient;
-      }
-      // Re-emit the current status so the reconnecting client corrects any card
-      // it left in a stale state while disconnected.
-      newSendToClient({
+      managed.parentSendToClient({
         type: "subagent_status_changed",
         subagentId: childId,
         status: managed.state.status,

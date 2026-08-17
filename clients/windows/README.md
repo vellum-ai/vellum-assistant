@@ -15,17 +15,47 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
 - Sender-validated IPC seam (`packages/electron-desktop/src/ipc.ts`) with a
   Windows adapter in `src/main/ipc.client.ts` and a minimal bridge:
   `window.vellum.app` (version info, open website), `window.vellum.commands`,
-  `mainWindow.ensureVisible`, plus the `__VELLUM_CONFIG__` /
-  `__VELLUM_FLAG_OVERRIDES__` globals. Namespaces the renderer dereferences
-  unguarded when `platform` is `"electron"` (`power`, `deepLinks`, `dock`,
-  `menu`, `localMode`, `mainWindow.setOnboarding`) ship as documented no-op
-  stubs; the rest are feature-detected by the renderer's runtime wrappers and
-  degrade to web behavior until ported.
+  functional main-window controls, presence, connectivity, identity, avatar,
+  unread badge, and power-event capabilities, plus the `__VELLUM_CONFIG__` /
+  `__VELLUM_FLAG_OVERRIDES__` globals. Unavailable required capabilities ship
+  as documented no-op stubs; optional capabilities degrade to web behavior.
+- Notification-area tray with live assistant status, window recovery,
+  assistant and conversation actions, restart, and explicit quit. Unread and
+  attention state appear on the Windows taskbar.
+- Persisted main-window geometry and maximized state, load/show readiness,
+  dynamic assistant titles, and frameless title-bar overlay controls.
 - Packaged static serving of the renderer from `src/main/index.ts`, with
   path-traversal protection from `@vellumai/electron-utils/app-protocol`,
   single-instance lock, per-environment `userData` separation, and
   `electron-log` file logging.
 - `electron-builder` NSIS installer target (`bun run pack`).
+
+## Packaged CLI provisioning
+
+Packaged Windows startup installs the bundled CLI runtime for the current user:
+
+- The immutable payload is read from `resources/cli-runtime` and copied to
+  `<Electron userData>/cli/<version>`.
+- `<Electron userData>/cli/install-state.json` records the current runtime and
+  one valid fallback. Reusing an older installed version preserves the prior
+  current version as the fallback.
+- A small owned launcher is installed under `%LOCALAPPDATA%\Vellum\bin` and
+  delegates to the selected versioned runtime. Non-production channels use
+  separate launcher directories. A launcher without the Vellum ownership
+  marker is left untouched.
+- Long-lived assistant, gateway, and worker executables remain in the
+  versioned runtime. Provisioning and uninstall never replace or remove those
+  executables while they may be running.
+- The versioned runtime includes the web SPA used by the web client and remote
+  web ingress.
+- The launcher directory is added to `HKCU\Environment\Path`. The app broadcasts
+  the environment change to the Windows shell after a successful write.
+- Machine PATH entries are evaluated before user entries. If another
+  `vellum.exe` wins resolution, startup records the launcher as shadowed.
+
+`vellum retire` stages assistant data before archiving it. On Windows the
+background archive uses PowerShell and the built-in `tar.exe`; other platforms
+use the existing POSIX archive process.
 
 ## Not ported yet (see `clients/macos/src/main/` for reference implementations)
 
@@ -33,9 +63,8 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
   `/_allauth/*`, `/accounts/*`) request forwarding. Packaged builds can't
   reach local gateways or the cloud platform until this lands; dev runs are
   unaffected because the Vite dev server proxies both.
-- Native auth / OAuth sign-in chain, deep links (`vellum://`), tray,
-  notifications, auto-update, CSP, hotkeys, local-mode IPC (hatch/wake/
-  retire), window-state persistence, device id, frameless title bar.
+- Native auth / OAuth sign-in chain, notifications, auto-update, CSP, hotkeys,
+  local-mode IPC (hatch/wake/retire), and device id.
 
 ## Development
 

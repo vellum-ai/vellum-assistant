@@ -1,6 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import type { WorkflowEntry, WorkflowLeaf } from "@/domains/chat/workflow-store";
+import type {
+  WorkflowEntry,
+  WorkflowLeaf,
+} from "@/domains/chat/workflow-store";
+
+import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
 
 import { WorkflowDetailPanel } from "./workflow-detail-panel";
 
@@ -8,13 +13,13 @@ const meta: Meta<typeof WorkflowDetailPanel> = {
   title: "Chat/WorkflowDetailPanel",
   component: WorkflowDetailPanel,
   parameters: {
-    layout: "centered",
+    layout: "fullscreen",
   },
   decorators: [
     (Story) => (
-      <div className="h-[600px] w-[440px]">
+      <DetailPanelStoryFrame>
         <Story />
-      </div>
+      </DetailPanelStoryFrame>
     ),
   ],
 };

@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 
@@ -8,6 +8,8 @@ import {
   SAMPLE_PREVIEWS,
 } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import { AttachmentOverflowSquare } from "@/domains/chat/components/chat-attachments/attachment-overflow-square";
+import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
+
 import { MessageFilesPanel } from "./message-files-panel";
 
 /**
@@ -71,19 +73,23 @@ const MIXED: DisplayAttachment[] = [
   }),
 ];
 
+/**
+ * The drawer frame, applied per story rather than on `meta`: every story here
+ * is of the panel except `OverflowTileStates`, whose subject is the transcript
+ * tile that opens the panel and which would be misframed as a drawer.
+ */
+const inDrawer: Decorator = (Story) => (
+  <DetailPanelStoryFrame>
+    <Story />
+  </DetailPanelStoryFrame>
+);
+
 const meta: Meta<typeof MessageFilesPanel> = {
   title: "Chat/MessageFilesPanel",
   component: MessageFilesPanel,
   parameters: {
-    layout: "padded",
+    layout: "fullscreen",
   },
-  decorators: [
-    (Story) => (
-      <div className="h-[720px] w-[400px]">
-        <Story />
-      </div>
-    ),
-  ],
 };
 
 export default meta;
@@ -94,6 +100,7 @@ type Story = StoryObj<typeof MessageFilesPanel>;
  * everything else falls back to its file-kind icon on a neutral tile.
  */
 export const MixedMedia: Story = {
+  decorators: [inDrawer],
   args: {
     payload: { messageId: "story-msg", attachments: MIXED },
     onClose: () => {},
@@ -105,6 +112,7 @@ export const MixedMedia: Story = {
  * state rather than a blank grid under a `Files · 0` header.
  */
 export const Empty: Story = {
+  decorators: [inDrawer],
   args: {
     payload: { messageId: "story-empty", attachments: [] },
     onClose: () => {},
@@ -148,6 +156,7 @@ export const OverflowTileStates: StoryObj = {
  * overlay alike.
  */
 export const Photos: Story = {
+  decorators: [inDrawer],
   args: {
     payload: {
       messageId: "story-photos",

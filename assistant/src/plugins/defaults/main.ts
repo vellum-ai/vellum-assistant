@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+import { resolveBundledDir } from "../../util/bundled-asset.js";
+
 /**
  * Filesystem-backed access to the first-party default plugins. This module
  * will eventually replace `defaults/index.ts`.
@@ -13,12 +15,10 @@ import { dirname, join, resolve } from "node:path";
  * that carries a `package.json` is one plugin, named by that manifest — the
  * same `package.json` the barrel imports for its `manifest.name`.
  *
- * Relying on the directory layout is safe because the assistant ships its
- * source hierarchy as-is (`bun --compile` is not supported), so the tree this
- * module reads in production is the tree the plugins are loaded from.
+ * Compiled builds ship this metadata tree beside the executable.
  */
 
-const DEFAULTS_DIR = import.meta.dir;
+const DEFAULTS_DIR = resolveBundledDir(import.meta.dir, ".", "default-plugins");
 
 /**
  * Route-namespace prefix for default plugins. A default plugin's route
@@ -105,9 +105,8 @@ export function getDefaultPluginManifestName(dirName: string): string | null {
  * `default-` prefix is stripped to recover the source directory, so a name
  * without the prefix (e.g. the bare directory name) resolves to `null`. The
  * containment guard rejects any `..`/nested segment taken from a URL path so it
- * can never escape the defaults tree. The path is derived from this module's
- * own location (`import.meta.dir`), so it resolves relative to the app source,
- * which the assistant always ships and runs un-bundled.
+ * can never escape the defaults tree. `DEFAULTS_DIR` resolves either the source
+ * tree or the externally packaged compiled metadata tree.
  */
 export function getDefaultPluginRoutesDir(name: string): string | null {
   if (!name.startsWith(DEFAULT_PLUGIN_NAMESPACE_PREFIX)) {

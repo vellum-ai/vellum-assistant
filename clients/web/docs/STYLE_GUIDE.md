@@ -24,8 +24,8 @@ chat-body.tsx               # component
 stream-event-types.ts       # types
 ```
 
-The only exceptions are `App.tsx` (conventional React entry-point name)
-and generated files that follow their generator's convention.
+The only exception is generated files, which follow their generator's
+convention.
 
 Reference: [TypeScript Deep Dive — File naming](https://basarat.gitbook.io/typescript/styleguide#filename)
 
@@ -61,7 +61,7 @@ Colocated test files append `.test` before the extension:
 
 ```
 src/
-  App.tsx                    # root layout component
+  root-layout.tsx            # shared shell mounted by the root route
   main.tsx                   # entry point (createRoot, RouterProvider)
   routes.tsx                 # route tree (createBrowserRouter)
   stores/                    # app-level Zustand stores (cross-domain)
@@ -553,9 +553,9 @@ so it's obvious at a glance exactly what the branch runs. They also close
 a common footgun — a second line added under a braceless condition reads
 as if it sits inside the branch, but executes unconditionally.
 
-The `curly` ESLint rule flags braceless bodies (currently at `warn`). It
-is fully auto-fixable — `eslint --fix` adds the braces with no behavior
-change — so add braces to any control statement you touch.
+The `curly` ESLint rule flags braceless bodies at `error`, so a braceless
+body fails lint and blocks CI. It is fully auto-fixable: `eslint --fix`
+adds the braces with no behavior change.
 
 Reference: [ESLint — `curly`](https://eslint.org/docs/latest/rules/curly)
 

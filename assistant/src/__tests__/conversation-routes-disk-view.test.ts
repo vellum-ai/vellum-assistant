@@ -149,7 +149,7 @@ function createFakeConversation(conversationId: string): Conversation {
       return this.turnInterfaceContext;
     },
     ensureActorScopedHistory: async () => {},
-    updateClient: () => {},
+    replayActivityState: () => {},
 
     setHostCuProxy(this: { hostCuProxy: unknown }, proxy: unknown) {
       this.hostCuProxy = proxy;

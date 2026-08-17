@@ -5,6 +5,11 @@ import {
   type IpcRendererEvent,
 } from "electron";
 
+import { createLocalModeBridge } from "@vellumai/electron-desktop/local-mode-bridge";
+import {
+  createFileOpenPreloadBridge,
+} from "@vellumai/electron-desktop/file-open-preload";
+
 import type {
   Lockfile,
   LockfileWriteResult,
@@ -26,9 +31,6 @@ import type {
   HelperState,
   HotkeyEvent,
   LocalAssistantStatusResult,
-  LocalConnectImportResult,
-  LocalUpgradeOptions,
-  LocalWakeOptions,
   NotificationActionEvent,
   PowerEvent,
   ResolvedHotkey,
@@ -44,6 +46,16 @@ import type {
   VoiceActivityControl,
   VoiceActivityStart,
 } from "@vellumai/ipc-contract";
+import {
+  DIAGNOSTICS_SET_SHARE,
+  FEATURE_FLAGS_SET,
+  FEEDBACK_DIAGNOSTICS,
+  FEEDBACK_LOGS,
+} from "@vellumai/ipc-contract";
+import {
+  createDeepLinksBridge,
+  createLaunchAtLoginBridge,
+} from "@vellumai/electron-desktop/preload";
 
 export type {
   AppVersionInfo,
@@ -90,6 +102,8 @@ const subscribeDictationEvent =
       ipcRenderer.off(channel, handler);
     };
   };
+
+const fileOpenBridge = createFileOpenPreloadBridge({ ipcRenderer, webUtils });
 
 const bridge: VellumBridge = {
   platform: "electron",
@@ -148,20 +162,15 @@ const bridge: VellumBridge = {
       };
     },
   },
-  launchAtLogin: {
-    get: (): Promise<boolean> =>
-      ipcRenderer.invoke("vellum:launchAtLogin:get") as Promise<boolean>,
-    set: (enabled: boolean): Promise<void> =>
-      ipcRenderer.invoke("vellum:launchAtLogin:set", enabled) as Promise<void>,
-  },
+  launchAtLogin: createLaunchAtLoginBridge(ipcRenderer),
   featureFlags: {
     set: (flags: Record<string, boolean>): void => {
-      ipcRenderer.send("vellum:featureFlags:set", flags);
+      ipcRenderer.send(FEATURE_FLAGS_SET, flags);
     },
   },
   diagnostics: {
     setShareDiagnostics: (enabled: boolean): void => {
-      ipcRenderer.send("vellum:diagnostics:setShareDiagnostics", enabled);
+      ipcRenderer.send(DIAGNOSTICS_SET_SHARE, enabled);
     },
   },
   helper: {
@@ -299,83 +308,7 @@ const bridge: VellumBridge = {
     shareFile: (bytes: Uint8Array, filename: string): Promise<void> =>
       ipcRenderer.invoke("vellum:share:file", bytes, filename),
   },
-  localMode: {
-    hatch: (species: string, remote?: string) =>
-      ipcRenderer.invoke("vellum:localMode:hatch", species, remote) as Promise<{
-        ok: boolean;
-        assistantId?: string;
-        error?: string;
-      }>,
-    readLockfile: () =>
-      ipcRenderer.invoke("vellum:localMode:readLockfile") as Promise<Lockfile>,
-    saveLockfileAssistant: (
-      assistant: Record<string, unknown>,
-      activeAssistant?: string,
-    ) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:saveLockfileAssistant",
-        assistant,
-        activeAssistant,
-      ) as Promise<LockfileWriteResult>,
-    replacePlatformAssistants: (
-      platformAssistants: Array<Record<string, unknown>>,
-      organizationId?: string,
-    ) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:replacePlatformAssistants",
-        platformAssistants,
-        organizationId,
-      ) as Promise<LockfileWriteResult>,
-    wake: (assistantId: string, options?: LocalWakeOptions) =>
-      ipcRenderer.invoke("vellum:localMode:wake", assistantId, options) as Promise<{
-        ok: boolean;
-        error?: string;
-      }>,
-    upgrade: (assistantId: string, options?: LocalUpgradeOptions) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:upgrade",
-        assistantId,
-        options,
-      ) as Promise<{
-        ok: boolean;
-        version?: string;
-        error?: string;
-      }>,
-    status: (assistantId: string) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:status",
-        assistantId,
-      ) as Promise<LocalAssistantStatusResult>,
-    retire: (assistantId: string) =>
-      ipcRenderer.invoke("vellum:localMode:retire", assistantId) as Promise<{
-        ok: boolean;
-        error?: string;
-      }>,
-    unpair: (assistantId: string) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:unpair",
-        assistantId,
-      ) as Promise<LockfileWriteResult>,
-    connectImport: (bundle: string, name?: string) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:connectImport",
-        bundle,
-        name,
-      ) as Promise<LocalConnectImportResult>,
-    sleep: (assistantId: string) =>
-      ipcRenderer.invoke("vellum:localMode:sleep", assistantId) as Promise<{
-        ok: boolean;
-        error?: string;
-      }>,
-    guardianToken: (assistantId: string) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:guardianToken",
-        assistantId,
-      ) as Promise<
-        | { ok: true; accessToken: string }
-        | { ok: false; status: number; error: string }
-      >,
-  },
+  localMode: createLocalModeBridge(ipcRenderer),
   menu: {
     setPlatformSession: (has: boolean): Promise<void> =>
       ipcRenderer.invoke("vellum:menu:setPlatformSession", has) as Promise<void>,
@@ -400,60 +333,16 @@ const bridge: VellumBridge = {
       };
     },
   },
-  deepLinks: {
-    drain: (): Promise<DeepLink[]> =>
-      ipcRenderer.invoke("vellum:deepLinks:drain") as Promise<DeepLink[]>,
-    onLink: (callback) => {
-      const handler = (_event: IpcRendererEvent, payload: DeepLink) => {
-        callback(payload);
-      };
-      ipcRenderer.on("vellum:deepLinks:event", handler);
-      // Tell main we're listening so it switches from "buffer" mode
-      // to "broadcast only" mode. Without this, every live link
-      // would also enter the buffer and be replayed on a future
-      // drain (renderer reload, logout-relogin).
-      ipcRenderer.send("vellum:deepLinks:subscribe");
-      return () => {
-        ipcRenderer.off("vellum:deepLinks:event", handler);
-        ipcRenderer.send("vellum:deepLinks:unsubscribe");
-      };
-    },
-  },
-  fileOpen: {
-    drain: (): Promise<string[]> =>
-      ipcRenderer.invoke("vellum:fileOpen:drain") as Promise<string[]>,
-    onFile: (callback) => {
-      ipcRenderer.send("vellum:fileOpen:subscribe");
-      const handler = (_event: IpcRendererEvent, filePath: string) => {
-        callback(filePath);
-      };
-      ipcRenderer.on("vellum:fileOpen:event", handler);
-      return () => {
-        ipcRenderer.send("vellum:fileOpen:unsubscribe");
-        ipcRenderer.off("vellum:fileOpen:event", handler);
-      };
-    },
-  },
-  paths: {
-    // Synchronous — `webUtils.getPathForFile` runs entirely inside the
-    // preload's renderer context (no IPC hop), which is required because
-    // `File` objects can't be serialized across the renderer↔main boundary.
-    getPathForFile: (file: File): string | null => {
-      try {
-        const path = webUtils.getPathForFile(file);
-        return path ? path : null;
-      } catch {
-        return null;
-      }
-    },
-  },
+  deepLinks: createDeepLinksBridge(ipcRenderer),
+  fileOpen: fileOpenBridge.fileOpen,
+  paths: fileOpenBridge.paths,
   feedback: {
     diagnostics: () =>
-      ipcRenderer.invoke("vellum:feedback:diagnostics") as Promise<
+      ipcRenderer.invoke(FEEDBACK_DIAGNOSTICS) as Promise<
         Record<string, unknown>
       >,
     logs: () =>
-      ipcRenderer.invoke("vellum:feedback:logs") as Promise<string>,
+      ipcRenderer.invoke(FEEDBACK_LOGS) as Promise<string>,
   },
   connectivity: {
     onState: (callback) => {

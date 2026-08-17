@@ -18,6 +18,7 @@ import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 import { CONVERSATION_LIST_VIRTUALIZE_THRESHOLD } from "@/domains/chat/components/conversation-nav-section";
 import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
 import { ConversationRow } from "@/domains/chat/components/conversation-row";
+import { LoadMoreSentinel } from "@/domains/chat/components/load-more-sentinel";
 import type { Conversation } from "@/types/conversation-types";
 
 export interface CollapsedGroupFlyoutProps {
@@ -30,6 +31,11 @@ export interface CollapsedGroupFlyoutProps {
    * flyout adds no second scroll region of its own.
    */
   scrollParent?: HTMLElement | null;
+  /**
+   * Load-more trigger for a windowed section (LUM-2444); the flyout shows
+   * the same window as the expanded card, so it pages the same way.
+   */
+  onEndReached?: () => void;
 }
 
 export function CollapsedGroupFlyout({
@@ -37,6 +43,7 @@ export function CollapsedGroupFlyout({
   conversations,
   onClosePopover,
   scrollParent,
+  onEndReached,
 }: CollapsedGroupFlyoutProps) {
   const ctx = useConversationListContext();
 
@@ -68,10 +75,19 @@ export function CollapsedGroupFlyout({
             customScrollParent={scrollParent}
             computeItemKey={(_, conversation) => conversation.conversationId}
             itemContent={(_, conversation) => renderRow(conversation)}
+            endReached={onEndReached}
             className="bg-transparent"
           />
         ) : (
-          conversations.map(renderRow)
+          <>
+            {conversations.map(renderRow)}
+            {/* Only under a measured scrollport. Unmeasured, nothing clips
+                the sentinel, so it stays visible after every append and
+                would page the entire section in on open. */}
+            {onEndReached && scrollParent ? (
+              <LoadMoreSentinel onVisible={onEndReached} />
+            ) : null}
+          </>
         )}
       </div>
     </div>

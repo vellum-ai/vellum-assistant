@@ -53,6 +53,7 @@ function createMockContext(
         })
       : undefined,
     sendToClient: (msg: AssistantEvent) => sentMessages.push(msg),
+    emit: (msg: AssistantEvent) => sentMessages.push(msg),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
     surfaceState: new Map(),

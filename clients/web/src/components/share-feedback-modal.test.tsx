@@ -48,6 +48,7 @@ afterEach(() => {
   capacitorPlatform = "web";
   rejectAndroidFeedbackClient = false;
   delete (window as unknown as { _vellumDebug?: unknown })._vellumDebug;
+  delete (window as unknown as { vellum?: unknown }).vellum;
 });
 
 /** Decompress a logs_file and return the raw tar text. */
@@ -157,6 +158,41 @@ describe("ShareFeedbackModal", () => {
         (request) => (request as { body: { client?: string } }).body.client,
       ),
     ).toEqual(["android", "web"]);
+  });
+
+  test("reports the desktop release version from the Electron host", async () => {
+    (window as unknown as { vellum: unknown }).vellum = {
+      platform: "electron",
+      app: {
+        versionInfo: async () => ({ version: "1.2.3" }),
+      },
+    };
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ShareFeedbackModal
+          open
+          onClose={() => {}}
+          initialReason="feature_request"
+          initialMessage="Add a setting."
+        />
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Email"), "user@example.com");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => expect(feedbackRequests).toHaveLength(1));
+    const request = feedbackRequests[0] as {
+      body: { client?: string; client_version?: string };
+    };
+    expect(request.body).toMatchObject({
+      client: "electron",
+      client_version: "1.2.3",
+    });
   });
 
   test("submits Doctor session id and transcript diagnostics", async () => {

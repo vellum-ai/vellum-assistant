@@ -7,16 +7,14 @@ import {
 import { createHash } from "node:crypto";
 import {
   closeSync,
-  existsSync,
   mkdirSync,
   openSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { createRequire } from "node:module";
 import { networkInterfaces } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { cloudAssistantHubUrl } from "@vellumai/environments";
 
@@ -31,6 +29,9 @@ import {
 } from "./feature-flags.js";
 import { waitForDaemonReady } from "./http-client.js";
 import { loadRawConfig, saveRawConfig } from "./ingress-config.js";
+import { findWebDistDir } from "./web-dist.js";
+
+export { findWebDistDir } from "./web-dist.js";
 
 /**
  * CLI-managed nginx reverse proxy that fronts the gateway as the canonical
@@ -41,7 +42,6 @@ import { loadRawConfig, saveRawConfig } from "./ingress-config.js";
  */
 
 export const DEFAULT_NGINX_INGRESS_PORT = 7840;
-const _require = createRequire(import.meta.url);
 
 /** Listen port for nginx ingress, from VELLUM_NGINX_INGRESS_PORT. */
 export function getNginxIngressPort(): number {
@@ -70,37 +70,6 @@ export function getIngressPaths(workspaceDir: string): IngressPaths {
     pidPath: join(dir, "nginx.pid"),
     logPath: join(workspaceDir, "data", "logs", "nginx-ingress.log"),
   };
-}
-
-/**
- * Locate the pre-built @vellumai/web dist directory.
- *
- * Resolution order:
- *   1. npm-installed package — require.resolve('@vellumai/web/package.json')
- *   2. Source checkout — walk up from cli/ to find clients/web/dist/
- */
-export function findWebDistDir(): string | null {
-  try {
-    const pkgPath = _require.resolve("@vellumai/web/package.json");
-    const distDir = join(dirname(pkgPath), "dist");
-    if (existsSync(join(distDir, "index.html"))) {
-      return distDir;
-    }
-  } catch {
-    // Package not installed; try source checkout.
-  }
-
-  let dir = import.meta.dir;
-  for (let depth = 0; depth < 8; depth++) {
-    const candidate = join(dir, "clients", "web", "dist", "index.html");
-    if (existsSync(candidate)) {
-      return dirname(candidate);
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
 }
 
 function nginxQuoted(value: string, label: string): string {

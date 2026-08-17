@@ -33,6 +33,45 @@ const SHUTDOWN_GRACE_MS = 5_000;
 const STDOUT_CAPTURE_LIMIT = 16_384;
 const STDERR_CAPTURE_LIMIT = 4_096;
 
+export function resolveQdrantReleaseAsset(
+  os: NodeJS.Platform,
+  cpu: string,
+): {
+  binaryName: string;
+  filename: string;
+  format: "tar.gz" | "zip";
+  sha256?: string;
+} {
+  let target: string;
+  if (os === "darwin" && cpu === "arm64") {
+    target = "aarch64-apple-darwin";
+  } else if (os === "darwin" && cpu === "x64") {
+    target = "x86_64-apple-darwin";
+  } else if (os === "linux" && cpu === "x64") {
+    target = "x86_64-unknown-linux-musl";
+  } else if (os === "linux" && cpu === "arm64") {
+    target = "aarch64-unknown-linux-musl";
+  } else if (os === "win32" && cpu === "x64") {
+    return {
+      binaryName: "qdrant.exe",
+      filename: "qdrant-x86_64-pc-windows-msvc.zip",
+      format: "zip",
+      sha256:
+        "9d3b1d1fa58566bc71709347c4c9b83a0111d23a550daa93c3ee48e3150c4470",
+    };
+  } else {
+    throw new Error(
+      `Unsupported platform: ${os}/${cpu}. ` +
+        "Set QDRANT_URL to use an external Qdrant instance.",
+    );
+  }
+  return {
+    binaryName: "qdrant",
+    filename: `qdrant-${target}.tar.gz`,
+    format: "tar.gz",
+  };
+}
+
 export interface QdrantManagerConfig {
   url: string;
   storagePath?: string;
@@ -181,34 +220,18 @@ export class QdrantManager {
   private async installBinary(binaryPath: string): Promise<void> {
     const os = platform();
     const cpu = arch();
-
-    let target: string;
-    if (os === "darwin" && cpu === "arm64") {
-      target = "aarch64-apple-darwin";
-    } else if (os === "darwin" && cpu === "x64") {
-      target = "x86_64-apple-darwin";
-    } else if (os === "linux" && cpu === "x64") {
-      target = "x86_64-unknown-linux-musl";
-    } else if (os === "linux" && cpu === "arm64") {
-      target = "aarch64-unknown-linux-musl";
-    } else {
-      throw new Error(
-        `Unsupported platform: ${os}/${cpu}. ` +
-          "Set QDRANT_URL to use an external Qdrant instance.",
-      );
-    }
-
-    const filename = `qdrant-${target}.tar.gz`;
+    const release = resolveQdrantReleaseAsset(os, cpu);
+    const { filename } = release;
     const baseUrl = `https://github.com/qdrant/qdrant/releases/download/v${QDRANT_VERSION}`;
     const url = `${baseUrl}/${filename}`;
     const checksumUrl = `${baseUrl}/${filename}.sha256`;
 
     log.info({ url, binaryPath }, "Downloading Qdrant binary");
 
-    // Fetch the tarball and its SHA-256 checksum in parallel
+    // Fetch the archive and its SHA-256 checksum in parallel
     const [response, checksumResponse] = await Promise.all([
       fetch(url),
-      fetch(checksumUrl),
+      release.sha256 ? Promise.resolve(null) : fetch(checksumUrl),
     ]);
 
     if (!response.ok) {
@@ -217,15 +240,17 @@ export class QdrantManager {
       );
     }
 
-    const tarball = await response.arrayBuffer();
+    const archive = await response.arrayBuffer();
 
-    // Verify SHA-256 integrity if the checksum file is available
-    if (checksumResponse.ok) {
-      const checksumText = (await checksumResponse.text()).trim();
+    // Verify SHA-256 integrity if a pinned or published checksum is available
+    if (release.sha256 || checksumResponse?.ok) {
+      const checksumText = release.sha256
+        ? release.sha256
+        : (await checksumResponse!.text()).trim();
       // Checksum files contain "<hex>  <filename>" or just "<hex>"
       const expectedHash = checksumText.split(/\s+/)[0].toLowerCase();
       const actualHash = createHash("sha256")
-        .update(Buffer.from(tarball))
+        .update(Buffer.from(archive))
         .digest("hex");
 
       if (actualHash !== expectedHash) {
@@ -237,39 +262,45 @@ export class QdrantManager {
       log.info({ hash: actualHash }, "Qdrant binary checksum verified");
     } else {
       log.warn(
-        { checksumUrl, status: checksumResponse.status },
-        "Could not fetch Qdrant checksum — skipping integrity check",
+        { checksumUrl, status: checksumResponse?.status },
+        "Could not fetch Qdrant checksum; skipping integrity check",
       );
     }
 
-    // Extract the qdrant binary from the tarball
     const binDir = dirname(binaryPath);
     mkdirSync(binDir, { recursive: true });
-
-    // Write tarball to temp file, extract with tar
-    const tmpTar = join(binDir, `qdrant-download-${Date.now()}.tar.gz`);
-    writeFileSync(tmpTar, Buffer.from(tarball));
-
-    try {
-      const proc = Bun.spawn({
-        cmd: ["tar", "xzf", tmpTar, "-C", binDir, "qdrant"],
-        stdout: "ignore",
-        stderr: "pipe",
-      });
-      await proc.exited;
-      if (proc.exitCode !== 0) {
-        const stderr = await new Response(proc.stderr).text();
-        throw new Error(`Failed to extract Qdrant binary: ${stderr}`);
+    if (release.format === "zip") {
+      const { default: JSZip } = await import("jszip");
+      const zip = await JSZip.loadAsync(archive);
+      const entry = zip.file(release.binaryName);
+      if (!entry) {
+        throw new Error(`${filename} does not contain ${release.binaryName}.`);
       }
-    } finally {
+      writeFileSync(binaryPath, await entry.async("nodebuffer"));
+    } else {
+      const tmpTar = join(binDir, `qdrant-download-${Date.now()}.tar.gz`);
+      writeFileSync(tmpTar, Buffer.from(archive));
       try {
-        unlinkSync(tmpTar);
-      } catch {
-        /* ignore */
+        const proc = Bun.spawn({
+          cmd: ["tar", "xzf", tmpTar, "-C", binDir, release.binaryName],
+          stdout: "ignore",
+          stderr: "pipe",
+        });
+        await proc.exited;
+        if (proc.exitCode !== 0) {
+          const stderr = await new Response(proc.stderr).text();
+          throw new Error(`Failed to extract Qdrant binary: ${stderr}`);
+        }
+      } finally {
+        try {
+          unlinkSync(tmpTar);
+        } catch {}
       }
     }
 
-    chmodSync(binaryPath, 0o755);
+    if (os !== "win32") {
+      chmodSync(binaryPath, 0o755);
+    }
     log.info(
       { binaryPath, version: QDRANT_VERSION },
       "Qdrant binary installed",
@@ -395,7 +426,8 @@ export class QdrantManager {
   }
 
   private getBinaryPath(): string {
-    return join(getDataDir(), "qdrant", "bin", "qdrant");
+    const binaryName = platform() === "win32" ? "qdrant.exe" : "qdrant";
+    return join(getDataDir(), "qdrant", "bin", binaryName);
   }
 
   private cleanupStaleProcess(): void {
@@ -447,6 +479,9 @@ export class QdrantManager {
    * discoverable by tools that scan for "vellum" in process names.
    */
   private ensureVellumSymlink(binaryPath: string): string {
+    if (platform() === "win32") {
+      return binaryPath;
+    }
     const symlinkPath = join(dirname(binaryPath), "vellum-qdrant");
     const expectedTarget = realpathSync(binaryPath);
 

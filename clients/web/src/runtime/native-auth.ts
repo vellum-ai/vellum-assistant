@@ -55,6 +55,15 @@ const NativeAuth = registerPlugin<NativeAuthPlugin>("NativeAuth");
 /** Fallback destination after a successful native login. */
 const DEFAULT_POST_AUTH_DESTINATION = routes.assistant;
 
+const desktopUpdateRequiredAuthError = (): Error => {
+  const error = new Error(
+    "The desktop auth bridge is unavailable. Update the app to sign in.",
+  ) as Error & { code: string; data: { authError: string } };
+  error.code = "AUTH_ERROR";
+  error.data = { authError: "desktop_update_required" };
+  return error;
+};
+
 // True while the Electron OAuth flow awaits its deep-link callback. The
 // redirect refocuses the window before the code exchange finishes, so the
 // auth store skips app-resume session probes while this is set.
@@ -367,12 +376,12 @@ export async function startAuthFlow(
     return;
   }
 
-  // Desktop (Electron): open the system browser for OAuth so the user can
-  // leverage existing Google/Apple sessions. The main process handles the
-  // full flow (nonce, browser, deep-link callback, code exchange, cookie
-  // install) and returns the session token. Falls through to the web
-  // form-POST path when the bridge method is absent (older preload).
-  if (isElectron() && window.vellum?.auth?.startOAuth) {
+  // Electron requires the native OAuth bridge. The web and CLI callback
+  // fallbacks have no receiver inside the desktop shell.
+  if (isElectron()) {
+    if (!window.vellum?.auth?.startOAuth) {
+      throw desktopUpdateRequiredAuthError();
+    }
     oauthFlowInFlight = true;
     try {
       const result = await window.vellum.auth.startOAuth({

@@ -149,6 +149,7 @@ export class RouteHostClient {
       ({ pid } = await spawnWorkerProcess({
         pidPath: this.pidPath,
         entry: this.workerEntryUrl,
+        packagedEntry: "routes",
         workerLabel: "Route host",
         // Owned by the daemon (appears in its process tree, torn down with it);
         // kill it if it hangs during startup so a failed spawn leaves nothing.
