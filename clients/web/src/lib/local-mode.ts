@@ -307,23 +307,27 @@ export async function updateLockfileAssistant(
  * Rename an existing assistant entry without touching its other fields or the
  * active assistant pointer. The partial payload rides the host's shallow
  * on-disk merge, so `resources`, secrets, and unknown fields survive.
+ *
+ * Resolves `true` when there is nothing left to do (converged, no-op guard,
+ * or a successful write); `false` only when a host write was attempted and
+ * failed, so callers can retry.
  */
 export async function renameLockfileAssistant(
   assistantId: string,
   name: string,
-): Promise<void> {
+): Promise<boolean> {
   const trimmed = name.trim();
   if (!trimmed) {
     // Fresh assistants report "": never write an empty name.
-    return;
+    return true;
   }
   if (isRemoteGatewayMode() || !isLocalModeHostAvailable()) {
-    return;
+    return true;
   }
   const entry = getLockfileAssistant(assistantId);
   if (!entry || entry.name === trimmed) {
     // Rename-only: never create an entry, never write redundantly.
-    return;
+    return true;
   }
   const result = await saveLockfileAssistantHost(
     { assistantId, name: trimmed },
@@ -331,7 +335,9 @@ export async function renameLockfileAssistant(
   );
   if (result.ok) {
     commitLockfile(result.lockfile);
+    return true;
   }
+  return false;
 }
 
 /**
@@ -668,6 +674,22 @@ export function getLockfileAssistant(
   assistantId: string,
 ): LockfileAssistant | undefined {
   return getLockfile().assistants.find((a) => a.assistantId === assistantId);
+}
+
+/**
+ * React subscription to one lockfile entry's `name`. `undefined` while the
+ * lockfile hasn't hydrated or the id has no entry, so effects depending on it
+ * re-fire once the entry appears. Narrow on purpose: the lockfile store stays
+ * internal to this module.
+ */
+export function useLockfileAssistantName(
+  assistantId: string | null,
+): string | undefined {
+  return useLockfileStore((s) =>
+    assistantId === null
+      ? undefined
+      : s.lockfile?.assistants.find((a) => a.assistantId === assistantId)?.name,
+  );
 }
 
 /**
