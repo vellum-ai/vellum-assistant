@@ -28,6 +28,17 @@ import { useTitleBarStore } from "@/stores/title-bar-store";
 // Off Electron the inset is 0.
 const ELECTRON_TRAFFIC_LIGHT_CLEARANCE = 80;
 
+/**
+ * The `data-slot` this header publishes, and the selector that finds it.
+ *
+ * Surfaces portalled out of the chat layout position themselves against this
+ * header's bottom edge and have to locate it from outside the tree. They read
+ * these rather than writing the attribute name again, so the published name
+ * has one owner: the component that publishes it.
+ */
+export const CHAT_LAYOUT_HEADER_SLOT = "chat-layout-header";
+export const CHAT_LAYOUT_HEADER_SELECTOR = `[data-slot="${CHAT_LAYOUT_HEADER_SLOT}"]`;
+
 export interface ChatLayoutHeaderProps {
   isMobile: boolean;
   drawerOpen: boolean;
@@ -124,7 +135,7 @@ export function ChatLayoutHeader({
 
   return (
     <header
-      data-slot="chat-layout-header"
+      data-slot={CHAT_LAYOUT_HEADER_SLOT}
       className={`flex w-full shrink-0 items-center gap-4 px-4 pt-4${isMobile && !electron ? " pb-4" : ""}${
         electron
           ? " select-none [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag]"
