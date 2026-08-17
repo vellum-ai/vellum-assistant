@@ -109,7 +109,9 @@ public sealed class DictationSessionManager(
             engine.Finalized += text =>
             {
                 IfCurrent(generation, () => notify("dictation.finalized", new { text }));
-                engine.Dispose();
+                // Off the recognizer's own event thread: disposing a
+                // SpeechRecognitionEngine from inside its events can deadlock.
+                _ = Task.Run(engine.Dispose);
             };
             try
             {
@@ -210,6 +212,8 @@ internal sealed class SystemSpeechEngine : IDictationEngine
         }
         catch (Exception err) when (err is not DictationUnavailableException)
         {
+            _pushStream?.Dispose();
+            _engine?.Dispose();
             throw new DictationUnavailableException(err.Message);
         }
         _engine.SpeechHypothesized += (_, args) =>

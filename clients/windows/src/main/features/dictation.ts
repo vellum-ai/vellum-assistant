@@ -21,7 +21,7 @@ import {
   type NativeSidecarState,
 } from "@vellumai/native-sidecar/supervisor";
 
-import { handle } from "../ipc.client";
+import { handle, on } from "../ipc.client";
 import log from "../logger";
 
 /**
@@ -188,21 +188,26 @@ export const installDictation = (): void => {
     ([enable, deviceName, pushAudio], event) =>
       setDictationPartials(event.sender, enable, deviceName, pushAudio),
   );
-  // High-frequency fire-and-forget PCM from the partials owner.
-  ipcMain.on("vellum:helper:dictation:audio", (event, chunk: unknown) => {
-    if (event.sender !== partialsOwner) {
-      return;
-    }
-    const buf = toAudioBuffer(chunk);
-    if (!buf || buf.length === 0) {
-      return;
-    }
-    void getClient()
-      .call("dictation.appendAudio", { audio: buf.toString("base64") })
-      .catch(() => {
-        // Helper restarting mid-session; chunks are best-effort.
-      });
-  });
+  // High-frequency fire-and-forget PCM from the partials owner, on the
+  // origin-validated registrar (no invoke round-trip per ~100ms chunk).
+  on(
+    "vellum:helper:dictation:audio",
+    z.tuple([z.unknown()]),
+    ([chunk], event) => {
+      if (event.sender !== partialsOwner) {
+        return;
+      }
+      const buf = toAudioBuffer(chunk);
+      if (!buf || buf.length === 0) {
+        return;
+      }
+      void getClient()
+        .call("dictation.appendAudio", { audio: buf.toString("base64") })
+        .catch(() => {
+          // Helper restarting mid-session; chunks are best-effort.
+        });
+    },
+  );
 
   app.on("before-quit", () => {
     getClient().shutdown({

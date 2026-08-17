@@ -26,6 +26,9 @@ mock.module("./ipc.client", () => ({
   handle: (channel: string, _schema: unknown, fn: Handler) => {
     handlers[channel] = fn;
   },
+  on: (channel: string, _schema: unknown, fn: Handler) => {
+    handlers[channel] = fn;
+  },
 }));
 mock.module("./logger", () => ({
   default: { info: () => undefined, warn: () => undefined },
@@ -118,16 +121,16 @@ test("dictation partials route to the owner and gate pushed audio", async () => 
   });
   expect(stranger.send).not.toHaveBeenCalled();
 
-  rawListeners["vellum:helper:dictation:audio"]!(
+  handlers["vellum:helper:dictation:audio"]!(
+    [new Uint8Array([1, 2]).buffer],
     { sender: stranger },
-    new Uint8Array([1, 2]).buffer,
   );
   expect(
     fakeClient.calls.some((c) => c.method === "dictation.appendAudio"),
   ).toBe(false);
-  rawListeners["vellum:helper:dictation:audio"]!(
+  handlers["vellum:helper:dictation:audio"]!(
+    [new Uint8Array([1, 2]).buffer],
     { sender: owner },
-    new Uint8Array([1, 2]).buffer,
   );
   expect(
     fakeClient.calls.some((c) => c.method === "dictation.appendAudio"),
@@ -156,9 +159,9 @@ test("a helper crash drops the session owners", async () => {
   fakeClient.notifications.get("dictation.finalized")!({ text: "late" });
   expect(owner.send).not.toHaveBeenCalled();
 
-  rawListeners["vellum:helper:dictation:audio"]!(
+  handlers["vellum:helper:dictation:audio"]!(
+    [new Uint8Array([1]).buffer],
     { sender: owner },
-    new Uint8Array([1]).buffer,
   );
   expect(
     fakeClient.calls.some((c) => c.method === "dictation.appendAudio"),
