@@ -33,6 +33,7 @@ import {
   parseLockfile,
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
+  renameLockfileAssistantHost,
   saveLockfileAssistantHost,
   unpairAssistantHost,
   wakeLocalAssistantHost,
@@ -305,12 +306,15 @@ export async function updateLockfileAssistant(
 
 /**
  * Rename an existing assistant entry without touching its other fields or the
- * active assistant pointer. The partial payload rides the host's shallow
- * on-disk merge, so `resources`, secrets, and unknown fields survive.
+ * active assistant pointer. Runs through the host's rename-if-present
+ * operation, which decides against the on-disk registry and refuses missing
+ * entries and unreadable files instead of upserting, so a stale renderer
+ * cache can never resurrect a retired assistant. The renderer-side guards
+ * below are cheap early-outs, not the safety boundary.
  *
  * Resolves `true` when there is nothing left to do (converged, no-op guard,
- * or a successful write); `false` only when a host write was attempted and
- * failed, so callers can retry.
+ * or a successful write); `false` when the host write failed or refused, so
+ * callers can retry.
  */
 export async function renameLockfileAssistant(
   assistantId: string,
@@ -329,10 +333,7 @@ export async function renameLockfileAssistant(
     // Rename-only: never create an entry, never write redundantly.
     return true;
   }
-  const result = await saveLockfileAssistantHost(
-    { assistantId, name: trimmed },
-    undefined,
-  );
+  const result = await renameLockfileAssistantHost(assistantId, trimmed);
   if (result.ok) {
     commitLockfile(result.lockfile);
     return true;

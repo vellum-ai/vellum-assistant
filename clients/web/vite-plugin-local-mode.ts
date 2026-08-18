@@ -14,6 +14,7 @@ import {
   connectImport,
   getLockfileData,
   getLocalAssistantStatus,
+  renameLockfileAssistantIfPresent,
   upsertRendererLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
@@ -348,6 +349,13 @@ function lockfileMiddleware(
             lockfilePaths,
             body.platformAssistants as Array<Record<string, unknown>>,
             body.organizationId as string | undefined,
+          );
+        } else if (body.rename && typeof body.rename === "object") {
+          const rename = body.rename as Record<string, unknown>;
+          result = renameLockfileAssistantIfPresent(
+            lockfilePaths,
+            rename.assistantId as string,
+            rename.name as string,
           );
         } else {
           result = upsertRendererLockfileAssistant(

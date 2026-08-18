@@ -83,6 +83,50 @@ export function readRawLockfile(
   return { assistants: [], activeAssistant: null };
 }
 
+export type RawLockfileReadResult =
+  | { ok: true; lockfile: Record<string, unknown> }
+  | { ok: false; error: string };
+
+/**
+ * Like {@link readRawLockfile}, but a file that exists and cannot be read or
+ * parsed refuses instead of degrading to the empty registry. Missing or empty
+ * files still yield the empty registry. Use for writes that must never
+ * replace a registry they could not actually read.
+ */
+export function readRawLockfileStrict(
+  lockfilePaths: string[],
+): RawLockfileReadResult {
+  for (const candidate of lockfilePaths) {
+    let raw: string;
+    try {
+      raw = fs.readFileSync(candidate, "utf-8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      return { ok: false, error: `Failed to read lockfile: ${err}` };
+    }
+    if (raw.trim() === "") continue;
+    try {
+      return {
+        ok: true,
+        lockfile: JSON.parse(raw) as Record<string, unknown>,
+      };
+    } catch (err) {
+      return { ok: false, error: `Failed to parse lockfile: ${err}` };
+    }
+  }
+  return { ok: true, lockfile: { assistants: [], activeAssistant: null } };
+}
+
+/** The validated, sensitive-field-stripped wire view of a raw lockfile. */
+function toWireLockfile(lockfile: Record<string, unknown>): Lockfile {
+  const stripped = JSON.parse(JSON.stringify(lockfile)) as Record<
+    string,
+    unknown
+  >;
+  stripSensitiveFields(stripped);
+  return parseLockfile(stripped);
+}
+
 /**
  * Atomically persist a raw lockfile (write-to-temp + rename) and return the
  * validated, sensitive-field-stripped view of what was written.
@@ -102,12 +146,50 @@ export function writeRawLockfile(
     return { ok: false, status: 500, error: `Failed to write lockfile: ${err}` };
   }
 
-  const stripped = JSON.parse(JSON.stringify(lockfile)) as Record<
-    string,
-    unknown
-  >;
-  stripSensitiveFields(stripped);
-  return { ok: true, lockfile: parseLockfile(stripped) };
+  return { ok: true, lockfile: toWireLockfile(lockfile) };
+}
+
+/**
+ * Rename an existing assistant entry, never creating one. Unlike the upserts,
+ * a missing entry refuses (404) and an unreadable on-disk file refuses (409)
+ * instead of being treated as an empty registry, so a stale renderer cache
+ * can neither resurrect a retired assistant nor replace a registry it could
+ * not read with a skeleton row. Never touches `activeAssistant`.
+ */
+export function renameLockfileAssistantIfPresent(
+  lockfilePaths: string[],
+  assistantId: string,
+  name: string,
+): WriteResult {
+  if (typeof assistantId !== "string" || assistantId === "") {
+    return { ok: false, status: 400, error: "Missing assistantId" };
+  }
+  if (typeof name !== "string" || name === "") {
+    return { ok: false, status: 400, error: "Missing name" };
+  }
+
+  const read = readRawLockfileStrict(lockfilePaths);
+  if (!read.ok) {
+    return { ok: false, status: 409, error: read.error };
+  }
+  const lockfile = read.lockfile;
+  const assistants = Array.isArray(lockfile.assistants)
+    ? (lockfile.assistants as Array<Record<string, unknown>>)
+    : [];
+  const idx = assistants.findIndex((a) => a?.assistantId === assistantId);
+  if (idx < 0) {
+    return {
+      ok: false,
+      status: 404,
+      error: "No lockfile entry for this assistant",
+    };
+  }
+  if (assistants[idx]!.name === name) {
+    return { ok: true, lockfile: toWireLockfile(lockfile) };
+  }
+  assistants[idx] = { ...assistants[idx], name };
+  lockfile.assistants = assistants;
+  return writeRawLockfile(lockfilePaths, lockfile);
 }
 
 export function upsertLockfileAssistant(

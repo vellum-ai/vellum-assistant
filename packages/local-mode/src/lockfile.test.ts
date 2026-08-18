@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   getLockfileData,
   isPairedLockfileEntry,
+  renameLockfileAssistantIfPresent,
   replacePlatformAssistants,
   upsertLockfileAssistant,
   upsertRendererLockfileAssistant,
@@ -275,6 +276,123 @@ describe("upsertLockfileAssistant", () => {
     if (result.ok) {
       expect(result.lockfile.activeAssistant).toBe("asst_active");
     }
+  });
+});
+
+describe("renameLockfileAssistantIfPresent", () => {
+  const entry = {
+    assistantId: "asst_1",
+    cloud: "local",
+    runtimeUrl: "http://a",
+    name: "Old Name",
+    resources: { gatewayPort: 7830, daemonPort: 7831, dataDir: "/tmp/x" },
+    signingKey: "sk-on-disk-secret",
+    bearerToken: "bt-on-disk-secret",
+  };
+
+  test("renames the entry preserving resources, secrets, and activeAssistant", () => {
+    writeOnDisk({
+      activeAssistant: "asst_other",
+      assistants: [entry, { assistantId: "asst_other", cloud: "local" }],
+    });
+
+    const result = renameLockfileAssistantIfPresent(
+      [lockfilePath],
+      "asst_1",
+      "Renamed",
+    );
+
+    expect(result.ok).toBe(true);
+    const onDisk = readOnDisk();
+    expect(onDisk.activeAssistant).toBe("asst_other");
+    const assistants = onDisk.assistants as Array<Record<string, unknown>>;
+    expect(assistants).toEqual([
+      { ...entry, name: "Renamed" },
+      { assistantId: "asst_other", cloud: "local" },
+    ]);
+  });
+
+  test("refuses a missing entry without writing the file", () => {
+    const result = renameLockfileAssistantIfPresent(
+      [lockfilePath],
+      "asst_gone",
+      "Renamed",
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: 404,
+      error: "No lockfile entry for this assistant",
+    });
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+  });
+
+  test("refuses when the id names another process's retired entry", () => {
+    writeOnDisk({ activeAssistant: null, assistants: [entry] });
+    const before = fs.readFileSync(lockfilePath, "utf-8");
+
+    const result = renameLockfileAssistantIfPresent(
+      [lockfilePath],
+      "asst_retired",
+      "Renamed",
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(404);
+    }
+    expect(fs.readFileSync(lockfilePath, "utf-8")).toBe(before);
+  });
+
+  test("refuses a corrupt on-disk file without clobbering it", () => {
+    fs.writeFileSync(lockfilePath, "{ not json");
+
+    const result = renameLockfileAssistantIfPresent(
+      [lockfilePath],
+      "asst_1",
+      "Renamed",
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(409);
+    }
+    expect(fs.readFileSync(lockfilePath, "utf-8")).toBe("{ not json");
+  });
+
+  test("an already-equal name succeeds without rewriting the file", () => {
+    // Compact formatting: any rewrite would re-indent and change the bytes.
+    fs.writeFileSync(
+      lockfilePath,
+      JSON.stringify({ activeAssistant: null, assistants: [entry] }),
+    );
+    const before = fs.readFileSync(lockfilePath, "utf-8");
+
+    const result = renameLockfileAssistantIfPresent(
+      [lockfilePath],
+      "asst_1",
+      "Old Name",
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.lockfile.assistants[0]?.name).toBe("Old Name");
+      expect(result.lockfile.assistants[0]).not.toHaveProperty("signingKey");
+    }
+    expect(fs.readFileSync(lockfilePath, "utf-8")).toBe(before);
+  });
+
+  test("rejects a missing id or name without touching disk", () => {
+    writeOnDisk({ activeAssistant: null, assistants: [entry] });
+    const before = fs.readFileSync(lockfilePath, "utf-8");
+
+    expect(renameLockfileAssistantIfPresent([lockfilePath], "", "N").ok).toBe(
+      false,
+    );
+    expect(
+      renameLockfileAssistantIfPresent([lockfilePath], "asst_1", "").ok,
+    ).toBe(false);
+    expect(fs.readFileSync(lockfilePath, "utf-8")).toBe(before);
   });
 });
 

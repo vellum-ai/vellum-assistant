@@ -257,6 +257,38 @@ export async function saveLockfileAssistantHost(
 }
 
 /**
+ * Rename an existing lockfile entry through the host's rename-if-present
+ * operation. Unlike {@link saveLockfileAssistantHost}'s upsert, the host
+ * decides against its current on-disk registry and refuses when the entry is
+ * missing or the file is unreadable, so a stale renderer cache can never
+ * resurrect a retired assistant or replace a registry the host could not
+ * read. Older Electron hosts that predate the IPC channel degrade to a
+ * structured failure rather than falling back to the upsert (which would
+ * reintroduce the hazard); the name sync simply waits for the app update.
+ */
+export async function renameLockfileAssistantHost(
+  assistantId: string,
+  name: string,
+): Promise<LockfileWriteResult> {
+  if (isElectron()) {
+    const rename = window.vellum!.localMode.renameLockfileAssistant;
+    if (!rename) {
+      return {
+        ok: false,
+        error: "Renaming is not supported by this app version",
+      };
+    }
+    return rename(assistantId, name);
+  }
+
+  return postLocalCommand<LockfileWriteResult>(
+    "/assistant/__local/lockfile",
+    { rename: { assistantId, name } },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
+}
+
+/**
  * Replace the platform (`cloud === "vellum"`) assistants in the lockfile with
  * the provided set, preserving local assistants. When `organizationId` is
  * given, only that org's platform entries are replaced — other orgs' entries

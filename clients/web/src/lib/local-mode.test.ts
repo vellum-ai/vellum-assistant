@@ -28,6 +28,16 @@ const saveLockfileAssistantHost = mock(
   }),
 );
 
+const renameLockfileAssistantHost = mock(
+  async (
+    _assistantId: string,
+    _name: string,
+  ): Promise<localModeHost.LockfileWriteResult> => ({
+    ok: true as const,
+    lockfile: { assistants: [], activeAssistant: null },
+  }),
+);
+
 const fetchGuardianTokenHost = mock(async (_id: string) => "guardian-tok");
 
 const unpairAssistantHost = mock(
@@ -52,6 +62,7 @@ mock.module("@/runtime/local-mode-host", () => ({
   ...localModeHost,
   replacePlatformAssistantsHost,
   loadLockfileHost,
+  renameLockfileAssistantHost,
   saveLockfileAssistantHost,
   fetchGuardianTokenHost,
   unpairAssistantHost,
@@ -154,6 +165,7 @@ afterEach(() => {
   localStorage.removeItem(SELECTED_ASSISTANT_STORAGE_KEY);
   replacePlatformAssistantsHost.mockClear();
   loadLockfileHost.mockClear();
+  renameLockfileAssistantHost.mockClear();
   saveLockfileAssistantHost.mockClear();
   fetchGuardianTokenHost.mockClear();
   unpairAssistantHost.mockClear();
@@ -613,14 +625,14 @@ describe("renameLockfileAssistant", () => {
     window.__VELLUM_CONFIG__ = {};
   }
 
-  test("writes the partial payload without retargeting the active assistant, and commits", async () => {
+  test("routes the trimmed rename through the host rename op and commits", async () => {
     enableLocalHost();
     setLockfile({ assistants: [named], activeAssistant: "local-a" });
     const resulting = {
       assistants: [{ ...named, name: "Credence" }],
       activeAssistant: "local-a",
     };
-    saveLockfileAssistantHost.mockResolvedValueOnce({
+    renameLockfileAssistantHost.mockResolvedValueOnce({
       ok: true as const,
       lockfile: resulting,
     });
@@ -629,11 +641,13 @@ describe("renameLockfileAssistant", () => {
       renameLockfileAssistant("local-a", "  Credence  "),
     ).resolves.toBe(true);
 
-    expect(saveLockfileAssistantHost).toHaveBeenCalledTimes(1);
-    expect(saveLockfileAssistantHost.mock.calls[0]).toEqual([
-      { assistantId: "local-a", name: "Credence" },
-      undefined,
+    expect(renameLockfileAssistantHost).toHaveBeenCalledTimes(1);
+    expect(renameLockfileAssistantHost.mock.calls[0]).toEqual([
+      "local-a",
+      "Credence",
     ]);
+    // Never the upsert path: a stale cache must not re-create an entry.
+    expect(saveLockfileAssistantHost).not.toHaveBeenCalled();
     expect(useLockfileStore.getState().lockfile).toEqual(resulting);
     expect(useLockfileStore.getState().committed).toBe(true);
   });
@@ -646,7 +660,7 @@ describe("renameLockfileAssistant", () => {
       true,
     );
 
-    expect(saveLockfileAssistantHost).not.toHaveBeenCalled();
+    expect(renameLockfileAssistantHost).not.toHaveBeenCalled();
   });
 
   test("no-op (true) when the entry already carries the trimmed name", async () => {
@@ -657,7 +671,7 @@ describe("renameLockfileAssistant", () => {
       renameLockfileAssistant("local-a", "  Old Name  "),
     ).resolves.toBe(true);
 
-    expect(saveLockfileAssistantHost).not.toHaveBeenCalled();
+    expect(renameLockfileAssistantHost).not.toHaveBeenCalled();
   });
 
   test("no-op (true) on an empty or whitespace-only name", async () => {
@@ -667,7 +681,7 @@ describe("renameLockfileAssistant", () => {
     await expect(renameLockfileAssistant("local-a", "")).resolves.toBe(true);
     await expect(renameLockfileAssistant("local-a", "   ")).resolves.toBe(true);
 
-    expect(saveLockfileAssistantHost).not.toHaveBeenCalled();
+    expect(renameLockfileAssistantHost).not.toHaveBeenCalled();
   });
 
   test("no-op (true) when no local-mode host backs this runtime", async () => {
@@ -678,7 +692,7 @@ describe("renameLockfileAssistant", () => {
       true,
     );
 
-    expect(saveLockfileAssistantHost).not.toHaveBeenCalled();
+    expect(renameLockfileAssistantHost).not.toHaveBeenCalled();
   });
 
   test("no-op (true) in remote-gateway mode", async () => {
@@ -688,22 +702,22 @@ describe("renameLockfileAssistant", () => {
       true,
     );
 
-    expect(saveLockfileAssistantHost).not.toHaveBeenCalled();
+    expect(renameLockfileAssistantHost).not.toHaveBeenCalled();
   });
 
-  test("resolves false without committing on a host write failure", async () => {
+  test("resolves false without committing on a host refusal or write failure", async () => {
     enableLocalHost();
     setLockfile({ assistants: [named], activeAssistant: "local-a" });
-    saveLockfileAssistantHost.mockResolvedValueOnce({
+    renameLockfileAssistantHost.mockResolvedValueOnce({
       ok: false,
-      error: "disk unavailable",
+      error: "No lockfile entry for this assistant",
     });
 
     await expect(renameLockfileAssistant("local-a", "Credence")).resolves.toBe(
       false,
     );
 
-    expect(saveLockfileAssistantHost).toHaveBeenCalledTimes(1);
+    expect(renameLockfileAssistantHost).toHaveBeenCalledTimes(1);
     expect(useLockfileStore.getState().lockfile?.assistants).toEqual([named]);
   });
 });

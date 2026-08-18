@@ -37,6 +37,7 @@ export {
 } from "./environment";
 export {
   getLockfileData,
+  renameLockfileAssistantIfPresent,
   upsertLockfileAssistant,
   upsertRendererLockfileAssistant,
   replacePlatformAssistants,
