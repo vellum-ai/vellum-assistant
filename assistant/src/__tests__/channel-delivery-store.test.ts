@@ -147,10 +147,8 @@ describe("channel-delivery-store", () => {
     const minted = resolveInboundConversation("slack", channelId, null);
     const again = resolveInboundConversation("slack", channelId, null);
     expect(minted.created).toBe(true);
-    expect(again).toEqual({
-      conversationId: minted.conversationId,
-      created: false,
-    });
+    expect(again.conversationId).toBe(minted.conversationId);
+    expect(again.created).toBe(false);
 
     // A threaded key aliased onto the flat conversation is an existing
     // conversation, not a new one.
@@ -158,10 +156,8 @@ describe("channel-delivery-store", () => {
       sourceMessageId: threadTs,
     });
     const aliased = resolveInboundConversation("slack", channelId, threadTs);
-    expect(aliased).toEqual({
-      conversationId: minted.conversationId,
-      created: false,
-    });
+    expect(aliased.conversationId).toBe(minted.conversationId);
+    expect(aliased.created).toBe(false);
 
     const separate = resolveInboundConversation(
       "slack",
