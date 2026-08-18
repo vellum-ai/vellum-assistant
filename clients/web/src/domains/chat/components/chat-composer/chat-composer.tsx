@@ -536,8 +536,16 @@ export function ChatComposer({
       // The voice button holds the composer's focus through the press so its
       // click survives the row's focus gating, which leaves the soft keyboard
       // raised under a room that takes the whole screen. Drop it here, now that
-      // the click has been delivered. Same move the drawer makes on open.
-      (document.activeElement as HTMLElement | null)?.blur();
+      // the click has been delivered.
+      //
+      // The textarea by name, not whatever holds focus: a keyboard entry or a
+      // desktop click leaves focus on the button itself, and blurring that would
+      // strand the user on the body with nothing to tab from. A `not-ready`
+      // verdict never opens the room at all and puts a "Configure voice" action
+      // on screen, which is exactly what they would then have to reach. Blurring
+      // an element that does not hold focus is a no-op, so the mobile path this
+      // exists for still drops the keyboard.
+      inputRef.current?.blur();
       // First-run preferences card — shown on the first-ever voice entry on
       // EVERY platform, the Capacitor iOS shell included (web↔iOS parity for the
       // welcome card). On iOS the card renders locked (`nonDismissible`, see its
@@ -552,7 +560,7 @@ export function ChatComposer({
       }
       startLiveVoiceSession();
     },
-    [assistantId, startLiveVoiceSession],
+    [assistantId, inputRef, startLiveVoiceSession],
   );
   const handleFirstRunStart = useCallback(() => {
     useVoicePrefsStore.getState().markFirstRunSeen();

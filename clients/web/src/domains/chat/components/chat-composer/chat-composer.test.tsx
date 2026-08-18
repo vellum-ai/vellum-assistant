@@ -2252,7 +2252,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(liveCancelPrewarmSpy).not.toHaveBeenCalled();
   });
 
-  test("entering voice mode drops the composer's focus", async () => {
+  test("entering voice mode drops the composer's focus, and only that", async () => {
     // GIVEN a focused composer. The voice button cancels the press that would
     // otherwise blur this, so its click survives the row's focus gating, which
     // leaves the soft keyboard raised.
@@ -2279,6 +2279,32 @@ describe("ChatComposer — live-voice integration", () => {
     // Drain the preflight the click started, so its resolution does not land
     // after the test has returned.
     await flushPreflight();
+  });
+
+  test("entering voice mode from the button itself leaves that focus alone", async () => {
+    // GIVEN a keyboard user on the voice button, or a desktop click, either of
+    // which leaves focus on the button rather than on the textarea
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockPreflightVerdict = {
+      status: "not-ready",
+      missing: [{ kind: "tts", providerId: "elevenlabs", reason: "no key" }],
+      userMessage: "Add a voice provider to start talking.",
+    };
+    const { getByLabelText } = renderVoiceComposer();
+    const button = getByLabelText("Start voice mode");
+    act(() => {
+      button.focus();
+    });
+
+    // WHEN the entry runs
+    fireEvent.click(button);
+
+    // THEN it blurs the textarea by name and leaves this focus where it is.
+    // Blurring whatever held focus would strand the user on the body, with the
+    // configure-voice action this verdict raises left to hunt for.
+    expect(document.activeElement).toBe(button);
+    await flushPreflight();
+    expect(getByLabelText("Start voice mode")).toBeTruthy();
   });
 
   test("a not-ready verdict keeps the room closed and surfaces the configure-voice prompt", async () => {
