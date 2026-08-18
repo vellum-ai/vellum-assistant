@@ -35,9 +35,8 @@ import {
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useTurnStore } from "@/domains/chat/turn-store";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import type { CompanionContext, CompanionTurn } from "@vellumai/ipc-contract";
-import type { TurnPhase } from "@/domains/chat/turn-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 /**
@@ -69,45 +68,42 @@ function isSpeech(message: DisplayMessage): boolean {
 }
 
 /**
- * The phases that mean a turn is actually being worked on.
+ * Whether a turn is in flight, from the press until the response is done.
  *
- * `awaiting_user_input` is deliberately not one of them. It is still a live
- * turn, but the assistant is waiting on the user rather than working, and a
- * surface pulsing away while it is the user's move says the opposite of what is
- * true.
- */
-const WORKING_PHASES = new Set<TurnPhase>(["queued", "thinking", "streaming"]);
-
-/**
- * Whether the assistant is working, right now.
+ * **The union of the three answers the app already trusts**, because no single
+ * one of them covers the whole turn:
  *
- * **Two sources, because neither survives on its own.**
+ * - `snapshot.processing` is the daemon's own flag, patched true on
+ *   `assistant_turn_start` and false on the terminal event. It is the only one
+ *   that spans the long middle of a turn, where the assistant is running tools
+ *   and nothing is streaming yet.
+ * - `processingConversationIds` is the client's optimistic mirror, set in the
+ *   same tick as the send. It covers the window before the daemon has said
+ *   anything at all.
+ * - `isSending(phase)` is the local state machine, which moves first of all.
  *
- * The turn phase is the local state machine, and it is reset outright by a
- * conversation switch (`conversation_switch_reset` in `chat-session-store`).
- * The surface's own composer walks straight into that: it sends into a draft
- * conversation whose id the server replaces on `ready`, so the phase drops to
- * `idle` at almost exactly the moment the first reply events arrive. Read
- * alone, it lights the ring for the wait before the model answers and puts it
- * out the instant the answer starts, which is precisely backwards.
+ * Deliberately a union rather than a choice. Each of these has a hole
+ * somewhere: the phase is reset outright by a conversation switch, and the
+ * surface's own composer causes one by sending into a draft conversation the
+ * server renames on `ready`, which also drops the draft's id from the
+ * optimistic mirror before the real id joins it. Reading any one of them alone
+ * put the ring out in the middle of a turn. Reading all three cannot, because
+ * a hole in one is covered by the others, and nothing here can hold the ring on
+ * past the end: they all fall to false on the same terminal event.
  *
- * `processingConversationIds` is the durable half. `turn-coordinator` moves it
- * on every terminal event by construction, it is what the sidebar's own
- * processing dots read, and it is keyed by conversation rather than held by one
- * reducer, so a switch cannot clear it.
+ * No phase is excluded. Thinking, a tool running, and waiting on an answer are
+ * one turn as far as the surface is concerned, and a ring that dropped out
+ * between them would be reporting the shape of the turn rather than that there
+ * is one.
  *
  * Unscoped to a conversation on purpose. The surface is the assistant's
- * presence on the desktop rather than a view of one thread, so "working" here
- * means working on anything, including a turn arriving from Slack or a phone
- * call while the user is looking at something else. It also sidesteps the
- * draft-to-real id swap entirely, which is the very thing that broke the phase.
- *
- * The phase is still consulted because it moves first: it covers the window
- * between the press and the conversation being registered as processing.
+ * presence on the desktop rather than a view of one thread, so a turn arriving
+ * from Slack or a phone call counts the same as one typed here.
  */
 const isWorking = (): boolean =>
-  WORKING_PHASES.has(useTurnStore.getState().phase) ||
-  useConversationStore.getState().processingConversationIds.size > 0;
+  useChatSessionStore.getState().snapshot?.processing === true ||
+  useConversationStore.getState().processingConversationIds.size > 0 ||
+  isSending(useTurnStore.getState().phase);
 
 /** The assistant and the conversation's tail, as the card wants them. */
 function currentContext(): CompanionContext {
@@ -167,9 +163,13 @@ export function useCompanionMirror(): void {
     }
 
     let pushed: CompanionContext | null = null;
+    // What the last computed context said about the turn, so the subscription
+    // below can tell a flip from the store merely being written.
+    let working = isWorking();
 
     const sync = (): void => {
       const context = currentContext();
+      working = context.working;
       if (pushed !== null && sameContext(pushed, context)) {
         return;
       }
@@ -181,39 +181,33 @@ export function useCompanionMirror(): void {
     // outlives every route in the app, so the card is caught up here rather
     // than waiting for the next store write.
     sync();
+    // `sync` recomputes the flag along with the tail, so the session store's
+    // own writes carry `snapshot.processing` changes without further wiring.
     const unsubscribeSession = useChatSessionStore.subscribe(sync);
     // A turn can begin and end without moving a single row the card draws: a
-    // reply that is still being thought about has no text yet, and one that
-    // finishes streaming leaves its last text exactly where it already was. The
-    // phase is its own signal and needs its own subscription.
+    // reply still being thought about has no text yet, and one that finishes
+    // leaves its last text exactly where it already was. So the flag needs a
+    // subscription of its own rather than riding the transcript's.
     //
-    // Gated on the flag actually flipping, not on the store being written. The
-    // turn store is written on roughly the same streaming cadence as the
-    // session store, and `sync` reselects and remaps the whole tail on every
-    // call, so an ungated second subscription would double that work for a
-    // boolean that changes twice a turn.
-    let working = isWorking();
-    const onWorkingMaybeChanged = (): void => {
-      const next = isWorking();
-      if (next === working) {
+    // Gated on the flag flipping rather than on the store being written, since
+    // the conversation store moves for plenty the card does not draw and `sync`
+    // reselects and remaps the whole tail on every call.
+    const onMaybeFlipped = (): void => {
+      if (isWorking() === working) {
         return;
       }
-      working = next;
       sync();
     };
-    const unsubscribeTurn = useTurnStore.subscribe(onWorkingMaybeChanged);
-    // The other half of {@link isWorking}, and the half that actually carries a
-    // turn through to its end. Watched on the same terms as the phase.
-    const unsubscribeProcessing = useConversationStore.subscribe(
-      onWorkingMaybeChanged,
-    );
+    const unsubscribeProcessing =
+      useConversationStore.subscribe(onMaybeFlipped);
+    const unsubscribeTurn = useTurnStore.subscribe(onMaybeFlipped);
     // The name arrives on its own schedule, after the identity resolves and
     // again on every assistant switch, so it needs a subscription of its own.
     const unsubscribeIdentity = useAssistantIdentityStore.subscribe(sync);
     return () => {
       unsubscribeSession();
-      unsubscribeTurn();
       unsubscribeProcessing();
+      unsubscribeTurn();
       unsubscribeIdentity();
       // Nothing is left to report a turn ending, so the last thing this does is
       // stop claiming one is running. The tail and the name are left standing:

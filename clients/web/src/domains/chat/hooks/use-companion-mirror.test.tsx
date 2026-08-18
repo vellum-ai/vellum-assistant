@@ -23,6 +23,9 @@ mock.module("@/runtime/popout-window", () => ({
 
 const { useTurnStore } = await import("@/domains/chat/turn-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
+const { useChatSessionStore } = await import(
+  "@/domains/chat/chat-session-store"
+);
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -37,6 +40,7 @@ afterEach(() => {
   isPopout = false;
   useTurnStore.getState().resetTurn();
   useConversationStore.setState({ processingConversationIds: new Set() });
+  useChatSessionStore.setState({ snapshot: null } as never);
 });
 
 /** The most recent push, which is what the surface would be drawing. */
@@ -48,6 +52,18 @@ const latest = (): CompanionContext => {
   return last;
 };
 
+const processing = (...ids: string[]) => {
+  useConversationStore.setState({ processingConversationIds: new Set(ids) });
+};
+
+/** The daemon's own flag, as it rides the rolling snapshot. */
+const daemonProcessing = (value: boolean | undefined) => {
+  const { snapshot } = useChatSessionStore.getState();
+  useChatSessionStore.setState({
+    snapshot: { ...(snapshot ?? { messages: [] }), processing: value },
+  } as never);
+};
+
 describe("the working flag the companion mirror publishes", () => {
   test("is false with no turn running", () => {
     render(<Mirror />);
@@ -56,50 +72,78 @@ describe("the working flag the companion mirror publishes", () => {
 
   test("goes true when a turn starts", async () => {
     render(<Mirror />);
-    useTurnStore.getState().requestSend("turn-1");
+    processing("conv-1");
     await waitFor(() => {
       expect(latest().working).toBe(true);
     });
   });
 
-  test("goes false again when the turn completes", async () => {
+  test("goes false again when the turn finishes", async () => {
     render(<Mirror />);
-    useTurnStore.getState().requestSend("turn-1");
+    processing("conv-1");
     await waitFor(() => {
       expect(latest().working).toBe(true);
     });
-    useTurnStore.getState().completeTurn();
+    processing();
     await waitFor(() => {
       expect(latest().working).toBe(false);
     });
   });
 
   /**
-   * A turn that has stopped to ask something is not the assistant working, and
-   * a surface still saying it is would be telling the user to wait for a reply
-   * that is waiting on them.
+   * The whole turn, not the shape of it. Thinking, a tool running, and waiting
+   * on an answer are all one turn as far as the surface is concerned, and a
+   * ring that dropped out between them would report the stages rather than that
+   * there is a turn at all.
    */
-  test("is false while the turn is waiting on the user", async () => {
+  test("holds through a turn that stops to ask the user something", async () => {
     render(<Mirror />);
-    useTurnStore.getState().requestSend("turn-1");
+    processing("conv-1");
     await waitFor(() => {
       expect(latest().working).toBe(true);
     });
+
     useTurnStore.getState().onQuestionRequest();
-    await waitFor(() => {
-      expect(latest().working).toBe(false);
-    });
+    await Promise.resolve();
+
+    expect(latest().working).toBe(true);
   });
 
   /**
-   * The phase moves on its own schedule: a reply being thought about has no
-   * text yet and a finished one leaves its last text where it was, so neither
-   * edge of a turn necessarily moves a row the card draws.
+   * The phase is reset outright by a conversation switch, and the surface's own
+   * composer causes one: it sends into a draft conversation whose id the server
+   * replaces on `ready`, which lands about when the first reply events arrive.
+   * A phase-derived ring lit for the wait and went out as the answer started.
    */
+  test("survives the conversation switch that resets the turn phase", async () => {
+    render(<Mirror />);
+    processing("draft-1");
+    await waitFor(() => {
+      expect(latest().working).toBe(true);
+    });
+
+    useTurnStore.getState().resetTurn();
+    await Promise.resolve();
+
+    expect(latest().working).toBe(true);
+  });
+
+  /**
+   * The surface is the assistant's presence on the desktop rather than a view
+   * of one thread, so a turn the user is not looking at still counts.
+   */
+  test("works for a conversation the app is not showing", async () => {
+    render(<Mirror />);
+    processing("some-other-conversation");
+    await waitFor(() => {
+      expect(latest().working).toBe(true);
+    });
+  });
+
   test("is published even when no drawn row changed", async () => {
     render(<Mirror />);
     const before = published.length;
-    useTurnStore.getState().requestSend("turn-1");
+    processing("conv-1");
     await waitFor(() => {
       expect(published.length).toBeGreaterThan(before);
     });
@@ -127,7 +171,7 @@ describe("giving up the claim that a turn is running", () => {
    * A pop-out never publishes, so it has nothing to give up, and doing so would
    * clear the flag the main window is legitimately holding.
    */
-  test("says nothing from a window that never published", async () => {
+  test("says nothing from a window that never published", () => {
     isPopout = true;
     const view = render(<Mirror />);
 
@@ -138,61 +182,44 @@ describe("giving up the claim that a turn is running", () => {
 });
 
 /**
- * The turn phase is reset outright by a conversation switch, and the surface's
- * own composer causes one: it sends into a draft conversation whose id the
- * server replaces on `ready`. That lands at almost exactly the moment the first
- * reply events arrive, so a ring driven by the phase alone lit for the wait and
- * went out the instant the answer started.
+ * The long middle of a turn: the assistant is working, the local reducer has
+ * been wiped by the draft-to-real conversation switch, that switch has taken
+ * the draft's id out of the optimistic mirror, and nothing is streaming yet.
+ *
+ * Every client-side signal reads idle here. Only the daemon's own flag knows a
+ * turn is running, which is why the ring went dark in exactly this window and
+ * came back the moment the first delta arrived.
  */
-describe("a turn that outlives its conversation id", () => {
-  const startProcessing = (id: string) => {
-    useConversationStore.setState({
-      processingConversationIds: new Set([id]),
-    });
-  };
-
-  test("keeps working through the switch that resets the phase", async () => {
+describe("the middle of a turn, where the client looks idle", () => {
+  test("stays lit on the daemon's flag alone", async () => {
     render(<Mirror />);
-    useTurnStore.getState().requestSend("turn-1");
-    startProcessing("draft-1");
+    processing("draft-1");
     await waitFor(() => {
       expect(latest().working).toBe(true);
     });
 
-    // The switch: the draft id is replaced and the local reducer is wiped.
+    // The daemon reports the turn, then every local trace of it goes away.
+    daemonProcessing(true);
     useTurnStore.getState().resetTurn();
-    await Promise.resolve();
+    processing();
+    await waitFor(() => {
+      expect(latest().working).toBe(true);
+    });
 
     expect(latest().working).toBe(true);
   });
 
-  test("gives up only once the conversation stops processing", async () => {
+  test("goes out when the daemon says the turn is over", async () => {
     render(<Mirror />);
-    useTurnStore.getState().requestSend("turn-1");
-    startProcessing("draft-1");
+    daemonProcessing(true);
     await waitFor(() => {
       expect(latest().working).toBe(true);
     });
-    useTurnStore.getState().resetTurn();
 
-    useConversationStore.setState({ processingConversationIds: new Set() });
+    daemonProcessing(false);
 
     await waitFor(() => {
       expect(latest().working).toBe(false);
-    });
-  });
-
-  /**
-   * The surface is the assistant's presence on the desktop rather than a view
-   * of one thread, so a turn the user is not looking at still counts.
-   */
-  test("works for a conversation the app is not showing", async () => {
-    render(<Mirror />);
-
-    startProcessing("some-other-conversation");
-
-    await waitFor(() => {
-      expect(latest().working).toBe(true);
     });
   });
 });
