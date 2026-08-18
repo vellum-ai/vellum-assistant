@@ -6,12 +6,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import {
-  matchQuery,
-  partialMatchKey,
-  QueryClient,
-  type Query,
-} from "@tanstack/react-query";
+import { matchQuery, partialMatchKey } from "@tanstack/react-query";
 
 import {
   conversationsByIdGetQueryKey,
@@ -25,15 +20,9 @@ import {
   isConversationListKey,
   isSectionFilter,
 } from "./conversation-list-keys";
+import { queryFor } from "./conversation-list.test-helper";
 
 const ASSISTANT_ID = "asst-1";
-
-/** A real `Query` for `queryKey`, so `matchQuery` runs against the real thing. */
-function queryFor(queryKey: readonly unknown[]): Query {
-  return new QueryClient().getQueryCache().build(new QueryClient(), {
-    queryKey,
-  });
-}
 
 describe("conversationListPrefix", () => {
   test("matches every list cache for the assistant, whatever its filter", () => {

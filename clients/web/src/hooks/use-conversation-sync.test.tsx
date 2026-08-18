@@ -23,7 +23,7 @@ import {
   isSectionFilter,
   type ConversationListFilter,
 } from "@/utils/conversation-list-keys";
-import { listPage } from "@/utils/conversation-list.test-helper";
+import { listPage, queryFor } from "@/utils/conversation-list.test-helper";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import { __resetForTesting, publish } from "@/lib/event-bus";
 
@@ -411,12 +411,14 @@ describe("useConversationSync", () => {
     /* The archived lists are invalidated through a prefix + predicate
        filter, so the assertion runs TanStack's real matcher against a real
        archived query and a real foreground query. */
-    const archivedQuery = queryClient.getQueryCache().build(queryClient, {
-      queryKey: conversationListQueryKey("asst-1", ARCHIVED_FILTER),
-    });
-    const foregroundQuery = queryClient
-      .getQueryCache()
-      .build(queryClient, { queryKey: conversationListQueryKey("asst-1") });
+    const archivedQuery = queryFor(
+      conversationListQueryKey("asst-1", ARCHIVED_FILTER),
+      queryClient,
+    );
+    const foregroundQuery = queryFor(
+      conversationListQueryKey("asst-1"),
+      queryClient,
+    );
     const archivedCalls = (
       spy.mock.calls as unknown as Array<[QueryFilters | undefined]>
     ).filter(
