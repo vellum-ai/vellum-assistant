@@ -171,6 +171,8 @@ describe("Slack edit propagation", () => {
     expect(slackMeta!.editedAt!).toBeGreaterThanOrEqual(t0);
   });
 
+  // Times out on the default budget: an unresolvable target pays the full
+  // `EDIT_LOOKUP_RETRIES` window before it is dropped.
   test("an edit of a message the assistant never stored creates no conversation", async () => {
     // Keying a conversation off the edit's own address made every edit of an
     // unseen message mint one, permanently titled with the loading placeholder.
@@ -196,7 +198,7 @@ describe("Slack edit propagation", () => {
     expect(countRows("conversations")).toBe(0);
     expect(countRows("channel_inbound_events")).toBe(0);
     expect(countRows("messages")).toBe(0);
-  });
+  }, 30_000);
 
   test("an edit records against the edited message's conversation, not a new one", async () => {
     const seeded = await seedSlackMessage({

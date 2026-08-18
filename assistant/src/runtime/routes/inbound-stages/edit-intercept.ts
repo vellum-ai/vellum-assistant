@@ -142,7 +142,7 @@ export async function handleEditIntercept(
         "Could not find original message for edit after retries, ignoring",
       );
     }
-    return { accepted: true, edited: false };
+    return { accepted: true, duplicate: false, edited: false };
   }
 
   // The edit belongs to the conversation of the message it changes. Resolving
