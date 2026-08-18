@@ -13,13 +13,21 @@ interface ResolveBootstrappedConversationIdArgs {
   currentConversationId: string | null;
   currentAssistantId: string | null;
   nextAssistantId: string;
-  storedConversationId: string | null;
+  /**
+   * The last-viewed conversation as the server describes it today, looked
+   * up by id, or `null` when nothing was stored or the server no longer has
+   * it. One row, not the list: whether it is still selectable is a question
+   * about that row alone.
+   */
+  storedConversation: SelectableConversation | null;
   defaultConversationId: string;
-  conversations: Pick<
-    Conversation,
-    "conversationId" | "conversationType" | "groupId" | "surfacedAt"
-  >[];
 }
+
+/** The fields the resume rule reads off a conversation. */
+export type SelectableConversation = Pick<
+  Conversation,
+  "conversationId" | "conversationType" | "groupId" | "surfacedAt"
+>;
 
 /**
  * Mint a client-side conversation key for a chat that does not exist yet, and
@@ -69,19 +77,14 @@ export function shouldMintNewChatDraft({
   );
 }
 
-function isStoredConversationSelectable(
-  conversations: Pick<
-    Conversation,
-    "conversationId" | "conversationType" | "groupId" | "surfacedAt"
-  >[],
-  key: string,
+/**
+ * Whether a stored last-viewed conversation may be resumed implicitly on a
+ * cold load. Background and scheduled runs may not: they live behind a
+ * collapsed-by-default section and are selected only by explicit URL.
+ */
+export function isStoredConversationSelectable(
+  conversation: SelectableConversation,
 ): boolean {
-  const conversation = conversations.find(
-    (item) => item.conversationId === key,
-  );
-  if (!conversation) {
-    return false;
-  }
   // Surfaced conversations (`surfacedAt != null`) render in Recents even
   // when their underlying type is background/scheduled, so restoring them
   // on reload is expected — the user can see and select them in the sidebar.
@@ -105,7 +108,8 @@ function isStoredConversationSelectable(
  * in a stale background conversation. For same-assistant refetches, preserve
  * the in-memory selection so manual refresh does not jump to whatever
  * conversation is newest. On a cold load, resume the last persisted key only if
- * the server still lists it as a foreground conversation; background/scheduled
+ * the server still has it as a foreground (or surfaced) conversation, read by
+ * id so the decision never waits on the full list; background/scheduled
  * conversations require an explicit URL selection. A new-chat draft key, when
  * supplied, replaces both resume fallbacks so the platform lands on an empty
  * composer instead.
@@ -125,9 +129,8 @@ export function resolveBootstrappedConversationId({
   currentConversationId,
   currentAssistantId,
   nextAssistantId,
-  storedConversationId,
+  storedConversation,
   defaultConversationId,
-  conversations,
 }: ResolveBootstrappedConversationIdArgs): string {
   if (queryParamKey) {
     return queryParamKey;
@@ -146,10 +149,10 @@ export function resolveBootstrappedConversationId({
   }
 
   if (
-    storedConversationId &&
-    isStoredConversationSelectable(conversations, storedConversationId)
+    storedConversation &&
+    isStoredConversationSelectable(storedConversation)
   ) {
-    return storedConversationId;
+    return storedConversation.conversationId;
   }
 
   return defaultConversationId;
