@@ -73,15 +73,8 @@ export class PairDeviceError extends Error {
 /** Error code the deny route returns when the request was approved first. */
 export const ALREADY_APPROVED_ERROR_CODE = "ALREADY_APPROVED";
 
-/**
- * A pending request row as this branch reads it. `viaEdgeProxy` (`true` when
- * the challenge was minted through the public tunnel edge, `false` when it was
- * minted from the host itself) lands with the gateway contracts change;
- * optional here so older gateways that omit it stay compatible.
- */
-export type PendingPairingRequestSummary = RemoteWebPairingRequestSummary & {
-  viaEdgeProxy?: boolean;
-};
+/** Bounds the best-effort orphan cleanup so it can't wedge a failed mint. */
+const ORPHAN_CLEANUP_TIMEOUT_MS = 5000;
 
 export interface DevicePairing {
   /** The scannable https pair URL (verification URI + `#device_code=…`). */
@@ -228,8 +221,17 @@ export async function mintDevicePairing(args: {
   } catch (err) {
     // The minted challenge would otherwise stay pending for its TTL and show
     // up in the sibling approval list as a foreign request.
-    if (!(err instanceof DOMException && err.name === "AbortError")) {
-      await denyOrphanedChallenge(base, challenge.userCode, signal);
+    const cleanupTimeout = AbortSignal.timeout(ORPHAN_CLEANUP_TIMEOUT_MS);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      // The caller's signal is dead; run cleanup fire-and-forget on its own
+      // timeout so the orphan still gets denied.
+      void denyOrphanedChallenge(base, challenge.userCode, cleanupTimeout);
+    } else {
+      await denyOrphanedChallenge(
+        base,
+        challenge.userCode,
+        signal ? AbortSignal.any([signal, cleanupTimeout]) : cleanupTimeout,
+      );
     }
     throw err;
   }
@@ -248,7 +250,7 @@ export async function mintDevicePairing(args: {
 async function denyOrphanedChallenge(
   base: string,
   userCode: string,
-  signal: AbortSignal | undefined,
+  signal: AbortSignal,
 ): Promise<void> {
   try {
     const pending = await listPendingPairingRequests({ base, signal });
@@ -275,7 +277,7 @@ async function denyOrphanedChallenge(
 export async function listPendingPairingRequests(args: {
   base: string;
   signal?: AbortSignal;
-}): Promise<PendingPairingRequestSummary[]> {
+}): Promise<RemoteWebPairingRequestSummary[]> {
   const payload =
     await pairingRouteRequest<RemoteWebPairingRequestListResponse>(
       `${args.base}${PAIRING_REQUESTS_PATH}`,

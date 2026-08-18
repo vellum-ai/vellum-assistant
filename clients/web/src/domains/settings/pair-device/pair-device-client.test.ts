@@ -397,15 +397,27 @@ describe("mintDevicePairing", () => {
     ]);
   });
 
-  test("skips cleanup when the caller aborts during verification", async () => {
+  test("fires cleanup without awaiting it when the caller aborts during verification", async () => {
+    let resolveList!: (response: Response) => void;
     installFetch((url) => {
-      if (url === CHALLENGE_URL) {
-        return challengeResponse();
+      switch (url) {
+        case CHALLENGE_URL:
+          return challengeResponse();
+        case VERIFICATION_URL:
+          throw new DOMException("Aborted", "AbortError");
+        case LIST_URL:
+          return new Promise<Response>((resolve) => {
+            resolveList = resolve;
+          });
+        case DENY_URL:
+          return jsonResponse({ status: "denied" });
+        default:
+          throw new Error(`unexpected fetch: ${url}`);
       }
-      throw new DOMException("Aborted", "AbortError");
     });
     const controller = new AbortController();
 
+    // The AbortError rethrows while the cleanup list is still in flight.
     await expect(
       mintDevicePairing({ ...MINT_ARGS, signal: controller.signal }),
     ).rejects.toMatchObject({ name: "AbortError" });
@@ -413,6 +425,28 @@ describe("mintDevicePairing", () => {
     expect(fetchLog.map((r) => r.url)).toEqual([
       CHALLENGE_URL,
       VERIFICATION_URL,
+      LIST_URL,
     ]);
+    // Cleanup runs on its own timeout signal, never the caller's.
+    const listSignal = fetchLog[2]?.init?.signal;
+    expect(listSignal).not.toBe(controller.signal);
+    expect(listSignal?.aborted).toBe(false);
+
+    resolveList(
+      jsonResponse({
+        requests: [
+          pendingRequest({ requestId: "req-orphan", userCode: "WXYZ-1234" }),
+        ],
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchLog.map((r) => r.url)).toEqual([
+      CHALLENGE_URL,
+      VERIFICATION_URL,
+      LIST_URL,
+      DENY_URL,
+    ]);
+    expect(requestBody(fetchLog[3])).toEqual({ requestId: "req-orphan" });
   });
 });
