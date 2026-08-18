@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -388,6 +389,41 @@ describe("PairDeviceCard: pending pairing requests", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Deny" })).toBeTruthy();
+  });
+
+  test("the relative request age advances while the request stays pending", async () => {
+    installPendingFetch();
+    // Bun has no fake timers: capture armed intervals by hand and drive the
+    // 30s age tick directly. `waitFor` needs real timers, so this test stubs
+    // per-test, flushes with `act`, and restores in `finally`.
+    const realSetInterval = globalThis.setInterval;
+    const realClearInterval = globalThis.clearInterval;
+    const realDateNow = Date.now;
+    const timers: Array<{ handler: () => void; delay: number }> = [];
+    globalThis.setInterval = ((handler: () => void, delay: number) => {
+      timers.push({ handler, delay });
+      return timers.length as unknown as ReturnType<typeof setInterval>;
+    }) as typeof globalThis.setInterval;
+    globalThis.clearInterval = (() => {}) as typeof globalThis.clearInterval;
+    try {
+      await act(async () => {
+        render(<PairDeviceCard />);
+      });
+      expect(screen.getByText(/Requested 2 minutes ago/)).toBeTruthy();
+
+      // Advance the clock 3 minutes and fire the age-refresh tick.
+      const now = realDateNow();
+      Date.now = () => now + 3 * 60_000;
+      const ageTick = timers.find((timer) => timer.delay === 30_000);
+      expect(ageTick).toBeTruthy();
+      act(() => ageTick?.handler());
+
+      expect(screen.getByText(/Requested 5 minutes ago/)).toBeTruthy();
+    } finally {
+      globalThis.setInterval = realSetInterval;
+      globalThis.clearInterval = realClearInterval;
+      Date.now = realDateNow;
+    }
   });
 
   test("Approve posts the request id and removes the row", async () => {

@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 
@@ -9,6 +11,9 @@ interface PendingPairingRequestsProps {
   /** Absolute local-gateway base URL the requests are listed and acted on against. */
   base: string;
 }
+
+/** How often visible relative ages re-render; 30s suits minute phrasing. */
+const AGE_REFRESH_INTERVAL_MS = 30_000;
 
 const RELATIVE_UNITS: Array<{ unit: Intl.RelativeTimeFormatUnit; ms: number }> =
   [
@@ -48,6 +53,22 @@ export function PendingPairingRequests({ base }: PendingPairingRequestsProps) {
   const { t } = useTranslation("settings");
   const { requests, actingOn, error, approve, deny } =
     usePendingPairingRequests(base);
+
+  // The hook keeps a stable list reference while the pending set is unchanged,
+  // so nothing re-renders on its own and relative ages would freeze. Tick a
+  // render while any request is visible so `formatRequestedAt` stays current.
+  const hasRequests = requests.length > 0;
+  const [, setAgeTick] = useState(0);
+  useEffect(() => {
+    if (!hasRequests) {
+      return;
+    }
+    const intervalId = setInterval(
+      () => setAgeTick((tick) => tick + 1),
+      AGE_REFRESH_INTERVAL_MS,
+    );
+    return () => clearInterval(intervalId);
+  }, [hasRequests]);
 
   // An empty list with no error is the quiet normal state; a poll error must
   // still surface so an outage isn't mistaken for an empty queue.
