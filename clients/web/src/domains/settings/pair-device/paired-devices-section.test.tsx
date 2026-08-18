@@ -259,6 +259,107 @@ describe("PairedDevicesSection", () => {
     ).toBeTruthy();
   });
 
+  test("the host machine's own row is labeled with Revoke disabled; others stay revocable", async () => {
+    await renderExpanded([
+      device({ platform: "cli", isCurrentHost: true }),
+      device({ hashedDeviceId: HASH_B, platform: "android" }),
+    ]);
+
+    expect(screen.getByText(/This machine/)).toBeTruthy();
+    const buttons = screen.getAllByRole("button", {
+      name: "Revoke",
+    }) as HTMLButtonElement[];
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]!.disabled).toBe(true);
+    expect(buttons[0]!.getAttribute("title")).toContain(
+      "lock the host out of the assistant",
+    );
+    expect(buttons[1]!.disabled).toBe(false);
+
+    // The disabled host row never opens the confirm dialog.
+    fireEvent.click(buttons[0]!);
+    expect(screen.queryByText("Revoke this device?")).toBeNull();
+
+    // The non-host row still runs the confirm-then-revoke flow.
+    fireEvent.click(buttons[1]!);
+    expect(screen.getByText("Revoke this device?")).toBeTruthy();
+    clickConfirm();
+    await waitFor(() =>
+      expect(revokeCalls).toEqual([
+        { assistantId: "self", hashedDeviceId: HASH_B },
+      ]),
+    );
+  });
+
+  test("polls while a pairing code is live and refreshes once more when it ends", async () => {
+    // bun:test has no fake timers; capture interval callbacks and fire them
+    // by hand so the test stays deterministic.
+    const intervals = new Map<unknown, () => void>();
+    let nextIntervalId = 1;
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    globalThis.setInterval = ((fn: () => void) => {
+      const id = nextIntervalId++;
+      intervals.set(id, fn);
+      return id;
+    }) as unknown as typeof setInterval;
+    globalThis.clearInterval = ((id: unknown) => {
+      intervals.delete(id);
+    }) as typeof clearInterval;
+
+    try {
+      setListResult({ ok: true, devices: [device()] });
+      const { rerender } = render(<PairedDevicesSection pollWhilePairing />);
+      await act(async () => {});
+      expect(listCalls).toEqual(["self"]);
+      expect(intervals.size).toBe(1);
+
+      // Another device claims the live code; the next tick surfaces it.
+      setListResult({
+        ok: true,
+        devices: [
+          device(),
+          device({ hashedDeviceId: HASH_B, platform: "android" }),
+        ],
+      });
+      await act(async () => {
+        for (const tick of intervals.values()) {
+          tick();
+        }
+      });
+      expect(listCalls).toEqual(["self", "self"]);
+      expect(
+        screen.getByRole("button", { name: "Paired devices (2)" }),
+      ).toBeTruthy();
+
+      // Code consumed/expired: the interval is cleared and one final
+      // refresh catches a claim in the last window.
+      rerender(<PairedDevicesSection pollWhilePairing={false} />);
+      await act(async () => {});
+      expect(intervals.size).toBe(0);
+      expect(listCalls).toEqual(["self", "self", "self"]);
+    } finally {
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+    }
+  });
+
+  test("does not poll without a live pairing code", async () => {
+    const originalSetInterval = globalThis.setInterval;
+    let intervalCount = 0;
+    globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
+      intervalCount++;
+      return originalSetInterval(...args);
+    }) as typeof setInterval;
+    try {
+      await renderExpanded([device()]);
+      expect(intervalCount).toBe(0);
+      expect(listCalls).toEqual(["self"]);
+    } finally {
+      globalThis.setInterval = originalSetInterval;
+    }
+  });
+
   test("a failed revoke keeps the dialog open with the error", async () => {
     revokeResult = { ok: false, error: "Gateway is unreachable" };
     await renderExpanded([device()]);

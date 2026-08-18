@@ -108,6 +108,55 @@ describe("runDevicesList", () => {
     });
   });
 
+  test("passes isCurrentHost through only when literally true", async () => {
+    const pending = runDevicesList(invocation, "asst-42");
+    lastChild.stdout.emit(
+      "data",
+      Buffer.from(
+        JSON.stringify({
+          devices: [
+            {
+              hashedDeviceId: "hash-host",
+              platform: "cli",
+              issuedAt: 1000,
+              expiresAt: null,
+              lastUsedAt: null,
+              isCurrentHost: true,
+            },
+            {
+              hashedDeviceId: "hash-truthy",
+              platform: "ios",
+              issuedAt: 1000,
+              expiresAt: null,
+              lastUsedAt: null,
+              isCurrentHost: "yes",
+            },
+            {
+              hashedDeviceId: "hash-false",
+              platform: "ios",
+              issuedAt: 1000,
+              expiresAt: null,
+              lastUsedAt: null,
+              isCurrentHost: false,
+            },
+          ],
+        }),
+      ),
+    );
+    lastChild.emit("close", 0);
+
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.devices.map((d) => d.isCurrentHost)).toEqual([
+        true,
+        undefined,
+        undefined,
+      ]);
+      expect("isCurrentHost" in result.devices[1]!).toBe(false);
+    }
+  });
+
   test("an empty device list parses to no records", async () => {
     const pending = runDevicesList(invocation, "asst-42");
     lastChild.stdout.emit("data", Buffer.from('{ "devices": [] }'));

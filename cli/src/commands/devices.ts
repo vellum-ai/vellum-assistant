@@ -13,6 +13,8 @@
  * that runs the assistant (server side).
  */
 
+import { createHash } from "node:crypto";
+
 import type { DeviceRecord } from "@vellumai/local-mode";
 
 import {
@@ -21,6 +23,7 @@ import {
   getAssistantDisplayName,
   resolveTargetAssistant,
 } from "../lib/assistant-config";
+import { computeDeviceId } from "../lib/guardian-token.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import {
   CLI_INTERFACE_ID,
@@ -93,6 +96,17 @@ function resolveLoopbackBase(entry: AssistantEntry): string {
   return base.replace(/\/+$/, "");
 }
 
+/**
+ * The hashed device id the gateway stores for THIS machine's own guardian
+ * credential (`leaseGuardianToken` registers it device-bound as
+ * sha256(deviceId)). It shows up in `/v1/devices` next to remotely paired
+ * devices; revoking it locks this host out of its own assistant until
+ * guardian repair.
+ */
+function currentHostHashedDeviceId(): string {
+  return createHash("sha256").update(computeDeviceId()).digest("hex");
+}
+
 /** Format an epoch-ms timestamp as ISO, or a placeholder when absent. */
 function formatTimestamp(ms: number | null, absent: string): string {
   if (typeof ms !== "number" || !Number.isFinite(ms)) return absent;
@@ -129,7 +143,12 @@ async function listDevices(
   }
 
   const body = (await response.json()) as { devices?: DeviceRecord[] };
-  const devices = body.devices ?? [];
+  const hostHash = currentHostHashedDeviceId();
+  const devices = (body.devices ?? []).map((device) =>
+    device.hashedDeviceId === hostHash
+      ? { ...device, isCurrentHost: true as const }
+      : device,
+  );
 
   if (jsonOutput) {
     console.log(JSON.stringify({ devices }));
@@ -151,6 +170,11 @@ async function listDevices(
     console.log(
       `    last used:  ${formatTimestamp(device.lastUsedAt, "never")}`,
     );
+    if (device.isCurrentHost) {
+      console.log(
+        "    this machine's host credential — revoking locks this host out until guardian repair",
+      );
+    }
     console.log("");
   }
   console.log(
@@ -181,6 +205,16 @@ async function revokeDevice(
   printIdentity(`  Assistant: ${formatAssistantReference(entry)}`);
   printIdentity(`  Device:    ${hashedDeviceId}`);
   printIdentity("");
+
+  // Warn (don't block — recoverable via guardian repair) when the target is
+  // this machine's own host credential. --json is app-driven; the UI disables
+  // the host row, so the warning stays out of automation transcripts.
+  if (!jsonOutput && hashedDeviceId === currentHostHashedDeviceId()) {
+    console.error(
+      "Warning: this is this machine's own host credential. Revoking it locks this host out of the assistant until guardian repair.",
+    );
+    console.error("");
+  }
 
   if (!yes) {
     if (!canPromptForConfirmation()) {

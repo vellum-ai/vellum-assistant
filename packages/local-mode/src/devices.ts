@@ -16,6 +16,8 @@ export interface DeviceRecord {
   issuedAt: number | null;
   expiresAt: number | null;
   lastUsedAt: number | null;
+  /** True when this row is the hosting machine's own guardian credential. */
+  isCurrentHost?: boolean;
 }
 
 export type DevicesListResult =
@@ -122,8 +124,14 @@ function parseDeviceRecords(stdout: string): DeviceRecord[] | null {
     if (typeof entry !== "object" || entry === null) {
       return null;
     }
-    const { hashedDeviceId, platform, issuedAt, expiresAt, lastUsedAt } =
-      entry as Record<string, unknown>;
+    const {
+      hashedDeviceId,
+      platform,
+      issuedAt,
+      expiresAt,
+      lastUsedAt,
+      isCurrentHost,
+    } = entry as Record<string, unknown>;
     if (typeof hashedDeviceId !== "string" || typeof platform !== "string") {
       return null;
     }
@@ -133,6 +141,8 @@ function parseDeviceRecords(stdout: string): DeviceRecord[] | null {
       issuedAt: toTimestamp(issuedAt),
       expiresAt: toTimestamp(expiresAt),
       lastUsedAt: toTimestamp(lastUsedAt),
+      // Tolerant passthrough: only a literal `true` survives.
+      ...(isCurrentHost === true ? { isCurrentHost: true } : {}),
     });
   }
   return records;

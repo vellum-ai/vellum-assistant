@@ -24,8 +24,11 @@ const ORIGINAL_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
 const ORIGINAL_ARGV = [...process.argv];
 const ORIGINAL_FETCH = globalThis.fetch;
 
+import { createHash } from "node:crypto";
+
 import { devices } from "../commands/devices.js";
 import { saveAssistantEntry } from "../lib/assistant-config.js";
+import { computeDeviceId } from "../lib/guardian-token.js";
 
 interface FetchCall {
   url: string;
@@ -176,6 +179,112 @@ describe("vellum devices", () => {
     const keys = headerKeys(call.init);
     expect(keys).not.toContain("origin");
     expect(keys).not.toContain("x-forwarded-for");
+  });
+
+  // Matches currentHostHashedDeviceId in the command: sha256 of the same
+  // stable device id the host's guardian lease registered with the gateway.
+  function hostHash(): string {
+    return createHash("sha256").update(computeDeviceId()).digest("hex");
+  }
+
+  test("labels this machine's own host credential in the human list", async () => {
+    seedLocal("host-label", "http://127.0.0.1:7837");
+    stubFetch((url) =>
+      url.endsWith("/v1/devices")
+        ? jsonResponse({
+            devices: [
+              {
+                hashedDeviceId: hostHash(),
+                platform: "cli",
+                issuedAt: 1_700_000_000_000,
+                expiresAt: null,
+                lastUsedAt: null,
+              },
+              {
+                hashedDeviceId: "hashBBB222",
+                platform: "ios",
+                issuedAt: 1_700_000_000_000,
+                expiresAt: null,
+                lastUsedAt: null,
+              },
+            ],
+          })
+        : jsonResponse({ error: "unexpected" }, 500),
+    );
+
+    process.argv = ["bun", "vellum", "devices", "host-label"];
+    const { exited, logs } = await runDevices();
+
+    expect(exited).toBe(false);
+    const label = "this machine's host credential";
+    expect(logs).toContain(label);
+    // Only the host record carries the label.
+    expect(logs.split(label)).toHaveLength(2);
+    const hostIdx = logs.indexOf(hostHash());
+    const otherIdx = logs.indexOf("hashBBB222");
+    const labelIdx = logs.indexOf(label);
+    expect(labelIdx).toBeGreaterThan(hostIdx);
+    expect(labelIdx).toBeLessThan(otherIdx);
+  });
+
+  test("list --json marks only the host credential with isCurrentHost", async () => {
+    seedLocal("host-json", "http://127.0.0.1:7838");
+    const hostRecord = {
+      hashedDeviceId: hostHash(),
+      platform: "cli",
+      issuedAt: 1_700_000_000_000,
+      expiresAt: null,
+      lastUsedAt: null,
+    };
+    const otherRecord = {
+      hashedDeviceId: "hashBBB222",
+      platform: "ios",
+      issuedAt: 1_700_000_000_000,
+      expiresAt: null,
+      lastUsedAt: null,
+    };
+    stubFetch((url) =>
+      url.endsWith("/v1/devices")
+        ? jsonResponse({ devices: [hostRecord, otherRecord] })
+        : jsonResponse({ error: "unexpected" }, 500),
+    );
+
+    process.argv = ["bun", "vellum", "devices", "host-json", "--json"];
+    const { exited, logs } = await runDevices();
+
+    expect(exited).toBe(false);
+    const parsed = JSON.parse(logs) as {
+      devices: Array<Record<string, unknown>>;
+    };
+    expect(parsed.devices[0]).toEqual({ ...hostRecord, isCurrentHost: true });
+    // Non-host records omit the field entirely (lean wire).
+    expect(parsed.devices[1]).toEqual(otherRecord);
+    expect("isCurrentHost" in parsed.devices[1]!).toBe(false);
+  });
+
+  test("revoking the host credential warns on stderr but proceeds", async () => {
+    seedLocal("host-revoke", "http://127.0.0.1:7839");
+    stubFetch((url) =>
+      url.endsWith("/v1/devices/revoke")
+        ? jsonResponse({ revoked: true })
+        : jsonResponse({ error: "unexpected" }, 500),
+    );
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "devices",
+      "revoke",
+      hostHash(),
+      "host-revoke",
+      "--yes",
+    ];
+    const { exited, logs, errors } = await runDevices();
+
+    expect(exited).toBe(false);
+    expect(errors).toContain("own host credential");
+    expect(logs).toContain(`Revoked device ${hostHash()}`);
+    expect(fetchCalls).toHaveLength(1);
   });
 
   test("prints a clear message when no devices are paired", async () => {

@@ -20,14 +20,26 @@ function formatDeviceDate(epochMs: number | null): string {
   return epochMs === null ? "unknown" : new Date(epochMs).toLocaleDateString();
 }
 
+const HOST_REVOKE_DISABLED_TITLE =
+  "This is this machine's own credential; revoking it would lock the host out of the assistant.";
+
+interface PairedDevicesSectionProps {
+  /** True while the parent card has a live pairing code; drives list polling. */
+  pollWhilePairing?: boolean;
+}
+
 /**
  * Accordion listing the devices paired to the local assistant, with a
  * destructive per-device Revoke behind a confirm dialog. Renders nothing
  * unless the host reports one or more devices, so older app shells, host
  * failures, and empty lists leave the Pair a device card exactly as it is.
+ * The host machine's own credential row is labeled "This machine" with Revoke
+ * disabled — revoking it would lock the host out of its own assistant.
  */
-export function PairedDevicesSection() {
-  const controller = usePairedDevices();
+export function PairedDevicesSection({
+  pollWhilePairing = false,
+}: PairedDevicesSectionProps = {}) {
+  const controller = usePairedDevices({ pollWhilePairing });
   const { devices, confirmTarget } = controller;
 
   if (devices === null || devices.length === 0) {
@@ -60,6 +72,11 @@ export function PairedDevicesSection() {
                       >
                         {shortHash(device.hashedDeviceId)}
                       </span>
+                      {device.isCurrentHost && (
+                        <span className="text-[var(--content-tertiary)]">
+                          {" · This machine"}
+                        </span>
+                      )}
                     </span>
                     <span className="text-body-medium-default text-[var(--content-tertiary)]">
                       {`Paired ${formatDeviceDate(device.issuedAt)} · Last used ${formatDeviceDate(device.lastUsedAt)}`}
@@ -69,6 +86,12 @@ export function PairedDevicesSection() {
                     variant="dangerOutline"
                     size="compact"
                     className="shrink-0"
+                    disabled={device.isCurrentHost === true}
+                    title={
+                      device.isCurrentHost
+                        ? HOST_REVOKE_DISABLED_TITLE
+                        : undefined
+                    }
                     onClick={() => controller.requestRevoke(device)}
                   >
                     Revoke

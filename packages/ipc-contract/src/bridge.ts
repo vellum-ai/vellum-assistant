@@ -91,6 +91,8 @@ export interface LocalPairedDeviceRecord {
   issuedAt: number | null;
   expiresAt: number | null;
   lastUsedAt: number | null;
+  /** True when this row is the hosting machine's own guardian credential. */
+  isCurrentHost?: boolean;
 }
 
 export type LocalListDevicesResult =

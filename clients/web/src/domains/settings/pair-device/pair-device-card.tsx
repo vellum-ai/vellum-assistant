@@ -114,7 +114,8 @@ export function PairDeviceCard() {
           />
         )}
 
-        <PairedDevicesSection />
+        {/* Poll while a code is live so an externally claimed pairing shows up. */}
+        <PairedDevicesSection pollWhilePairing={isReady && !pair.expired} />
       </div>
     </DetailCard>
   );

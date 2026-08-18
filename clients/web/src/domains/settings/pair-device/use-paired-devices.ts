@@ -35,6 +35,17 @@ interface FetchedDeviceList {
   devices: LocalPairedDeviceRecord[];
 }
 
+export interface UsePairedDevicesOptions {
+  /**
+   * While true (a pairing code is live in the same card), refetch the list on
+   * an interval so a device paired externally appears without a remount; one
+   * final refresh runs when the flag drops.
+   */
+  pollWhilePairing?: boolean;
+}
+
+const PAIRING_POLL_INTERVAL_MS = 5_000;
+
 /**
  * Drives the "Paired devices" accordion: fetches the selected assistant's
  * paired devices through the host seam and runs the confirm-then-revoke flow.
@@ -47,7 +58,9 @@ interface FetchedDeviceList {
  * assistants, so a fresh selection read could silently revoke the wrong
  * assistant's pairing.
  */
-export function usePairedDevices(): PairedDevicesController {
+export function usePairedDevices({
+  pollWhilePairing = false,
+}: UsePairedDevicesOptions = {}): PairedDevicesController {
   const [list, setList] = useState<FetchedDeviceList | null>(null);
   const [confirmTarget, setConfirmTarget] =
     useState<LocalPairedDeviceRecord | null>(null);
@@ -100,6 +113,25 @@ export function usePairedDevices(): PairedDevicesController {
     setRevokeError(null);
     refresh(assistantId);
   }, [assistantId, refresh]);
+
+  // Bounded revalidation while this card's own pairing code is live: an
+  // external device claiming the code never signals this client, so poll
+  // until the code is consumed/expired, then refresh once more to catch a
+  // claim in the final window. Paused while a revoke is pending; the seq
+  // guard makes any overlap safe.
+  const wasPollingRef = useRef(false);
+  useEffect(() => {
+    if (pollWhilePairing && !isRevoking) {
+      wasPollingRef.current = true;
+      const id = setInterval(() => refresh(), PAIRING_POLL_INTERVAL_MS);
+      return () => clearInterval(id);
+    }
+    if (!pollWhilePairing && wasPollingRef.current) {
+      wasPollingRef.current = false;
+      refresh();
+    }
+    return undefined;
+  }, [pollWhilePairing, isRevoking, refresh]);
 
   const requestRevoke = useCallback((device: LocalPairedDeviceRecord) => {
     setRevokeError(null);
