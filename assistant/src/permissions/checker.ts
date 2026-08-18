@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -46,7 +45,6 @@ import {
   getAutoApproveThreshold,
   refreshAutoApproveThreshold,
 } from "./gateway-threshold-reader.js";
-import type { RiskAssessment } from "./risk-types.js";
 import {
   type AllowlistOption,
   type PermissionCheckResult,
@@ -60,13 +58,6 @@ import {
   resolveSandboxBase,
 } from "./workspace-policy.js";
 
-// ── Risk classification cache ────────────────────────────────────────────────
-// classifyRisk() is called on every permission check and delegates to the
-// gateway via IPC. Cache results keyed on
-// (toolName, inputHash, workingDir, manifestOverride).
-// Invalidated when trust rules change since risk classification for file tools
-// depends on skill source path checks which reference config, but the core
-// risk logic is input-deterministic.
 /** The result of classifyRisk(): a risk level with an optional human-readable reason. */
 export interface RiskClassification {
   level: RiskLevel;
@@ -75,10 +66,12 @@ export interface RiskClassification {
 }
 
 /**
- * Extended risk classification that includes gateway-provided metadata
- * used by check() for command candidate building and sandbox auto-approve.
+ * Everything the daemon reads from one gateway classification. Produced once
+ * per tool invocation by {@link classifyRisk} and handed down through
+ * `checkPermission` and {@link check}; the daemon keeps no memo of it, so a
+ * trust-rule, config, or skill change is reflected on the next call.
  */
-interface RiskClassificationWithMeta extends RiskClassification {
+export interface RiskClassificationWithMeta extends RiskClassification {
   /** Command candidates from the gateway for trust rule matching (bash tools). */
   commandCandidates?: string[];
   /** Action keys from the gateway for trust rule matching (bash tools). */
@@ -87,86 +80,24 @@ interface RiskClassificationWithMeta extends RiskClassification {
   sandboxAutoApprove?: boolean;
   /**
    * Lexically-resolved path args from the gateway for bash sandbox
-   * auto-approve. Stored in the cache so the symlink escape check can be
-   * re-run on cache hits (symlink targets may change between calls).
+   * auto-approve; the symlink escape check runs over them here, since the
+   * gateway has no filesystem access.
    */
   sandboxPathArgs?: string[];
   /** Allowlist options from the gateway for generateAllowlistOptions(). */
   allowlistOptions?: AllowlistOption[];
   /** Resolved filesystem path arguments for directory-scoped rule matching. */
   resolvedPaths?: string[];
-}
-
-const RISK_CACHE_MAX = 256;
-const riskCache = new Map<string, RiskClassificationWithMeta>();
-
-// ── Assessment cache ─────────────────────────────────────────────────────────
-// Stores the full ClassificationResult from the gateway so that
-// generateAllowlistOptions() can read gateway-produced allowlistOptions
-// without re-classifying. Keyed on (toolName, inputHash) — a simpler key
-// than the full risk cache since generateAllowlistOptions() does not receive
-// workingDir or manifestOverride. Cleared alongside the risk cache.
-const assessmentCache = new Map<string, RiskAssessment>();
-
-function assessmentCacheKey(
-  toolName: string,
-  input: Record<string, unknown>,
-): string {
-  const { reason: _reason, activity: _activity, ...cacheableInput } = input;
-  const inputJson = JSON.stringify(cacheableInput);
-  const hash = createHash("sha256").update(inputJson).digest("hex");
-  return `${toolName}\0${hash}`;
-}
-
-function riskCacheKey(
-  toolName: string,
-  input: Record<string, unknown>,
-  workingDir?: string,
-  manifestOverride?: ManifestOverride,
-  fsStateKey?: string,
-): string {
-  // Strip `reason` and `activity` before computing the cache key — they are
-  // cosmetic status text that varies per invocation even for identical tool
-  // operations, causing unnecessary cache misses.
-  const { reason: _reason, activity: _activity, ...cacheableInput } = input;
-  const inputJson = JSON.stringify(cacheableInput);
-  const hash = createHash("sha256")
-    .update(inputJson)
-    .update("\0")
-    .update(workingDir ?? "")
-    .update("\0")
-    .update(manifestOverride ? JSON.stringify(manifestOverride) : "")
-    // For file tools, fold in the symlink-resolved target path(s). File risk
-    // depends on filesystem state (a symlink can be retargeted under a
-    // protected dir between calls), so the same raw input must miss the cache
-    // when its canonicalized target changes.
-    .update("\0")
-    .update(fsStateKey ?? "")
-    .digest("hex");
-  return `${toolName}\0${hash}`;
-}
-
-/**
- * Compute the filesystem-state component of the risk cache key for file tools:
- * the symlink-resolved target path(s). Returns `undefined` for non-file tools
- * (whose risk does not depend on filesystem state).
- */
-function fileToolFsStateKey(
-  toolName: string,
-  input: Record<string, unknown>,
-  workingDir?: string,
-): string | undefined {
-  if (!FILE_TOOL_NAMES.has(toolName)) {
-    return undefined;
-  }
-  const resolved = resolveFileToolPaths(toolName, input, workingDir);
-  return `${resolved.resolvedPath ?? ""}\0${resolved.resolvedTransferDestPath ?? ""}\0${resolved.resolvedWorkingDir ?? ""}`;
-}
-
-/** Clear the risk classification cache. Called when trust rules change. Exported for test setup. */
-export function clearRiskCache(): void {
-  riskCache.clear();
-  assessmentCache.clear();
+  /** Scope options for the "save this classification" UI, narrowest to broadest. */
+  scopeOptions: ClassificationResult["scopeOptions"];
+  /**
+   * Directory scope options emitted by the gateway for filesystem operations.
+   * Present when the classifier identified one or more filesystem path
+   * arguments and generated a directory-scope ladder for them.
+   */
+  directoryScopeOptions?: ClassificationResult["directoryScopeOptions"];
+  /** How the risk was determined. */
+  matchType: ClassificationResult["matchType"];
 }
 
 // ── Approval policy singleton ────────────────────────────────────────────────
@@ -416,6 +347,7 @@ function escapeMinimatchLiteral(value: string): string {
 // forwarding to the gateway.
 
 import type {
+  ClassificationResult,
   ClassifyRiskParams,
   FileContext,
   SkillMetadata,
@@ -478,16 +410,6 @@ function resolveClassificationPath(
     : resolveSandboxBase(filePath, workingDir);
   return resolveRealPath(base);
 }
-
-const FILE_TOOL_NAMES = new Set([
-  "file_read",
-  "file_write",
-  "file_edit",
-  "host_file_read",
-  "host_file_write",
-  "host_file_edit",
-  "host_file_transfer",
-]);
 
 interface FileToolResolution {
   filePath: string;
@@ -755,31 +677,6 @@ export async function classifyRisk(
 ): Promise<RiskClassificationWithMeta> {
   signal?.throwIfAborted();
 
-  // Check cache first.
-  const cacheKey = riskCacheKey(
-    toolName,
-    input,
-    workingDir,
-    manifestOverride,
-    fileToolFsStateKey(toolName, input, workingDir),
-  );
-  const cached = riskCache.get(cacheKey);
-  if (cached !== undefined) {
-    // LRU refresh
-    riskCache.delete(cacheKey);
-    riskCache.set(cacheKey, cached);
-    // Re-run the symlink escape check on cache hits: symlink targets can
-    // change between invocations, so a path that was safe when cached may
-    // now escape. Return a shallow copy so the cache entry is not mutated.
-    if (cached.sandboxPathArgs && cached.sandboxPathArgs.length > 0) {
-      const fresh = { ...cached };
-      applyBashSymlinkEscapeCheck(fresh, cached.sandboxPathArgs);
-      return fresh;
-    }
-    return cached;
-  }
-
-  // ── Delegate to gateway via IPC ────────────────────────────────────────────
   const ipcParams = buildClassifyRiskParams(
     toolName,
     input,
@@ -806,6 +703,9 @@ export async function classifyRisk(
     sandboxPathArgs: gatewayResult.sandboxPathArgs,
     allowlistOptions: gatewayResult.allowlistOptions,
     resolvedPaths: gatewayResult.resolvedPaths,
+    scopeOptions: gatewayResult.scopeOptions ?? [],
+    directoryScopeOptions: gatewayResult.directoryScopeOptions,
+    matchType: gatewayResult.matchType ?? "unknown",
   };
 
   // ── Symlink escape check for bash sandbox auto-approve ───────────────
@@ -815,40 +715,7 @@ export async function classifyRisk(
   // `ln -s /etc /workspace/escape`) would pass the lexical check and
   // be auto-approved. Resolve the gateway-provided path args through
   // symlinks here and revoke auto-approve if any escapes the workspace.
-  // The check is also re-run on cache hits (see above) because symlink
-  // targets can change between invocations.
   applyBashSymlinkEscapeCheck(result, gatewayResult.sandboxPathArgs);
-
-  // Cache the result.
-  if (riskCache.size >= RISK_CACHE_MAX) {
-    const oldest = riskCache.keys().next().value;
-    if (oldest !== undefined) {
-      riskCache.delete(oldest);
-    }
-  }
-  riskCache.set(cacheKey, result);
-
-  // Store a RiskAssessment-shaped entry in the assessment cache so that
-  // generateAllowlistOptions() can retrieve gateway-produced allowlistOptions
-  // and permission-checker.ts can populate riskScopeOptions for the Rule
-  // Editor Modal via cachedAssessment.scopeOptions.
-  const assessment: RiskAssessment = {
-    riskLevel: gatewayResult.risk === "unknown" ? "medium" : gatewayResult.risk,
-    reason: gatewayResult.reason,
-    scopeOptions: gatewayResult.scopeOptions ?? [],
-    matchType: gatewayResult.matchType ?? "unknown",
-    allowlistOptions: gatewayResult.allowlistOptions,
-    directoryScopeOptions: gatewayResult.directoryScopeOptions,
-    resolvedPaths: gatewayResult.resolvedPaths,
-  };
-  const aKey = assessmentCacheKey(toolName, input);
-  if (assessmentCache.size >= RISK_CACHE_MAX) {
-    const oldest = assessmentCache.keys().next().value;
-    if (oldest !== undefined) {
-      assessmentCache.delete(oldest);
-    }
-  }
-  assessmentCache.set(aKey, assessment);
 
   return result;
 }
@@ -899,6 +766,14 @@ function isRetrospectiveSkillAuthoringGrant(
   return false;
 }
 
+/**
+ * Decide allow / prompt / deny for one tool invocation.
+ *
+ * `classification` is the invocation's gateway classification when the caller
+ * already holds it (the executor classifies once, before its gates, and hands
+ * it down through `checkPermission`); a caller without one gets a fresh
+ * classification of the same input here.
+ */
 export async function check(
   toolName: string,
   input: Record<string, unknown>,
@@ -906,6 +781,7 @@ export async function check(
   policyContext?: PolicyContext,
   manifestOverride?: ManifestOverride,
   signal?: AbortSignal,
+  classification?: RiskClassificationWithMeta,
 ): Promise<PermissionCheckResult> {
   signal?.throwIfAborted();
 
@@ -917,7 +793,7 @@ export async function check(
     };
   }
 
-  const classification = await classifyRisk(
+  classification ??= await classifyRisk(
     toolName,
     input,
     workingDir,
@@ -936,12 +812,12 @@ export async function check(
   // trust rule arrives as matchType
   // "user_rule" with the risk already lowered (the escape hatch), so leave it
   // untouched. The gateway classifier is authoritative and also returns High;
-  // this local elevation is defense-in-depth for the gateway-unreachable or
-  // under-classified path. The separate non-interactive denial (no human to
-  // approve embedded shell) lives in tools/permission-checker.ts.
+  // this local elevation is defense-in-depth for an under-classified result.
+  // The separate non-interactive denial (no human to approve embedded shell)
+  // lives in tools/permission-checker.ts.
   const risk =
     isDynamicSkillLoadInvocation(toolName, input) &&
-    getCachedAssessment(toolName, input)?.matchType !== "user_rule"
+    classification.matchType !== "user_rule"
       ? RiskLevel.High
       : classifiedRisk;
 
@@ -1249,44 +1125,31 @@ const ALLOWLIST_STRATEGIES: Record<string, AllowlistStrategy> = {
   skill_load: skillLoadAllowlistStrategy,
 };
 
+/**
+ * Allowlist patterns for a permission prompt's "always allow" ladder: the
+ * gateway's own options when its classification of this invocation produced
+ * any, else the per-tool strategy.
+ */
 export async function generateAllowlistOptions(
   toolName: string,
   input: Record<string, unknown>,
+  classification?: RiskClassificationWithMeta,
   signal?: AbortSignal,
 ): Promise<AllowlistOption[]> {
   signal?.throwIfAborted();
 
-  // Use gateway-produced allowlist options from the assessment cache.
-  // For bash/host_bash tools, these are always provided by the gateway.
-  // For other tools that have classifier-produced options, use those too.
-  const aKey = assessmentCacheKey(toolName, input);
-  const cachedAssessment = assessmentCache.get(aKey);
   if (
-    cachedAssessment?.allowlistOptions &&
-    cachedAssessment.allowlistOptions.length > 0
+    classification?.allowlistOptions &&
+    classification.allowlistOptions.length > 0
   ) {
-    return cachedAssessment.allowlistOptions;
+    return classification.allowlistOptions;
   }
 
-  // Fall back to the per-tool strategy function for non-bash tools
-  // or when no cached assessment exists.
   if (Object.hasOwn(ALLOWLIST_STRATEGIES, toolName)) {
     return ALLOWLIST_STRATEGIES[toolName](toolName, input);
   }
 
   return [{ label: "*", description: "Everything", pattern: "*" }];
-}
-
-/**
- * Retrieve a cached RiskAssessment for a given tool invocation.
- * Returns `undefined` when no classifier-backed assessment exists
- * (e.g. MCP tools, unknown tools that fall through to registry defaults).
- */
-export function getCachedAssessment(
-  toolName: string,
-  input: Record<string, unknown>,
-): RiskAssessment | undefined {
-  return assessmentCache.get(assessmentCacheKey(toolName, input));
 }
 
 // Directory-based scope only applies to filesystem and shell tools.

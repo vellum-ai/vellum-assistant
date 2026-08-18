@@ -82,7 +82,6 @@ import * as envRegistry from "../config/env-registry.js";
 import {
   check,
   classifyRisk,
-  clearRiskCache,
   generateAllowlistOptions,
   generateScopeOptions,
   SCOPE_AWARE_TOOLS,
@@ -180,8 +179,6 @@ describe("Permission Checker", () => {
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     // Clear the gateway threshold cache so each test gets a fresh threshold read
     _clearGlobalCacheForTesting();
-    // Reset trust-store state and risk classification cache between tests
-    clearRiskCache();
     // Reset guardian persona mock so each test opts in explicitly
     mockGuardianPersonaPath = null;
     loggerWarnCalls.length = 0;
@@ -1514,7 +1511,6 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
     mockRisk("low");
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     _clearGlobalCacheForTesting();
-    clearRiskCache();
   });
 
   test("proxied bash follows risk-based policy (medium risk → prompt outside container)", async () => {
@@ -1562,7 +1558,6 @@ describe("credentialed proxied bash — high risk escalation", () => {
     mockRisk("low");
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     _clearGlobalCacheForTesting();
-    clearRiskCache();
   });
 
   test("proxied bash with credential_ids sends credentialRefCount in IPC params", async () => {
@@ -1652,7 +1647,6 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     mockRisk("low");
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     _clearGlobalCacheForTesting();
-    clearRiskCache();
     try {
       rmSync(join(checkerTestDir, "protected", "trust.json"));
     } catch {
@@ -1796,7 +1790,6 @@ describe("integration regressions (PR 11)", () => {
     mockRisk("low");
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     _clearGlobalCacheForTesting();
-    clearRiskCache();
     // Delete the trust file to prevent stale default rules from prior tests
     try {
       rmSync(join(checkerTestDir, "protected", "trust.json"));

@@ -43,7 +43,6 @@ mockIpcResponse("get_global_thresholds", {
 // ── Imports (after mocks) ─────────────────────────────────────────────────
 
 import { check, generateAllowlistOptions } from "../permissions/checker.js";
-import { clearRiskCache } from "../permissions/checker.js";
 import { _clearGlobalCacheForTesting } from "../permissions/gateway-threshold-reader.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
@@ -86,7 +85,6 @@ function writeDynamicSkill(
 
 describe("inline-command skill_load permissions", () => {
   beforeEach(() => {
-    clearRiskCache();
     _clearGlobalCacheForTesting();
     setOverridesForTesting({});
     mockIpcResponse("get_global_thresholds", {
