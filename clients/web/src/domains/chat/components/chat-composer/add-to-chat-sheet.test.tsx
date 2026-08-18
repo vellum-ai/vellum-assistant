@@ -254,8 +254,8 @@ describe("AddToChatSheet: native pickers", () => {
   });
 
   test("a shell without the plugin keeps the file input on both rows", async () => {
-    // GIVEN a build that predates the plugin being linked, which is what a
-    // remotely served bundle reaches on an app the user has not updated
+    // GIVEN a shell whose native runtime registers no such plugin, which one
+    // remotely served bundle reaches alongside the shells that do
     mockNativePickersAvailable = false;
     mockPickMedia = async () => {
       throw new Error("pickMedia is not implemented on ios");
