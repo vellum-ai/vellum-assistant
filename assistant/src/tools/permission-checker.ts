@@ -1,3 +1,9 @@
+import type {
+  RiskAllowlistOption,
+  RiskDirectoryScopeOption,
+  RiskPatternScopeOption,
+} from "@vellumai/gateway-client";
+
 import { getIsContainerized } from "../config/env-registry.js";
 import { mapApprovalProvenance } from "../permissions/approval-provenance.js";
 import { buildChannelPermissionCellQuery } from "../permissions/channel-permission-query.js";
@@ -43,13 +49,9 @@ export type PermissionDecision =
       riskMeta: {
         riskLevel: string;
         riskReason: string;
-        riskScopeOptions: Array<{ pattern: string; label: string }>;
-        riskAllowlistOptions?: Array<{
-          label: string;
-          description: string;
-          pattern: string;
-        }>;
-        riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+        riskScopeOptions: RiskPatternScopeOption[];
+        riskAllowlistOptions?: RiskAllowlistOption[];
+        riskDirectoryScopeOptions?: RiskDirectoryScopeOption[];
         isContainerized?: boolean;
       };
       approvalMode?: ApprovalMode;
@@ -67,13 +69,9 @@ export type PermissionDecision =
       riskMeta: {
         riskLevel: string;
         riskReason: string;
-        riskScopeOptions: Array<{ pattern: string; label: string }>;
-        riskAllowlistOptions?: Array<{
-          label: string;
-          description: string;
-          pattern: string;
-        }>;
-        riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+        riskScopeOptions: RiskPatternScopeOption[];
+        riskAllowlistOptions?: RiskAllowlistOption[];
+        riskDirectoryScopeOptions?: RiskDirectoryScopeOption[];
         isContainerized?: boolean;
       };
       approvalMode?: ApprovalMode;

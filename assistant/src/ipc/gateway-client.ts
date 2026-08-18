@@ -181,7 +181,7 @@ export async function ipcClassifyRisk(
     try {
       const result = await ipcCallPersistent(
         "classify_risk",
-        params as unknown as Record<string, unknown>,
+        params,
         CLASSIFY_RISK_ATTEMPT_TIMEOUT_MS,
       );
 

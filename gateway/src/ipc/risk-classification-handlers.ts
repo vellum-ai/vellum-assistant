@@ -518,7 +518,7 @@ export const riskClassificationRoutes: IpcRoute[] = [
     method: "classify_risk",
     schema: ClassifyRiskIpcParamsSchema,
     handler: (params?: Record<string, unknown>) => {
-      return handleClassifyRisk(params as ClassifyRiskIpcParams);
+      return handleClassifyRisk(ClassifyRiskIpcParamsSchema.parse(params));
     },
   },
 ];

@@ -1,5 +1,11 @@
 import { readFile } from "node:fs/promises";
 
+import type {
+  RiskAllowlistOption,
+  RiskDirectoryScopeOption,
+  RiskPatternScopeOption,
+} from "@vellumai/gateway-client";
+
 import { getConfig } from "../config/loader.js";
 import {
   classifyRisk,
@@ -89,13 +95,9 @@ export class ToolExecutor {
       | {
           riskLevel: string;
           riskReason: string;
-          riskScopeOptions: Array<{ pattern: string; label: string }>;
-          riskAllowlistOptions?: Array<{
-            label: string;
-            description: string;
-            pattern: string;
-          }>;
-          riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+          riskScopeOptions: RiskPatternScopeOption[];
+          riskAllowlistOptions?: RiskAllowlistOption[];
+          riskDirectoryScopeOptions?: RiskDirectoryScopeOption[];
           isContainerized?: boolean;
         }
       | undefined;

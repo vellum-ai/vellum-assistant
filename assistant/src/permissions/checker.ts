@@ -58,47 +58,19 @@ import {
   resolveSandboxBase,
 } from "./workspace-policy.js";
 
-/** The result of classifyRisk(): a risk level and the classifier's reason for it. */
-export interface RiskClassification {
-  level: RiskLevel;
-  /** Human-readable explanation of why this risk level was assigned. */
-  reason: string;
-}
-
 /**
- * Everything the daemon reads from one gateway classification. Produced once
- * per tool invocation by {@link classifyRisk} and handed down through
- * `checkPermission` and {@link check}; the daemon keeps no memo of it, so a
- * trust-rule, config, or skill change is reflected on the next call.
+ * One gateway classification as the daemon carries it: the `classify_risk`
+ * response with `risk` mapped onto the daemon's {@link RiskLevel} as `level`.
+ * Produced once per tool invocation by {@link classifyRisk} and handed down
+ * through `checkPermission` and {@link check}; the daemon keeps no memo of
+ * it, so a trust-rule, config, or skill change is reflected on the next call.
  */
-export interface RiskClassificationWithMeta extends RiskClassification {
-  /** Command candidates from the gateway for trust rule matching (bash tools). */
-  commandCandidates?: string[];
-  /** Action keys from the gateway for trust rule matching (bash tools). */
-  actionKeys?: string[];
-  /** Whether the command qualifies for sandbox auto-approve (bash tools). */
-  sandboxAutoApprove?: boolean;
-  /**
-   * Lexically-resolved path args from the gateway for bash sandbox
-   * auto-approve; the symlink escape check runs over them here, since the
-   * gateway has no filesystem access.
-   */
-  sandboxPathArgs?: string[];
-  /** Allowlist options from the gateway for generateAllowlistOptions(). */
-  allowlistOptions?: AllowlistOption[];
-  /** Resolved filesystem path arguments for directory-scoped rule matching. */
-  resolvedPaths?: string[];
-  /** Scope options for the "save this classification" UI, narrowest to broadest. */
-  scopeOptions: ClassifyRiskIpcResponse["scopeOptions"];
-  /**
-   * Directory scope options emitted by the gateway for filesystem operations.
-   * Present when the classifier identified one or more filesystem path
-   * arguments and generated a directory-scope ladder for them.
-   */
-  directoryScopeOptions?: ClassifyRiskIpcResponse["directoryScopeOptions"];
-  /** How the risk was determined. */
-  matchType: ClassifyRiskIpcResponse["matchType"];
-}
+export type RiskClassificationWithMeta = Omit<
+  ClassifyRiskIpcResponse,
+  "risk"
+> & {
+  level: RiskLevel;
+};
 
 // ── Approval policy singleton ────────────────────────────────────────────────
 const defaultApprovalPolicy = new DefaultApprovalPolicy();
@@ -693,18 +665,10 @@ export async function classifyRisk(
     );
   }
 
+  const { risk, ...carried } = gatewayResult;
   const result: RiskClassificationWithMeta = {
-    level: riskStringToLevel(gatewayResult.risk),
-    reason: gatewayResult.reason,
-    commandCandidates: gatewayResult.commandCandidates,
-    actionKeys: gatewayResult.actionKeys,
-    sandboxAutoApprove: gatewayResult.sandboxAutoApprove,
-    sandboxPathArgs: gatewayResult.sandboxPathArgs,
-    allowlistOptions: gatewayResult.allowlistOptions,
-    resolvedPaths: gatewayResult.resolvedPaths,
-    scopeOptions: gatewayResult.scopeOptions ?? [],
-    directoryScopeOptions: gatewayResult.directoryScopeOptions,
-    matchType: gatewayResult.matchType ?? "unknown",
+    ...carried,
+    level: riskStringToLevel(risk),
   };
 
   // ── Symlink escape check for bash sandbox auto-approve ───────────────
