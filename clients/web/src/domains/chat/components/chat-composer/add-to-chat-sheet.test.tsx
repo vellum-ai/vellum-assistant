@@ -52,7 +52,7 @@ mock.module("@vellumai/design-library", () => ({
 // existing case still exercises the file input.
 let mockNativePickersAvailable = false;
 type PickOutcome = { tooLarge: string[]; pickFull: string[] };
-type OnPickedFile = (file: File) => void;
+type OnPickedFile = (file: File) => boolean;
 const EMPTY_PICK: PickOutcome = { tooLarge: [], pickFull: [] };
 let mockPickMedia: (onFile: OnPickedFile) => Promise<PickOutcome> = async () =>
   EMPTY_PICK;
@@ -202,6 +202,52 @@ describe("AddToChatSheet: native pickers", () => {
     // drag-and-drop already hands down, so it picks up the same vision gating,
     // resize and HEIC conversion a dropped file does
     expect(onAttachFiles).toHaveBeenCalledWith([picked]);
+  });
+
+  test("tells the picker which files the composer actually kept", async () => {
+    // The picker charges its allowance against what the composer holds, and
+    // the composer drops images outright when the model cannot see them, so
+    // what it answers here is what a refused image costs the rest of a pick.
+    mockNativePickersAvailable = true;
+    const picked = new File(["x"], "photo-1.jpg", { type: "image/jpeg" });
+    const answers: (boolean | undefined)[] = [];
+    mockPickMedia = async (onFile) => {
+      answers.push(onFile(picked));
+      return { tooLarge: [], pickFull: [] };
+    };
+
+    // GIVEN a composer that keeps what it is handed
+    renderSheet();
+    fireEvent.click(screen.getByText("Photo Library"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // AND one that keeps nothing, the way the vision gate turns images away
+    renderSheet({ onAttachFiles: () => [] });
+    fireEvent.click(screen.getAllByText("Photo Library")[1] as HTMLElement);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(answers).toEqual([true, false]);
+  });
+
+  test("counts the file when the composer answers nothing", async () => {
+    // Silence cannot be read as a refusal: a caller that does no filtering
+    // would otherwise free the allowance it should be spending.
+    mockNativePickersAvailable = true;
+    const picked = new File(["x"], "photo-1.jpg", { type: "image/jpeg" });
+    let answer: boolean | undefined;
+    mockPickMedia = async (onFile) => {
+      answer = onFile(picked);
+      return { tooLarge: [], pickFull: [] };
+    };
+
+    renderSheet({ onAttachFiles: () => undefined });
+    fireEvent.click(screen.getByText("Photo Library"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(answer).toBe(true);
   });
 
   test("a cancelled pick still hands focus back to the composer", async () => {

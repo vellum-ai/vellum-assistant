@@ -47,7 +47,12 @@ interface AddToChatSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Receives the files picked from any of the three rows. */
-  onAttachFiles: (files: FileList | File[]) => File[];
+  /**
+   * Takes the picked files and answers with the ones it kept, where it filters
+   * at all. Returning nothing counts as keeping them, so a caller that does no
+   * filtering stays a plain callback and cannot free an allowance by accident.
+   */
+  onAttachFiles: (files: FileList | File[]) => File[] | void;
 }
 
 /**
@@ -113,9 +118,13 @@ export function AddToChatSheet({
         // Handed on one at a time rather than collected: the picker reads the
         // next file only after this one has left it, so a multi-select never
         // sits decoded in the picker all at once.
-        const { tooLarge, pickFull } = await pick(
-          (file) => onAttachFiles([file]).length > 0,
-        );
+        const { tooLarge, pickFull } = await pick((file) => {
+          // Only an explicit empty answer frees the allowance. A caller that
+          // says nothing is taken to have kept the file, which is the safe
+          // direction: silence cannot uncap the budget.
+          const kept = onAttachFiles([file]);
+          return kept === undefined || kept.length > 0;
+        });
         // Refused by the picker, so the composer never sees them and cannot
         // report them itself. The two reasons are told apart because a file
         // turned away for the company it was picked with attaches fine on its
