@@ -52,7 +52,7 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { isAutoResizableImage } from "@/domains/chat/components/chat-attachments/attachment-image-resize";
+import { isImageAttachment } from "@/domains/chat/components/chat-attachments/utils";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
@@ -238,19 +238,6 @@ export interface ChatMainPanelProps {
  * absolutely-positioned container never mounts empty; the overlays themselves
  * also self-gate on their own ids.
  */
-/**
- * Whether a file counts as an image for the vision gate.
- *
- * A type alone is not enough to go on. The native pickers hand back whatever
- * type the provider published, and an Android provider that publishes none
- * leaves it empty, so `photo.jpg` can arrive typeless and slip past a filter
- * that only reads the type. The filename settles it in that case, which is
- * what keeps an image away from a model that cannot see one.
- */
-function isImageAttachment(file: File): boolean {
-  return file.type.startsWith("image/") || isAutoResizableImage(file);
-}
-
 function useActiveProcessSlots(isPopout: boolean) {
   const subagentIds = SUBAGENT_DESCRIPTOR.useActiveIds();
   const acpRunIds = ACP_RUN_DESCRIPTOR.useActiveIds();
