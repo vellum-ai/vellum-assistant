@@ -17,6 +17,7 @@ function makeConfirmationToolCall(
     riskReason?: string | null;
     allowlistOptions?: boolean;
     input?: Record<string, unknown> | null;
+    persistentDecisionsAllowed?: boolean;
   } = {},
 ): ChatMessageToolCall {
   const {
@@ -25,6 +26,7 @@ function makeConfirmationToolCall(
     riskReason = null,
     allowlistOptions = true,
     input = { command: "ls -lt ~/Downloads | head -20" },
+    persistentDecisionsAllowed,
   } = overrides;
   return {
     id: "tc-confirm",
@@ -37,6 +39,9 @@ function makeConfirmationToolCall(
     pendingConfirmation: {
       requestId: "req-1",
       riskLevel: "high",
+      ...(persistentDecisionsAllowed !== undefined
+        ? { persistentDecisionsAllowed }
+        : {}),
       ...(description ? { description } : {}),
       ...(riskReason ? { riskReason } : {}),
       ...(input ? { input } : {}),
@@ -116,5 +121,19 @@ export const Submitting: Story = {
   args: {
     toolCall: makeConfirmationToolCall(),
     isSubmitting: true,
+  },
+};
+
+/**
+ * A tool that demanded fresh approval every time. It still carries allowlist
+ * options (the generator falls back to "Everything"), so gating the rule menu
+ * on options alone would offer the standing permission the daemon asked to
+ * prevent: no chevron here, only the plain decision.
+ */
+export const FreshApprovalRequired: Story = {
+  args: {
+    toolCall: makeConfirmationToolCall({
+      persistentDecisionsAllowed: false,
+    }),
   },
 };
