@@ -292,18 +292,30 @@ export function clearFeatureFlagOverridesCache(): void {
 /**
  * Re-fetch feature flag overrides from the gateway.
  *
- * Clears the cached overrides and re-runs the gateway IPC fetch without
- * retries (the gateway is known to be up because it just pushed an event).
- * Called by the gateway flag listener when a `feature_flags_changed` event
- * arrives.
+ * Runs the gateway IPC fetch without retries (the gateway is known to be up
+ * because it just pushed an event) and replaces the cache only once that fetch
+ * succeeds. Called by the gateway flag listener when a `feature_flags_changed`
+ * event arrives and on reconnect.
+ *
+ * The swap is atomic on purpose. The previously fetched values stay readable
+ * for the whole call, so a sync flag read that lands mid-refresh sees the last
+ * known values rather than an empty cache, and a failed fetch leaves them in
+ * place rather than dropping every flag to its registry default until the next
+ * event. A flag that selects behavior rather than gating it (an experiment
+ * arm, a kill switch) therefore cannot flip to its default because one IPC
+ * call timed out.
  *
  * Resolves `true` when the cache was repopulated from the gateway, `false`
  * when the fetch came back empty/failed — callers gate persisted-state
  * reconciliation on a `true` result.
  */
 export async function refreshOverridesFromGateway(): Promise<boolean> {
-  clearFeatureFlagOverridesCache();
-  return initFeatureFlagOverrides({ retryBackoffsMs: [] });
+  const gatewayOverrides = await fetchOverridesFromGateway();
+  if (Object.keys(gatewayOverrides).length === 0) {
+    return false;
+  }
+  setCachedOverrides(gatewayOverrides, { fromGateway: true });
+  return true;
 }
 
 // ---------------------------------------------------------------------------

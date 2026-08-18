@@ -160,15 +160,18 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
  *
  * `control` is absent by design. It, an arm this build does not know, and an
  * unset flag all resolve to the shipped body, so no LaunchDarkly value can
- * strand an install on a model that is not pinned here.
+ * strand an install on a model that is not pinned here. A `Map` rather than an
+ * object literal keeps that true for every string LaunchDarkly can send: the
+ * arm is remote input, and an object lookup would resolve `constructor` or
+ * `toString` to an inherited `Object.prototype` member instead of missing.
  *
  * `glm-5p2` is text-only: Balanced does not pass `doesSupportVision` on that
  * arm, so image input routes through the image-fallback captioning plugin.
  */
-const BALANCED_EXPERIMENT_MODELS: Record<string, string> = {
-  terra: "gpt-5.6-terra",
-  "glm-5p2": "accounts/fireworks/models/glm-5p2",
-};
+const BALANCED_EXPERIMENT_MODELS = new Map<string, string>([
+  ["terra", "gpt-5.6-terra"],
+  ["glm-5p2", "accounts/fireworks/models/glm-5p2"],
+]);
 
 /**
  * The managed (`vellum`) implementation of a default profile, carrying the
@@ -182,7 +185,7 @@ function managedProfileImpl(key: DefaultProfileKey): DefaultProfileTemplate {
     return impl;
   }
   const arm = getBalancedModelExperimentArm();
-  const model = arm == null ? undefined : BALANCED_EXPERIMENT_MODELS[arm];
+  const model = arm == null ? undefined : BALANCED_EXPERIMENT_MODELS.get(arm);
   return model == null ? impl : { ...impl, model };
 }
 
@@ -503,7 +506,7 @@ for (const key of DEFAULT_PROFILE_KEYS) {
 // The experiment arms substitute into the managed column at request time, so
 // they need the same routability guarantee as the pins validated above: a
 // LaunchDarkly arm must never select a model no managed upstream serves.
-for (const [arm, model] of Object.entries(BALANCED_EXPERIMENT_MODELS)) {
+for (const [arm, model] of BALANCED_EXPERIMENT_MODELS) {
   if (getManagedUpstream(model) === null) {
     throw new Error(
       `BALANCED_EXPERIMENT_MODELS["${arm}"] references model "${model}" which ` +

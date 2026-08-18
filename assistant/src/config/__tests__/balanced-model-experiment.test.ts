@@ -141,6 +141,13 @@ describe("balanced-model experiment fallbacks", () => {
     ["the arm is the empty string", () => setArm("")],
     ["the value is boolean true", () => setArm(true)],
     ["the value is boolean false", () => setArm(false)],
+    // The arm is remote input, so it can name an Object.prototype member. The
+    // pin table is a Map, which has no such members to inherit.
+    ["the arm is constructor", () => setArm("constructor")],
+    ["the arm is toString", () => setArm("toString")],
+    ["the arm is valueOf", () => setArm("valueOf")],
+    ["the arm is __proto__", () => setArm("__proto__")],
+    ["the arm is hasOwnProperty", () => setArm("hasOwnProperty")],
   ];
 
   for (const [label, seed] of shippedCases) {
