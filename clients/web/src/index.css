@@ -797,22 +797,12 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   height: 0;
 }
 
-/* Any touch surface hides them too, which is a wider net than the shells
- * above rather than a duplicate of it. The attribute is stamped only inside
- * Capacitor, so the same app opened in Safari or installed as a PWA on the
- * same phone keeps the themed browser chrome the shell drops; a pointer
- * query is what reaches those. Neither rule subsumes the other: an iPad in
- * the shell with a trackpad attached reports a fine pointer and needs the
- * attribute, and a phone browser has no attribute and needs the query.
- *
- * `any-hover` alongside `pointer`, because the two answer different
- * questions: `pointer: coarse` describes the primary input's accuracy and
- * says nothing about what else is attached, so a tablet with a trackpad
- * matches it while still having something that can hover a thumb and drag
- * it. Requiring that no input hovers keeps the rule to the devices the
- * reasoning holds for: the scrollbar goes only where nothing could have used
- * it, and the platform is already drawing its own transient indicator during
- * a scroll. Scrolling and momentum are untouched either way. */
+/* A device with no hover-capable input hides them too, browser or shell
+ * alike. Nothing there can hover a thumb to grab it, and the platform draws
+ * its own transient indicator during a scroll. Both conditions are load
+ * bearing: `pointer` describes the primary input's accuracy alone, so a
+ * tablet with a trackpad matches it while still able to use a scrollbar.
+ * Scrolling and momentum are untouched. */
 @media (pointer: coarse) and (any-hover: none) {
   :root,
   :root *,
