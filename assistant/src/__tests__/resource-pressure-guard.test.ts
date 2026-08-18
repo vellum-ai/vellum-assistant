@@ -298,6 +298,51 @@ describe("resource pressure guard", () => {
     expect(status.cpuElevated).toBe(false);
     expect(status.cpuPercent).toBeNull();
     expect(status.memoryPercent).toBe(10);
+    // A null sample is a legitimately unavailable signal, not an error.
+    expect(status.error).toBeNull();
+  });
+
+  test("a throwing sampler surfaces its error while the healthy signal still evaluates", () => {
+    const memorySample = {
+      usageBytes: 100,
+      limitBytes: 1000,
+      reclaimableBytes: 0,
+    };
+    const healthy = {
+      sampleCpuPercent: () => 10,
+      sampleMemory: () => memorySample,
+    };
+    const cpuThrows = {
+      sampleCpuPercent: () => {
+        throw new Error("cpu reader exploded");
+      },
+      sampleMemory: () => memorySample,
+    };
+
+    evaluateResourcePressureNow(healthy);
+    expect(broadcasts.length).toBe(0);
+
+    let status = evaluateResourcePressureNow(cpuThrows);
+    expect(status.state).toBe("ok");
+    expect(status.error).toContain("cpu reader exploded");
+    expect(status.cpuPercent).toBeNull();
+    expect(status.memoryPercent).toBe(10);
+    expect(broadcasts.length).toBe(1);
+
+    const failedEvent = ResourcePressureStatusChangedEventSchema.parse(
+      broadcasts[0],
+    );
+    expect(failedEvent.status.error).toContain("cpu reader exploded");
+
+    // Repeated failures do not re-broadcast.
+    status = evaluateResourcePressureNow(cpuThrows);
+    expect(status.error).toContain("cpu reader exploded");
+    expect(broadcasts.length).toBe(1);
+
+    // Recovery clears the error and broadcasts exactly once more.
+    status = evaluateResourcePressureNow(healthy);
+    expect(status.error).toBeNull();
+    expect(broadcasts.length).toBe(2);
   });
 
   test("timer start and stop are idempotent on platform", () => {
