@@ -4,15 +4,21 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { CompanionContext } from "@vellumai/ipc-contract";
 
 const published: CompanionContext[] = [];
+// Counted rather than reimplemented: what this hook owns is calling the clear
+// at teardown. What the clear then publishes is the runtime module's own rule,
+// and `runtime/companion-surface.test.ts` exercises the real one.
+const clearWorkingMock = mock(() => undefined);
 
 mock.module("@/runtime/companion-surface", () => ({
   setCompanionContext: (context: CompanionContext) => {
     published.push(context);
   },
+  clearCompanionWorking: clearWorkingMock,
 }));
 
+let isPopout = false;
 mock.module("@/runtime/popout-window", () => ({
-  isPopoutWindowLifetime: () => false,
+  isPopoutWindowLifetime: () => isPopout,
 }));
 
 const { useTurnStore } = await import("@/domains/chat/turn-store");
@@ -26,6 +32,8 @@ function Mirror() {
 afterEach(() => {
   cleanup();
   published.length = 0;
+  clearWorkingMock.mockClear();
+  isPopout = false;
   useTurnStore.getState().resetTurn();
 });
 
@@ -94,5 +102,35 @@ describe("the working flag the companion mirror publishes", () => {
       expect(published.length).toBeGreaterThan(before);
     });
     expect(latest().turns).toEqual([]);
+  });
+});
+
+/**
+ * The publisher going away is not the assistant stopping work, but nothing else
+ * is left to say the turn ended: main holds the last context it was given, and
+ * the surface is opened by a feature flag and the tray preference rather than
+ * by the window that was publishing. So the last thing this hook does is give
+ * up the claim.
+ */
+describe("giving up the claim that a turn is running", () => {
+  test("gives it up when the mirror unmounts", () => {
+    const view = render(<Mirror />);
+
+    view.unmount();
+
+    expect(clearWorkingMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * A pop-out never publishes, so it has nothing to give up, and doing so would
+   * clear the flag the main window is legitimately holding.
+   */
+  test("says nothing from a window that never published", async () => {
+    isPopout = true;
+    const view = render(<Mirror />);
+
+    view.unmount();
+
+    expect(clearWorkingMock).not.toHaveBeenCalled();
   });
 });

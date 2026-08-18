@@ -28,7 +28,10 @@ import { assistantDisplayName } from "@/utils/assistant-display-name";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
-import { setCompanionContext } from "@/runtime/companion-surface";
+import {
+  clearCompanionWorking,
+  setCompanionContext,
+} from "@/runtime/companion-surface";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
@@ -181,6 +184,11 @@ export function useCompanionMirror(): void {
       unsubscribeSession();
       unsubscribeTurn();
       unsubscribeIdentity();
+      // Nothing is left to report a turn ending, so the last thing this does is
+      // stop claiming one is running. The tail and the name are left standing:
+      // they are a record of what was said, and the surface is still the place
+      // to read it.
+      clearCompanionWorking();
     };
   }, []);
 }
