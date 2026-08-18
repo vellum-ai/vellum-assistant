@@ -149,6 +149,23 @@ export const HoverWhileWorking: Story = {
 };
 
 /**
+ * The reply to something typed on the surface, while the card is still open.
+ *
+ * The card is the tallest and squarest thing the surface draws, so it is where
+ * a ring written for a 44pt circle is most likely to come apart.
+ */
+export const TypingWhileWorking: Story = {
+  args: {
+    phase: "typing",
+    working: true,
+    assistantName: "Ziggy",
+    turns: [
+      { role: "user", text: "what is on my calendar tomorrow?" },
+    ],
+  },
+};
+
+/**
  * Expanded with the app idle: the two ways in.
  *
  * `hovered` is what the creature answers: the eyes widen while the hand is

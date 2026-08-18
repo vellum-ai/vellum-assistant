@@ -34,6 +34,7 @@ import {
 } from "@/runtime/companion-surface";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import type { CompanionContext, CompanionTurn } from "@vellumai/ipc-contract";
 import type { TurnPhase } from "@/domains/chat/turn-store";
@@ -70,10 +71,6 @@ function isSpeech(message: DisplayMessage): boolean {
 /**
  * The phases that mean a turn is actually being worked on.
  *
- * Read from the same store as the status text the user would otherwise have to
- * read, which is the point: the ring and the words must never disagree about
- * whether anything is happening.
- *
  * `awaiting_user_input` is deliberately not one of them. It is still a live
  * turn, but the assistant is waiting on the user rather than working, and a
  * surface pulsing away while it is the user's move says the opposite of what is
@@ -81,9 +78,36 @@ function isSpeech(message: DisplayMessage): boolean {
  */
 const WORKING_PHASES = new Set<TurnPhase>(["queued", "thinking", "streaming"]);
 
-/** Whether the assistant is working, right now. */
+/**
+ * Whether the assistant is working, right now.
+ *
+ * **Two sources, because neither survives on its own.**
+ *
+ * The turn phase is the local state machine, and it is reset outright by a
+ * conversation switch (`conversation_switch_reset` in `chat-session-store`).
+ * The surface's own composer walks straight into that: it sends into a draft
+ * conversation whose id the server replaces on `ready`, so the phase drops to
+ * `idle` at almost exactly the moment the first reply events arrive. Read
+ * alone, it lights the ring for the wait before the model answers and puts it
+ * out the instant the answer starts, which is precisely backwards.
+ *
+ * `processingConversationIds` is the durable half. `turn-coordinator` moves it
+ * on every terminal event by construction, it is what the sidebar's own
+ * processing dots read, and it is keyed by conversation rather than held by one
+ * reducer, so a switch cannot clear it.
+ *
+ * Unscoped to a conversation on purpose. The surface is the assistant's
+ * presence on the desktop rather than a view of one thread, so "working" here
+ * means working on anything, including a turn arriving from Slack or a phone
+ * call while the user is looking at something else. It also sidesteps the
+ * draft-to-real id swap entirely, which is the very thing that broke the phase.
+ *
+ * The phase is still consulted because it moves first: it covers the window
+ * between the press and the conversation being registered as processing.
+ */
 const isWorking = (): boolean =>
-  WORKING_PHASES.has(useTurnStore.getState().phase);
+  WORKING_PHASES.has(useTurnStore.getState().phase) ||
+  useConversationStore.getState().processingConversationIds.size > 0;
 
 /** The assistant and the conversation's tail, as the card wants them. */
 function currentContext(): CompanionContext {
@@ -169,20 +193,27 @@ export function useCompanionMirror(): void {
     // call, so an ungated second subscription would double that work for a
     // boolean that changes twice a turn.
     let working = isWorking();
-    const unsubscribeTurn = useTurnStore.subscribe(() => {
+    const onWorkingMaybeChanged = (): void => {
       const next = isWorking();
       if (next === working) {
         return;
       }
       working = next;
       sync();
-    });
+    };
+    const unsubscribeTurn = useTurnStore.subscribe(onWorkingMaybeChanged);
+    // The other half of {@link isWorking}, and the half that actually carries a
+    // turn through to its end. Watched on the same terms as the phase.
+    const unsubscribeProcessing = useConversationStore.subscribe(
+      onWorkingMaybeChanged,
+    );
     // The name arrives on its own schedule, after the identity resolves and
     // again on every assistant switch, so it needs a subscription of its own.
     const unsubscribeIdentity = useAssistantIdentityStore.subscribe(sync);
     return () => {
       unsubscribeSession();
       unsubscribeTurn();
+      unsubscribeProcessing();
       unsubscribeIdentity();
       // Nothing is left to report a turn ending, so the last thing this does is
       // stop claiming one is running. The tail and the name are left standing:

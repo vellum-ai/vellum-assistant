@@ -22,6 +22,7 @@ mock.module("@/runtime/popout-window", () => ({
 }));
 
 const { useTurnStore } = await import("@/domains/chat/turn-store");
+const { useConversationStore } = await import("@/stores/conversation-store");
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -35,6 +36,7 @@ afterEach(() => {
   clearWorkingMock.mockClear();
   isPopout = false;
   useTurnStore.getState().resetTurn();
+  useConversationStore.setState({ processingConversationIds: new Set() });
 });
 
 /** The most recent push, which is what the surface would be drawing. */
@@ -132,5 +134,65 @@ describe("giving up the claim that a turn is running", () => {
     view.unmount();
 
     expect(clearWorkingMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The turn phase is reset outright by a conversation switch, and the surface's
+ * own composer causes one: it sends into a draft conversation whose id the
+ * server replaces on `ready`. That lands at almost exactly the moment the first
+ * reply events arrive, so a ring driven by the phase alone lit for the wait and
+ * went out the instant the answer started.
+ */
+describe("a turn that outlives its conversation id", () => {
+  const startProcessing = (id: string) => {
+    useConversationStore.setState({
+      processingConversationIds: new Set([id]),
+    });
+  };
+
+  test("keeps working through the switch that resets the phase", async () => {
+    render(<Mirror />);
+    useTurnStore.getState().requestSend("turn-1");
+    startProcessing("draft-1");
+    await waitFor(() => {
+      expect(latest().working).toBe(true);
+    });
+
+    // The switch: the draft id is replaced and the local reducer is wiped.
+    useTurnStore.getState().resetTurn();
+    await Promise.resolve();
+
+    expect(latest().working).toBe(true);
+  });
+
+  test("gives up only once the conversation stops processing", async () => {
+    render(<Mirror />);
+    useTurnStore.getState().requestSend("turn-1");
+    startProcessing("draft-1");
+    await waitFor(() => {
+      expect(latest().working).toBe(true);
+    });
+    useTurnStore.getState().resetTurn();
+
+    useConversationStore.setState({ processingConversationIds: new Set() });
+
+    await waitFor(() => {
+      expect(latest().working).toBe(false);
+    });
+  });
+
+  /**
+   * The surface is the assistant's presence on the desktop rather than a view
+   * of one thread, so a turn the user is not looking at still counts.
+   */
+  test("works for a conversation the app is not showing", async () => {
+    render(<Mirror />);
+
+    startProcessing("some-other-conversation");
+
+    await waitFor(() => {
+      expect(latest().working).toBe(true);
+    });
   });
 });
