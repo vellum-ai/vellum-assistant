@@ -419,8 +419,8 @@ describe("runConversationTurn channel binding", () => {
     // Plugin-driven iMessage turns are non-interactive, so host tools stay
     // off, but sandbox tools (bash, web_search, ...) have to remain on the
     // request. Missing them is what makes the model dump `to=bash code:`
-    // into the SMS as prose. getOrCreateConversation initializes the
-    // registry before constructing the Conversation that snapshots it.
+    // into the SMS as prose. The create path initializes the registry
+    // before constructing the Conversation that snapshots it.
     await runConversationTurn({
       channel: CHANNEL,
       content: [{ type: "text", text: "hello" }],
