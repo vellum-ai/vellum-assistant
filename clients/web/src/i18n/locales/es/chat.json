@@ -9,7 +9,8 @@
     "camera": "Cámara",
     "gallery": "Fototeca",
     "files": "Archivos",
-    "pickFailed": "No se pudo añadir ese archivo. Inténtalo de nuevo."
+    "pickFailed": "No se pudo añadir ese archivo. Inténtalo de nuevo.",
+    "tooLarge": "{count, plural, one {# archivo es demasiado grande para adjuntarlo} other {# archivos son demasiado grandes para adjuntarlos}}"
   },
   "allowOptionsMenu": {
     "allowAndCreateRule": "Permitir y crear regla",

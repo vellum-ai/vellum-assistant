@@ -9,7 +9,8 @@
     "camera": "Camera",
     "gallery": "Photo Library",
     "files": "Files",
-    "pickFailed": "Could not add that file. Please try again."
+    "pickFailed": "Could not add that file. Please try again.",
+    "tooLarge": "{count, plural, one {# file is too large to attach} other {# files are too large to attach}}"
   },
   "allowOptionsMenu": {
     "allowAndCreateRule": "Allow & Create Rule",

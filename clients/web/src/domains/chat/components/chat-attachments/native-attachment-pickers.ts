@@ -22,7 +22,18 @@
 
 import { Capacitor } from "@capacitor/core";
 
+import {
+  IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES,
+  isAutoResizableImage,
+} from "@/domains/chat/components/chat-attachments/attachment-image-resize";
+import { MAX_ATTACHMENT_BYTES } from "@/domains/chat/composer-store";
 import { isNativeMobile } from "@/runtime/platform-detection";
+
+/** Picked files that could be read, plus the names of any refused as too big. */
+export interface ReadResult {
+  files: File[];
+  skipped: string[];
+}
 
 /** Registered name of the native plugin backing both pickers. */
 const FILE_PICKER_PLUGIN = "FilePicker";
@@ -79,24 +90,73 @@ function fileFromBase64(data: string, name: string, mimeType: string): File {
 interface PickedFile {
   blob?: Blob;
   data?: string;
+  path?: string;
   name: string;
   mimeType: string;
+  size: number;
 }
 
-function toFiles(picked: PickedFile[]): File[] {
-  return picked.flatMap((file) => {
-    // The web implementation hands back a Blob directly; the native ones fill
-    // `data` because both pick calls ask for it.
+/**
+ * Mirrors the ceiling `composer-store` already enforces, so a pick too large
+ * to attach is refused before its bytes move rather than after. The store's
+ * own rule is not a flat cap: an auto-resizable image is allowed a larger
+ * source because it gets downscaled on the way up.
+ */
+function isWithinAttachmentLimit(file: PickedFile): boolean {
+  if (file.size <= MAX_ATTACHMENT_BYTES) {
+    return true;
+  }
+  return (
+    isAutoResizableImage({ name: file.name, type: file.mimeType }) &&
+    file.size <= IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES
+  );
+}
+
+/**
+ * Reads the picked entries into `File`s, skipping any the composer would
+ * refuse anyway.
+ *
+ * Neither pick asks for the data up front. The plugin's own note on that
+ * option is that reading large files can crash the app, and both pickers
+ * default to an unlimited selection, so requesting it eagerly would
+ * base64-encode a whole video (or a whole multi-select) across the bridge
+ * before anything checked whether it could be attached at all. The size comes
+ * back with the pick, so the check happens first and only the entries that
+ * pass are read.
+ *
+ * Sequential rather than `Promise.all`: reading is the expensive step, and one
+ * at a time holds peak memory to a single file instead of the whole selection.
+ */
+async function readPicked(picked: PickedFile[]): Promise<ReadResult> {
+  const files: File[] = [];
+  const skipped: string[] = [];
+
+  for (const file of picked) {
+    // The web implementation hands back a Blob directly, already in memory and
+    // carrying no path to read from.
     if (file.blob) {
-      return [new File([file.blob], file.name, { type: file.mimeType })];
+      files.push(new File([file.blob], file.name, { type: file.mimeType }));
+      continue;
     }
-    if (file.data) {
-      return [fileFromBase64(file.data, file.name, file.mimeType)];
+    if (!isWithinAttachmentLimit(file)) {
+      skipped.push(file.name);
+      continue;
     }
-    // Neither form present is not a shape the plugin documents. Dropping the
-    // entry keeps the rest of a multi-select rather than failing all of it.
-    return [];
-  });
+    if (!file.path) {
+      continue;
+    }
+    const { Filesystem } = await import("@capacitor/filesystem");
+    const { data } = await Filesystem.readFile({ path: file.path });
+    // A zero-byte file reads back as an empty string, which is a valid payload
+    // and not a missing one.
+    if (typeof data === "string") {
+      files.push(fileFromBase64(data, file.name, file.mimeType));
+    } else {
+      files.push(new File([data], file.name, { type: file.mimeType }));
+    }
+  }
+
+  return { files, skipped };
 }
 
 /**
@@ -105,19 +165,19 @@ function toFiles(picked: PickedFile[]): File[] {
  * `image/*,video/*`, and a row that silently dropped video would be a
  * narrower Photo Library than the one it replaces.
  */
-export async function pickMediaNative(): Promise<File[]> {
+export async function pickMediaNative(): Promise<ReadResult> {
   // Destructured inline, never held at module scope or returned from an async
   // function: a plugin is a Proxy that synthesizes `.then`, so letting one
   // reach a Promise-resolution context dispatches `then()` natively and hangs
   // the await for good. See `docs/CAPACITOR.md`.
   const { FilePicker } = await import("@capawesome/capacitor-file-picker");
-  const { files } = await FilePicker.pickMedia({ readData: true });
-  return toFiles(files);
+  const { files } = await FilePicker.pickMedia();
+  return readPicked(files);
 }
 
 /** Opens the system document picker. */
-export async function pickFilesNative(): Promise<File[]> {
+export async function pickFilesNative(): Promise<ReadResult> {
   const { FilePicker } = await import("@capawesome/capacitor-file-picker");
-  const { files } = await FilePicker.pickFiles({ readData: true });
-  return toFiles(files);
+  const { files } = await FilePicker.pickFiles();
+  return readPicked(files);
 }

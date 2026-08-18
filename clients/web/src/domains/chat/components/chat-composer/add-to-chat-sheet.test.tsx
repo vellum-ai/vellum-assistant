@@ -51,8 +51,10 @@ mock.module("@vellumai/design-library", () => ({
 // runtime AND a build that linked the plugin. Defaults to false, so every
 // existing case still exercises the file input.
 let mockNativePickersAvailable = false;
-let mockPickMedia: () => Promise<File[]> = async () => [];
-let mockPickFiles: () => Promise<File[]> = async () => [];
+type ReadResult = { files: File[]; skipped: string[] };
+const EMPTY_PICK: ReadResult = { files: [], skipped: [] };
+let mockPickMedia: () => Promise<ReadResult> = async () => EMPTY_PICK;
+let mockPickFiles: () => Promise<ReadResult> = async () => EMPTY_PICK;
 mock.module(
   "@/domains/chat/components/chat-attachments/native-attachment-pickers",
   () => ({
@@ -85,8 +87,8 @@ afterAll(() => {
 afterEach(() => {
   cleanup();
   mockNativePickersAvailable = false;
-  mockPickMedia = async () => [];
-  mockPickFiles = async () => [];
+  mockPickMedia = async () => EMPTY_PICK;
+  mockPickFiles = async () => EMPTY_PICK;
   requestComposerFocusSpy.mockClear();
   captureErrorSpy.mockClear();
 });
@@ -182,7 +184,7 @@ describe("AddToChatSheet: native pickers", () => {
     // GIVEN a shell whose photo library hands back one image
     mockNativePickersAvailable = true;
     const picked = new File(["x"], "photo-1.jpg", { type: "image/jpeg" });
-    mockPickMedia = async () => [picked];
+    mockPickMedia = async () => ({ files: [picked], skipped: [] });
     const { onAttachFiles } = renderSheet();
 
     // WHEN the photo row is tapped

@@ -13,6 +13,7 @@ import {
   nativeAttachmentPickersAvailable,
   pickFilesNative,
   pickMediaNative,
+  type ReadResult,
 } from "@/domains/chat/components/chat-attachments/native-attachment-pickers";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
@@ -104,12 +105,17 @@ export function AddToChatSheet({
    * cancel alike.
    */
   const closeThenPickNative =
-    (pick: () => Promise<File[]>) => async (): Promise<void> => {
+    (pick: () => Promise<ReadResult>) => async (): Promise<void> => {
       onOpenChange(false);
       try {
-        const picked = await pick();
+        const { files: picked, skipped } = await pick();
         if (picked.length > 0) {
           onAttachFiles(picked);
+        }
+        // Refused before their bytes were read, so the composer never sees
+        // them and cannot report them itself.
+        if (skipped.length > 0) {
+          toast.error(t("addToChatSheet.tooLarge", { count: skipped.length }));
         }
       } catch (error) {
         // A dismissal is a rejection too, and not worth reporting: the user
