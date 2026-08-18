@@ -330,6 +330,8 @@ describe("classifyWorkOrigin", () => {
         "inviteInstructionGenerator",
         "identityIntro",
         "emptyStateGreeting",
+        "homeGreeting",
+        "homeSuggestedPrompts",
       ] as const
     ).map((callSite) => ({
       name: `conversationless ${callSite} call maps to user_interactive`,

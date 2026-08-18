@@ -156,8 +156,9 @@ const RECOGNIZED_CALL_SITES: ReadonlySet<string> = new Set(
  * user, the live-voice front door and progress narration a caller is
  * listening to, the dictation classifier, the skill-draft category
  * inference, the invite instruction generator, and the BTW sidechain calls a
- * client fetch triggers while the person watches a spinner (identity intro,
- * empty-state greeting).
+ * client fetch triggers (identity intro and empty-state greeting shown behind
+ * a spinner; Home greeting and suggested-prompt refreshes that run only when
+ * a person fetches Home).
  */
 const USER_INVOKED_CONVERSATIONLESS_CALL_SITES: ReadonlySet<string> = new Set([
   "inference",
@@ -172,6 +173,8 @@ const USER_INVOKED_CONVERSATIONLESS_CALL_SITES: ReadonlySet<string> = new Set([
   "inviteInstructionGenerator",
   "identityIntro",
   "emptyStateGreeting",
+  "homeGreeting",
+  "homeSuggestedPrompts",
 ]);
 
 /**
