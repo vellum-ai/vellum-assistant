@@ -175,11 +175,22 @@ export type ConnectionModel = z.infer<typeof ConnectionModelSchema>;
 /**
  * Providers whose connections require an explicit `baseUrl` and non-empty
  * `models` list (openai-compatible endpoints have no fixed upstream, so the
- * user must supply both). Every other provider derives these from its catalog
- * entry and rejects a client-supplied `baseUrl`.
+ * user must supply both).
  */
 export const PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: ReadonlySet<string> =
   new Set(["openai-compatible"]);
+
+/**
+ * Providers that persist a client-supplied `baseUrl`. openai-compatible
+ * requires one (see above); ollama has a well-known local default and treats
+ * a stored URL as an optional override. Every other provider derives its
+ * upstream from the catalog and rejects a client-supplied `baseUrl` so a
+ * keyed connection cannot be pointed at an attacker-controlled host.
+ */
+export const PROVIDERS_ALLOWING_CUSTOM_BASE_URL: ReadonlySet<string> = new Set([
+  ...PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  "ollama",
+]);
 
 // ---------------------------------------------------------------------------
 // Full connection shape used by CRUD layer

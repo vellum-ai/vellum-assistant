@@ -96,12 +96,13 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       // Gemini routes managed proxies through `managedBaseUrl`, not `baseURL`.
       ...(baseURL ? { managedBaseUrl: baseURL } : {}),
     }),
-  ollama: ({ apiKey, model, streamTimeoutMs }) =>
+  ollama: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new OllamaProvider(model, {
       // Empty string means keyless — Ollama's client treats undefined as
       // "no key provided" and defaults its internal placeholder.
       apiKey: apiKey || undefined,
       streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
     }),
   fireworks: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new FireworksProvider(apiKey, model, {
