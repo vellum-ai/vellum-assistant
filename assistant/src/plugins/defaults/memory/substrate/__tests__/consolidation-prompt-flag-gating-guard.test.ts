@@ -26,6 +26,7 @@ import {
   CONSOLIDATION_PROMPT_V3,
   CORE_PAGES_CONSOLIDATION_SECTION,
   renderConsolidationPrompt,
+  renderDanglingLinksSection,
   renderParseFailuresSection,
 } from "../prompts/consolidation.js";
 
@@ -58,6 +59,13 @@ const GATED_SECTIONS: Array<{
       { slug: "example-page", error: "example parse error", dropped: true },
     ]),
     marker: "repair unreadable pages",
+  },
+  {
+    name: "dangling-link repair step (gate: index-reported dangling links)",
+    section: renderDanglingLinksSection([
+      { from: "example-page", to: "example-target", kind: "links" },
+    ]),
+    marker: "resolve dangling links",
   },
 ];
 

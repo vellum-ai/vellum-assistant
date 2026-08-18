@@ -113,14 +113,12 @@ export function registerMemoryV2Command(memory: Command): void {
     log.info(`Pages: ${report.pageCount}`);
     log.info(`Edges: ${report.edgeCount}`);
     log.info(
-      `Missing edge endpoints: ${
-        report.missingEdgeEndpoints.length === 0
-          ? "none"
-          : report.missingEdgeEndpoints.length
+      `Dangling links: ${
+        report.danglingLinks.length === 0 ? "none" : report.danglingLinks.length
       }`,
     );
-    for (const m of report.missingEdgeEndpoints) {
-      log.info(`  - ${m.from} → ${m.to}`);
+    for (const d of report.danglingLinks) {
+      log.info(`  - ${d.from} → ${d.to} (${d.kind})`);
     }
     log.info(
       `Oversized pages: ${
@@ -142,7 +140,7 @@ export function registerMemoryV2Command(memory: Command): void {
     }
 
     if (
-      report.missingEdgeEndpoints.length > 0 ||
+      report.danglingLinks.length > 0 ||
       report.oversizedPages.length > 0 ||
       report.parseFailures.length > 0
     ) {

@@ -20,7 +20,9 @@
  */
 
 import { getLogger } from "../logging.js";
+import { type DanglingLink, findDanglingLinks } from "./page-links.js";
 import { getPageMtimeMs, listPages, readPage } from "./page-store.js";
+import type { ConceptPage } from "./types.js";
 
 // Dynamic import for `./skill-store.js` happens inside `getPageIndex` so that
 // modules that only need `invalidatePageIndex` (page-store.ts,
@@ -103,8 +105,9 @@ export interface PageParseFailure {
  * ASCII so IDs are deterministic across rebuilds with the same input. The
  * `bySlug` and `byId` maps are convenience lookups; `rendered` is the prompt
  * block consumed by the router. `parseFailures` lists the pages this build
- * dropped or degraded, so consumers (the consolidation prompt) can surface
- * them for repair.
+ * dropped or degraded and `danglingLinks` the structural references whose
+ * target has no entry, so consumers (the consolidation prompt, the validate
+ * route) can surface them for repair.
  */
 export interface PageIndex {
   entries: PageIndexEntry[];
@@ -112,6 +115,8 @@ export interface PageIndex {
   byId: Map<number, PageIndexEntry>;
   rendered: string;
   parseFailures: PageParseFailure[];
+  /** Resolved against every `bySlug` key, synthetic rows included. */
+  danglingLinks: DanglingLink[];
 }
 
 interface CachedIndex {
@@ -187,6 +192,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
 
   const drafts: DraftEntry[] = [];
   const parseFailures: PageParseFailure[] = [];
+  const linkSources: ConceptPage[] = [];
   for (let i = 0; i < settled.length; i++) {
     const result = settled[i];
     const slug = slugs[i];
@@ -232,6 +238,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       modifiedAt: mtimeMs,
       freshAt: resolveFreshAt(page.frontmatter.origin_date, mtimeMs),
     });
+    linkSources.push(page);
   }
 
   for (const entry of skillEntries) {
@@ -276,8 +283,8 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     return entry;
   });
 
-  // Edges whose target slug isn't in the index are dropped silently — the
-  // frontmatter sweep is responsible for surfacing those as warnings.
+  // Edges whose target slug isn't in the index are not resolved here; they are
+  // reported in `danglingLinks` below instead.
   for (let i = 0; i < entries.length; i++) {
     const draft = drafts[i];
     const resolved: number[] = [];
@@ -297,8 +304,17 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0,
   );
 
+  const danglingLinks = findDanglingLinks(linkSources, new Set(bySlug.keys()));
+
   const rendered = renderIndex(entries);
-  const index: PageIndex = { entries, bySlug, byId, rendered, parseFailures };
+  const index: PageIndex = {
+    entries,
+    bySlug,
+    byId,
+    rendered,
+    parseFailures,
+    danglingLinks,
+  };
   cache = { workspaceDir, index };
   return index;
 }
@@ -525,9 +541,10 @@ function buildLocalPageIndex(
     bySlug: localBySlug,
     byId: localById,
     rendered: renderIndex(localEntries),
-    // Parse failures are a property of the workspace build, not of a carved
-    // batch — the full index is the reporting surface.
+    // Parse failures and dangling links are properties of the workspace
+    // build, not of a carved batch: the full index is the reporting surface.
     parseFailures: [],
+    danglingLinks: [],
   };
 }
 
@@ -626,5 +643,6 @@ function emptyPageIndex(): PageIndex {
     byId: new Map(),
     rendered: "",
     parseFailures: [],
+    danglingLinks: [],
   };
 }

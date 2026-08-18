@@ -287,7 +287,7 @@ describe("memory v2 validate", () => {
       result: {
         pageCount: 0,
         edgeCount: 0,
-        missingEdgeEndpoints: [],
+        danglingLinks: [],
         oversizedPages: [],
         parseFailures: [],
       },
@@ -306,7 +306,7 @@ describe("memory v2 validate", () => {
       result: {
         pageCount: 49,
         edgeCount: 166,
-        missingEdgeEndpoints: [],
+        danglingLinks: [],
         oversizedPages: [],
         parseFailures: [],
       },
@@ -318,7 +318,7 @@ describe("memory v2 validate", () => {
     expect(logOutput.some((line) => line.includes("Pages: 49"))).toBe(true);
     expect(logOutput.some((line) => line.includes("Edges: 166"))).toBe(true);
     expect(
-      logOutput.some((line) => line.includes("Missing edge endpoints: none")),
+      logOutput.some((line) => line.includes("Dangling links: none")),
     ).toBe(true);
     expect(
       logOutput.some((line) => line.includes("Oversized pages: none")),
@@ -334,7 +334,9 @@ describe("memory v2 validate", () => {
       result: {
         pageCount: 10,
         edgeCount: 20,
-        missingEdgeEndpoints: [{ from: "people/alice", to: "people/missing" }],
+        danglingLinks: [
+          { from: "people/alice", to: "people/missing", kind: "links" },
+        ],
         oversizedPages: [{ slug: "arcs/big-day", chars: 12345 }],
         parseFailures: [
           { slug: "people/broken", error: "missing frontmatter" },
@@ -345,9 +347,11 @@ describe("memory v2 validate", () => {
     const { exitCode } = await runCommand(["memory", "v2", "validate"]);
 
     expect(exitCode).toBe(1);
-    expect(logOutput.some((line) => line.includes("people/missing"))).toBe(
-      true,
-    );
+    expect(
+      logOutput.some((line) =>
+        line.includes("people/alice → people/missing (links)"),
+      ),
+    ).toBe(true);
     expect(logOutput.some((line) => line.includes("arcs/big-day"))).toBe(true);
     expect(logOutput.some((line) => line.includes("people/broken"))).toBe(true);
   });
