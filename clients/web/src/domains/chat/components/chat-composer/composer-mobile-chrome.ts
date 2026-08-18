@@ -50,11 +50,16 @@ export const MOBILE_GHOST_WASH_CLASS =
  * Cancelling the compatibility `mousedown` suppresses the focus transfer and
  * nothing else. See `docs/CAPACITOR.md` for the event ordering this relies on.
  *
- * Wire it only where a press is what activates the control and a focus-gated row
- * is on screen. A presentation whose surface opens on the `pointerdown` before
- * the press, as the pills' desktop menu does, needs nothing here. A control that
- * wants the keyboard gone anyway drops focus from its own click handler, by
- * which point the click it depends on has been delivered.
+ * Wire it only where a focus-gated row is on screen AND the press is the kind
+ * that fails to carry focus. Both halves matter, and neither is the window's
+ * width: a pointing device focuses the button it presses, and that button sits
+ * inside the shell the gating watches, so the row holds and the click lands on
+ * its own. Cancelling the press there would only take the focus the button is
+ * owed. A presentation whose surface opens on the `pointerdown` before the
+ * press, as the pills' desktop menu does, needs nothing here either.
+ *
+ * A control that wants the keyboard gone anyway drops focus from its own click
+ * handler, by which point the click it depends on has been delivered.
  */
 export function preventPressFocusTransfer(event: ReactMouseEvent<HTMLElement>) {
   event.preventDefault();

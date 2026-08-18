@@ -260,6 +260,14 @@ interface VoiceInputButtonProps {
    * in charge.
    */
   mobileRow?: boolean;
+  /**
+   * Cancel the press that would move focus off the composer's textarea, so the
+   * click behind it survives the row's focus gating. Separate from `mobileRow`,
+   * which is about chrome: the row's structure follows the window's width, while
+   * whether a press carries focus follows the input driving it. The composer
+   * owns that compound. See `preventPressFocusTransfer`.
+   */
+  holdComposerFocus?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -280,6 +288,7 @@ export const VoiceInputButton = forwardRef<
     onBeforeStart,
     renderButton = true,
     mobileRow = false,
+    holdComposerFocus = false,
   },
   ref,
 ) {
@@ -1091,7 +1100,7 @@ export const VoiceInputButton = forwardRef<
       // composer's focus alone until the click arrives. Dictation wants it
       // there anyway: the transcript lands in the textarea, which the flow
       // focuses again on its way out.
-      onMouseDown={mobileRow ? preventPressFocusTransfer : undefined}
+      onMouseDown={holdComposerFocus ? preventPressFocusTransfer : undefined}
       onClick={() => {
         if (processing) {
           return;

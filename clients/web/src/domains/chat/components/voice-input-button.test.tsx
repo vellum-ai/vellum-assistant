@@ -652,13 +652,15 @@ describe("VoiceInputButton: mobile composer row chrome", () => {
     );
   });
 
-  test("mobileRow holds the composer's focus through the press", () => {
-    // GIVEN the mic in the focus-gated mobile composer row
+  test("holdComposerFocus holds the composer's focus through the press", () => {
+    // GIVEN the mic in the focus-gated row, on a press that would not carry
+    // focus to it
     render(
       <VoiceInputButton
         assistantId="assistant-1"
         onTranscript={async () => {}}
         mobileRow
+        holdComposerFocus
       />,
     );
     const button = screen.getByRole("button", { name: "Start voice input" });
@@ -673,7 +675,7 @@ describe("VoiceInputButton: mobile composer row chrome", () => {
     expect(fireEvent.mouseDown(button)).toBe(false);
   });
 
-  test("the default leaves the press alone", () => {
+  test("the default leaves the press alone, mobile row or not", () => {
     // GIVEN the mic anywhere else, where no row is gated on the composer's
     // focus
     render(
@@ -684,7 +686,27 @@ describe("VoiceInputButton: mobile composer row chrome", () => {
     );
 
     // THEN the press behaves as the platform intends
-    const button = screen.getByRole("button", { name: "Start voice input" });
-    expect(fireEvent.mouseDown(button)).toBe(true);
+    expect(
+      fireEvent.mouseDown(
+        screen.getByRole("button", { name: "Start voice input" }),
+      ),
+    ).toBe(true);
+
+    // AND the row's chrome alone does not cancel it: a window dragged narrow
+    // takes the row with a pointing device still driving it, and that device
+    // focuses the button it presses, so the row never drops.
+    cleanup();
+    render(
+      <VoiceInputButton
+        assistantId="assistant-1"
+        onTranscript={async () => {}}
+        mobileRow
+      />,
+    );
+    expect(
+      fireEvent.mouseDown(
+        screen.getByRole("button", { name: "Start voice input" }),
+      ),
+    ).toBe(true);
   });
 });

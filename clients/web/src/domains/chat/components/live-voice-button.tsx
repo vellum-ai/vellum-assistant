@@ -41,12 +41,21 @@ interface LiveVoiceButtonProps {
    * `Button` primitive's own sizing in charge.
    */
   mobileRow?: boolean;
+  /**
+   * Cancel the press that would move focus off the composer's textarea, so the
+   * click behind it survives the row's focus gating. Separate from `mobileRow`,
+   * which is about chrome: the row's structure follows the window's width, while
+   * whether a press carries focus follows the input driving it. The composer
+   * owns that compound. See `preventPressFocusTransfer`.
+   */
+  holdComposerFocus?: boolean;
 }
 
 export function LiveVoiceButton({
   onStart,
   disabled = false,
   mobileRow = false,
+  holdComposerFocus = false,
 }: LiveVoiceButtonProps) {
   return (
     <Button
@@ -68,8 +77,8 @@ export function LiveVoiceButton({
       // The row this stands in is focus-gated, so the press has to leave the
       // composer's focus alone until the click arrives. The session's own
       // starter drops that focus, since the room takes the whole screen and
-      // has no use for a keyboard.
-      onMouseDown={mobileRow ? preventPressFocusTransfer : undefined}
+      // has no use for a keyboard under it.
+      onMouseDown={holdComposerFocus ? preventPressFocusTransfer : undefined}
       onClick={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
         onStart({

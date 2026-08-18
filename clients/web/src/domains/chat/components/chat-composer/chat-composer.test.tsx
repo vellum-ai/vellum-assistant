@@ -2048,20 +2048,27 @@ describe("ChatComposer: the mobile row holds focus through a press", () => {
     expect(onStopGenerating).toHaveBeenCalledTimes(1);
   });
 
-  test("a narrow mouse window gets the guard as well", () => {
+  test("a narrow mouse window keeps its press, and its row", () => {
     // GIVEN the window dragged under the breakpoint, which takes the row's
     // structure with a mouse still driving it. The row is gated on the same
-    // focus there, so the press costs the same click.
+    // focus, but a pointing device focuses the button it presses rather than
+    // dropping focus to nothing, so the click lands without any help.
     const { container } = renderNarrowMouseComposer({
       ...SETTINGS_SLOTS,
       input: "hello",
     });
     fireEvent.focusIn(textareaOf(container));
+    const send = control(container, "Send message")!;
 
-    expect(fireEvent.mouseDown(control(container, "Send message")!)).toBe(
-      false,
-    );
-    expect(fireEvent.mouseDown(control(container, PLUS_LABEL)!)).toBe(false);
+    // THEN the press is left alone, so the button still takes the focus it is
+    // owed and a keyboard user is not stranded on the body
+    expect(fireEvent.mouseDown(send)).toBe(true);
+    expect(fireEvent.mouseDown(control(container, PLUS_LABEL)!)).toBe(true);
+
+    // AND the row survives that press on its own: focus moves to a button
+    // inside the shell, which is not a leave
+    fireEvent.focusOut(textareaOf(container), { relatedTarget: send });
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
   });
 
   test("a roomy window leaves the press alone", () => {
@@ -2253,11 +2260,12 @@ describe("ChatComposer — live-voice integration", () => {
   });
 
   test("entering voice mode drops the composer's focus, and only that", async () => {
-    // GIVEN a focused composer. The voice button cancels the press that would
-    // otherwise blur this, so its click survives the row's focus gating, which
-    // leaves the soft keyboard raised.
+    // GIVEN a focused composer on a soft-keyboard device. The voice button
+    // cancels the press that would otherwise blur this, so its click survives
+    // the row's focus gating, which leaves that keyboard raised.
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockPreflightVerdict = { status: "ready" };
+    viewport.set({ narrow: true, coarsePointer: true });
     const { container, getByLabelText } = renderVoiceComposer();
     const textarea = container.querySelector("textarea")!;
     // Real focus rather than a synthetic `focusIn`: the assertion below is
@@ -2281,15 +2289,23 @@ describe("ChatComposer — live-voice integration", () => {
     await flushPreflight();
   });
 
+  // The `not-ready` verdict is the one that makes stranded focus bite: the room
+  // never opens, and the configure-voice action it raises is what the user then
+  // has to reach. Both entries below drive it for that reason.
+  const NOT_READY_VERDICT = {
+    status: "not-ready" as const,
+    missing: [
+      { kind: "tts" as const, providerId: "elevenlabs", reason: "no key" },
+    ],
+    userMessage: "Add a voice provider to start talking.",
+  };
+
   test("entering voice mode from the button itself leaves that focus alone", async () => {
-    // GIVEN a keyboard user on the voice button, or a desktop click, either of
-    // which leaves focus on the button rather than on the textarea
+    // GIVEN a keyboard user on the voice button, which leaves focus there
+    // rather than on the textarea
     useTurnStore.setState(INITIAL_TURN_STATE);
-    mockPreflightVerdict = {
-      status: "not-ready",
-      missing: [{ kind: "tts", providerId: "elevenlabs", reason: "no key" }],
-      userMessage: "Add a voice provider to start talking.",
-    };
+    mockPreflightVerdict = NOT_READY_VERDICT;
+    viewport.set({ narrow: true, coarsePointer: true });
     const { getByLabelText } = renderVoiceComposer();
     const button = getByLabelText("Start voice mode");
     act(() => {
@@ -2299,12 +2315,31 @@ describe("ChatComposer — live-voice integration", () => {
     // WHEN the entry runs
     fireEvent.click(button);
 
-    // THEN it blurs the textarea by name and leaves this focus where it is.
-    // Blurring whatever held focus would strand the user on the body, with the
-    // configure-voice action this verdict raises left to hunt for.
+    // THEN it blurs the textarea by name, which holds no focus to take, and
+    // leaves this where it is
     expect(document.activeElement).toBe(button);
     await flushPreflight();
-    expect(getByLabelText("Start voice mode")).toBeTruthy();
+  });
+
+  test("a pointing device keeps the composer's focus through the entry", async () => {
+    // GIVEN a focused composer with no soft keyboard to dismiss: a mouse-driven
+    // window, narrow enough to carry the row
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockPreflightVerdict = NOT_READY_VERDICT;
+    viewport.set({ narrow: true, coarsePointer: false });
+    const { container, getByLabelText } = renderVoiceComposer();
+    const textarea = container.querySelector("textarea")!;
+    act(() => {
+      textarea.focus();
+    });
+
+    // WHEN the entry runs
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN nothing is blurred at all. There is no keyboard raised over the room,
+    // so the only thing a blur could do here is cost the user their place.
+    expect(document.activeElement).toBe(textarea);
+    await flushPreflight();
   });
 
   test("a not-ready verdict keeps the room closed and surfaces the configure-voice prompt", async () => {

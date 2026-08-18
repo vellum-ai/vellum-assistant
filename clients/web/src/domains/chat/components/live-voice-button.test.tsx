@@ -69,10 +69,11 @@ describe("LiveVoiceButton", () => {
     expect(plain.className).toContain("touch-mobile:h-10");
   });
 
-  test("mobileRow holds the composer's focus through the press", () => {
-    // GIVEN the button in the focus-gated mobile composer row
+  test("holdComposerFocus holds the composer's focus through the press", () => {
+    // GIVEN the button in the focus-gated row, on a press that would not carry
+    // focus to it
     const { getByLabelText } = render(
-      <LiveVoiceButton onStart={onStartSpy} mobileRow />,
+      <LiveVoiceButton onStart={onStartSpy} mobileRow holdComposerFocus />,
     );
     const button = getByLabelText("Start voice mode");
 
@@ -90,12 +91,22 @@ describe("LiveVoiceButton", () => {
     expect(onStartSpy).toHaveBeenCalledTimes(1);
   });
 
-  test("leaves the press alone off the mobile row", () => {
+  test("leaves the press alone by default, mobile row or not", () => {
     // GIVEN the desktop presentation, which gates no row on focus
     const { getByLabelText } = render(<LiveVoiceButton onStart={onStartSpy} />);
 
     // THEN the press behaves as the platform intends
     expect(fireEvent.mouseDown(getByLabelText("Start voice mode"))).toBe(true);
+
+    // AND the row's chrome alone does not cancel it: a window dragged narrow
+    // takes the row with a pointing device still driving it, and that device
+    // focuses the button it presses. Cancelling there would take the focus the
+    // button is owed and buy nothing, since the row never drops.
+    cleanup();
+    const narrow = render(<LiveVoiceButton onStart={onStartSpy} mobileRow />);
+    expect(fireEvent.mouseDown(narrow.getByLabelText("Start voice mode"))).toBe(
+      true,
+    );
   });
 
   test("prevents starting a session when disabled", () => {
