@@ -60,9 +60,6 @@ function monitorResult(
   return {
     status,
     mode: getResourcePressureMonitorMode(status),
-    hasResolvedStatus: status !== null,
-    applyStatusEvent: () => {},
-    refresh: async () => {},
   };
 }
 

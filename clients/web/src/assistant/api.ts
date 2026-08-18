@@ -1,3 +1,5 @@
+import type { ZodType } from "zod";
+
 import {
   type DiskPressureStatusResponse,
   DiskPressureStatusResponseSchema,
@@ -54,17 +56,57 @@ export type GetHealthzResult =
   | { ok: true; status: number; data: HealthzGetResponse }
   | { ok: false; status: number; error: Record<string, unknown> };
 
-export type GetAssistantDiskPressureStatusResult =
-  | { ok: true; status: number; data: DiskPressureStatusResponse }
+export type ParsedResponseResult<TData> =
+  | { ok: true; status: number; data: TData }
   | { ok: false; status: number; error: Record<string, unknown> };
+
+export type GetAssistantDiskPressureStatusResult =
+  ParsedResponseResult<DiskPressureStatusResponse>;
 
 export type AcknowledgeAssistantDiskPressureResult =
-  | { ok: true; status: number; data: DiskPressureStatusResponse }
-  | { ok: false; status: number; error: Record<string, unknown> };
+  ParsedResponseResult<DiskPressureStatusResponse>;
 
 export type GetAssistantResourcePressureStatusResult =
-  | { ok: true; status: number; data: ResourcePressureStatusResponse }
-  | { ok: false; status: number; error: Record<string, unknown> };
+  ParsedResponseResult<ResourcePressureStatusResponse>;
+
+/**
+ * Normalize a `throwOnError: false` SDK result whose success body must
+ * match `schema` into the `{ ok, status, data | error }` shape.
+ */
+function parseWrappedResponse<TData>(
+  {
+    data,
+    error,
+    response,
+  }: { data: unknown; error: unknown; response?: Response },
+  schema: ZodType<TData>,
+  failureMessage: string,
+): ParsedResponseResult<TData> {
+  assertHasResponse(response, error, failureMessage);
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: toErrorObject(error, response),
+    };
+  }
+
+  const parsed = schema.safeParse(data);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      status: response.status,
+      error: toErrorObject(parsed.error.message, response),
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    data: parsed.data,
+  };
+}
 
 /**
  * Hatch a managed assistant.
@@ -251,115 +293,40 @@ export async function getAssistantHealthz(
 export async function getAssistantDiskPressureStatus(
   assistantId: string,
 ): Promise<GetAssistantDiskPressureStatusResult> {
-  const { data, error, response } = await diskpressureStatusGet({
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  });
-
-  assertHasResponse(
-    response,
-    error,
+  return parseWrappedResponse(
+    await diskpressureStatusGet({
+      path: { assistant_id: assistantId },
+      throwOnError: false,
+    }),
+    DiskPressureStatusResponseSchema,
     "Failed to get assistant disk pressure status.",
   );
-
-  if (response.ok) {
-    const parsed = DiskPressureStatusResponseSchema.safeParse(data);
-    if (!parsed.success) {
-      return {
-        ok: false,
-        status: response.status,
-        error: toErrorObject(parsed.error.message, response),
-      };
-    }
-
-    return {
-      ok: true,
-      status: response.status,
-      data: parsed.data,
-    };
-  }
-
-  return {
-    ok: false,
-    status: response.status,
-    error: toErrorObject(error, response),
-  };
 }
 
 export async function getAssistantResourcePressureStatus(
   assistantId: string,
 ): Promise<GetAssistantResourcePressureStatusResult> {
-  const { data, error, response } = await resourcepressureStatusGet({
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  });
-
-  assertHasResponse(
-    response,
-    error,
+  return parseWrappedResponse(
+    await resourcepressureStatusGet({
+      path: { assistant_id: assistantId },
+      throwOnError: false,
+    }),
+    ResourcePressureStatusResponseSchema,
     "Failed to get assistant resource pressure status.",
   );
-
-  if (response.ok) {
-    const parsed = ResourcePressureStatusResponseSchema.safeParse(data);
-    if (!parsed.success) {
-      return {
-        ok: false,
-        status: response.status,
-        error: toErrorObject(parsed.error.message, response),
-      };
-    }
-
-    return {
-      ok: true,
-      status: response.status,
-      data: parsed.data,
-    };
-  }
-
-  return {
-    ok: false,
-    status: response.status,
-    error: toErrorObject(error, response),
-  };
 }
 
 export async function acknowledgeAssistantDiskPressure(
   assistantId: string,
 ): Promise<AcknowledgeAssistantDiskPressureResult> {
-  const { data, error, response } = await diskpressureAcknowledgePost({
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  });
-
-  assertHasResponse(
-    response,
-    error,
+  return parseWrappedResponse(
+    await diskpressureAcknowledgePost({
+      path: { assistant_id: assistantId },
+      throwOnError: false,
+    }),
+    DiskPressureStatusResponseSchema,
     "Failed to acknowledge assistant disk pressure.",
   );
-
-  if (response.ok) {
-    const parsed = DiskPressureStatusResponseSchema.safeParse(data);
-    if (!parsed.success) {
-      return {
-        ok: false,
-        status: response.status,
-        error: toErrorObject(parsed.error.message, response),
-      };
-    }
-
-    return {
-      ok: true,
-      status: response.status,
-      data: parsed.data,
-    };
-  }
-
-  return {
-    ok: false,
-    status: response.status,
-    error: toErrorObject(error, response),
-  };
 }
 
 export interface AssistantBackup {
