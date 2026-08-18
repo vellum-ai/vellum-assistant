@@ -6,6 +6,7 @@ import {
   revokePairedDeviceHost,
   type LocalPairedDeviceRecord,
 } from "@/runtime/local-mode-host";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 export interface PairedDevicesController {
   /**
@@ -39,10 +40,12 @@ interface FetchedDeviceList {
  * paired devices through the host seam and runs the confirm-then-revoke flow.
  * Any `{ ok: false }` list result (older app shells, unavailable hosts,
  * transport failures) collapses `devices` to `null` so the section degrades
- * silently instead of showing a broken state. Each fetch reads the selected
- * assistant, but a revoke always targets the assistant the rendered list was
- * fetched for: device ids hash identically across assistants, so a fresh
- * selection read could silently revoke the wrong assistant's pairing.
+ * silently instead of showing a broken state. The hook subscribes to the
+ * assistant selection, so a switch while mounted refetches and closes any
+ * open confirm dialog — but a revoke always targets the assistant the
+ * rendered list was fetched for: device ids hash identically across
+ * assistants, so a fresh selection read could silently revoke the wrong
+ * assistant's pairing.
  */
 export function usePairedDevices(): PairedDevicesController {
   const [list, setList] = useState<FetchedDeviceList | null>(null);
@@ -63,26 +66,40 @@ export function usePairedDevices(): PairedDevicesController {
     };
   }, []);
 
-  const refresh = useCallback(() => {
-    const assistantId = getSelectedAssistant()?.assistantId;
-    if (!assistantId) {
-      return;
-    }
-    // Rows fetched for a different assistant must not render as the new
-    // selection's while the fetch is in flight.
-    setList((prev) => (prev && prev.assistantId !== assistantId ? null : prev));
-    const seq = ++fetchSeqRef.current;
-    void listPairedDevicesHost(assistantId).then((result) => {
-      if (!mountedRef.current || seq !== fetchSeqRef.current) {
+  const refresh = useCallback(
+    (assistantId = getSelectedAssistant()?.assistantId) => {
+      if (!assistantId) {
         return;
       }
-      setList(result.ok ? { assistantId, devices: result.devices } : null);
-    });
-  }, []);
+      // Rows fetched for a different assistant must not render as the new
+      // selection's while the fetch is in flight.
+      setList((prev) =>
+        prev && prev.assistantId !== assistantId ? null : prev,
+      );
+      const seq = ++fetchSeqRef.current;
+      void listPairedDevicesHost(assistantId).then((result) => {
+        if (!mountedRef.current || seq !== fetchSeqRef.current) {
+          return;
+        }
+        setList(result.ok ? { assistantId, devices: result.devices } : null);
+      });
+    },
+    [],
+  );
+
+  // Reactive selection seam: every switch path writes this slice. The
+  // lockfile-active fallback covers a null slice (e.g. no explicit selection).
+  const selectedAssistantId =
+    useResolvedAssistantsStore.use.selectedAssistantId();
+  const assistantId =
+    selectedAssistantId ?? getSelectedAssistant()?.assistantId;
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    // A selection switch invalidates any open confirm dialog.
+    setConfirmTarget(null);
+    setRevokeError(null);
+    refresh(assistantId);
+  }, [assistantId, refresh]);
 
   const requestRevoke = useCallback((device: LocalPairedDeviceRecord) => {
     setRevokeError(null);

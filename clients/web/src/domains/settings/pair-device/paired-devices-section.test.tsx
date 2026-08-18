@@ -8,6 +8,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { create } from "zustand";
 
 import type {
   LocalListDevicesResult,
@@ -50,6 +51,20 @@ mock.module(
     getLocalGatewayUrl: () => undefined,
   }),
 );
+
+// Reactive selection slice the hook subscribes to; tests flip it (alongside
+// `selectedAssistantId`) to simulate a switch while the section stays mounted.
+const selectionStore = create<{ selectedAssistantId: string | null }>(() => ({
+  selectedAssistantId: "self",
+}));
+
+mock.module("@/stores/resolved-assistants-store", () => {
+  const store = () => null;
+  store.use = {
+    selectedAssistantId: () => selectionStore((s) => s.selectedAssistantId),
+  };
+  return { useResolvedAssistantsStore: store };
+});
 
 const { PairedDevicesSection } = await import("./paired-devices-section");
 
@@ -95,6 +110,7 @@ beforeEach(() => {
   revokeResult = { ok: true };
   revokeCalls = [];
   selectedAssistantId = "self";
+  selectionStore.setState({ selectedAssistantId: "self" });
 });
 
 afterEach(() => {
@@ -204,8 +220,9 @@ describe("PairedDevicesSection", () => {
   test("revokes against the assistant the rendered list was fetched for, not the current selection", async () => {
     await renderExpanded([device()]);
 
-    // Selection moves to another assistant while the section stays mounted;
-    // the rendered rows (and the confirm target) still belong to "self".
+    // The fetch-time selection read moves before the reactive slice
+    // republishes (only the raw read flips here, not `selectionStore`); the
+    // rendered rows (and the confirm target) still belong to "self".
     selectedAssistantId = "other";
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
     clickConfirm();
@@ -217,6 +234,29 @@ describe("PairedDevicesSection", () => {
     );
     // The post-revoke refresh re-reads the selection and fetches its list.
     await waitFor(() => expect(listCalls).toEqual(["self", "other"]));
+  });
+
+  test("a selection switch refetches for the new assistant and closes the confirm dialog", async () => {
+    await renderExpanded([device()]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    expect(screen.getByText("Revoke this device?")).toBeTruthy();
+
+    setListResult({
+      ok: true,
+      devices: [device({ hashedDeviceId: HASH_B, platform: "android" })],
+    });
+    await act(async () => {
+      selectedAssistantId = "other";
+      selectionStore.setState({ selectedAssistantId: "other" });
+    });
+
+    expect(listCalls).toEqual(["self", "other"]);
+    expect(revokeCalls).toHaveLength(0);
+    expect(screen.queryByText("Revoke this device?")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Paired devices (1)" }),
+    ).toBeTruthy();
   });
 
   test("a failed revoke keeps the dialog open with the error", async () => {
