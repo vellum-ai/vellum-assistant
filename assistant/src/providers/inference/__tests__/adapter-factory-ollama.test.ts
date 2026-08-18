@@ -7,6 +7,26 @@ import {
 } from "../adapter-factory.js";
 import type { ProviderConnection, ResolvedAuth } from "../auth.js";
 
+interface RetryOptions {
+  credentialSource?: string;
+  connectionName?: string;
+}
+
+function retryOptions(adapter: unknown): RetryOptions {
+  let node = adapter;
+  for (let depth = 0; node && depth < 8; depth++) {
+    const { options, inner } = node as {
+      options?: RetryOptions;
+      inner?: unknown;
+    };
+    if (options) {
+      return options;
+    }
+    node = inner;
+  }
+  throw new Error("no RetryProvider found in the adapter wrapper chain");
+}
+
 function innermostAdapter(adapter: unknown): unknown {
   let node = adapter;
   for (let depth = 0; node && depth < 8; depth++) {
@@ -19,19 +39,8 @@ function innermostAdapter(adapter: unknown): unknown {
   throw new Error("wrapper chain too deep");
 }
 
-function sdkBaseUrl(adapter: unknown): string {
-  const inner = innermostAdapter(adapter) as {
-    client?: { baseURL?: string };
-  };
-  const baseURL = inner.client?.baseURL;
-  if (typeof baseURL !== "string") {
-    throw new Error("expected an OpenAI SDK client with baseURL");
-  }
-  return baseURL;
-}
-
 describe("adapter factory ollama", () => {
-  test("buildProviderAdapter forwards an explicit Ollama baseURL", () => {
+  test("buildProviderAdapter returns an OllamaProvider", () => {
     const adapter = buildProviderAdapter("ollama", {
       apiKey: "",
       model: "llama3.2",
@@ -40,10 +49,9 @@ describe("adapter factory ollama", () => {
       useNativeWebSearch: false,
     });
     expect(adapter).toBeInstanceOf(OllamaProvider);
-    expect(sdkBaseUrl(adapter)).toBe("http://192.168.1.50:11434/v1");
   });
 
-  test("createAdapterFromConnection wires none-auth baseUrl onto the Ollama SDK client", () => {
+  test("createAdapterFromConnection accepts keyless ollama with a stored baseUrl", () => {
     const connection: ProviderConnection = {
       name: "ollama",
       provider: "ollama",
@@ -67,6 +75,9 @@ describe("adapter factory ollama", () => {
 
     expect(adapter).not.toBeNull();
     expect(innermostAdapter(adapter)).toBeInstanceOf(OllamaProvider);
-    expect(sdkBaseUrl(adapter)).toBe("http://192.168.1.50:11434/v1");
+    expect(retryOptions(adapter)).toMatchObject({
+      credentialSource: "no-auth",
+      connectionName: "ollama",
+    });
   });
 });
