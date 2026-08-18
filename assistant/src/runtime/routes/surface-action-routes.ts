@@ -37,26 +37,32 @@ const log = getLogger("surface-action-routes");
 
 /**
  * Resolve trust context for the actor principal from the gateway guardian
- * binding and set it on the conversation. A vellum principal is the guardian or
- * nobody, so the mapper yields guardian or unknown. Resolution (including the
- * dev-bypass principal translation and the mutating reset-drift repair) lives
- * in the shared {@link resolveVellumActorTrustContext} so the surface content
- * route's read-only requester scoping cannot drift from it.
+ * binding, and return it for the caller to attribute this action with. A vellum
+ * principal is the guardian or nobody, so the mapper yields guardian or
+ * unknown. Resolution (including the dev-bypass principal translation and the
+ * mutating reset-drift repair) lives in the shared
+ * {@link resolveVellumActorTrustContext} so the surface content route's
+ * read-only requester scoping cannot drift from it.
+ *
+ * The resting slot is only rewritten while the conversation is idle. A click
+ * that lands mid-turn belongs to its clicker, not to the running turn, so it
+ * travels as an argument; repointing the slot underneath a turn already in
+ * flight would hand that turn a different actor's capabilities partway through.
  */
-async function applyTrustContext(
+async function resolveAndBindTrustContext(
   conversation: {
-    setTrustContext?(ctx: TrustContext): void;
+    setTrustContext(ctx: TrustContext): void;
+    isProcessing(): boolean;
   },
   actorPrincipalId: string | undefined,
-): Promise<void> {
-  if (!conversation.setTrustContext) {
-    return;
+): Promise<TrustContext> {
+  const trustContext = await resolveVellumActorTrustContext(actorPrincipalId, {
+    healResetDrift: true,
+  });
+  if (!conversation.isProcessing()) {
+    conversation.setTrustContext(trustContext);
   }
-  conversation.setTrustContext(
-    await resolveVellumActorTrustContext(actorPrincipalId, {
-      healResetDrift: true,
-    }),
-  );
+  return trustContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +160,10 @@ async function handleSurfaceAction({
   }
 
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
-  await applyTrustContext(conversation, actorPrincipalId);
+  const requesterTrustContext = await resolveAndBindTrustContext(
+    conversation,
+    actorPrincipalId,
+  );
 
   // Translate dev-bypass → real guardian so the surface turn's principal matches
   // the SSE host-proxy client's registered principal; otherwise CU/app-control
@@ -170,6 +179,7 @@ async function handleSurfaceAction({
       actionId,
       data,
       resolvedActorPrincipalId,
+      requesterTrustContext,
     );
     const result =
       raw && typeof raw === "object" && "accepted" in raw

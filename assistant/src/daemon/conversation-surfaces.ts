@@ -85,6 +85,7 @@ import type {
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import { isRowVisibleToUntrustedActor } from "./message-provenance.js";
+import type { TrustContext } from "./trust-context-types.js";
 export {
   buildSurfaceShowPair,
   type CurrentTurnSurface,
@@ -1904,7 +1905,13 @@ export async function handleSurfaceAction(
   // reconstruct the same-user binding for host proxies (CU / app-control),
   // mirroring the normal message path.
   sourceActorPrincipalId?: string,
+  // Trust of the actor committing this action, resolved by the route from the
+  // verified requester. Passed rather than read back off the conversation so a
+  // click that lands mid-turn is attributed to its clicker instead of to
+  // whoever occupies the resting slot.
+  requesterTrustContext?: TrustContext,
 ): Promise<SurfaceActionResult> {
+  const actionTrustContext = requesterTrustContext ?? ctx.trustContext;
   // ── Standalone surface interception ──────────────────────────────
   // Daemon-driven surfaces (from `requestInteractiveUi`) register a
   // pending entry in `pendingStandaloneSurfaces`. When the user clicks
@@ -2050,7 +2057,7 @@ export async function handleSurfaceAction(
     // `await` resolves as soon as the conversation is created + titled +
     // published to the event hub. The HTTP POST /v1/surface-actions
     // response returns promptly — the seed turn runs in the background.
-    const originTrustContext = ctx.trustContext;
+    const originTrustContext = actionTrustContext;
     const { conversationId } = await launchConversation({
       title,
       seedPrompt,
@@ -2069,14 +2076,11 @@ export async function handleSurfaceAction(
     return { accepted: true, conversationId };
   }
 
-  // Trust of the actor committing THIS action. `POST /v1/surface-actions`
-  // stamps the verified requester's trust onto the conversation before
-  // dispatching here, and `loadFromDb` derives the live history filter from
-  // the same value, so the completion path's persisted read stays scoped to
-  // exactly what this actor's live view would have held. Unresolvable trust
-  // fails closed to the untrusted filter.
+  // Trust of the actor committing THIS action, so the completion path's
+  // persisted read stays scoped to exactly what this actor's live view would
+  // have held. Unresolvable trust fails closed to the untrusted filter.
   const requesterCanAccessMemory = resolveCapabilities(
-    ctx.trustContext?.trustClass,
+    actionTrustContext?.trustClass,
   ).canAccessMemory;
 
   const pending = ctx.pendingSurfaceActions.get(surfaceId);
@@ -2222,6 +2226,7 @@ export async function handleSurfaceAction(
       activeSurfaceId: surfaceId,
       displayContent,
       sourceActorPrincipalId,
+      trustContext: actionTrustContext,
       isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
       // Rides the metadata bag rather than a typed option: the queue
       // round-trips `metadata` but not `PersistMessageOptions`.
@@ -2472,6 +2477,7 @@ export async function handleSurfaceAction(
     activeSurfaceId: surfaceId,
     displayContent,
     sourceActorPrincipalId,
+    trustContext: actionTrustContext,
     isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
     // Rides the metadata bag rather than a typed option: the queue
     // round-trips `metadata` but not `PersistMessageOptions`.

@@ -26,11 +26,14 @@ interface StubConversation {
   handleSurfaceUndoCalled?: boolean;
   handleSurfaceUndoThrows?: Error;
   trustContext?: { trustClass: string; sourceChannel: string };
+  /** Drives `isProcessing()`, the resting-slot write guard. */
+  processing?: boolean;
   surfaceActionCalls: Array<{
     surfaceId: string;
     actionId: string;
     data: unknown;
     sourceActorPrincipalId?: string;
+    requesterTrustContext?: { trustClass: string; sourceChannel: string };
   }>;
 }
 
@@ -160,12 +163,14 @@ function makeStub(id: string): StubConversation {
       actionId: string,
       data: unknown,
       sourceActorPrincipalId?: string,
+      requesterTrustContext?: { trustClass: string; sourceChannel: string },
     ) => {
       stub.surfaceActionCalls.push({
         surfaceId,
         actionId,
         data,
         sourceActorPrincipalId,
+        requesterTrustContext,
       });
       if (stub.handleSurfaceActionThrows) {
         throw stub.handleSurfaceActionThrows;
@@ -181,6 +186,7 @@ function makeStub(id: string): StubConversation {
     setTrustContext: (ctx: { trustClass: string; sourceChannel: string }) => {
       stub.trustContext = ctx;
     },
+    isProcessing: () => stub.processing === true,
   });
   return stub;
 }
@@ -560,6 +566,53 @@ describe("triggerSurfaceAction trust context", () => {
     });
 
     expect(live.trustContext?.trustClass).toBe("unknown");
+  });
+
+  test("idle conversation: the requester's trust is bound to the resting slot and passed to the action", async () => {
+    mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];
+    const live = makeStub("conv-idle");
+    live.processing = false;
+    memoryBySurface = live;
+
+    const handler = findHandler("triggerSurfaceAction");
+    await handler({
+      body: { surfaceId: "surf-idle", actionId: "act-idle" },
+      headers: { "x-vellum-actor-principal-id": GUARDIAN_PRINCIPAL },
+    });
+
+    expect(live.trustContext?.trustClass).toBe("guardian");
+    expect(live.surfaceActionCalls).toHaveLength(1);
+    expect(live.surfaceActionCalls[0]?.requesterTrustContext?.trustClass).toBe(
+      "guardian",
+    );
+  });
+
+  test("busy conversation: the running turn's resting actor is left alone, and the click still travels as its own actor", async () => {
+    mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];
+    const live = makeStub("conv-busy");
+    // A turn is already running under a different actor.
+    const runningTurnActor = {
+      trustClass: "untrusted",
+      sourceChannel: "sms",
+    };
+    live.trustContext = runningTurnActor;
+    live.processing = true;
+    memoryBySurface = live;
+
+    const handler = findHandler("triggerSurfaceAction");
+    await handler({
+      body: { surfaceId: "surf-busy", actionId: "act-busy" },
+      headers: { "x-vellum-actor-principal-id": GUARDIAN_PRINCIPAL },
+    });
+
+    // The slot is the identical object it was before the request: the
+    // in-flight turn keeps authorizing tools as the actor it started as.
+    expect(live.trustContext).toBe(runningTurnActor);
+    // The clicker is not dropped — it rides the call instead of the slot.
+    expect(live.surfaceActionCalls).toHaveLength(1);
+    expect(live.surfaceActionCalls[0]?.requesterTrustContext?.trustClass).toBe(
+      "guardian",
+    );
   });
 });
 
