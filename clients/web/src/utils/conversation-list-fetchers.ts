@@ -162,10 +162,13 @@ export type ConversationListPage = {
  *
  * A section (a group or channel filter) keeps server order: it renders the
  * server's recency order as-is (LUM-3108), and a client sort could disagree
- * with it on ties. The archived bucket sorts by `archivedAt`, the other
- * buckets by `lastMessageAt`; the background bucket drops scheduled rows,
- * because the daemon's `background` value is the back-compat umbrella that
- * includes them and the sidebar keeps one conversation in one cache.
+ * with it on ties. The archived reads sort by `archivedAt`, the other
+ * buckets by `lastMessageAt`. The active background bucket drops scheduled
+ * rows: the daemon's `background` value is the back-compat umbrella that
+ * includes them, and the sidebar keeps one conversation in one cache, with
+ * scheduled runs in their own bucket. The archived background read keeps
+ * them, because the archive view shows every type and there is no
+ * archived-scheduled cache to hold them.
  */
 function shapeListRows(
   filter: ConversationListFilter,
@@ -175,7 +178,7 @@ function shapeListRows(
     return rows;
   }
   const kept =
-    filter.conversationType === "background"
+    filter.conversationType === "background" && !isArchivedFilter(filter)
       ? rows.filter((c) => !isScheduledConversation(c))
       : rows;
   return [...kept].sort(

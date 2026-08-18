@@ -12,6 +12,7 @@ import { QueryClient } from "@tanstack/react-query";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
+  ARCHIVED_BACKGROUND_FILTER,
   ARCHIVED_FILTER,
   BACKGROUND_FILTER,
   conversationListQueryKey,
@@ -125,6 +126,39 @@ describe("conversationListOptions", () => {
     );
 
     expect(result.conversations.map((c) => c.conversationId)).toEqual(["bg"]);
+  });
+
+  test("the archived background read keeps scheduled rows", async () => {
+    /* The archive view has no archived-scheduled cache; this read is the
+       only one that returns archived scheduled runs. */
+    stubPages([
+      {
+        rows: [
+          {
+            id: "bg",
+            conversationType: "background",
+            lastMessageAt: 10,
+            archivedAt: 10,
+          },
+          {
+            id: "sched",
+            conversationType: "scheduled",
+            lastMessageAt: 20,
+            archivedAt: 20,
+          },
+        ],
+        hasMore: false,
+      },
+    ]);
+
+    const result = await freshClient().fetchQuery(
+      conversationListOptions(ASSISTANT_ID, ARCHIVED_BACKGROUND_FILTER),
+    );
+
+    expect(result.conversations.map((c) => c.conversationId)).toEqual([
+      "sched",
+      "bg",
+    ]);
   });
 
   test("the archived bucket orders by archivedAt, not recency", async () => {

@@ -2,8 +2,10 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   hashKey,
+  matchQuery,
   QueryClient,
   QueryClientProvider,
+  type QueryFilters,
 } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
@@ -15,6 +17,7 @@ import {
   type ConversationListPage,
 } from "@/utils/conversation-list-fetchers";
 import {
+  ARCHIVED_FILTER,
   conversationListQueryKey,
   isConversationListKey,
   isSectionFilter,
@@ -405,12 +408,23 @@ describe("useConversationSync", () => {
         return key?._id === (expectedGroupsKey as Record<string, unknown>)._id;
       },
     );
-    const archivedCalls = (
-      spy.mock.calls as unknown as Array<[unknown]>
-    ).filter((call) => {
-      const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-      return arg?.queryKey?.[2] === "archived";
+    /* The archived lists are invalidated through a prefix + predicate
+       filter, so the assertion runs TanStack's real matcher against a real
+       archived query and a real foreground query. */
+    const archivedQuery = queryClient.getQueryCache().build(queryClient, {
+      queryKey: conversationListQueryKey("asst-1", ARCHIVED_FILTER),
     });
+    const foregroundQuery = queryClient
+      .getQueryCache()
+      .build(queryClient, { queryKey: conversationListQueryKey("asst-1") });
+    const archivedCalls = (
+      spy.mock.calls as unknown as Array<[QueryFilters | undefined]>
+    ).filter(
+      (call) =>
+        call[0] !== undefined &&
+        matchQuery(call[0], archivedQuery) &&
+        !matchQuery(call[0], foregroundQuery),
+    );
     expect(groupsCalls.length).toBe(1);
     expect(archivedCalls.length).toBe(1);
   });
