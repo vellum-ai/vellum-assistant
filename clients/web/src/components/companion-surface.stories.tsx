@@ -280,7 +280,7 @@ export const TypingEmpty: Story = {
  *
  * The vertical twin of `AgainstTheRightEdge`, and the fix for JARVIS-1548. The
  * host's canvas reserves the card's height on whichever side it grows into, and
- * macOS will not put a window frame above the top of the work area — so an
+ * macOS will not put a window frame above the top of the work area, so an
  * avatar that always reserved that height *above* itself could not be dragged
  * into the top of the screen at all. It stopped 270pt short, for no reason the
  * user could see.

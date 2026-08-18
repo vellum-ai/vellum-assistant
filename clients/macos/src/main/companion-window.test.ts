@@ -380,7 +380,7 @@ describe("geometryFor", () => {
  * The placement rules against a size other than the one they were written for.
  *
  * A bigger avatar makes the top-of-screen limit worse rather than better, since
- * the canvas grows with it — which is exactly why JARVIS-1548 had to land
+ * the canvas grows with it, which is exactly why JARVIS-1548 had to land
  * first. What must hold is that the rules still bind on the avatar rather than
  * the canvas, at whatever size.
  */

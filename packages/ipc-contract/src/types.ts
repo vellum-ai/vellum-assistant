@@ -615,13 +615,12 @@ export type CompanionGrowth = (typeof COMPANION_GROWTHS)[number];
  * work area, so the canvas cannot hang off the top of the display the way it
  * hangs off the bottom. With the avatar pinned to the canvas's centre the
  * avatar could therefore never get closer to the top of the screen than half
- * the canvas, which is where the surface used to stop dead for no visible
- * reason (JARVIS-1548).
+ * the canvas, which fences it out of the top of the display entirely.
  *
  * So the avatar's offset inside the canvas is not fixed: `up` puts it low in
  * the canvas with the card's height reserved above it, `down` puts it high with
  * that height reserved below. Main picks from the room the display actually
- * has, and the avatar still does not move — the canvas moves around it.
+ * has, and the avatar still does not move: the canvas moves around it.
  *
  * `up` is the shape the surface is designed around, since it lives by the Dock
  * where a card growing downward would grow off the bottom of the screen.
@@ -633,14 +632,14 @@ export type CompanionCardGrowth = (typeof COMPANION_CARD_GROWTHS)[number];
 /**
  * How big the companion is drawn, as a named step rather than a number.
  *
- * Named rather than free, because the avatar's box is not a style — it is the
+ * Named rather than free, because the avatar's box is not a style: it is the
  * geometry both sides of the bridge agree on, and everything derives from it:
  * the pill's reach, the card's height, and the canvas sized to hold the largest
  * state. A continuous scale would be a layout nobody had ever looked at; four
  * steps are four layouts, each checkable in Storybook.
  *
- * `large` is the default. The surface shipped at `small`, which is the size the
- * pill was designed at and too small to find on a busy desktop (JARVIS-1549).
+ * `large` is the default. `small` is the size the surface's layout is authored
+ * at, which every other step scales from.
  */
 export const COMPANION_SIZES = ["small", "medium", "large", "huge"] as const;
 
@@ -656,6 +655,35 @@ export const COMPANION_SIZE_BOXES: Record<CompanionSize, number> = {
 
 /** What the surface is drawn at when nothing has been chosen. */
 export const DEFAULT_COMPANION_SIZE: CompanionSize = "large";
+
+/**
+ * The avatar's box the companion's layout is authored at, and the size every
+ * other length in that layout is stated in.
+ *
+ * The scale is the box in {@link COMPANION_SIZE_BOXES} over this one. The
+ * renderer draws at this size and scales the whole surface by that factor, so
+ * the two processes never hold two sets of dimensions.
+ */
+export const COMPANION_BASE_AVATAR_BOX = COMPANION_SIZE_BOXES.small;
+
+/** Room the pill's shadow paints outside its box, at the base size. */
+export const COMPANION_BASE_CANVAS_PAD = 24;
+
+/**
+ * How far the avatar's centre sits from the canvas edge the card does *not*
+ * grow into: its own half-box, plus the shadow's room.
+ *
+ * **The cross-process invariant.** Main places the window by it and the
+ * renderer anchors the avatar by it, so the two agreeing is what makes the
+ * avatar appear where the window was put. Derived once here rather than on each
+ * side, because two copies of this formula drifting is the avatar drawn
+ * somewhere other than where main believes it is.
+ *
+ * The far edge is however far away the canvas is, which neither side has to
+ * state: `100%` names the canvas in the renderer, and main sizes it.
+ */
+export const COMPANION_NEAR_EDGE =
+  COMPANION_BASE_AVATAR_BOX / 2 + COMPANION_BASE_CANVAS_PAD;
 
 /**
  * The assistant's character, as the three trait ids it is composed from.

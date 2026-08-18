@@ -6,6 +6,9 @@ import {
   voiceActivityContentSchema,
   voiceActivityControlSchema,
   voiceActivityStartSchema,
+  COMPANION_BASE_AVATAR_BOX,
+  COMPANION_BASE_CANVAS_PAD,
+  COMPANION_NEAR_EDGE,
   COMPANION_SIZE_BOXES,
   type CompanionCardGrowth,
   type CompanionGrowth,
@@ -109,17 +112,7 @@ const COMPANION_KIND = "companion";
 const COMPANION_ROUTE = "/floating/companion";
 
 /**
- * The avatar's resting footprint at `small`, which is the size the renderer's
- * layout is authored at and the size everything else here is stated in.
- *
- * A larger companion is the same layout multiplied: the renderer scales itself
- * by the published box over this one, so every constant below scales with it
- * rather than being restated per size (JARVIS-1549).
- */
-const BASE_AVATAR_BOX = 44;
-
-/**
- * The widest the pill gets at {@link BASE_AVATAR_BOX}, matching
+ * The widest the pill gets at {@link COMPANION_BASE_AVATAR_BOX}, matching
  * `FALLBACK_WIDTHS.call` in the renderer.
  *
  * A ceiling rather than a width: the pill measures its own content, so this is
@@ -128,13 +121,10 @@ const BASE_AVATAR_BOX = 44;
  */
 const BASE_MAX_PILL_WIDTH = 360;
 
-/** Room for the pill's shadow, which paints outside its box. */
-const BASE_CANVAS_PAD = 24;
-
 /**
  * The tallest the surface gets, which is the typing card.
  *
- * Every other state is a pill exactly {@link BASE_AVATAR_BOX} tall. The card
+ * Every other state is a pill exactly {@link COMPANION_BASE_AVATAR_BOX} tall. The card
  * stacks the conversation on top of that row, in a viewport that scrolls once
  * it is full, so the card has a ceiling rather than growing with the exchange:
  * the renderer's `TURNS_MAX_HEIGHT` (220) and its padding, over the composer.
@@ -149,13 +139,13 @@ const BASE_MAX_CARD_HEIGHT = 290;
 /**
  * Everything the window's placement depends on, for one companion size.
  *
- * A record rather than a set of module constants because it is no longer fixed:
- * the user picks the size and the whole canvas follows. Passed to the placement
+ * A record rather than a set of module constants because the user picks the
+ * size and the whole canvas follows it. Passed to the placement
  * rules explicitly rather than read off the module, so they stay pure functions
  * of their inputs and every size is a case a test can state.
  */
 export interface CompanionGeometry {
-  /** The avatar's box, and the scale: this over {@link BASE_AVATAR_BOX}. */
+  /** The avatar's box, and the scale: this over {@link COMPANION_BASE_AVATAR_BOX}. */
   avatarBox: number;
   /** The canvas, sized to hold the largest state in either direction. */
   canvasWidth: number;
@@ -174,9 +164,9 @@ export interface CompanionGeometry {
  * The asymmetry between {@link CompanionGeometry.riseAbove} and `dropBelow` is
  * the point of the shape. Sizing both sides for the card, which is what pinning
  * the avatar to the canvas's centre amounts to, spends the card's whole height
- * on a side that never draws anything taller than the avatar — and macOS
+ * on a side that never draws anything taller than the avatar, and macOS
  * refuses a window origin above the top of the work area, so that spend is
- * exactly how far short of the top the surface used to stop (JARVIS-1548).
+ * exactly how far short of the top the avatar would stop.
  *
  * The canvas is sized for the tallest state rather than resized on the phase,
  * the same bargain the width makes. A canvas that grew with the card would move
@@ -187,15 +177,17 @@ export interface CompanionGeometry {
  */
 export const geometryFor = (size: CompanionSize): CompanionGeometry => {
   const avatarBox = COMPANION_SIZE_BOXES[size];
-  const scale = avatarBox / BASE_AVATAR_BOX;
-  const pad = BASE_CANVAS_PAD * scale;
+  const scale = avatarBox / COMPANION_BASE_AVATAR_BOX;
+  const pad = COMPANION_BASE_CANVAS_PAD * scale;
   const maxPillWidth = BASE_MAX_PILL_WIDTH * scale;
   // The avatar holds its place and the body runs off one side of it, so the
   // reach is almost the pill's whole width. The canvas has to hold it in
   // whichever direction main later picks, so it is sized for both sides.
   const maxReach = maxPillWidth - avatarBox / 2;
   const riseAbove = BASE_MAX_CARD_HEIGHT * scale - avatarBox / 2 + pad;
-  const dropBelow = avatarBox / 2 + pad;
+  // The invariant the renderer anchors by, at this size. Scaled rather than
+  // recomputed, so the formula lives in one place for both processes.
+  const dropBelow = COMPANION_NEAR_EDGE * scale;
   return {
     avatarBox,
     canvasWidth: Math.round(maxReach * 2 + pad * 2),
@@ -321,7 +313,7 @@ export const growthFor = (
 /**
  * Which way the card unfurls, from the room the display has above the avatar.
  *
- * The vertical {@link growthFor}, and the fix for JARVIS-1548. Growing upward
+ * The vertical {@link growthFor}. Growing upward
  * needs `riseAbove` of canvas above the avatar's centre, and macOS will
  * not put that canvas above the top of the work area, so near the top of a
  * display the card has to grow the other way instead.
@@ -331,7 +323,7 @@ export const growthFor = (
  * same price. A canvas may hang off the left and right of a display freely, so
  * a bad horizontal guess only clips the card. It may not hang off the top, so a
  * bad vertical guess pushes the *avatar* down by the whole reserved height and
- * fences it out of the top of the screen — which is the bug this exists to fix,
+ * fences it out of the top of the screen, which is the bug this exists to fix,
  * in miniature. On a display too short for the card either way the card is
  * already lost, and what is worth saving is the mascot's reach.
  */
@@ -359,8 +351,8 @@ export const avatarOffsetFor = (
  * the card unfurls once it is there.
  *
  * Everything is computed in the avatar's coordinates and converted to a window
- * origin at the last step. Working the other way round — nudging the origin and
- * reading the avatar out of it — is what made the direction flip impossible to
+ * origin at the last step. Working the other way round (nudging the origin and
+ * reading the avatar out of it) is what made the direction flip impossible to
  * do mid-drag: the avatar's offset inside the canvas changes with the
  * direction, so the same origin means two different avatar positions, and a
  * drag that crossed the threshold would teleport the mascot by the difference.
@@ -586,7 +578,7 @@ export const installCompanionWindow = (): void => {
       const placed = placeCanvas(wanted, workArea, geometry);
       // Before the move, not after. `setPosition` fires `move`, which runs
       // `refreshGrowth`, which reads the avatar's position back out of the
-      // window using this exact variable — so it has to already say which
+      // window using this exact variable, so it has to already say which
       // offset the new origin was computed against, or the refresh measures the
       // avatar somewhere it is not and moves the window a second time. The
       // renderer cannot see the intervening frame: the push is a message and

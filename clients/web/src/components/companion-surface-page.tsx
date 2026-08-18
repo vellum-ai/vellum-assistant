@@ -304,8 +304,8 @@ export function CompanionSurfacePage() {
 
           The box is the base canvas: the window divided by the scale, blown
           back up about its own top-left corner, so it covers the window exactly
-          and every length inside — the `100%` the surface anchors to, its
-          paddings, its type — resolves in the units the layout was written in.
+          and every length inside (the `100%` the surface anchors to, its
+          paddings, its type) resolves in the units the layout was written in.
           The alternative was scaling forty hard-coded dimensions and keeping
           them in step with main's arithmetic, which is the drift this avoids
           rather than manages.

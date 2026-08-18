@@ -135,7 +135,7 @@ export interface TrayHandlers {
  *
  * Here rather than in the contract: the contract carries what the two processes
  * send each other, and these are words on a menu. The point sizes are not in
- * the labels — "88pt" means nothing next to a floating avatar, and the sizes
+ * the labels: "88pt" means nothing next to a floating avatar, and the sizes
  * are meant to be picked by looking at the result.
  */
 const COMPANION_SIZE_LABELS: Record<CompanionSize, string> = {

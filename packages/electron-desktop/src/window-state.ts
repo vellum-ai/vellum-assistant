@@ -108,7 +108,7 @@ export const writeCompanionHidden = (hidden: boolean): void => {
  *
  * Validated on the way out rather than trusted. This file is a JSON store a
  * user can edit and an older build can have written, and the value indexes a
- * table of geometry — an unknown one would size the window from `undefined` and
+ * table of geometry, and an unknown one would size the window from `undefined`
  * put a canvas of `NaN` on screen.
  */
 export const readCompanionSize = (): CompanionSize => {

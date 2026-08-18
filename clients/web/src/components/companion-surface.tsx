@@ -17,6 +17,7 @@ import type {
   Ref,
 } from "react";
 
+import { COMPANION_NEAR_EDGE } from "@vellumai/ipc-contract";
 import type {
   CompanionCharacter,
   CompanionTurn,
@@ -99,7 +100,7 @@ export type CompanionSurfaceGrowth = "right" | "left";
  * `up` is where the surface normally opens: it lives by the Dock, where a card
  * growing downward would grow off the bottom of the screen. `down` is what it
  * flips to near the top of a display, and the reason it has to exist at all is
- * the host's, not the layout's — macOS refuses to place a window frame above
+ * the host's, not the layout's: macOS refuses to place a window frame above
  * the top of the work area, so an avatar that always reserved the card's height
  * above itself could never be dragged into the top of the screen at all
  * (JARVIS-1548). Main decides, for the same reason it decides the other one.
@@ -126,26 +127,6 @@ const ASSISTANT_TURN_PHASES = new Set(["transcribing", "thinking", "speaking"]);
 // surfaces that happen to share a colour, and it is the property to protect as
 // the states gain content.
 const AVATAR_BOX = 44;
-
-/**
- * Room for the pill's shadow, matching `CANVAS_PAD` in `companion-window.ts`.
- *
- * Duplicated across the bridge the way {@link AVATAR_BOX} is: both sides derive
- * their geometry from the same primitives rather than one side sending the
- * other pixel positions.
- */
-const CANVAS_PAD = 24;
-
-/**
- * How far the avatar's centre sits from the canvas edge the card does *not*
- * grow into: its own half-box, plus the shadow's room.
- *
- * The other edge is however far away the canvas is, which the surface never
- * needs to know — `100%` is the canvas, so anchoring to the near edge places
- * the avatar without either side stating the canvas's height. Main sizes the
- * canvas and picks the direction; this is the only number the two agree on.
- */
-const NEAR_EDGE = AVATAR_BOX / 2 + CANVAS_PAD;
 
 /**
  * The avatar artwork inside that box, which is inset by {@link INNER_GAP} on
@@ -463,13 +444,13 @@ export function CompanionSurface({
 
   // The vertical half of the same idea, against a canvas that is *not*
   // symmetric about the avatar. The card's height is reserved on whichever side
-  // it grows into, so the avatar sits `NEAR_EDGE` from the other edge — and
-  // that edge is the one worth anchoring to, since `100%` names the canvas
+  // it grows into, so the avatar sits `COMPANION_NEAR_EDGE` from the other
+  // edge, and that edge is the one worth anchoring to: `100%` names the canvas
   // without this side having to know how tall main made it.
   const anchor: CSSProperties =
     cardGrowth === "up"
-      ? { top: `calc(100% - ${NEAR_EDGE}px)` }
-      : { top: NEAR_EDGE };
+      ? { top: `calc(100% - ${COMPANION_NEAR_EDGE}px)` }
+      : { top: COMPANION_NEAR_EDGE };
 
   const style: CSSProperties = {
     width,
