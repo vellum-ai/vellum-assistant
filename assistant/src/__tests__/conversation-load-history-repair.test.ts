@@ -765,7 +765,7 @@ describe("guardian card rows are not replayed as conversation history", () => {
           data: {},
           display: "inline",
         },
-        { type: "text", text: "Tool Approval\nbash - requested by Jason" },
+        { type: "text", text: "Tool Approval\nbash - requested by Alice" },
       ],
     };
   }
