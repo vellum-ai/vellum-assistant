@@ -1356,6 +1356,27 @@ describe("ChatComposer: mobile settings pills row", () => {
     expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
   });
 
+  test("the native picker holds the row up after it takes the focus", () => {
+    // GIVEN a focused mobile-web composer, where the row follows focus
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+    const textarea = textareaOf(container);
+    fireEvent.focusIn(textarea);
+
+    // WHEN the plus hands off to the OS picker, which takes the web view's
+    // first responder and so arrives here as focus returning to the body
+    fireEvent.click(control(container, PLUS_LABEL)!);
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    // THEN the row stays up rather than collapsing behind the picker, the same
+    // way the sheet used to hold it
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
+
+    // AND the picker closing gives the composer back to its own focus
+    fireEvent(fileInput(container)!, new Event("cancel"));
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+  });
+
   test("a sheet flag that goes false with focus gone puts the row away", () => {
     // GIVEN a phone composer holding the row up for an open sheet, focus gone
     const { container, rerender } = renderPhoneComposer({

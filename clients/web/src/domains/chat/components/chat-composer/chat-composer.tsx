@@ -812,17 +812,26 @@ export function ChatComposer({
   // Owned by the composer rather than by the control that opens it, so a width
   // or pointer change while the OS picker is up cannot unmount the input under
   // it and drop the selection.
-  const { openPicker: openAttachPicker, inputNode: attachPickerInput } =
-    useAttachmentFilePicker({
-      onFiles: onAddAttachmentFiles,
-      multiple: true,
-    });
+  const {
+    openPicker: openAttachPicker,
+    inputNode: attachPickerInput,
+    pickerOpen: attachPickerOpen,
+  } = useAttachmentFilePicker({
+    onFiles: onAddAttachmentFiles,
+    multiple: true,
+  });
 
-  // A surface opened from the composer moves focus into a portal, so it has to
-  // hold the row up on its way out. Without that flag the row would drop away
-  // as the sheet rises and the card would shift down under the scrim.
+  // A surface opened from the composer takes the focus this would otherwise
+  // read, so each one has to hold the row up for as long as it is standing.
+  // A sheet moves focus into a portal; the native picker takes the web view's
+  // first responder, which arrives here as focus returning to the body. Either
+  // way the composer is in use, and rearranging it for an idle one would move
+  // it behind the surface the user is looking at.
   const composerInUse =
-    composerFocusWithin || settingsSheetOpen || addSheetOpen;
+    composerFocusWithin ||
+    settingsSheetOpen ||
+    addSheetOpen ||
+    attachPickerOpen;
   // Whether a banner is standing over the card. Read off the box rather than
   // derived from props: most of that stack arrives through
   // `noticesAboveFormSlot`, an opaque node, and the composer-owned notices in
