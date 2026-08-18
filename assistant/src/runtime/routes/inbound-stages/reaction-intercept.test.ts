@@ -69,17 +69,24 @@ mock.module("../../../contacts/contact-store.js", () => ({
 // Downstream side-effect stubs
 // ---------------------------------------------------------------------------
 
-let recordInboundCalls = 0;
+let recordInboundCalls: Array<{ conversationId?: string }> = [];
+let storedTarget: { messageId: string; conversationId: string } | null = null;
 mock.module("../../../persistence/delivery-crud.js", () => ({
-  recordInbound: () => {
-    recordInboundCalls++;
+  recordInbound: (
+    _channel: string,
+    _chat: string,
+    _externalMessageId: string,
+    options?: { conversationId?: string },
+  ) => {
+    recordInboundCalls.push({ conversationId: options?.conversationId });
     return {
       eventId: "evt-1",
-      conversationId: "conv-1",
+      conversationId: options?.conversationId ?? "conv-minted",
       accepted: true,
       duplicate: false,
     };
   },
+  findMessageBySourceId: () => storedTarget,
   clearPayload: () => {},
   linkMessage: () => {},
 }));
@@ -184,7 +191,6 @@ function buildParams(overrides: {
         ? { trustVerdict: overrides.trustVerdict }
         : {}),
     } as never,
-    slackChannelName: "general",
     approvalConversationGenerator: undefined,
   };
 }
@@ -193,7 +199,7 @@ function expectDropped(result: Record<string, unknown>): void {
   expect(result.reaction).toBe("dropped_unknown_actor");
   // Dropped before any write or routing: no dedup record, no transcript row,
   // no approval-pipeline dispatch.
-  expect(recordInboundCalls).toBe(0);
+  expect(recordInboundCalls.length).toBe(0);
   expect(addMessageCalls).toBe(0);
   expect(guardianReplyCalls.length).toBe(0);
 }
@@ -204,10 +210,11 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     guardianDeliveryReads = 0;
     setMemberVerdictCalls = 0;
     contactLookups = 0;
-    recordInboundCalls = 0;
+    recordInboundCalls = [];
     addMessageCalls = 0;
     guardianReplyCalls = [];
     guardianReplyResponse = undefined;
+    storedTarget = { messageId: "msg-target", conversationId: "conv-target" };
   });
 
   test("guardian verdict routes the reaction into the approval decision pipeline", async () => {
@@ -244,6 +251,38 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     expect(result.accepted).toBe(true);
     expect(result.reaction).toBeUndefined();
     expect(addMessageCalls).toBe(1);
+    // Recorded into the reacted message's conversation, never a fresh one.
+    expect(recordInboundCalls).toEqual([{ conversationId: "conv-target" }]);
+  });
+
+  test("a reaction on a message that is not stored is dropped without minting", async () => {
+    storedTarget = null;
+
+    const result = await handleSlackReactionIntercept(
+      buildParams({
+        rawSenderId: MEMBER_USER_ID,
+        trustVerdict: MEMBER_VERDICT,
+      }),
+    );
+
+    expect(result.reaction).toBe("dropped_unknown_target");
+    expect(recordInboundCalls.length).toBe(0);
+    expect(addMessageCalls).toBe(0);
+  });
+
+  test("a guardian card reaction still applies when the card is not a stored message", async () => {
+    storedTarget = null;
+    guardianReplyResponse = { accepted: true, canonicalRouter: "applied" };
+
+    const result = await handleSlackReactionIntercept(
+      buildParams({
+        rawSenderId: GUARDIAN_USER_ID,
+        trustVerdict: GUARDIAN_VERDICT,
+      }),
+    );
+
+    expect(result).toEqual(guardianReplyResponse);
+    expect(recordInboundCalls.length).toBe(0);
   });
 
   test("unknown verdict is dropped before any write", async () => {

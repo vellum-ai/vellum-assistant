@@ -9,7 +9,8 @@
  *     or an access-request notification (LUM-2489),
  *   - a stranger's reaction creates no conversation, binding, or transcript
  *     row — it is dropped as channel noise,
- *   - a known contact's reaction is recorded as an inline transcript signal,
+ *   - a known contact's reaction is recorded as an inline transcript signal in
+ *     the conversation of the message it was attached to,
  *   - a guardian's reaction on an approval card is routed through the guardian
  *     decision pipeline (the same path as buttons and text replies).
  *
@@ -28,12 +29,11 @@ import {
 } from "../../../messaging/providers/slack/message-metadata.js";
 import { addMessage } from "../../../persistence/conversation-crud.js";
 import {
-  clearPayload,
+  findMessageBySourceId,
   linkMessage,
   recordInbound,
 } from "../../../persistence/delivery-crud.js";
 import { markProcessed } from "../../../persistence/delivery-status.js";
-import { upsertBinding } from "../../../persistence/external-conversation-store.js";
 import { getLogger } from "../../../util/logger.js";
 import type { ApprovalConversationGenerator } from "../../http-types.js";
 import {
@@ -105,8 +105,6 @@ export interface ReactionInterceptParams {
   actorUsername: string | undefined;
   replyCallbackUrl: string | undefined;
   sourceMetadata: SourceMetadata | undefined;
-  /** Slack channel display name, for the conversation binding. */
-  slackChannelName: string | null;
   approvalConversationGenerator: ApprovalConversationGenerator | undefined;
 }
 
@@ -130,7 +128,6 @@ export async function handleSlackReactionIntercept(
     actorUsername,
     replyCallbackUrl,
     sourceMetadata,
-    slackChannelName,
     approvalConversationGenerator,
   } = params;
 
@@ -171,21 +168,11 @@ export async function handleSlackReactionIntercept(
       ? sourceMetadata.threadId.trim()
       : undefined;
 
-  // Record for dedup + conversation resolution (known contacts only — strangers
-  // were dropped above).
-  const result = recordInbound(
-    sourceChannel,
-    conversationExternalId,
-    externalMessageId,
-    {
-      sourceMessageId: reactedMessageTs,
-      sourceThreadId: threadTs,
-    },
-  );
-
   // Respect disk-pressure cleanup so reactions don't bypass storage
   // protection. Guardians resolve to `allow-cleanup-mode` (not `block`), so a
-  // guardian's approval-by-reaction still flows.
+  // guardian's approval-by-reaction still flows. Blocked silently and before
+  // any write: a reaction is a passive signal, so the message pipeline's
+  // "storage is low, try again" notice is meaningless for an emoji.
   const diskPressure = classifyDiskPressureTurnPolicy(getDiskPressureStatus(), {
     sourceChannel,
     sourceInterface,
@@ -195,44 +182,23 @@ export async function handleSlackReactionIntercept(
     },
   });
   if (diskPressure.action === "block") {
-    // Block silently: a reaction is a passive signal, so the message
-    // pipeline's "storage is low, try again" notice is meaningless for an
-    // emoji — there is nothing to retry. Mark the event processed and stop
-    // before binding/persistence.
-    if (!result.duplicate) {
-      clearPayload(result.eventId);
-      markProcessed(result.eventId);
-    }
     return {
       accepted: true,
-      duplicate: result.duplicate,
-      eventId: result.eventId,
+      reaction: "dropped_disk_pressure",
       diskPressure: "blocked",
       reason: diskPressure.reason,
     };
   }
 
-  // Maintain the conversation binding, matching the message pipeline.
-  upsertBinding({
-    conversationId: result.conversationId,
-    sourceChannel,
-    externalChatId: conversationExternalId,
-    externalChatName: slackChannelName,
-    externalThreadId: threadTs ?? null,
-    externalUserId: canonicalSenderId ?? rawSenderId ?? null,
-    displayName: actorDisplayName ?? null,
-    username: actorUsername ?? null,
-  });
-
-  // Guardian approval-by-reaction → guardian decision pipeline, exactly like
-  // buttons and text replies. Only `reaction:` (added) expresses intent;
+  // Guardian approval-by-reaction runs before the reacted message is resolved:
+  // an approval card is addressed by its own message id and is not always a
+  // stored message. Only `reaction:` (added) expresses intent;
   // `reaction_removed:` never does. `handleGuardianReplyIntercept` self-gates
-  // on `trustClass === "guardian"`, so a contact's reaction returns no response
-  // and falls through to persistence.
-  const isReactionAdded = callbackData.startsWith("reaction:");
-  if (isReactionAdded && replyCallbackUrl && !result.duplicate) {
+  // on `trustClass === "guardian"`, so a contact's reaction returns no
+  // response and falls through to persistence.
+  if (callbackData.startsWith("reaction:") && replyCallbackUrl) {
     const reactionIntercept = await handleGuardianReplyIntercept({
-      isDuplicate: result.duplicate,
+      isDuplicate: false,
       trimmedContent: "",
       hasCallbackData: true,
       callbackData,
@@ -241,35 +207,48 @@ export async function handleSlackReactionIntercept(
       canonicalSenderId,
       sourceChannel,
       conversationExternalId,
-      conversationId: result.conversationId,
-      eventId: result.eventId,
       replyCallbackUrl,
       trustClass: trustCtx.trustClass,
       guardianPrincipalId: trustCtx.guardianPrincipalId,
       approvalConversationGenerator,
     });
-    // Consumed as a guardian decision (applied, or a surfaced failure delivered
-    // as an ephemeral reply). Short-circuit so we do not also persist a
-    // transcript row.
     if (reactionIntercept.response) {
       return reactionIntercept.response;
     }
   }
 
-  // Record the reaction as an inline transcript signal. Requires the reacted
-  // message ts to anchor the rendering.
-  if (!reactedMessageTs) {
+  // The reaction belongs to the conversation of the message it was attached
+  // to. Slack sends no `thread_ts` on a reaction, so resolving a conversation
+  // from the reaction's own address keys one on the reacted message instead of
+  // finding the one that message lives in, minting an orphan per reaction.
+  // A message the assistant never stored has nothing to annotate, so the
+  // reaction is dropped rather than given a conversation of its own.
+  const target = reactedMessageTs
+    ? findMessageBySourceId(
+        sourceChannel,
+        conversationExternalId,
+        reactedMessageTs,
+      )
+    : null;
+  if (!target || !reactedMessageTs) {
     log.debug(
-      { conversationId: result.conversationId, eventId: result.eventId },
-      "Skipping reaction persistence: missing sourceMetadata.messageId",
+      { sourceChannel, conversationExternalId, reactedMessageTs },
+      "Dropping reaction: reacted message is not stored",
     );
-    return {
-      accepted: result.accepted,
-      duplicate: result.duplicate,
-      eventId: result.eventId,
-    };
+    return { accepted: true, reaction: "dropped_unknown_target" };
   }
 
+  const result = recordInbound(
+    sourceChannel,
+    conversationExternalId,
+    externalMessageId,
+    {
+      sourceMessageId: reactedMessageTs,
+      conversationId: target.conversationId,
+    },
+  );
+
+  // Record the reaction as an inline transcript signal.
   try {
     await persistSlackReactionAsMessage({
       conversationId: result.conversationId,

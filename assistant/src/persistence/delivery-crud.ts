@@ -33,6 +33,13 @@ export interface InboundResult {
 export interface RecordInboundOptions {
   sourceMessageId?: string;
   sourceThreadId?: string;
+  /**
+   * Record the event against this conversation instead of resolving one from
+   * the address. For events that belong to a message rather than to a chat: a
+   * reaction lives in the conversation of the message it was attached to, and
+   * resolving from its own address would mint a second one.
+   */
+  conversationId?: string;
 }
 
 const SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE = 50;
@@ -280,11 +287,13 @@ export function recordInbound(
     };
   }
 
-  const mapping = resolveInboundConversation(
-    sourceChannel,
-    externalChatId,
-    options?.sourceThreadId,
-  );
+  const mapping = options?.conversationId
+    ? { conversationId: options.conversationId }
+    : resolveInboundConversation(
+        sourceChannel,
+        externalChatId,
+        options?.sourceThreadId,
+      );
   const now = Date.now();
   const eventId = uuid();
 

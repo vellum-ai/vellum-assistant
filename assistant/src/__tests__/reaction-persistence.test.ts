@@ -76,6 +76,7 @@ import type { Conversation } from "../daemon/conversation.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { linkMessage, recordInbound } from "../persistence/delivery-crud.js";
 import { messages } from "../persistence/schema/conversations.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import {
@@ -156,6 +157,29 @@ function buildReactionRequest(
     },
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * Store the message a reaction will be attached to. A reaction resolves its
+ * conversation through this row, so without one there is nothing to annotate.
+ */
+function seedStoredMessage(reactedTs: string): string {
+  const event = recordInbound(
+    "slack",
+    SLACK_CHANNEL_ID,
+    `${SLACK_CHANNEL_ID}:${reactedTs}:seed`,
+    { sourceMessageId: reactedTs },
+  );
+  const db = getDb();
+  const messageId = `msg-${reactedTs}`;
+  db.$client
+    .prepare(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at)
+       VALUES (?, ?, 'user', '"hello"', ?)`,
+    )
+    .run(messageId, event.conversationId, Date.now());
+  linkMessage(event.eventId, messageId);
+  return event.conversationId;
 }
 
 function readPersistedMessages(): Array<{
@@ -257,6 +281,7 @@ describe("Slack reaction event persistence", () => {
   });
 
   test("reaction:thumbsup is persisted with slackMeta.eventKind=reaction", async () => {
+    seedStoredMessage("1700000000.111111");
     let agentDispatched = false;
     const processMessage = async (): Promise<{ messageId: string }> => {
       agentDispatched = true;
@@ -276,7 +301,9 @@ describe("Slack reaction event persistence", () => {
 
     expect(agentDispatched).toBe(false);
 
-    const rows = readPersistedMessages();
+    const rows = readPersistedMessages().filter(
+      (r) => r.content === "[reaction]",
+    );
     expect(rows.length).toBe(1);
 
     const row = rows[0];
@@ -304,11 +331,14 @@ describe("Slack reaction event persistence", () => {
   });
 
   test("reaction_removed:eyes records op === removed", async () => {
+    seedStoredMessage("1700000000.111111");
     const req = buildReactionRequest("reaction_removed:eyes");
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     expect(resp.status).toBe(200);
 
-    const rows = readPersistedMessages();
+    const rows = readPersistedMessages().filter(
+      (r) => r.content === "[reaction]",
+    );
     expect(rows.length).toBe(1);
 
     const envelope = JSON.parse(rows[0].metadata!) as Record<string, unknown>;
@@ -325,12 +355,16 @@ describe("Slack reaction event persistence", () => {
     });
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     expect(resp.status).toBe(200);
+    expect(((await resp.json()) as Record<string, unknown>).reaction).toBe(
+      "dropped_unknown_target",
+    );
 
     const rows = readPersistedMessages();
     expect(rows.length).toBe(0);
   });
 
   test("reaction without threadId omits threadTs in metadata", async () => {
+    seedStoredMessage("1700000000.222222");
     const req = buildReactionRequest("reaction:wave", {
       sourceMetadata: {
         messageId: "1700000000.222222",
@@ -340,7 +374,9 @@ describe("Slack reaction event persistence", () => {
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     expect(resp.status).toBe(200);
 
-    const rows = readPersistedMessages();
+    const rows = readPersistedMessages().filter(
+      (r) => r.content === "[reaction]",
+    );
     expect(rows.length).toBe(1);
 
     const envelope = JSON.parse(rows[0].metadata!) as Record<string, unknown>;
@@ -352,6 +388,7 @@ describe("Slack reaction event persistence", () => {
   });
 
   test("agent loop is never dispatched for reaction events", async () => {
+    seedStoredMessage("1700000000.111111");
     let dispatchCount = 0;
     const processMessage = async (): Promise<{ messageId: string }> => {
       dispatchCount++;
@@ -373,6 +410,7 @@ describe("Slack reaction event persistence", () => {
   });
 
   test("duplicate reaction events do not double-persist", async () => {
+    seedStoredMessage("1700000000.111111");
     const sharedExternalMessageId = `${SLACK_CHANNEL_ID}:1700000000.555555:alice`;
     const makeReq = () =>
       buildReactionRequest("reaction:tada", {
@@ -399,7 +437,66 @@ describe("Slack reaction event persistence", () => {
     expect(rows.length).toBe(1);
   });
 
+  test("reaction on a message the assistant never stored creates no conversation", async () => {
+    // The reported bug: Slack sends no `thread_ts` on a reaction, so keying a
+    // conversation off the reaction's own address minted one per reacted
+    // message, each holding a single "[reaction]" row and a permanent
+    // "Generating title..." placeholder.
+    const db = getDb();
+    const countRows = (table: string): number =>
+      (
+        db.$client.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as {
+          n: number;
+        }
+      ).n;
+
+    const resp = await handleChannelInbound(
+      buildReactionRequest("reaction:thumbsup"),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    expect(json.accepted).toBe(true);
+    expect(json.reaction).toBe("dropped_unknown_target");
+    expect(countRows("conversations")).toBe(0);
+    expect(countRows("channel_inbound_events")).toBe(0);
+    expect(readPersistedMessages().length).toBe(0);
+  });
+
+  test("reaction lands in the conversation of the reacted message, not a new one", async () => {
+    const targetConversationId = seedStoredMessage("1700000000.111111");
+    const db = getDb();
+    const conversationsBefore = (
+      db.$client.prepare("SELECT COUNT(*) AS n FROM conversations").get() as {
+        n: number;
+      }
+    ).n;
+
+    const resp = await handleChannelInbound(
+      buildReactionRequest("reaction:thumbsup"),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    expect(resp.status).toBe(200);
+
+    const conversationsAfter = (
+      db.$client.prepare("SELECT COUNT(*) AS n FROM conversations").get() as {
+        n: number;
+      }
+    ).n;
+    expect(conversationsAfter).toBe(conversationsBefore);
+
+    const reactionRow = db.$client
+      .prepare(
+        "SELECT conversation_id AS conversationId FROM messages WHERE content = '[reaction]'",
+      )
+      .get() as { conversationId: string } | null;
+    expect(reactionRow?.conversationId).toBe(targetConversationId);
+  });
+
   test("link to channel_inbound_events is created", async () => {
+    seedStoredMessage("1700000000.111111");
     const req = buildReactionRequest("reaction:thumbsup");
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     const json = (await resp.json()) as Record<string, unknown>;
@@ -707,6 +804,7 @@ describe("reaction access control (no verification handshake)", () => {
       displayName: "Pending Contact",
     });
 
+    seedStoredMessage("1700000000.111111");
     const req = buildReactionRequest("reaction:tada", {
       actorExternalId: CONTACT_USER_ID,
       actorDisplayName: "Pending Contact",
@@ -718,7 +816,9 @@ describe("reaction access control (no verification handshake)", () => {
     expect(json.denied).not.toBe(true);
     expect(json.reason).not.toBe("verification_challenge_sent");
 
-    const rows = readPersistedMessages();
+    const rows = readPersistedMessages().filter(
+      (r) => r.content === "[reaction]",
+    );
     expect(rows.length).toBe(1);
     const envelope = JSON.parse(rows[0].metadata!) as Record<string, unknown>;
     const slackMeta = readSlackMetadata(envelope.slackMeta as string);
