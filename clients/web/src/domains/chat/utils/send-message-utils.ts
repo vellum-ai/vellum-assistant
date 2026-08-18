@@ -11,10 +11,7 @@ import {
   type SurfaceCompletionTone,
 } from "@/domains/chat/types/types";
 
-import {
-  attachConfirmationToToolCall,
-  ERROR_MESSAGES,
-} from "@/domains/chat/utils/chat";
+import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import {
   filterMessageSurfaces,
   mapMessageSurfaces,
@@ -234,11 +231,10 @@ export function parsePendingSecretState(
   };
 }
 
-export function parsePendingConfirmationData(raw: Record<string, unknown>): {
-  confData: Parameters<typeof attachConfirmationToToolCall>[1];
-  state: PendingConfirmationState;
-} {
-  const confData = {
+export function parsePendingConfirmationData(
+  raw: Record<string, unknown>,
+): PendingConfirmationState {
+  return {
     requestId: typeof raw.requestId === "string" ? raw.requestId : "",
     title: optionalString(raw.title),
     description: optionalString(raw.description),
@@ -254,10 +250,6 @@ export function parsePendingConfirmationData(raw: Record<string, unknown>): {
     input: optionalRecord(raw.input),
     toolUseId: optionalString(raw.toolUseId),
   };
-  const state: PendingConfirmationState = {
-    ...confData,
-  };
-  return { confData, state };
 }
 
 /** Generate a unique turn ID for correlating the send → reconcile lifecycle. */

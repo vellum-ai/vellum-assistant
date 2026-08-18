@@ -368,18 +368,15 @@ describe("parsePendingConfirmationData", () => {
       input: { path: "/tmp" },
       toolUseId: "tu-1",
     };
-    const { confData, state } = parsePendingConfirmationData(raw);
+    const parsed = parsePendingConfirmationData(raw);
 
-    expect(state.requestId).toBe("req-1");
-    expect(state.toolName).toBe("delete_file");
-
-    expect(confData.requestId).toBe("req-1");
-    expect(confData.toolUseId).toBe("tu-1");
+    expect(parsed.requestId).toBe("req-1");
+    expect(parsed.toolName).toBe("delete_file");
+    expect(parsed.toolUseId).toBe("tu-1");
   });
 
   it("defaults requestId to empty string when missing", () => {
-    const { state } = parsePendingConfirmationData({});
-    expect(state.requestId).toBe("");
+    expect(parsePendingConfirmationData({}).requestId).toBe("");
   });
 });
 

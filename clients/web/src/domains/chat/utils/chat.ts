@@ -7,12 +7,9 @@ import type { Conversation } from "@/types/conversation-types";
 import type { AssistantEvent } from "@/types/event-types";
 import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
 import type {
-  AllowlistOption,
-  DirectoryScopeOption,
   PendingAcpConnectState,
   PendingConfirmationState,
   PendingQuestionState,
-  ScopeOption,
 } from "@/types/interaction-ui-types";
 import {
   ACP_CLAUDE_AUTH_REQUIRED_CODE,
@@ -363,20 +360,7 @@ function applyConfirmationToToolCall(
  */
 export function attachConfirmationToToolCall(
   messages: DisplayMessage[],
-  conf: {
-    requestId: string;
-    title?: string;
-    description?: string;
-    toolName?: string;
-    riskLevel?: string;
-    riskReason?: string;
-    input?: Record<string, unknown>;
-    allowlistOptions?: AllowlistOption[];
-    scopeOptions?: ScopeOption[];
-    directoryScopeOptions?: DirectoryScopeOption[];
-    persistentDecisionsAllowed?: boolean;
-    toolUseId?: string;
-  },
+  conf: PendingConfirmationState,
 ): {
   updatedMessages: DisplayMessage[];
   attachedToolCallId: string | undefined;
