@@ -1,137 +1,166 @@
 /**
- * A queued turn runs as its own sender, against that sender's history.
+ * A persisted turn is scoped to the actor the row is attributed to.
  *
  * History is scoped to the conversation's resting actor: `loadFromDb` splices
  * persisted personal-memory blocks into the transcript only for actors allowed
- * to see them. A queued message is frequently not from whoever the previous
- * turn ran as, so the drain has to stamp the sender and re-scope before the
- * turn reads that history. Without it a contact's queued turn inherits the
- * guardian's view, and the reply can reflect the guardian's personal memory
- * back to them.
+ * to see them. A queue drain hands `persistUserMessage` the sender it captured
+ * at enqueue time, but the resting slot is mutable and another request can
+ * have stamped it since. Scoping off the slot therefore let a contact's queued
+ * turn run against the guardian's transcript, personal memory included.
+ *
+ * Exercised against `Conversation.prototype.persistUserMessage` directly: the
+ * drain-level fakes elsewhere stub `persistUserMessage` wholesale, so a test
+ * driven through `drainQueue` would bypass the code under test entirely.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-import { drainQueue } from "../daemon/conversation-process.js";
-import {
-  MessageQueue,
-  type QueuedMessage,
-} from "../daemon/conversation-queue-manager.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+
+const persistCalls: Array<{ content: string }> = [];
+let persistThrows: Error | undefined;
+
+mock.module("../daemon/conversation-messaging.js", () => ({
+  persistUserMessage: async (_ctx: unknown, options: { content: string }) => {
+    persistCalls.push({ content: options.content });
+    if (persistThrows) {
+      throw persistThrows;
+    }
+    return { id: "msg-1", deduplicated: false };
+  },
+  enqueueMessage: () => ({ queued: false }),
+  redirectToSecurePrompt: () => {},
+  persistQueuedMessageBody: async () => ({ id: "msg-1" }),
+  restingTrust: (c: { trustContext?: TrustContext }) => c?.trustContext,
+}));
+
+const { Conversation } = await import("../daemon/conversation.js");
 
 const GUARDIAN: TrustContext = {
   trustClass: "guardian",
   sourceChannel: "vellum",
 };
-// Non-guardian, so `isPersonalMemoryAllowed` is false for it while it is true
-// for the guardian: the exact axis `loadFromDb` gates memory blocks on.
+// Non-guardian, so `isPersonalMemoryAllowed` is false for it while true for
+// the guardian: the axis `loadFromDb` gates personal-memory blocks on.
 const CONTACT: TrustContext = {
   trustClass: "unverified_contact",
   sourceChannel: "slack",
 };
 
-function makeQueued(
-  content: string,
-  requestId: string,
-  trustContext?: TrustContext,
-): QueuedMessage {
-  return {
-    content,
-    attachments: [],
-    requestId,
-    onEvent: () => {},
-    sentAt: Date.now(),
-    ...(trustContext ? { trustContext } : {}),
-  } as unknown as QueuedMessage;
-}
-
-function makeFakeConversation(restingTrust: TrustContext) {
-  const queue = new MessageQueue();
-  // Ordered, because "re-scoped" only means anything if it happened before the
-  // turn read the history.
+/**
+ * Minimal receiver for `persistUserMessage.call(...)`. Records the order of
+ * stamp and re-scope, because "re-scoped" only means anything if it happened
+ * before the transcript was read.
+ */
+function makeReceiver(restingTrust: TrustContext, processing = false) {
   const calls: string[] = [];
-  const conversation = {
-    conversationId: "conv-drain-rescope",
-    queue,
-    pendingSteerRepair: false,
-    preactivatedSkillIds: undefined as string[] | undefined,
-    messages: [] as unknown[],
-    surfaceActionRequestIds: new Set<string>(),
-    activeSurfaceId: undefined,
-    trustContext: restingTrust,
-    currentTurnTrustContext: undefined as TrustContext | undefined,
-    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    ensureHostProxiesForTurn: () => {},
-    getTurnChannelContext: () => null,
-    setTurnChannelContext: () => {},
-    getTurnInterfaceContext: () => null,
-    setTurnInterfaceContext: () => {},
-    setTransportHints: () => {},
-    emitActivityState: () => {},
-    isProcessing: () => false,
-    setTrustContext: (ctx: TrustContext | null) => {
-      calls.push(`setTrustContext:${ctx?.trustClass}`);
-      conversation.trustContext = ctx as TrustContext;
+  const receiver = {
+    _processing: processing,
+    trustContext: restingTrust as TrustContext | null,
+    setTrustContext(ctx: TrustContext | null) {
+      calls.push(`stamp:${ctx?.trustClass ?? "null"}`);
+      receiver.trustContext = ctx;
     },
-    ensureActorScopedHistory: async () => {
-      calls.push(
-        `ensureActorScopedHistory:${conversation.trustContext?.trustClass}`,
-      );
-    },
-    persistUserMessage: async (opts: { content: string }) => {
-      calls.push(`persistUserMessage:${opts.content}`);
-      return { id: "msg-1", deduplicated: true };
+    async ensureActorScopedHistory() {
+      calls.push(`scope:${receiver.trustContext?.trustClass ?? "none"}`);
     },
   };
-  return { conversation, queue, calls };
+  return { receiver, calls };
 }
 
-describe("queued turns re-scope history to their own sender", () => {
-  test("a contact's message queued behind a guardian turn re-scopes before the turn reads history", async () => {
-    const { conversation, queue, calls } = makeFakeConversation(GUARDIAN);
-    queue.push(makeQueued("what did we decide?", "r1", CONTACT));
+const persist = Conversation.prototype.persistUserMessage;
 
-    await drainQueue(conversation as never);
+describe("persistUserMessage scopes history to the row's actor", () => {
+  test("a contact's queued row re-scopes away from the guardian before persisting", async () => {
+    persistThrows = undefined;
+    persistCalls.length = 0;
+    const { receiver, calls } = makeReceiver(GUARDIAN);
 
-    // The sender is stamped, history is re-scoped under that stamp, and only
-    // then does the turn persist. Asserting the order is the point: re-scoping
-    // after the read would leave the guardian's memory blocks in the
-    // transcript this turn runs against.
+    await persist.call(
+      receiver as never,
+      {
+        content: "what did we decide?",
+        trustContext: CONTACT,
+      } as never,
+    );
+
     expect(calls).toEqual([
-      "setTrustContext:unverified_contact",
-      "ensureActorScopedHistory:unverified_contact",
-      "persistUserMessage:what did we decide?",
+      "stamp:unverified_contact",
+      "scope:unverified_contact",
     ]);
-    // The resting actor now names whoever the running turn belongs to.
-    expect(conversation.trustContext).toEqual(CONTACT);
-    expect(conversation.currentTurnTrustContext).toEqual(CONTACT);
+    expect(persistCalls).toEqual([{ content: "what did we decide?" }]);
+    expect(receiver.trustContext).toEqual(CONTACT);
   });
 
-  test("a same-actor queue still re-scopes, which the conversation resolves to a no-op", async () => {
-    const { conversation, queue, calls } = makeFakeConversation(GUARDIAN);
-    queue.push(makeQueued("and another thing", "r1", GUARDIAN));
+  test("a row with no actor of its own leaves the owner in place", async () => {
+    persistThrows = undefined;
+    persistCalls.length = 0;
+    const { receiver, calls } = makeReceiver(GUARDIAN);
 
-    await drainQueue(conversation as never);
+    await persist.call(receiver as never, { content: "internal" } as never);
 
-    expect(calls).toEqual([
-      "setTrustContext:guardian",
-      "ensureActorScopedHistory:guardian",
-      "persistUserMessage:and another thing",
-    ]);
-    expect(conversation.trustContext).toEqual(GUARDIAN);
+    // No stamp: nothing claimed this row for a different actor, so the owner
+    // stands rather than being overwritten with a guess.
+    expect(calls).toEqual(["scope:guardian"]);
+    expect(receiver.trustContext).toEqual(GUARDIAN);
   });
 
-  test("a queued message with no trust of its own leaves the resting actor in place", async () => {
-    const { conversation, queue, calls } = makeFakeConversation(GUARDIAN);
-    queue.push(makeQueued("internal dispatch", "r1"));
+  test("a persist that loses the lock restores the actor it displaced", async () => {
+    persistCalls.length = 0;
+    persistThrows = new Error("The assistant is currently responding");
+    const { receiver, calls } = makeReceiver(GUARDIAN);
 
-    await drainQueue(conversation as never);
+    await expect(
+      persist.call(
+        receiver as never,
+        {
+          content: "queued behind a turn",
+          trustContext: CONTACT,
+        } as never,
+      ),
+    ).rejects.toThrow("currently responding");
 
-    // No stamp: nothing claimed this message for a different actor, so the
-    // owner stands rather than being overwritten with a guess.
+    // The contact's turn never runs, so its actor must not outlive the
+    // attempt: the guardian is put back and history re-scoped to them.
     expect(calls).toEqual([
-      "ensureActorScopedHistory:guardian",
-      "persistUserMessage:internal dispatch",
+      "stamp:unverified_contact",
+      "scope:unverified_contact",
+      "stamp:guardian",
+      "scope:guardian",
     ]);
-    expect(conversation.trustContext).toEqual(GUARDIAN);
+    expect(receiver.trustContext).toEqual(GUARDIAN);
+  });
+
+  test("the restore leaves a stamp made by whoever took the lock alone", async () => {
+    persistCalls.length = 0;
+    const { receiver, calls } = makeReceiver(GUARDIAN);
+    const lockHolder: TrustContext = {
+      trustClass: "trusted_contact",
+      sourceChannel: "phone",
+    };
+    persistThrows = new Error("The assistant is currently responding");
+    // Whoever took the lock re-stamps the slot while the reload is in flight.
+    const originalScope = receiver.ensureActorScopedHistory;
+    receiver.ensureActorScopedHistory = async () => {
+      await originalScope.call(receiver);
+      receiver.trustContext = lockHolder;
+    };
+
+    await expect(
+      persist.call(
+        receiver as never,
+        {
+          content: "queued",
+          trustContext: CONTACT,
+        } as never,
+      ),
+    ).rejects.toThrow("currently responding");
+
+    // Guarded restore: our stamp is no longer the one in the slot, so it is
+    // left as the lock holder set it rather than clobbered back.
+    expect(calls).toEqual([
+      "stamp:unverified_contact",
+      "scope:unverified_contact",
+    ]);
+    expect(receiver.trustContext).toEqual(lockHolder);
   });
 });

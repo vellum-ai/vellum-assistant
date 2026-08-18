@@ -2714,10 +2714,35 @@ export class Conversation {
   async persistUserMessage(
     options: PersistMessageOptions,
   ): Promise<{ id: string; deduplicated: boolean }> {
-    if (!this._processing) {
-      await this.ensureActorScopedHistory();
+    if (this._processing) {
+      return persistUserMessageImpl(this, options);
     }
-    return persistUserMessageImpl(this, options);
+    // Scope to the actor this row is attributed to, not to whoever occupies
+    // the slot. A queue drain hands us the sender it captured at enqueue time,
+    // and another request can have stamped the slot since -- scoping off the
+    // slot would then give a contact's queued turn the guardian's transcript,
+    // personal memory included. Stamped rather than passed down because
+    // `loadFromDb` reads the slot directly.
+    const priorTrust = this.trustContext;
+    const stampedTrust = options.trustContext;
+    if (stampedTrust) {
+      this.setTrustContext(stampedTrust);
+    }
+    try {
+      await this.ensureActorScopedHistory();
+      return await persistUserMessageImpl(this, options);
+    } catch (err) {
+      // The persist can fail because another turn took the lock while we were
+      // reloading, in which case this row's actor never runs and must not
+      // outlive the attempt. Guarded like `agent-wake`'s restore: only our own
+      // stamp is undone, so a trust re-set by whoever now holds the lock is
+      // left alone.
+      if (stampedTrust && this.trustContext === stampedTrust) {
+        this.setTrustContext(priorTrust ?? null);
+        await this.ensureActorScopedHistory();
+      }
+      throw err;
+    }
   }
 
   // ── Agent Loop ───────────────────────────────────────────────────
