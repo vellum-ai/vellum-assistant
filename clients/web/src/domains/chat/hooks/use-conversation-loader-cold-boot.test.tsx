@@ -118,11 +118,15 @@ let failNextRequests = 0;
  */
 let daemonFiltersForeground = true;
 
-/** The stub's foreground rule: the run types the daemon's filter drops. */
+/**
+ * The stub's foreground rule, the daemon's `notBackgroundVisibilitySql`: an
+ * unsurfaced background or scheduled run is dropped; a surfaced one stays.
+ */
 function isForegroundFixture(row: RawConversationFixture): boolean {
   return (
-    row.conversationType !== "background" &&
-    row.conversationType !== "scheduled"
+    row.surfacedAt != null ||
+    (row.conversationType !== "background" &&
+      row.conversationType !== "scheduled")
   );
 }
 
@@ -320,6 +324,28 @@ describe("useConversationLoader cold-boot landing", () => {
     renderColdBoot(new QueryClient());
 
     expect(await landedOn()).toContain("deep-chat");
+    expect(requests.filter((u) => u.endsWith("/conversations"))).toHaveLength(
+      1,
+    );
+  });
+
+  test("a surfaced background run is a landing, not evidence of an older assistant", async () => {
+    /* The daemon's filter keeps surfaced runs and so does the client's
+       selectability rule; the two have to agree here, or a current
+       assistant's honest first row would send the loader down the paged
+       search. */
+    listRows = [
+      {
+        id: "surfaced-run",
+        conversationType: "background",
+        surfacedAt: 1704067200000,
+      },
+      { id: "older-chat" },
+    ];
+
+    renderColdBoot(new QueryClient());
+
+    expect(await landedOn()).toContain("surfaced-run");
     expect(requests.filter((u) => u.endsWith("/conversations"))).toHaveLength(
       1,
     );
