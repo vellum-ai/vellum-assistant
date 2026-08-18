@@ -73,9 +73,13 @@ function assistantLabel(a: ResolvedAssistant): string {
   if (a.isPaired) {
     return "Paired Assistant";
   }
-  if (a.isLocal) {
-    // Local ids are friendly generated instance names; cloud ids are UUIDs.
+  if (a.isLocal && a.cloud === "local") {
+    // Lockfile-sourced local ids are friendly generated instance names;
+    // API-sourced hub registrations carry platform UUIDs instead.
     return a.id;
+  }
+  if (a.isLocal) {
+    return "Local Assistant";
   }
   return "Cloud Assistant";
 }
