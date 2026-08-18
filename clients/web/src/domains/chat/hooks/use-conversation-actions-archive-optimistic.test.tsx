@@ -32,10 +32,12 @@ import { createElement, type ReactNode } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
+import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
 import {
-  archivedConversationsQueryKey,
-  conversationsQueryKey,
-} from "@/utils/conversation-list-fetchers";
+  ARCHIVED_FILTER,
+  conversationListQueryKey,
+} from "@/utils/conversation-list-keys";
+import { listPage } from "@/utils/conversation-list.test-helper";
 
 // ---------------------------------------------------------------------------
 // Module mocks. Archive/unarchive impls are pulled from module-level holders
@@ -101,7 +103,10 @@ function seedClient(conversations: Conversation[]): QueryClient {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  client.setQueryData(conversationsQueryKey(ASSISTANT_ID), conversations);
+  client.setQueryData(
+    conversationListQueryKey(ASSISTANT_ID),
+    listPage(conversations),
+  );
   return client;
 }
 
@@ -145,9 +150,9 @@ function readArchived(
   client: QueryClient,
   conversationId: string,
 ): number | undefined {
-  const list = client.getQueryData<Conversation[]>(
-    conversationsQueryKey(ASSISTANT_ID),
-  );
+  const list = client.getQueryData<ConversationListPage>(
+    conversationListQueryKey(ASSISTANT_ID),
+  )?.conversations;
   return list?.find((c) => c.conversationId === conversationId)?.archivedAt;
 }
 
@@ -243,9 +248,12 @@ describe("handleArchiveConversation — optimistic update", () => {
     const { result, client } = setupHook({ conversations: [conv] });
 
     // Seed the archived cache — onSettled should invalidate it.
-    client.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), []);
+    client.setQueryData(
+      conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
+      listPage([]),
+    );
     const beforeState = client.getQueryState(
-      archivedConversationsQueryKey(ASSISTANT_ID),
+      conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
     );
     expect(beforeState?.isInvalidated).toBe(false);
 
@@ -255,7 +263,7 @@ describe("handleArchiveConversation — optimistic update", () => {
 
     await waitFor(() => {
       const afterState = client.getQueryState(
-        archivedConversationsQueryKey(ASSISTANT_ID),
+        conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
       );
       expect(afterState?.isInvalidated).toBe(true);
     });
@@ -265,7 +273,10 @@ describe("handleArchiveConversation — optimistic update", () => {
     const conv = makeConversation({ conversationId: "conv-1" });
     const { result, client } = setupHook({ conversations: [conv] });
 
-    client.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), []);
+    client.setQueryData(
+      conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
+      listPage([]),
+    );
 
     archiveImpl = async () => {
       throw new Error("network failure");
@@ -279,7 +290,7 @@ describe("handleArchiveConversation — optimistic update", () => {
     // TanStack Query refetches the server-authoritative state.
     await waitFor(() => {
       const afterState = client.getQueryState(
-        archivedConversationsQueryKey(ASSISTANT_ID),
+        conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
       );
       expect(afterState?.isInvalidated).toBe(true);
     });
@@ -344,9 +355,12 @@ describe("handleUnarchiveConversation — optimistic update", () => {
     });
     const { result, client } = setupHook({ conversations: [conv] });
 
-    client.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), [conv]);
+    client.setQueryData(
+      conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
+      listPage([conv]),
+    );
     const beforeState = client.getQueryState(
-      archivedConversationsQueryKey(ASSISTANT_ID),
+      conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
     );
     expect(beforeState?.isInvalidated).toBe(false);
 
@@ -356,7 +370,7 @@ describe("handleUnarchiveConversation — optimistic update", () => {
 
     await waitFor(() => {
       const afterState = client.getQueryState(
-        archivedConversationsQueryKey(ASSISTANT_ID),
+        conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
       );
       expect(afterState?.isInvalidated).toBe(true);
     });
@@ -369,7 +383,10 @@ describe("handleUnarchiveConversation — optimistic update", () => {
     });
     const { result, client } = setupHook({ conversations: [conv] });
 
-    client.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), [conv]);
+    client.setQueryData(
+      conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
+      listPage([conv]),
+    );
 
     unarchiveImpl = async () => {
       throw new Error("network failure");
@@ -381,7 +398,7 @@ describe("handleUnarchiveConversation — optimistic update", () => {
 
     await waitFor(() => {
       const afterState = client.getQueryState(
-        archivedConversationsQueryKey(ASSISTANT_ID),
+        conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
       );
       expect(afterState?.isInvalidated).toBe(true);
     });

@@ -57,4 +57,14 @@ describe("FileMarkdown", () => {
     expect(html).toContain("<strong");
     expect(html).toContain("bold");
   });
+
+  test("renders links as external anchors that open a new tab", () => {
+    const html = renderToStaticMarkup(
+      <FileMarkdown content={"[IISc record](https://example.com/jobs)"} />,
+    );
+
+    expect(html).toContain('href="https://example.com/jobs"');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener noreferrer"');
+  });
 });

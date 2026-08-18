@@ -32,7 +32,7 @@ const HTML = '<div style="color:var(--content-default)">Hello</div>';
 function makeContext(sent: AssistantEvent[] = []): Conversation {
   return asConversation({
     conversationId: "session-1",
-    sendToClient: (msg) => sent.push(msg),
+    emit: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<
       string,

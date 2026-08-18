@@ -29,9 +29,6 @@
     "signOut": "Sign out"
   },
   "loginPage": {
-    "heading": "Sign in to Vellum",
-    "continue": "Continue",
-    "noAccount": "Don't have an account?",
     "signUp": "Sign up",
     "signIn": "Sign in"
   },
@@ -81,6 +78,7 @@
     "signupClosed": "Sign-ups are currently closed. Visit {community} to request access.",
     "providerSignup": "No Vellum account is linked to that login yet. Sign up first, then sign in.",
     "loginIncomplete": "Your account needs another step to finish signing in. Please sign in on the web, then try again.",
+    "desktopUpdateRequired": "This version of the Vellum desktop app can't sign in. Update the app, then try again.",
     "loopbackStateMismatch": "Login failed: state mismatch. Please try again.",
     "loopbackNoToken": "Login failed: no session token received. Please try again.",
     "loopbackInvalidToken": "Login failed: invalid session token."

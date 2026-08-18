@@ -11,13 +11,14 @@
 
 import { z } from "zod";
 
-import type { HostProxyExecutor } from "../host-proxy-router";
-import { getSharedCuHelper } from "../sidecar/shared-cu-helper";
+import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
 import {
   HostHelperProxyExecutor,
   type CuHelperClient,
   type HostHelperProxyConfig,
-} from "./host-helper-proxy-executor";
+} from "@vellumai/electron-desktop/host-proxy/helper-proxy-executor";
+import log from "../logger";
+import { getSharedCuHelper } from "../sidecar/shared-cu-helper";
 
 export interface HostAppControlExecutorDeps {
   helper?: CuHelperClient;
@@ -45,6 +46,7 @@ function config(deps: HostAppControlExecutorDeps): HostHelperProxyConfig<
 > {
   return {
     label: "host-app-control-executor",
+    logger: log,
     method: "appControl.perform",
     resolveHelper: deps.helper ? () => deps.helper as CuHelperClient : getSharedCuHelper,
     schema: APP_CONTROL_RESULT_SCHEMA,

@@ -6,9 +6,9 @@ import {
   installAbout as installSharedAbout,
   openAboutWindow,
 } from "@vellumai/electron-desktop/about";
+import { getName, onNameChange } from "@vellumai/electron-desktop/identity";
 
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
-import { getName, onNameChange } from "./identity";
 import { handle } from "./ipc";
 
 configureAboutRuntime({

@@ -858,4 +858,133 @@
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * Hover reveal: an affordance a row keeps out of the way until it is wanted
+ * (an inline "..." trigger, a remove button, a download button over artwork).
+ *
+ * A row marks itself `data-reveal-row`; the affordance marks itself
+ * `data-reveal`; an element sharing the affordance's slot and having to give it
+ * up marks itself `data-reveal-yield`; a row that wants its affordance held
+ * open regardless of hover (the row a nav marks as the current page, a row
+ * mid-operation) marks itself `data-reveal-hold`. Callers declare the part an
+ * element plays, the conditions live here.
+ *
+ * Hiding sits inside `@media (hover: hover)`, so a device that cannot hover
+ * shows the affordance outright. `hover` and `pointer` are independent media
+ * features and neither follows from viewport width: an iPad in landscape
+ * reports `hover: none` at 1024px, so a control behind hover there is
+ * unreachable rather than tucked away.
+ *
+ * One cell holding both an affordance and the element that yields to it
+ * (`data-reveal-slot`, which `CrossfadeStack` sets) has no hover to trade them
+ * with, so there it seats them side by side: choosing between them would cost
+ * either information the row exists to carry (a count, a timestamp, a status
+ * dot) or the only way to reach a command. A row that would rather keep the
+ * space narrow omits the affordance itself where the device cannot hover, and
+ * gives the command a path of its own (swipe, long press).
+ *
+ * Hover is read off the row, and every reason to reveal is one selector list on
+ * that row, so the affordance being shown and the occupant standing down are the
+ * same condition rather than two lists to keep inverse. Elsewhere in the row,
+ * focus is matched as `:focus-visible`, because ordinary `:focus-within` would
+ * leave a row whose whole surface is a button revealed after a click with the
+ * pointer elsewhere; inside the affordance it is `:focus-within`, since a
+ * control holding focus has to stay painted however it got it. `aria-expanded`
+ * holds the affordance up while a menu it owns is open, where focus alone sits
+ * in portalled content the row does not contain.
+ *
+ * Opacity and `pointer-events` move together, on the affordance and on the
+ * element yielding to it alike: an unpainted control that still answers a click
+ * is a trap, and a faded occupant left in the hit path swallows the clicks meant
+ * for the affordance painted over it. `pointer-events` does not gate keyboard
+ * activation, so the tab path is unaffected.
+ *
+ * The conditions beyond `:hover` sit inside `:is()`, whose list is forgiving:
+ * an engine without `:has()` drops those conditions and keeps the rest of the
+ * rule, so the row still trades its occupants on hover and only loses the focus
+ * and open-menu exceptions. Left in a bare `:not()` list, which is not
+ * forgiving, one unsupported selector would invalidate the whole rule and leave
+ * a yielding occupant hidden at every moment.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer
+ * @see https://www.w3.org/WAI/WCAG22/Understanding/content-on-hover-or-focus
+ * --------------------------------------------------------------------------- */
 
+[data-reveal],
+[data-reveal-yield] {
+  transition: opacity var(--anim-fast) var(--anim-ease-out);
+}
+
+/* Explicit rather than inherited, so an affordance laid inside a click-through
+ * overlay is reachable once it is painted. */
+[data-reveal] {
+  pointer-events: auto;
+}
+
+/* Every occupant of a shared slot takes the same cell, so a pair trades places
+ * in one spot and the slot sizes itself from the wider of the two. */
+[data-reveal-slot] > * {
+  grid-area: 1 / 1;
+}
+
+/* Hidden wherever the affordance it shares a slot with is shown, and out of the
+ * hit path while hidden: the two occupy one cell, so a faded occupant left
+ * clickable takes the affordance's clicks. */
+[data-reveal-yield] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (hover: hover) {
+  [data-reveal-row]:not(
+      :hover,
+      [data-reveal-hold],
+      :focus-visible,
+      :is(
+          :has(:focus-visible),
+          :has([data-reveal]:focus-within),
+          :has([data-reveal][aria-expanded="true"]),
+          :has([data-reveal] [aria-expanded="true"])
+        )
+    ) {
+    & [data-reveal] {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    & [data-reveal-yield] {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+}
+
+@media (hover: none) {
+  /* Nothing trades the occupants here, so the slot seats them side by side in
+     source order rather than picking one: the count stays readable and the
+     command stays tappable, at the cost of the width a hover row saves. A slot
+     holding one occupant lays out identically either way, which is why this asks
+     nothing about the contents: the same restoration then reaches every engine,
+     including one with no `:has()` to ask with. */
+  [data-reveal-slot] {
+    grid-auto-flow: column;
+    gap: var(--app-spacing-xs);
+  }
+
+  [data-reveal-slot] > * {
+    grid-area: auto;
+  }
+
+  [data-reveal-yield] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal],
+  [data-reveal-yield] {
+    transition: none;
+  }
+}

@@ -28,9 +28,14 @@ import { assistantDisplayName } from "@/utils/assistant-display-name";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
-import { setCompanionContext } from "@/runtime/companion-surface";
+import {
+  clearCompanionWorking,
+  setCompanionContext,
+} from "@/runtime/companion-surface";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import type { CompanionContext, CompanionTurn } from "@vellumai/ipc-contract";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
@@ -62,6 +67,44 @@ function isSpeech(message: DisplayMessage): boolean {
   );
 }
 
+/**
+ * Whether a turn is in flight, from the press until the response is done.
+ *
+ * **The union of the three answers the app already trusts**, because no single
+ * one of them covers the whole turn:
+ *
+ * - `snapshot.processing` is the daemon's own flag, patched true on
+ *   `assistant_turn_start` and false on the terminal event. It is the only one
+ *   that spans the long middle of a turn, where the assistant is running tools
+ *   and nothing is streaming yet.
+ * - `processingConversationIds` is the client's optimistic mirror, set in the
+ *   same tick as the send. It covers the window before the daemon has said
+ *   anything at all.
+ * - `isSending(phase)` is the local state machine, which moves first of all.
+ *
+ * Deliberately a union rather than a choice. Each of these has a hole
+ * somewhere: the phase is reset outright by a conversation switch, and the
+ * surface's own composer causes one by sending into a draft conversation the
+ * server renames on `ready`, which also drops the draft's id from the
+ * optimistic mirror before the real id joins it. Reading any one of them alone
+ * put the ring out in the middle of a turn. Reading all three cannot, because
+ * a hole in one is covered by the others, and nothing here can hold the ring on
+ * past the end: they all fall to false on the same terminal event.
+ *
+ * No phase is excluded. Thinking, a tool running, and waiting on an answer are
+ * one turn as far as the surface is concerned, and a ring that dropped out
+ * between them would be reporting the shape of the turn rather than that there
+ * is one.
+ *
+ * Unscoped to a conversation on purpose. The surface is the assistant's
+ * presence on the desktop rather than a view of one thread, so a turn arriving
+ * from Slack or a phone call counts the same as one typed here.
+ */
+const isWorking = (): boolean =>
+  useChatSessionStore.getState().snapshot?.processing === true ||
+  useConversationStore.getState().processingConversationIds.size > 0 ||
+  isSending(useTurnStore.getState().phase);
+
 /** The assistant and the conversation's tail, as the card wants them. */
 function currentContext(): CompanionContext {
   const { snapshot, optimisticSends } = useChatSessionStore.getState();
@@ -80,6 +123,7 @@ function currentContext(): CompanionContext {
     assistantName: assistantDisplayName(
       useAssistantIdentityStore.getState().name,
     ),
+    working: isWorking(),
     turns: messages
       .filter(isSpeech)
       .slice(-TAIL)
@@ -97,6 +141,7 @@ function currentContext(): CompanionContext {
 function sameContext(a: CompanionContext, b: CompanionContext): boolean {
   return (
     a.assistantName === b.assistantName &&
+    a.working === b.working &&
     a.turns.length === b.turns.length &&
     a.turns.every(
       (turn, index) =>
@@ -118,9 +163,13 @@ export function useCompanionMirror(): void {
     }
 
     let pushed: CompanionContext | null = null;
+    // What the last computed context said about the turn, so the subscription
+    // below can tell a flip from the store merely being written.
+    let working = isWorking();
 
     const sync = (): void => {
       const context = currentContext();
+      working = context.working;
       if (pushed !== null && sameContext(pushed, context)) {
         return;
       }
@@ -132,13 +181,39 @@ export function useCompanionMirror(): void {
     // outlives every route in the app, so the card is caught up here rather
     // than waiting for the next store write.
     sync();
+    // `sync` recomputes the flag along with the tail, so the session store's
+    // own writes carry `snapshot.processing` changes without further wiring.
     const unsubscribeSession = useChatSessionStore.subscribe(sync);
+    // A turn can begin and end without moving a single row the card draws: a
+    // reply still being thought about has no text yet, and one that finishes
+    // leaves its last text exactly where it already was. So the flag needs a
+    // subscription of its own rather than riding the transcript's.
+    //
+    // Gated on the flag flipping rather than on the store being written, since
+    // the conversation store moves for plenty the card does not draw and `sync`
+    // reselects and remaps the whole tail on every call.
+    const onMaybeFlipped = (): void => {
+      if (isWorking() === working) {
+        return;
+      }
+      sync();
+    };
+    const unsubscribeProcessing =
+      useConversationStore.subscribe(onMaybeFlipped);
+    const unsubscribeTurn = useTurnStore.subscribe(onMaybeFlipped);
     // The name arrives on its own schedule, after the identity resolves and
     // again on every assistant switch, so it needs a subscription of its own.
     const unsubscribeIdentity = useAssistantIdentityStore.subscribe(sync);
     return () => {
       unsubscribeSession();
+      unsubscribeProcessing();
+      unsubscribeTurn();
       unsubscribeIdentity();
+      // Nothing is left to report a turn ending, so the last thing this does is
+      // stop claiming one is running. The tail and the name are left standing:
+      // they are a record of what was said, and the surface is still the place
+      // to read it.
+      clearCompanionWorking();
     };
   }, []);
 }

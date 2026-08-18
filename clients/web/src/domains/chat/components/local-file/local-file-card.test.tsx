@@ -11,43 +11,20 @@ const { LocalFileCard } = await import(
   "@/domains/chat/components/local-file/local-file-card"
 );
 const { useViewerStore } = await import("@/stores/viewer-store");
-const { useConversationStore } = await import("@/stores/conversation-store");
 
-const loadWorkspaceFileDocument = mock(
-  async (
-    _assistantId: string,
-    _workspacePath: string,
-    _conversationId: string,
-  ) => {},
-);
 const openWorkspaceFilePreview = mock(
   (_workspacePath: string, _previewKind: WorkspaceFilePreviewKind) => {},
 );
 const closeDocument = mock(() => {});
 
-/** Put the viewer store where it would be with `workspacePath` in the drawer. */
-function openDrawerWith(workspacePath: string) {
-  useViewerStore.setState({
-    mainView: "document",
-    openedDocumentState: {
-      source: "document",
-      surfaceId: "surf-file",
-      conversationId: "conv-1",
-      workspacePath,
-      documentName: "notes.md",
-      content: "# notes",
-    },
-  });
-}
-
 /** Put the viewer store where it would be previewing `workspacePath`. */
-function openPreviewWith(workspacePath: string) {
+function openPreviewWith(workspacePath: string, documentName = "rows.csv") {
   useViewerStore.setState({
     mainView: "document",
     openedDocumentState: {
       source: "workspace-file-preview",
       workspacePath,
-      documentName: "rows.csv",
+      documentName,
       previewKind: "csv",
     },
   });
@@ -55,16 +32,11 @@ function openPreviewWith(workspacePath: string) {
 
 beforeEach(() => {
   openWorkspaceFile.mockClear();
-  loadWorkspaceFileDocument.mockClear();
   openWorkspaceFilePreview.mockClear();
   closeDocument.mockClear();
-  // Markdown opens as a document bound to the open conversation, so the card
-  // needs one to reach the drawer at all.
-  useConversationStore.setState({ activeConversationId: "conv-1" });
   useViewerStore.setState({
     mainView: "chat",
     openedDocumentState: null,
-    loadWorkspaceFileDocument,
     openWorkspaceFilePreview,
     closeDocument,
   });
@@ -160,7 +132,7 @@ describe("LocalFileCard", () => {
 
     expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
     expect(openWorkspaceFile.mock.calls[0]![0]).toBe("logs/run.txt");
-    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
   });
 
   test("Enter on a ready card opens it the same way a click does", () => {
@@ -210,7 +182,7 @@ describe("LocalFileCard", () => {
     expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
-  test("clicking a markdown card opens it in the document drawer", () => {
+  test("clicking a markdown card opens its read-only preview", () => {
     render(
       <LocalFileCard
         displayName="notes.md"
@@ -225,11 +197,10 @@ describe("LocalFileCard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open notes.md" }));
 
-    expect(loadWorkspaceFileDocument).toHaveBeenCalledTimes(1);
-    expect(loadWorkspaceFileDocument.mock.calls[0]).toEqual([
-      "asst-1",
+    expect(openWorkspaceFilePreview).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview.mock.calls[0]).toEqual([
       "drafts/notes.md",
-      "conv-1",
+      "markdown",
     ]);
     expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
@@ -257,30 +228,6 @@ describe("LocalFileCard", () => {
     expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
-  test("a markdown card with no open conversation falls back to the workspace", () => {
-    useConversationStore.setState({ activeConversationId: null });
-
-    render(
-      <LocalFileCard
-        displayName="notes.md"
-        filename="notes.md"
-        sizeBytes={12}
-        kind="file"
-        state="ready"
-        workspacePath="drafts/notes.md"
-        assistantId="asst-1"
-      />,
-    );
-
-    expect(screen.getByText("Open in workspace")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Open notes.md" }));
-
-    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
-    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
-    expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
-  });
-
   test("a markdown card without an assistant falls back to the workspace", () => {
     render(
       <LocalFileCard
@@ -293,9 +240,11 @@ describe("LocalFileCard", () => {
       />,
     );
 
+    expect(screen.getByText("Open in workspace")).toBeTruthy();
+
     fireEvent.click(screen.getByRole("button", { name: "Open notes.md" }));
 
-    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
     expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
   });
 
@@ -349,7 +298,7 @@ describe("LocalFileCard", () => {
 });
 
 describe("LocalFileCard click hint", () => {
-  test("a markdown card says the click opens the editor", () => {
+  test("a markdown card says the click opens a preview", () => {
     render(
       <LocalFileCard
         displayName="notes.md"
@@ -362,7 +311,7 @@ describe("LocalFileCard click hint", () => {
       />,
     );
 
-    expect(screen.getByText("Open in editor")).toBeTruthy();
+    expect(screen.getByText("Open preview")).toBeTruthy();
     expect(screen.queryByText("Open in workspace")).toBeNull();
   });
 
@@ -406,7 +355,6 @@ describe("LocalFileCard click hint", () => {
 
       expect(screen.getByText("Open preview")).toBeTruthy();
       expect(screen.queryByText("Open in workspace")).toBeNull();
-      expect(screen.queryByText("Open in editor")).toBeNull();
       cleanup();
     }
   });
@@ -441,7 +389,11 @@ describe("LocalFileCard click hint", () => {
     expect(screen.getByText("Open in workspace")).toBeTruthy();
   });
 
-  test("the hint is revealed on hover and focus, never on layout", () => {
+  /* The reveal conditions live in one rule in the design library's stylesheet.
+     What the card owes it is the scope and the affordance: the hint keeps its
+     slot in the layout at all times and is only faded, so revealing it cannot
+     reflow the name or the size beside it. */
+  test("the card scopes the reveal of its click hint", () => {
     render(
       <LocalFileCard
         displayName="notes.md"
@@ -454,15 +406,11 @@ describe("LocalFileCard click hint", () => {
       />,
     );
 
-    const hint = screen.getByText("Open in editor").parentElement;
-    expect(hint?.className).toContain("opacity-0");
-    expect(hint?.className).toContain(
-      "group-hover/local-file-card:opacity-100",
+    const hint = screen.getByText("Open preview").parentElement;
+    expect(hint?.hasAttribute("data-reveal")).toBe(true);
+    expect(hint?.closest("[data-reveal-row]")).toBe(
+      screen.getByRole("button", { name: "Open notes.md" }),
     );
-    expect(hint?.className).toContain(
-      "group-focus-visible/local-file-card:opacity-100",
-    );
-    expect(hint?.className).toContain("[@media(pointer:coarse)]:opacity-100");
   });
 
   test("cards that cannot be opened carry no hint", () => {
@@ -500,7 +448,7 @@ describe("LocalFileCard click hint", () => {
 
 describe("LocalFileCard open state", () => {
   test("the card for the file in the drawer reads as open", () => {
-    openDrawerWith("drafts/notes.md");
+    openPreviewWith("drafts/notes.md", "notes.md");
 
     render(
       <LocalFileCard
@@ -515,15 +463,15 @@ describe("LocalFileCard open state", () => {
     );
 
     const card = screen.getByRole("button", {
-      name: "Close editor for notes.md",
+      name: "Close preview for notes.md",
     });
     expect(card.getAttribute("aria-expanded")).toBe("true");
     expect(card.className).toContain("border-[var(--border-active)]");
     expect(card.className).toContain("bg-[var(--surface-active)]");
 
     // The highlighted state carries the open signal on its own; no hint chip.
-    expect(screen.queryByText("Close editor")).toBeNull();
-    expect(screen.queryByText("Open in editor")).toBeNull();
+    expect(screen.queryByText("Close preview")).toBeNull();
+    expect(screen.queryByText("Open preview")).toBeNull();
   });
 
   test("the card for the previewed file reads as open", () => {
@@ -611,7 +559,7 @@ describe("LocalFileCard open state", () => {
   });
 
   test("another file in the drawer leaves this card closed", () => {
-    openDrawerWith("drafts/other.md");
+    openPreviewWith("drafts/other.md", "other.md");
 
     render(
       <LocalFileCard
@@ -629,7 +577,7 @@ describe("LocalFileCard open state", () => {
   });
 
   test("clicking an open card closes the drawer", () => {
-    openDrawerWith("drafts/notes.md");
+    openPreviewWith("drafts/notes.md", "notes.md");
 
     render(
       <LocalFileCard
@@ -644,11 +592,11 @@ describe("LocalFileCard open state", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Close editor for notes.md" }),
+      screen.getByRole("button", { name: "Close preview for notes.md" }),
     );
 
     expect(closeDocument).toHaveBeenCalledTimes(1);
-    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
   });
 
   test("clicking a closed card opens the drawer", () => {
@@ -666,11 +614,10 @@ describe("LocalFileCard open state", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open notes.md" }));
 
-    expect(loadWorkspaceFileDocument).toHaveBeenCalledTimes(1);
-    expect(loadWorkspaceFileDocument.mock.calls[0]).toEqual([
-      "asst-1",
+    expect(openWorkspaceFilePreview).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview.mock.calls[0]).toEqual([
       "drafts/notes.md",
-      "conv-1",
+      "markdown",
     ]);
     expect(closeDocument).not.toHaveBeenCalled();
   });

@@ -32,10 +32,11 @@ const REGISTRY_RELATIVE = join("meta", "feature-flags", REGISTRY_FILENAME);
  *
  * Candidate order:
  *   1. Bundled copy adjacent to gateway source (`gateway/src/<file>`)
- *   2. macOS app bundle resources (`Contents/Resources/<file>`)
- *   3. Monorepo layout: walk up two levels from gateway/src/
- *   4. Docker / gateway-only layout: adjacent to gateway src (`<root>/meta/...`)
- *   5. cwd-based fallback
+ *   2. Packaged Windows executable directory (Windows only)
+ *   3. macOS app bundle resources (`Contents/Resources/<file>`)
+ *   4. Monorepo layout: walk up two levels from gateway/src/
+ *   5. Docker / gateway-only layout: adjacent to gateway src (`<root>/meta/...`)
+ *   6. cwd-based fallback
  */
 function getRegistryCandidates(): string[] {
   const candidates: string[] = [];
@@ -45,27 +46,31 @@ function getRegistryCandidates(): string[] {
     candidates.push(...registryCandidateOverrides);
   }
 
-  const srcDir =
-    import.meta.dirname ?? dirname(fileURLToPath(import.meta.url));
+  const srcDir = import.meta.dirname ?? dirname(fileURLToPath(import.meta.url));
 
   // 1. Bundled gateway-local copy
   candidates.push(join(srcDir, REGISTRY_FILENAME));
 
-  // 2. Packaged macOS app layout: <App>.app/Contents/MacOS/vellum-gateway
-  //    defaults live under <App>.app/Contents/Resources/<file>.
+  // 2. Packaged Windows CLI runtime
   const execDir = dirname(process.execPath);
+  if (process.platform === "win32") {
+    candidates.push(join(execDir, REGISTRY_FILENAME));
+  }
+
+  // 3. Packaged macOS app layout: <App>.app/Contents/MacOS/vellum-gateway
+  //    defaults live under <App>.app/Contents/Resources/<file>.
   candidates.push(join(execDir, "..", "Resources", REGISTRY_FILENAME));
 
-  // 3. Monorepo layout: gateway/src -> repo root is ../../
+  // 4. Monorepo layout: gateway/src -> repo root is ../../
   const repoRoot = join(srcDir, "..", "..");
   candidates.push(join(repoRoot, REGISTRY_RELATIVE));
 
-  // 4. Docker layout: the gateway Dockerfile copies the gateway dir to /app,
+  // 5. Docker layout: the gateway Dockerfile copies the gateway dir to /app,
   //    so the meta dir (if mounted or copied) may be under /app/../meta or a
   //    sibling directory. Also check one level up from srcDir (gateway root).
   candidates.push(join(srcDir, "..", REGISTRY_RELATIVE));
 
-  // 5. cwd-based fallback
+  // 6. cwd-based fallback
   candidates.push(join(process.cwd(), REGISTRY_RELATIVE));
 
   return candidates;
@@ -85,9 +90,18 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
   for (const flag of registry.flags) {
     if (!flag || typeof flag !== "object" || Array.isArray(flag)) continue;
     const entry = flag as Record<string, unknown>;
-    if (entry.scope !== "assistant" && entry.scope !== "both") continue;
-    if (typeof entry.key !== "string") continue;
-    if (typeof entry.defaultEnabled !== "boolean" && typeof entry.defaultEnabled !== "string") continue;
+    if (entry.scope !== "assistant" && entry.scope !== "both") {
+      continue;
+    }
+    if (typeof entry.key !== "string") {
+      continue;
+    }
+    if (
+      typeof entry.defaultEnabled !== "boolean" &&
+      typeof entry.defaultEnabled !== "string"
+    ) {
+      continue;
+    }
     if (typeof entry.description !== "string") {
       log.warn(
         { key: entry.key },

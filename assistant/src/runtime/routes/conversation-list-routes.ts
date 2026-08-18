@@ -209,28 +209,41 @@ function resolveOrThrow(rawId: string): string {
 // Handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * Read a query parameter that admits a closed set of values. Absent or empty
+ * reads as `undefined`; anything outside `accepted` is a 400. The strictness
+ * is the point: silently coercing a typo or a newer client's value to "no
+ * filter" would hand back the full list where a subset was asked for, and
+ * that skew is invisible to the client (it masks version skew too).
+ */
+function parseEnumQueryParam<const T extends readonly string[]>(
+  queryParams: Record<string, string | undefined>,
+  name: string,
+  accepted: T,
+): T[number] | undefined {
+  const raw = queryParams[name];
+  if (raw === undefined || raw === "") {
+    return undefined;
+  }
+  if ((accepted as readonly string[]).includes(raw)) {
+    return raw as T[number];
+  }
+  throw new BadRequestError(
+    `Unknown ${name} "${raw}"; expected ${accepted.map((v) => `"${v}"`).join(" or ")}.`,
+  );
+}
+
 function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   const limit = Number(queryParams.limit ?? 50);
   const offset = Number(queryParams.offset ?? 0);
   // "background" is the back-compat umbrella (background + scheduled); newer
   // clients can pass "scheduled" to load only the Scheduled section. Absent
-  // defaults to the standard foreground list. Any other value is rejected so
-  // an unrecognized type surfaces as a 400 rather than being silently coerced
-  // to the foreground list (which would mask client/daemon version skew).
-  const rawConversationType = queryParams.conversationType;
-  let conversationType: ConversationType = "standard";
-  if (rawConversationType !== undefined && rawConversationType !== "") {
-    if (
-      rawConversationType === "background" ||
-      rawConversationType === "scheduled"
-    ) {
-      conversationType = rawConversationType;
-    } else {
-      throw new BadRequestError(
-        `Unknown conversationType "${rawConversationType}"; expected "background" or "scheduled".`,
-      );
-    }
-  }
+  // defaults to the standard foreground list.
+  const conversationType: ConversationType =
+    parseEnumQueryParam(queryParams, "conversationType", [
+      "background",
+      "scheduled",
+    ]) ?? "standard";
   // Defaults to `active` so sidebar restores no longer pull archived rows.
   // The Archive page opts into `archived` to render only archived rows
   // without dragging the entire live history through pagination first.
@@ -251,11 +264,23 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
       ? queryParams.groupId
       : undefined;
 
+  const needsAttention =
+    parseEnumQueryParam(queryParams, "needsAttention", ["true"]) === "true"
+      ? true
+      : undefined;
+
+  const foregroundOnly =
+    parseEnumQueryParam(queryParams, "foregroundOnly", ["true"]) === "true"
+      ? true
+      : undefined;
+
   const filter: ConversationListFilter = {
     conversationType,
     archiveStatus,
     originChannel,
     groupId,
+    needsAttention,
+    foregroundOnly,
   };
   let rows = listConversations({ ...filter, limit, offset });
   const totalCount = countConversations(filter);
@@ -270,15 +295,20 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   // Skipped for group-scoped queries for the same reason: a caller asking
   // for one group gets that group, and a client that fetches the Pinned
   // section via `groupId=system:pinned` has no use for rows appended to
-  // some other group's page. This is the compatibility shim for clients
-  // that still read Pinned out of the unfiltered list; it goes away once
-  // every section fetches its own group.
+  // some other group's page. Skipped for attention-scoped and
+  // foreground-only queries too: the caller asked for a subset, and a
+  // pinned row outside it appended to the page would sit there while
+  // `hasMore` is computed from the filtered count. This is the
+  // compatibility shim for clients that still read Pinned out of the
+  // unfiltered list; it goes away once every section fetches its own group.
   if (
     offset === 0 &&
     conversationType === "standard" &&
     archiveStatus === "active" &&
     originChannel === undefined &&
-    groupId === undefined
+    groupId === undefined &&
+    needsAttention === undefined &&
+    foregroundOnly === undefined
   ) {
     const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));
@@ -580,6 +610,22 @@ export const ROUTES: RouteDefinition[] = [
         description:
           'Filter to a single group, so each sidebar section can load independently of the paginated list. Pass "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A group-scoped request is recency-ordered like every list read (COALESCE(last_message_at, updated_at) descending) and never has pinned rows appended to it. Omit to span every group.',
       },
+      {
+        name: "needsAttention",
+        type: "string",
+        required: false,
+        description:
+          'Pass "true" to return only conversations whose latest assistant message the user has not seen: the same predicate behind the unread count and the section index, so a client that keeps no complete conversation list can ask for exactly the rows its attention surfaces need. Composes with every other filter. Any value other than "true" is rejected. Omit to span every conversation.',
+        schema: { type: "string", enum: ["true"] },
+      },
+      {
+        name: "foregroundOnly",
+        type: "string",
+        required: false,
+        description:
+          'Pass "true" to return only user-facing foreground conversations, dropping the automated background and scheduled runs the standard listing admits when they are filed in a custom group (a surfaced run stays). This is the same predicate the unread count and the section index apply, so a client can ask for the newest conversation a user can open in one row instead of paging past runs it would skip. Composes with every other filter; a foreground-only first page never has pinned rows appended to it. Any value other than "true" is rejected. Omit to keep every visible row.',
+        schema: { type: "string", enum: ["true"] },
+      },
     ],
     responseBody: listConversationsResponseSchema,
     handler: handleListConversations,
@@ -683,7 +729,8 @@ export const ROUTES: RouteDefinition[] = [
     },
     pathParams: [{ name: "id", type: "uuid" }],
     summary: "Get conversation detail",
-    description: "Retrieve a single conversation with full metadata.",
+    description:
+      "Retrieve a single conversation with full metadata. Rows the listing hides by type (legacy private rows) are not found here either.",
     tags: ["conversations"],
     responseBody: conversationDetailResponseSchema,
     handler: handleGetConversation,

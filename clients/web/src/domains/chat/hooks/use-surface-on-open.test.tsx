@@ -17,7 +17,9 @@ import { createElement, type ReactNode } from "react";
 
 import type * as ConversationsApi from "@/domains/chat/api/conversations";
 import type { Conversation } from "@/types/conversation-types";
-import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
+import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
+import { conversationListQueryKey } from "@/utils/conversation-list-keys";
+import { listPage } from "@/utils/conversation-list.test-helper";
 
 const surfaceCalls: Array<{ assistantId: string; conversationId: string }> = [];
 let surfaceImpl: (conversationId: string) => Promise<number> = async () => 4242;
@@ -83,9 +85,9 @@ describe("useSurfaceOnOpen", () => {
   test("opening an unsurfaced background run surfaces it once", async () => {
     const client = new QueryClient();
     const bg = conversation({ conversationType: "background" });
-    client.setQueryData<Conversation[]>(
-      conversationsQueryKey(ASSISTANT_ID),
-      [],
+    client.setQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID),
+      listPage([]),
     );
 
     const { rerender } = renderSurfaceOnOpen(client, bg);
@@ -98,8 +100,10 @@ describe("useSurfaceOnOpen", () => {
     await waitFor(() => {
       expect(
         client
-          .getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID))
-          ?.map((c) => c.surfacedAt),
+          .getQueryData<ConversationListPage>(
+            conversationListQueryKey(ASSISTANT_ID),
+          )
+          ?.conversations.map((c) => c.surfacedAt),
       ).toEqual([4242]);
     });
 
@@ -155,9 +159,9 @@ describe("useSurfaceOnOpen", () => {
 
   test("a failed surface leaves caches untouched and retries on the next open", async () => {
     const client = new QueryClient();
-    client.setQueryData<Conversation[]>(
-      conversationsQueryKey(ASSISTANT_ID),
-      [],
+    client.setQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID),
+      listPage([]),
     );
     surfaceImpl = async () => {
       throw new Error("surface failed");
@@ -169,8 +173,10 @@ describe("useSurfaceOnOpen", () => {
       expect(surfaceCalls).toHaveLength(1);
     });
     expect(
-      client.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)),
-    ).toEqual([]);
+      client.getQueryData<ConversationListPage>(
+        conversationListQueryKey(ASSISTANT_ID),
+      ),
+    ).toEqual(listPage([]));
 
     // Guard released: a fresh evaluation (new row identity) tries again.
     surfaceImpl = async () => 4242;
@@ -189,9 +195,9 @@ describe("useSurfaceOnOpen", () => {
        its own guard entry: releasing B's would let B's next identity churn
        fire a duplicate promotion for a run already being promoted. */
     const client = new QueryClient();
-    client.setQueryData<Conversation[]>(
-      conversationsQueryKey(ASSISTANT_ID),
-      [],
+    client.setQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID),
+      listPage([]),
     );
     const resolvers = new Map<string, (at: number) => void>();
     surfaceImpl = (conversationId) =>
@@ -239,9 +245,9 @@ describe("useSurfaceOnOpen", () => {
 
   test("a pending request blocks a duplicate while prop identity churns", async () => {
     const client = new QueryClient();
-    client.setQueryData<Conversation[]>(
-      conversationsQueryKey(ASSISTANT_ID),
-      [],
+    client.setQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID),
+      listPage([]),
     );
     let resolveSurface!: (at: number) => void;
     surfaceImpl = () =>

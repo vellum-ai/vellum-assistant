@@ -26,7 +26,7 @@ describe("resolveWebhookUrl", () => {
     });
 
     expect(url).toBe(
-      "https://callbacks.vellum.ai/abc/webhooks/plugins/imessage/events-photon",
+      "https://callbacks.vellum.ai/abc/webhooks/plugins/imessage/events-photon/",
     );
     expect(spy.mock.calls[0]![1]).toBe(
       "webhooks/plugins/imessage/events-photon",
@@ -124,10 +124,10 @@ describe("resolveWebhookUrl", () => {
     }
   });
 
-  test("hands the vendor a URL with no trailing slash", async () => {
-    // The platform appends one, and a provider delivers to the URL it was
-    // given verbatim. The gateway matches the declared path, which never ends
-    // in a slash, so a registration carrying one 404s every delivery.
+  test("hands the vendor a URL with a trailing slash", async () => {
+    // Django in front of managed callbacks canonicalizes onto `/`. A vendor
+    // given the slashless spelling is 301'd, and clients that follow a 301
+    // on POST typically retry as GET and drop the body.
     const spy = spyOn(registration, "resolveCallbackUrl").mockResolvedValue(
       "https://callbacks.vellum.ai/abc/webhooks/plugins/imessage/events-comms/",
     );
@@ -135,13 +135,16 @@ describe("resolveWebhookUrl", () => {
     await expect(
       resolveWebhookUrl({ plugin: "imessage", path: "events-comms" }),
     ).resolves.toBe(
-      "https://callbacks.vellum.ai/abc/webhooks/plugins/imessage/events-comms",
+      "https://callbacks.vellum.ai/abc/webhooks/plugins/imessage/events-comms/",
+    );
+    expect(spy.mock.calls[0]![1]).toBe(
+      "webhooks/plugins/imessage/events-comms",
     );
     spy.mockRestore();
   });
 
   test("leaves a URL carrying a query string alone", async () => {
-    // Trimming there would cut into the query rather than the path.
+    // Appending there would cut into the query rather than the path.
     const spy = spyOn(registration, "resolveCallbackUrl").mockResolvedValue(
       "https://example.test/webhooks/plugins/imessage/events-comms?token=abc/",
     );

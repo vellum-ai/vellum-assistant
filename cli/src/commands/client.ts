@@ -29,6 +29,7 @@ import {
 } from "../lib/client-identity";
 import {
   getLockfileData,
+  renameLockfileAssistantIfPresent,
   upsertRendererLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
@@ -72,6 +73,7 @@ import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 import { probePort } from "../lib/port-probe.js";
 import { openBrowser } from "../lib/open-browser";
 import { isCompiledCli } from "../lib/local.js";
+import { findWebDistDir } from "../lib/web-dist.js";
 import { getLogDir, openLogFile, resetLogFile } from "../lib/xdg-log.js";
 
 const SUPPORTED_INTERFACES = ["cli", "web"] as const;
@@ -404,37 +406,6 @@ async function maybeHydratePlatformAssistantName(
 const SPA_BASE = "/assistant/";
 
 /**
- * Locate the pre-built @vellumai/web dist directory.
- *
- * Resolution order:
- *   1. npm-installed package — require.resolve('@vellumai/web/package.json')
- *   2. Source checkout — walk up from cli/ to find clients/web/dist/
- */
-function findWebDistDir(): string | null {
-  try {
-    const pkgPath = require.resolve("@vellumai/web/package.json");
-    const distDir = path.join(path.dirname(pkgPath), "dist");
-    if (existsSync(path.join(distDir, "index.html"))) {
-      return distDir;
-    }
-  } catch {
-    // Package not installed; try source checkout.
-  }
-
-  let dir = import.meta.dir;
-  for (let depth = 0; depth < 8; depth++) {
-    const candidate = path.join(dir, "clients", "web", "dist", "index.html");
-    if (existsSync(candidate)) {
-      return path.dirname(candidate);
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
-}
-
-/**
  * Locate the clients/web source directory for running the Vite dev server.
  * Only works from a source checkout (not npm-installed).
  */
@@ -585,6 +556,13 @@ async function handleLocalEndpoints(
           lockfilePaths,
           body.platformAssistants as Array<Record<string, unknown>>,
           body.organizationId as string | undefined,
+        );
+      } else if (body.rename && typeof body.rename === "object") {
+        const rename = body.rename as Record<string, unknown>;
+        result = renameLockfileAssistantIfPresent(
+          lockfilePaths,
+          rename.assistantId as string,
+          rename.name as string,
         );
       } else {
         result = upsertRendererLockfileAssistant(

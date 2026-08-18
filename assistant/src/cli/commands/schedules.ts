@@ -39,7 +39,37 @@ interface ScheduleRecord {
   wakeConversationId: string | null;
   sourceKey: string | null;
   userEnabled: boolean | null;
+  disarmReason: string | null;
   isOneShot: boolean;
+}
+
+/** Plain-language copy for each `disarmReason` the daemon sends. */
+const DISARM_REASON_TEXT: Record<string, string> = {
+  user_disabled: "turned off by you",
+  plugin_removed: "plugin removed",
+  plugin_disabled: "plugin disabled",
+  declaration_removed: "removed from plugin",
+  declaration_disabled: "paused by plugin",
+};
+
+/**
+ * Why a schedule is off, when the daemon knows. An off row with no reason (an
+ * imperative schedule, or a plugin row from a daemon that predates the field)
+ * reads as plain "disabled".
+ */
+function describeDisarmReason(schedule: ScheduleRecord): string | null {
+  if (schedule.enabled || !schedule.disarmReason) {
+    return null;
+  }
+  return DISARM_REASON_TEXT[schedule.disarmReason] ?? null;
+}
+
+function formatEnabledCell(schedule: ScheduleRecord): string {
+  if (schedule.enabled) {
+    return "enabled";
+  }
+  const reason = describeDisarmReason(schedule);
+  return reason ? `off (${reason})` : "disabled";
 }
 
 interface ListSchedulesResponse {
@@ -116,7 +146,7 @@ export function registerSchedulesCommand(program: Command): void {
           const rows = entries.map((schedule) => ({
             id: schedule.id,
             name: schedule.name,
-            enabled: schedule.enabled ? "enabled" : "disabled",
+            enabled: formatEnabledCell(schedule),
             mode: schedule.mode,
             source: describeScheduleSource(schedule.sourceKey) ?? "",
             schedule: describeSchedule(schedule),
@@ -247,6 +277,10 @@ export function registerSchedulesCommand(program: Command): void {
             ["Source conversation", schedule.createdFromConversationId ?? "—"],
             ["Plugin", describeScheduleSource(schedule.sourceKey) ?? "-"],
           ];
+          const disarmReason = describeDisarmReason(schedule);
+          if (disarmReason) {
+            fields.push(["Paused", disarmReason]);
+          }
           const labelWidth = Math.max(...fields.map(([label]) => label.length));
           for (const [label, value] of fields) {
             log.info(`${`${label}:`.padEnd(labelWidth + 2)}${value}`);

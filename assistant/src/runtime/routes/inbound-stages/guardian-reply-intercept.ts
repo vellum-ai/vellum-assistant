@@ -44,8 +44,14 @@ export interface GuardianReplyInterceptParams {
   canonicalSenderId: string | null;
   sourceChannel: ChannelId;
   conversationExternalId: string;
-  conversationId: string;
-  eventId: string;
+  /**
+   * Conversation the message arrived in. Reactions resolve their target by the
+   * reacted card's own address and are routed before any conversation is
+   * known, so they pass none.
+   */
+  conversationId?: string;
+  /** Inbound event id, echoed on the consumed response when the caller has one. */
+  eventId?: string;
   replyCallbackUrl: string | undefined;
   trustClass: string;
   guardianPrincipalId: string | null | undefined;
@@ -209,7 +215,7 @@ export async function handleGuardianReplyIntercept(
       response: {
         accepted: true,
         duplicate: false,
-        eventId,
+        ...(eventId ? { eventId } : {}),
         canonicalRouter: routerResult.type,
         requestId: routerResult.requestId,
       },

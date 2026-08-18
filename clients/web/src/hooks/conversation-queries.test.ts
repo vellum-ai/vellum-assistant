@@ -13,11 +13,13 @@ import {
   replaceOptimisticGroup,
   resolveDraftKey,
 } from "@/utils/conversation-cache-mutations";
+import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
 import {
-  backgroundConversationsQueryKey,
-  conversationsQueryKey,
-  scheduledConversationsQueryKey,
-} from "@/utils/conversation-list-fetchers";
+  BACKGROUND_FILTER,
+  conversationListQueryKey,
+  SCHEDULED_FILTER,
+} from "@/utils/conversation-list-keys";
+import { listPage } from "@/utils/conversation-list.test-helper";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { patchConversation } from "@/utils/conversation-cache";
 import type {
@@ -54,15 +56,17 @@ function seedConversations(
   qc: QueryClient,
   conversations: Conversation[],
 ): void {
-  qc.setQueryData<Conversation[]>(
-    conversationsQueryKey(ASSISTANT_ID),
-    conversations,
+  qc.setQueryData<ConversationListPage>(
+    conversationListQueryKey(ASSISTANT_ID),
+    listPage(conversations),
   );
 }
 
 function getConversations(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)) ?? []
+    qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID),
+    )?.conversations ?? []
   );
 }
 
@@ -70,17 +74,17 @@ function seedBackgroundConversations(
   qc: QueryClient,
   conversations: Conversation[],
 ): void {
-  qc.setQueryData<Conversation[]>(
-    backgroundConversationsQueryKey(ASSISTANT_ID),
-    conversations,
+  qc.setQueryData<ConversationListPage>(
+    conversationListQueryKey(ASSISTANT_ID, BACKGROUND_FILTER),
+    listPage(conversations),
   );
 }
 
 function getBackgroundConversations(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(
-      backgroundConversationsQueryKey(ASSISTANT_ID),
-    ) ?? []
+    qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID, BACKGROUND_FILTER),
+    )?.conversations ?? []
   );
 }
 
@@ -88,17 +92,17 @@ function seedScheduledConversations(
   qc: QueryClient,
   conversations: Conversation[],
 ): void {
-  qc.setQueryData<Conversation[]>(
-    scheduledConversationsQueryKey(ASSISTANT_ID),
-    conversations,
+  qc.setQueryData<ConversationListPage>(
+    conversationListQueryKey(ASSISTANT_ID, SCHEDULED_FILTER),
+    listPage(conversations),
   );
 }
 
 function getScheduledConversations(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(
-      scheduledConversationsQueryKey(ASSISTANT_ID),
-    ) ?? []
+    qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID, SCHEDULED_FILTER),
+    )?.conversations ?? []
   );
 }
 
@@ -136,7 +140,9 @@ describe("patchConversation", () => {
     const qc = new QueryClient();
     patchConversation(qc, ASSISTANT_ID, "a", { title: "x" });
     expect(
-      qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)),
+      qc.getQueryData<ConversationListPage>(
+        conversationListQueryKey(ASSISTANT_ID),
+      ),
     ).toBeUndefined();
   });
 });

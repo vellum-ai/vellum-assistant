@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import {
   PLUGIN_INGRESS_MANIFEST_RELPATH,
+  PLUGIN_WEBHOOK_PATH_PATTERN,
   PLUGIN_WEBHOOK_PREFIX,
   PluginIngressCache,
   discoverPluginIngress,
@@ -55,6 +56,35 @@ const VALID = JSON.stringify({
   routes: [
     { path: "realtime", kind: "websocket", description: "realtime events" },
   ],
+});
+
+describe("PLUGIN_WEBHOOK_PATH_PATTERN", () => {
+  it("captures plugin and route on the slashless spelling", () => {
+    const match = "/webhooks/plugins/imessage/events-photon".match(
+      PLUGIN_WEBHOOK_PATH_PATTERN,
+    );
+    expect(match?.[1]).toBe("imessage");
+    expect(match?.[2]).toBe("events-photon");
+  });
+
+  it("does not capture an optional trailing slash", () => {
+    // Regex routes are not trailing-slash-normalized in the router.
+    // Managed callbacks canonicalize onto `/`, so the capture has to drop
+    // that slash rather than treat it as part of the declared path.
+    const match = "/webhooks/plugins/imessage/events-photon/".match(
+      PLUGIN_WEBHOOK_PATH_PATTERN,
+    );
+    expect(match?.[1]).toBe("imessage");
+    expect(match?.[2]).toBe("events-photon");
+  });
+
+  it("does not capture a trailing slash on a multi-segment route", () => {
+    const match = "/webhooks/plugins/imessage/a/b/c/".match(
+      PLUGIN_WEBHOOK_PATH_PATTERN,
+    );
+    expect(match?.[1]).toBe("imessage");
+    expect(match?.[2]).toBe("a/b/c");
+  });
 });
 
 describe("pluginWebhookPath", () => {

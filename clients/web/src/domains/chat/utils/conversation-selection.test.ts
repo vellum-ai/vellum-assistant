@@ -7,10 +7,8 @@ import {
 } from "@/domains/chat/utils/conversation-selection";
 import { useConversationStore } from "@/stores/conversation-store";
 
-const conversations = [
-  { conversationId: "old-visible" },
-  { conversationId: "new-latest" },
-];
+/** The last-viewed row as the server returns it, still a foreground chat. */
+const OLD_VISIBLE = { conversationId: "old-visible" };
 
 describe("resolveBootstrappedConversationId", () => {
   test("uses the explicit URL conversation key first", () => {
@@ -21,9 +19,8 @@ describe("resolveBootstrappedConversationId", () => {
         currentConversationId: "current",
         currentAssistantId: "asst-1",
         nextAssistantId: "asst-1",
-        storedConversationId: "stored",
+        storedConversation: { conversationId: "stored" },
         defaultConversationId: "new-latest",
-        conversations,
       }),
     ).toBe("from-url");
   });
@@ -36,9 +33,8 @@ describe("resolveBootstrappedConversationId", () => {
         currentConversationId: "current",
         currentAssistantId: "asst-1",
         nextAssistantId: "asst-1",
-        storedConversationId: "old-visible",
+        storedConversation: OLD_VISIBLE,
         defaultConversationId: "new-latest",
-        conversations,
       }),
     ).toBe("onboarding-draft");
   });
@@ -50,9 +46,8 @@ describe("resolveBootstrappedConversationId", () => {
         currentConversationId: "old-visible",
         currentAssistantId: "asst-1",
         nextAssistantId: "asst-1",
-        storedConversationId: null,
+        storedConversation: null,
         defaultConversationId: "new-latest",
-        conversations,
       }),
     ).toBe("old-visible");
   });
@@ -64,9 +59,8 @@ describe("resolveBootstrappedConversationId", () => {
         currentConversationId: "other-assistant-chat",
         currentAssistantId: "asst-2",
         nextAssistantId: "asst-1",
-        storedConversationId: null,
+        storedConversation: null,
         defaultConversationId: "new-latest",
-        conversations,
       }),
     ).toBe("new-latest");
   });
@@ -78,9 +72,8 @@ describe("resolveBootstrappedConversationId", () => {
         currentConversationId: null,
         currentAssistantId: null,
         nextAssistantId: "asst-1",
-        storedConversationId: "old-visible",
+        storedConversation: OLD_VISIBLE,
         defaultConversationId: "new-latest",
-        conversations,
       }),
     ).toBe("old-visible");
   });
@@ -92,11 +85,11 @@ describe("resolveBootstrappedConversationId", () => {
         currentConversationId: null,
         currentAssistantId: null,
         nextAssistantId: "asst-1",
-        storedConversationId: "heartbeat",
+        storedConversation: {
+          conversationId: "heartbeat",
+          conversationType: "background",
+        },
         defaultConversationId: "asst-1",
-        conversations: [
-          { conversationId: "heartbeat", conversationType: "background" },
-        ],
       }),
     ).toBe("asst-1");
   });
@@ -108,15 +101,12 @@ describe("resolveBootstrappedConversationId", () => {
         currentConversationId: null,
         currentAssistantId: null,
         nextAssistantId: "asst-1",
-        storedConversationId: "surfaced-bg",
+        storedConversation: {
+          conversationId: "surfaced-bg",
+          conversationType: "background",
+          surfacedAt: 1704067200000,
+        },
         defaultConversationId: "new-latest",
-        conversations: [
-          {
-            conversationId: "surfaced-bg",
-            conversationType: "background",
-            surfacedAt: 1704067200000,
-          },
-        ],
       }),
     ).toBe("surfaced-bg");
   });
@@ -128,29 +118,26 @@ describe("resolveBootstrappedConversationId", () => {
         currentConversationId: null,
         currentAssistantId: null,
         nextAssistantId: "asst-1",
-        storedConversationId: "surfaced-sched",
+        storedConversation: {
+          conversationId: "surfaced-sched",
+          groupId: "system:scheduled",
+          surfacedAt: 1704067200000,
+        },
         defaultConversationId: "new-latest",
-        conversations: [
-          {
-            conversationId: "surfaced-sched",
-            groupId: "system:scheduled",
-            surfacedAt: 1704067200000,
-          },
-        ],
       }),
     ).toBe("surfaced-sched");
   });
 
-  test("ignores a stored conversation that is no longer in the list", () => {
+  test("falls to the default when the stored conversation is gone", () => {
+    /* The by-id lookup answered 404, so there is no row to resume. */
     expect(
       resolveBootstrappedConversationId({
         queryParamKey: null,
         currentConversationId: null,
         currentAssistantId: null,
         nextAssistantId: "asst-1",
-        storedConversationId: "missing",
+        storedConversation: null,
         defaultConversationId: "new-latest",
-        conversations,
       }),
     ).toBe("new-latest");
   });
@@ -164,9 +151,8 @@ describe("resolveBootstrappedConversationId", () => {
           currentConversationId: null,
           currentAssistantId: null,
           nextAssistantId: "asst-1",
-          storedConversationId: "old-visible",
+          storedConversation: OLD_VISIBLE,
           defaultConversationId: "new-latest",
-          conversations,
         }),
       ).toBe("new-chat-draft");
     });
@@ -179,9 +165,8 @@ describe("resolveBootstrappedConversationId", () => {
           currentConversationId: null,
           currentAssistantId: null,
           nextAssistantId: "asst-1",
-          storedConversationId: "old-visible",
+          storedConversation: OLD_VISIBLE,
           defaultConversationId: "new-latest",
-          conversations,
         }),
       ).toBe("from-url");
     });
@@ -195,9 +180,8 @@ describe("resolveBootstrappedConversationId", () => {
           currentConversationId: null,
           currentAssistantId: null,
           nextAssistantId: "asst-1",
-          storedConversationId: "old-visible",
+          storedConversation: OLD_VISIBLE,
           defaultConversationId: "new-latest",
-          conversations,
         }),
       ).toBe("onboarding-draft");
     });
@@ -210,9 +194,8 @@ describe("resolveBootstrappedConversationId", () => {
           currentConversationId: "old-visible",
           currentAssistantId: "asst-1",
           nextAssistantId: "asst-1",
-          storedConversationId: "old-visible",
+          storedConversation: OLD_VISIBLE,
           defaultConversationId: "new-latest",
-          conversations,
         }),
       ).toBe("old-visible");
     });
@@ -223,9 +206,8 @@ describe("resolveBootstrappedConversationId", () => {
         currentConversationId: null,
         currentAssistantId: null,
         nextAssistantId: "asst-1",
-        storedConversationId: "old-visible",
+        storedConversation: OLD_VISIBLE,
         defaultConversationId: "new-latest",
-        conversations,
       };
       expect(resolveBootstrappedConversationId(args)).toBe("old-visible");
       expect(
@@ -236,23 +218,28 @@ describe("resolveBootstrappedConversationId", () => {
       ).toBe("old-visible");
     });
 
-    test("resolves the same key with or without the conversation list", () => {
+    test("resolves the same key with or without a stored row", () => {
       const args = {
         queryParamKey: null,
         newChatDraftConversationId: "new-chat-draft",
         currentConversationId: null,
         currentAssistantId: null,
         nextAssistantId: "asst-1",
-        storedConversationId: "old-visible",
         defaultConversationId: "new-latest",
       };
-      // The draft short-circuits both list-backed fallbacks, so the loader can
-      // land on it before the conversation-list fetch settles.
+      // The draft short-circuits both server-backed fallbacks, so the loader
+      // can land on it without asking the server anything.
       expect(
-        resolveBootstrappedConversationId({ ...args, conversations: [] }),
+        resolveBootstrappedConversationId({
+          ...args,
+          storedConversation: null,
+        }),
       ).toBe("new-chat-draft");
       expect(
-        resolveBootstrappedConversationId({ ...args, conversations }),
+        resolveBootstrappedConversationId({
+          ...args,
+          storedConversation: OLD_VISIBLE,
+        }),
       ).toBe("new-chat-draft");
     });
   });

@@ -487,11 +487,39 @@ describe("parsePluginScheduleDeclarations", () => {
       expect(after).not.toBe(before);
     });
 
-    test("changes when a helper file inside a directory declaration is edited or renamed", () => {
+    test("changes when config.json is edited", () => {
+      const pluginDir = makePlugin(FULL_DIGEST);
+      const before = parsePluginScheduleDeclarations(pluginDir, "p")
+        .declarations[0]!.definitionHash;
+      writeFileSync(
+        join(pluginDir, "schedules", "digest", "config.json"),
+        JSON.stringify({ expression: "0 10 * * *" }),
+      );
+      const after = parsePluginScheduleDeclarations(pluginDir, "p")
+        .declarations[0]!.definitionHash;
+      expect(after).not.toBe(before);
+    });
+
+    test("changes when the index.sh entrypoint is edited", () => {
+      const pluginDir = makePlugin({
+        "backup/config.json": JSON.stringify({ expression: "0 3 * * *" }),
+        "backup/index.sh": "echo v1\n",
+      });
+      const parse = () =>
+        parsePluginScheduleDeclarations(pluginDir, "p").declarations[0]!
+          .definitionHash;
+      const before = parse();
+      writeFileSync(
+        join(pluginDir, "schedules", "backup", "index.sh"),
+        "echo v2\n",
+      );
+      expect(parse()).not.toBe(before);
+    });
+
+    test("ignores every other file under the declaration directory", () => {
       const pluginDir = makePlugin({
         "backup/config.json": JSON.stringify({ expression: "0 3 * * *" }),
         "backup/index.sh": "sh lib/helper.sh\n",
-        "backup/lib/helper.sh": "echo v1\n",
       });
       const parse = () =>
         parsePluginScheduleDeclarations(pluginDir, "p").declarations[0]!
@@ -505,15 +533,50 @@ describe("parsePluginScheduleDeclarations", () => {
         "lib",
         "helper.sh",
       );
+      mkdirSync(dirname(helperPath), { recursive: true });
+      writeFileSync(helperPath, "echo v1\n");
+      const statePath = join(
+        pluginDir,
+        "schedules",
+        "backup",
+        "data",
+        "state.json",
+      );
+      mkdirSync(dirname(statePath), { recursive: true });
+      writeFileSync(statePath, JSON.stringify({ lastRun: 1 }));
+      expect(parse()).toBe(original);
+
       writeFileSync(helperPath, "echo v2\n");
-      const afterEdit = parse();
-      expect(afterEdit).not.toBe(original);
+      writeFileSync(statePath, JSON.stringify({ lastRun: 2 }));
+      expect(parse()).toBe(original);
 
       renameSync(
         helperPath,
         join(pluginDir, "schedules", "backup", "lib", "helper2.sh"),
       );
-      expect(parse()).not.toBe(afterEdit);
+      expect(parse()).toBe(original);
+
+      rmSync(join(pluginDir, "schedules", "backup", "data"), {
+        recursive: true,
+        force: true,
+      });
+      expect(parse()).toBe(original);
+    });
+
+    test("hashes a two-file declaration to its known value", () => {
+      const pluginDir = makePlugin({
+        "backup/config.json": JSON.stringify({ expression: "0 3 * * *" }),
+        "backup/index.sh": "echo backup\n",
+      });
+      // Pinned so stored rows keep their hash across upgrades. It holds only
+      // while the hashed paths stay `<name>/config.json` and
+      // `<name>/<entrypoint>`, relative to schedules/.
+      expect(
+        parsePluginScheduleDeclarations(pluginDir, "p").declarations[0]!
+          .definitionHash,
+      ).toBe(
+        "0b5722fc45abdd2c46672f275e3bcf548016ee5c0722da5a0588ef45fa7bbcab",
+      );
     });
 
     test("differs between two schedules with different names but same content", () => {

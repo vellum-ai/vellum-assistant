@@ -1,25 +1,33 @@
 import { useMemo } from "react";
 import { Navigate, useSearchParams } from "react-router";
+import { Tabs } from "@vellumai/design-library/components/tabs";
 
 import { MemoryCard } from "@/domains/settings/components/memory-card";
 import { AssistantLifecyclePanel } from "@/domains/settings/components/panels/assistant-lifecycle-panel";
 import { EnvironmentConfigPanel } from "@/domains/settings/components/panels/environment-config-panel";
 import { FeatureFlagsPanel } from "@/domains/settings/components/panels/feature-flags-panel";
 import { SentryTestingPanel } from "@/domains/settings/components/panels/sentry-testing-panel";
+import { useTranslation } from "@/i18n";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
 
 const ALL_TABS = [
-  { id: "feature-flags", label: "Feature Flags" },
-  { id: "lifecycle", label: "Assistant Lifecycle" },
-  { id: "sentry", label: "Sentry Testing" },
-  { id: "memory", label: "Memory" },
+  { id: "feature-flags", labelKey: "developerPage.tabFeatureFlags" },
+  { id: "lifecycle", labelKey: "developerPage.tabLifecycle" },
+  { id: "sentry", labelKey: "developerPage.tabSentry" },
+  { id: "memory", labelKey: "developerPage.tabMemory" },
 ] as const;
 
 type DeveloperTabId = (typeof ALL_TABS)[number]["id"];
 
+/**
+ * Every panel extends the page's flex column so the panels that scroll their
+ * own content get a bounded height.
+ */
+const PANEL_CLASS = "flex min-h-0 flex-1 flex-col pt-6";
+
 export function DeveloperPage() {
+  const { t } = useTranslation("settings");
   const [searchParams, setSearchParams] = useSearchParams();
   const settingsDeveloperNav =
     useAssistantFeatureFlagStore.use.settingsDeveloperNav();
@@ -35,7 +43,9 @@ export function DeveloperPage() {
     return <Navigate replace to={routes.settings.general} />;
   }
 
-  const setActiveTab = (tabId: DeveloperTabId) => {
+  // Writes whatever `Tabs.Root` reports straight to `?tab=`; the read above is
+  // the single place a param is narrowed back to a known tab.
+  const setActiveTab = (tabId: string) => {
     const params = new URLSearchParams(searchParams.toString());
     if (tabId === "feature-flags") {
       params.delete("tab");
@@ -47,57 +57,40 @@ export function DeveloperPage() {
 
   return (
     <div data-slot="developer-page" className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center border-b border-[var(--border-base)]">
-        <div
-          role="tablist"
-          aria-label="Developer sections"
-          className="flex items-center gap-1"
-        >
-          {ALL_TABS.map((tab) => {
-            const isActive = tab.id === activeTab;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                aria-controls={`developer-tab-panel-${tab.id}`}
-                id={`developer-tab-${tab.id}`}
-                onClick={() => setActiveTab(tab.id)}
-                className={cn(
-                  "relative -mb-px cursor-pointer border-b-2 px-4 py-2 text-body-medium-default transition-colors",
-                  isActive
-                    ? "border-[var(--system-positive-strong)] text-[var(--system-positive-strong)]"
-                    : "border-transparent text-[var(--content-tertiary)] hover:text-[var(--content-default)] dark:text-[var(--content-disabled)] dark:hover:text-[var(--content-default)]",
-                )}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div
-        id={`developer-tab-panel-${activeTab}`}
-        role="tabpanel"
-        aria-labelledby={`developer-tab-${activeTab}`}
-        className="flex min-h-0 flex-1 flex-col pt-6"
+      <Tabs.Root
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="flex min-h-0 flex-1 flex-col"
       >
-        {activeTab === "feature-flags" && (
+        <Tabs.List
+          className="shrink-0"
+          aria-label={t("developerPage.sectionsAriaLabel")}
+        >
+          {ALL_TABS.map((tab) => (
+            <Tabs.Trigger key={tab.id} value={tab.id}>
+              {t(tab.labelKey)}
+            </Tabs.Trigger>
+          ))}
+        </Tabs.List>
+
+        <Tabs.Panel value="feature-flags" className={PANEL_CLASS}>
           <div className="space-y-6">
             <FeatureFlagsPanel />
             <EnvironmentConfigPanel />
           </div>
-        )}
-        {activeTab === "lifecycle" && <AssistantLifecyclePanel />}
-        {activeTab === "sentry" && <SentryTestingPanel />}
-        {activeTab === "memory" && (
+        </Tabs.Panel>
+        <Tabs.Panel value="lifecycle" className={PANEL_CLASS}>
+          <AssistantLifecyclePanel />
+        </Tabs.Panel>
+        <Tabs.Panel value="sentry" className={PANEL_CLASS}>
+          <SentryTestingPanel />
+        </Tabs.Panel>
+        <Tabs.Panel value="memory" className={PANEL_CLASS}>
           <div className="space-y-4">
             <MemoryCard />
           </div>
-        )}
-      </div>
+        </Tabs.Panel>
+      </Tabs.Root>
     </div>
   );
 }

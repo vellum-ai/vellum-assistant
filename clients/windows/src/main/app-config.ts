@@ -11,10 +11,24 @@
  * path is honored from `VELLUM_DEV_URL` (vel's edge proxy, or the
  * local Vite default at port 5173). Both end at the `/assistant`
  * suffix that `clients/web/vite.config.ts`'s `base` setting requires.
+ * `VELLUM_LOCAL_RENDERER` opts development into serving the locally built
+ * renderer through the app protocol, while keeping platform traffic remote.
  */
 
 export const APP_PROTOCOL = "app";
 export const APP_HOST = "vellum.ai";
+
+declare const __VELLUM_BUILD_SHA__: string;
+declare const __VELLUM_ENVIRONMENT__: string;
+
+export const WINDOWS_RELEASE_INFO = {
+  commitSha:
+    typeof __VELLUM_BUILD_SHA__ === "string" ? __VELLUM_BUILD_SHA__ : "unknown",
+  releaseChannel:
+    typeof __VELLUM_ENVIRONMENT__ === "string"
+      ? __VELLUM_ENVIRONMENT__
+      : "production",
+};
 
 const DEV_SERVER_FALLBACK_URL = "http://localhost:5173/assistant";
 
@@ -33,6 +47,10 @@ export const RENDERER_BASE_PROD = `${APP_PROTOCOL}://${APP_HOST}/assistant`;
 export const getDevRendererBase = (): string =>
   (process.env.VELLUM_DEV_URL ?? DEV_SERVER_FALLBACK_URL).replace(/\/+$/, "");
 
+/** Whether this process loads the renderer through the app protocol. */
+export const usesAppProtocolRenderer = (isPackaged: boolean): boolean =>
+  isPackaged || process.env.VELLUM_LOCAL_RENDERER === "true";
+
 /**
  * SPA-root URL the main BrowserWindow loads.
  *
@@ -46,4 +64,6 @@ export const getDevRendererBase = (): string =>
  * land on the `/assistant/*` NotFound route).
  */
 export const getRendererRootUrl = (isPackaged: boolean): string =>
-  isPackaged ? RENDERER_BASE_PROD : `${getDevRendererBase()}/`;
+  usesAppProtocolRenderer(isPackaged)
+    ? RENDERER_BASE_PROD
+    : `${getDevRendererBase()}/`;

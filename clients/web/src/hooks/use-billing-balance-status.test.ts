@@ -91,6 +91,7 @@ function summary(
     daily_credit_limit_usd: null,
     daily_spend_usd: "0.00",
     daily_limit_reached: false,
+    daily_limit_snoozed: false,
     low_balance_threshold_usd: "5.00",
     low_balance_warning: false,
     credits_expiring_soon_usd: "0.00",
@@ -148,6 +149,9 @@ describe("useBillingBalanceStatus", () => {
       isExhausted: false,
       isLowBalance: false,
       dailyLimitReached: false,
+      dailyLimitSnoozed: false,
+      dailyLimit: null,
+      dailySpend: "0.00",
       balance: "20.00",
       enabled: true,
     });
@@ -161,6 +165,9 @@ describe("useBillingBalanceStatus", () => {
       isExhausted: false,
       isLowBalance: true,
       dailyLimitReached: false,
+      dailyLimitSnoozed: false,
+      dailyLimit: null,
+      dailySpend: "0.00",
       balance: "3.00",
       enabled: true,
     });
@@ -207,6 +214,9 @@ describe("useBillingBalanceStatus", () => {
       isExhausted: false,
       isLowBalance: false,
       dailyLimitReached: true,
+      dailyLimitSnoozed: false,
+      dailyLimit: null,
+      dailySpend: "0.00",
       balance: "20.00",
       enabled: true,
     });
@@ -299,6 +309,9 @@ describe("useBillingBalanceStatus", () => {
       isExhausted: false,
       isLowBalance: false,
       dailyLimitReached: false,
+      dailyLimitSnoozed: false,
+      dailyLimit: null,
+      dailySpend: null,
       balance: null,
       enabled: true,
     });
@@ -337,6 +350,9 @@ describe("useBillingBalanceStatus", () => {
       isExhausted: false,
       isLowBalance: false,
       dailyLimitReached: false,
+      dailyLimitSnoozed: false,
+      dailyLimit: null,
+      dailySpend: null,
       balance: null,
       enabled: false,
     });
@@ -354,6 +370,9 @@ describe("useBillingBalanceStatus", () => {
       isExhausted: false,
       isLowBalance: false,
       dailyLimitReached: true,
+      dailyLimitSnoozed: false,
+      dailyLimit: null,
+      dailySpend: "0.00",
       balance: "0.00",
       enabled: true,
     });
@@ -390,6 +409,9 @@ describe("useBillingBalanceStatus", () => {
       isExhausted: false,
       isLowBalance: false,
       dailyLimitReached: false,
+      dailyLimitSnoozed: false,
+      dailyLimit: null,
+      dailySpend: null,
       balance: null,
       enabled: false,
     });

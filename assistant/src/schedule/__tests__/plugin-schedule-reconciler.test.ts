@@ -45,9 +45,29 @@ mock.module("../../notifications/emit-signal.js", () => ({
   },
 }));
 
+/**
+ * Plugin directories the daemon has not activated. The reconciler arms only
+ * plugins this process brought up, and no test here runs the plugin loader, so
+ * the double answers "activated" unless a case says otherwise.
+ */
+const notActivatedDirs = new Set<string>();
+
+/** Every directory the reconciler put through the activation predicate. */
+const activationProbes: string[] = [];
+
+const realMtimeCache = await import("../../plugins/mtime-cache.js");
+mock.module("../../plugins/mtime-cache.js", () => ({
+  ...realMtimeCache,
+  isPluginDirActivated: (dir: string) => {
+    activationProbes.push(dir);
+    return !notActivatedDirs.has(dir);
+  },
+}));
+
 import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { listInstalledPluginDirs } from "../../plugins/installed-plugin-dirs.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   reconcilePluginSchedules,
@@ -175,6 +195,8 @@ function resetReconcilerFixtures(): void {
   emittedSignals.length = 0;
   emitResultOverride = null;
   emitGate = null;
+  notActivatedDirs.clear();
+  activationProbes.length = 0;
   resetDefinitionErrorEmitGuardForTests();
 }
 
@@ -968,6 +990,65 @@ describe("reconcilePluginSchedules", () => {
       unknown
     >;
     expect(payload.reason).toContain("no upcoming occurrences");
+  });
+
+  test("a plugin the daemon never activated arms nothing", async () => {
+    // Everything the parser needs is on disk; only the activation is missing,
+    // which is what a directory dropped into the plugins root looks like.
+    const dir = writePlugin("news", digest());
+    notActivatedDirs.add(dir);
+
+    await reconcilePluginSchedules();
+
+    expect(listDeclaredSchedules()).toHaveLength(0);
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("a row disarms once its plugin is no longer activated", async () => {
+    const dir = writePlugin("news", digest());
+    await reconcilePluginSchedules();
+    const created = listDeclaredSchedules()[0]!;
+    expect(created.enabled).toBe(true);
+
+    notActivatedDirs.add(dir);
+    await reconcilePluginSchedules();
+
+    const row = listDeclaredSchedules()[0]!;
+    expect(row.id).toBe(created.id);
+    expect(row.enabled).toBe(false);
+  });
+
+  test("a plugin activated between passes arms on the second one", async () => {
+    const dir = writePlugin("news", digest());
+    notActivatedDirs.add(dir);
+    await reconcilePluginSchedules();
+    expect(listDeclaredSchedules()).toHaveLength(0);
+
+    notActivatedDirs.delete(dir);
+    await reconcilePluginSchedules();
+
+    const rows = listDeclaredSchedules();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.sourceKey).toBe(DIGEST_KEY);
+    expect(rows[0]!.enabled).toBe(true);
+    // The row arms for the first time here, so it announces its arrival.
+    const declared = emittedSignals.filter(
+      (s) => s.sourceEventName === "schedule.declared",
+    );
+    expect(declared).toHaveLength(1);
+    expect(declared[0]!.sourceContextId).toBe(DIGEST_KEY);
+  });
+
+  test("the activation probe sees the directory string the walk yields", async () => {
+    // The predicate is keyed by directory path, so the enumeration the
+    // reconciler walks and the map the daemon activates into have to agree on
+    // the exact string. Both come from `listInstalledPluginDirs`.
+    const dir = writePlugin("news", digest());
+
+    await reconcilePluginSchedules();
+
+    expect(listInstalledPluginDirs().map((p) => p.dir)).toEqual([dir]);
+    expect(activationProbes).toEqual([dir]);
   });
 
   test("a suppressed error emit still latches the day guard", async () => {

@@ -59,6 +59,12 @@ function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
     // Works in Docker / packaged builds where the repo-root `meta/` dir
     // is not available.
     join(thisDir, REGISTRY_FILENAME),
+    ...(process.platform === "win32"
+      ? [
+          // Packaged Windows CLI runtime: assets live beside the executable.
+          join(dirname(process.execPath), REGISTRY_FILENAME),
+        ]
+      : []),
     // Packaged macOS app layout: the daemon binary lives at
     // <App>.app/Contents/MacOS/vellum-daemon and the registry is copied
     // to <App>.app/Contents/Resources/ by build.sh. In bun --compile
@@ -190,11 +196,11 @@ const DEFAULT_INIT_RETRY_BACKOFFS_MS: readonly number[] = [
  * intentionally simulate an unreachable gateway and want immediate
  * fallback without waiting through the production schedule).
  *
- * No-ops when the cache is already populated — callers that want to
- * refresh must call `clearFeatureFlagOverridesCache()` first. This lets
- * tests preseed flag state via `setOverridesForTesting()` (in
- * `__tests__/feature-flag-test-helpers.ts`) without the gateway IPC call
- * clobbering their setup.
+ * No-ops when the cache is already populated — this is the load-time
+ * populate, and `refreshOverridesFromGateway()` is what re-reads a cache that
+ * already holds values. The no-op also lets tests preseed flag state via
+ * `setOverridesForTesting()` (in `__tests__/feature-flag-test-helpers.ts`)
+ * without the gateway IPC call clobbering their setup.
  *
  * Resolves `true` when the override cache is populated from the gateway and
  * `false` when the cache is left unset (exhausted retries / unreachable
@@ -274,10 +280,13 @@ function loadOverrides(): Record<string, boolean | string> {
  * Invalidate the cached overrides so the next call to
  * `isAssistantFeatureFlagEnabled` re-reads from the gateway.
  *
- * Called by `refreshOverridesFromGateway()` when the gateway pushes a
- * `feature_flags_changed` event, and by tests between cases to reset
- * module state. (Tests typically call `setOverridesForTesting()` from
- * `__tests__/feature-flag-test-helpers.ts`, which combines clear + seed.)
+ * Used by tests between cases to reset module state. (Tests typically call
+ * `setOverridesForTesting()` from `__tests__/feature-flag-test-helpers.ts`,
+ * which combines clear + seed.)
+ *
+ * Not a step in refreshing from the gateway: `refreshOverridesFromGateway()`
+ * swaps the cache atomically so flag values never read as unset while a
+ * refresh is in flight.
  */
 export function clearFeatureFlagOverridesCache(): void {
   clearCachedOverrides();
@@ -286,18 +295,30 @@ export function clearFeatureFlagOverridesCache(): void {
 /**
  * Re-fetch feature flag overrides from the gateway.
  *
- * Clears the cached overrides and re-runs the gateway IPC fetch without
- * retries (the gateway is known to be up because it just pushed an event).
- * Called by the gateway flag listener when a `feature_flags_changed` event
- * arrives.
+ * Runs the gateway IPC fetch without retries (the gateway is known to be up
+ * because it just pushed an event) and replaces the cache only once that fetch
+ * succeeds. Called by the gateway flag listener when a `feature_flags_changed`
+ * event arrives and on reconnect.
+ *
+ * The swap is atomic on purpose. The previously fetched values stay readable
+ * for the whole call, so a sync flag read that lands mid-refresh sees the last
+ * known values rather than an empty cache, and a failed fetch leaves them in
+ * place rather than dropping every flag to its registry default until the next
+ * event. A flag that selects behavior rather than gating it (an experiment
+ * arm, a kill switch) therefore cannot flip to its default because one IPC
+ * call timed out.
  *
  * Resolves `true` when the cache was repopulated from the gateway, `false`
  * when the fetch came back empty/failed — callers gate persisted-state
  * reconciliation on a `true` result.
  */
 export async function refreshOverridesFromGateway(): Promise<boolean> {
-  clearFeatureFlagOverridesCache();
-  return initFeatureFlagOverrides({ retryBackoffsMs: [] });
+  const gatewayOverrides = await fetchOverridesFromGateway();
+  if (Object.keys(gatewayOverrides).length === 0) {
+    return false;
+  }
+  setCachedOverrides(gatewayOverrides, { fromGateway: true });
+  return true;
 }
 
 // ---------------------------------------------------------------------------

@@ -22,12 +22,15 @@ import { QueryClient } from "@tanstack/react-query";
 
 import type { Conversation } from "@/types/conversation-types";
 import {
-  conversationsQueryKey,
-  sectionConversationsQueryKey,
   sidebarSectionsQueryKey,
-  type SectionConversationFilter,
   type SidebarIndexSection,
+  type ConversationListPage,
 } from "@/utils/conversation-list-fetchers";
+import {
+  conversationListQueryKey,
+  type ConversationListFilter,
+} from "@/utils/conversation-list-keys";
+import { listPage } from "@/utils/conversation-list.test-helper";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   ensureSectionInIndex,
@@ -38,17 +41,17 @@ import {
 
 const ASSISTANT_ID = "asst-1";
 
-const PINNED: SectionConversationFilter = { groupId: "system:pinned" };
-const CHATS: SectionConversationFilter = { groupId: "system:all" };
-const SLACK: SectionConversationFilter = {
+const PINNED: ConversationListFilter = { groupId: "system:pinned" };
+const CHATS: ConversationListFilter = { groupId: "system:all" };
+const SLACK: ConversationListFilter = {
   groupId: "system:all",
   originChannel: "slack",
 };
-const NATIVE_CHATS: SectionConversationFilter = {
+const NATIVE_CHATS: ConversationListFilter = {
   groupId: "system:all",
   originChannel: "vellum",
 };
-const CUSTOM: SectionConversationFilter = { groupId: "group-uuid" };
+const CUSTOM: ConversationListFilter = { groupId: "group-uuid" };
 
 function conversation(overrides: Partial<Conversation> = {}): Conversation {
   return { conversationId: "conv-1", lastMessageAt: 1_000, ...overrides };
@@ -234,15 +237,15 @@ describe("patchAffectsMembership", () => {
 // ---------------------------------------------------------------------------
 
 function seed(
-  sections: Array<[SectionConversationFilter, Conversation[]]>,
+  sections: Array<[ConversationListFilter, Conversation[], boolean?]>,
 ): QueryClient {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  for (const [filter, rows] of sections) {
+  for (const [filter, rows, hasMore] of sections) {
     client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, filter),
-      rows,
+      conversationListQueryKey(ASSISTANT_ID, filter),
+      listPage(rows, hasMore),
     );
   }
   return client;
@@ -250,19 +253,19 @@ function seed(
 
 function rowsIn(
   client: QueryClient,
-  filter: SectionConversationFilter,
+  filter: ConversationListFilter,
 ): Conversation[] {
   return (
-    client.getQueryData<Conversation[]>(
-      sectionConversationsQueryKey(ASSISTANT_ID, filter),
-    ) ?? []
+    client.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID, filter),
+    )?.conversations ?? []
   );
 }
 
 /** How many sections hold `conversationId`, counting duplicates within one. */
 function copiesAcrossSections(
   client: QueryClient,
-  filters: SectionConversationFilter[],
+  filters: ConversationListFilter[],
   conversationId: string,
 ): number {
   return filters.reduce(
@@ -407,6 +410,111 @@ describe("reconcileSectionMembership", () => {
     ]);
   });
 
+  test("a row older than a window's last row is dropped, not appended", () => {
+    /* The cache is a prefix of the true list (hasMore). Appending a row
+       that belongs past the window would render it at the wrong position
+       and hide the real page boundary; membership is not lost, load-more
+       reaches it. Count the copies: zero in the destination window. */
+    const client = seed([
+      [
+        PINNED,
+        [
+          conversation({ conversationId: "newer", lastMessageAt: 3_000 }),
+          conversation({
+            conversationId: "window-bottom",
+            lastMessageAt: 2_000,
+          }),
+        ],
+        true,
+      ],
+    ]);
+
+    const changed = reconcileSectionMembership(client, ASSISTANT_ID, {
+      conversationId: "ancient",
+      lastMessageAt: 1_000,
+      isPinned: true,
+      groupId: "system:pinned",
+    });
+
+    expect(rowsIn(client, PINNED).map((c) => c.conversationId)).toEqual([
+      "newer",
+      "window-bottom",
+    ]);
+    /* Nothing changed, so nothing needs a settle refetch either. */
+    expect(changed).toEqual([]);
+  });
+
+  test("a row inside the window still inserts when the cache is a window", () => {
+    // The sibling of the drop test: the rule is positional, not "windows
+    // reject inserts". Same window, a row newer than the bottom lands at
+    // its recency position.
+    const client = seed([
+      [
+        PINNED,
+        [
+          conversation({ conversationId: "newer", lastMessageAt: 3_000 }),
+          conversation({
+            conversationId: "window-bottom",
+            lastMessageAt: 2_000,
+          }),
+        ],
+        true,
+      ],
+    ]);
+
+    reconcileSectionMembership(client, ASSISTANT_ID, {
+      conversationId: "middle",
+      lastMessageAt: 2_500,
+      isPinned: true,
+      groupId: "system:pinned",
+    });
+
+    expect(rowsIn(client, PINNED).map((c) => c.conversationId)).toEqual([
+      "newer",
+      "middle",
+      "window-bottom",
+    ]);
+  });
+
+  test("a complete section appends a row older than everything", () => {
+    // hasMore false means the cache IS the list; there is no unloaded
+    // remainder for the row to hide in, so it must land (at the end).
+    const client = seed([
+      [
+        PINNED,
+        [conversation({ conversationId: "only", lastMessageAt: 5_000 })],
+      ],
+    ]);
+
+    reconcileSectionMembership(client, ASSISTANT_ID, {
+      conversationId: "ancient",
+      lastMessageAt: 1_000,
+      isPinned: true,
+      groupId: "system:pinned",
+    });
+
+    expect(rowsIn(client, PINNED).map((c) => c.conversationId)).toEqual([
+      "only",
+      "ancient",
+    ]);
+  });
+
+  test("removal from a window keeps it a window", () => {
+    const row = conversation({ conversationId: "c1", originChannel: "slack" });
+    const client = seed([[SLACK, [row], true]]);
+
+    reconcileSectionMembership(client, ASSISTANT_ID, {
+      ...row,
+      archivedAt: 99,
+    });
+
+    const page = client.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID, SLACK),
+    );
+    expect(page?.conversations).toEqual([]);
+    expect(page?.hasMore).toBe(true);
+  });
+
   test("a section that has never fetched is not created", () => {
     // `useSectionConversations` reads "has data" as permission to stop
     // painting its derived fallback, so minting a cache here would hand that
@@ -420,7 +528,7 @@ describe("reconcileSectionMembership", () => {
     });
 
     expect(
-      client.getQueryData(sectionConversationsQueryKey(ASSISTANT_ID, PINNED)),
+      client.getQueryData(conversationListQueryKey(ASSISTANT_ID, PINNED)),
     ).toBeUndefined();
     expect(rowsIn(client, CHATS)).toEqual([]);
   });
@@ -433,14 +541,15 @@ describe("reconcileSectionMembership", () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
-    client.setQueryData(sectionConversationsQueryKey(ASSISTANT_ID, CHATS), [
-      conversation({ conversationId: "c1" }),
-    ]);
-    const pinnedKey = sectionConversationsQueryKey(ASSISTANT_ID, PINNED);
+    client.setQueryData(
+      conversationListQueryKey(ASSISTANT_ID, CHATS),
+      listPage([conversation({ conversationId: "c1" })]),
+    );
+    const pinnedKey = conversationListQueryKey(ASSISTANT_ID, PINNED);
     void client
       .prefetchQuery({
         queryKey: pinnedKey,
-        queryFn: () => new Promise<Conversation[]>(() => {}),
+        queryFn: () => new Promise<ConversationListPage>(() => {}),
       })
       .catch(() => {});
     await client.cancelQueries({ queryKey: pinnedKey });
@@ -477,9 +586,10 @@ describe("reconcileSectionMembership", () => {
        it for Pinned to appear in the first place. */
     const row = conversation({ conversationId: "c1" });
     const client = seed([[CHATS, [row]]]);
-    client.setQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID), [
-      row,
-    ]);
+    client.setQueryData(
+      conversationListQueryKey(ASSISTANT_ID),
+      listPage([row]),
+    );
 
     reconcileSectionMembership(client, ASSISTANT_ID, {
       ...row,
@@ -489,8 +599,10 @@ describe("reconcileSectionMembership", () => {
 
     expect(
       client
-        .getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID))
-        ?.map((c) => c.conversationId),
+        .getQueryData<ConversationListPage>(
+          conversationListQueryKey(ASSISTANT_ID),
+        )
+        ?.conversations.map((c) => c.conversationId),
     ).toEqual(["c1"]);
   });
 });

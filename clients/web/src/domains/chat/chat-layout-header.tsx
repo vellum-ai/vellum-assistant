@@ -9,8 +9,11 @@ import {
 import { useCallback, useEffect, type ReactNode } from "react";
 
 import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
-import { isElectron } from "@/runtime/is-electron";
-import { isNativeMobile } from "@/runtime/platform-detection";
+import { WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX } from "@/runtime/electron-window-chrome";
+import {
+  detectElectronHostOS,
+  isNativeMobile,
+} from "@/runtime/platform-detection";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import {
   resolveShellBackground,
@@ -27,6 +30,17 @@ import { useTitleBarStore } from "@/stores/title-bar-store";
 // (≈ button left edge at 96px, leaving a ~25px gap past the green control).
 // Off Electron the inset is 0.
 const ELECTRON_TRAFFIC_LIGHT_CLEARANCE = 80;
+
+/**
+ * The `data-slot` this header publishes, and the selector that finds it.
+ *
+ * Surfaces portalled out of the chat layout position themselves against this
+ * header's bottom edge and have to locate it from outside the tree. They read
+ * these rather than writing the attribute name again, so the published name
+ * has one owner: the component that publishes it.
+ */
+export const CHAT_LAYOUT_HEADER_SLOT = "chat-layout-header";
+export const CHAT_LAYOUT_HEADER_SELECTOR = `[data-slot="${CHAT_LAYOUT_HEADER_SLOT}"]`;
 
 export interface ChatLayoutHeaderProps {
   isMobile: boolean;
@@ -90,7 +104,8 @@ export function ChatLayoutHeader({
   // otherwise that strip, living outside `.app-shell`'s `isolation: isolate`
   // context, would out-stack and swallow clicks on the header's buttons.
   // Gated to Electron so the web/iOS layouts are byte-for-byte unchanged.
-  const electron = isElectron();
+  const electronHostOS = detectElectronHostOS();
+  const electron = electronHostOS !== null;
 
   // Mobile-only: on desktop the same affordance lives in the left cluster.
   const searchButton = isMobile ? (
@@ -124,7 +139,7 @@ export function ChatLayoutHeader({
 
   return (
     <header
-      data-slot="chat-layout-header"
+      data-slot={CHAT_LAYOUT_HEADER_SLOT}
       className={`flex w-full shrink-0 items-center gap-4 px-4 pt-4${isMobile && !electron ? " pb-4" : ""}${
         electron
           ? " select-none [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag]"
@@ -134,6 +149,10 @@ export function ChatLayoutHeader({
         background: headerBackground,
         minHeight: electron ? "44px" : "40px",
         paddingTop: electron ? 0 : undefined,
+        paddingRight:
+          electronHostOS === "windows"
+            ? WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX
+            : undefined,
       }}
     >
       <div
@@ -148,7 +167,7 @@ export function ChatLayoutHeader({
           ...(isMobile
             ? {}
             : { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) }),
-          ...(electron
+          ...(electronHostOS === "macos"
             ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
             : {}),
         }}

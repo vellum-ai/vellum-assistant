@@ -1,6 +1,7 @@
 import { connect, type Socket } from "node:net";
 
 import { refreshOverridesFromGateway } from "../config/assistant-feature-flags.js";
+import { getBalancedModelExperimentArm } from "../config/balanced-model-experiment.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
@@ -19,13 +20,26 @@ const log = getLogger("gateway-flag-listener");
  * when the refresh confirmed flags loaded from the gateway — a transient IPC
  * failure leaves the cache unset and resolves `os-beta` to its registry default
  * `false`, which would remove the user's profile and reset their selection.
+ *
+ * A new balanced-model experiment arm gets the same broadcast. It repoints what
+ * the managed Balanced profile resolves to without moving anything on disk, so
+ * the reconcile reports no change and clients would otherwise keep rendering
+ * the previous model beside a profile already running the new one.
  */
 function refreshFlagsAndReconcileProfiles(context: string): void {
+  const balancedArmBefore = getBalancedModelExperimentArm();
   refreshOverridesFromGateway()
     .then((loaded) => {
-      if (loaded && reconcileFlagGatedProfiles()) {
-        // Reuse the config-changed broadcast clients already consume so the
-        // profile picker reflects the added/removed managed profile.
+      if (!loaded) {
+        return;
+      }
+      const profilesChanged = reconcileFlagGatedProfiles();
+      const balancedArmChanged =
+        getBalancedModelExperimentArm() !== balancedArmBefore;
+      if (profilesChanged || balancedArmChanged) {
+        // Reuse the config-changed broadcast clients already consume: web
+        // routes the `assistant:self:config` sync tag to the effective profile
+        // catalog and the call-site catalog, both derived from config.
         publishConfigChanged();
       }
     })

@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "media_generate_image",
-      "description": "Generate or edit images using AI. Supports text-to-image generation and image editing with source images.",
+      "description": "Generate or edit images using AI. Supports text-to-image generation and image editing with source images. Saves results into the workspace and returns their file paths; present a result to the user by embedding its path in your reply as ![description](vellum://workspace/<path>).",
       "category": "media",
       "risk": "low",
       "input_schema": {

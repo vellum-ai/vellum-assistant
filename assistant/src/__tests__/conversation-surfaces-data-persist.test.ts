@@ -57,7 +57,7 @@ import { asConversation } from "./helpers/mock-conversation.js";
 function makeContext(sent: AssistantEvent[] = []): Conversation {
   return asConversation({
     conversationId: "conv-persist-1",
-    sendToClient: (msg) => sent.push(msg),
+    emit: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<
       string,

@@ -46,8 +46,8 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   },
   fireworks: {
     balanced: "accounts/fireworks/models/minimax-m3",
-    "cost-optimized": "accounts/fireworks/models/deepseek-v4-flash",
-    "latency-optimized": "accounts/fireworks/models/deepseek-v4-flash",
+    "cost-optimized": "accounts/fireworks/models/deepseek-v4-flash-0731",
+    "latency-optimized": "accounts/fireworks/models/deepseek-v4-flash-0731",
     "quality-optimized": "accounts/fireworks/models/kimi-k2p6",
     "vision-optimized": "accounts/fireworks/models/kimi-k2p6",
   },

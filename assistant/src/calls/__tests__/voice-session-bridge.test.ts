@@ -72,6 +72,7 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
+import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../../plugin-api/constants.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import {
   CALL_OPENING_MARKER,
@@ -125,7 +126,7 @@ interface FakeConversation {
     metadata?: Record<string, unknown>;
   }) => Promise<{ id: string }>;
   workingDir: string;
-  updateClient: (cb: unknown, reset?: boolean) => void;
+  addEventObserver: (observer: unknown) => () => void;
   handleConfirmationResponse: (
     requestId: string,
     decision: string,
@@ -191,13 +192,15 @@ function makeFakeConversation(opts: {
       opts.onPersist?.(persistCount);
       return { id: `msg-${persistCount}` };
     },
-    // The install (reset falsy) / reset (reset true) pair marks a turn
-    // taking ownership of the conversation vs a turn's cleanup releasing it.
-    updateClient: (cb, reset) => {
-      opts.events?.push(reset ? "client:reset" : "client:install");
-      if (reset !== true) {
-        clientCallback = cb as (msg: unknown) => Promise<void>;
-      }
+    // The install / reset pair marks a turn taking ownership of the
+    // conversation (observer registered) vs a turn's cleanup releasing it
+    // (the returned disposer invoked).
+    addEventObserver: (observer) => {
+      opts.events?.push("client:install");
+      clientCallback = observer as (msg: unknown) => Promise<void>;
+      return () => {
+        opts.events?.push("client:reset");
+      };
     },
     handleConfirmationResponse: (requestId, decision) => {
       confirmationDecisions.push({ requestId, decision });
@@ -213,7 +216,7 @@ function makeFakeConversation(opts: {
     conversation,
     waitForIdleCalls,
     confirmationDecisions,
-    /** Deliver an event the way the conversation would, to the installed handler. */
+    /** Deliver an event the way the conversation would, to the installed observer. */
     emitToClient: async (msg: unknown) => {
       await clientCallback?.(msg);
     },
@@ -360,6 +363,10 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     // not merely echo-suppressed live.
     const fake = makeFakeConversation({ processing: false });
     fakeConversation = fake.conversation;
+    let runOptions: Record<string, unknown> | undefined;
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      runOptions = args[2] as Record<string, unknown>;
+    };
 
     await startVoiceTurn({
       ...makeTurnOptions(),
@@ -372,7 +379,11 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     expect(fake.lastPersistOpts()?.metadata).toEqual({
       voiceSessionTurn: true,
       hidden: true,
+      messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
     });
+    expect(runOptions?.messageKind).toBe(
+      VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
+    );
   });
 
   test("the opener prompt is persisted un-hidden (unchanged)", async () => {
@@ -967,7 +978,7 @@ describe("startVoiceTurn prior-turn teardown barrier", () => {
     expect(events).toEqual(["persist", "client:install"]);
 
     // Turn 2 arrives during the teardown window: it must not persist or
-    // install its client callback until turn 1's cleanup has run.
+    // install its event observer until turn 1's cleanup has run.
     const turn2 = startVoiceTurn(
       makeTurnOptions(undefined, "conv-teardown-order"),
     );

@@ -286,7 +286,7 @@ describe("waiting / resizing", () => {
       </QueryClientProvider>,
     );
     expect(
-      getByText("Still working — this can take a minute or two."),
+      getByText("Still working. This can take a minute or two."),
     ).toBeTruthy();
   });
 

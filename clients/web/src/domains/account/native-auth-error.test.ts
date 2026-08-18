@@ -117,6 +117,12 @@ describe("nativeAuthErrorKey", () => {
     );
   });
 
+  test("asks an unsupported desktop shell to update", () => {
+    expect(
+      nativeAuthErrorKey(authErrorRejection("desktop_update_required")),
+    ).toBe("authErrors.desktopUpdateRequired");
+  });
+
   test("falls back to the generic message for an unmapped cause", () => {
     // allauth names its own code in a 400, so unmapped values reach here.
     expect(nativeAuthErrorKey(authErrorRejection("some_new_code"))).toBe(

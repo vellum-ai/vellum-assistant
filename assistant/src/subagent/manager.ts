@@ -519,10 +519,11 @@ export class SubagentManager {
 
     // ── Resolve spawn mode ───────────────────────────────────────────
     // The spawning call site is the only layer that can tell an advisor
-    // consult or a live-voice continuation apart from a plain fork, so it
-    // declares its mode. The fallback is mechanical rather than NULL: a
-    // future call site that forgets still records honest context-inheritance
-    // shape instead of dropping out of the telemetry breakdown entirely.
+    // consult apart from a plain spawn, or a live-voice continuation apart
+    // from a plain fork, so it declares its mode. The fallback is mechanical
+    // rather than NULL: a future call site that forgets still records honest
+    // context-inheritance shape instead of dropping out of the telemetry
+    // breakdown entirely.
     const spawnMode: SubagentSpawnMode =
       config.spawnMode ?? (isFork ? "fork" : "regular");
 
@@ -572,10 +573,9 @@ export class SubagentManager {
 
     let systemPrompt: string;
     if (isFork) {
-      // Forks default to the parent's system prompt verbatim — no subagent
-      // preamble — so the KV cache stays aligned with the parent. An explicit
-      // `systemPromptOverride` opts out of that alignment and takes precedence
-      // (e.g. the advisor role framing the inherited context as advice).
+      // Forks default to the parent's system prompt verbatim (no subagent
+      // preamble) so the KV cache stays aligned with the parent. An explicit
+      // `systemPromptOverride` opts out of that alignment and takes precedence.
       const resolved =
         config.systemPromptOverride ??
         config.parentSystemPrompt ??
@@ -686,9 +686,9 @@ export class SubagentManager {
       },
     );
 
-    // Mark conversation as having no direct client — it routes through parent.
-    // This ensures interactive prompts (host attachment reads) fail fast.
-    conversation.updateClient(wrappedSendToClient, true);
+    // A subagent has no client of its own: its sink (above) re-envelopes
+    // events under the parent, and its turns run non-interactive, so
+    // interactive prompts (host attachment reads) fail fast.
     // Subagents are created as background conversations (see the
     // `bootstrapConversation` call above) and never call `loadFromDb`, so cache
     // the type on the live conversation directly for the runtime-assembly path.
@@ -955,22 +955,14 @@ export class SubagentManager {
       // For forks, wrap the objective in directive framing so it overrides
       // conversational momentum from the inherited context. Without this,
       // the fork tends to continue the parent conversation instead of
-      // pivoting to the task — the inherited context is louder than a bare
+      // pivoting to the task: the inherited context is louder than a bare
       // objective buried after 100k+ tokens of chat history.
-      //
-      // The advisor consult is the exception: it is a fork, but its
-      // `systemPromptOverride` already frames the inherited context as advice
-      // ("you are a senior advisor … do not write its final deliverable"), so
-      // the generic "complete this task and return your findings" wrapper would
-      // fight that framing. The advisor's objective is already the bare advice
-      // request (`advisorRequestText()`), so it is sent uncontested.
       //
       // A fork's persona and output contract ride in this framing rather than
       // the system prompt: the prompt is the parent's, inherited verbatim to
       // keep the KV cache aligned, so the task message is the only place a
       // fork-specific instruction can land.
-      const useForkFraming =
-        managed.state.isFork && managed.state.config.role !== "advisor";
+      const useForkFraming = managed.state.isFork;
       const forkPersona = managed.state.config.persona;
       const forkContract = subagentOutputContractText(
         managed.state.config.outputContract,
@@ -1494,17 +1486,13 @@ export class SubagentManager {
   }
 
   /**
-   * Update the parent sender for all active children of a conversation and
-   * re-emit each child's current status to it. Called when the parent client
-   * reconnects to a new socket, so a reconnecting client resyncs any status it
-   * missed while disconnected (e.g. a subagent marked `interrupted` during
-   * rehydration after a daemon restart, whose card would otherwise stay stuck
-   * on a stale `running`).
+   * Re-emit every child's current status through its parent sink. The send
+   * route calls this on each interactive send so a client that reconnected
+   * mid-run resyncs any status it missed while disconnected (e.g. a subagent
+   * marked `interrupted` during rehydration after a daemon restart, whose card
+   * would otherwise stay stuck on a stale `running`).
    */
-  updateParentSender(
-    parentConversationId: string,
-    newSendToClient: (msg: AssistantEvent) => void,
-  ): void {
+  reannounceChildStatuses(parentConversationId: string): void {
     const children = this.parentToChildren.get(parentConversationId);
     if (!children) {
       return;
@@ -1515,12 +1503,7 @@ export class SubagentManager {
       if (!managed) {
         continue;
       }
-      if (!TERMINAL_STATUSES.has(managed.state.status)) {
-        managed.parentSendToClient = newSendToClient;
-      }
-      // Re-emit the current status so the reconnecting client corrects any card
-      // it left in a stale state while disconnected.
-      newSendToClient({
+      managed.parentSendToClient({
         type: "subagent_status_changed",
         subagentId: childId,
         status: managed.state.status,

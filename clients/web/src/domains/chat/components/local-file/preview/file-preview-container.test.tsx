@@ -192,6 +192,22 @@ describe("FilePreviewContainer", () => {
     });
   });
 
+  test("a markdown file renders as formatted prose, not source", async () => {
+    nextResult = textResult("# Heading\n\nA paragraph.");
+
+    renderPreview({
+      workspacePath: "drafts/notes.md",
+      documentName: "notes.md",
+      previewKind: "markdown",
+    });
+
+    const heading = await waitFor(() =>
+      screen.getByRole("heading", { name: "Heading" }),
+    );
+    expect(heading.tagName).toBe("H1");
+    expect(screen.getByText("A paragraph.")).toBeTruthy();
+  });
+
   test("a text file renders its contents verbatim", async () => {
     nextResult = textResult("first line\nsecond line");
 

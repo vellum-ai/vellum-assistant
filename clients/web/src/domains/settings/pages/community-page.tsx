@@ -18,12 +18,15 @@ import { XLogo } from "@/components/icons/x-logo";
 import { YouTubeLogo } from "@/components/icons/youtube-logo";
 import { joinDiscord } from "@/hooks/use-discord-nudge";
 import { GITHUB_REPO_URL, useGitHubNudgeState } from "@/hooks/use-github-nudge";
+import { useTranslation } from "@/i18n";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Tag } from "@vellumai/design-library/components/tag";
 
-function HeroBanner() {
+type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
+
+function HeroBanner({ t }: { t: SettingsTranslate }) {
   return (
     <Card padding="lg" className="bg-[var(--surface-lift)]">
       <div className="relative">
@@ -38,14 +41,13 @@ function HeroBanner() {
         <div className="relative flex flex-col items-start gap-3">
           <Tag tone="neutral">
             <Play className="h-3.5 w-3.5" />
-            Community
+            {t("communityPage.heroTag")}
           </Tag>
           <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-[var(--content-emphasised)]">
-            Build with us, in the open.
+            {t("communityPage.heroTitle")}
           </h1>
           <p className="max-w-xl text-body-medium-default text-[color:var(--content-tertiary)]">
-            Vellum is built in the open with a growing community of developers,
-            designers, and tinkerers. Here&apos;s how to get involved.
+            {t("communityPage.heroDescription")}
           </p>
         </div>
       </div>
@@ -212,58 +214,68 @@ function ResourceCard({
 }
 
 export function CommunityPage() {
+  const { t } = useTranslation("settings");
   const { handleStar } = useGitHubNudgeState();
 
   return (
     <div className="space-y-6">
-      <HeroBanner />
+      <HeroBanner t={t} />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <FeatureCard
           accentColor="var(--content-emphasised)"
           iconColor="var(--surface-base)"
-          label="Open Source"
+          label={t("communityPage.openSourceLabel")}
           icon={<GitHubLogo size={20} />}
-          title="Vellum is open source"
-          subtitle="Read the source, star the repo, and contribute fixes and features on GitHub."
+          title={t("communityPage.openSourceTitle")}
+          subtitle={t("communityPage.openSourceSubtitle")}
           benefits={[
-            { icon: Star, text: "Star the repo to follow updates" },
-            { icon: Bug, text: "Open issues and report bugs" },
+            {
+              icon: Star,
+              text: t("communityPage.openSourceBenefitStar"),
+            },
+            {
+              icon: Bug,
+              text: t("communityPage.openSourceBenefitIssues"),
+            },
             {
               icon: GitPullRequest,
-              text: "Contribute fixes and new features",
+              text: t("communityPage.openSourceBenefitContribute"),
             },
           ]}
           primaryAction={{
-            label: "Star on GitHub",
+            label: t("communityPage.starOnGitHub"),
             icon: <Star size={16} />,
             onClick: handleStar,
           }}
           secondaryAction={{
-            label: "View source",
+            label: t("communityPage.viewSource"),
             href: GITHUB_REPO_URL,
           }}
         />
 
         <FeatureCard
           accentColor="#5865F2"
-          label="Discord"
+          label={t("communityPage.discordLabel")}
           icon={<DiscordLogo size={20} />}
-          title="Join our community"
-          subtitle="Talk to the team, share feedback, request features, and get answers faster."
+          title={t("communityPage.discordTitle")}
+          subtitle={t("communityPage.discordSubtitle")}
           benefits={[
-            { icon: Heart, text: "Talk directly with the team" },
+            {
+              icon: Heart,
+              text: t("communityPage.discordBenefitTeam"),
+            },
             {
               icon: Sparkles,
-              text: "Share feedback and request features",
+              text: t("communityPage.discordBenefitFeedback"),
             },
             {
               icon: Users,
-              text: "Get answers faster from the community",
+              text: t("communityPage.discordBenefitAnswers"),
             },
           ]}
           primaryAction={{
-            label: "Join Discord",
+            label: t("communityPage.joinDiscord"),
             icon: <DiscordLogo size={16} style={{ color: "currentColor" }} />,
             onClick: joinDiscord,
           }}
@@ -272,29 +284,29 @@ export function CommunityPage() {
 
       <div className="flex flex-col gap-4">
         <h2 className="text-label-medium-default uppercase tracking-wider text-[color:var(--content-tertiary)]">
-          More from Vellum
+          {t("communityPage.moreFromVellum")}
         </h2>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <ResourceCard
             icon={<Globe size={20} />}
             iconBg="#22c55e"
-            title="Community Hub"
-            description="Showcases, guides, and projects shared by the community."
+            title={t("communityPage.communityHubTitle")}
+            description={t("communityPage.communityHubDescription")}
             href={VELLUM_COMMUNITY_URL}
           />
           <ResourceCard
             icon={<XLogo size={20} />}
             iconBg="var(--content-default)"
             iconColor="var(--surface-base)"
-            title="Follow on X"
-            description="Product updates, releases, and behind-the-scenes."
+            title={t("communityPage.followOnXTitle")}
+            description={t("communityPage.followOnXDescription")}
             href="https://x.com/vellum_ai"
           />
           <ResourceCard
             icon={<YouTubeLogo size={20} />}
             iconBg="#ef4444"
-            title="YouTube channel"
-            description="Walkthroughs, tutorials, and product deep-dives."
+            title={t("communityPage.youtubeChannelTitle")}
+            description={t("communityPage.youtubeChannelDescription")}
             href="https://www.youtube.com/@Vellum_AI"
           />
         </div>

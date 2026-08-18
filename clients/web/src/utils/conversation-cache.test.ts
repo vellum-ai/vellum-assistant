@@ -2,22 +2,22 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
 import type { Conversation } from "@/types/conversation-types";
+import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
 import {
-  conversationsQueryKey,
-  backgroundConversationsQueryKey,
-  scheduledConversationsQueryKey,
-  archivedConversationsQueryKey,
-} from "@/utils/conversation-list-fetchers";
+  ARCHIVED_FILTER,
+  BACKGROUND_FILTER,
+  conversationListQueryKey,
+  FOREGROUND_FILTER,
+  SCHEDULED_FILTER,
+} from "@/utils/conversation-list-keys";
+import { listPage } from "@/utils/conversation-list.test-helper";
 
 import {
   cancelConversationQueries,
   snapshotConversationCaches,
   restoreConversationCaches,
   invalidateConversationQueries,
-  updateConversationsCache,
-  updateBackgroundConversationsCache,
-  updateScheduledConversationsCache,
-  updateArchivedConversationsCache,
+  updateConversationListCache,
   updateAllConversationCaches,
   findConversation,
   mergeConversationLists,
@@ -43,48 +43,62 @@ function makeConversation(
 }
 
 function seedForeground(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(conversationsQueryKey(ASSISTANT_ID), conversations);
+  qc.setQueryData(
+    conversationListQueryKey(ASSISTANT_ID),
+    listPage(conversations),
+  );
 }
 
 function seedBackground(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(backgroundConversationsQueryKey(ASSISTANT_ID), conversations);
+  qc.setQueryData(
+    conversationListQueryKey(ASSISTANT_ID, BACKGROUND_FILTER),
+    listPage(conversations),
+  );
 }
 
 function seedScheduled(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(scheduledConversationsQueryKey(ASSISTANT_ID), conversations);
+  qc.setQueryData(
+    conversationListQueryKey(ASSISTANT_ID, SCHEDULED_FILTER),
+    listPage(conversations),
+  );
 }
 
 function seedArchived(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), conversations);
+  qc.setQueryData(
+    conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
+    listPage(conversations),
+  );
 }
 
 function getForeground(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)) ?? []
+    qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID),
+    )?.conversations ?? []
   );
 }
 
 function getBackground(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(
-      backgroundConversationsQueryKey(ASSISTANT_ID),
-    ) ?? []
+    qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID, BACKGROUND_FILTER),
+    )?.conversations ?? []
   );
 }
 
 function getScheduled(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(
-      scheduledConversationsQueryKey(ASSISTANT_ID),
-    ) ?? []
+    qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID, SCHEDULED_FILTER),
+    )?.conversations ?? []
   );
 }
 
 function getArchived(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(
-      archivedConversationsQueryKey(ASSISTANT_ID),
-    ) ?? []
+    qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
+    )?.conversations ?? []
   );
 }
 
@@ -147,14 +161,14 @@ describe("snapshotConversationCaches + restoreConversationCaches", () => {
 });
 
 // ---------------------------------------------------------------------------
-// updateConversationsCache
+// updateConversationListCache
 // ---------------------------------------------------------------------------
 
-describe("updateConversationsCache", () => {
+describe("updateConversationListCache with FOREGROUND_FILTER", () => {
   test("applies updater to foreground cache", () => {
     seedForeground(qc, [makeConversation({ conversationId: "c1" })]);
 
-    updateConversationsCache(qc, ASSISTANT_ID, (list) => [
+    updateConversationListCache(qc, ASSISTANT_ID, FOREGROUND_FILTER, (list) => [
       ...list,
       makeConversation({ conversationId: "c2" }),
     ]);
@@ -166,13 +180,18 @@ describe("updateConversationsCache", () => {
     const original = [makeConversation({ conversationId: "c1" })];
     seedForeground(qc, original);
 
-    updateConversationsCache(qc, ASSISTANT_ID, (list) => list);
+    updateConversationListCache(
+      qc,
+      ASSISTANT_ID,
+      FOREGROUND_FILTER,
+      (list) => list,
+    );
 
     expect(getForeground(qc)).toBe(original);
   });
 
   test("initializes from empty when cache is unset", () => {
-    updateConversationsCache(qc, ASSISTANT_ID, (list) => {
+    updateConversationListCache(qc, ASSISTANT_ID, FOREGROUND_FILTER, (list) => {
       expect(list).toEqual([]);
       return [makeConversation({ conversationId: "c1" })];
     });
@@ -182,15 +201,15 @@ describe("updateConversationsCache", () => {
 });
 
 // ---------------------------------------------------------------------------
-// updateBackgroundConversationsCache / updateScheduledConversationsCache
+// updateConversationListCache with the typed bucket filters
 // ---------------------------------------------------------------------------
 
-describe("updateBackgroundConversationsCache", () => {
+describe("updateConversationListCache with BACKGROUND_FILTER", () => {
   test("applies updater to background cache only", () => {
     seedForeground(qc, [makeConversation({ conversationId: "c1" })]);
     seedBackground(qc, []);
 
-    updateBackgroundConversationsCache(qc, ASSISTANT_ID, () => [
+    updateConversationListCache(qc, ASSISTANT_ID, BACKGROUND_FILTER, () => [
       makeConversation({ conversationId: "bg1" }),
     ]);
 
@@ -199,12 +218,12 @@ describe("updateBackgroundConversationsCache", () => {
   });
 });
 
-describe("updateScheduledConversationsCache", () => {
+describe("updateConversationListCache with SCHEDULED_FILTER", () => {
   test("applies updater to scheduled cache only", () => {
     seedForeground(qc, [makeConversation({ conversationId: "c1" })]);
     seedScheduled(qc, []);
 
-    updateScheduledConversationsCache(qc, ASSISTANT_ID, () => [
+    updateConversationListCache(qc, ASSISTANT_ID, SCHEDULED_FILTER, () => [
       makeConversation({ conversationId: "s1" }),
     ]);
 
@@ -217,12 +236,12 @@ describe("updateScheduledConversationsCache", () => {
 // updateAllConversationCaches
 // ---------------------------------------------------------------------------
 
-describe("updateArchivedConversationsCache", () => {
+describe("updateConversationListCache with ARCHIVED_FILTER", () => {
   test("applies updater to archived cache only", () => {
     seedForeground(qc, [makeConversation({ conversationId: "c1" })]);
     seedArchived(qc, []);
 
-    updateArchivedConversationsCache(qc, ASSISTANT_ID, () => [
+    updateConversationListCache(qc, ASSISTANT_ID, ARCHIVED_FILTER, () => [
       makeConversation({ conversationId: "a1" }),
     ]);
 
@@ -232,6 +251,28 @@ describe("updateArchivedConversationsCache", () => {
 });
 
 describe("updateAllConversationCaches", () => {
+  test("preserves a window's hasMore across a row update", () => {
+    // A windowed cache (hasMore: true) stays a window when a row inside it
+    // changes; flipping the flag would silently retire the load-more path.
+    qc.setQueryData(
+      conversationListQueryKey(ASSISTANT_ID),
+      listPage(
+        [makeConversation({ conversationId: "c1", title: "old" })],
+        true,
+      ),
+    );
+
+    updateAllConversationCaches(qc, ASSISTANT_ID, (list) =>
+      list.map((c) => ({ ...c, title: "new" })),
+    );
+
+    const page = qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID),
+    );
+    expect(page?.conversations[0]?.title).toBe("new");
+    expect(page?.hasMore).toBe(true);
+  });
+
   test("applies updater to all four caches", () => {
     seedForeground(qc, [
       makeConversation({ conversationId: "c1", title: "old" }),

@@ -41,6 +41,7 @@ import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
+import { isGuardianCardRow } from "../notifications/approval-card-data.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -319,7 +320,21 @@ export class Conversation {
   /** @internal */ prompter: PermissionPrompter;
   /** @internal */ secretPrompter: SecretPrompter;
   private executor: ToolExecutor;
-  /** @internal */ sendToClient: (msg: AssistantEvent) => void;
+  /**
+   * The conversation's event sink, fixed for its whole life. Top-level
+   * conversations deliver to the SSE hub, so every subscribed client sees
+   * every event without any per-turn wiring; a subagent's sink re-envelopes
+   * its events under the parent conversation. Reached only through
+   * {@link emit}, which also notifies {@link addEventObserver} observers.
+   */
+  private readonly sendToClient: (msg: AssistantEvent) => void;
+  /**
+   * Observers notified after every {@link emit}, in registration order. An
+   * observer sees the event after the sink delivered it, so anything it does
+   * in response (e.g. voice auto-resolving a confirmation) lands on the wire
+   * after the event itself.
+   */
+  private readonly eventObservers = new Set<(msg: AssistantEvent) => void>();
   /** @internal */ workingDir: string;
   /** @internal */ allowedToolNames?: Set<string>;
   /**
@@ -435,7 +450,18 @@ export class Conversation {
    * @internal
    */
   currentCallSite?: LLMCallSite;
-  /** @internal */ hasNoClient = false;
+  /**
+   * Whether no human is present to see UI or answer prompts. Derived from the
+   * in-flight turn's interactivity ({@link currentTurnIsNonInteractive}); a
+   * conversation with no turn in flight has no client. Presence is a property
+   * of the turn, never of where events are delivered, so there is no setter:
+   * dispatch paths declare interactivity per turn (`isInteractive` on
+   * `runAgentLoop`, or a wake's pin), and this reads it.
+   * @internal
+   */
+  get hasNoClient(): boolean {
+    return this.currentTurnIsNonInteractive ?? true;
+  }
   /**
    * For subagent conversations, the id of the parent that spawned this one; set
    * once at construction and never reassigned. `undefined` for top-level
@@ -757,10 +783,10 @@ export class Conversation {
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
     this.graphMemory = new ConversationGraphMemory(conversationId);
-    this.prompter = new PermissionPrompter(sendToClient);
+    // The prompter emits through the conversation so its confirmation_request
+    // reaches the sink and every observer (voice policy) like any other event.
+    this.prompter = new PermissionPrompter((msg) => this.emit(msg));
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
-      // Route through emitConfirmationStateChanged so the event reaches
-      // the client via sendToClient (wired to the SSE hub for HTTP conversations).
       this.emitConfirmationStateChanged({
         conversationId: this.conversationId,
         requestId,
@@ -1316,6 +1342,16 @@ export class Conversation {
       parsedMessages.length,
     );
     for (const [index, message] of parsedMessages.entries()) {
+      // Applied after the compaction slice, never before it: the slice and
+      // `rowToHistoryIndex` are both computed against the full row list, so
+      // dropping earlier would shift them. A dropped row maps to a null
+      // history index exactly like a fully-injected user row that strips to
+      // nothing. `index` is shared with `slicedDbMessages`, which
+      // `parsedMessages` maps 1:1.
+      if (isGuardianCardRow(slicedDbMessages[index]?.content)) {
+        preRepairIndexBySlicedRow[index] = null;
+        continue;
+      }
       const stripped =
         index < preStrippedCount
           ? stripInjectionsForCompaction([message])
@@ -1418,7 +1454,7 @@ export class Conversation {
       messageCount: this.messages.length,
     });
 
-    this.restoreSurfaceStateFromHistory();
+    this.restoreSurfaceStateFromHistory(parsedMessages);
     this.graphMemory.restoreState();
 
     // Row→history correspondence for this load: slice offset, then the
@@ -1450,14 +1486,19 @@ export class Conversation {
    * populate surfaceState so that findConversationBySurfaceId works for
    * surfaces restored from history (e.g. after daemon restart).
    *
-   * Only scans live (non-compacted) messages in this.messages — not all DB
-   * rows — because surface IDs are not globally unique and restoring stale
-   * compacted surfaces would let findConversationBySurfaceId route actions
-   * to the wrong conversation.
+   * Scans the live (non-compacted) window only, never all DB rows, because
+   * surface IDs are not globally unique and restoring stale compacted
+   * surfaces would let findConversationBySurfaceId route actions to the wrong
+   * conversation.
+   *
+   * Takes that window as rows rather than reading `this.messages`, because a
+   * surface's lifecycle and the model's context are different questions. A
+   * guardian card is absent from `this.messages`, but it is exactly the card
+   * whose Approve/Reject buttons must still route after a restart.
    */
-  private restoreSurfaceStateFromHistory(): void {
+  private restoreSurfaceStateFromHistory(liveWindow: Message[]): void {
     this.surfaceState.clear();
-    for (const msg of this.messages) {
+    for (const msg of liveWindow) {
       if (!Array.isArray(msg.content)) {
         continue;
       }
@@ -1489,31 +1530,55 @@ export class Conversation {
     await this.loadFromDb();
   }
 
-  updateClient(
-    sendToClient: (msg: AssistantEvent) => void,
-    hasNoClient = false,
-  ): void {
-    this.sendToClient = sendToClient;
-    this.hasNoClient = hasNoClient;
-    this.prompter.updateSender(sendToClient);
-
-    // Replay last activity state so a reconnecting client sees the current phase
-    // instead of being stuck on the last state it received before disconnection.
-    if (!hasNoClient && this.lastActivityStateMsg) {
+  /**
+   * Deliver an event through the conversation's sink, then to every observer.
+   * The single emission point for conversation-level events (activity state,
+   * confirmation prompts and state, notifier output, out-of-turn pushes); the
+   * agent loop's own stream rides its per-turn `onEvent`, which defaults to
+   * this when the caller passes none.
+   */
+  readonly emit = (msg: AssistantEvent): void => {
+    try {
+      this.sendToClient(msg);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: this.conversationId, type: msg.type },
+        "conversation sink threw",
+      );
+    }
+    for (const observer of this.eventObservers) {
       try {
-        sendToClient(this.lastActivityStateMsg);
+        observer(msg);
       } catch (err) {
         log.warn(
-          { err, conversationId: this.conversationId },
-          "Failed to replay activity state on client reconnection",
+          { err, conversationId: this.conversationId, type: msg.type },
+          "conversation event observer threw",
         );
       }
     }
+  };
+
+  /**
+   * Observe every event this conversation emits, after the sink delivered it.
+   * For policy layered on delivery (voice auto-resolves approval prompts it
+   * has no UI for), not for delivery itself. Returns the disposer.
+   */
+  addEventObserver(observer: (msg: AssistantEvent) => void): () => void {
+    this.eventObservers.add(observer);
+    return () => {
+      this.eventObservers.delete(observer);
+    };
   }
 
-  /** Returns the current sendToClient reference for identity comparison. */
-  getCurrentSender(): (msg: AssistantEvent) => void {
-    return this.sendToClient;
+  /**
+   * Re-emit the last activity state so a client that reconnected mid-phase
+   * sees the current phase instead of the last one it received before
+   * disconnecting. The send route calls this on every interactive send.
+   */
+  replayActivityState(): void {
+    if (this.lastActivityStateMsg) {
+      this.emit(this.lastActivityStateMsg);
+    }
   }
 
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
@@ -1801,7 +1866,7 @@ export class Conversation {
   } {
     return enqueueMessageImpl(this, {
       ...options,
-      onEvent: options.onEvent ?? this.sendToClient,
+      onEvent: options.onEvent ?? this.emit,
     });
   }
 
@@ -1976,14 +2041,7 @@ export class Conversation {
       type: "confirmation_state_changed",
       ...params,
     } as AssistantEvent;
-    try {
-      this.sendToClient(msg);
-    } catch (err) {
-      log.warn(
-        { err, conversationId: this.conversationId },
-        "sendToClient threw in emitConfirmationStateChanged",
-      );
-    }
+    this.emit(msg);
   }
 
   emitActivityState(
@@ -2008,14 +2066,7 @@ export class Conversation {
       ...(statusText ? { statusText } : {}),
     } as AssistantEvent;
     this.lastActivityStateMsg = msg;
-    try {
-      this.sendToClient(msg);
-    } catch (err) {
-      log.warn(
-        { err, conversationId: this.conversationId },
-        "sendToClient threw in emitActivityState",
-      );
-    }
+    this.emit(msg);
   }
 
   /**
@@ -2069,7 +2120,7 @@ export class Conversation {
     onEvent?: (msg: AssistantEvent) => void,
   ): void {
     try {
-      (onEvent ?? this.sendToClient)({
+      (onEvent ?? this.emit)({
         type: "context_window_usage",
         conversationId: this.conversationId,
         tokens,
@@ -2421,11 +2472,11 @@ export class Conversation {
     ) {
       await this.agentLoop.compactionCircuit.recordOutcome(
         result.summaryFailed,
-        this.sendToClient,
+        this.emit,
       );
     }
     if (result.compacted) {
-      await applyCompactionResult(this, result, this.sendToClient, null, {
+      await applyCompactionResult(this, result, this.emit, null, {
         slackContextCompactionWatermarkTs:
           fixedBoundarySlackWatermarkTs ??
           getSlackCompactionWatermarkForPrefix(
@@ -2681,6 +2732,8 @@ export class Conversation {
       titleText?: string;
       /** See {@link runAgentLoopImpl} — hidden machine-signal turn marker. */
       isHiddenPrompt?: boolean;
+      /** See {@link runAgentLoopImpl}: triggering row's daemon-authored kind. */
+      messageKind?: string;
       /**
        * See {@link runAgentLoopImpl}: the row the end-of-turn reply
        * notification treats as the prompt this turn answers.
@@ -2722,7 +2775,7 @@ export class Conversation {
       this,
       content,
       userMessageId,
-      onEvent ?? this.sendToClient,
+      onEvent ?? this.emit,
       rest,
     );
   }
@@ -2748,7 +2801,7 @@ export class Conversation {
     this.cacheWarmAbort = undefined;
     return processMessageImpl(this, {
       ...options,
-      onEvent: options.onEvent ?? this.sendToClient,
+      onEvent: options.onEvent ?? this.emit,
     });
   }
 

@@ -38,6 +38,7 @@ let assistantsValue: ResolvedAssistant[] = [];
 let localModeHostAvailableValue = false;
 let isLocalClientValue = true;
 let assistantSwitcherValue = false;
+let webRemoteIngressValue = true;
 let flagsHydratedValue = true;
 let originsValue: RememberedOrigin[] = [];
 let originsHydratedValue = true;
@@ -109,6 +110,15 @@ mock.module("react-router", () => ({
   useSearchParams: () => [searchParams, setSearchParamsMock],
 }));
 
+// The screen refreshes the platform assistants list on mount; the real module
+// drags in @/assistant/api and the event bus, so it is fully mocked here.
+const refreshPlatformAssistantsIfStaleMock = mock(async () => {});
+mock.module("@/assistant/platform-assistants-sync", () => ({
+  refreshPlatformAssistantsIfStale: refreshPlatformAssistantsIfStaleMock,
+  reloadPlatformAssistants: async () => {},
+  setupPlatformAssistantsSync: () => () => {},
+}));
+
 mock.module("@/assistant/selection", () => ({
   resolveSelectedAssistantId: () => null,
   // Imported by switch-service (pulled in for the paired-removal branch);
@@ -145,6 +155,7 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
       assistantSwitcher: () => assistantSwitcherValue,
+      webRemoteIngress: () => webRemoteIngressValue,
       hydrated: () => flagsHydratedValue,
     },
   },
@@ -253,7 +264,7 @@ mock.module("@/domains/onboarding/components/add-remote-origin-dialog", () => ({
     ) : null,
 }));
 
-mock.module("@/domains/onboarding/components/onboarding-layout", () => ({
+mock.module("@/components/onboarding-layout", () => ({
   OnboardingLayout: ({ children }: { children: ReactNode }) => children,
 }));
 
@@ -314,6 +325,9 @@ mock.module("@/stores/resolved-assistants-store", () => ({
       setActiveAssistantId: setActiveAssistantIdMock,
     }),
   },
+  // Mirrors the real predicate; the module is fully replaced by this mock.
+  isConnectableFromThisDevice: (a: ResolvedAssistant) =>
+    !a.isLocal || a.cloud != null || a.ingressUrl != null,
 }));
 
 mock.module("@/utils/routes", () => ({
@@ -390,6 +404,7 @@ const { SelectAssistantScreen } = await import(
 
 const PAIRED_ID = "paired-1";
 const PLATFORM_ID = "platform-1";
+const LOCAL_ID = "vellum-deep-hare-ww1iw1";
 
 function makePairedAssistant(
   overrides: Partial<ResolvedAssistant> = {},
@@ -414,6 +429,21 @@ function makePlatformAssistant(
     cloud: "vellum",
     isLocal: false,
     isPlatformHosted: true,
+    isPaired: false,
+    ...overrides,
+  };
+}
+
+/** A lockfile-backed local entry as a local client sees it. */
+function makeLocalAssistant(
+  overrides: Partial<ResolvedAssistant> = {},
+): ResolvedAssistant {
+  return {
+    id: LOCAL_ID,
+    name: "Desk Helper",
+    cloud: "local",
+    isLocal: true,
+    isPlatformHosted: false,
     isPaired: false,
     ...overrides,
   };
@@ -455,6 +485,7 @@ beforeEach(() => {
   isElectronValue = false;
   isLocalClientValue = true;
   assistantSwitcherValue = false;
+  webRemoteIngressValue = true;
   flagsHydratedValue = true;
   originsValue = [];
   originsHydratedValue = true;
@@ -486,6 +517,7 @@ beforeEach(() => {
   removePlatformAssistantFromLockfileMock.mockClear();
   activeAssistantIdValue = null;
   setActiveAssistantIdMock.mockClear();
+  refreshPlatformAssistantsIfStaleMock.mockClear();
   __resetConnectDialogForTesting();
 });
 
@@ -1346,6 +1378,16 @@ describe("SelectAssistantScreen add-remote-assistant affordance", () => {
     expect(screen.queryByText("Add a remote assistant")).toBeNull();
   });
 
+  test("is hidden when web-remote-ingress is off", () => {
+    assistantSwitcherValue = true;
+    webRemoteIngressValue = false;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.queryByText("Add a remote assistant")).toBeNull();
+  });
+
   test("an added origin closes the dialog and switches to it", async () => {
     assistantSwitcherValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
@@ -1543,5 +1585,197 @@ describe("SelectAssistantScreen platform-mode gate", () => {
       expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
     );
     expect(screen.queryByText("Create a new assistant")).toBeNull();
+  });
+});
+
+describe("SelectAssistantScreen local registrations on the platform hub", () => {
+  // API-sourced self-hosted entries as the hub sees them: no lockfile behind
+  // them, so `cloud` is unset and reachability hinges on `ingressUrl`.
+  const makeLocalRegistration = (
+    overrides: Partial<ResolvedAssistant> = {},
+  ): ResolvedAssistant => ({
+    id: "local-reg-1",
+    name: "Mac Mini",
+    isLocal: true,
+    isPlatformHosted: false,
+    isPaired: false,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    isLocalClientValue = false;
+    hasPlatformSessionValue = true;
+    assistantSwitcherValue = true;
+  });
+
+  test("hides a local registration with no ingress", async () => {
+    assistantsValue = [
+      makePlatformAssistant(),
+      makeLocalRegistration({ ingressUrl: null }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    const radios = screen.getAllByRole("radio");
+    expect(radios).toHaveLength(1);
+    expect(radios[0].textContent).toContain("Cloud Helper");
+    expect(screen.queryByText("Mac Mini")).toBeNull();
+  });
+
+  test("a local registration with an ingress renders and connects through the platform path", async () => {
+    assistantsValue = [
+      makePlatformAssistant(),
+      makeLocalRegistration({ ingressUrl: "https://mac.example.com" }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    const card = screen
+      .getAllByRole("radio")
+      .find((r) => r.textContent?.includes("Mac Mini"));
+    expect(card).toBeTruthy();
+    fireEvent.click(card!);
+    fireEvent.click(screen.getByText("Continue"));
+
+    await waitFor(() =>
+      expect(connectPlatformAssistantMock).toHaveBeenCalledWith("local-reg-1"),
+    );
+    expect(connectLocalAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("labels a hub-listed self-hosted entry with its ingress host", async () => {
+    assistantsValue = [
+      makeLocalRegistration({ ingressUrl: "https://mac.example.com" }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Self-hosted · mac.example.com")).toBeTruthy(),
+    );
+    expect(screen.queryByText("On this computer")).toBeNull();
+  });
+
+  test("locks an ingress-backed local entry behind login when the platform session is gone", async () => {
+    hasPlatformSessionValue = false;
+    assistantsValue = [
+      makeLocalRegistration({ ingressUrl: "https://mac.example.com" }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    // Locked: no selectable radio, and the card offers the login affordance.
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.getByText("Log in to use")).toBeTruthy();
+  });
+
+  test("a local entry on a local client still connects through the local path", async () => {
+    isLocalClientValue = true;
+    hasPlatformSessionValue = false;
+    assistantSwitcherValue = false;
+    assistantsValue = [
+      makeLocalRegistration({ id: "asst-local", cloud: "local" }),
+      makePlatformAssistant(),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    const card = screen
+      .getAllByRole("radio")
+      .find((r) => r.textContent?.includes("Mac Mini"));
+    expect(card).toBeTruthy();
+    fireEvent.click(card!);
+    fireEvent.click(screen.getByText("Continue"));
+
+    await waitFor(() =>
+      expect(connectLocalAssistantMock).toHaveBeenCalledWith("asst-local"),
+    );
+    expect(connectPlatformAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("refreshes the platform assistants list on mount", async () => {
+    assistantsValue = [makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(refreshPlatformAssistantsIfStaleMock).toHaveBeenCalledTimes(1),
+    );
+  });
+});
+
+describe("SelectAssistantScreen assistant labels", () => {
+  // Two entries per case: a sole accessible local entry auto-connects
+  // instead of rendering the chooser.
+  const SECOND_LOCAL_ID = "vellum-calm-otter-ab2cd3";
+
+  test("a named local entry shows its persona name", () => {
+    assistantsValue = [
+      makeLocalAssistant(),
+      makeLocalAssistant({ id: SECOND_LOCAL_ID, name: undefined }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    const named = screen
+      .getAllByRole("radio")
+      .find((r) => r.textContent?.includes("Desk Helper"));
+    expect(named).toBeTruthy();
+    expect(named!.textContent).not.toContain(LOCAL_ID);
+  });
+
+  test("unnamed local entries fall back to their instance ids", () => {
+    assistantsValue = [
+      makeLocalAssistant({ name: undefined }),
+      makeLocalAssistant({ id: SECOND_LOCAL_ID, name: undefined }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByText(LOCAL_ID)).toBeTruthy();
+    expect(screen.getByText(SECOND_LOCAL_ID)).toBeTruthy();
+    expect(screen.queryByText("Local Assistant")).toBeNull();
+  });
+
+  test("an unnamed hub local registration keeps the generic fallback, not its UUID", () => {
+    // API-sourced hub row: no lockfile entry behind it, so no `cloud`, and
+    // its id is the platform assistant record's UUID.
+    const HUB_LOCAL_UUID = "3f8a1c2e-9b4d-4e6f-8a70-1d2c3b4a5e6f";
+    assistantsValue = [
+      makeLocalAssistant({ name: undefined }),
+      {
+        id: HUB_LOCAL_UUID,
+        name: undefined,
+        isLocal: true,
+        isPlatformHosted: false,
+        isPaired: false,
+        ingressUrl: "https://mac.example.com",
+      },
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByText("Local Assistant")).toBeTruthy();
+    expect(screen.queryByText(HUB_LOCAL_UUID)).toBeNull();
+    // The lockfile-sourced entry still shows its friendly instance id.
+    expect(screen.getByText(LOCAL_ID)).toBeTruthy();
+  });
+
+  test("an unnamed cloud entry keeps the generic Cloud Assistant fallback", () => {
+    assistantsValue = [makePlatformAssistant({ name: undefined })];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByText("Cloud Assistant")).toBeTruthy();
+    expect(screen.queryByText(PLATFORM_ID)).toBeNull();
   });
 });

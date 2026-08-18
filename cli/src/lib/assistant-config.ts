@@ -11,6 +11,7 @@ import { homedir } from "os";
 import { dirname, join } from "path";
 
 import { SEEDS, type EnvironmentDefinition } from "@vellumai/environments";
+import { withLockfileLock } from "@vellumai/local-mode";
 import {
   resolveCloud,
   type LocalAssistantResources,
@@ -186,7 +187,7 @@ function readLockfile(): LockfileData {
   return {};
 }
 
-function writeLockfile(data: LockfileData): void {
+function writeLockfileUnlocked(data: LockfileData): void {
   const lockfilePath = getLockfilePath(getCurrentEnvironment());
   mkdirSync(dirname(lockfilePath), { recursive: true });
   const tmpPath = `${lockfilePath}.${randomBytes(4).toString("hex")}.tmp`;
@@ -199,6 +200,23 @@ function writeLockfile(data: LockfileData): void {
     } catch {}
     throw err;
   }
+}
+
+/**
+ * Run `fn` under the same cross-process advisory lock the local-mode hosts
+ * use, keyed to this environment's write-path lockfile, so CLI writers and
+ * package-side writers (Electron main, Vite plugin, `vellum client`) never
+ * interleave read-modify-write cycles. Reentrant, so wrapped units may call
+ * the locked write helpers. Throws on lock timeout, matching the fs-error
+ * contract of the write path.
+ */
+function withCliLockfileLock<T>(fn: () => T): T {
+  const locked = withLockfileLock(
+    [getLockfilePath(getCurrentEnvironment())],
+    fn,
+  );
+  if (!locked.ok) throw new Error(locked.error);
+  return locked.value;
 }
 
 /**
@@ -322,7 +340,18 @@ function readAssistants(): AssistantEntry[] {
   }
 
   if (migrated) {
-    writeLockfile(data);
+    // Persist the backfill against a fresh read under the lock so this
+    // snapshot cannot clobber a concurrent writer; skip on contention (the
+    // in-memory result below is already migrated).
+    withLockfileLock([getLockfilePath(getCurrentEnvironment())], () => {
+      const fresh = readLockfile();
+      if (!Array.isArray(fresh.assistants)) return;
+      let freshMigrated = false;
+      for (const entry of fresh.assistants) {
+        if (migrateLegacyEntry(entry)) freshMigrated = true;
+      }
+      if (freshMigrated) writeLockfileUnlocked(fresh);
+    });
   }
 
   const result: AssistantEntry[] = [];
@@ -342,9 +371,11 @@ function readAssistants(): AssistantEntry[] {
 }
 
 function writeAssistants(entries: AssistantEntry[]): void {
-  const data = readLockfile();
-  data.assistants = entries;
-  writeLockfile(data);
+  withCliLockfileLock(() => {
+    const data = readLockfile();
+    data.assistants = entries;
+    writeLockfileUnlocked(data);
+  });
 }
 
 export function loadLatestAssistant(): AssistantEntry | null {
@@ -428,21 +459,23 @@ export function formatAssistantLookupError(
 }
 
 export function removeAssistantEntry(assistantId: string): void {
-  const data = readLockfile();
-  const entries = (data.assistants ?? []).filter(
-    (e) => e.assistantId !== assistantId,
-  );
-  data.assistants = entries;
-  // Reassign active assistant if it matches the removed entry
-  if (data.activeAssistant === assistantId) {
-    const remaining = entries[0];
-    if (remaining) {
-      data.activeAssistant = String(remaining.assistantId);
-    } else {
-      delete data.activeAssistant;
+  withCliLockfileLock(() => {
+    const data = readLockfile();
+    const entries = (data.assistants ?? []).filter(
+      (e) => e.assistantId !== assistantId,
+    );
+    data.assistants = entries;
+    // Reassign active assistant if it matches the removed entry
+    if (data.activeAssistant === assistantId) {
+      const remaining = entries[0];
+      if (remaining) {
+        data.activeAssistant = String(remaining.assistantId);
+      } else {
+        delete data.activeAssistant;
+      }
     }
-  }
-  writeLockfile(data);
+    writeLockfileUnlocked(data);
+  });
 }
 
 export function loadAllAssistants(): AssistantEntry[] {
@@ -519,9 +552,11 @@ export function getActiveAssistant(): string | null {
 }
 
 export function setActiveAssistant(assistantId: string): void {
-  const data = readLockfile();
-  data.activeAssistant = assistantId;
-  writeLockfile(data);
+  withCliLockfileLock(() => {
+    const data = readLockfile();
+    data.activeAssistant = assistantId;
+    writeLockfileUnlocked(data);
+  });
 }
 
 /**
@@ -607,11 +642,13 @@ export function extractHostFromUrl(url: string): string {
 }
 
 export function saveAssistantEntry(entry: AssistantEntry): void {
-  const entries = readAssistants().filter(
-    (e) => e.assistantId !== entry.assistantId,
-  );
-  entries.unshift(entry);
-  writeAssistants(entries);
+  withCliLockfileLock(() => {
+    const entries = readAssistants().filter(
+      (e) => e.assistantId !== entry.assistantId,
+    );
+    entries.unshift(entry);
+    writeAssistants(entries);
+  });
 }
 
 /**

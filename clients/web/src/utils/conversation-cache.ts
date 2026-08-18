@@ -1,31 +1,34 @@
 /**
  * Low-level read/write helpers over the conversation query caches.
  *
- * Conversations are split across multiple flat `Conversation[]` caches,
- * each identified by a query key under the shared prefix
- * `["conversation-list", assistantId, ...discriminator]`:
+ * Every conversation list cache is one `GET /v1/conversations` read scoped
+ * by a {@link ConversationListFilter} and keyed by the generated key for
+ * that request (`conversation-list-keys.ts`); the cached value is a
+ * `ConversationListPage` (`{conversations, hasMore}`). `hasMore` marks a
+ * cache as a *window*, a prefix of the true list whose older rows load on
+ * demand; a drained list is a page with nothing beyond it. One shape for
+ * both is what keeps every helper here shape-blind: updaters operate on the
+ * rows and the window flag rides along.
  *
- * - **Foreground** (`"foreground"`) — the primary list that gates the
- *   initial chat render. Always fetched.
- * - **Background** (`"background"`) — background jobs only. Fetched
- *   lazily when the user reveals the Background sidebar section.
- * - **Scheduled** (`"scheduled"`) — scheduled jobs only. Fetched lazily
- *   when the user reveals the Scheduled sidebar section.
- * - **Archived** (`"archived"`) — archived conversations. Fetched
- *   lazily when the user opens the archive view.
- * - **Section** (`"section", groupId, originChannel`): one sidebar section's
- *   rows, fetched through the server filter that defines the section. Pinned,
- *   each custom group, each channel, and Chats each key their own entry.
- *   Membership here is the server's answer, not a client-side filter, so a
- *   local change to the fields that filter reads has to move the row between
- *   these caches. See `utils/section-membership.ts`.
+ * The caches that exist at any moment are whatever filters are mounted:
+ *
+ * - The four **buckets** (foreground `{}`, background, scheduled, archived):
+ *   whole-list reads for the surfaces that need every row of a type.
+ *   Foreground gates the initial chat render; the others mount when their
+ *   sidebar section or the archive view is revealed.
+ * - One **section** cache per sidebar section (a group and/or channel
+ *   filter): Pinned, each custom group, each channel, and Chats each key
+ *   their own entry. Membership here is the server's answer, not a
+ *   client-side filter, so a local change to the fields that filter reads
+ *   has to move the row between these caches. See
+ *   `utils/section-membership.ts`.
  *
  * A conversation lives in exactly one cache, so the cross-cache helpers
  * (`findConversation`, `getConversations`, `patchConversation`,
  * `updateAllConversationCaches`) discover and operate on every active
- * cache via TanStack Query's prefix matching — no manual registry.
- * Adding a new cache type automatically participates in all cross-cache
- * operations.
+ * cache via TanStack Query's partial key matching against the list prefix
+ * (`conversationListPrefix`), never a registry. A new filter participates
+ * in every cross-cache operation by construction.
  *
  * References:
  * - https://tanstack.com/query/latest/docs/framework/react/guides/updates-from-mutation-responses
@@ -35,20 +38,29 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import {
-  archivedConversationsQueryKey,
-  backgroundConversationsQueryKey,
-  conversationListPrefix,
-  conversationsQueryKey,
-  scheduledConversationsQueryKey,
   sidebarSectionsQueryKey,
   unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
+import {
+  type ConversationListFilter,
+  conversationListPrefix,
+  conversationListQueryKey,
+} from "@/utils/conversation-list-keys";
 import {
   ensureSectionInIndex,
   patchAffectsMembership,
   reconcileSectionMembership,
 } from "@/utils/section-membership";
 import type { Conversation } from "@/types/conversation-types";
+import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
+
+/**
+ * The shape a list cache holds before anything populates it. `hasMore:
+ * false` because a cache minted by a local write (a draft, a new
+ * conversation) holds everything the client knows; the first real fetch
+ * replaces it wholesale.
+ */
+const EMPTY_PAGE: ConversationListPage = { conversations: [], hasMore: false };
 
 // ---------------------------------------------------------------------------
 // Query lifecycle helpers — cancel, snapshot, restore, invalidate
@@ -92,7 +104,7 @@ export async function cancelConversationQueries(
  * rollback in `onError` after a failed optimistic mutation.
  */
 export type ConversationCacheSnapshot = Array<
-  [queryKey: readonly unknown[], data: Conversation[] | undefined]
+  [queryKey: readonly unknown[], data: ConversationListPage | undefined]
 >;
 
 /**
@@ -105,7 +117,7 @@ export function snapshotConversationCaches(
   assistantId: string,
 ): ConversationCacheSnapshot {
   return queryClient
-    .getQueriesData<Conversation[]>({
+    .getQueriesData<ConversationListPage>({
       queryKey: conversationListPrefix(assistantId),
     })
     .map(([key, data]) => [key, data]);
@@ -154,79 +166,57 @@ export async function invalidateConversationQueries(
 
 type ConversationUpdater = (conversations: Conversation[]) => Conversation[];
 
+/**
+ * `page` with `updater` applied to its rows, or `page` itself (same
+ * reference) when the updater returned the rows unchanged. The one place
+ * the row-level updater contract meets the page shape: `hasMore` rides
+ * along untouched, and reference identity carries "nothing changed" so
+ * callers can skip the write.
+ */
+function updatePage(
+  page: ConversationListPage,
+  updater: ConversationUpdater,
+): ConversationListPage {
+  const next = updater(page.conversations);
+  return next === page.conversations
+    ? page
+    : { conversations: next, hasMore: page.hasMore };
+}
+
 function updateCache(
   queryClient: QueryClient,
   queryKey: readonly unknown[],
   updater: ConversationUpdater,
 ): void {
-  queryClient.setQueryData<Conversation[]>(queryKey, (prev) => {
-    const list = prev ?? [];
-    const next = updater(list);
-    if (next === list) {
-      return prev;
-    }
-    return next;
+  queryClient.setQueryData<ConversationListPage>(queryKey, (prev) => {
+    const page = prev ?? EMPTY_PAGE;
+    const next = updatePage(page, updater);
+    return next === page ? prev : next;
   });
 }
 
 /**
- * Apply `updater` to the foreground conversation cache. Used for writes
- * that only ever target foreground rows (draft creation, new-conversation
- * insertion).
+ * Apply `updater` to the one list cache `filter` names. For writes that
+ * target a known bucket (draft creation and new-conversation insertion go
+ * to the foreground list; a scheduled or background run to its own).
  */
-export function updateConversationsCache(
+export function updateConversationListCache(
   queryClient: QueryClient,
   assistantId: string | null,
-  updater: ConversationUpdater,
-): void {
-  updateCache(queryClient, conversationsQueryKey(assistantId), updater);
-}
-
-/**
- * Apply `updater` to the background conversation cache.
- */
-export function updateBackgroundConversationsCache(
-  queryClient: QueryClient,
-  assistantId: string | null,
+  filter: ConversationListFilter,
   updater: ConversationUpdater,
 ): void {
   updateCache(
     queryClient,
-    backgroundConversationsQueryKey(assistantId),
+    conversationListQueryKey(assistantId, filter),
     updater,
   );
-}
-
-/**
- * Apply `updater` to the scheduled conversation cache.
- */
-export function updateScheduledConversationsCache(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  updater: ConversationUpdater,
-): void {
-  updateCache(
-    queryClient,
-    scheduledConversationsQueryKey(assistantId),
-    updater,
-  );
-}
-
-/**
- * Apply `updater` to the archived conversation cache.
- */
-export function updateArchivedConversationsCache(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  updater: ConversationUpdater,
-): void {
-  updateCache(queryClient, archivedConversationsQueryKey(assistantId), updater);
 }
 
 /**
  * Apply `updater` to ALL active conversation caches for the given
  * assistant. Uses TanStack Query's prefix matching to dynamically
- * discover which caches exist — no static enumeration. Only caches that
+ * discover which caches exist, never a static enumeration. Only caches that
  * TanStack Query is actively tracking are patched; unmounted queries
  * refetch fresh data when they re-mount.
  *
@@ -242,16 +232,16 @@ export function updateAllConversationCaches(
   if (!assistantId) {
     return;
   }
-  const entries = queryClient.getQueriesData<Conversation[]>({
+  const entries = queryClient.getQueriesData<ConversationListPage>({
     queryKey: conversationListPrefix(assistantId),
   });
   for (const [queryKey, data] of entries) {
     if (!data) {
       continue;
     }
-    const next = updater(data);
+    const next = updatePage(data, updater);
     if (next !== data) {
-      queryClient.setQueryData<Conversation[]>(queryKey, next);
+      queryClient.setQueryData<ConversationListPage>(queryKey, next);
     }
   }
 }
@@ -270,11 +260,11 @@ export function findConversation(
   if (!assistantId) {
     return undefined;
   }
-  const entries = queryClient.getQueriesData<Conversation[]>({
+  const entries = queryClient.getQueriesData<ConversationListPage>({
     queryKey: conversationListPrefix(assistantId),
   });
   for (const [, data] of entries) {
-    const match = data?.find((c) => c.conversationId === key);
+    const match = data?.conversations.find((c) => c.conversationId === key);
     if (match) {
       return match;
     }
@@ -320,10 +310,10 @@ export function getConversations(
   if (!assistantId) {
     return [];
   }
-  const entries = queryClient.getQueriesData<Conversation[]>({
+  const entries = queryClient.getQueriesData<ConversationListPage>({
     queryKey: conversationListPrefix(assistantId),
   });
-  const lists = entries.map(([, data]) => data ?? []);
+  const lists = entries.map(([, data]) => data?.conversations ?? []);
   return mergeConversationLists(...lists);
 }
 

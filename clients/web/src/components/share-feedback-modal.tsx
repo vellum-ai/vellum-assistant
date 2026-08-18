@@ -859,6 +859,15 @@ export function ShareFeedbackModal({
             )
           : null;
       const feedbackClient = getFeedbackClient();
+      let clientVersion = import.meta.env.VITE_APP_VERSION ?? undefined;
+      if (feedbackClient === "electron") {
+        try {
+          clientVersion =
+            (await window.vellum?.app.versionInfo())?.version ?? clientVersion;
+        } catch {
+          // The web bundle version remains a safe fallback for older shells.
+        }
+      }
       const submitFeedback = (client: ClientEnum) =>
         mutation.mutateAsync({
           headers: { "Content-Type": null },
@@ -867,7 +876,7 @@ export function ShareFeedbackModal({
             classification: CLASSIFICATION_MAP[selectedReason],
             email: email.trim(),
             client,
-            client_version: import.meta.env.VITE_APP_VERSION ?? undefined,
+            client_version: clientVersion,
             ...(assistantId ? { assistant_id: assistantId } : {}),
             ...(assistantVersion
               ? { assistant_version: assistantVersion }

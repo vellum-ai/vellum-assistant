@@ -14,7 +14,11 @@ import type {
   SystemPermissionsState,
 } from "@/runtime/system-permissions";
 
-let state: SystemPermissionsState;
+let state: SystemPermissionsState | null;
+let supported = true;
+let unreadBadgeSurface = "Dock icon";
+let unreadBadgesSupported = true;
+let hostOS: "macos" | "windows" = "macos";
 
 const openSystemPermissionSettings = mock(async () => null);
 const requestSystemPermission = mock(async () => null);
@@ -59,7 +63,7 @@ mock.module("@/runtime/system-permissions", () => ({
     state,
     loading: false,
     error: null,
-    supported: true,
+    supported,
     refresh,
   }),
   openSystemPermissionSettings,
@@ -67,13 +71,23 @@ mock.module("@/runtime/system-permissions", () => ({
 }));
 
 mock.module("@/runtime/dock", () => ({
+  getUnreadBadgeSurface: () => unreadBadgeSurface,
   setDockBadge,
+  supportsUnreadBadges: () => unreadBadgesSupported,
+}));
+
+mock.module("@/runtime/platform-detection", () => ({
+  detectElectronHostOS: () => hostOS,
 }));
 
 const { SystemPermissionsCard } = await import("./system-permissions-card");
 
 beforeEach(() => {
   state = makeState();
+  supported = true;
+  unreadBadgeSurface = "Dock icon";
+  unreadBadgesSupported = true;
+  hostOS = "macos";
   localStorage.clear();
   openSystemPermissionSettings.mockClear();
   requestSystemPermission.mockClear();
@@ -87,6 +101,22 @@ afterEach(() => {
 });
 
 describe("SystemPermissionsCard", () => {
+  test("shows the taskbar badge control without a permissions bridge", () => {
+    state = null;
+    supported = false;
+    unreadBadgeSurface = "taskbar icon";
+
+    render(<SystemPermissionsCard />);
+
+    expect(
+      screen.getByRole("switch", { name: "Notification Badges" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/unseen conversation counts on the taskbar icon/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "Accessibility" })).toBeNull();
+  });
+
   test("does not mirror Notification Badges from the Notifications permission", () => {
     state = makeState({ notifications: "granted" });
     localStorage.setItem("device:dock_badges_enabled", "false");
@@ -103,6 +133,22 @@ describe("SystemPermissionsCard", () => {
         .getByRole("switch", { name: "Notification Badges" })
         .getAttribute("aria-checked"),
     ).toBe("false");
+  });
+
+  test("shows only Windows-meaningful rows with Windows copy on a Windows host", () => {
+    hostOS = "windows";
+
+    render(<SystemPermissionsCard />);
+
+    expect(screen.queryByRole("switch", { name: "Accessibility" })).toBeNull();
+    expect(
+      screen.queryByRole("switch", { name: "Screen Recording" }),
+    ).toBeNull();
+    expect(screen.getByRole("switch", { name: "Microphone" })).toBeTruthy();
+    expect(
+      screen.getByText(/show Windows notifications for approvals/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/macOS alerts/)).toBeNull();
   });
 
   test("updates the Dock badge setting without requesting a macOS permission", async () => {

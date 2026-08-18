@@ -351,7 +351,7 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
-      id: "accounts/fireworks/models/deepseek-v4-flash",
+      id: "accounts/fireworks/models/deepseek-v4-flash-0731",
       displayName: "DeepSeek V4 Flash",
       contextWindowTokens: 1_040_000,
       defaultContextWindowTokens: 200_000,
@@ -923,7 +923,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   openai: "gpt-5.5",
   gemini: "gemini-2.5-flash",
   ollama: "llama3.2",
-  fireworks: "accounts/fireworks/models/deepseek-v4-flash",
+  fireworks: "accounts/fireworks/models/deepseek-v4-flash-0731",
   together: "MiniMaxAI/MiniMax-M3",
   openrouter: "x-ai/grok-4.20",
   "vercel-ai-gateway": "anthropic/claude-sonnet-4.6",

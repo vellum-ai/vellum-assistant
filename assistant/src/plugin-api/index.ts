@@ -67,7 +67,11 @@
  */
 
 export type { HookName } from "./constants.js";
-export { HOOKS, INTERNAL_NUDGE_OUTPUT_SUPPRESSION } from "./constants.js";
+export {
+  HOOKS,
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
+  VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
+} from "./constants.js";
 // Conversation message/content shapes. A hook receives the live message
 // history (e.g. `PostToolUseContext.latestMessages: Message[]`), so plugins
 // that inspect or narrow content blocks — reading a `tool_use` block's input,
@@ -173,6 +177,18 @@ export {
   CredentialResolutionError,
   resolveCredential,
 } from "./resolve-credential.js";
+// Store a credential's plaintext value (the same write `assistant credentials
+// set` performs), creating it or replacing an existing one, named by UUID or a
+// "service/field" reference. A plugin may only write credentials whose `field`
+// matches its manifest name, and the write fails closed with no plugin in
+// context. Throws CredentialStoreError when there is no calling plugin, the ref
+// is malformed, the value is invalid, the store rejects the write, or the
+// credential is out of the plugin's scope.
+export type {
+  StoreCredentialOptions,
+  StoredCredentialRef,
+} from "./store-credential.js";
+export { CredentialStoreError, storeCredential } from "./store-credential.js";
 // Resolve the public URL a third party should deliver to for one of the
 // plugin's own ingress routes. Which URL is correct depends on how the
 // assistant is reachable (a managed platform callback route, or a configured

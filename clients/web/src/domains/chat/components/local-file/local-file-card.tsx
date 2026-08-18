@@ -24,7 +24,6 @@ import {
   type LocalFileDestination,
 } from "@/domains/chat/components/local-file/open-local-file";
 import type { LocalFileKind } from "@/domains/chat/utils/mime-sniff";
-import { useConversationStore } from "@/stores/conversation-store";
 
 export interface LocalFileCardProps {
   /** Markdown alt/label text, which may equal the filename. */
@@ -38,41 +37,25 @@ export interface LocalFileCardProps {
   assistantId?: string;
 }
 
-/**
- * The click hint keeps its slot in the layout at all times and is only faded
- * in, so revealing it on hover cannot reflow the name or the size beside it.
- * Coarse pointers have no hover, so there it stays visible.
- */
-const HINT_REVEAL_CLASSES = [
-  "opacity-0 transition-opacity",
-  "group-hover/local-file-card:opacity-100",
-  "group-focus-visible/local-file-card:opacity-100",
-  "[@media(pointer:coarse)]:opacity-100",
-].join(" ");
-
 /** What a click does, spelled out so nothing navigates the user by surprise. */
 interface ClickHint {
   label: string;
   Icon: ComponentType<{ className?: string }>;
 }
 
-/** Where a click lands: away in the workspace, or in one of the drawer's two modes. */
+/** Where a click lands: away in the workspace, or in the drawer's preview. */
 type ClickMode = LocalFileDestination["mode"];
 
 function clickHintFor(mode: ClickMode): ClickHint {
   if (mode === "workspace") {
     return { label: "Open in workspace", Icon: ExternalLink };
   }
-  if (mode === "preview") {
-    return { label: "Open preview", Icon: PanelRight };
-  }
-  return { label: "Open in editor", Icon: PanelRight };
+  return { label: "Open preview", Icon: PanelRight };
 }
 
 /** How the card names the mode in its close label. */
 const CLOSE_LABELS: Record<ClickMode, string> = {
   workspace: "workspace",
-  document: "editor",
   preview: "preview",
 };
 
@@ -99,12 +82,9 @@ export function LocalFileCard({
   workspacePath,
   assistantId,
 }: LocalFileCardProps): ReactNode {
-  // Markdown opens as a document bound to the conversation it was opened from,
-  // so the active conversation decides where a click on it lands.
-  const conversationId = useConversationStore.use.activeConversationId();
   const isReady = state === "ready";
   const canOpen = isReady && workspacePath !== null;
-  const { mode } = localFileDestination(filename, assistantId, conversationId);
+  const { mode } = localFileDestination(filename, assistantId);
   const opensDrawer = mode !== "workspace";
   const isOpenInDrawer =
     useIsWorkspaceFileOpen(canOpen ? workspacePath : null) && opensDrawer;
@@ -116,7 +96,7 @@ export function LocalFileCard({
 
   const activate = () => {
     if (canOpen) {
-      toggleLocalFile(workspacePath, filename, assistantId, conversationId);
+      toggleLocalFile(workspacePath, filename, assistantId);
     }
   };
 
@@ -138,8 +118,9 @@ export function LocalFileCard({
             }
           : undefined
       }
+      data-reveal-row=""
       className={cn(
-        "group/local-file-card my-2 flex w-full max-w-md items-center gap-2.5 rounded-lg border p-2 transition-colors",
+        "my-2 flex w-full max-w-md items-center gap-2.5 rounded-lg border p-2 transition-colors",
         isOpenInDrawer
           ? "border-[var(--border-active)] bg-[var(--surface-active)]"
           : "border-[var(--border-element)] bg-[var(--surface-lift)]",
@@ -190,11 +171,11 @@ export function LocalFileCard({
         // Named by the card's own aria-label, so it is decorative here.
         <span
           aria-hidden="true"
-          className={cn(
-            "flex shrink-0 items-center gap-1",
-            HINT_REVEAL_CLASSES,
-            "text-[var(--content-tertiary)]",
-          )}
+          /* The hint keeps its slot in the layout at all times and is only
+             faded, so revealing it cannot reflow the name or the size beside
+             it. */
+          data-reveal=""
+          className="flex shrink-0 items-center gap-1 text-[var(--content-tertiary)]"
         >
           <HintIcon className="h-3.5 w-3.5" />
           <Typography

@@ -32,7 +32,7 @@ import {
   conversations,
 } from "../../../persistence/schema/index.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../conversation-list-routes.js";
-import { BadRequestError } from "../errors.js";
+import { BadRequestError, NotFoundError } from "../errors.js";
 import type { RouteDefinition } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -242,6 +242,42 @@ describe("GET /v1/conversations — conversationType", () => {
     // silently falling back to the foreground list
     expect(() => invoke({ conversationType: "private" })).toThrow(
       BadRequestError,
+    );
+  });
+});
+
+describe("GET /v1/conversations/:id", () => {
+  const getHandler = findHandler(CONVERSATION_LIST_ROUTES, "getConversation");
+
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  test("serves a listed conversation", () => {
+    const conv = createConversation({ title: "listed" });
+
+    const detail = getHandler({ pathParams: { id: conv.id } }) as {
+      conversation: { id: string; conversationType: string };
+    };
+
+    expect(detail.conversation.id).toBe(conv.id);
+    expect(detail.conversation.conversationType).toBe("standard");
+  });
+
+  test("does not serve a legacy private row the listing hides", () => {
+    // "private" is not a creatable type (legacy rows only); every listing
+    // hides it by type and the wire type collapses it to "standard", so a
+    // client holding only a stale id must get the same answer the listing
+    // gives: not there.
+    const conv = createConversation({ title: "hidden" });
+    rawRun(
+      "test:makePrivate",
+      "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
+      conv.id,
+    );
+
+    expect(() => getHandler({ pathParams: { id: conv.id } })).toThrow(
+      NotFoundError,
     );
   });
 });
@@ -511,6 +547,272 @@ describe("GET /v1/conversations with groupId", () => {
       "pinned-1",
       "ungrouped-1",
     ]);
+  });
+});
+
+describe("GET /v1/conversations with needsAttention", () => {
+  function seedUnseen(conversationId: string): void {
+    projectAssistantMessage({
+      conversationId,
+      messageId: `msg-${conversationId}`,
+      messageAt: Date.now(),
+    });
+  }
+
+  function markSeen(conversationId: string): void {
+    recordConversationSeenSignal({
+      conversationId,
+      sourceChannel: "vellum",
+      signalType: "macos_conversation_opened",
+      confidence: "explicit",
+      source: "test",
+    });
+  }
+
+  beforeEach(() => {
+    getDb().delete(conversationAttentionEvents).run();
+    getDb().delete(conversationAssistantAttentionState).run();
+    clearConversations();
+  });
+
+  test("returns only conversations with an unseen latest assistant message", async () => {
+    const unseen = createConversation("needs-attention");
+    seedUnseen(unseen.id);
+    const seen = createConversation("already-seen");
+    seedUnseen(seen.id);
+    markSeen(seen.id);
+    // No attention projection at all: not unseen, so not returned. The
+    // filter's inner join is what excludes it; a left join would leak it.
+    createConversation("never-projected");
+
+    const result = await invoke({ needsAttention: "true" });
+
+    expect(result.conversations.map((c) => c.title)).toEqual([
+      "needs-attention",
+    ]);
+  });
+
+  test("omitting the filter leaves every list unchanged, join and all", async () => {
+    /* The sensitivity check for the conditional join: with the filter off,
+       rows with no attention row must still be listed. If the join were
+       applied unconditionally, "never-projected" would vanish from the
+       plain list, which is every list the app has today. */
+    const unseen = createConversation("has-attention-row");
+    seedUnseen(unseen.id);
+    createConversation("never-projected");
+
+    const result = await invoke();
+
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "has-attention-row",
+      "never-projected",
+    ]);
+  });
+
+  test("hasMore and the total describe the filtered set, not the whole table", async () => {
+    /* countConversations reads through the same where AND the same join;
+       a page and its total have to agree or the client's hasMore lies. */
+    for (let i = 0; i < 3; i++) {
+      const c = createConversation(`unseen-${i}`);
+      seedUnseen(c.id);
+    }
+    for (let i = 0; i < 5; i++) {
+      createConversation(`quiet-${i}`);
+    }
+
+    const page = await invoke({ needsAttention: "true", limit: "2" });
+
+    expect(page.conversations).toHaveLength(2);
+    expect(page.hasMore).toBe(true);
+    const rest = await invoke({
+      needsAttention: "true",
+      limit: "2",
+      offset: "2",
+    });
+    expect(rest.conversations).toHaveLength(1);
+    expect(rest.hasMore).toBe(false);
+  });
+
+  test("an attention-scoped first page has no pinned rows appended to it", async () => {
+    /* Same rule as the group-scoped page: the pinned injection exists for
+       a client reading Pinned out of the unfiltered list, and a caller
+       that asked for the unseen subset is not that client. A seen pinned
+       row appended here would be a row outside the filter, on a page whose
+       hasMore was computed from the filtered count. */
+    const unseen = createConversation("unseen-only");
+    seedUnseen(unseen.id);
+    const pinnedSeen = createConversation("pinned-and-seen");
+    rawRun(
+      "test:pinConversation",
+      "UPDATE conversations SET is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
+      pinnedSeen.id,
+    );
+
+    const result = await invoke({ needsAttention: "true" });
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["unseen-only"]);
+  });
+
+  test("composes with the other filters", async () => {
+    const group = createGroup("Work");
+    const inGroupUnseen = createConversation("in-group-unseen");
+    seedUnseen(inGroupUnseen.id);
+    rawRun(
+      "test:fileInGroup",
+      "UPDATE conversations SET group_id = ? WHERE id = ?",
+      group.id,
+      inGroupUnseen.id,
+    );
+    const outOfGroupUnseen = createConversation("out-of-group-unseen");
+    seedUnseen(outOfGroupUnseen.id);
+
+    const result = await invoke({ needsAttention: "true", groupId: group.id });
+
+    expect(result.conversations.map((c) => c.title)).toEqual([
+      "in-group-unseen",
+    ]);
+  });
+
+  test('any value other than "true" is rejected with a 400', () => {
+    /* Same posture as conversationType: silently reading a typo or a newer
+       client's value as "no filter" would hand back the full list where a
+       subset was asked for, and that skew is invisible to the client. */
+    for (const bad of ["false", "1", "yes", "TRUE"]) {
+      expect(() => invoke({ needsAttention: bad })).toThrow(BadRequestError);
+    }
+  });
+});
+
+describe("GET /v1/conversations with foregroundOnly", () => {
+  function fileIntoGroup(conversationId: string, groupId: string): void {
+    rawRun(
+      "test:fileIntoGroup",
+      "UPDATE conversations SET group_id = ? WHERE id = ?",
+      groupId,
+      conversationId,
+    );
+  }
+
+  function surface(conversationId: string): void {
+    rawRun(
+      "test:surfaceConversation",
+      "UPDATE conversations SET surfaced_at = ? WHERE id = ?",
+      Date.now(),
+      conversationId,
+    );
+  }
+
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  test("drops the automated runs the standard listing admits through a custom group", async () => {
+    /* The standard listing shows a background run filed in a custom group,
+       so a caller reading page one to find "the newest chat" can lead with
+       one; the filter is what lets that caller ask for chats alone. A
+       surfaced run is a chat for this purpose, exactly as the unread count
+       treats it. */
+    const group = createGroup("Work");
+    createConversation("plain-chat");
+    const bgInGroup = createConversation({
+      title: "bg-in-group",
+      conversationType: "background",
+    });
+    fileIntoGroup(bgInGroup.id, group.id);
+    const surfacedBg = createConversation({
+      title: "surfaced-bg",
+      conversationType: "background",
+    });
+    surface(surfacedBg.id);
+
+    const unfiltered = await invoke();
+    expect(unfiltered.conversations.map((c) => c.title).sort()).toEqual([
+      "bg-in-group",
+      "plain-chat",
+      "surfaced-bg",
+    ]);
+
+    const result = await invoke({ foregroundOnly: "true" });
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "plain-chat",
+      "surfaced-bg",
+    ]);
+  });
+
+  test("hasMore and the total describe the filtered set, not the whole table", async () => {
+    /* The reason for the filter is a limit=1 read whose first row is the
+       answer; that read is only right if the page and its total come from
+       the same predicate. */
+    const group = createGroup("Work");
+    for (let i = 0; i < 3; i++) {
+      const bg = createConversation({
+        title: `bg-${i}`,
+        conversationType: "background",
+      });
+      fileIntoGroup(bg.id, group.id);
+    }
+    createConversation("the-only-chat");
+
+    const page = await invoke({ foregroundOnly: "true", limit: "1" });
+
+    expect(page.conversations.map((c) => c.title)).toEqual(["the-only-chat"]);
+    expect(page.hasMore).toBe(false);
+  });
+
+  test("a foreground-only first page has no pinned rows appended to it", async () => {
+    /* Same rule as the attention- and group-scoped pages: the injection is
+       for a client reading Pinned out of the unfiltered list, and a caller
+       that asked for the newest chat in one row is not that client. The
+       older pinned chat is a member of the filter, so only the injection
+       could put it on a limit=1 page. */
+    const older = createConversation("older-pinned-chat");
+    rawRun(
+      "test:pinConversation",
+      "UPDATE conversations SET is_pinned = 1, group_id = 'system:pinned', last_message_at = ? WHERE id = ?",
+      Date.now() - 60_000,
+      older.id,
+    );
+    const newer = createConversation("newest-chat");
+    rawRun(
+      "test:bumpRecency",
+      "UPDATE conversations SET last_message_at = ? WHERE id = ?",
+      Date.now(),
+      newer.id,
+    );
+
+    const unfiltered = await invoke({ limit: "1" });
+    expect(unfiltered.conversations.map((c) => c.title)).toEqual([
+      "newest-chat",
+      "older-pinned-chat",
+    ]);
+
+    const result = await invoke({ foregroundOnly: "true", limit: "1" });
+    expect(result.conversations.map((c) => c.title)).toEqual(["newest-chat"]);
+  });
+
+  test("composes with the other filters", async () => {
+    const group = createGroup("Work");
+    const chatInGroup = createConversation("chat-in-group");
+    fileIntoGroup(chatInGroup.id, group.id);
+    const bgInGroup = createConversation({
+      title: "bg-in-group",
+      conversationType: "background",
+    });
+    fileIntoGroup(bgInGroup.id, group.id);
+    createConversation("chat-outside");
+
+    const result = await invoke({
+      foregroundOnly: "true",
+      groupId: group.id,
+    });
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["chat-in-group"]);
+  });
+
+  test('any value other than "true" is rejected with a 400', () => {
+    for (const bad of ["false", "1", "yes", "TRUE"]) {
+      expect(() => invoke({ foregroundOnly: bad })).toThrow(BadRequestError);
+    }
   });
 });
 

@@ -25,6 +25,12 @@ export function PanelMenuDivider() {
 export interface PanelMenuItemOptions {
   key: string;
   icon?: LucideIcon;
+  /**
+   * Custom leading content, replacing `icon`'s slot. The conversation sheet
+   * passes its circular icon chip through here; surfaces that want the plain
+   * glyph keep using `icon`.
+   */
+  leadingSlot?: ReactNode;
   label: string;
   disabled?: boolean;
   className?: string;
@@ -41,6 +47,7 @@ export interface PanelMenuItemOptions {
 export function buildPanelMenuItem({
   key,
   icon,
+  leadingSlot,
   label,
   disabled,
   className,
@@ -51,6 +58,7 @@ export function buildPanelMenuItem({
     <PanelItem
       key={key}
       icon={icon}
+      leadingSlot={leadingSlot}
       label={label}
       // `disabled` keeps the row's `role="button"` and keyboard semantics and
       // blocks activation itself — dropping `onSelect` instead falls through

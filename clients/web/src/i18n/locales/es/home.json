@@ -20,6 +20,7 @@
     "background": "Segundo plano",
     "system": "Sistema"
   },
+  "homeRecapRow": { "actionsTitle": "Acciones de la actualización" },
   "homeTopHeader": { "title": "Actividad" },
   "homeFeedFilterBar": { "ariaLabel": "Filtrar notificaciones" },
   "homeFeedList": {

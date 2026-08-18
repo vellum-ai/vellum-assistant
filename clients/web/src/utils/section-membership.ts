@@ -27,13 +27,17 @@ import {
   NATIVE_ORIGIN_CHANNEL,
   SYSTEM_ALL_GROUP_ID,
   SYSTEM_PINNED_GROUP_ID,
-  parseSectionConversationsQueryKey,
-  sectionListPrefix,
   sidebarSectionsQueryKey,
-  type SectionConversationFilter,
+  type ConversationListPage,
   type SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
-import { insertByRecency } from "@/utils/conversation-order";
+import {
+  type ConversationListFilter,
+  conversationListFilterOf,
+  conversationListPrefix,
+  isSectionFilter,
+} from "@/utils/conversation-list-keys";
+import { insertIntoWindow } from "@/utils/conversation-order";
 import {
   isConversationPinned,
   isCustomGroupId,
@@ -87,7 +91,12 @@ export function patchAffectsMembership(patch: Partial<Conversation>): boolean {
  * surfaced and custom-group arms only, matching the SQL exactly: the
  * foreground arm does not test `source`.
  */
-function isSidebarVisible(conversation: Conversation): boolean {
+export function isSidebarVisible(
+  conversation: Pick<
+    Conversation,
+    "archivedAt" | "conversationType" | "groupId" | "surfacedAt" | "source"
+  >,
+): boolean {
   if (conversation.archivedAt != null) {
     return false;
   }
@@ -137,7 +146,7 @@ function isSidebarVisible(conversation: Conversation): boolean {
  */
 export function matchesSectionFilter(
   conversation: Conversation,
-  filter: SectionConversationFilter,
+  filter: ConversationListFilter,
 ): boolean {
   if (!isSidebarVisible(conversation)) {
     return false;
@@ -321,19 +330,21 @@ export function reconcileSectionMembership(
     return [];
   }
   const needsRefetch: (readonly unknown[])[] = [];
-  const entries = queryClient.getQueriesData<Conversation[]>({
-    queryKey: sectionListPrefix(assistantId),
+  const entries = queryClient.getQueriesData<ConversationListPage>({
+    queryKey: conversationListPrefix(assistantId),
   });
 
-  for (const [queryKey, rows] of entries) {
-    const filter = parseSectionConversationsQueryKey(queryKey);
-    if (!filter) {
+  for (const [queryKey, page] of entries) {
+    /* Only the section caches; the buckets are not membership caches. */
+    const filter = conversationListFilterOf(queryKey);
+    if (!filter || !isSectionFilter(filter)) {
       continue;
     }
-    if (!rows) {
+    if (!page) {
       needsRefetch.push(queryKey);
       continue;
     }
+    const rows = page.conversations;
 
     const index = rows.findIndex(
       (c) => c.conversationId === conversation.conversationId,
@@ -350,17 +361,33 @@ export function reconcileSectionMembership(
       if (belongs && rows[index] !== conversation) {
         const next = [...rows];
         next[index] = conversation;
-        queryClient.setQueryData<Conversation[]>(queryKey, next);
+        queryClient.setQueryData<ConversationListPage>(queryKey, {
+          conversations: next,
+          hasMore: page.hasMore,
+        });
       }
       continue;
     }
 
-    queryClient.setQueryData<Conversation[]>(
-      queryKey,
-      belongs
-        ? insertByRecency(rows, conversation)
-        : rows.filter((c) => c.conversationId !== conversation.conversationId),
-    );
+    if (belongs) {
+      /* A row past a window's last loaded row stays out of the cache
+         (`insertIntoWindow` returns the page unchanged): the window is
+         still a correct prefix, the row is in this section server-side,
+         and load-more reaches it. Nothing changed, so there is nothing
+         for a settle to reconcile either. */
+      const inserted = insertIntoWindow(page, conversation);
+      if (inserted === page) {
+        continue;
+      }
+      queryClient.setQueryData<ConversationListPage>(queryKey, inserted);
+    } else {
+      queryClient.setQueryData<ConversationListPage>(queryKey, {
+        conversations: rows.filter(
+          (c) => c.conversationId !== conversation.conversationId,
+        ),
+        hasMore: page.hasMore,
+      });
+    }
     needsRefetch.push(queryKey);
   }
 

@@ -243,6 +243,70 @@ otherwise a narrow mouse-driven window falls between the two.
 
 ---
 
+## Hiding a control behind hover
+
+A control revealed on hover is unreachable on a device that cannot hover, and hover is its own axis:
+[`hover`](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover) does not follow from
+[`pointer`](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer) or from window size. An
+iPad in landscape reports `hover: none` at 1024px. So a hidden control needs an answer to "what
+reaches this without a hover", and the answer is a product decision, not a media query. Decide it in
+this order:
+
+1. **Decoration over something already interactive** (a scrim, a "click to open" hint on a card that
+   is itself a button): nothing more is needed. The row does the work; the hint only previews it.
+2. **One action**: don't hide it. A row with a single affordance has nothing to gain from hiding it and
+   a reachability bug to lose.
+3. **Several actions**: one always-visible trigger opening an [`ActionMenu`](../../../packages/design-library/src/components/action-menu.tsx),
+   which is a dropdown under a mouse and a sheet under a thumb.
+4. **A long list of like rows** (conversations, library apps): swipe or long-press, and the caller
+   drops the hover control on touch rather than asking the primitive to hide it. See
+   `conversation-row.tsx`.
+5. **Anything else**: keep it visible where hover is unavailable.
+
+The mechanism is one rule in the design library's stylesheet, not a class list each caller pastes.
+Callers declare parts, the rule owns the conditions:
+
+```html
+<div data-reveal-row data-reveal-hold>
+  <button data-reveal>…</button>
+  <span data-reveal-yield>…</span>
+</div>
+```
+
+- `data-reveal-row` scopes the reveal: the affordance appears while this element is hovered, while
+  keyboard focus is anywhere inside it (`:focus-visible`, so a click on the row does not count), and
+  while a menu the affordance owns reports `aria-expanded`.
+- `data-reveal` is the affordance. Its opacity and its `pointer-events` are set by the same
+  declaration, since an unpainted control that still answers a click is a trap.
+- `data-reveal-yield` is an element sharing the affordance's slot and giving it up, so the two
+  crossfade in one cell instead of stacking. It leaves the hit path while faded, since the cell it
+  shares would otherwise put it over the affordance painted under it. It only means anything inside a
+  [`CrossfadeStack`](../../../packages/design-library/src/components/crossfade-stack.tsx), which marks
+  the shared cell: a hand-rolled slot gets a permanently hidden occupant instead.
+- `data-reveal-hold` keeps the affordance up regardless of hover, for a row whose state makes it the
+  live control (the nav's current page, a voice mid-preview, a fact already removed).
+
+Where the device cannot hover, the affordance is simply present, and a shared cell seats both
+occupants side by side rather than choosing one, which is why options 1 through 5 have to be settled
+first: a row that would rather stay narrow drops the affordance itself and gives the command a path
+of its own.
+
+Whichever signal a caller reads in TypeScript, read it as capability
+([`useShowsHoverAffordance`](../src/hooks/use-hover-affordance.ts)) and make it describe the path that
+actually replaces the control. A row whose replacement is a gesture has to check that the gesture is
+armed, since a hoverless device with a fine pointer (a stylus) gets neither hover nor gestures.
+
+---
+
+## Swipe edges under the chat shell
+
+Every route under `ChatLayout` shares a document-level drawer gesture: a rightward drag beginning in
+the left half of a mobile viewport opens the navigation drawer. A row there keeps its swipe commands
+on the **trailing** edge, or the two gestures resolve to the drawer and the row's leading action is
+unreachable in practice.
+
+---
+
 ## Should iOS and Android differ?
 
 Sometimes, and the split is clean:

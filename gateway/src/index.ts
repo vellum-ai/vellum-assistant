@@ -1,5 +1,7 @@
 process.title = "vellum-gateway";
 
+import { slackEventRefersToAnotherMessage } from "./slack/event-kind.js";
+import { buildSlackSourceMetadata } from "./slack/source-metadata.js";
 import { randomBytes } from "node:crypto";
 
 import {
@@ -95,6 +97,11 @@ import {
   handleCredentialRequestSubmit,
 } from "./http/routes/credential-requests.js";
 import { handleCreateRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-challenge.js";
+import {
+  handleApproveRemoteWebPairingRequest,
+  handleDenyRemoteWebPairingRequest,
+  handleListRemoteWebPairingRequests,
+} from "./http/routes/remote-web-pairing-requests.js";
 import { handleRemoteWebPairingToken } from "./http/routes/remote-web-pairing-token.js";
 import { handleVerifyRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-verification.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
@@ -896,6 +903,27 @@ async function main() {
       method: "POST",
       auth: "none",
       handler: (req) => handleRemoteWebPairingToken(req),
+    },
+    {
+      path: "/v1/remote-web/pairing-requests",
+      method: "GET",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        handleListRemoteWebPairingRequests(req, getClientIp()),
+    },
+    {
+      path: "/v1/remote-web/pairing-requests/approve",
+      method: "POST",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        handleApproveRemoteWebPairingRequest(req, getClientIp()),
+    },
+    {
+      path: "/v1/remote-web/pairing-requests/deny",
+      method: "POST",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        handleDenyRemoteWebPairingRequest(req, getClientIp()),
     },
     // ── Credential requests (one-time credential-collection links) ──
     // Unauthenticated by design: the single-use token in the request BODY is
@@ -2334,19 +2362,11 @@ async function main() {
         const origMessageTs = normalized.event.source.messageId;
         if (!threadTs && origMessageTs) params.set("messageTs", origMessageTs);
         const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?${params}`;
-        const slackSourceMetadata = {
-          ...(normalized.event.raw.type === "app_mention"
-            ? { slackBotMentioned: true }
-            : {}),
-          ...(threadTs && !normalized.event.source.threadId
-            ? { threadId: threadTs }
-            : {}),
-        };
 
-        // Whether this event represents an edit or callback action — these
-        // never carry attachments to upload.
-        const isEdit = !!normalized.event.message.isEdit;
-        const isCallback = !!normalized.event.message.callbackData;
+        const refersToAnotherMessage = slackEventRefersToAnotherMessage(
+          normalized.event.message,
+        );
+        const slackSourceMetadata = buildSlackSourceMetadata(normalized);
 
         // Handle /new command — reset conversation before it reaches the runtime
         if (isNewCommand(normalized.event.message.content)) {
@@ -2401,16 +2421,15 @@ async function main() {
           }
 
           try {
-            // Download and upload attachments if present (skip for edits and
-            // callback actions — edits only update text, callbacks have no media)
+            // Download and upload attachments if present. An event that acts
+            // on another message brings no media of its own.
             let attachmentIds: string[] | undefined;
             const eventAttachments = normalized.event.message.attachments;
             if (
               eventAttachments &&
               eventAttachments.length > 0 &&
               normalized.slackFiles &&
-              !isEdit &&
-              !isCallback
+              !refersToAnotherMessage
             ) {
               attachmentIds = [];
               const failedAttachmentNames: string[] = [];

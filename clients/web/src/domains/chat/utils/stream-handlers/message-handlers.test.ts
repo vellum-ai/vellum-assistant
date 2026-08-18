@@ -16,9 +16,9 @@ import {
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
+import { conversationListQueryKey } from "@/utils/conversation-list-keys";
+import { listPage } from "@/utils/conversation-list.test-helper";
 import { findConversation } from "@/utils/conversation-cache";
-import type { Conversation } from "@/types/conversation-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 describe("handleAssistantTurnStart", () => {
@@ -34,9 +34,9 @@ describe("handleAssistantTurnStart", () => {
   it("patches the cached conversation's isProcessing to true so 0.8.8+ reads the server flag", () => {
     // GIVEN a cached conversation row the daemon last reported as idle
     const ctx = makeCtx();
-    ctx.queryClient.setQueryData<Conversation[]>(
-      conversationsQueryKey("ast-1"),
-      [{ conversationId: "conv-1", isProcessing: false }],
+    ctx.queryClient.setQueryData(
+      conversationListQueryKey("ast-1"),
+      listPage([{ conversationId: "conv-1", isProcessing: false }]),
     );
 
     // WHEN the daemon emits the turn's first start signal
@@ -69,9 +69,9 @@ describe("handleAssistantTextDelta", () => {
     // GIVEN a cached conversation that never saw assistant_turn_start
     // (e.g. the start event was dropped on a reconnect)
     const ctx = makeCtx();
-    ctx.queryClient.setQueryData<Conversation[]>(
-      conversationsQueryKey("ast-1"),
-      [{ conversationId: "conv-1", isProcessing: false }],
+    ctx.queryClient.setQueryData(
+      conversationListQueryKey("ast-1"),
+      listPage([{ conversationId: "conv-1", isProcessing: false }]),
     );
 
     // WHEN the first text delta lands

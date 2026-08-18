@@ -238,20 +238,6 @@ describe("tunnel edge targeting", () => {
     mock.module("../lib/nginx-ingress.js", () => realNginxIngress);
   });
 
-  test("does not start ngrok when the edge flag lookup fails", async () => {
-    process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
-    ensureTunnelEdgeMock.mockImplementation(realNginxIngress.ensureTunnelEdge);
-
-    const { exited, errors } = await runTunnelExpectingExit1();
-
-    expect(exited).toBe(true);
-    expect(errors).toContain(
-      "Could not verify the `web-remote-ingress` feature flag",
-    );
-    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
-    expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
-  });
-
   test("targets the edge port returned by ensureTunnelEdge for ngrok", async () => {
     const entry = makeLocalEntry();
     entry.runtimeUrl = "https://stale-tunnel.ngrok-free.dev";
@@ -658,20 +644,6 @@ describe("tunnel edge targeting", () => {
     expect(runNgrokTunnelMock).not.toHaveBeenCalled();
     expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
     expect(runTailscaleTunnelMock).not.toHaveBeenCalled();
-  });
-
-  test("does not start cloudflared when the edge flag lookup fails", async () => {
-    process.argv = ["bun", "vellum", "tunnel", "--provider", "cloudflare"];
-    ensureTunnelEdgeMock.mockImplementation(realNginxIngress.ensureTunnelEdge);
-
-    const { exited, errors } = await runTunnelExpectingExit1();
-
-    expect(exited).toBe(true);
-    expect(errors).toContain(
-      "Could not verify the `web-remote-ingress` feature flag",
-    );
-    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
-    expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
   });
 
   test("rejects an unknown --provider with a stale-CLI hint", async () => {

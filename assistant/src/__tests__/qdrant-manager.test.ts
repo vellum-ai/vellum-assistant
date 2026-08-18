@@ -20,7 +20,10 @@ import {
 
 const testDataDir = process.env.VELLUM_WORKSPACE_DIR!;
 
-import { QdrantManager } from "../persistence/embeddings/qdrant-manager.js";
+import {
+  QdrantManager,
+  resolveQdrantReleaseAsset,
+} from "../persistence/embeddings/qdrant-manager.js";
 
 /**
  * Short timeouts so tests complete fast but with enough headroom for CI and
@@ -93,6 +96,16 @@ describe("QdrantManager", () => {
         storagePath: "/custom/storage",
       });
       expect(mgr.getUrl()).toBe("http://127.0.0.1:6333");
+    });
+  });
+
+  test("selects the pinned Windows x64 zip release", () => {
+    expect(resolveQdrantReleaseAsset("win32", "x64")).toEqual({
+      binaryName: "qdrant.exe",
+      filename: "qdrant-x86_64-pc-windows-msvc.zip",
+      format: "zip",
+      sha256:
+        "9d3b1d1fa58566bc71709347c4c9b83a0111d23a550daa93c3ee48e3150c4470",
     });
   });
 

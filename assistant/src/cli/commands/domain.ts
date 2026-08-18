@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { resolveBundledCliModule } from "../bundled-modules.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { getCliLogger } from "../logger.js";
@@ -19,9 +20,11 @@ const log = getCliLogger("domain");
  * synchronously, so there is no place to await a module load.
  */
 function envDomains(): { apexDomain: string; baseDomain: string } {
-  const { getApexDomain, getAssistantDomain } = loadModule(
-    "../../config/env.js",
-  ) as typeof import("../../config/env.js");
+  const { getApexDomain, getAssistantDomain } = resolveBundledCliModule(
+    "configEnv",
+    () =>
+      loadModule("../../config/env.js") as typeof import("../../config/env.js"),
+  );
   return { apexDomain: getApexDomain(), baseDomain: getAssistantDomain() };
 }
 

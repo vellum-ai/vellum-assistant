@@ -29,7 +29,9 @@ import {
   tryAcquireLock,
 } from "./consolidation-lock.js";
 import { parseOriginDate } from "./page-index.js";
+import { findDanglingLinks } from "./page-links.js";
 import {
+  isValidSlug,
   listPages,
   parsePageContent,
   validateSlug,
@@ -127,6 +129,14 @@ const REINDEX_JOB_TYPES: readonly MemoryJobType[] = [
  *      consolidation lock, so a page committed by another writer between
  *      validation and the write phase is still skipped rather than
  *      overwritten.
+ *   5. One more non-blocking warning, once the on-disk snapshot exists: a
+ *      `links:`, `[[wikilink]]`, or `edges:` target that is neither on disk
+ *      nor a valid page in this batch. Retrieval drops such a reference, so
+ *      the caller either stages the missing page or turns the reference into
+ *      prose. Warned, not rejected: a page is not worth losing over one link,
+ *      and a multi-batch import legitimately references a later batch.
+ *      Targets under the synthetic capability prefixes are not checked (their
+ *      catalog is not on disk).
  *
  * With `dryRun` the summary is returned without touching disk or the lock;
  * the dry-run collision snapshot is lock-free and therefore advisory.
@@ -250,6 +260,7 @@ export async function ingestPages(
     // concurrent writer can change what a later real run would do.
     const existingSlugs = new Set(await listPages(workspaceDir));
     classifyCollisions(pending, existingSlugs, overwrite);
+    warnDanglingLinks(pending, existingSlugs);
     return summarize(results, dryRun);
   }
 
@@ -264,6 +275,7 @@ export async function ingestPages(
     // writer after validation still classifies as a collision.
     const existingSlugs = new Set(await listPages(workspaceDir));
     const toWrite = classifyCollisions(pending, existingSlugs, overwrite);
+    warnDanglingLinks(pending, existingSlugs);
     const summary = summarize(results, dryRun);
 
     for (const page of toWrite) {
@@ -317,6 +329,53 @@ function classifyCollisions(
     toWrite.push(page);
   }
   return toWrite;
+}
+
+/**
+ * Append a dangling-link warning to every page about to be written whose
+ * structural references name a slug that is neither on disk nor a valid page
+ * in this batch. Runs after collision classification so pages the batch will
+ * not write (`skipped_exists`) are not warned about.
+ */
+function warnDanglingLinks(
+  pending: readonly PendingPage[],
+  existingSlugs: ReadonlySet<string>,
+): void {
+  const knownSlugs = new Set(existingSlugs);
+  for (const { page } of pending) {
+    knownSlugs.add(page.slug);
+  }
+  const toWrite = pending.filter(({ result }) => result.action === "written");
+  const dangling = findDanglingLinks(
+    toWrite.map(({ page }) => page),
+    knownSlugs,
+    isValidSlug,
+  ).filter(
+    (d) => !RESERVED_SLUG_PREFIXES.some((prefix) => d.to.startsWith(prefix)),
+  );
+  if (dangling.length === 0) {
+    return;
+  }
+  const targetsBySlug = new Map<string, string[]>();
+  for (const { from, to } of dangling) {
+    const targets = targetsBySlug.get(from) ?? [];
+    if (!targets.includes(to)) {
+      targets.push(to);
+    }
+    targetsBySlug.set(from, targets);
+  }
+  for (const { page, result } of toWrite) {
+    const targets = targetsBySlug.get(page.slug);
+    if (targets === undefined) {
+      continue;
+    }
+    result.warnings.push(
+      `link target${targets.length === 1 ? "" : "s"} not on disk or in ` +
+        `this batch: ${targets.join(", ")}; stage the missing page or ` +
+        `turn the reference into prose (retrieval drops a link whose ` +
+        `target page does not exist)`,
+    );
+  }
 }
 
 function summarize(

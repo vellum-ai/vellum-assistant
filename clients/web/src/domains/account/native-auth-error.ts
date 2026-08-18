@@ -24,7 +24,8 @@ export type AuthErrorKey =
   | "authErrors.genericFailure"
   | "authErrors.signupClosed"
   | "authErrors.providerSignup"
-  | "authErrors.loginIncomplete";
+  | "authErrors.loginIncomplete"
+  | "authErrors.desktopUpdateRequired";
 
 /**
  * The community link as prose, displayed bare without its scheme. Passed as
@@ -49,6 +50,7 @@ const AUTH_ERROR_KEYS: Record<string, AuthErrorKey> = {
   signup_closed: "authErrors.signupClosed",
   provider_signup: "authErrors.providerSignup",
   login_incomplete: "authErrors.loginIncomplete",
+  desktop_update_required: "authErrors.desktopUpdateRequired",
 };
 
 function errorProperty(err: unknown, key: string): unknown {

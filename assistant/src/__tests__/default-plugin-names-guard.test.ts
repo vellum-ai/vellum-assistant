@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import { getAllDefaultPlugins } from "../plugins/defaults/index.js";
-import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
+import {
+  getAllDefaultPluginNames,
+  isFirstPartyDefaultPlugin,
+} from "../plugins/defaults/main.js";
 
 /**
  * Guard: the filesystem-backed default-plugin registry (`defaults/main.ts`)
@@ -24,5 +27,13 @@ describe("default plugin names", () => {
     for (const name of getAllDefaultPluginNames()) {
       expect(name).toMatch(/^default-[a-z0-9-]+$/);
     }
+  });
+
+  test("isFirstPartyDefaultPlugin matches the filesystem registry and rejects other names", () => {
+    for (const name of getAllDefaultPluginNames()) {
+      expect(isFirstPartyDefaultPlugin(name)).toBe(true);
+    }
+    expect(isFirstPartyDefaultPlugin("default-a")).toBe(false);
+    expect(isFirstPartyDefaultPlugin("uplug-a")).toBe(false);
   });
 });

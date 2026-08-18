@@ -7,20 +7,24 @@ import type {
 } from "@/types/conversation-types";
 import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
 import {
-  conversationsQueryKey,
-  backgroundConversationsQueryKey,
-  scheduledConversationsQueryKey,
-  archivedConversationsQueryKey,
   sidebarSectionsQueryKey,
+  type ConversationListPage,
   type SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
+import {
+  ARCHIVED_FILTER,
+  BACKGROUND_FILTER,
+  conversationListQueryKey,
+  SCHEDULED_FILTER,
+} from "@/utils/conversation-list-keys";
+import { listPage } from "@/utils/conversation-list.test-helper";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
+import { mergeListFirstPage } from "@/utils/conversation-order";
 import {
   adjustSectionUnreadCache,
   applySurfacedConversation,
   markConversationSeenLocal,
-  mergeListFirstPage,
   prependConversation,
   removeConversation,
   shouldSurfaceConversation,
@@ -61,19 +65,31 @@ function makeGroup(
 }
 
 function seedForeground(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(conversationsQueryKey(ASSISTANT_ID), conversations);
+  qc.setQueryData(
+    conversationListQueryKey(ASSISTANT_ID),
+    listPage(conversations),
+  );
 }
 
 function seedBackground(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(backgroundConversationsQueryKey(ASSISTANT_ID), conversations);
+  qc.setQueryData(
+    conversationListQueryKey(ASSISTANT_ID, BACKGROUND_FILTER),
+    listPage(conversations),
+  );
 }
 
 function seedScheduled(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(scheduledConversationsQueryKey(ASSISTANT_ID), conversations);
+  qc.setQueryData(
+    conversationListQueryKey(ASSISTANT_ID, SCHEDULED_FILTER),
+    listPage(conversations),
+  );
 }
 
 function seedArchived(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), conversations);
+  qc.setQueryData(
+    conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
+    listPage(conversations),
+  );
 }
 
 function seedGroups(qc: QueryClient, groups: ConversationGroup[]) {
@@ -85,31 +101,33 @@ function seedGroups(qc: QueryClient, groups: ConversationGroup[]) {
 
 function getForeground(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)) ?? []
+    qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID),
+    )?.conversations ?? []
   );
 }
 
 function getBackground(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(
-      backgroundConversationsQueryKey(ASSISTANT_ID),
-    ) ?? []
+    qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID, BACKGROUND_FILTER),
+    )?.conversations ?? []
   );
 }
 
 function getScheduled(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(
-      scheduledConversationsQueryKey(ASSISTANT_ID),
-    ) ?? []
+    qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID, SCHEDULED_FILTER),
+    )?.conversations ?? []
   );
 }
 
 function getArchived(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(
-      archivedConversationsQueryKey(ASSISTANT_ID),
-    ) ?? []
+    qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
+    )?.conversations ?? []
   );
 }
 
@@ -709,9 +727,9 @@ describe("mergeListFirstPage", () => {
       hasMore: false,
     };
 
-    expect(mergeListFirstPage(prev, page, { pinnedInjected: true })).toBe(
-      page.conversations,
-    );
+    expect(
+      mergeListFirstPage(listPage(prev), page, { pinnedInjected: true }),
+    ).toBe(page);
   });
 
   test("drops cached rows inside the window that vanished from the page, keeps older rows", () => {
@@ -730,17 +748,18 @@ describe("mergeListFirstPage", () => {
     ];
 
     const merged = mergeListFirstPage(
-      prev,
+      listPage(prev),
       { conversations: fresh, hasMore: true },
       { pinnedInjected: true },
     );
 
-    expect(merged.map((c) => c.conversationId)).toEqual([
+    expect(merged.conversations.map((c) => c.conversationId)).toEqual([
       "c-new",
       "c-created",
       "c-old",
     ]);
-    expect(merged[0].title).toBe("Renamed");
+    expect(merged.conversations[0].title).toBe("Renamed");
+    expect(merged.hasMore).toBe(true);
   });
 
   test("excludes injected pinned rows from the window cutoff", () => {
@@ -760,12 +779,12 @@ describe("mergeListFirstPage", () => {
     ];
 
     const merged = mergeListFirstPage(
-      prev,
+      listPage(prev),
       { conversations: fresh, hasMore: true },
       { pinnedInjected: true },
     );
 
-    expect(merged.map((c) => c.conversationId)).toEqual([
+    expect(merged.conversations.map((c) => c.conversationId)).toEqual([
       "c-top",
       "c-pinned",
       "c-live",
@@ -785,12 +804,15 @@ describe("mergeListFirstPage", () => {
     ];
 
     const merged = mergeListFirstPage(
-      prev,
+      listPage(prev),
       { conversations: fresh, hasMore: true },
       { pinnedInjected: true },
     );
 
-    expect(merged.map((c) => c.conversationId)).toEqual(["c-top", "c-draft"]);
+    expect(merged.conversations.map((c) => c.conversationId)).toEqual([
+      "c-top",
+      "c-draft",
+    ]);
   });
 
   test("returns the cache unchanged when every injected fresh row is pinned", () => {
@@ -805,13 +827,14 @@ describe("mergeListFirstPage", () => {
       }),
     ];
 
+    const prevPage = listPage(prev, true);
     expect(
       mergeListFirstPage(
-        prev,
+        prevPage,
         { conversations: fresh, hasMore: true },
         { pinnedInjected: true },
       ),
-    ).toBe(prev);
+    ).toBe(prevPage);
   });
 
   test("a section page counts its pinned rows toward the cutoff", () => {
@@ -837,14 +860,14 @@ describe("mergeListFirstPage", () => {
     ];
 
     const merged = mergeListFirstPage(
-      prev,
+      listPage(prev),
       { conversations: fresh, hasMore: true },
       { pinnedInjected: false },
     );
 
     // c-stale sits inside the window (>= 3000) but vanished from the page,
     // so it is dropped; c-older sorts below the window and survives.
-    expect(merged.map((c) => c.conversationId)).toEqual([
+    expect(merged.conversations.map((c) => c.conversationId)).toEqual([
       "c-pin-a",
       "c-pin-b",
       "c-older",
@@ -1072,20 +1095,19 @@ describe("applySurfacedConversation", () => {
       conversationType: "background",
     });
     seedBackground(qc, [bg]);
-    // Chats section contents cache: {groupId: system:all, no channel}.
-    const chatsKey = [
-      "conversation-list",
-      ASSISTANT_ID,
-      "section",
-      "system:all",
-      "vellum",
-    ] as const;
-    qc.setQueryData(chatsKey, []);
+    // Chats section contents cache: {groupId: system:all, channel: vellum}.
+    const chatsKey = conversationListQueryKey(ASSISTANT_ID, {
+      groupId: "system:all",
+      originChannel: "vellum",
+    });
+    qc.setQueryData(chatsKey, listPage([]));
 
     applySurfacedConversation(qc, ASSISTANT_ID, bg, 4242);
 
     expect(
-      qc.getQueryData<Conversation[]>(chatsKey)?.map((c) => c.conversationId),
+      qc
+        .getQueryData<ConversationListPage>(chatsKey)
+        ?.conversations.map((c) => c.conversationId),
     ).toEqual(["bg1"]);
   });
 });

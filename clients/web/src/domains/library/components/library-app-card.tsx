@@ -22,12 +22,10 @@ import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { formatFriendlyDate } from "@/utils/format-date";
 import { cn } from "@/utils/misc";
 import { shareApp } from "@/utils/share-app";
-import { isPointerCoarse } from "@/utils/pointer";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 import {
   ActionMenu,
   Button,
-  hoverRevealClasses,
   toast,
 } from "@vellumai/design-library";
 
@@ -110,33 +108,35 @@ export function LibraryAppCard({
   // the drawer-open gesture. Pin/Unpin is moved to the trailing side
   // (swipe-left) alongside Delete so both actions remain available without
   // the gesture conflict.
-  const trailingActions: SwipeAction[] = isPointerCoarse()
-    ? [
-        {
-          id: "pin",
-          label: isPinned ? "Unpin" : "Pin",
-          icon: isPinned ? PinOff : Pin,
-          onSelect: () => onPin(app),
-        },
-        ...(deleteAction
-          ? [
-              {
-                id: "delete",
-                label: "Delete",
-                icon: Trash2,
-                variant: "destructive" as const,
-                onSelect: () => deleteAction(app),
-              },
-            ]
-          : []),
-      ]
-    : [];
+  //
+  // Ungated by input capability: `SwipeActionReveal` arms the gesture only
+  // where a swipe is the input, and passes through untouched everywhere else.
+  const trailingActions: SwipeAction[] = [
+    {
+      id: "pin",
+      label: isPinned ? "Unpin" : "Pin",
+      icon: isPinned ? PinOff : Pin,
+      onSelect: () => onPin(app),
+    },
+    ...(deleteAction
+      ? ([
+          {
+            id: "delete",
+            label: "Delete",
+            icon: Trash2,
+            variant: "destructive",
+            onSelect: () => deleteAction(app),
+          },
+        ] satisfies SwipeAction[])
+      : []),
+  ];
 
   return (
     <SwipeActionReveal trailingActions={trailingActions} className="rounded-xl">
       <div
+        data-reveal-row=""
         className={cn(
-          "group relative flex flex-col gap-2",
+          "relative flex flex-col gap-2",
           justImported && "animate-[card-entrance_400ms_ease-out]",
         )}
         onAnimationEnd={justImported ? onAnimationEnd : undefined}
@@ -157,12 +157,7 @@ export function LibraryAppCard({
           />
         </button>
 
-        <div
-          className={cn(
-            "absolute right-2 top-2 z-20",
-            hoverRevealClasses,
-          )}
-        >
+        <div data-reveal="" className="absolute right-2 top-2 z-20">
           <LibraryAppCardActionsMenu
             appName={app.name}
             isPinned={isPinned}

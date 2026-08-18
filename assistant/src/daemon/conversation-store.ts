@@ -27,6 +27,7 @@ import {
 } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { listProviders } from "../providers/registry.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
@@ -150,13 +151,19 @@ function applyTransportMetadata(
  *
  * Handles provider setup, rate limiting, system prompt, memory policy,
  * and conversation hydration.
+ *
+ * The in-memory Conversation snapshots the tool registry at construction.
+ * An empty snapshot is an empty tool list on the wire for the life of the
+ * instance, so the create path initializes the registry before that
+ * constructor runs. A hit in `findConversation` already has its snapshot.
+ * `initializeTools` is idempotent: a process that already initialized at
+ * boot awaits the settled promise.
  */
 export async function getOrCreateConversation(
   conversationId: string,
   options?: ConversationCreateOptions,
 ): Promise<Conversation> {
   let conversation = findConversation(conversationId);
-  const sendToClient = () => {};
 
   // `taskRunId` and `ephemeral` are per-call scopes, not durable conversation
   // metadata, so they are stripped before the remaining options are merged
@@ -228,11 +235,16 @@ export async function getOrCreateConversation(
       const systemPrompt = await resolveInitialSystemPrompt(storedOptions);
       const maxTokens = storedOptions?.maxResponseTokens;
 
+      const { initializeTools } = await import("../tools/registry.js");
+      await initializeTools();
+
       const newConversation = new Conversation(
         conversationId,
         provider,
         systemPrompt,
-        sendToClient,
+        // Top-level conversations deliver to the SSE hub for their whole life,
+        // so every subscribed client sees every event with no per-turn wiring.
+        broadcastMessage,
         workingDir,
         {
           maxTokens,
@@ -240,8 +252,6 @@ export async function getOrCreateConversation(
           modelOverride: storedOptions?.modelOverride,
         },
       );
-      newConversation.updateClient(sendToClient, true);
-
       // Ensure the conversations row exists before hydrating from DB.
       // `getOrCreateConversation` builds the in-memory Conversation, but
       // the persisted row is what `loadFromDb` reads for conversationType,

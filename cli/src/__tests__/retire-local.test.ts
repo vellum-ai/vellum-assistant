@@ -12,7 +12,12 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { AssistantEntry } from "../lib/assistant-config.js";
+import {
+  getDaemonPidPath,
+  type AssistantEntry,
+} from "../lib/assistant-config.js";
+import { getLockfilePath } from "../lib/environments/paths.js";
+import { getCurrentEnvironment } from "../lib/environments/resolve.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "retire-local-test-"));
 const originalLockfileDir = process.env.VELLUM_LOCKFILE_DIR;
@@ -31,7 +36,7 @@ const stopProcessByPidFileMock = mock(
   async (_pidFile: string, _label: string): Promise<boolean> => true,
 );
 const stopOrphanedDaemonProcessesMock = mock(
-  async (): Promise<boolean> => false,
+  async (_excludePids?: ReadonlySet<string>): Promise<boolean> => false,
 );
 const stopIngressNginxMock = mock(async (): Promise<boolean> => false);
 
@@ -60,7 +65,7 @@ afterAll(() => {
   mock.module("../lib/retire-archive.js", () => realRetireArchive);
 });
 
-import { retireLocal } from "../lib/retire-local.js";
+import { getRetireArchiveCommand, retireLocal } from "../lib/retire-local.js";
 
 const instanceDir = join(testDir, "test-instance");
 const vellumDir = join(instanceDir, ".vellum");
@@ -82,7 +87,7 @@ function makeEntry(assistantId: string): AssistantEntry {
 
 function writeLockfile(entries: AssistantEntry[]): void {
   writeFileSync(
-    join(testDir, ".vellum.lock.json"),
+    getLockfilePath(getCurrentEnvironment()),
     JSON.stringify({ assistants: entries }, null, 2) + "\n",
   );
 }
@@ -173,5 +178,54 @@ describe("retireLocal — CES sibling stop", () => {
         label === "credential-executor",
     );
     expect(cesStopCall).toBeDefined();
+  });
+
+  test("protects other assistants during orphan cleanup", async () => {
+    const otherInstanceDir = join(testDir, "other-instance");
+    const otherEntry = makeEntry("other-assistant");
+    otherEntry.resources!.instanceDir = otherInstanceDir;
+    const otherPid = "4242";
+    const otherPidFile = getDaemonPidPath(otherEntry.resources);
+    mkdirSync(join(otherInstanceDir, ".vellum", "workspace"), {
+      recursive: true,
+    });
+    writeFileSync(otherPidFile, otherPid);
+    writeLockfile([makeEntry("test-assistant"), otherEntry]);
+    stopProcessByPidFileMock.mockImplementation(
+      async (_pidFile: string, label: string): Promise<boolean> =>
+        label !== "daemon",
+    );
+
+    await retireLocal("test-assistant", makeEntry("test-assistant"), {
+      progress: () => {},
+      log: () => {},
+      warn: () => {},
+      error: () => {},
+    });
+
+    expect(stopOrphanedDaemonProcessesMock).toHaveBeenCalledTimes(1);
+    const excludedPids = stopOrphanedDaemonProcessesMock.mock.calls[0]?.[0];
+    expect(excludedPids?.has(otherPid)).toBeTrue();
+  });
+});
+
+test("uses a Windows-native archive process", () => {
+  const archivePath =
+    "C:\\Users\\Example User\\Vellum\\retired\\assistant & data.tar.gz";
+  const stagingDir = `${archivePath}.staging`;
+  const archiveCommand = getRetireArchiveCommand(
+    archivePath,
+    stagingDir,
+    "win32",
+  );
+
+  expect(archiveCommand.command).toBe("powershell.exe");
+  expect(archiveCommand.args.join(" ")).toContain("tar.exe");
+  expect(archiveCommand.args.join(" ")).not.toContain(archivePath);
+  expect(archiveCommand.env).toMatchObject({
+    VELLUM_RETIRE_ARCHIVE_PATH: archivePath,
+    VELLUM_RETIRE_ARCHIVE_PARENT: "C:\\Users\\Example User\\Vellum\\retired",
+    VELLUM_RETIRE_STAGING_NAME: "assistant & data.tar.gz.staging",
+    VELLUM_RETIRE_STAGING_DIR: stagingDir,
   });
 });

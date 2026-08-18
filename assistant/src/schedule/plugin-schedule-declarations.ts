@@ -30,7 +30,6 @@ import { z } from "zod";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parsePluginManifest } from "../plugins/external-plugin-loader.js";
 import { isInsidePluginRoot } from "../plugins/installed-plugin-dirs.js";
-import { walkPluginTree } from "../plugins/plugin-tree-walk.js";
 import { FRONTMATTER_REGEX } from "../skills/frontmatter.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
 import {
@@ -77,9 +76,13 @@ export interface ScheduleDeclaration {
   scriptInvocation: string | null;
   config: PluginScheduleConfig;
   /**
-   * Stable sha256 over the declaration's file contents and their paths
-   * relative to `schedules/`. Any edit, addition, removal, or rename of a
-   * declaration file changes the hash.
+   * Stable sha256 over the declaration's `config.json` and its entrypoint,
+   * each hashed together with its path relative to `schedules/`. Nothing else
+   * under the declaration directory takes part. Helper scripts, and any state
+   * a script writes beside itself, do not change the stored row definition, so
+   * hashing them would report a definition change every time a stateful
+   * schedule runs. Scripts execute by path, so an edit to a helper takes
+   * effect without a definition change.
    */
   definitionHash: string;
 }
@@ -292,21 +295,6 @@ function hashDeclarationFiles(files: DeclarationFile[]): string {
   return hash.digest("hex");
 }
 
-/**
- * Collect every regular file under `dir` (recursively, dot entries and
- * symlinks skipped) with paths relative to the schedules/ root.
- */
-function collectDeclarationFiles(
-  dir: string,
-  relPrefix: string,
-): DeclarationFile[] {
-  const files: DeclarationFile[] = [];
-  walkPluginTree(dir, { excludeDotEntries: true }, (rel, abs) => {
-    files.push({ relPath: `${relPrefix}${rel}`, content: readFileSync(abs) });
-  });
-  return files;
-}
-
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
@@ -395,25 +383,24 @@ function parseDirectoryDeclaration(
   let message: string | null = null;
   let scriptInvocation: string | null = null;
   let mode: PluginScheduleMode;
+  let entrypointText: string;
   if (entrypoint === "index.md") {
-    const content = readFileSync(join(dirPath, "index.md"), "utf8");
-    if (FRONTMATTER_REGEX.test(content)) {
+    entrypointText = readFileSync(join(dirPath, "index.md"), "utf8");
+    if (FRONTMATTER_REGEX.test(entrypointText)) {
       return {
         error:
           "index.md must not contain frontmatter: directory-form config belongs in config.json",
       };
     }
-    message = content.trim();
+    message = entrypointText.trim();
     if (!message) {
       return { error: "prompt body is empty" };
     }
     mode = "execute";
   } else {
     const scriptPath = join(dirPath, "index.sh");
-    scriptInvocation = buildScriptInvocation(
-      scriptPath,
-      readFileSync(scriptPath, "utf8"),
-    );
+    entrypointText = readFileSync(scriptPath, "utf8");
+    scriptInvocation = buildScriptInvocation(scriptPath, entrypointText);
     mode = "script";
   }
 
@@ -422,7 +409,16 @@ function parseDirectoryDeclaration(
     message,
     scriptInvocation,
     config: configResult.config,
-    files: collectDeclarationFiles(dirPath, `${dirName}/`),
+    files: [
+      {
+        relPath: `${dirName}/config.json`,
+        content: Buffer.from(rawConfigText),
+      },
+      {
+        relPath: `${dirName}/${entrypoint}`,
+        content: Buffer.from(entrypointText),
+      },
+    ],
   };
 }
 

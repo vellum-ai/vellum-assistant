@@ -11,17 +11,6 @@ import {
 import { hasWebhookIntegrations, maybeStartNgrokTunnel } from "./ngrok.js";
 
 /**
- * Retry policy for the flag lookup inside the tunnel-edge restore. The gateway
- * has typically been up for milliseconds at this point and answers
- * `503 {"status":"starting"}` (or refuses connections) until its startup
- * completes, so a single lookup races it.
- */
-export const WEB_INGRESS_FLAG_RETRY = {
-  attempts: 15,
-  intervalMs: 2_000,
-};
-
-/**
  * Whether the workspace ingress config wants the remote-web edge: explicitly
  * enabled with a saved public URL.
  */
@@ -53,14 +42,14 @@ function wantsTunnelEdge(workspaceDir: string): boolean {
  * Bring the nginx edge back up after a wake or local upgrade and point the
  * webhook auto-tunnel at it. The edge is wanted when webhook integrations are
  * configured or the workspace ingress config is enabled with a saved public
- * URL; `ensureTunnelEdge` picks SPA vs webhooks-only mode off the
- * `web-remote-ingress` flag, retrying the lookup through the gateway's startup
- * window. A healthy edge whose recorded state already targets the requested
- * gateway port is reused without the flag lookup or the `remoteWebConfigHash`
- * comparison `startRemoteWebIngress` performs; both flag-driven mode drift
- * and injected-config drift (a renamed assistant, a changed hub URL) are
- * repaired by the next explicit `vellum tunnel` or `vellum nginx-ingress up`,
- * not by background wakes. Edge failures warn
+ * URL. A healthy SPA edge whose recorded state already targets the requested
+ * gateway port is reused without the `remoteWebConfigHash` comparison
+ * `startRemoteWebIngress` performs; injected-config drift (a renamed
+ * assistant, a changed hub URL) is repaired by the next explicit
+ * `vellum tunnel` or `vellum nginx-ingress up`, not by background wakes.
+ * A recorded webhooks-only edge is never reused: it goes through
+ * `ensureTunnelEdge` so the wake upgrades it to the SPA edge.
+ * Edge failures warn
  * (with the error's install or diagnostic text) and fall back to tunneling the
  * gateway port directly, which `maybeStartNgrokTunnel` only does when webhook
  * integrations are configured, so webhook channels on nginx-less machines
@@ -79,11 +68,15 @@ export async function restoreTunnelEdgeAndAutoTunnel(
       ? readIngressState(workspaceDir)
       : null;
     let edge: TunnelEdge | null = null;
-    if (recorded !== null && recorded.gatewayPort === gatewayPort) {
+    if (
+      recorded !== null &&
+      recorded.gatewayPort === gatewayPort &&
+      recorded.includeWebApp
+    ) {
       edge = {
         port: recorded.listenPort,
         started: false,
-        includesWebApp: recorded.includeWebApp,
+        includesWebApp: true,
       };
     } else {
       try {
@@ -91,7 +84,6 @@ export async function restoreTunnelEdgeAndAutoTunnel(
           assistantId,
           workspaceDir,
           gatewayPort,
-          flagRetry: WEB_INGRESS_FLAG_RETRY,
         });
       } catch (err) {
         console.warn(

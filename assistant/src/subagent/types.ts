@@ -114,8 +114,8 @@ export interface SubagentConfig {
    * separable per variety.
    *
    * Set by the spawning call site, which is the only layer that knows: the
-   * manager cannot tell an advisor consult from a plain fork, nor a live-voice
-   * continuation from a tool-initiated one. Omitting it falls back to the
+   * manager cannot tell an advisor consult from a plain spawn, nor a live-voice
+   * continuation from a tool-initiated fork. Omitting it falls back to the
    * mechanical `fork ? "fork" : "regular"`, so a future call site that forgets
    * still lands on an honest value rather than NULL.
    */
@@ -421,7 +421,9 @@ export function subagentOutputContractText(
  * - `regular`: fire-and-forget `subagent_spawn`, fresh objective-only context.
  * - `fork`: `subagent_spawn` with `fork: true`, inherits the parent transcript.
  * - `advisor_consult`: synchronous, read-only advisor consult on the advisor
- *   profile; the parent turn blocks on it and returns its guidance inline.
+ *   profile, running on the spawning agent's written brief plus a snapshot of
+ *   its environment; the parent turn blocks on it and returns its guidance
+ *   inline.
  * - `voice_continuation`: live-voice background continuation of an interrupted
  *   turn, spawned as a fork with no role and therefore WRITE-CAPABLE: it runs
  *   as {@link DEFAULT_SUBAGENT_ROLE} on the parent's full tool surface, with
@@ -483,13 +485,13 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
       skillIds: [],
       systemPromptPreamble: [
         "You are a research subagent with read-only access: search the web, read and search files, and recall memories. There is no shell, and you cannot write or edit files.",
-        // `file_read` returns the first DEFAULT_READ_LINE_LIMIT (2000) lines
-        // unless a limit is passed, with a truncation notice naming the resume
-        // offset, and oversized results spool to .tool-results/ like any other
-        // tool's (only re-reads of spooled content stay inline). So a ranged
-        // read is both the cheap shape and the one that avoids a spool
-        // round-trip. The anti-slicing intent stays: one pass over the range
-        // that is needed rather than many small ones.
+        // `file_read` returns a bounded character window with a truncation
+        // notice naming the resume offset, and oversized results spool to
+        // .tool-results/ like any other tool's (only re-reads of spooled
+        // content stay inline). So a ranged read is both the cheap shape and
+        // the one that avoids a spool round-trip. The anti-slicing intent
+        // stays: one pass over the range that is needed rather than many
+        // small ones.
         "Working method: use code_search to search file contents across directories, file_list to enumerate paths, and file_read to read files and logs. Prefer broad code_search queries across a directory over one-symbol-at-a-time queries, and read the range you need in one pass rather than many small slices.",
         "Send notify_parent (urgency 'important') as soon as each finding is confirmed, so progress survives interruption.",
         "Your final message is the deliverable: a compact report that answers the objective, gives the evidence behind each claim (file:line references, URLs, or quotes), and names what you could not determine. For a root-cause investigation, use the sections Symptom, Root cause, Evidence, Suggested fix, Open questions.",
@@ -514,8 +516,8 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
     advisor: {
       // Read-only fact checking, deliberately narrower than the researcher's
       // list: no web fetch, no skill execution, no memory search, nothing that
-      // persists. The advisor answers from the inherited conversation and opens
-      // a file only when a specific fact would change the advice.
+      // persists. The advisor answers from the brief it is handed and opens a
+      // file only when a specific fact would change the advice.
       //
       // Names alone are not the guarantee. The advisor spawn also sets
       // `denySideEffectTools`, so each name must additionally resolve to the
@@ -528,7 +530,7 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
       denySideEffects: true,
       skillIds: [],
       systemPromptPreamble:
-        "You are a read-only senior advisor consulted for a one-shot strategic review. Read the inherited conversation, then return focused, high-leverage guidance in a single response. You may read and search the files in the workspace to verify a decisive fact, but you cannot change anything and you cannot see other conversations.",
+        "You are a read-only senior advisor consulted for a one-shot strategic review. Read the brief the agent wrote you, then return focused, high-leverage guidance in a single response. You may read and search the files in the workspace to verify a decisive fact the brief asserts or leaves out, but you cannot change anything and you cannot see other conversations.",
     },
   };
 
