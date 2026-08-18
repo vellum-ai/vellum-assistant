@@ -184,6 +184,22 @@ describe("remote gateway mode", () => {
     expect(getLocalGatewayUrl()).toBeUndefined();
     expect(useLockfileStore.getState().committed).toBe(true);
   });
+
+  test("names the synthetic assistant from the injected config when present", async () => {
+    window.__VELLUM_CONFIG__ = {
+      mode: "remote-gateway",
+      assistantName: "vellum-deep-hare-ww1iw1",
+    };
+
+    const lockfile = await loadLockfile();
+
+    expect(lockfile.assistants).toEqual([
+      expect.objectContaining({
+        assistantId: "self",
+        name: "vellum-deep-hare-ww1iw1",
+      }),
+    ]);
+  });
 });
 
 describe("getRemoteAssistantDisplayName", () => {
