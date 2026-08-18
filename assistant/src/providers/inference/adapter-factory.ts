@@ -130,6 +130,9 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       providerName: "litellm",
       providerLabel: "LiteLLM",
       streamTimeoutMs,
+      // Replay thinking as `reasoning_content` so DeepSeek-compatible
+      // thinking-mode upstreams accept follow-up requests that include tools.
+      assistantReasoningField: "reasoning_content",
       ...(baseURL ? { baseURL } : {}),
     }),
   // Keyless openai-compatible endpoints (e.g. LM Studio) ignore the key; the
@@ -139,6 +142,9 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       providerName: "openai-compatible",
       providerLabel: "OpenAI-compatible",
       streamTimeoutMs,
+      // Replay thinking as `reasoning_content` so DeepSeek-compatible
+      // thinking-mode endpoints accept follow-up requests that include tools.
+      assistantReasoningField: "reasoning_content",
       ...(baseURL ? { baseURL } : {}),
     }),
   minimax: ({ apiKey, model, streamTimeoutMs }) =>

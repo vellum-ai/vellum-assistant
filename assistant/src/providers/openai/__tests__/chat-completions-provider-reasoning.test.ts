@@ -294,6 +294,53 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
     });
   });
 
+  test("round-trips reasoning_content on assistant messages that carry tool_calls", async () => {
+    const { provider, requests } = stubProvider(
+      [
+        {
+          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        },
+      ],
+      { assistantReasoningField: "reasoning_content" },
+    );
+
+    await provider.sendMessage([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "need the search tool",
+            signature: "",
+          },
+          { type: "tool_use", id: "call_1", name: "search", input: { q: "x" } },
+        ],
+      },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{
+        role: string;
+        content: string | null;
+        reasoning_content?: string;
+        tool_calls?: unknown;
+      }>;
+    };
+    expect(params.messages[0]).toEqual({
+      role: "assistant",
+      content: null,
+      reasoning_content: "need the search tool",
+      tool_calls: [
+        {
+          id: "call_1",
+          type: "function",
+          function: { name: "search", arguments: JSON.stringify({ q: "x" }) },
+        },
+      ],
+    });
+  });
+
   test("uses reasoning field for OpenRouter-style round-trip", async () => {
     const { provider, requests } = stubProvider(
       [
@@ -460,12 +507,18 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
     ]);
 
     const params = requests[0] as {
-      messages: Array<{ role: string; content: string | null }>;
+      messages: Array<{
+        role: string;
+        content: string | null;
+        reasoning_content?: string;
+      }>;
     };
     // Tool-call-only assistant messages keep null content (preferred by
     // Anthropic-proxy/Bedrock backends); the placeholder is only for the
-    // neither-content-nor-tool_calls case.
+    // neither-content-nor-tool_calls case. The reasoning field stays omitted
+    // when assistantReasoningField is unset.
     expect(params.messages[0].content).toBeNull();
+    expect(params.messages[0].reasoning_content).toBeUndefined();
   });
 
   test("forwards config.top_p onto the request body", async () => {
@@ -534,6 +587,105 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
       }>;
     };
     expect(params.messages[0].reasoning_content).toBe("deepseek thinking");
+  });
+
+  test("includes empty reasoning_content on tool-call turns when the field is set", async () => {
+    const { provider, requests } = stubProvider(
+      [
+        {
+          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        },
+      ],
+      { assistantReasoningField: "reasoning_content" },
+    );
+
+    await provider.sendMessage([
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "call_1", name: "search", input: { q: "x" } },
+        ],
+      },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{
+        role: string;
+        content: string | null;
+        tool_calls?: unknown;
+        reasoning_content?: string;
+      }>;
+    };
+    const assistantMsg = params.messages[0];
+    expect(assistantMsg.tool_calls).toEqual([
+      {
+        id: "call_1",
+        type: "function",
+        function: { name: "search", arguments: JSON.stringify({ q: "x" }) },
+      },
+    ]);
+    expect(assistantMsg.reasoning_content).toBe("");
+  });
+
+  test("includes empty reasoning on tool-call turns for the OpenRouter-style field", async () => {
+    const { provider, requests } = stubProvider(
+      [
+        {
+          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        },
+      ],
+      { assistantReasoningField: "reasoning" },
+    );
+
+    await provider.sendMessage([
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "call_1", name: "search", input: { q: "x" } },
+        ],
+      },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{
+        role: string;
+        reasoning?: string;
+        reasoning_content?: string;
+      }>;
+    };
+    expect(params.messages[0].reasoning).toBe("");
+    expect(params.messages[0].reasoning_content).toBeUndefined();
+  });
+
+  test("omits empty reasoning_content on text-only turns even when the field is set", async () => {
+    const { provider, requests } = stubProvider(
+      [
+        {
+          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        },
+      ],
+      { assistantReasoningField: "reasoning_content" },
+    );
+
+    await provider.sendMessage([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "plain reply" }],
+      },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{
+        role: string;
+        content: string | null;
+        reasoning_content?: string;
+      }>;
+    };
+    expect(params.messages[0].content).toBe("plain reply");
+    expect(params.messages[0].reasoning_content).toBeUndefined();
   });
 });
 

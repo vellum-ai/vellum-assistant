@@ -162,7 +162,10 @@ export interface OpenAIChatCompletionsProviderOptions {
   parseThinkTags?: boolean;
   /** Wire field used to replay prior assistant thinking on multi-turn requests.
    *  DeepSeek/Fireworks use `"reasoning_content"`; OpenRouter uses `"reasoning"`.
-   *  When unset, thinking blocks are dropped from outbound assistant messages. */
+   *  When unset, thinking blocks are dropped from outbound assistant messages.
+   *  When set, assistant messages that carry `tool_calls` always include the
+   *  field (empty string if there is no thinking): DeepSeek thinking mode
+   *  rejects follow-up requests that omit it. */
   assistantReasoningField?: "reasoning" | "reasoning_content";
   /** Backfill a non-empty placeholder for assistant turns that would otherwise
    *  serialize with neither `content` nor `tool_calls` (e.g. reasoning-only
@@ -1095,17 +1098,23 @@ export class OpenAIChatCompletionsProvider implements Provider {
         content: textParts.length > 0 ? textParts.join("") : null,
       };
 
-    if (reasoningParts.length > 0 && this.assistantReasoningField) {
+    if (toolCalls.length > 0) {
+      result.tool_calls = toolCalls;
+    }
+
+    // Include the configured wire field whenever there is thinking to replay,
+    // and on every tool-call assistant message even when thinking is empty.
+    // DeepSeek thinking mode checks field presence on those turns, not content.
+    if (
+      this.assistantReasoningField &&
+      (reasoningParts.length > 0 || toolCalls.length > 0)
+    ) {
       (
         result as OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam & {
           reasoning?: string;
           reasoning_content?: string;
         }
       )[this.assistantReasoningField] = reasoningParts.join("");
-    }
-
-    if (toolCalls.length > 0) {
-      result.tool_calls = toolCalls;
     }
 
     // An assistant message must carry `content` or `tool_calls`. A turn with
