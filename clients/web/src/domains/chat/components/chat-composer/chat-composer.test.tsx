@@ -1293,8 +1293,9 @@ describe("ChatComposer: mobile settings pills row", () => {
     mockIsNativeMobile = true;
     const { container } = renderPhoneComposer(SETTINGS_SLOTS);
 
-    // THEN the caption keeps its own at-rest rule rather than trading places
-    // with the row: the two now share the resting composer
+    // THEN both stand: the caption keeps its own at-rest rule, so a resting
+    // composer in a shell carries the row above the card and the caption below
+    // it at the same time
     expect(disclaimer(container)?.hasAttribute("hidden")).toBe(false);
     expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
   });
