@@ -33,6 +33,7 @@ mockIpcResponse("classify_risk", {
   risk: "low",
   reason: "skill_load",
   matchType: "unknown",
+  scopeOptions: [],
 });
 mockIpcResponse("get_global_thresholds", {
   interactive: "low",
@@ -93,6 +94,7 @@ function mockDynamicSkillClassification(): void {
     reason:
       "Skill load with inline command expansions (executes shell commands at load time)",
     matchType: "registry",
+    scopeOptions: [],
   });
 }
 
@@ -106,6 +108,7 @@ describe("inline-command skill_load permissions", () => {
       risk: "low",
       reason: "skill_load",
       matchType: "unknown",
+      scopeOptions: [],
     });
     mockIpcResponse("get_global_thresholds", {
       interactive: "low",
@@ -175,6 +178,7 @@ describe("inline-command skill_load permissions", () => {
         risk: "low",
         reason: "user rule: skill_load_dynamic:dynamic-covered",
         matchType: "user_rule",
+        scopeOptions: [],
       });
 
       const result = await check(

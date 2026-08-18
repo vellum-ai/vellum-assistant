@@ -171,9 +171,9 @@ mock.module("../tools/network/url-safety.js", () => ({
 // ── ipcClassifyRisk mock ─────────────────────────────────────────────────────
 // This is the core mock — all classification goes through this.
 
-import type { ClassificationResult } from "./ipc-risk-types.js";
+import type { ClassifyRiskIpcResponse } from "@vellumai/gateway-client";
 
-let mockIpcClassifyRiskResult: ClassificationResult | undefined;
+let mockIpcClassifyRiskResult: ClassifyRiskIpcResponse | undefined;
 let lastClassifyRiskParams: Record<string, unknown> | undefined;
 
 mock.module("../ipc/gateway-client.js", () => ({
@@ -400,10 +400,7 @@ describe("Permission Checker (gateway IPC)", () => {
         commandCandidates: ["ls -la", "action:ls"],
       };
       const result = await classifyRisk("bash", { command: "ls -la" });
-      expect((result as any).commandCandidates).toEqual([
-        "ls -la",
-        "action:ls",
-      ]);
+      expect(result.commandCandidates).toEqual(["ls -la", "action:ls"]);
     });
 
     test("preserves sandboxAutoApprove from gateway response", async () => {
@@ -415,7 +412,7 @@ describe("Permission Checker (gateway IPC)", () => {
         sandboxAutoApprove: true,
       };
       const result = await classifyRisk("bash", { command: "pwd" });
-      expect((result as any).sandboxAutoApprove).toBe(true);
+      expect(result.sandboxAutoApprove).toBe(true);
     });
 
     test("overrides sandboxAutoApprove when symlink escape detected", async () => {
@@ -431,7 +428,7 @@ describe("Permission Checker (gateway IPC)", () => {
       const result = await classifyRisk("bash", {
         command: "cat /workspace/escape/passwd",
       });
-      expect((result as any).sandboxAutoApprove).toBe(false);
+      expect(result.sandboxAutoApprove).toBe(false);
       mockIsPathWithinWorkspaceRoot = true;
     });
 
@@ -448,7 +445,7 @@ describe("Permission Checker (gateway IPC)", () => {
       const result = await classifyRisk("bash", {
         command: "cat /workspace/file.txt",
       });
-      expect((result as any).sandboxAutoApprove).toBe(true);
+      expect(result.sandboxAutoApprove).toBe(true);
     });
 
     test("overrides sandboxAutoApprove when any path arg escapes", async () => {
@@ -464,7 +461,7 @@ describe("Permission Checker (gateway IPC)", () => {
       const result = await classifyRisk("bash", {
         command: "cat /workspace/safe.txt && cat /workspace/escape/passwd",
       });
-      expect((result as any).sandboxAutoApprove).toBe(false);
+      expect(result.sandboxAutoApprove).toBe(false);
       mockIsPathWithinWorkspaceRoot = true;
     });
 
@@ -479,7 +476,7 @@ describe("Permission Checker (gateway IPC)", () => {
         // No sandboxPathArgs — e.g. older gateway that doesn't send them
       };
       const result = await classifyRisk("bash", { command: "ls" });
-      expect((result as any).sandboxAutoApprove).toBe(true);
+      expect(result.sandboxAutoApprove).toBe(true);
       mockIsPathWithinWorkspaceRoot = true;
     });
 
@@ -497,7 +494,7 @@ describe("Permission Checker (gateway IPC)", () => {
       const first = await classifyRisk("bash", {
         command: "cat /workspace/escape/secret42.bin",
       });
-      expect((first as any).sandboxAutoApprove).toBe(true);
+      expect(first.sandboxAutoApprove).toBe(true);
 
       // Second call with the same command: the symlink now resolves outside
       // the workspace, so sandboxAutoApprove is revoked.
@@ -505,7 +502,7 @@ describe("Permission Checker (gateway IPC)", () => {
       const second = await classifyRisk("bash", {
         command: "cat /workspace/escape/secret42.bin",
       });
-      expect((second as any).sandboxAutoApprove).toBe(false);
+      expect(second.sandboxAutoApprove).toBe(false);
       mockIsPathWithinWorkspaceRoot = true;
     });
 
@@ -526,7 +523,7 @@ describe("Permission Checker (gateway IPC)", () => {
         allowlistOptions: mockOptions,
       };
       const result = await classifyRisk("bash", { command: "date" });
-      expect((result as any).allowlistOptions).toEqual(mockOptions);
+      expect(result.allowlistOptions).toEqual(mockOptions);
     });
   });
 

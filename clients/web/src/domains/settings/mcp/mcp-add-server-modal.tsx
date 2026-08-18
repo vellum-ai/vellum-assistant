@@ -1,6 +1,7 @@
 import { Cable } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -8,18 +9,29 @@ import { Modal } from "@vellumai/design-library/components/modal";
 type TransportType = "stdio" | "sse" | "streamable-http";
 type AuthType = "none" | "bearer" | "api-key" | "oauth";
 
-const AUTH_OPTIONS: { value: AuthType; label: string }[] = [
-  { value: "none", label: "None" },
-  { value: "oauth", label: "OAuth" },
-  { value: "bearer", label: "Bearer Token" },
-  { value: "api-key", label: "API Key" },
-];
+type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
 
-const TRANSPORT_OPTIONS: { value: TransportType; label: string }[] = [
-  { value: "sse", label: "SSE" },
-  { value: "streamable-http", label: "Streamable HTTP" },
-  { value: "stdio", label: "Stdio (command)" },
-];
+const AUTH_OPTION_KEYS = [
+  { value: "none", labelKey: "mcpAddServerModal.authNone" },
+  { value: "oauth", labelKey: "mcpAddServerModal.authOAuth" },
+  { value: "bearer", labelKey: "mcpAddServerModal.authBearer" },
+  { value: "api-key", labelKey: "mcpAddServerModal.authApiKey" },
+] as const satisfies ReadonlyArray<{
+  value: AuthType;
+  labelKey: string;
+}>;
+
+const TRANSPORT_OPTION_KEYS = [
+  { value: "sse", labelKey: "mcpAddServerModal.transportSse" },
+  {
+    value: "streamable-http",
+    labelKey: "mcpAddServerModal.transportStreamableHttp",
+  },
+  { value: "stdio", labelKey: "mcpAddServerModal.transportStdio" },
+] as const satisfies ReadonlyArray<{
+  value: TransportType;
+  labelKey: string;
+}>;
 
 interface McpAddServerModalProps {
   open: boolean;
@@ -36,12 +48,30 @@ interface McpAddServerModalProps {
   isPending: boolean;
 }
 
+function authOptions(t: SettingsTranslate) {
+  return AUTH_OPTION_KEYS.map(({ value, labelKey }) => ({
+    value,
+    label: t(labelKey),
+  }));
+}
+
+function transportOptions(t: SettingsTranslate) {
+  return TRANSPORT_OPTION_KEYS.map(({ value, labelKey }) => ({
+    value,
+    label: t(labelKey),
+  }));
+}
+
 export function McpAddServerModal({
   open,
   onClose,
   onAdd,
   isPending,
 }: McpAddServerModalProps) {
+  const { t } = useTranslation("settings");
+  const authOptionsList = useMemo(() => authOptions(t), [t]);
+  const transportOptionsList = useMemo(() => transportOptions(t), [t]);
+
   const [name, setName] = useState("");
   const [transportType, setTransportType] = useState<TransportType>("sse");
   const [url, setUrl] = useState("");
@@ -145,10 +175,9 @@ export function McpAddServerModal({
     >
       <Modal.Content size="md">
         <Modal.Header icon={Cable}>
-          <Modal.Title>Add MCP Server</Modal.Title>
+          <Modal.Title>{t("mcpAddServerModal.title")}</Modal.Title>
           <Modal.Description>
-            Connect to a Model Context Protocol server to extend available
-            tools.
+            {t("mcpAddServerModal.description")}
           </Modal.Description>
         </Modal.Header>
 
@@ -159,14 +188,14 @@ export function McpAddServerModal({
                 className="text-body-small-default text-[var(--content-secondary)]"
                 htmlFor="mcp-name"
               >
-                Server name
+                {t("mcpAddServerModal.serverNameLabel")}
               </label>
               <Input
                 id="mcp-name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="my-server"
+                placeholder={t("mcpAddServerModal.namePlaceholder")}
                 fullWidth
                 autoFocus
               />
@@ -177,7 +206,7 @@ export function McpAddServerModal({
                 className="text-body-small-default text-[var(--content-secondary)]"
                 htmlFor="mcp-transport"
               >
-                Transport
+                {t("mcpAddServerModal.transportLabel")}
               </label>
               <select
                 id="mcp-transport"
@@ -187,7 +216,7 @@ export function McpAddServerModal({
                 }
                 className="w-full rounded-md border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-medium-default text-[var(--content-default)] outline-none focus:ring-2 focus:ring-[var(--ring)]"
               >
-                {TRANSPORT_OPTIONS.map((opt) => (
+                {transportOptionsList.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
@@ -202,14 +231,14 @@ export function McpAddServerModal({
                     className="text-body-small-default text-[var(--content-secondary)]"
                     htmlFor="mcp-command"
                   >
-                    Command
+                    {t("mcpAddServerModal.commandLabel")}
                   </label>
                   <Input
                     id="mcp-command"
                     type="text"
                     value={command}
                     onChange={(e) => setCommand(e.target.value)}
-                    placeholder="npx -y @modelcontextprotocol/server-example"
+                    placeholder={t("mcpAddServerModal.commandPlaceholder")}
                     fullWidth
                   />
                 </div>
@@ -218,14 +247,14 @@ export function McpAddServerModal({
                     className="text-body-small-default text-[var(--content-secondary)]"
                     htmlFor="mcp-args"
                   >
-                    Arguments (space-separated)
+                    {t("mcpAddServerModal.argsLabel")}
                   </label>
                   <Input
                     id="mcp-args"
                     type="text"
                     value={args}
                     onChange={(e) => setArgs(e.target.value)}
-                    placeholder="--port 3000"
+                    placeholder={t("mcpAddServerModal.argsPlaceholder")}
                     fullWidth
                   />
                 </div>
@@ -237,14 +266,14 @@ export function McpAddServerModal({
                     className="text-body-small-default text-[var(--content-secondary)]"
                     htmlFor="mcp-url"
                   >
-                    Server URL
+                    {t("mcpAddServerModal.serverUrlLabel")}
                   </label>
                   <Input
                     id="mcp-url"
                     type="url"
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://example.com/mcp"
+                    placeholder={t("mcpAddServerModal.urlPlaceholder")}
                     fullWidth
                   />
                 </div>
@@ -254,7 +283,7 @@ export function McpAddServerModal({
                     className="text-body-small-default text-[var(--content-secondary)]"
                     htmlFor="mcp-auth"
                   >
-                    Authentication
+                    {t("mcpAddServerModal.authenticationLabel")}
                   </label>
                   <select
                     id="mcp-auth"
@@ -262,7 +291,7 @@ export function McpAddServerModal({
                     onChange={(e) => setAuthType(e.target.value as AuthType)}
                     className="w-full rounded-md border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-medium-default text-[var(--content-default)] outline-none focus:ring-2 focus:ring-[var(--ring)]"
                   >
-                    {AUTH_OPTIONS.map((opt) => (
+                    {authOptionsList.map((opt) => (
                       <option key={opt.value} value={opt.value}>
                         {opt.label}
                       </option>
@@ -272,8 +301,7 @@ export function McpAddServerModal({
 
                 {authType === "oauth" ? (
                   <p className="rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2 text-body-small-default text-[var(--content-tertiary)]">
-                    OAuth credentials will be configured through a browser-based
-                    authorization flow after the server is added.
+                    {t("mcpAddServerModal.oauthHint")}
                   </p>
                 ) : null}
 
@@ -283,14 +311,14 @@ export function McpAddServerModal({
                       className="text-body-small-default text-[var(--content-secondary)]"
                       htmlFor="mcp-bearer"
                     >
-                      Bearer token
+                      {t("mcpAddServerModal.bearerTokenLabel")}
                     </label>
                     <Input
                       id="mcp-bearer"
                       type="password"
                       value={bearerToken}
                       onChange={(e) => setBearerToken(e.target.value)}
-                      placeholder="tok_..."
+                      placeholder={t("mcpAddServerModal.bearerPlaceholder")}
                       fullWidth
                     />
                   </div>
@@ -303,14 +331,16 @@ export function McpAddServerModal({
                         className="text-body-small-default text-[var(--content-secondary)]"
                         htmlFor="mcp-apikey-header"
                       >
-                        Header name
+                        {t("mcpAddServerModal.headerNameLabel")}
                       </label>
                       <Input
                         id="mcp-apikey-header"
                         type="text"
                         value={apiKeyHeader}
                         onChange={(e) => setApiKeyHeader(e.target.value)}
-                        placeholder="X-API-Key"
+                        placeholder={t(
+                          "mcpAddServerModal.apiKeyHeaderPlaceholder",
+                        )}
                         fullWidth
                       />
                     </div>
@@ -319,14 +349,14 @@ export function McpAddServerModal({
                         className="text-body-small-default text-[var(--content-secondary)]"
                         htmlFor="mcp-apikey-value"
                       >
-                        API key
+                        {t("mcpAddServerModal.apiKeyLabel")}
                       </label>
                       <Input
                         id="mcp-apikey-value"
                         type="password"
                         value={apiKeyValue}
                         onChange={(e) => setApiKeyValue(e.target.value)}
-                        placeholder="sk_..."
+                        placeholder={t("mcpAddServerModal.apiKeyPlaceholder")}
                         fullWidth
                       />
                     </div>
@@ -339,14 +369,16 @@ export function McpAddServerModal({
 
         <Modal.Footer>
           <Button variant="ghost" onClick={handleClose} disabled={isPending}>
-            Cancel
+            {t("mcpAddServerModal.cancel")}
           </Button>
           <Button
             variant="primary"
             onClick={handleSubmit}
             disabled={!canSubmit || isPending}
           >
-            {isPending ? "Adding..." : "Add Server"}
+            {isPending
+              ? t("mcpAddServerModal.adding")
+              : t("mcpAddServerModal.addServer")}
           </Button>
         </Modal.Footer>
       </Modal.Content>
