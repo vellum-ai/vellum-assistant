@@ -828,10 +828,18 @@ function Avatar({
       ) : (
         // A custom uploaded image, which has no traits to compose and so no
         // eyes to animate.
+        //
+        // Undraggable, because the avatar is the surface's drag handle. An
+        // image is natively draggable, and the platform's own HTML5 image drag
+        // takes the pointer and ends the `mousemove` stream the surface's drag
+        // runs on, so pressing a custom avatar would move nothing where
+        // pressing a composed creature moves the window. WebKit honours the CSS
+        // on paths where it ignores the attribute, so both are needed.
         <img
           src={avatarSrc}
           alt=""
-          className="relative size-7 rounded-full object-contain drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
+          draggable={false}
+          className="relative size-7 rounded-full object-contain drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)] [-webkit-user-drag:none]"
         />
       )}
     </div>
@@ -935,9 +943,6 @@ function CallBody({
       <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
         {line}
       </span>
-      <span className="ml-1 shrink-0 font-mono text-[11px] tabular-nums text-white/60">
-        <Elapsed startedAt={call?.startedAt} />
-      </span>
       <PillButton
         icon={
           muted ? <MicOff className="size-4" /> : <Mic className="size-4" />
@@ -1022,38 +1027,6 @@ function ApprovalBody({
         }}
       />
     </>
-  );
-}
-
-/**
- * Elapsed call time.
- *
- * Ticks from a timestamp the caller owns rather than one of its own, because
- * the session started before this component mounted and will outlive it: the
- * surface that renders this can reload mid-call. With no timestamp it holds a
- * fixed sample, which is what a static story wants.
- */
-function Elapsed({ startedAt }: { startedAt?: number }) {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (startedAt === undefined) {
-      return;
-    }
-    const timer = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
-    return () => {
-      clearInterval(timer);
-    };
-  }, [startedAt]);
-
-  if (startedAt === undefined) {
-    return <>0:14</>;
-  }
-  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
-  return (
-    <>{`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`}</>
   );
 }
 

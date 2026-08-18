@@ -16,6 +16,7 @@
 import { MoreHorizontal } from "lucide-react";
 import type { ComponentProps, MouseEvent } from "react";
 
+import { useTranslation } from "@/i18n";
 import { cn } from "@vellumai/design-library/utils/cn";
 
 const BUTTON_CLASSES = [
@@ -39,11 +40,13 @@ export function SectionActionsButton({
   onClick,
   ...rest
 }: SectionActionsButtonProps) {
+  const { t } = useTranslation("common");
+
   return (
     <button
       {...rest}
       type="button"
-      aria-label={`${label} actions`}
+      aria-label={t("sectionActionsButton.ariaLabel", { name: label })}
       aria-haspopup="menu"
       onClick={(event: MouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();

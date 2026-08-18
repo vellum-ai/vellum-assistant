@@ -8,14 +8,23 @@ import {
   type RemoteWebPairingChallengeRateLimit,
 } from "../../remote-web/pairing-challenge-rate-limit-store.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
-import { requestArrivedViaEdgeProxy } from "../edge-forwarded-header.js";
-import { enforceLoopbackOnly, parseHostHeader } from "../loopback-guard.js";
-import { readLimitedBody } from "../read-limited-body.js";
+import {
+  EDGE_CLIENT_IP_HEADER,
+  requestArrivedViaEdgeProxy,
+} from "../edge-forwarded-header.js";
+import {
+  enforceLoopbackOnly,
+  errorResponse,
+  parseHostHeader,
+} from "../loopback-guard.js";
+import { methodNotAllowed, readJsonStringField } from "../route-helpers.js";
 
 const MAX_CHALLENGE_BODY_BYTES = 512;
 
-function parsePublicBaseUrl(value: unknown): string | null {
-  if (typeof value !== "string" || !value.trim()) return null;
+function parsePublicBaseUrl(value: string): string | null {
+  if (!value.trim()) {
+    return null;
+  }
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
@@ -25,10 +34,6 @@ function parsePublicBaseUrl(value: unknown): string | null {
   } catch {
     return null;
   }
-}
-
-function jsonError(code: string, message: string, status: number): Response {
-  return Response.json({ error: { code, message } }, { status });
 }
 
 function rateLimitedResponse(
@@ -84,10 +89,7 @@ export async function handleCreateRemoteWebPairingChallenge(
   rawPeerIp = clientIp,
 ): Promise<Response> {
   if (req.method !== "POST") {
-    return new Response("method not allowed", {
-      status: 405,
-      headers: { Allow: "POST" },
-    });
+    return methodNotAllowed("POST");
   }
 
   const arrivedViaEdgeProxy = requestArrivedViaEdgeProxy(req);
@@ -102,31 +104,25 @@ export async function handleCreateRemoteWebPairingChallenge(
     if (guardError) return guardError;
   }
 
-  const rawBody = await readLimitedBody(req, MAX_CHALLENGE_BODY_BYTES);
-  if (rawBody.status === "too_large") {
-    return jsonError("PAYLOAD_TOO_LARGE", "request body too large", 413);
-  }
-  if (rawBody.status === "unreadable") {
-    return jsonError("BAD_REQUEST", "failed to read request body", 400);
-  }
-
-  let publicBaseUrl: string | null = null;
-  try {
-    const body = JSON.parse(rawBody.text) as { publicBaseUrl?: unknown };
-    publicBaseUrl = parsePublicBaseUrl(body.publicBaseUrl);
-  } catch {
-    return jsonError("BAD_REQUEST", "invalid JSON body", 400);
+  const rawPublicBaseUrl = await readJsonStringField(
+    req,
+    MAX_CHALLENGE_BODY_BYTES,
+    "publicBaseUrl",
+  );
+  if (rawPublicBaseUrl instanceof Response) {
+    return rawPublicBaseUrl;
   }
 
+  const publicBaseUrl = parsePublicBaseUrl(rawPublicBaseUrl);
   if (!publicBaseUrl) {
-    return jsonError("BAD_REQUEST", "publicBaseUrl is required", 400);
+    return errorResponse("BAD_REQUEST", "publicBaseUrl is required", 400);
   }
 
   if (
     arrivedViaTrustedEdgeProxy &&
     !publicBaseUrlMatchesRequestHost(req, publicBaseUrl)
   ) {
-    return jsonError(
+    return errorResponse(
       "PUBLIC_BASE_URL_MISMATCH",
       "publicBaseUrl must match the request host",
       400,
@@ -139,7 +135,18 @@ export async function handleCreateRemoteWebPairingChallenge(
   const capacityLimited = checkRemoteWebPairingChallengeCapacity();
   if (capacityLimited) return capacityLimitedResponse(capacityLimited);
 
-  const challenge = createRemoteWebPairingChallenge(publicBaseUrl);
+  // The edge stamps the client address it observed via proxy_set_header
+  // (overwriting any inbound value), so it is trustworthy exactly when the
+  // trusted-edge check above passed. Direct local mints keep the raw peer.
+  const edgeClientIp = arrivedViaTrustedEdgeProxy
+    ? req.headers.get(EDGE_CLIENT_IP_HEADER)?.trim()
+    : undefined;
+
+  const challenge = createRemoteWebPairingChallenge(publicBaseUrl, {
+    ip: edgeClientIp || clientIp,
+    userAgent: req.headers.get("user-agent"),
+    viaEdgeProxy: arrivedViaTrustedEdgeProxy,
+  });
 
   return Response.json(challenge, {
     headers: { "Cache-Control": "no-store" },

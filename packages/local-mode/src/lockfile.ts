@@ -10,8 +10,7 @@ import { withLockfileLock } from "./lockfile-lock";
 import { stripSensitiveFields } from "./util";
 
 export type LockfileResult =
-  | { ok: true; data: Lockfile }
-  | { ok: false; status: number; error?: string };
+  { ok: true; data: Lockfile } | { ok: false; status: number; error?: string };
 
 export function getLockfileData(lockfilePaths: string[]): LockfileResult {
   let raw: string | undefined;
@@ -111,14 +110,20 @@ export function readRawLockfileStrict(
       return { ok: false, error: `Failed to read lockfile: ${err}` };
     }
     if (raw.trim() === "") continue;
+    let parsed: unknown;
     try {
-      return {
-        ok: true,
-        lockfile: JSON.parse(raw) as Record<string, unknown>,
-      };
+      parsed = JSON.parse(raw);
     } catch (err) {
       return { ok: false, error: `Failed to parse lockfile: ${err}` };
     }
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return { ok: false, error: "Lockfile is not a JSON object" };
+    }
+    return { ok: true, lockfile: parsed as Record<string, unknown> };
   }
   return { ok: true, lockfile: { assistants: [], activeAssistant: null } };
 }
@@ -149,7 +154,11 @@ export function writeRawLockfile(
     fs.writeFileSync(tmp, JSON.stringify(lockfile, null, 2));
     fs.renameSync(tmp, writePath);
   } catch (err) {
-    return { ok: false, status: 500, error: `Failed to write lockfile: ${err}` };
+    return {
+      ok: false,
+      status: 500,
+      error: `Failed to write lockfile: ${err}`,
+    };
   }
 
   return { ok: true, lockfile: toWireLockfile(lockfile) };
@@ -215,7 +224,9 @@ export function upsertLockfileAssistant(
 
   const locked = withLockfileLock(lockfilePaths, (): WriteResult => {
     const lockfile = readRawLockfile(lockfilePaths);
-    const assistants = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
+    const assistants = Array.isArray(lockfile.assistants)
+      ? lockfile.assistants
+      : [];
     const existingIdx = assistants.findIndex(
       (a: Record<string, unknown>) => a?.assistantId === assistant.assistantId,
     );
@@ -330,7 +341,9 @@ export function replacePlatformAssistants(
 
   const locked = withLockfileLock(lockfilePaths, (): WriteResult => {
     const lockfile = readRawLockfile(lockfilePaths);
-    const existing = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
+    const existing = Array.isArray(lockfile.assistants)
+      ? lockfile.assistants
+      : [];
     const syncedIds = new Set(platformAssistants.map((a) => a.assistantId));
     // Org-scoped sync preserves other orgs' platform entries; no org full-replaces.
     const preserved = existing.filter((a: Record<string, unknown>) => {
@@ -342,9 +355,9 @@ export function replacePlatformAssistants(
 
     const active = lockfile.activeAssistant as string | null;
     if (active) {
-      const stillExists = (lockfile.assistants as Array<Record<string, unknown>>).some(
-        (a) => a.assistantId === active,
-      );
+      const stillExists = (
+        lockfile.assistants as Array<Record<string, unknown>>
+      ).some((a) => a.assistantId === active);
       if (!stillExists) lockfile.activeAssistant = null;
     }
 

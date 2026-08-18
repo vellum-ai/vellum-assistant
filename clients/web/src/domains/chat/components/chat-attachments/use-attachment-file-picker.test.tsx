@@ -17,6 +17,15 @@ mock.module("@/domains/chat/composer-focus", () => ({
   requestComposerFocus: requestComposerFocusMock,
 }));
 
+// The shell is held at the keyboard's size for as long as the picker is up.
+// Stubbed to a counter so the arm/release pairing is assertable without a
+// layout the test environment does not have.
+const releaseViewportHoldMock = mock(() => {});
+const holdVisibleViewportMock = mock(() => releaseViewportHoldMock);
+mock.module("@/hooks/use-visible-viewport", () => ({
+  holdVisibleViewport: holdVisibleViewportMock,
+}));
+
 import { selectFiles } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
 
@@ -28,6 +37,8 @@ afterEach(() => {
 });
 beforeEach(() => {
   requestComposerFocusMock.mockClear();
+  holdVisibleViewportMock.mockClear();
+  releaseViewportHoldMock.mockClear();
 });
 
 function PickerProbe(props: {
@@ -36,10 +47,11 @@ function PickerProbe(props: {
   accept?: string;
   capture?: boolean | "user" | "environment";
 }) {
-  const { openPicker, inputNode } = useAttachmentFilePicker(props);
+  const { openPicker, inputNode, pickerOpen } = useAttachmentFilePicker(props);
   return (
     <>
       {inputNode}
+      <span data-testid="picker-open">{String(pickerOpen)}</span>
       <button type="button" onClick={openPicker}>
         open
       </button>
@@ -53,7 +65,9 @@ function renderPicker(props: Parameters<typeof PickerProbe>[0]) {
     'input[type="file"]',
   ) as HTMLInputElement;
   const open = () => fireEvent.click(result.getByText("open"));
-  return { ...result, input, open };
+  const openState = () =>
+    result.container.querySelector('[data-testid="picker-open"]')?.textContent;
+  return { ...result, input, open, openState };
 }
 
 function selectFile(input: HTMLInputElement, name = "note.txt"): FileList {
@@ -123,6 +137,68 @@ describe("useAttachmentFilePicker", () => {
 
     window.dispatchEvent(new Event("focus"));
     expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("holds the shell's size across the picker, and gives it back after", () => {
+    // GIVEN a picker opened from a composer the keyboard is up for
+    const { input, open } = renderPicker({ onFiles: () => {} });
+    open();
+
+    // THEN the shell is pinned before the click that dismisses the keyboard,
+    // so it is taken at the size the keyboard left
+    expect(holdVisibleViewportMock).toHaveBeenCalledTimes(1);
+    expect(releaseViewportHoldMock).not.toHaveBeenCalled();
+
+    // WHEN the picker closes
+    fireEvent(input, new Event("cancel"));
+
+    // THEN the shell follows the measurement again, with the composer's focus
+    // already requested so the keyboard is on its way back
+    expect(releaseViewportHoldMock).toHaveBeenCalledTimes(1);
+    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a picker unmounted mid-session still gives the shell back", () => {
+    // GIVEN an open picker
+    const { open, unmount } = renderPicker({ onFiles: () => {} });
+    open();
+
+    // WHEN its owner unmounts before the picker closes, the way a navigation
+    // mid-pick would take it
+    unmount();
+
+    // THEN the hold goes with it, rather than stranding the shell at a size
+    // the keyboard no longer explains
+    expect(releaseViewportHoldMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("reports the picker open from the click until it closes", () => {
+    // GIVEN a probe surfacing the flag the composer gates its layout on
+    const { input, open, openState } = renderPicker({ onFiles: () => {} });
+    expect(openState()).toBe("false");
+
+    // WHEN the picker is opened
+    open();
+
+    // THEN it reads open, so a caller whose own focus the picker just took can
+    // still tell the composer is in use
+    expect(openState()).toBe("true");
+
+    // AND it closes with the picker, alongside the refocus
+    fireEvent(input, new Event("cancel"));
+    expect(openState()).toBe("false");
+  });
+
+  test("a delivered selection closes it too", () => {
+    // GIVEN an open picker
+    const { input, open, openState } = renderPicker({ onFiles: () => {} });
+    open();
+
+    // WHEN it returns a file rather than being dismissed
+    selectFile(input);
+
+    // THEN the flag follows that path out as well
+    expect(openState()).toBe("false");
   });
 
   test("mirrors accept, capture, and multiple onto the input", () => {

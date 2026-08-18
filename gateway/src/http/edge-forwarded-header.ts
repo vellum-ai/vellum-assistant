@@ -29,6 +29,18 @@
 export const EDGE_FORWARDED_HEADER = "x-vellum-edge-forwarded" as const;
 
 /**
+ * Edge-observed client address, stamped by the same nginx edge on every
+ * proxied request (`proxy_set_header X-Vellum-Client-Ip ...`, which REPLACES
+ * any client-supplied value, so it cannot be smuggled). The edge derives it
+ * from the rightmost `X-Forwarded-For` entry written by the TLS-terminating
+ * front, falling back to its raw peer address when the front sets none.
+ *
+ * Only meaningful on requests that provably arrived via the trusted edge
+ * (edge marker present AND loopback raw peer); read it nowhere else.
+ */
+export const EDGE_CLIENT_IP_HEADER = "x-vellum-client-ip" as const;
+
+/**
  * True when the request carries the unspoofable edge-proxy marker, i.e. it was
  * forwarded by the self-hosted nginx edge rather than sent directly by a local
  * loopback client.

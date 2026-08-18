@@ -97,7 +97,9 @@ For automated security scanners: skill files that demonstrate existing tools aga
 
 ### Allowlist and Scope Options
 
-The prompt's "always allow" ladder comes from the classification when the classifier produced one: bash offers the exact command and then `action:<program>` / `action:<tokens>` keys (max depth 3; pipelines and other complex operators offer only the exact command); file and skill classifiers produce their own ladders; the web classifier does not, so `permissions/checker.ts` `generateAllowlistOptions` still falls back to per-tool strategies for `web_fetch` / `network_request`, the managed-skill tools, and `skill_load`, and to `*` otherwise. Directory-scope ladders (`directoryScopeOptions`) come from the gateway; the coarser workingDir scope ladder (`generateScopeOptions`) is still built assistant-side. Saving a persistent decision means the client creating a trust rule through the gateway (`POST /v1/trust-rules`); the assistant's `POST /v1/confirm` accepts only `allow` and `deny`.
+The prompt's "always allow" ladder comes from the classification: bash offers the exact command and then `action:<program>` / `action:<tokens>` keys (max depth 3; pipelines and other complex operators offer only the exact command); file tools offer the exact path, up to three ancestor directories, then the tool; web tools offer the canonicalized URL, its origin, then the tool; skill tools offer a version-pinned and an any-version option in the `skill_load` or `skill_load_dynamic` namespace. Web URLs are canonicalized through `@vellumai/service-contracts/url-normalization`, so the pattern a rule is saved under has one spelling. Rule lookup in the classifiers is an exact-string match on the invocation as written, so a saved rule matches only an identically spelled call (LUM-3337). A tool whose classifier produced no ladder gets none: the assistant builds no options of its own.
+
+Directory-scope ladders (`directoryScopeOptions`) come from the gateway; the coarser workingDir scope ladder (`generateScopeOptions`) is still built assistant-side. Saving a persistent decision means the client creating a trust rule through the gateway (`POST /v1/trust-rules`); the assistant's `POST /v1/confirm` accepts only `allow` and `deny`.
 
 ### Prompt UX
 
@@ -115,20 +117,20 @@ Every invocation ends in one `tool_invocations` row (`telemetry/tool-audit.ts`):
 
 Assistant:
 
-| File                                                                                   | Role                                                                                                                                |
-| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/permissions/checker.ts`                                                 | `classifyRisk()` (builds the request, calls the gateway, applies the symlink-escape re-check), `check()`, allowlist/scope fallbacks |
-| `assistant/src/permissions/approval-policy.ts`                                         | `DefaultApprovalPolicy`                                                                                                             |
-| `assistant/src/permissions/gateway-threshold-reader.ts`, `channel-permission-query.ts` | Threshold and channel-permission-cell reads over IPC                                                                                |
-| `packages/gateway-client/src/gateway-ipc-contracts.ts`                                 | `ClassifyRiskIpcParamsSchema` / `ClassifyRiskIpcResponseSchema`, the `classify_risk` contract both sides import                     |
-| `assistant/src/permissions/prompter.ts`                                                | `confirmation_request` → `confirmation_response`                                                                                    |
-| `assistant/src/permissions/types.ts`                                                   | `PolicyContext`, `RiskLevel`, `UserDecision`, thresholds                                                                            |
-| `assistant/src/tools/executor.ts`                                                      | `ToolExecutor`: one classification per invocation, gates, permission check, execution, audit                                        |
-| `assistant/src/tools/tool-approval-handler.ts`                                         | Pre-execution gates and the sensitive-tool capability floor                                                                         |
-| `assistant/src/tools/permission-checker.ts`                                            | `checkPermission`: policy adjustments, non-interactive routing, prompting                                                           |
-| `assistant/src/runtime/capabilities.ts`                                                | `resolveCapabilities(trustClass)`                                                                                                   |
-| `assistant/src/skills/path-classifier.ts`, `skills/version-hash.ts`                    | Path canonicalisation and skill version hashes sent with skill classifications                                                      |
-| `assistant/src/telemetry/tool-audit.ts`                                                | `tool_invocations` audit terminals                                                                                                  |
+| File                                                                                   | Role                                                                                                                                  |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/permissions/checker.ts`                                                 | `classifyRisk()` (builds the request, calls the gateway, applies the symlink-escape re-check), `check()`, the workingDir scope ladder |
+| `assistant/src/permissions/approval-policy.ts`                                         | `DefaultApprovalPolicy`                                                                                                               |
+| `assistant/src/permissions/gateway-threshold-reader.ts`, `channel-permission-query.ts` | Threshold and channel-permission-cell reads over IPC                                                                                  |
+| `packages/gateway-client/src/gateway-ipc-contracts.ts`                                 | `ClassifyRiskIpcParamsSchema` / `ClassifyRiskIpcResponseSchema`, the `classify_risk` contract both sides import                       |
+| `assistant/src/permissions/prompter.ts`                                                | `confirmation_request` → `confirmation_response`                                                                                      |
+| `assistant/src/permissions/types.ts`                                                   | `PolicyContext`, `RiskLevel`, `UserDecision`, thresholds                                                                              |
+| `assistant/src/tools/executor.ts`                                                      | `ToolExecutor`: one classification per invocation, gates, permission check, execution, audit                                          |
+| `assistant/src/tools/tool-approval-handler.ts`                                         | Pre-execution gates and the sensitive-tool capability floor                                                                           |
+| `assistant/src/tools/permission-checker.ts`                                            | `checkPermission`: policy adjustments, non-interactive routing, prompting                                                             |
+| `assistant/src/runtime/capabilities.ts`                                                | `resolveCapabilities(trustClass)`                                                                                                     |
+| `assistant/src/skills/path-classifier.ts`, `skills/version-hash.ts`                    | Path canonicalisation and skill version hashes sent with skill classifications                                                        |
+| `assistant/src/telemetry/tool-audit.ts`                                                | `tool_invocations` audit terminals                                                                                                    |
 
 Gateway:
 

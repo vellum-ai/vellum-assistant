@@ -51,7 +51,11 @@ export type RegistryRisk = RiskLevelValue;
 
 export type AllowlistOption = RiskAllowlistOption;
 
-/** A scope option presented to the user when classifying an unknown command. */
+/**
+ * A display-only rung of the "save this classification" ladder. Only the bash
+ * classifier emits these, and `pattern` is a plain string (the command, or an
+ * `action:` key), not a regex: nothing regex-matches a trust rule.
+ */
 export type ScopeOption = RiskPatternScopeOption;
 
 /**
@@ -74,10 +78,10 @@ export interface RiskAssessment {
   /** How the risk was determined. */
   matchType: RiskMatchType;
   /**
-   * Allowlist options for the permission prompt "always allow" scope ladder.
-   * Populated by classifiers that unify risk classification and scope option
-   * generation. When present, `generateAllowlistOptions()` returns these
-   * directly instead of calling the per-tool strategy function.
+   * The "always allow" ladder for the permission prompt, narrowest to
+   * broadest. The assistant offers exactly these, so a classifier that omits
+   * them leaves the user nothing to save a rule from. Patterns are matched by
+   * exact string, so they must be spelled as the invocation will be.
    */
   allowlistOptions?: AllowlistOption[];
   /**
@@ -259,27 +263,6 @@ export interface ParsedArgs {
 }
 
 // ── User rule types ──────────────────────────────────────────────────────────
-
-/**
- * A user-created risk classification rule.
- *
- * Created via the scope ladder UI (from permission prompts) or manually
- * in settings. Stored in the user's DB.
- */
-export interface UserRule {
-  /** Auto-generated unique ID. */
-  id: string;
-  /** Regex pattern (converted from glob at creation time). */
-  pattern: string;
-  /** User-assigned risk level. */
-  risk: RegistryRisk;
-  /** Human-readable label (shown in settings UI). */
-  label: string;
-  /** ISO 8601 timestamp of when the rule was created. */
-  createdAt: string;
-  /** How the rule was created. */
-  source: "scope_ladder" | "manual";
-}
 
 // ── Dangerous pattern types (from shell parser) ──────────────────────────────
 

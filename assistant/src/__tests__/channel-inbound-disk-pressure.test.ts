@@ -250,7 +250,7 @@ describe("channel inbound disk pressure gate", () => {
 
     expect(body).toMatchObject({
       accepted: true,
-      duplicate: false,
+      reaction: "dropped_disk_pressure",
       diskPressure: "blocked",
       reason: "trusted-contact",
     });
@@ -268,9 +268,9 @@ describe("channel inbound disk pressure gate", () => {
         eq(channelInboundEvents.externalMessageId, "slack-reaction-blocked"),
       )
       .get();
-    expect(event?.processingStatus).toBe("processed");
-    expect(event?.messageId).toBeNull();
-    expect(event?.rawPayload).toBeNull();
+    // A blocked reaction writes nothing at all: it is dropped before the
+    // reacted message is resolved, so no event row is opened either.
+    expect(event).toBeUndefined();
     expect(db.select().from(messages).all()).toHaveLength(0);
   });
 

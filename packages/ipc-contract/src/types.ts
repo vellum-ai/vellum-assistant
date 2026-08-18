@@ -350,17 +350,17 @@ export interface VoiceActivityStart extends VoiceActivityContent {
 }
 
 /**
- * What the surface's own renderer receives: everything the session sent, plus
- * `startedAt`, which main stamps.
+ * What the surface's own renderer receives, which is exactly what the session
+ * sent.
  *
- * `startedAt` is main's rather than the sender's because the surface is a
- * separate renderer that can load, reload, or be recreated mid-session, and an
- * elapsed clock anchored in either renderer would restart when that happened.
+ * The same shape as {@link VoiceActivityStart} under a name that says which end
+ * is holding it: a `start` is an event a renderer publishes, and this is the
+ * session main keeps and pushes down. Main once added `startedAt` here to
+ * anchor an elapsed clock outside a renderer that can reload mid-session, and
+ * dropped it with the clock (JARVIS-1546): a timestamp nothing reads is a
+ * timestamp that quietly rots.
  */
-export interface VoiceActivityState extends VoiceActivityStart {
-  /** Epoch ms when main first saw this session. */
-  startedAt: number;
-}
+export type VoiceActivityState = VoiceActivityStart;
 
 /**
  * What a control on the session surface asks of the session.
