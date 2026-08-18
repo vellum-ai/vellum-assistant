@@ -92,6 +92,13 @@ export interface PairingOptions {
  *
  * Invalid/stale targets at any level fall through to the next.
  *
+ * Passive vellum notifications (those without `requiresConversation`) never
+ * reach that order. They create nothing, and instead append their body to the
+ * producing conversation named by `sourceContextId` when it resolves, since
+ * that is the row the home feed's "Go to Conversation" button already targets.
+ * The returned `conversationId` is that producing conversation, with
+ * `createdNewConversation` false.
+ *
  * Errors are caught and logged — this function never throws so the
  * notification pipeline is not disrupted by pairing failures.
  */
@@ -117,20 +124,38 @@ export async function pairDeliveryWithConversation(
     const conversationAction = options?.conversationAction;
     const bindingContext = options?.bindingContext;
 
+    // Structured content blocks take precedence. They enable Surface-based
+    // rendering in the web/macOS/iOS apps (e.g. a card widget instead of
+    // plain text). Falls back to model-provided seed or runtime composer.
+    const messageContent = copy.seedContentBlocks
+      ? JSON.stringify(copy.seedContentBlocks)
+      : isConversationSeedSane(copy.conversationSeedMessage)
+        ? copy.conversationSeedMessage
+        : composeConversationSeed(signal, channel, copy);
+
     // Passive vellum notifications surface via the home feed alone and link
     // back to the originating conversation via `signal.sourceContextId`.
     // Materializing a fresh per-notification conversation just to host the
-    // seed message leaves a graveyard entry in the sidebar; skip it
-    // unconditionally when the producer did not opt in via
+    // seed message leaves a graveyard entry in the sidebar, so nothing is
+    // created here when the producer did not opt in via
     // `requiresConversation`. The decision engine's `reuse_existing` hint is
-    // also ignored here: even a successful reuse would append a seed message
-    // to a conversation that the user didn't ask for, and a failed reuse
-    // (stale target / source mismatch) falls through to `createConversation`
-    // — producing exactly the graveyard entry we want to avoid.
+    // ignored for the same reason: a failed reuse (stale target / source
+    // mismatch) falls through to `createConversation`, producing exactly the
+    // graveyard entry we want to avoid.
+    //
+    // The body is still appended to the producing conversation when
+    // `sourceContextId` resolves, because that row is already the home feed's
+    // "Go to Conversation" target. Appending keeps that button honest (what it
+    // opens contains the notification the user tapped) without creating rows.
     if (strategy === "start_new_conversation" && !signal.requiresConversation) {
+      const appended = await appendBodyToSourceConversation(
+        signal,
+        channel,
+        messageContent,
+      );
       return {
-        conversationId: null,
-        messageId: null,
+        conversationId: appended?.conversationId ?? null,
+        messageId: appended?.messageId ?? null,
         strategy,
         createdNewConversation: false,
         conversationFallbackUsed: false,
@@ -146,15 +171,6 @@ export async function pairDeliveryWithConversation(
     const conversationType =
       signal.conversationMetadata?.conversationType ??
       (strategy === "start_new_conversation" ? "standard" : "background");
-
-    // Structured content blocks take precedence — they enable Surface-based
-    // rendering in the web/macOS/iOS apps (e.g. a card widget instead of
-    // plain text). Falls back to model-provided seed or runtime composer.
-    const messageContent = copy.seedContentBlocks
-      ? JSON.stringify(copy.seedContentBlocks)
-      : isConversationSeedSane(copy.conversationSeedMessage)
-        ? copy.conversationSeedMessage
-        : composeConversationSeed(signal, channel, copy);
 
     // Attempt to reuse an existing conversation when the model requests it
     if (conversationAction?.action === "reuse_existing") {
@@ -455,4 +471,57 @@ export async function pairDeliveryWithConversation(
       conversationFallbackUsed: false,
     };
   }
+}
+
+/**
+ * Append a delivered notification body to the conversation that produced it.
+ *
+ * Passive notifications never materialize a conversation of their own, so the
+ * home feed points "Go to Conversation" at the producing conversation
+ * (`resolveHomeFeedMirror` prefers `sourceContextId`). Writing the body there
+ * makes that button truthful: whenever it renders, the conversation it opens
+ * contains the notification the user tapped.
+ *
+ * Reuse only. Producers may pass sentinels (job ids, call session ids,
+ * `access-req-*` strings) as `sourceContextId`; those resolve to nothing and
+ * append nothing, which matches the button staying hidden for them.
+ *
+ * Indexing is skipped for parity with the other notification write paths:
+ * notification copy is delivery audit, not conversational memory.
+ */
+async function appendBodyToSourceConversation(
+  signal: NotificationSignal,
+  channel: NotificationChannel,
+  messageContent: string,
+): Promise<{ conversationId: string; messageId: string } | null> {
+  const sourceContextId = signal.sourceContextId;
+  if (!sourceContextId) {
+    return null;
+  }
+
+  let existing: ReturnType<typeof getConversation>;
+  try {
+    existing = getConversation(sourceContextId);
+  } catch {
+    return null;
+  }
+  if (!existing) {
+    return null;
+  }
+
+  const message = await addMessage(existing.id, "assistant", messageContent, {
+    skipIndexing: true,
+  });
+
+  log.info(
+    {
+      signalId: signal.signalId,
+      channel,
+      conversationId: existing.id,
+      messageId: message.id,
+    },
+    "Appended notification body to producing conversation",
+  );
+
+  return { conversationId: existing.id, messageId: message.id };
 }
