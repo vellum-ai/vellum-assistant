@@ -1,7 +1,8 @@
 /**
  * The point of this icon is its shape, not its appearance: one path rather
  * than lucide's two, so the rasterizer sees a single shape and cannot part
- * the strokes where they cross.
+ * the strokes where they cross. It is still a lucide icon, built through
+ * lucide's own factory, so everything except the path data comes from there.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -22,9 +23,14 @@ describe("PlusIcon", () => {
     expect(html).toContain('d="M5 12h14M12 5v14"');
   });
 
-  test("keeps lucide's stroke geometry so it sits beside lucide glyphs", () => {
+  test("is a lucide icon, not a hand-drawn one", () => {
     const html = renderToStaticMarkup(<PlusIcon />);
 
+    // Lucide's own wrapper renders it, so the class it stamps is present and
+    // every attribute below comes from lucide's defaults rather than being
+    // restated here. A hand-rolled svg would have to keep those in step by
+    // hand and would drift the first time lucide changed one.
+    expect(html).toContain('class="lucide lucide-plus"');
     expect(html).toContain('viewBox="0 0 24 24"');
     expect(html).toContain('stroke="currentColor"');
     expect(html).toContain('stroke-linecap="round"');

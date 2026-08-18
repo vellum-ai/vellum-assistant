@@ -1,55 +1,29 @@
-import type { CSSProperties } from "react";
+import { createLucideIcon } from "lucide-react";
 
 /**
- * A plus drawn as one path rather than lucide's two.
+ * Lucide's plus with its two strokes merged into one path.
  *
- * On device the composer's plus shows a one-pixel column of background where
- * the horizontal bar meets the vertical stroke, measured off a screenshot at
- * native scale: the bar reads full value either side and exactly the surface
- * colour at that column, and the values there are the vertical stroke's own
- * edge, so the second stroke writes over the bar instead of blending with it.
+ * On device the composer's plus shows a break where the horizontal bar meets
+ * the vertical stroke. Measured off a screenshot at native scale, the vertical
+ * stroke's whole footprint is painted identically whether or not the bar runs
+ * underneath it, its transparent margin included: the stroke's rasterization
+ * is copied over the bar rather than blended with it, so the bar's own pixels
+ * are lost across those columns.
  *
- * Two subpaths in one `<path>` are a single shape to the rasterizer, which
- * removes the boundary between two strokes that artifact needs. Geometry and
- * stroke attributes are otherwise lucide's, so this sits beside lucide glyphs
- * at the same weight.
+ * Lucide draws the plus as two separate `<path>` elements, which is what gives
+ * that copy a second shape to happen between. The same strokes as subpaths of
+ * one `<path>` are a single shape to the rasterizer.
  *
- * What triggers it is not established. Neither Chromium nor desktop WebKit
- * reproduces it across scales, sub-pixel offsets, the button's own chrome, or
- * ten compositing contexts, and both path forms render identically in every
- * one of them. So this is the remedy the measurement points at rather than a
+ * Built through `createLucideIcon` so this stays a lucide icon rather than a
+ * hand-drawn one: the wrapper, its defaults, sizing, `className` handling and
+ * `strokeWidth` plumbing all come from lucide, and only the path data differs.
+ *
+ * What triggers the copy is not established. Neither Chromium nor desktop
+ * WebKit reproduces it across scales, sub-pixel offsets, the button's own
+ * chrome, or ten compositing contexts, and both path forms render identically
+ * in every one. So this is the remedy the measurement points at rather than a
  * confirmed fix, and only a device can tell whether it lands.
  */
-
-interface PlusIconProps {
-  size?: number;
-  className?: string;
-  style?: CSSProperties;
-  strokeWidth?: number;
-}
-
-export function PlusIcon({
-  size = 24,
-  className,
-  style,
-  strokeWidth = 2,
-}: PlusIconProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      width={size}
-      height={size}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      style={style}
-      aria-hidden
-    >
-      <path d="M5 12h14M12 5v14" />
-    </svg>
-  );
-}
+export const PlusIcon = createLucideIcon("plus", [
+  ["path", { d: "M5 12h14M12 5v14", key: "plus-merged" }],
+]);
