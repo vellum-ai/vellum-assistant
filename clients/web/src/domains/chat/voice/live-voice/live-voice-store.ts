@@ -221,6 +221,12 @@ export interface LiveVoiceSessionStarter {
   start(assistantId: string, conversationId: string | null): void;
 }
 
+/**
+ * Entry handler registered by the visible composer so layout-level shortcuts
+ * reuse its preflight and first-run experience instead of bypassing it.
+ */
+export type LiveVoiceSessionEntryHandler = () => void;
+
 export interface LiveVoiceState {
   /** Current phase of the session lifecycle. */
   state: LiveVoiceSessionState;
@@ -278,6 +284,8 @@ export interface LiveVoiceState {
    * registered.
    */
   starter: LiveVoiceSessionStarter | null;
+  /** Entry handler registered by the visible voice-enabled composer. */
+  entryHandler: LiveVoiceSessionEntryHandler | null;
   /**
    * One short line describing what the current turn is doing ("Reading a
    * file"), or `""` when it is doing nothing nameable.
@@ -427,6 +435,8 @@ export interface LiveVoiceActions {
   setControls: (controls: LiveVoiceSessionControls | null) => void;
   /** Register (or clear) the mounted controller's session starter. */
   setStarter: (starter: LiveVoiceSessionStarter | null) => void;
+  /** Register (or clear) the visible composer's entry handler. */
+  setEntryHandler: (handler: LiveVoiceSessionEntryHandler | null) => void;
   setPartialTranscript: (text: string) => void;
   setFinalTranscript: (text: string) => void;
   /** Append a delta to the accumulated assistant transcript. */
@@ -558,8 +568,11 @@ export function isLiveVoiceSessionOwnedBy(
 // Store
 // ---------------------------------------------------------------------------
 
-/** Session-scoped fields restored by `reset()`. Excludes `starter` (mount-scoped). */
-const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
+/** Session-scoped fields restored by `reset()`. Excludes mount-scoped handlers. */
+const INITIAL_SESSION_STATE: Omit<
+  LiveVoiceState,
+  "starter" | "entryHandler"
+> = {
   state: "idle",
   assistantAudioActive: false,
   microphoneActive: false,
@@ -590,6 +603,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
 const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   ...INITIAL_SESSION_STATE,
   starter: null,
+  entryHandler: null,
 
   setState: (state) => set({ state }),
   setAssistantAudioActive: (assistantAudioActive) =>
@@ -616,6 +630,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     })),
   setControls: (controls) => set({ controls }),
   setStarter: (starter) => set({ starter }),
+  setEntryHandler: (entryHandler) => set({ entryHandler }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),
   setFinalTranscript: (finalTranscript) => set({ finalTranscript }),
   appendAssistantTranscript: (delta) =>
