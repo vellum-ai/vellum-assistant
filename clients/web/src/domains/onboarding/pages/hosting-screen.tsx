@@ -2,7 +2,7 @@ import { ArrowLeft, Check, Cloud, Laptop } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { OnboardingLayout } from "@/components/onboarding-layout";
 import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
 import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import { setPendingProviderKey } from "@/domains/onboarding/provider-key";

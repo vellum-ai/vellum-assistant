@@ -4,7 +4,7 @@ import {
   buildRibbonWave,
   mulberry32,
   type RibbonPoint,
-} from "@/domains/onboarding/avatar-wave-ribbon";
+} from "@/utils/avatar-wave-ribbon";
 
 const RIBBON: RibbonPoint[] = [
   { x: 0, y: 0, w: 100, s: 40 },

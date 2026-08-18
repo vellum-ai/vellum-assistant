@@ -5,7 +5,7 @@ import {
   AgreementsCard,
   PrivacyPreferencesCard,
 } from "@/domains/onboarding/components/consent-controls";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { OnboardingLayout } from "@/components/onboarding-layout";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
   emitOnboardingFunnelStepCompleted,
