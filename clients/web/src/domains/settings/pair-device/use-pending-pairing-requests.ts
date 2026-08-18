@@ -49,7 +49,8 @@ export interface PendingPairingRequestsController {
  * shouldn't flash the UI empty) and records a non-fatal error instead. A
  * 404/410 from approve/deny means the request expired or was handled elsewhere
  * (the CLI `--web-approve` path can race the UI), so the row is removed as if
- * the action succeeded.
+ * the action succeeded. An action error is dropped once a successful poll no
+ * longer lists its request; with the row gone there is nothing left to retry.
  *
  * A `base` change drops the previous gateway's rows and errors and aborts its
  * in-flight action, so stale requests are never shown against the new base.
@@ -65,7 +66,11 @@ export function usePendingPairingRequests(
     action: PendingPairingAction;
   } | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  // Tagged with its request so a poll can drop it once the row disappears.
+  const [actionError, setActionError] = useState<{
+    requestId: string;
+    message: string;
+  } | null>(null);
 
   const pollAbortRef = useRef<AbortController | null>(null);
   const actionAbortRef = useRef<AbortController | null>(null);
@@ -109,6 +114,13 @@ export function usePendingPairingRequests(
           return;
         }
         setRequests((prev) => (sameRequestList(prev, next) ? prev : next));
+        // An action error whose request left the list is unactionable; drop it
+        // so it can't pin an empty section open forever.
+        setActionError((prev) =>
+          prev && !next.some((r) => r.requestId === prev.requestId)
+            ? null
+            : prev,
+        );
         setPollError(null);
       } catch (err) {
         if (controller.signal.aborted) {
@@ -167,13 +179,14 @@ export function usePendingPairingRequests(
             // Expired or already handled elsewhere; treat as removed.
             removeRequest();
           } else {
-            setActionError(err.message);
+            setActionError({ requestId, message: err.message });
           }
         } else {
           captureError(err, { context: "pair-device-pending-request-action" });
-          setActionError(
-            t("settings:usePendingPairingRequests.actionErrorFallback"),
-          );
+          setActionError({
+            requestId,
+            message: t("settings:usePendingPairingRequests.actionErrorFallback"),
+          });
         }
       } finally {
         // Only release the guard if it's still ours; a base change may have
@@ -201,7 +214,7 @@ export function usePendingPairingRequests(
   return {
     requests,
     actingOn,
-    error: actionError ?? pollError,
+    error: actionError?.message ?? pollError,
     approve,
     deny,
   };

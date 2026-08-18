@@ -200,6 +200,13 @@
     "searchPlaceholder": "Buscar acciones…",
     "title": "Anulaciones de acciones"
   },
+  "pendingPairingRequests": {
+    "approveButton": "Aprobar",
+    "denyButton": "Denegar",
+    "instruction": "Un dispositivo está pidiendo usar este asistente. Aprueba una solicitud solo después de confirmar que su código coincide con el que muestra el dispositivo solicitante.",
+    "requestedMeta": "Solicitado {when} desde {ip}",
+    "title": "Solicitudes de vinculación"
+  },
   "profileAdvancedParams": {
     "contextWindowLabel": "Ventana de contexto",
     "defaultValueLabel": "Predeterminado · {value}",

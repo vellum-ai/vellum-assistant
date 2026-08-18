@@ -351,6 +351,35 @@ describe("usePendingPairingRequests: approve/deny", () => {
     expect(result.current.error).toBeNull();
   });
 
+  test("a poll clears an action error once its request leaves the list", async () => {
+    serveList([pendingRequest("req-1")]);
+    installRoutedFetch({
+      [APPROVE_URL]: () =>
+        jsonResponse({ error: { message: "Approval failed." } }, 500),
+    });
+
+    let result!: ReturnType<typeof renderPendingRequests>["result"];
+    await act(async () => {
+      ({ result } = renderPendingRequests());
+    });
+
+    await act(async () => {
+      await result.current.approve("req-1");
+    });
+    expect(result.current.error).toBe("Approval failed.");
+
+    // While the request is still listed, the error survives polls.
+    await tickPoll();
+    expect(result.current.requests.map((r) => r.requestId)).toEqual(["req-1"]);
+    expect(result.current.error).toBe("Approval failed.");
+
+    // Handled elsewhere or expired: the next poll drops the row and the error.
+    serveList([]);
+    await tickPoll();
+    expect(result.current.requests).toEqual([]);
+    expect(result.current.error).toBeNull();
+  });
+
   test("a base change clears rows and errors before the new base's poll resolves", async () => {
     serveList([pendingRequest("req-1")]);
     // The new base's list never resolves, so anything shown for it is stale.
