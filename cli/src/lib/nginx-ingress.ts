@@ -345,6 +345,10 @@ function buildRemoteWebIngressLocations(opts: {
 ${proxyBlock}
     }
 
+    location = /readyz {
+${proxyBlock}
+    }
+
     location ^~ /v1/ {
 ${proxyBlock}
     }
