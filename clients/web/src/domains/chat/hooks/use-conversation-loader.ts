@@ -14,7 +14,7 @@ import {
 import {
   createDraftConversationId,
   resolveBootstrappedConversationId,
-  type SelectableConversation,
+  resolvePreselectedConversationId,
   shouldMintNewChatDraft,
 } from "@/domains/chat/utils/conversation-selection";
 import {
@@ -310,9 +310,9 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const lastAppliedUrlConversationIdRef = useRef<string | null>(null);
   /* The same gate every daemon query honors: org header available and the
-     pod serving. The landing lookups are imperative and do not retry, so a
-     waking pod's 503 must defer them, not decide the landing; the effect
-     re-runs when the gate opens. */
+     pod serving. A waking pod 503s every request, so the landing lookups
+     wait for the gate rather than spend their retries against it; the
+     effect re-runs when the gate opens. */
   const canQueryDaemon = useCanQueryDaemon(assistantId);
   useEffect(() => {
     if (assistantStateKind !== "active") {
@@ -360,34 +360,17 @@ export function useConversationLoader({
       useConversationStore.getState().setActiveConversationId(key);
       void navigate(routes.conversation(key), { replace: true });
     };
-    const resolve = (
-      storedConversation: SelectableConversation | null,
-      latestForegroundId: string | null,
-    ) =>
-      resolveBootstrappedConversationId({
-        queryParamKey: explicitConversationId,
-        onboardingDraftConversationId,
-        newChatDraftConversationId,
-        currentConversationId,
-        currentAssistantId: assistantIdRef.current,
-        nextAssistantId: assistantId,
-        storedConversation,
-        // Background/scheduled conversations live behind a collapsed-by-default
-        // sidebar section and must never be selected implicitly, so the
-        // newest *foreground* row is the default, and the assistant itself
-        // when it has none.
-        defaultConversationId: latestForegroundId ?? assistantId,
-      });
-
-    const needsServer = !(
-      explicitConversationId != null ||
-      onboardingDraftConversationId != null ||
-      (assistantIdRef.current === assistantId &&
-        currentConversationId != null) ||
-      newChatDraftConversationId != null
-    );
-    if (!needsServer) {
-      apply(resolve(null, null));
+    const preselected = {
+      queryParamKey: explicitConversationId,
+      onboardingDraftConversationId,
+      newChatDraftConversationId,
+      currentConversationId,
+      currentAssistantId: assistantIdRef.current,
+      nextAssistantId: assistantId,
+    };
+    const preselectedId = resolvePreselectedConversationId(preselected);
+    if (preselectedId) {
+      apply(preselectedId);
       return;
     }
     if (!canQueryDaemon) {
@@ -412,7 +395,17 @@ export function useConversationLoader({
         if (useConversationStore.getState().activeConversationId != null) {
           return;
         }
-        apply(resolve(landing.storedConversation, landing.latestForegroundId));
+        apply(
+          resolveBootstrappedConversationId({
+            ...preselected,
+            storedConversation: landing.storedConversation,
+            // Background/scheduled conversations live behind a
+            // collapsed-by-default sidebar section and must never be selected
+            // implicitly, so the newest *foreground* row is the default, and
+            // the assistant itself when it has none.
+            defaultConversationId: landing.latestForegroundId ?? assistantId,
+          }),
+        );
       })
       .catch((error: unknown) => {
         if (stale) {
@@ -426,7 +419,7 @@ export function useConversationLoader({
           bestEffort: true,
         });
         if (useConversationStore.getState().activeConversationId == null) {
-          apply(resolve(null, null));
+          apply(assistantId);
         }
       });
     return () => {

@@ -19,33 +19,20 @@ import {
   FOREGROUND_FILTER,
 } from "@/utils/conversation-list-keys";
 import { conversationListOptions } from "@/utils/conversation-list-options";
-import { listPage } from "@/utils/conversation-list.test-helper";
-import type { RawConversationSummary } from "@/utils/conversation-transforms";
+import {
+  listPage,
+  type RawConversationFixture,
+  rawConversation,
+} from "@/utils/conversation-list.test-helper";
 
 const ASSISTANT_ID = "assistant-1";
-
-type RawFixture = Partial<RawConversationSummary> & { id: string };
-
-function makeRaw(fixture: RawFixture): RawConversationSummary {
-  return {
-    title: "",
-    createdAt: 0,
-    updatedAt: 0,
-    lastMessageAt: 0,
-    conversationType: "standard",
-    source: "vellum",
-    groupId: "",
-    isProcessing: false,
-    ...fixture,
-  } as RawConversationSummary;
-}
 
 /**
  * Stub the daemon transport so each list GET resolves the next fixture in
  * order. Returns the captured queries so tests can assert what was sent.
  */
 function stubPages(
-  fixtures: Array<{ rows: RawFixture[]; hasMore: boolean }>,
+  fixtures: Array<{ rows: RawConversationFixture[]; hasMore: boolean }>,
 ): Record<string, unknown>[] {
   const queries: Record<string, unknown>[] = [];
   daemonClient.get = mock(
@@ -57,7 +44,7 @@ function stubPages(
         throw new Error(`test setup has no fixture for request ${index}`);
       }
       const body = {
-        conversations: fixture.rows.map(makeRaw),
+        conversations: fixture.rows.map(rawConversation),
         hasMore: fixture.hasMore,
       };
       return {

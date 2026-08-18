@@ -18,7 +18,11 @@ import {
   conversationListPrefix,
   conversationListQueryKey,
 } from "@/utils/conversation-list-keys";
-import { listPage } from "@/utils/conversation-list.test-helper";
+import {
+  listPage,
+  type RawConversationFixture,
+  rawConversation,
+} from "@/utils/conversation-list.test-helper";
 import { saveLastViewedConversationId } from "@/utils/last-viewed-conversation-storage";
 import type { Conversation } from "@/types/conversation-types";
 
@@ -92,34 +96,12 @@ mock.module("@/runtime/platform-detection", () => ({
 const { useConversationLoader } =
   await import("@/domains/chat/hooks/use-conversation-loader");
 
-type RawRow = {
-  id: string;
-  conversationType?: "standard" | "background" | "scheduled";
-  surfacedAt?: number | null;
-  groupId?: string | null;
-  archivedAt?: number | null;
-};
-
-function raw(row: RawRow) {
-  return {
-    title: "",
-    createdAt: 0,
-    updatedAt: 0,
-    lastMessageAt: 0,
-    conversationType: "standard",
-    source: "vellum",
-    groupId: null,
-    isProcessing: false,
-    ...row,
-  };
-}
-
 /** Requests the loader made, by URL, so a test can assert what it asked. */
 let requests: string[] = [];
-let byIdRow: RawRow | null = null;
-let listRows: RawRow[] = [];
+let byIdRow: RawConversationFixture | null = null;
+let listRows: RawConversationFixture[] = [];
 /** Rows the daemon appends to an unfiltered page one beyond the limit. */
-let pinnedExtras: RawRow[] = [];
+let pinnedExtras: RawConversationFixture[] = [];
 /** How many upcoming requests answer 503 before the stub recovers. */
 let failNextRequests = 0;
 
@@ -148,7 +130,7 @@ function stubDaemon() {
             response: new Response(null, { status: 404 }),
           };
         }
-        const body = { conversation: raw(byIdRow) };
+        const body = { conversation: rawConversation(byIdRow) };
         return {
           data: body,
           error: null,
@@ -162,7 +144,7 @@ function stubDaemon() {
           conversations: [
             ...listRows.slice(offset, offset + limit),
             ...(offset === 0 ? pinnedExtras : []),
-          ].map(raw),
+          ].map(rawConversation),
           hasMore: listRows.length > offset + limit,
         };
         return {

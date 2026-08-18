@@ -2,7 +2,8 @@ import { useConversationStore } from "@/stores/conversation-store";
 import type { Conversation } from "@/types/conversation-types";
 import { isBackgroundConversation } from "@/utils/conversation-predicates";
 
-interface ResolveBootstrappedConversationIdArgs {
+/** The selections the client already holds, needing no server answer. */
+interface PreselectedConversationIdArgs {
   queryParamKey: string | null;
   onboardingDraftConversationId?: string | null;
   /**
@@ -14,6 +15,9 @@ interface ResolveBootstrappedConversationIdArgs {
   currentConversationId: string | null;
   currentAssistantId: string | null;
   nextAssistantId: string;
+}
+
+interface ResolveBootstrappedConversationIdArgs extends PreselectedConversationIdArgs {
   /**
    * The last-viewed conversation as the server describes it today, looked
    * up by id, or `null` when nothing was stored or the server no longer has
@@ -121,15 +125,39 @@ export function isStoredConversationSelectable(
  *   6. `defaultConversationId`
  */
 export function resolveBootstrappedConversationId({
+  storedConversation,
+  defaultConversationId,
+  ...preselected
+}: ResolveBootstrappedConversationIdArgs): string {
+  const preselectedId = resolvePreselectedConversationId(preselected);
+  if (preselectedId) {
+    return preselectedId;
+  }
+
+  if (
+    storedConversation &&
+    isStoredConversationSelectable(storedConversation)
+  ) {
+    return storedConversation.conversationId;
+  }
+
+  return defaultConversationId;
+}
+
+/**
+ * Precedence 1 through 4 of {@link resolveBootstrappedConversationId}: the
+ * selections the client already holds. `null` means the landing needs the
+ * server (resume last-viewed, else newest), which is what lets the loader
+ * decide whether to ask before it asks.
+ */
+export function resolvePreselectedConversationId({
   queryParamKey,
   onboardingDraftConversationId,
   newChatDraftConversationId,
   currentConversationId,
   currentAssistantId,
   nextAssistantId,
-  storedConversation,
-  defaultConversationId,
-}: ResolveBootstrappedConversationIdArgs): string {
+}: PreselectedConversationIdArgs): string | null {
   if (queryParamKey) {
     return queryParamKey;
   }
@@ -146,12 +174,5 @@ export function resolveBootstrappedConversationId({
     return newChatDraftConversationId;
   }
 
-  if (
-    storedConversation &&
-    isStoredConversationSelectable(storedConversation)
-  ) {
-    return storedConversation.conversationId;
-  }
-
-  return defaultConversationId;
+  return null;
 }
