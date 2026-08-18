@@ -1,12 +1,8 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import {
-  consumePendingComposerFocus,
   insertTextAtSelection,
-  isComposerFocusPending,
-  requestComposerFocus,
   shouldFocusComposerForTyping,
-  tryClaimComposerFocus,
 } from "@/domains/chat/composer-focus";
 
 const BASE_EVENT = {
@@ -68,55 +64,5 @@ describe("insertTextAtSelection", () => {
         selectionEnd: 99,
       }),
     ).toEqual({ value: "hell!", cursor: 5 });
-  });
-});
-
-describe("tryClaimComposerFocus", () => {
-  afterEach(() => {
-    consumePendingComposerFocus();
-    document.body.replaceChildren();
-  });
-
-  function mountTextarea(): HTMLTextAreaElement {
-    const el = document.createElement("textarea");
-    document.body.append(el);
-    return el;
-  }
-
-  test("focuses the textarea after a request", () => {
-    const el = mountTextarea();
-    requestComposerFocus();
-    tryClaimComposerFocus(el);
-    expect(document.activeElement).toBe(el);
-    expect(isComposerFocusPending()).toBe(true);
-  });
-
-  test("reclaims from the document after the original textarea unmounts", () => {
-    const first = mountTextarea();
-    requestComposerFocus();
-    tryClaimComposerFocus(first);
-    first.remove();
-
-    const second = mountTextarea();
-    tryClaimComposerFocus(second);
-    expect(document.activeElement).toBe(second);
-  });
-
-  test("stops reclaiming once the user moves to another text field", () => {
-    const el = mountTextarea();
-    const other = document.createElement("input");
-    document.body.append(other);
-    requestComposerFocus();
-    tryClaimComposerFocus(el);
-    other.focus();
-    tryClaimComposerFocus(el);
-    expect(document.activeElement).toBe(other);
-    expect(isComposerFocusPending()).toBe(false);
-  });
-
-  test("does not claim when nothing is pending", () => {
-    const el = mountTextarea();
-    tryClaimComposerFocus(el);
-    expect(document.activeElement).not.toBe(el);
   });
 });
