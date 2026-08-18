@@ -43,6 +43,7 @@ import {
   type CollapsibleNavSectionDrag,
 } from "@/components/collapsible-nav-section";
 import { SIDEBAR_SECTION_MAX_HEIGHT } from "@/components/sidebar-nav-geometry";
+import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
 import { ConversationRow } from "@/domains/chat/components/conversation-row";
 import { LoadMoreSentinel } from "@/domains/chat/components/load-more-sentinel";
 import {
@@ -216,10 +217,12 @@ export function ConversationNavSection({
   ...listProps
 }: ConversationNavSectionProps) {
   const hasMenu = groupMenu != null && hasAnyGroupMenuAction(groupMenu);
+  const { overlayCards } = useConversationListContext();
 
   return (
     <CollapsibleNavSection.Section
       value={value}
+      card={overlayCards}
       icon={icon}
       label={label}
       trailing={trailing}

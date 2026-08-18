@@ -32,6 +32,7 @@ import {
   useLocalFileInfo,
   workspaceFileBlobQuery,
 } from "@/domains/chat/components/local-file/use-local-file-info";
+import { t } from "@/i18n";
 import type { WorkspaceFilePreviewKind } from "@/stores/viewer-store";
 import { downloadWorkspaceFile } from "@/utils/download-workspace-file";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
@@ -146,7 +147,7 @@ export function FilePreviewContainer({
       path: workspacePath,
       filename: documentName,
     }).catch(() => {
-      toast.error("Failed to download file", { description: documentName });
+      toast.error(t("chat:fileDownload.failed"), { description: documentName });
     });
   }, [assistantId, documentName, workspacePath]);
 

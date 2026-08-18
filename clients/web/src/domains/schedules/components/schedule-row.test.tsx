@@ -1,7 +1,8 @@
 /**
  * Tests for ScheduleRow's plugin-sourced treatment: rows whose schedule
  * carries a `sourceKey` render a plugin-name badge while keeping the enabled
- * toggle; user-created rows render no badge.
+ * toggle; user-created rows render no badge. An off row says why it is off
+ * when the daemon tells it.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -55,5 +56,42 @@ describe("ScheduleRow plugin attribution", () => {
 
     fireEvent.click(getByLabelText("Toggle Daily digest"));
     expect(onToggle).toHaveBeenCalledWith(false);
+  });
+});
+
+describe("ScheduleRow disarm reason", () => {
+  test("an off row says why it is off", () => {
+    const { getByText } = render(
+      <ScheduleRow
+        schedule={makeSchedule({
+          sourceKey: "plugin:gmail/poll-inbox",
+          enabled: false,
+          disarmReason: "plugin_disabled",
+        })}
+        usage={{ status: "error" }}
+        onClick={() => {}}
+        onToggle={() => {}}
+      />,
+    );
+
+    expect(getByText("plugin disabled")).toBeTruthy();
+  });
+
+  test("an armed row shows no reason", () => {
+    const { queryByText } = render(
+      <ScheduleRow
+        schedule={makeSchedule({
+          sourceKey: "plugin:gmail/poll-inbox",
+          enabled: true,
+          disarmReason: null,
+        })}
+        usage={{ status: "error" }}
+        onClick={() => {}}
+        onToggle={() => {}}
+      />,
+    );
+
+    expect(queryByText("plugin disabled")).toBeNull();
+    expect(queryByText("turned off by you")).toBeNull();
   });
 });

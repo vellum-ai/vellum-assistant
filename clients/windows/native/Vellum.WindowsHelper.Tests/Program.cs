@@ -46,6 +46,8 @@ catch (InvalidOperationException)
 
 Console.WriteLine("Native helper registry tests passed");
 
+await TextInsertionTests.RunAsync();
+
 static void Assert(bool condition)
 {
     if (!condition)

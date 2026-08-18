@@ -266,9 +266,14 @@ const PILL_HOVER_CLASS =
  * rather than each caller's: `SideMenu` publishes `--side-menu-tile-size`, the
  * height its collapsed tiles are drawn at, and a pill mounted in one takes it,
  * so a pill and the circle it collapses into cannot end up at two heights. The
- * fallback is the same measurement for a pill mounted anywhere else. The row's
- * `max-md:h-auto` still wins on a touch-sized viewport, where a pill grows to
- * its own padding like every other row.
+ * fallback is the same measurement for a pill mounted anywhere else.
+ *
+ * On a touch viewport it applies as a floor rather than a height. The row's
+ * `max-md:h-auto` still governs, so a pill grows to its content as it always
+ * has; the floor only stops it sitting below the height the panel publishes.
+ * Without it the pill ignores that value entirely and lands on whatever its
+ * padding and line-height happen to sum to, which is how a panel that stands
+ * its rows taller for touch ends up unable to say so.
  */
 /**
  * A pill reads three optional custom properties, each falling back to the
@@ -287,6 +292,7 @@ const PILL_HOVER_CLASS =
 const PILL_SHAPE_CLASSES = [
   "w-fit rounded-full",
   "h-[var(--side-menu-tile-size,36px)]",
+  "max-md:min-h-[var(--side-menu-tile-size,36px)]",
   "bg-[var(--panel-item-bg,var(--surface-lift))]",
   "text-[color:var(--panel-item-fg,inherit)]",
 ].join(" ");

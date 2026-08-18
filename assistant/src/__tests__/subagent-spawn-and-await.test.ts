@@ -589,20 +589,17 @@ describe("SubagentManager — first user message framing", () => {
     await manager.spawnAndAwait(
       makeConfig({
         objective: "Please advise.",
-        fork: true,
         role: "advisor",
+        spawnMode: "advisor_consult",
         // The advisor always supplies its own framing; setUpSubagent uses it
-        // verbatim and never falls back to parentSystemPrompt.
+        // in place of a built subagent preamble.
         systemPromptOverride: "You are a senior advisor.",
-        parentMessages: [
-          { role: "user", content: [{ type: "text", text: "prior turn" }] },
-        ],
       }),
       () => {},
     );
 
-    // The advisor's user turn is the bare advice request — the generic fork
-    // directive would fight the advisor system prompt.
+    // The consult is a regular blocking spawn, so its user turn is the brief
+    // itself: the fork directive would fight the advisor system prompt.
     expect(lastPersistedUserMessage).toBe("Please advise.");
     expect(lastPersistedUserMessage).not.toContain("FORK TASK");
   });

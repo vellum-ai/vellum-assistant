@@ -8,9 +8,18 @@ import path from "node:path";
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import { VELLUMAPP_PROTOCOL } from "@vellumai/electron-desktop/bundle-platform";
 import { getDeviceId } from "@vellumai/electron-desktop/device-id";
+import {
+  executePlatformForwardPlan,
+  planPlatformForward,
+} from "@vellumai/electron-desktop/platform-forward";
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 
-import { APP_PROTOCOL, WINDOWS_RELEASE_INFO } from "./app-config";
+import {
+  APP_PROTOCOL,
+  WINDOWS_RELEASE_INFO,
+  usesAppProtocolRenderer,
+} from "./app-config";
+import { resolveAllowedOrigin } from "./app-origin.client";
 import { provisionCliForCurrentUser } from "./cli-path-flow";
 import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
@@ -29,8 +38,8 @@ import { installWebContentsSecurity } from "./windows.client";
  * partial preload bridge degrades to web behavior everywhere else.
  *
  * Not ported from the macOS client yet (see `clients/macos/src/main/` for the
- * reference implementations): gateway/platform request forwarding for
- * packaged builds, auto-update, CSP, notifications, and hotkeys.
+ * reference implementations): gateway request forwarding, auto-update, CSP,
+ * notifications, and hotkeys.
  */
 
 // Dev-only: override the package `name` (`@vellumai/windows`) so
@@ -42,7 +51,6 @@ import { installWebContentsSecurity } from "./windows.client";
 if (!app.isPackaged) {
   app.setName("Vellum Electron Windows");
 }
-const isDev = !app.isPackaged;
 
 // Packaged builds all share the same package.json `name`, so Electron
 // resolves `app.getPath("userData")` to the same directory for every
@@ -101,11 +109,6 @@ protocol.registerSchemesAsPrivileged([
 // live directly under `rendererRoot`; the mount prefix is stripped before
 // path resolution.
 //
-// TODO(windows): port the gateway (`/assistant/__gateway/{port}/*`) and
-// platform (`/v1/*`, `/_allauth/*`, `/accounts/*`) request forwarding from
-// `clients/macos/src/main/index.ts` so packaged builds can reach local
-// gateways and the cloud platform. Until then only dev runs (where the Vite
-// dev server proxies both) are fully functional.
 const RENDERER_MOUNT = "/assistant";
 
 const resolveRendererRoot = (): string => {
@@ -122,6 +125,14 @@ const registerAppProtocol = (): void => {
   const indexHtml = path.join(rendererRoot, "index.html");
 
   protocol.handle(APP_PROTOCOL, async (request) => {
+    const platformProxied = await forwardPlatformRequest(
+      request,
+      resolvedConfig.platformUrl,
+    );
+    if (platformProxied) {
+      return platformProxied;
+    }
+
     const result = resolveAppProtocolPath(
       rendererRoot,
       request.url,
@@ -164,6 +175,29 @@ handleSync("vellum:config:get", () => ({
   deviceId: getDeviceId(),
 }));
 
+const forwardPlatformRequest = async (
+  request: GlobalRequest,
+  platformUrl: string,
+): Promise<Response | null> => {
+  const plan = planPlatformForward(request, platformUrl, {
+    allowedOrigin: resolveAllowedOrigin(),
+  });
+  const target = plan.kind === "forward" ? `${plan.method} ${plan.url}` : "";
+  return executePlatformForwardPlan(
+    plan,
+    request,
+    (url, init) => net.fetch(url, init),
+    {
+      onError: (error, attempt) => {
+        log.error(
+          `[platform-forward] net.fetch failed (attempt ${attempt + 1}) for ${target}:`,
+          error,
+        );
+      },
+    },
+  );
+};
+
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
@@ -171,7 +205,7 @@ handleSync("vellum:config:get", () => ({
 app
   .whenReady()
   .then(() => {
-    if (!isDev) {
+    if (usesAppProtocolRenderer(app.isPackaged)) {
       registerAppProtocol();
     }
     if (app.isPackaged && process.platform === "win32") {

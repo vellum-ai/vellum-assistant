@@ -224,9 +224,13 @@ export interface PluginIngressDiscovery {
  * Matches a public plugin route path, capturing plugin name and route path.
  * Shared by the HTTP route entry and the WebSocket upgrade branch so the two
  * halves of the surface cannot come to disagree about its shape.
+ *
+ * An optional trailing slash is accepted and not captured. Regex routes are
+ * not trailing-slash-normalized in the router, and managed callbacks
+ * canonicalize onto `/`.
  */
 export const PLUGIN_WEBHOOK_PATH_PATTERN =
-  /^\/webhooks\/plugins\/([^/]+)\/(.+)$/;
+  /^\/webhooks\/plugins\/([^/]+)\/(.+?)\/?$/;
 
 /** Compose the absolute public path the gateway serves for a route. */
 export function pluginWebhookPath(plugin: string, path: string): string {

@@ -23,6 +23,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { isPluginDirActivated } from "../plugins/mtime-cache.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   hasOwnerDeferProvenance,
@@ -1854,6 +1855,22 @@ describe("declared schedules", () => {
 
     expect(result!.userEnabled).toBe(true);
     expect(result!.enabled).toBe(false);
+  });
+
+  test("enabling a schedule re-arms it on the on-disk declaration alone", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    await setUserEnabled(created.id, false);
+    // A schedule tool reaches this from a conversation turn, which can run in
+    // a sidecar worker process where no plugin is activated. The probe must
+    // therefore read the disk alone: asking about activation here would refuse
+    // every re-enable. Whether the plugin stays armed is the reconciler's
+    // call, and its next sweep disarms the row if it should not be.
+    expect(isPluginDirActivated(examplePluginDir())).toBe(false);
+
+    const result = await setUserEnabled(created.id, true);
+
+    expect(result!.userEnabled).toBe(true);
+    expect(result!.enabled).toBe(true);
   });
 
   test("enabling a schedule whose plugin manifest is broken records the override without re-arming", async () => {

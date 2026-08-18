@@ -15,6 +15,7 @@ import {
 import { filenameFromHref } from "@/domains/chat/components/local-file/local-file-target";
 import { toggleLocalFile } from "@/domains/chat/components/local-file/open-local-file";
 import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
+import { t } from "@/i18n";
 import { useConversationStore } from "@/stores/conversation-store";
 
 export interface LocalFileLinkProps {
@@ -54,7 +55,7 @@ export function LocalFileLink({
       return;
     }
     if (workspacePath === null) {
-      toast.error("This file isn't available here");
+      toast.error(t("chat:localFileLink.unavailable"));
       return;
     }
     toggleLocalFile(workspacePath, filename, assistantId, conversationId);

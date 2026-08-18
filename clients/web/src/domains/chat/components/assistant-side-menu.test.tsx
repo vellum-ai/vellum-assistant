@@ -872,7 +872,11 @@ describe("AssistantSideMenu · native mobile floating glyph row", () => {
 
   test("the glyph row carries the floating placement utilities", () => {
     const container = overlayDom();
-    const row = classTokens(glyph(container, "Close navigation").parentElement);
+    // Queried by its own marker rather than walked up from a glyph, so the
+    // row keeps its contract when the clusters inside it are regrouped.
+    const row = classTokens(
+      container.querySelector('[data-slot="side-menu-glyph-row"]'),
+    );
 
     expect(row).toContain("native-mobile:absolute");
     expect(row).toContain("native-mobile:inset-x-4");

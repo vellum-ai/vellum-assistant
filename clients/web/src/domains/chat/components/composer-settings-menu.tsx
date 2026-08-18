@@ -17,6 +17,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { t } from "@/i18n";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import {
   profilePickerLabel,
@@ -470,7 +471,7 @@ export function ComposerSettingsMenu({
           // would send the user round the same failing loop.
           toast.error(
             badRequestMessage(error) ??
-              "Failed to switch profile. Please try again.",
+              t("chat:composerSettingsMenu.profileSwitchFallback"),
           );
         }
         return false;
@@ -564,7 +565,9 @@ export function ComposerSettingsMenu({
               // No cache write needed here — just autoselect the new profile.
               void handleProfileSelect(name).then((selected) => {
                 if (!selected) {
-                  toast.error("Profile created, but couldn't switch to it");
+                  toast.error(
+                    t("chat:composerSettingsMenu.profileSwitchFailed"),
+                  );
                 }
               });
             },
