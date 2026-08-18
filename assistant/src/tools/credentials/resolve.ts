@@ -72,6 +72,31 @@ export function resolveById(
 }
 
 /**
+ * Parse a `"service/field"` credential reference into its parts.
+ *
+ * Returns undefined for anything that is not exactly one non-empty segment on
+ * each side of a single slash (no slash, a leading/trailing slash, or more
+ * than one slash as in `"fal/api/key"`). Naming a credential this way is the
+ * shared vocabulary of every credential entry point, so read and write paths
+ * parse it here rather than each re-deriving the rules.
+ */
+export function parseServiceFieldRef(
+  ref: string,
+): { service: string; field: string } | undefined {
+  const slashIndex = ref.indexOf("/");
+  if (slashIndex <= 0 || slashIndex >= ref.length - 1) {
+    return undefined;
+  }
+  if (ref.indexOf("/", slashIndex + 1) !== -1) {
+    return undefined;
+  }
+  return {
+    service: ref.slice(0, slashIndex),
+    field: ref.slice(slashIndex + 1),
+  };
+}
+
+/**
  * Resolve a credential reference that may be either a UUID or a "service/field" string.
  *
  * Resolution order:
@@ -95,18 +120,11 @@ export function resolveCredentialRef(
   }
 
   // Try as service/field
-  const slashIndex = ref.indexOf("/");
-  if (slashIndex <= 0 || slashIndex >= ref.length - 1) {
+  const parsed = parseServiceFieldRef(ref);
+  if (!parsed) {
     return undefined;
   }
-  // Reject refs with more than one slash (e.g. "fal/api/key")
-  if (ref.indexOf("/", slashIndex + 1) !== -1) {
-    return undefined;
-  }
-
-  const service = ref.slice(0, slashIndex);
-  const field = ref.slice(slashIndex + 1);
-  return resolveByServiceField(service, field);
+  return resolveByServiceField(parsed.service, parsed.field);
 }
 
 /**

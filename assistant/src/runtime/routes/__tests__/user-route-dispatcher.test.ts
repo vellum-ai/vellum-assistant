@@ -56,6 +56,15 @@ function writePluginHandler(
   return fullPath;
 }
 
+/**
+ * Absolute specifier for the plugin execution context, so a handler written to
+ * a temp routes directory imports the same module instance this process holds.
+ */
+const PLUGIN_CONTEXT_MODULE = new URL(
+  "../../../plugins/plugin-execution-context.ts",
+  import.meta.url,
+).href;
+
 async function readErrorBody(
   response: Response,
 ): Promise<{ error: { code: string; message: string } }> {
@@ -466,6 +475,46 @@ describe("plugin routes", () => {
     expect(body.plugin).toBe(true);
   });
 
+  test("executes the handler as the plugin that owns the namespace", async () => {
+    // Plugin-scoped host APIs (storeCredential, resolveCredential,
+    // indexDocument) read the execution context to decide what the caller may
+    // touch. A route handler that ran outside it would fall through to their
+    // unscoped branch and reach every plugin's credentials.
+    writePluginHandler(
+      "my-plugin",
+      "whoami.ts",
+      `import { getCurrentPluginName } from ${JSON.stringify(PLUGIN_CONTEXT_MODULE)};
+       export function GET(request) {
+        return Response.json({ plugin: getCurrentPluginName() ?? null });
+      }`,
+    );
+
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch(
+      "plugins/my-plugin/whoami",
+      makeRequest("GET"),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.plugin).toBe("my-plugin");
+  });
+
+  test("leaves a workspace route outside any plugin context", async () => {
+    writeHandler(
+      "whoami.ts",
+      `import { getCurrentPluginName } from ${JSON.stringify(PLUGIN_CONTEXT_MODULE)};
+       export function GET(request) {
+        return Response.json({ plugin: getCurrentPluginName() ?? null });
+      }`,
+    );
+
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch("whoami", makeRequest("GET"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.plugin).toBeNull();
+  });
+
   test("resolves nested paths and the index (namespace root)", async () => {
     writePluginHandler(
       "my-plugin",
@@ -583,10 +632,7 @@ describe("plugin routes", () => {
     const plugin = "stale-helper";
     const helperPath = join(getWorkspacePluginsDir(), plugin, "src", "http.ts");
     mkdirSync(dirname(helperPath), { recursive: true });
-    writeFileSync(
-      helperPath,
-      `export function label() { return "v1"; }\n`,
-    );
+    writeFileSync(helperPath, `export function label() { return "v1"; }\n`);
     writePluginHandler(
       plugin,
       "frame.ts",

@@ -24,6 +24,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import type { IpcEnvelope } from "@vellumai/ipc-server-utils";
 import { IpcFrameReader, writeMessage } from "@vellumai/ipc-server-utils";
 
+import { runInPluginContext } from "../plugins/plugin-execution-context.js";
 import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
 import {
   evictRouteSourceTree,
@@ -142,9 +143,15 @@ async function handleInvoke(
   }
 
   const request = reconstructRequest(params, body);
-  const response = (await (handler as (req: Request) => unknown)(
-    request,
-  )) as Response;
+  // A plugin's own routes execute as that plugin, matching the daemon's
+  // in-thread path, so plugin-scoped host APIs a handler reaches
+  // (`storeCredential`, `resolveCredential`, `indexDocument`) scope to the
+  // owning plugin rather than falling through to their unscoped branch.
+  const invoke = () =>
+    (handler as (req: Request) => unknown)(request) as Promise<Response>;
+  const response = await (params.pluginName
+    ? runInPluginContext(params.pluginName, invoke)
+    : invoke());
 
   const buffer = new Uint8Array(await response.arrayBuffer());
   const headers: [string, string][] = [];

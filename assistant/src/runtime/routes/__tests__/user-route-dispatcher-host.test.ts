@@ -3,7 +3,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { RouteInvokeParams } from "../../../routes/route-host-protocol.js";
-import { getWorkspaceRoutesDir } from "../../../util/platform.js";
+import {
+  getWorkspacePluginsDir,
+  getWorkspaceRoutesDir,
+} from "../../../util/platform.js";
 
 // The dispatcher constructs the route host client inline and reads the enabled
 // flag from config, so both are mocked here (there is no injection seam).
@@ -58,6 +61,16 @@ function writeHandler(name: string, content: string): void {
   writeFileSync(join(getWorkspaceRoutesDir(), name), content);
 }
 
+function writePluginHandler(
+  pluginName: string,
+  name: string,
+  content: string,
+): void {
+  const dir = join(getWorkspacePluginsDir(), pluginName, "routes");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, name), content);
+}
+
 function jsonResponse(status: number, value: unknown): RouteInvokeResponse {
   return {
     status,
@@ -75,6 +88,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(getWorkspaceRoutesDir(), { recursive: true, force: true });
+  rmSync(getWorkspacePluginsDir(), { recursive: true, force: true });
 });
 
 describe("UserRouteDispatcher — route host delegation", () => {
@@ -99,6 +113,43 @@ describe("UserRouteDispatcher — route host delegation", () => {
     expect(invokeCalls[0].params.method).toBe("GET");
     expect(invokeCalls[0].params.filePath.endsWith("foo.ts")).toBe(true);
     expect(invokeCalls[0].params.url).toContain("/v1/x/foo");
+  });
+
+  test("names the owning plugin so the host executes in its context", async () => {
+    // The host marks this plugin as in context for the handler, so
+    // plugin-scoped host APIs behave the same in the host and in-thread.
+    writePluginHandler(
+      "my-plugin",
+      "status.ts",
+      `export function GET() { return new Response(); }`,
+    );
+    hostEnabled = true;
+    const dispatcher = makeDispatcher();
+
+    await dispatcher.dispatch(
+      "plugins/my-plugin/status",
+      new Request("http://localhost/v1/x/plugins/my-plugin/status", {
+        method: "GET",
+      }),
+    );
+
+    expect(invokeCalls[0].params.pluginName).toBe("my-plugin");
+  });
+
+  test("leaves a workspace route unowned", async () => {
+    writeHandler(
+      "plain.ts",
+      `export function GET() { return new Response(); }`,
+    );
+    hostEnabled = true;
+    const dispatcher = makeDispatcher();
+
+    await dispatcher.dispatch(
+      "plain",
+      new Request("http://localhost/v1/x/plain", { method: "GET" }),
+    );
+
+    expect(invokeCalls[0].params.pluginName).toBeUndefined();
   });
 
   test("runs in-band when disabled (host never called)", async () => {
