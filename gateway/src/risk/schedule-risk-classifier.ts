@@ -19,6 +19,7 @@
 
 import type { RiskAssessment, RiskClassifier } from "./risk-types.js";
 import { getTrustRuleCache } from "./trust-rule-cache.js";
+import { applyUserRuleOverride } from "./user-rule-override.js";
 
 // -- Input type ---------------------------------------------------------------
 
@@ -96,12 +97,7 @@ export class ScheduleRiskClassifier implements RiskClassifier<ScheduleClassifier
         override &&
         (override.userModified || override.origin === "user_defined")
       ) {
-        return {
-          riskLevel: override.risk,
-          reason: override.description,
-          scopeOptions: [],
-          matchType: "user_rule",
-        };
+        return applyUserRuleOverride(assessment!, override);
       }
     } catch {
       // Cache not initialized — no override

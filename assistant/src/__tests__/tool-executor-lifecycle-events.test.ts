@@ -106,9 +106,6 @@ mock.module("../permissions/checker.js", () => ({
     return { level: checkerRisk };
   },
   check: async () => ({ decision: checkerDecision, reason: checkerReason }),
-  generateAllowlistOptions: () => [
-    { label: "exact", description: "exact", pattern: "exact" },
-  ],
   generateScopeOptions: () => [{ label: "/tmp", scope: "/tmp" }],
 }));
 

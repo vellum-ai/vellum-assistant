@@ -17,6 +17,7 @@ import type {
   RiskClassifier,
 } from "./risk-types.js";
 import { getTrustRuleCache } from "./trust-rule-cache.js";
+import { applyUserRuleOverride } from "./user-rule-override.js";
 
 // -- Input type ---------------------------------------------------------------
 
@@ -55,9 +56,11 @@ function escapeMinimatchLiteral(value: string): string {
  * origin, then the tool as a whole.
  *
  * The URL is normalized through the shared canonicalizer
- * (`@vellumai/service-contracts/url-normalization`) that the daemon matches
- * saved rules with, so a rule saved from this ladder matches the same URL on
- * the next call.
+ * (`@vellumai/service-contracts/url-normalization`), so the pattern a rule is
+ * saved under has one spelling rather than whichever the model happened to
+ * write. Rule *lookup* (`findToolOverride`) is still an exact-string match on
+ * the raw input, so a saved rule only matches an invocation spelled the same
+ * way; normalizing the lookup key is LUM-3337.
  */
 function buildWebAllowlistOptions(
   toolName: string,
@@ -183,13 +186,7 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
         override &&
         (override.userModified || override.origin === "user_defined")
       ) {
-        return {
-          riskLevel: override.risk,
-          reason: override.description,
-          scopeOptions: [],
-          allowlistOptions,
-          matchType: "user_rule",
-        };
+        return applyUserRuleOverride(assessment!, override);
       }
     } catch {
       // Cache not initialized — no override

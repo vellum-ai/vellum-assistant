@@ -67,6 +67,9 @@ describe("FileRiskClassifier user overrides", () => {
     expect(result.riskLevel).toBe("high");
     expect(result.reason).toBe("User-blocked file path");
     expect(result.matchType).toBe("user_rule");
+    // An override changes the risk, not what the invocation was: what the
+    // classifier derived from the path survives it.
+    expect(result.allowlistOptions?.[0].pattern).toBe("file_write:/some/path");
   });
 
   test("user-modified default rule overrides classification", async () => {
@@ -177,6 +180,33 @@ describe("SkillLoadRiskClassifier user overrides", () => {
     expect(result.riskLevel).toBe("high");
     expect(result.reason).toBe("User-blocked skill");
     expect(result.matchType).toBe("user_rule");
+  });
+
+  test("an overridden skill_load still carries its allowlist ladder", async () => {
+    // A user who already wrote a rule is the last person who should be handed
+    // a prompt with nothing to save.
+    store.create({
+      tool: "skill_load",
+      pattern: "my-skill",
+      risk: "high",
+      description: "User-blocked skill",
+    });
+
+    initTrustRuleCache(store);
+
+    const result = await new SkillLoadRiskClassifier().classify({
+      toolName: "skill_load",
+      skillSelector: "my-skill",
+    });
+
+    expect(result.matchType).toBe("user_rule");
+    expect(result.allowlistOptions).toEqual([
+      {
+        label: "my-skill",
+        description: "This skill",
+        pattern: "skill_load:my-skill",
+      },
+    ]);
   });
 });
 

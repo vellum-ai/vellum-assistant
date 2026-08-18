@@ -1179,7 +1179,7 @@ describe("Permission Checker (gateway IPC)", () => {
     });
   });
 
-  // ── generateAllowlistOptions ──────────────────────────────────────────────
+  // ── allowlist ladder ──────────────────────────────────────────────────────
 
   describe("allowlist ladder", () => {
     test("is the gateway's, carried through unchanged", async () => {

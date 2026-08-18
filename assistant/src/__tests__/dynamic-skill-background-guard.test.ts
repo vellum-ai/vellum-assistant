@@ -65,7 +65,6 @@ mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => dynamicSkillLoad,
   classifyRisk: async () => ({ level: "medium" }),
   check: async () => ({ decision: checkDecision, reason: "medium risk" }),
-  generateAllowlistOptions: () => [],
   generateScopeOptions: () => [],
 }));
 

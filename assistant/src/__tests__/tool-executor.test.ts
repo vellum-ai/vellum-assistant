@@ -87,9 +87,6 @@ mock.module("../permissions/checker.js", () => ({
     }
     return { decision: "allow", reason: "allowed" };
   },
-  generateAllowlistOptions: () => [
-    { label: "exact", description: "exact", pattern: "exact" },
-  ],
   generateScopeOptions: () =>
     scopeOptionsOverride ?? [{ label: "/tmp", scope: "/tmp" }],
 }));
@@ -940,10 +937,29 @@ describe("integration regressions — prompt payload (PR 11)", () => {
     getToolOverride = undefined;
   });
 
-  test("shell command prompt payload includes allowlist and scope options", async () => {
+  test("shell command prompt payload carries the classifier's ladder and the scope options", async () => {
     checkResultOverride = {
       decision: "prompt",
       reason: "Medium risk: requires approval",
+    };
+    // The ladder is the gateway's; the daemon passes it through untouched.
+    classificationOverride = {
+      riskLevel: "medium",
+      reason: "npm install",
+      scopeOptions: [],
+      allowlistOptions: [
+        {
+          label: "npm install",
+          description: "Exact command",
+          pattern: "npm install",
+        },
+        {
+          label: "action:npm",
+          description: "Any npm command",
+          pattern: "action:npm",
+        },
+      ],
+      matchType: "registry",
     };
 
     let capturedAllowlist: AllowlistOption[] | undefined;
@@ -972,13 +988,11 @@ describe("integration regressions — prompt payload (PR 11)", () => {
       makeContext({ forcePromptSideEffects: true }),
     );
 
-    // Verify that the prompter received allowlist options
-    expect(capturedAllowlist).toBeDefined();
-    expect(capturedAllowlist!.length).toBeGreaterThan(0);
-    // The mock returns [{label: 'exact', description: 'exact', pattern: 'exact'}]
-    expect(capturedAllowlist![0]).toHaveProperty("pattern");
-    expect(capturedAllowlist![0]).toHaveProperty("label");
-    expect(capturedAllowlist![0]).toHaveProperty("description");
+    // The prompt offers exactly what the classifier produced, in order.
+    expect(capturedAllowlist?.map((o) => o.pattern)).toEqual([
+      "npm install",
+      "action:npm",
+    ]);
 
     // Verify scope options are also passed
     expect(capturedScopes).toBeDefined();

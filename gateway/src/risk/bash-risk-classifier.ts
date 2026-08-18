@@ -1025,6 +1025,9 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
           reason: fullRule.description,
           scopeOptions: [],
           matchType: "user_rule",
+          // No ladder: this branch runs before the parse the ladder is built
+          // from, so a prompted invocation on this path offers nothing to
+          // save. LUM-3338.
           allowlistOptions: [],
         };
       }

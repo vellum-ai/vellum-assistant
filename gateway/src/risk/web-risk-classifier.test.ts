@@ -124,10 +124,10 @@ describe("network_request", () => {
 });
 
 // -- Allowlist options --------------------------------------------------------
-// The ladder a saved trust rule is built from. It is produced here, from the
-// same URL canonicalizer the daemon matches rules with
-// (`@vellumai/service-contracts/url-normalization`), so a rule saved from a
-// prompt matches the same URL on the next call.
+// The ladder a saved trust rule is built from, canonicalized through
+// `@vellumai/service-contracts/url-normalization` so the saved pattern has one
+// spelling rather than whichever the model wrote. (Rule lookup is still a raw
+// exact-string match; LUM-3337.)
 
 describe("allowlistOptions", () => {
   test("web_fetch offers the exact URL, the origin, then the tool", async () => {

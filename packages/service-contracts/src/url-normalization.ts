@@ -1,13 +1,13 @@
 /**
- * Canonical URL normalization for web tool inputs, shared verbatim by the
- * daemon and the gateway.
+ * Canonical URL normalization for web tool inputs, shared by the gateway's
+ * risk classifiers and the daemon's URL safety checks.
  *
- * A URL a model passes to `web_fetch` / `network_request` reaches two places
- * that must agree: the gateway classifies its risk and builds the trust-rule
- * ladder from it, and the daemon matches saved rules against it. Two
- * normalizations mean a rule saved from the prompt can fail to match the same
- * URL on the next call, so the normalization lives here rather than in either
- * process.
+ * A URL a model passes to `web_fetch` / `network_request` reaches more than
+ * one consumer, and they must agree on what counts as the same target: the
+ * gateway builds the trust-rule ladder from it, and anything that later
+ * compares a URL to a saved rule has to fold the same spellings together. Two
+ * normalizations would mean two answers, so it lives here rather than in
+ * either process.
  *
  * Data-only in spirit: no imports, no config, no I/O.
  */
