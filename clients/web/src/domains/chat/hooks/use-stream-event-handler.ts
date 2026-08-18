@@ -473,6 +473,7 @@ export function useStreamEventHandler(
         case "identity_changed":
         case "avatar_updated":
         case "disk_pressure_status_changed":
+        case "resource_pressure_status_changed":
         case "notification_intent":
         case "document_editor_show":
         case "document_editor_update":
