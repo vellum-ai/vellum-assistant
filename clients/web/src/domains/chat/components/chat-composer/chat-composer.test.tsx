@@ -63,9 +63,14 @@ let mockIsNativeIOS = false;
 // the whole session instead of following focus. Defaults to the browser, so
 // every case that does not set it exercises the focus-driven reveal.
 let mockIsNativeMobile = false;
+// The Android shell alone, where Capacitor's file chooser cannot offer a
+// camera and the plus keeps a sheet of its own. Defaults to false, so every
+// other surface exercises the direct picker.
+let mockIsNativeAndroid = false;
 mock.module("@/runtime/platform-detection", () => ({
   isNativeIOS: () => mockIsNativeIOS,
   useIsNativeMobile: () => mockIsNativeMobile,
+  useIsNativeAndroid: () => mockIsNativeAndroid,
 }));
 
 // The native shell, which is the only place dictation's inline preview takes
@@ -247,6 +252,28 @@ mock.module("react-router", () => ({
   useLocation: () => ({ search: "" }),
 }));
 
+// "Add to chat" sheet, kept for the Android shell. Stubbed to a probe that
+// surfaces its open state plus a button standing in for a completed pick, so
+// these cases assert the composer's wiring rather than the sheet, which
+// `add-to-chat-sheet.test.tsx` covers.
+const SHEET_PICK = [new File(["x"], "picked.png", { type: "image/png" })];
+mock.module(
+  "@/domains/chat/components/chat-composer/add-to-chat-sheet",
+  () => ({
+    AddToChatSheet: (props: {
+      open: boolean;
+      onOpenChange: (open: boolean) => void;
+      onAttachFiles: (files: File[]) => void;
+    }) => (
+      <div data-testid="add-to-chat-sheet" data-open={String(props.open)}>
+        <button type="button" onClick={() => props.onAttachFiles(SHEET_PICK)}>
+          sheet-pick
+        </button>
+      </div>
+    ),
+  }),
+);
+
 // Flush the microtask/timer queue so the composer's awaited preflight
 // resolves and the follow-on `starter` call / notice render settle. Wrapped in
 // `act` to absorb the post-await state updates.
@@ -261,6 +288,7 @@ function resetLiveVoiceMocks() {
   mockIsElectron = false;
   mockIsNativeIOS = false;
   mockIsNativeMobile = false;
+  mockIsNativeAndroid = false;
   mockIsNativePlatform = false;
   mockVoicePhase = "idle";
   mockPreflightVerdict = { status: "ready" };
@@ -813,6 +841,10 @@ function control(container: HTMLElement, label: string) {
 
 function fileInput(container: HTMLElement) {
   return container.querySelector<HTMLInputElement>('input[type="file"]');
+}
+
+function addSheet(container: HTMLElement) {
+  return container.querySelector('[data-testid="add-to-chat-sheet"]');
 }
 
 function textareaOf(container: HTMLElement) {
@@ -1704,6 +1736,57 @@ describe("ChatComposer: single-row mobile composer", () => {
     // THEN the room it has takes the paperclip back, over the same picker
     expect(control(container, "Attach file")).not.toBeNull();
     expect(fileInput(container)).not.toBeNull();
+  });
+
+  test("the Android shell keeps a sheet, since its chooser has no camera", () => {
+    // GIVEN the Capacitor Android shell, whose `BridgeWebChromeClient` reaches
+    // a camera intent only for an input carrying `capture` and an image accept
+    mockIsNativeAndroid = true;
+    const { container } = renderPhoneComposer();
+
+    // WHEN the plus is tapped
+    fireEvent.click(control(container, PLUS_LABEL)!);
+
+    // THEN the sheet comes up, keeping the camera row this shell has no other
+    // way to offer
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+  });
+
+  test("files picked in that sheet reach the composer's attach callback", () => {
+    // GIVEN the Android shell
+    mockIsNativeAndroid = true;
+    const onAddAttachmentFiles = mock((_files: FileList | File[]) => {});
+    const { getByText } = renderPhoneComposer({ onAddAttachmentFiles });
+
+    // WHEN a sheet row delivers its files
+    fireEvent.click(getByText("sheet-pick"));
+
+    // THEN they land on the same callback the picker feeds
+    expect(onAddAttachmentFiles).toHaveBeenCalledTimes(1);
+    expect(onAddAttachmentFiles.mock.calls[0]?.[0]).toBe(SHEET_PICK);
+  });
+
+  test("a sheet that has been up outlives the shell crossing the breakpoint", () => {
+    // GIVEN an Android phone whose sheet has been presented
+    mockIsNativeAndroid = true;
+    const { container, rerender } = renderPhoneComposer();
+    fireEvent.click(control(container, PLUS_LABEL)!);
+
+    // WHEN it turns into landscape while a camera pick is still resolving
+    viewport.set({ narrow: false, coarsePointer: true });
+    rerender(composerElement());
+
+    // THEN the latch keeps its hidden inputs mounted to receive the selection
+    expect(addSheet(container)).not.toBeNull();
+  });
+
+  test("iOS and the browser get the picker, with no sheet mounted", () => {
+    // GIVEN every mobile surface but the Android shell, where the OS menu
+    // already offers the camera
+    const { container } = renderPhoneComposer();
+
+    // THEN nothing of ours stands between the plus and that menu
+    expect(addSheet(container)).toBeNull();
   });
 
   test("a busy assistant takes the plus away, as it does the paperclip", () => {

@@ -3,6 +3,13 @@
     "backAria": "Volver a todos los pasos",
     "backTooltip": "Todos los pasos"
   },
+  "addToChatSheet": {
+    "title": "Añadir al chat",
+    "closeAriaLabel": "Cerrar",
+    "camera": "Cámara",
+    "gallery": "Fototeca",
+    "files": "Archivos"
+  },
   "allowOptionsMenu": {
     "allowAndCreateRule": "Permitir y crear regla",
     "trigger": "Más opciones para permitir"

@@ -29,6 +29,7 @@ import {
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
+import { AddToChatSheet } from "@/domains/chat/components/chat-composer/add-to-chat-sheet";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 import {
   ComposerCompactProvider,
@@ -75,7 +76,11 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { isNativeIOS, useIsNativeMobile } from "@/runtime/platform-detection";
+import {
+  isNativeIOS,
+  useIsNativeAndroid,
+  useIsNativeMobile,
+} from "@/runtime/platform-detection";
 import { isPointerCoarse, usePointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
@@ -762,9 +767,29 @@ export function ChatComposer({
     [pointerCoarse, suggestion, input, attachments],
   );
 
+  const [addSheetOpen, setAddSheetOpen] = useState(false);
+  // Latched on the first open and never reset. The sheet closes itself before
+  // it hands off to the OS picker, so a shell that crossed the breakpoint while
+  // that picker was up would take the sheet's hidden inputs with it.
+  const [addSheetEverPresented, setAddSheetEverPresented] = useState(false);
+  const handleAddSheetOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      setAddSheetEverPresented(true);
+    }
+    setAddSheetOpen(open);
+  }, []);
   // Subscribed rather than read once: a convertible whose keyboard comes off
   // mid-session changes whether a press on the row carries focus with it.
   const pointerCoarseNow = usePointerCoarse();
+  // The Android shell is the one surface that still needs a list of its own.
+  // Capacitor's `BridgeWebChromeClient` only reaches a camera intent when the
+  // input carries `capture` AND an `image/*` or `video/*` accept
+  // (`onShowFileChooser`); anything else goes straight to `ACTION_GET_CONTENT`,
+  // which is a document picker with no way to take a photo. WebKit's own sheet
+  // offers the camera for a bare input, and Android in a browser gets
+  // Chromium's chooser, which does the same.
+  const isNativeAndroidShell = useIsNativeAndroid();
+  const usesAddSheet = isMobile && isNativeAndroidShell;
 
   // Whether a press on one of the row's controls has to hold the composer's
   // focus for the click behind it. Both halves are load-bearing and neither one
@@ -782,11 +807,11 @@ export function ChatComposer({
     : undefined;
 
   // The picker behind both attach controls, through one hook so the iOS
-  // refocus dance is identical on either. The shells hand the whole choice to
-  // WebKit, whose own menu already offers the camera, the photo library and
-  // the file browser. Owned by the composer rather than by the control that
-  // opens it, so a width or pointer change while the OS picker is up cannot
-  // unmount the input under it and drop the selection.
+  // refocus dance is identical on either. Where the OS menu already offers the
+  // camera, the photo library and the file browser, this is the whole flow.
+  // Owned by the composer rather than by the control that opens it, so a width
+  // or pointer change while the OS picker is up cannot unmount the input under
+  // it and drop the selection.
   const { openPicker: openAttachPicker, inputNode: attachPickerInput } =
     useAttachmentFilePicker({
       onFiles: onAddAttachmentFiles,
@@ -796,7 +821,8 @@ export function ChatComposer({
   // A surface opened from the composer moves focus into a portal, so it has to
   // hold the row up on its way out. Without that flag the row would drop away
   // as the sheet rises and the card would shift down under the scrim.
-  const composerInUse = composerFocusWithin || settingsSheetOpen;
+  const composerInUse =
+    composerFocusWithin || settingsSheetOpen || addSheetOpen;
   // Whether a banner is standing over the card. Read off the box rather than
   // derived from props: most of that stack arrives through
   // `noticesAboveFormSlot`, an opaque node, and the composer-owned notices in
@@ -940,8 +966,9 @@ export function ChatComposer({
   }, [isMobile]);
 
   // Mobile hands the attach flow to a plus, which opens the same native picker
-  // the desktop paperclip does. Every attach control answers to the same
-  // gating, so a busy assistant hides whichever one is mounted.
+  // the desktop paperclip does, or the sheet on the one shell whose own menu
+  // cannot offer a camera. Every attach control answers to the same gating, so
+  // a busy assistant hides whichever one is mounted.
   const attachDisabled = typingDisabled || !assistantId;
   const attachControl = !isMobile ? (
     <AttachFileButton
@@ -952,7 +979,9 @@ export function ChatComposer({
     <AddToChatButton
       disabled={attachDisabled}
       label={t("chatComposer.addToChat")}
-      onClick={openAttachPicker}
+      onClick={
+        usesAddSheet ? () => handleAddSheetOpenChange(true) : openAttachPicker
+      }
       onMouseDown={rowPressGuard}
     />
   );
@@ -1623,6 +1652,18 @@ export function ChatComposer({
               The hook lays the input out as `absolute inset-0`, so it needs a
               positioned box of its own. */}
           <div className="relative">{attachPickerInput}</div>
+          {(usesAddSheet || addSheetEverPresented) && (
+            // The sheet's own three inputs, beside the form for the same
+            // reason. The latch keeps a sheet that has ever been presented
+            // mounted for the rest of the session: its rows close it before
+            // launching the OS picker, and a width change while that picker was
+            // up would otherwise unmount the input still waiting for the pick.
+            <AddToChatSheet
+              open={addSheetOpen}
+              onOpenChange={handleAddSheetOpenChange}
+              onAttachFiles={onAddAttachmentFiles}
+            />
+          )}
         </ComposerCompactProvider>
       </div>
     </>
