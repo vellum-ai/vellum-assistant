@@ -144,11 +144,12 @@ describe("native pickers: reading", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickMediaNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickMediaNative(sink.onFile);
     const files = sink.files;
 
     expect(readPaths).toEqual(["/tmp/shot.jpg"]);
-    expect(skipped).toEqual([]);
+    expect(tooLarge).toEqual([]);
+    expect(pickFull).toEqual([]);
     expect(files).toHaveLength(1);
     expect(await files[0]?.text()).toBe("hello bytes");
     expect(files[0]?.type).toBe("image/jpeg");
@@ -217,10 +218,11 @@ describe("native pickers: slicing the read", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickFilesNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
     const file = sink.files[0];
 
-    expect(skipped).toEqual([]);
+    expect(tooLarge).toEqual([]);
+    expect(pickFull).toEqual([]);
     expect(readPaths).toEqual(["/tmp/long.bin", "/tmp/long.bin"]);
     expect(file?.size).toBe(READ_SLICE_BYTES + tail.length);
     expect((await (file as File).text()).endsWith(tail)).toBe(true);
@@ -320,13 +322,14 @@ describe("native pickers: size limit", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickMediaNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickMediaNative(sink.onFile);
     const files = sink.files;
 
     // Never read: the whole point is that the bytes do not cross the bridge.
     expect(readPaths).toEqual([]);
     expect(files).toEqual([]);
-    expect(skipped).toEqual(["huge.mov"]);
+    expect(tooLarge).toEqual(["huge.mov"]);
+    expect(pickFull).toEqual([]);
   });
 
   test("allows a resizable image past the flat cap, as the store does", async () => {
@@ -344,10 +347,11 @@ describe("native pickers: size limit", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickMediaNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickMediaNative(sink.onFile);
     const files = sink.files;
 
-    expect(skipped).toEqual([]);
+    expect(tooLarge).toEqual([]);
+    expect(pickFull).toEqual([]);
     expect(files).toHaveLength(1);
   });
 
@@ -370,12 +374,13 @@ describe("native pickers: size limit", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickFilesNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
     const files = sink.files;
 
     expect(readPaths).toEqual(["/tmp/fine.txt"]);
     expect(files).toHaveLength(1);
-    expect(skipped).toEqual(["huge.mov"]);
+    expect(tooLarge).toEqual(["huge.mov"]);
+    expect(pickFull).toEqual([]);
   });
 });
 
@@ -439,12 +444,13 @@ describe("native pickers: unknown sizes", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickFilesNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
 
     expect(statPaths).toEqual(["/cloud.doc"]);
     expect(readPaths).toEqual([]);
     expect(sink.files).toEqual([]);
-    expect(skipped).toEqual(["cloud.doc"]);
+    expect(tooLarge).toEqual(["cloud.doc"]);
+    expect(pickFull).toEqual([]);
   });
 
   test("still attaches a file that is genuinely empty", async () => {
@@ -460,9 +466,10 @@ describe("native pickers: unknown sizes", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickFilesNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
 
-    expect(skipped).toEqual([]);
+    expect(tooLarge).toEqual([]);
+    expect(pickFull).toEqual([]);
     expect(sink.files).toHaveLength(1);
     expect(sink.files[0]?.size).toBe(0);
   });
@@ -484,9 +491,10 @@ describe("native pickers: unknown sizes", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickFilesNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
 
-    expect(skipped).toEqual([]);
+    expect(tooLarge).toEqual([]);
+    expect(pickFull).toEqual([]);
     expect(sink.files).toHaveLength(1);
     expect(await sink.files[0]?.text()).toBe("real contents");
   });
@@ -507,9 +515,10 @@ describe("native pickers: unknown sizes", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickFilesNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
 
-    expect(skipped).toEqual([]);
+    expect(tooLarge).toEqual([]);
+    expect(pickFull).toEqual([]);
     expect(readPaths).toEqual(["/unknown.bin"]);
     expect(sink.files[0]?.size).toBe(5);
   });
@@ -536,16 +545,17 @@ describe("native pickers: unknown sizes", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickFilesNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
 
     expect(sink.files).toHaveLength(1);
-    expect(skipped).toEqual(["unknown.bin"]);
+    expect(pickFull).toEqual(["unknown.bin"]);
+    expect(tooLarge).toEqual([]);
     // Refused on the first slice, not after swallowing the whole file.
     expect(readPaths).toEqual(["/claimed.jpg", "/unknown.bin"]);
   });
 });
 
-describe("native pickers: aggregate budget", () => {
+describe("native pickers: spending the allowance", () => {
   test("stops reading once one pick has taken its whole allowance", async () => {
     // Every file here passes on its own. Per-file checks alone therefore do
     // not bound a multi-select, because the composer holds each one it has
@@ -574,12 +584,47 @@ describe("native pickers: aggregate budget", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickFilesNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
 
     // 100 MB of allowance, so the third never gets read.
     expect(readPaths).toEqual(["/1.bin", "/2.bin"]);
     expect(sink.files).toHaveLength(2);
-    expect(skipped).toEqual(["3.bin"]);
+    expect(pickFull).toEqual(["3.bin"]);
+    expect(tooLarge).toEqual([]);
+  });
+});
+
+describe("native pickers: aggregate budget", () => {
+  test("charges what an understated entry actually read", async () => {
+    // A size below the truth is the dangerous direction: nothing else counts
+    // the difference, so charging the claim would let a pick hold well past
+    // the allowance. The second entry is refused only if the first was
+    // charged for its bytes rather than for the single byte it reported.
+    reset();
+    mockContent = (path: string) =>
+      path === "/understated.bin" ? "a".repeat(READ_SLICE_BYTES) : "x";
+    mockFiles = [
+      {
+        path: "/understated.bin",
+        name: "understated.bin",
+        mimeType: "application/octet-stream",
+        size: 1,
+      },
+      {
+        path: "/next.jpg",
+        name: "next.jpg",
+        mimeType: "image/jpeg",
+        size: 97 * MB,
+      },
+    ];
+
+    const sink = collector();
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
+
+    expect(sink.files).toHaveLength(1);
+    expect(sink.files[0]?.size).toBe(READ_SLICE_BYTES);
+    expect(pickFull).toEqual(["next.jpg"]);
+    expect(tooLarge).toEqual([]);
   });
 });
 
@@ -594,9 +639,10 @@ describe("native pickers: missing metadata", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickFilesNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
 
-    expect(skipped).toEqual([]);
+    expect(tooLarge).toEqual([]);
+    expect(pickFull).toEqual([]);
     expect(sink.files).toHaveLength(1);
     expect(sink.files[0]?.name).toBe("nomime.jpg");
   });
@@ -611,9 +657,10 @@ describe("native pickers: missing metadata", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickFilesNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
 
-    expect(skipped).toEqual([]);
+    expect(tooLarge).toEqual([]);
+    expect(pickFull).toEqual([]);
     expect(sink.files).toHaveLength(1);
   });
 });
@@ -654,10 +701,11 @@ describe("native pickers: temporary copies", () => {
     ];
 
     const sink = collector();
-    const { skipped } = await pickFilesNative(sink.onFile);
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
 
     expect(readPaths).toEqual([]);
-    expect(skipped).toEqual(["huge.mov"]);
+    expect(tooLarge).toEqual(["huge.mov"]);
+    expect(pickFull).toEqual([]);
     expect(deletedPaths).toEqual(["/Caches/def/huge.mov"]);
   });
 

@@ -113,18 +113,26 @@ export function AddToChatSheet({
         // Handed on one at a time rather than collected: the picker reads the
         // next file only after this one has left it, so a multi-select never
         // sits decoded in the picker all at once.
-        const { skipped } = await pick((file) => onAttachFiles([file]));
-        // Refused before their bytes were read, so the composer never sees
-        // them and cannot report them itself.
-        if (skipped.length > 0) {
-          toast.error(t("addToChatSheet.tooLarge", { count: skipped.length }));
+        const { tooLarge, pickFull } = await pick((file) =>
+          onAttachFiles([file]),
+        );
+        // Refused by the picker, so the composer never sees them and cannot
+        // report them itself. The two reasons are told apart because a file
+        // turned away for the company it was picked with attaches fine on its
+        // own, and "too large" would send the user off shrinking it for
+        // nothing.
+        if (tooLarge.length > 0) {
+          toast.error(t("addToChatSheet.tooLarge", { count: tooLarge.length }));
+        }
+        if (pickFull.length > 0) {
+          toast.error(t("addToChatSheet.pickFull", { count: pickFull.length }));
         }
       } catch (error) {
         // A dismissal is a rejection too, and not worth reporting: the user
         // closed a sheet they opened. Anything else is a real failure (an iOS
         // temporary-copy or unsupported-type error, an Android picker fault, a
-        // failed read in `fileFromNativePath`) and would otherwise look
-        // identical to picking nothing, so it is reported and shown.
+        // failed read) and would otherwise look identical to picking nothing,
+        // so it is reported and shown.
         if (!isPickerDismissal(error)) {
           captureError(error, { context: "add_to_chat_sheet_native_picker" });
           toast.error(t("addToChatSheet.pickFailed"));
@@ -137,8 +145,8 @@ export function AddToChatSheet({
   // Read once per render rather than per row, and deliberately not a hook:
   // neither the shell a session runs in nor the plugins its build links can
   // change mid-session, and the sheet is already mounted for the session by
-  // the time a row can be tapped. False on a shell whose build predates the
-  // plugins, where the rows keep the file input rather than doing nothing.
+  // the time a row can be tapped. False on a shell whose runtime registers no
+  // such plugin, where the rows use the file input rather than doing nothing.
   const native = nativeAttachmentPickersAvailable();
 
   return (

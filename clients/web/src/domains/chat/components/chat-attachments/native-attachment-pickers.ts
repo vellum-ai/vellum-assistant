@@ -26,9 +26,15 @@ import { IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES } from "@/domains/chat/components/
 import { canQueueFile } from "@/domains/chat/composer-store";
 import { isNativeIOS, isNativeMobile } from "@/runtime/platform-detection";
 
-/** Names of any entries refused without being read. */
+/** Why an entry never reached the composer. */
+export type PickSkipReason = "tooLarge" | "pickFull";
+
+/** Names of any entries refused, grouped by what refused them. */
 export interface PickOutcome {
-  skipped: string[];
+  /** Bigger on its own than the composer accepts. */
+  tooLarge: string[];
+  /** Within its own limit, but past what is left of this pick's allowance. */
+  pickFull: string[];
 }
 
 /** Receives each file as it is read, before the next one is. */
@@ -40,17 +46,16 @@ const FILE_PICKER_PLUGIN = "FilePicker";
 /**
  * Whether this shell can actually reach the native pickers.
  *
- * The shells load the web app from a remote `server.url`, so a bundle
- * carrying these call sites reaches installed builds that predate the plugin
- * being linked. There the calls reject as unimplemented, and a row wired
- * straight to them would do nothing at all until the user updated the app.
- * `isPluginAvailable` reads what the native runtime actually registered, so
- * an older shell falls back to the file input and keeps the behaviour it
- * shipped with.
+ * The shells load the web app from a remote `server.url`, so one bundle runs
+ * against every installed build, including builds whose native runtime has no
+ * such plugin. There the calls reject as unimplemented, and a row wired
+ * straight to them does nothing at all. `isPluginAvailable` reads what the
+ * runtime actually registered, so a shell without it uses the file input and
+ * a shell with it opens the native surface.
  *
  * It also pins the rest of the runtime. A shell that registers this plugin
  * was built from a manifest that carries it, and that manifest carries a
- * `@capacitor/filesystem` new enough to read a byte range, which is what
+ * `@capacitor/filesystem` that reads a byte range, which is what
  * `readFileParts` relies on.
  */
 export function nativeAttachmentPickersAvailable(): boolean {
@@ -121,15 +126,15 @@ interface FileParts {
  * was empty to begin with, or the runtime ignored the range and answered with
  * all of it at once.
  *
- * `withinLimits` is what bounds the read, judging the bytes actually in hand
- * rather than a number that may be wrong. A file that outgrows what it is
- * allowed is abandoned rather than truncated, which keeps this to one slice of
- * overhead even for a source that never ends.
+ * `limit` is what bounds the read, judging the bytes actually in hand rather
+ * than a number that may be wrong, and naming what refused them. A file that
+ * outgrows what it is allowed is abandoned rather than truncated, which keeps
+ * this to one slice of overhead even for a source that never ends.
  */
 async function readFileParts(
   path: string,
-  withinLimits: (bytesRead: number) => boolean,
-): Promise<FileParts | null> {
+  limit: (bytesRead: number) => PickSkipReason | null,
+): Promise<FileParts | { refused: PickSkipReason }> {
   const { Filesystem } = await import("@capacitor/filesystem");
   const parts: BlobPart[] = [];
   let bytes = 0;
@@ -144,8 +149,9 @@ async function readFileParts(
     const slice = typeof data === "string" ? bytesFromBase64(data) : data;
     const length = slice instanceof Blob ? slice.size : slice.length;
     bytes += length;
-    if (!withinLimits(bytes)) {
-      return null;
+    const refused = limit(bytes);
+    if (refused) {
+      return { refused };
     }
     if (length > 0) {
       parts.push(slice);
@@ -269,7 +275,11 @@ async function readPicked(
   picked: PickedFile[],
   onFile: OnPickedFile,
 ): Promise<PickOutcome> {
-  const skipped: string[] = [];
+  const tooLarge: string[] = [];
+  const pickFull: string[] = [];
+  const refuse = (name: string, reason: PickSkipReason): void => {
+    (reason === "tooLarge" ? tooLarge : pickFull).push(name);
+  };
   // The copies this pick still owes a delete. A read that throws abandons the
   // loop, and every entry it never reached was copied by the picker just the
   // same, so the sweep at the end is what stops a failure leaving the rest of
@@ -296,6 +306,21 @@ async function readPicked(
         continue;
       }
 
+      // The two limits an entry has to clear, asked of a reported size before
+      // any read and of the bytes in hand during one. Each names what turned
+      // the file away, because being bigger than the composer takes and being
+      // the last of a pick that has spent its allowance are different things
+      // to be told.
+      const allowance = (bytes: number): PickSkipReason | null => {
+        if (!canQueueFile({ name: file.name, type: mimeType, size: bytes })) {
+          return "tooLarge";
+        }
+        if (readSoFar + bytes > MAX_PICK_TOTAL_BYTES) {
+          return "pickFull";
+        }
+        return null;
+      };
+
       // Every way out of this entry drops the copy behind it, refusals
       // included: a file skipped for its size is one whose bytes were never
       // wanted, so leaving it on disk is the worst of both.
@@ -305,31 +330,24 @@ async function readPicked(
         // same two limits to the bytes as they arrive and gives up on a file
         // that outgrows them.
         const size = await resolveSize(file);
-        if (
-          size !== null &&
-          (!canQueueFile({ name: file.name, type: mimeType, size }) ||
-            readSoFar + size > MAX_PICK_TOTAL_BYTES)
-        ) {
-          skipped.push(file.name);
+        const refusedOnSize = size === null ? null : allowance(size);
+        if (refusedOnSize) {
+          refuse(file.name, refusedOnSize);
           continue;
         }
         if (!file.path) {
           continue;
         }
-        const read = await readFileParts(
-          file.path,
-          (bytes) =>
-            canQueueFile({ name: file.name, type: mimeType, size: bytes }) &&
-            readSoFar + bytes <= MAX_PICK_TOTAL_BYTES,
-        );
-        if (!read) {
-          skipped.push(file.name);
+        const read = await readFileParts(file.path, allowance);
+        if ("refused" in read) {
+          refuse(file.name, read.refused);
           continue;
         }
-        // The budget counts what the entry was judged on: its own size where
-        // it has one, so a file that reports more than it reads still holds
-        // its claim, and what it actually read where it does not.
-        readSoFar += size ?? read.bytes;
+        // Charged the larger of what the entry claimed and what it delivered.
+        // A size below the truth would otherwise let a pick hold well past the
+        // allowance, since nothing else here counts the difference, and one
+        // above the truth keeps a claim already spent against it.
+        readSoFar += Math.max(size ?? 0, read.bytes);
         onFile(new File(read.parts, file.name, { type: mimeType }));
       } finally {
         if (file.path) {
@@ -344,7 +362,7 @@ async function readPicked(
     }
   }
 
-  return { skipped };
+  return { tooLarge, pickFull };
 }
 
 /**

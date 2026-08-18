@@ -51,9 +51,9 @@ mock.module("@vellumai/design-library", () => ({
 // runtime AND a build that linked the plugin. Defaults to false, so every
 // existing case still exercises the file input.
 let mockNativePickersAvailable = false;
-type PickOutcome = { skipped: string[] };
+type PickOutcome = { tooLarge: string[]; pickFull: string[] };
 type OnPickedFile = (file: File) => void;
-const EMPTY_PICK: PickOutcome = { skipped: [] };
+const EMPTY_PICK: PickOutcome = { tooLarge: [], pickFull: [] };
 let mockPickMedia: (onFile: OnPickedFile) => Promise<PickOutcome> = async () =>
   EMPTY_PICK;
 let mockPickFiles: (onFile: OnPickedFile) => Promise<PickOutcome> = async () =>
@@ -189,7 +189,7 @@ describe("AddToChatSheet: native pickers", () => {
     const picked = new File(["x"], "photo-1.jpg", { type: "image/jpeg" });
     mockPickMedia = async (onFile) => {
       onFile(picked);
-      return { skipped: [] };
+      return { tooLarge: [], pickFull: [] };
     };
     const { onAttachFiles } = renderSheet();
 
