@@ -282,12 +282,15 @@ export function VoiceList({
                         voice.source}
                     </span>
                   )}
-                  {/* One fixed-width trailing slot the preview button and the
-                      selected-check share, so the provider badge never shifts
-                      between rows. At rest: the check on the selected row, empty
-                      otherwise. On hover/focus (or while previewing) the speaker
-                      takes over — so the selected row is previewable too. */}
-                  <CrossfadeStack className="size-7">
+                  {/* One trailing slot the preview button and the selected-check
+                      share, floored at the row's icon width so the provider
+                      badge lines up between rows. At rest: the check on the
+                      selected row, empty otherwise. On hover, on focus, and
+                      while previewing, the speaker takes over, so the selected
+                      row is previewable too. Where there is no hover the slot
+                      seats both, so it sizes to them rather than clipping the
+                      check outside the row. */}
+                  <CrossfadeStack className="min-h-7 min-w-7">
                     {voice.sampleUrl !== "" && (
                       <Button
                         variant="ghost"

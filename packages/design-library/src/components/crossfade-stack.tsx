@@ -18,6 +18,11 @@ import { cn } from "../utils/cn";
  * trade them with. Which occupant is visible at which moment is the caller's,
  * expressed as `data-reveal` and `data-reveal-yield` on the children
  * themselves.
+ *
+ * A caller that wants the cell to hold a column of slots at one width sets a
+ * floor (`min-w-*`), not a fixed size: seated side by side the occupants are
+ * wider than either alone, and a fixed width paints the second one outside the
+ * row.
  */
 function CrossfadeStack({
   className,
