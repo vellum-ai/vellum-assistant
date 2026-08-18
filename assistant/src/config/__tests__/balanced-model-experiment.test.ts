@@ -32,6 +32,7 @@ import {
 
 const FLAG = BALANCED_MODEL_EXPERIMENT_FLAG_KEY;
 const SHIPPED_MODEL = "gpt-5.6-luna";
+const GLM_MODEL = "accounts/fireworks/models/glm-5p2";
 
 function setArm(value: boolean | string): void {
   setOverridesForTesting({ [FLAG]: value });
@@ -78,18 +79,18 @@ describe("balanced-model experiment arms", () => {
     expect(entry?.source).toBe("managed");
   });
 
-  test("sonnet-5 repoints mainAgent at claude-sonnet-5 within the model's output cap", () => {
-    setArm("sonnet-5");
+  test("glm-5p2 repoints mainAgent at GLM 5.2 within the model's output cap", () => {
+    setArm("glm-5p2");
     const resolved = resolveCallSiteConfig(
       "mainAgent",
       llmWithActiveBalanced(),
     );
-    expect(resolved.model).toBe("claude-sonnet-5");
+    expect(resolved.model).toBe(GLM_MODEL);
     expect(resolved.provider).toBe("vellum");
 
-    const upstream = getManagedUpstream("claude-sonnet-5");
-    expect(upstream).toBe("anthropic");
-    const cap = catalogMaxOutputTokens(upstream as string, "claude-sonnet-5");
+    const upstream = getManagedUpstream(GLM_MODEL);
+    expect(upstream).toBe("fireworks");
+    const cap = catalogMaxOutputTokens(upstream as string, GLM_MODEL);
     expect(cap).toBeDefined();
     expect(resolved.maxTokens).toBeLessThanOrEqual(cap as number);
     // Only the model moves: the shipped token budget stands.
@@ -110,7 +111,7 @@ describe("balanced-model experiment arms", () => {
   });
 
   test("the other default profiles are untouched by an arm", () => {
-    setArm("sonnet-5");
+    setArm("glm-5p2");
     for (const key of [
       "quality-optimized",
       "cost-optimized",
@@ -123,7 +124,7 @@ describe("balanced-model experiment arms", () => {
   });
 
   test("every pinned arm model is managed-routable and in its upstream catalog", () => {
-    for (const model of ["gpt-5.6-terra", "claude-sonnet-5"]) {
+    for (const model of ["gpt-5.6-terra", GLM_MODEL]) {
       const upstream = getManagedUpstream(model);
       expect(upstream).not.toBeNull();
       expect(isModelInCatalog(upstream as string, model)).toBe(true);
@@ -181,7 +182,7 @@ describe("balanced-model experiment fallbacks", () => {
     expect(flag).toBeDefined();
     expect(flag?.scope).toBe("assistant");
     expect(flag?.defaultEnabled).toBe("control");
-    expect(flag?.values).toEqual(["control", "terra", "sonnet-5"]);
+    expect(flag?.values).toEqual(["control", "terra", "glm-5p2"]);
   });
 });
 
@@ -214,9 +215,9 @@ describe("balanced-model experiment boundaries", () => {
     expect(entry?.label).toBe("My Balanced");
   });
 
-  test("BYOK columns stay out of the experiment", () => {
+  test("the chatgpt and BYOK columns stay out of the experiment", () => {
     setArm("terra");
-    for (const provider of ["anthropic", "openai"] as const) {
+    for (const provider of ["anthropic", "openai", "chatgpt"] as const) {
       const armed = resolveDefaultProfileForProvider(undefined, "balanced", {
         provider,
       });
@@ -231,10 +232,10 @@ describe("balanced-model experiment boundaries", () => {
   });
 
   test("an install with no defaultProvider still picks up the arm", () => {
-    setArm("sonnet-5");
+    setArm("glm-5p2");
     expect(
       resolveDefaultProfileForProvider(undefined, "balanced", null)?.model,
-    ).toBe("claude-sonnet-5");
+    ).toBe(GLM_MODEL);
   });
 });
 
@@ -256,7 +257,7 @@ describe("client-facing profile listing", () => {
   });
 
   test("agrees with the runtime resolver on every arm", () => {
-    for (const arm of ["control", "terra", "sonnet-5", "nonsense"]) {
+    for (const arm of ["control", "terra", "glm-5p2", "nonsense"]) {
       setArm(arm);
       const listed = getEffectiveProfilesForProvider(undefined, managed)
         .balanced?.model;

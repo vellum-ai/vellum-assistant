@@ -155,16 +155,19 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
  * test (`balanced-model-experiment.ts` owns the flag read). An arm repoints
  * the model of the managed (`vellum`) implementation of `balanced` and nothing
  * else: effort, thinking, token budget, label and description all stay on the
- * shipped body, and every BYOK column is untouched because a BYOK install runs
- * the provider its user chose and sits outside the experiment.
+ * shipped body, and the `chatgpt` and BYOK columns are untouched because those
+ * installs run the provider their user chose and sit outside the experiment.
  *
  * `control` is absent by design. It, an arm this build does not know, and an
  * unset flag all resolve to the shipped body, so no LaunchDarkly value can
  * strand an install on a model that is not pinned here.
+ *
+ * `glm-5p2` is text-only: Balanced does not pass `doesSupportVision` on that
+ * arm, so image input routes through the image-fallback captioning plugin.
  */
 const BALANCED_EXPERIMENT_MODELS: Record<string, string> = {
   terra: "gpt-5.6-terra",
-  "sonnet-5": "claude-sonnet-5",
+  "glm-5p2": "accounts/fireworks/models/glm-5p2",
 };
 
 /**
