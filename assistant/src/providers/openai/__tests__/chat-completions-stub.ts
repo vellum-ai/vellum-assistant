@@ -47,9 +47,8 @@ export function rejection(message: string, status = 400): Error {
 /**
  * Swap the provider's SDK client for a stub whose chat.completions.create
  * throws the queued `errors` in order (one per call) before streaming the
- * canned `chunks`. Returns the per-call request snapshots — snapshots, not
- * references, because the compatibility fallbacks mutate `params` between
- * attempts.
+ * canned `chunks`. Returns the per-call request snapshots (not references,
+ * because the compatibility fallbacks mutate `params` between attempts).
  */
 export function stubClient(
   provider: object,
