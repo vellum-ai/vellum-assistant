@@ -783,13 +783,13 @@ export function ChatComposer({
     isMobileMainComposer && (isNativeMobileShell || composerInUse);
   // The caption is the row's opposite number: it stands under the card at rest
   // and steps aside the moment anything takes the bottom of the screen, which
-  // is where the keyboard and every sheet cover it anyway. Unchanged by the
-  // row standing permanently, so in the shells the two share the resting
-  // composer rather than trading places.
+  // is where the keyboard and every sheet cover it anyway. In the shells,
+  // where the pills row stands throughout, the two share the resting composer
+  // rather than trading places.
   const disclaimerVisible = isMobileMainComposer && !composerInUse;
-  // The entrance exists because the row arrives with the keyboard. Standing
-  // permanently there is no arrival, and the same animation would instead
-  // replay on every mount, settling the composer on each navigation.
+  // The entrance belongs to the row that arrives with the keyboard. A row that
+  // stands throughout has no arrival to animate, and the same animation there
+  // replays on every mount, settling the composer on each navigation.
   const settingsPillsClassName = settingsPillsVisible
     ? `mb-3 flex justify-end gap-1.5 pr-1.5${
         isNativeMobileShell
