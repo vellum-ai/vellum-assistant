@@ -144,6 +144,13 @@ export function swipeActionsFor(
     });
 }
 
+/** A glyph control in the row's trailing cell, square unless it carries a label. */
+const ACTION_CONTROL_CLASS = cn(
+  "flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md",
+  "text-[var(--content-secondary)] transition-colors",
+  "hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
+);
+
 /**
  * The row's inline controls, revealed with the row where the device can hover.
  *
@@ -163,9 +170,7 @@ export function RecapActionButtons({ actions }: { actions: RecapAction[] }) {
               onSelect();
             }}
             className={cn(
-              "flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md",
-              "text-[var(--content-secondary)] transition-colors",
-              "hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
+              ACTION_CONTROL_CLASS,
               showsLabel && "w-auto gap-[var(--app-spacing-xs)] px-2",
             )}
           >
@@ -202,11 +207,7 @@ export function RecapActionsTrigger({ label }: { label: string }) {
       /* `pointer-events-auto`: the card's content stack takes no pointer events
          so the stretched link behind it answers a tap anywhere, which every
          control standing above it has to opt back out of. */
-      className={cn(
-        "pointer-events-auto flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md",
-        "text-[var(--content-secondary)] transition-colors",
-        "hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
-      )}
+      className={cn(ACTION_CONTROL_CLASS, "pointer-events-auto")}
     >
       <Ellipsis width={16} height={16} aria-hidden="true" />
     </ActionMenu.Trigger>

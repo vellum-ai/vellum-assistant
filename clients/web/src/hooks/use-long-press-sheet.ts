@@ -3,7 +3,7 @@
  * desktop right-click menu for a touch bottom sheet (sidebar conversation
  * rows, sidebar section headers).
  *
- * Wraps {@link useLongPress} with the three invariants that surface needs:
+ * Wraps {@link useLongPress} with the four invariants that surface needs:
  *
  * 1. **The gesture arms on interactive targets.** These surfaces are
  *    themselves buttons (or `role="button"`), so the default
@@ -63,8 +63,8 @@ export interface LongPressSheetWrapperProps {
   onClickCapture: (event: ReactMouseEvent) => void;
   onTouchStart: (event: ReactTouchEvent) => void;
   onTouchMove: (event: ReactTouchEvent) => void;
-  onTouchEnd: () => void;
-  onTouchCancel: () => void;
+  onTouchEnd: (event: ReactTouchEvent) => void;
+  onTouchCancel: (event: ReactTouchEvent) => void;
 }
 
 /**
@@ -73,7 +73,7 @@ export interface LongPressSheetWrapperProps {
  * cover a few frames of delay, and it stays well inside the time it takes to
  * see a sheet animate in and reach for a row in it.
  */
-export const COMPAT_EVENT_WINDOW_MS = 150;
+const COMPAT_EVENT_WINDOW_MS = 150;
 
 /**
  * The sequence a release emits, at most one of each. Silencing them by name and
@@ -93,8 +93,9 @@ export function useLongPressSheet({
   shouldSkip,
 }: UseLongPressSheetOptions = {}): UseLongPressSheetResult {
   const [open, setOpen] = useState(false);
-  const [silencingCompatEvents, setSilencingCompatEvents] = useState(false);
   const firedRef = useRef(false);
+  /** The release's own events: those still owed, and when they stop being due. */
+  const releaseRef = useRef<{ owed: Set<string>; until: number } | null>(null);
 
   const handlers = useLongPress(
     useCallback(() => {
@@ -126,58 +127,66 @@ export function useLongPressSheet({
   }, []);
 
   // Captured at the document, so the events are gone before either the row or
-  // the sheet's dismissable layer sees them: both listen further down.
+  // the sheet's dismissable layer sees them: both listen further down. The
+  // window expires on the next event rather than on a timer, so nothing has to
+  // be cancelled when the row unmounts mid-gesture.
   useEffect(() => {
-    if (!silencingCompatEvents) {
-      return;
-    }
-
-    const pending = new Set<string>(COMPAT_EVENTS);
-
-    const swallow = (event: Event) => {
-      if (!pending.delete(event.type)) {
+    const swallowRelease = (event: Event) => {
+      const release = releaseRef.current;
+      if (!release) {
         return;
       }
+
+      if (event.timeStamp > release.until || !release.owed.delete(event.type)) {
+        releaseRef.current = null;
+        return;
+      }
+
       event.preventDefault();
       event.stopImmediatePropagation();
     };
 
     for (const type of COMPAT_EVENTS) {
-      document.addEventListener(type, swallow, true);
+      document.addEventListener(type, swallowRelease, true);
     }
 
     return () => {
       for (const type of COMPAT_EVENTS) {
-        document.removeEventListener(type, swallow, true);
+        document.removeEventListener(type, swallowRelease, true);
       }
     };
-  }, [silencingCompatEvents]);
+  }, []);
 
   /* The compatibility sequence follows the release, so the silence is armed by
      the release rather than by the gesture: a press that never lifts (or a row
      the user goes on interacting with) is not listening for events that cannot
      arrive yet. */
-  const endGesture = useCallback(() => {
+  const endGesture = useCallback((event: ReactTouchEvent) => {
     if (!firedRef.current) {
       return;
     }
 
-    setSilencingCompatEvents(true);
-    window.setTimeout(() => {
-      setSilencingCompatEvents(false);
-      firedRef.current = false;
-    }, COMPAT_EVENT_WINDOW_MS);
+    releaseRef.current = {
+      owed: new Set(COMPAT_EVENTS),
+      until: event.timeStamp + COMPAT_EVENT_WINDOW_MS,
+    };
   }, []);
 
-  const onTouchEnd = useCallback(() => {
-    handlers.onTouchEnd();
-    endGesture();
-  }, [endGesture, handlers]);
+  const onTouchEnd = useCallback(
+    (event: ReactTouchEvent) => {
+      handlers.onTouchEnd();
+      endGesture(event);
+    },
+    [endGesture, handlers],
+  );
 
-  const onTouchCancel = useCallback(() => {
-    handlers.onTouchCancel();
-    endGesture();
-  }, [endGesture, handlers]);
+  const onTouchCancel = useCallback(
+    (event: ReactTouchEvent) => {
+      handlers.onTouchCancel();
+      endGesture(event);
+    },
+    [endGesture, handlers],
+  );
 
   return {
     open,

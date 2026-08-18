@@ -169,6 +169,19 @@ export function HomeRecapRow({
     </Typography>
   );
 
+  /* `data-reveal-yield` only where the buttons take the cell over on hover:
+     without them the timestamp is the cell's only occupant and has nothing to
+     stand down for. */
+  const timestamp = (
+    <Typography
+      variant="body-small-default"
+      className="text-[var(--content-tertiary)]"
+      {...(showsActionButtons ? { "data-reveal-yield": "" } : {})}
+    >
+      {formatRelativeDate(item.timestamp)}
+    </Typography>
+  );
+
   const card = (
     <div
       data-reveal-row=""
@@ -235,29 +248,24 @@ export function HomeRecapRow({
             titleLine
           )}
 
-          {/* Timestamp and buttons share one cell so the card keeps a stable
-              width as they cross-fade. */}
-          <CrossfadeStack className="ml-auto justify-items-end">
-            <Typography
-              variant="body-small-default"
-              className="text-[var(--content-tertiary)]"
-              data-reveal-yield={showsActionButtons ? "" : undefined}
-            >
-              {formatRelativeDate(item.timestamp)}
-            </Typography>
+          {showsActionButtons ? (
+            /* Timestamp and buttons share one cell so the card keeps a stable
+               width as they cross-fade. */
+            <CrossfadeStack className="ml-auto justify-items-end">
+              {timestamp}
 
-            {showsActionButtons ? (
               <span
                 data-reveal=""
                 className="flex items-center gap-[var(--app-spacing-sm)]"
               >
                 <RecapActionButtons actions={actions} />
               </span>
-            ) : null}
-          </CrossfadeStack>
-
-          {showsActionButtons ? null : (
-            <RecapActionsTrigger label={actionsLabel} />
+            </CrossfadeStack>
+          ) : (
+            <span className="ml-auto flex items-center gap-[var(--app-spacing-sm)]">
+              {timestamp}
+              <RecapActionsTrigger label={actionsLabel} />
+            </span>
           )}
         </div>
 
