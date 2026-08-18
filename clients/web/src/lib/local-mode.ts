@@ -22,15 +22,18 @@ import {
   getSelfHostedIngressUrl,
   setSelfHostedConnection,
 } from "@/lib/self-hosted/connection";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import {
   connectImportHost,
   fetchGuardianTokenHost,
   GuardianTokenError,
+  isLocalModeHostAvailable,
   loadLockfileHost,
   parseLockfile,
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
+  renameLockfileAssistantHost,
   saveLockfileAssistantHost,
   unpairAssistantHost,
   wakeLocalAssistantHost,
@@ -113,6 +116,12 @@ export function getRemoteGatewayAssistantName(): string | undefined {
   return nonEmptyString(getInjectedConfig().assistantName);
 }
 
+/** Live persona name when hydrated, else the (possibly stale) name the edge injected at tunnel start. */
+export function getRemoteAssistantDisplayName(): string | undefined {
+  const live = useAssistantIdentityStore.getState().name?.trim();
+  return live || getRemoteGatewayAssistantName();
+}
+
 /**
  * The cloud hub SPA's assistant-root URL (`<origin>/assistant`), when the
  * served remote-gateway config carries one. Older served configs omit it, so
@@ -127,7 +136,7 @@ function getRemoteGatewayLockfile(): Lockfile {
     assistants: [
       {
         assistantId: "self",
-        name: "Local Assistant",
+        name: getRemoteGatewayAssistantName() ?? "Local Assistant",
         cloud: "local",
         runtimeUrl: window.location.origin,
         hatchedAt: "1970-01-01T00:00:00.000Z",
@@ -293,6 +302,43 @@ export async function updateLockfileAssistant(
   if (result.ok) {
     commitLockfile(result.lockfile);
   }
+}
+
+/**
+ * Rename an existing assistant entry without touching its other fields or the
+ * active assistant pointer. Runs through the host's rename-if-present
+ * operation, which decides against the on-disk registry and refuses missing
+ * entries and unreadable files instead of upserting, so a stale renderer
+ * cache can never resurrect a retired assistant. The renderer-side guards
+ * below are cheap early-outs, not the safety boundary.
+ *
+ * Resolves `true` when there is nothing left to do (converged, no-op guard,
+ * or a successful write); `false` when the host write failed or refused, so
+ * callers can retry.
+ */
+export async function renameLockfileAssistant(
+  assistantId: string,
+  name: string,
+): Promise<boolean> {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    // Fresh assistants report "": never write an empty name.
+    return true;
+  }
+  if (isRemoteGatewayMode() || !isLocalModeHostAvailable()) {
+    return true;
+  }
+  const entry = getLockfileAssistant(assistantId);
+  if (!entry || entry.name === trimmed) {
+    // Rename-only: never create an entry, never write redundantly.
+    return true;
+  }
+  const result = await renameLockfileAssistantHost(assistantId, trimmed);
+  if (result.ok) {
+    commitLockfile(result.lockfile);
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -629,6 +675,27 @@ export function getLockfileAssistant(
   assistantId: string,
 ): LockfileAssistant | undefined {
   return getLockfile().assistants.find((a) => a.assistantId === assistantId);
+}
+
+/**
+ * React subscription to one lockfile entry's `name`: `undefined` while the
+ * lockfile hasn't hydrated or the id has no entry, `null` when the entry
+ * exists but is unnamed. Distinguishing absence from an unnamed entry lets
+ * effects depending on this value re-fire even when the appearing entry
+ * carries no name.
+ */
+export function useLockfileAssistantName(
+  assistantId: string | null,
+): string | null | undefined {
+  return useLockfileStore((s) => {
+    if (assistantId === null) {
+      return undefined;
+    }
+    const entry = s.lockfile?.assistants.find(
+      (a) => a.assistantId === assistantId,
+    );
+    return entry === undefined ? undefined : (entry.name ?? null);
+  });
 }
 
 /**

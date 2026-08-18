@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router";
 
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { OnboardingLayout } from "@/components/onboarding-layout";
 import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import { useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";

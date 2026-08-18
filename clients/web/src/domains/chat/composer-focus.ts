@@ -8,11 +8,15 @@
  *   (for the same-route case), AND
  * - sets a one-shot pending flag that `chat-page` drains on its next
  *   mount (for the case where the caller navigated to the conversation
- *   route from elsewhere — `/assistant/home`, `/assistant/library`,
- *   etc. — and the listener doesn't exist yet at dispatch time).
+ *   route from elsewhere: `/assistant/home`, `/assistant/library`,
+ *   etc., and the listener doesn't exist yet at dispatch time).
  *
  * Without the pending-flag drain, File > Current Conversation would no-op
  * when invoked from non-chat routes.
+ *
+ * New Chat focus is kept by not remounting the composer: `ChatBody` uses
+ * one tree for docked and undocked empty states, so starters arriving
+ * cannot replace the focused textarea and drop the caret onto `<body>`.
  */
 export const COMPOSER_FOCUS_EVENT = "vellum:focus-composer";
 

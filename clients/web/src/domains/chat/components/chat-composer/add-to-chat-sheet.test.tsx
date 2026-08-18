@@ -82,7 +82,7 @@ describe("AddToChatSheet", () => {
     renderSheet();
 
     expect(screen.getByText("Camera")).toBeTruthy();
-    expect(screen.getByText("Find in Gallery")).toBeTruthy();
+    expect(screen.getByText("Photo Library")).toBeTruthy();
     expect(screen.getByText("Files")).toBeTruthy();
   });
 

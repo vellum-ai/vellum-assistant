@@ -17,9 +17,14 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import type { MarkdownLinkComponent } from "@vellumai/design-library";
 import { MarkdownMessage } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 
+import {
+  EXTERNAL_LINK_CLASS,
+  ExternalAnchor,
+} from "@/components/external-anchor";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 import type {
@@ -482,11 +487,22 @@ export function UserMessage({ entry }: { entry: ChatEntry }) {
   );
 }
 
+/**
+ * The design-library default anchor is web-only, so doctor's links have to
+ * carry the app's external-link behaviour themselves to stay alive in the
+ * native shells.
+ */
+const DoctorLink: MarkdownLinkComponent = ({ href, children }) => (
+  <ExternalAnchor href={href} className={EXTERNAL_LINK_CLASS}>
+    {children}
+  </ExternalAnchor>
+);
+
 export function AssistantMessage({ entry }: { entry: ChatEntry }) {
   return (
     <div data-reveal-row="" className="flex items-start justify-start gap-1.5">
       <div className="w-full text-chat text-[var(--content-default)]">
-        <MarkdownMessage content={entry.content} />
+        <MarkdownMessage content={entry.content} linkComponent={DoctorLink} />
       </div>
       <div className="flex shrink-0 items-center pt-0.5">
         <MessageCopyButton text={entry.content} />

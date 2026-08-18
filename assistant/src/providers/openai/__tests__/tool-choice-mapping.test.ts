@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Message, ToolDefinition } from "../../types.js";
 import {
+  isThinkingEnabledOnWire,
   mapNeutralToolChoice,
   OpenAIChatCompletionsProvider,
 } from "../chat-completions-provider.js";
@@ -23,11 +24,17 @@ const USER_MESSAGE: Message[] = [
  * Stub the SDK client so we can capture the outgoing chat.completions.create
  * params without hitting the network.
  */
-function stubChatProvider(): {
+function stubChatProvider(
+  options?: ConstructorParameters<typeof OpenAIChatCompletionsProvider>[2],
+): {
   provider: OpenAIChatCompletionsProvider;
   requests: Array<Record<string, unknown>>;
 } {
-  const provider = new OpenAIChatCompletionsProvider("test-key", "test-model");
+  const provider = new OpenAIChatCompletionsProvider(
+    "test-key",
+    "test-model",
+    options,
+  );
   const requests: Array<Record<string, unknown>> = [];
   (provider as unknown as { client: unknown }).client = {
     chat: {
@@ -48,6 +55,23 @@ function stubChatProvider(): {
   };
   return { provider, requests };
 }
+
+describe("isThinkingEnabledOnWire", () => {
+  test("detects flat reasoning_effort and nested reasoning flags", () => {
+    expect(isThinkingEnabledOnWire({})).toBe(false);
+    expect(isThinkingEnabledOnWire({ reasoning_effort: "none" })).toBe(false);
+    expect(isThinkingEnabledOnWire({ reasoning_effort: "high" })).toBe(true);
+    expect(isThinkingEnabledOnWire({ reasoning: { effort: "none" } })).toBe(
+      false,
+    );
+    expect(isThinkingEnabledOnWire({ reasoning: { effort: "medium" } })).toBe(
+      true,
+    );
+    expect(isThinkingEnabledOnWire({ reasoning: { enabled: true } })).toBe(
+      true,
+    );
+  });
+});
 
 describe("mapNeutralToolChoice (chat-completions wire format)", () => {
   // Each neutral tool_choice variant maps to its OpenAI-compatible form.
@@ -143,5 +167,104 @@ describe("OpenAIChatCompletionsProvider tool_choice wiring", () => {
     // THEN the request omits both tools and tool_choice
     expect(requests[0].tools).toBeUndefined();
     expect(requests[0].tool_choice).toBeUndefined();
+  });
+
+  // `"auto"` is the chat-completions default when tools are present. Sending it
+  // alongside reasoning_effort 400s DeepSeek thinking mode, so it is omitted.
+  test("omits redundant tool_choice auto when thinking is on the wire", async () => {
+    const { provider, requests } = stubChatProvider();
+
+    await provider.sendMessage(USER_MESSAGE, {
+      tools: TOOLS,
+      config: { tool_choice: { type: "auto" }, effort: "high" },
+    });
+
+    expect(requests[0].reasoning_effort).toBe("high");
+    expect(requests[0].tool_choice).toBeUndefined();
+    expect(requests[0].tools).toBeDefined();
+  });
+
+  test("omits redundant tool_choice auto when nested reasoning.enabled is set", async () => {
+    const { provider, requests } = stubChatProvider({
+      extraCreateParams: { reasoning: { enabled: true } },
+    });
+
+    await provider.sendMessage(USER_MESSAGE, {
+      tools: TOOLS,
+      config: { tool_choice: { type: "auto" } },
+    });
+
+    expect(requests[0].tool_choice).toBeUndefined();
+  });
+
+  test("forwards tool_choice auto when thinking is off", async () => {
+    const { provider, requests } = stubChatProvider();
+
+    await provider.sendMessage(USER_MESSAGE, {
+      tools: TOOLS,
+      config: { tool_choice: { type: "auto" } },
+    });
+
+    expect(requests[0].tool_choice).toBe("auto");
+  });
+
+  // Catalog providers (Fireworks, Together) honor `none` with thinking.
+  test("forwards tool_choice none with thinking when omitToolChoiceWhenReasoning is off", async () => {
+    const { provider, requests } = stubChatProvider();
+
+    await provider.sendMessage(USER_MESSAGE, {
+      tools: TOOLS,
+      config: { tool_choice: { type: "none" }, effort: "high" },
+    });
+
+    expect(requests[0].reasoning_effort).toBe("high");
+    expect(requests[0].tool_choice).toBe("none");
+  });
+
+  test("forwards a forced tool_choice with thinking when omitToolChoiceWhenReasoning is off", async () => {
+    const { provider, requests } = stubChatProvider();
+
+    await provider.sendMessage(USER_MESSAGE, {
+      tools: TOOLS,
+      config: { tool_choice: { type: "tool", name: "bash" }, effort: "high" },
+    });
+
+    expect(requests[0].tool_choice).toEqual({
+      type: "function",
+      function: { name: "bash" },
+    });
+  });
+
+  test("omits every tool_choice in thinking mode when omitToolChoiceWhenReasoning is on", async () => {
+    const { provider, requests } = stubChatProvider({
+      omitToolChoiceWhenReasoning: true,
+    });
+
+    await provider.sendMessage(USER_MESSAGE, {
+      tools: TOOLS,
+      config: { tool_choice: { type: "none" }, effort: "high" },
+    });
+    await provider.sendMessage(USER_MESSAGE, {
+      tools: TOOLS,
+      config: { tool_choice: { type: "tool", name: "bash" }, effort: "high" },
+    });
+
+    expect(requests[0].reasoning_effort).toBe("high");
+    expect(requests[0].tool_choice).toBeUndefined();
+    expect(requests[1].tool_choice).toBeUndefined();
+  });
+
+  test("still forwards tool_choice when omitToolChoiceWhenReasoning is on but thinking is off", async () => {
+    const { provider, requests } = stubChatProvider({
+      omitToolChoiceWhenReasoning: true,
+    });
+
+    await provider.sendMessage(USER_MESSAGE, {
+      tools: TOOLS,
+      config: { tool_choice: { type: "none" } },
+    });
+
+    expect(requests[0].reasoning_effort).toBeUndefined();
+    expect(requests[0].tool_choice).toBe("none");
   });
 });

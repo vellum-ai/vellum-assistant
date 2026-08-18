@@ -12,7 +12,8 @@
  *   - Batch over the cap: RangeError.
  *   - In-batch duplicate slug: later occurrence `invalid`.
  *   - Non-blocking warnings: missing `source`, unparseable `origin_date`,
- *     frontmatter `slug` differing from the storage slug.
+ *     frontmatter `slug` differing from the storage slug, link targets
+ *     neither on disk nor in the batch.
  *   - Under-lock collision snapshot: a page committed between validation and
  *     the write phase is skipped, and `listPages` runs after `tryAcquireLock`.
  *   - Partial write failure: the reindex fan-out still runs for committed
@@ -361,6 +362,77 @@ describe("ingestPages", () => {
     expect(summary.results[1].warnings).toEqual([]);
     // The page lands under the storage slug regardless of the warning.
     expect(await listPages(workspace)).toEqual(["people/alice", "people/bob"]);
+  });
+
+  test("link targets neither on disk nor in the batch warn without blocking the write", async () => {
+    // `people/bob` already exists on disk; `projects/garden` arrives in the
+    // same batch; `atl-1291` and `ghost` exist nowhere.
+    await ingestPages(workspace, [
+      { slug: "people/bob", content: validPage("Bob.") },
+    ]);
+    enqueuedJobs.length = 0;
+
+    const summary = await ingestPages(workspace, [
+      {
+        slug: "people/alice",
+        content:
+          "---\nsource: import:chatgpt\norigin_date: 2025-03-14\n" +
+          "links:\n  - people/bob\n  - projects/garden\n  - atl-1291\n" +
+          "edges: [ghost]\n---\n" +
+          "Alice mentions [[projects/garden]] and [[people/bob]] and [[skills/deploy]].\n",
+      },
+      { slug: "projects/garden", content: validPage("Garden.") },
+    ]);
+
+    expect(summary.written).toBe(2);
+    expect(summary.invalid).toBe(0);
+    const [alice, garden] = summary.results;
+    expect(alice.action).toBe("written");
+    expect(alice.warnings).toHaveLength(1);
+    // Every unresolved target on one line, sorted; targets that resolve on
+    // disk, in the batch, or under a synthetic prefix stay silent.
+    expect(alice.warnings[0]).toContain(
+      "link targets not on disk or in this batch: atl-1291, ghost",
+    );
+    expect(alice.warnings[0]).not.toContain("people/bob");
+    expect(alice.warnings[0]).not.toContain("projects/garden");
+    expect(alice.warnings[0]).not.toContain("skills/deploy");
+    expect(garden.warnings).toEqual([]);
+    // Written regardless, and reindexed.
+    expect(await readPage(workspace, "people/alice")).not.toBeNull();
+    expect(enqueuedJobs.map((j) => j.type).sort()).toEqual([
+      "memory_v2_reembed",
+      "memory_v3_maintain",
+    ]);
+  });
+
+  test("dangling-link warnings are reported on dry-run and skipped for pages the batch will not write", async () => {
+    await ingestPages(workspace, [
+      { slug: "people/bob", content: validPage("Bob.") },
+    ]);
+
+    const summary = await ingestPages(
+      workspace,
+      [
+        {
+          slug: "people/alice",
+          content: validPage("Alice mentions [[nowhere]]."),
+        },
+        // Exists on disk and overwrite is off, so this content is never
+        // written; its dangling link is not this batch's business.
+        {
+          slug: "people/bob",
+          content: validPage("Bob mentions [[also-nowhere]]."),
+        },
+      ],
+      { dryRun: true },
+    );
+
+    expect(summary.results[0].action).toBe("written");
+    expect(summary.results[0].warnings.join(" ")).toContain("nowhere");
+    expect(summary.results[1].action).toBe("skipped_exists");
+    expect(summary.results[1].warnings).toEqual([]);
+    expect(await readPage(workspace, "people/alice")).toBeNull();
   });
 
   test("a pending reindex job of the same type suppresses its duplicate enqueue", async () => {

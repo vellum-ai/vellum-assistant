@@ -160,6 +160,8 @@ beforeEach(() => {
     daily_credit_limit_usd: null,
     current_day_spent_usd: "0.00",
     day_bucket: null,
+    daily_limit_snoozed: false,
+    daily_limit_snoozed_day_bucket: null,
   };
 });
 
@@ -670,6 +672,8 @@ describe("AutoTopUpCard default daily credit limit", () => {
       daily_credit_limit_usd: "40.00",
       current_day_spent_usd: "0.00",
       day_bucket: "2026-07-20",
+      daily_limit_snoozed: false,
+      daily_limit_snoozed_day_bucket: null,
     };
     const { container, getByLabelText } = render(wrap(DISABLED_WITH_CARD));
 

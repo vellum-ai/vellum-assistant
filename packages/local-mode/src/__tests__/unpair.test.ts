@@ -229,4 +229,37 @@ describe("unpairAssistant", () => {
     }
     expect(result.status).toBe(400);
   });
+
+  test("refuses with 423 under a held write lock, leaving entry and token alone", () => {
+    writeLockfile({
+      assistants: [{ assistantId: "paired-1", cloud: "paired" }],
+      activeAssistant: "paired-1",
+    });
+    const tokenPath = seedGuardianToken("paired-1");
+    fs.mkdirSync(`${lockfilePath}.lock`);
+    try {
+      const result = unpairAssistant([lockfilePath], configDir, "paired-1");
+
+      expect(result).toMatchObject({ ok: false, status: 423 });
+      expect(fs.existsSync(tokenPath)).toBe(true);
+      expect(readLockfileFromDisk().assistants).toEqual([
+        { assistantId: "paired-1", cloud: "paired" },
+      ]);
+    } finally {
+      fs.rmdirSync(`${lockfilePath}.lock`);
+    }
+  });
+
+  test("a successful unpair leaves no lock dir behind", () => {
+    writeLockfile({
+      assistants: [{ assistantId: "paired-1", cloud: "paired" }],
+      activeAssistant: "paired-1",
+    });
+    seedGuardianToken("paired-1");
+
+    const result = unpairAssistant([lockfilePath], configDir, "paired-1");
+
+    expect(result.ok).toBe(true);
+    expect(fs.existsSync(`${lockfilePath}.lock`)).toBe(false);
+  });
 });

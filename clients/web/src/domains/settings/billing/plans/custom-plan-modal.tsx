@@ -20,6 +20,7 @@ import type {
   StorageTier,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { useTranslation } from "@/i18n";
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 import { Button } from "@vellumai/design-library/components/button";
 import {
@@ -101,10 +102,12 @@ function PickerLabel({
   label,
   docsUrl,
   docsLabel,
+  learnMore,
 }: {
   label: string;
   docsUrl: string;
   docsLabel: string;
+  learnMore: string;
 }) {
   return (
     <div className="flex items-center justify-between gap-2">
@@ -119,7 +122,7 @@ function PickerLabel({
         onClick={(e) => handleNativeAnchorClick(e, docsUrl)}
         className="text-[11px] font-medium text-[var(--content-tertiary)] underline hover:text-[var(--content-default)]"
       >
-        Learn more
+        {learnMore}
       </a>
     </div>
   );
@@ -143,6 +146,8 @@ export function CustomPlanModal({
   onClose,
   onContinue,
 }: CustomPlanModalProps) {
+  const { t } = useTranslation("settings");
+
   // A Pro reconfigure seeds the current tiers so the default is a no-op; base
   // checkout passes none and leaves every dimension empty. A baseline machine
   // (null) seeds the sentinel, mirroring how a null credit tier seeds
@@ -372,23 +377,24 @@ export function CustomPlanModal({
                 </div>
                 <div className="flex min-w-0 flex-col gap-1">
                   <Modal.Title className="text-[16px] font-medium text-[var(--content-emphasised)]">
-                    Create a custom plan
+                    {t("customPlanModal.title")}
                   </Modal.Title>
                   <Modal.Description className="mt-0 text-[14px] font-medium leading-[18px] text-[var(--content-tertiary)]">
-                    Just better.
+                    {t("customPlanModal.subtitle")}
                   </Modal.Description>
                 </div>
               </div>
 
               <div className="flex flex-col gap-1">
                 <PickerLabel
-                  label="Select a machine size:"
+                  label={t("customPlanModal.machineSizeLabel")}
                   docsUrl={MACHINE_DOCS_URL}
-                  docsLabel="Learn more about machine sizes"
+                  docsLabel={t("customPlanModal.machineSizeDocsAriaLabel")}
+                  learnMore={t("customPlanModal.learnMore")}
                 />
                 <Select<MachineChoice>
-                  aria-label="Machine size"
-                  placeholder="Select a machine size"
+                  aria-label={t("customPlanModal.machineSizeAriaLabel")}
+                  placeholder={t("customPlanModal.machineSizePlaceholder")}
                   value={machineTier}
                   onChange={setMachineTier}
                   options={machineOptions}
@@ -397,13 +403,14 @@ export function CustomPlanModal({
 
               <div className="flex flex-col gap-1">
                 <PickerLabel
-                  label="Select storage:"
+                  label={t("customPlanModal.storageLabel")}
                   docsUrl={STORAGE_DOCS_URL}
-                  docsLabel="Learn more about storage"
+                  docsLabel={t("customPlanModal.storageDocsAriaLabel")}
+                  learnMore={t("customPlanModal.learnMore")}
                 />
                 <Select<StorageTierEnum>
-                  aria-label="Storage"
-                  placeholder="Select storage"
+                  aria-label={t("customPlanModal.storageAriaLabel")}
+                  placeholder={t("customPlanModal.storagePlaceholder")}
                   value={storageTier}
                   onChange={setStorageTier}
                   options={storageOptions}
@@ -412,13 +419,14 @@ export function CustomPlanModal({
 
               <div className="flex flex-col gap-1">
                 <PickerLabel
-                  label="Bundle some credits:"
+                  label={t("customPlanModal.creditsLabel")}
                   docsUrl={CREDIT_DOCS_URL}
-                  docsLabel="Learn more about credit bundles"
+                  docsLabel={t("customPlanModal.creditsDocsAriaLabel")}
+                  learnMore={t("customPlanModal.learnMore")}
                 />
                 <Select<CreditChoice>
-                  aria-label="Credit bundle"
-                  placeholder="Select a credit bundle"
+                  aria-label={t("customPlanModal.creditBundleAriaLabel")}
+                  placeholder={t("customPlanModal.creditBundlePlaceholder")}
                   value={creditChoice}
                   onChange={setCreditChoice}
                   options={creditOptions}
@@ -428,7 +436,7 @@ export function CustomPlanModal({
 
             <div className="flex min-w-0 flex-1 flex-col gap-16 md:pt-[5px]">
               <span className="text-[16px] font-medium text-[var(--content-emphasised)]">
-                Recap
+                {t("customPlanModal.recap")}
               </span>
 
               <div className="flex flex-col gap-4">
@@ -442,19 +450,21 @@ export function CustomPlanModal({
                       <span
                         className={`text-[12px] font-medium ${diff.deltaCents > 0 ? "text-[var(--system-positive-strong)]" : "text-[var(--system-negative-strong)]"}`}
                       >
-                        {formatDelta(diff.deltaCents)} compared to previous (
-                        {formatDollars(diff.previousTotalCents)})
+                        {t("customPlanModal.comparedToPrevious", {
+                          delta: formatDelta(diff.deltaCents),
+                          previous: formatDollars(diff.previousTotalCents),
+                        })}
                       </span>
                     )}
                   <span className="text-[11px] font-medium text-[var(--content-tertiary)]">
-                    Total · Billed monthly
+                    {t("customPlanModal.totalBilledMonthly")}
                   </span>
                 </div>
 
                 <div className="h-px w-full bg-[var(--border-hover)]" />
 
                 <span className="text-[12px] font-medium text-[var(--content-tertiary)]">
-                  Your selection:
+                  {t("customPlanModal.yourSelection")}
                 </span>
 
                 <ul className="flex flex-col gap-2">
@@ -496,7 +506,7 @@ export function CustomPlanModal({
                   disabled={!complete || matchesSeed || pending}
                   onClick={handleContinue}
                 >
-                  Continue
+                  {t("customPlanModal.continue")}
                 </Button>
                 <Button
                   variant="ghost"
@@ -504,7 +514,7 @@ export function CustomPlanModal({
                   disabled={pending}
                   onClick={onClose}
                 >
-                  Cancel
+                  {t("customPlanModal.cancel")}
                 </Button>
               </div>
             </div>

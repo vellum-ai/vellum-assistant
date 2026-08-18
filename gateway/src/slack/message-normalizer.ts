@@ -14,6 +14,21 @@ import type { GatewayConfig } from "../config.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
 
+/**
+ * Message subtypes that are still a person saying something. Plain messages
+ * omit `subtype`. `file_share` is an upload. `thread_broadcast` is a thread
+ * reply that was also posted to the channel. Edits, deletes, and bot/system
+ * subtypes have their own paths or are dropped.
+ */
+const ADMITTED_MESSAGE_SUBTYPES = new Set(["file_share", "thread_broadcast"]);
+
+/** True when `subtype` is present and is not a human message we ingest. */
+export function isIgnoredSlackMessageSubtype(
+  subtype: string | undefined,
+): boolean {
+  return subtype !== undefined && !ADMITTED_MESSAGE_SUBTYPES.has(subtype);
+}
+
 /** The per-event-type differences across the plain-message normalizers. */
 type SlackMessageShape = {
   /** `source.chatType`; omitted for `app_mention`. */
@@ -140,9 +155,9 @@ export function normalizeSlackDirectMessage(
   if (!parsed.success) return null;
   const msg = parsed.data;
 
-  // Only plain user messages; file_share carries uploads. Edits/deletes have
-  // their own normalizers.
-  if (msg.subtype && msg.subtype !== "file_share") return null;
+  // Only plain user messages, uploads, and thread broadcasts. Edits/deletes
+  // have their own normalizers.
+  if (isIgnoredSlackMessageSubtype(msg.subtype)) return null;
   if (!msg.user || !msg.channel || !msg.ts) return null;
 
   const routing = resolveAssistant(config, msg.channel, msg.user);
@@ -196,7 +211,7 @@ export function normalizeSlackGroupDirectMessage(
   if (!parsed.success) return null;
   const msg = parsed.data;
 
-  if (msg.subtype && msg.subtype !== "file_share") return null;
+  if (isIgnoredSlackMessageSubtype(msg.subtype)) return null;
   if (!msg.user || !msg.channel || !msg.ts) return null;
 
   const routing = resolveAssistant(config, msg.channel, msg.user);
@@ -236,8 +251,9 @@ export function normalizeSlackChannelMessage(
   if (!parsed.success) return null;
   const msg = parsed.data;
 
-  // file_share is allowed so image/file uploads are delivered to the assistant.
-  if (msg.subtype && msg.subtype !== "file_share") return null;
+  // file_share (uploads) and thread_broadcast (also-send-to-channel replies)
+  // are still human messages.
+  if (isIgnoredSlackMessageSubtype(msg.subtype)) return null;
   if (!msg.user || !msg.channel || !msg.ts) return null;
 
   const routing = resolveAssistant(config, msg.channel, msg.user);

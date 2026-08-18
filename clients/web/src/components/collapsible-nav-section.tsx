@@ -189,6 +189,14 @@ export interface CollapsibleNavSectionSectionProps extends Omit<
   contentClassName?: string;
   ref?: Ref<HTMLDivElement>;
   /**
+   * Draw the section as a self-contained card rather than a run of rows on
+   * the panel's own surface. The card owns the horizontal inset, so the
+   * header and the list inside it sit flush and the header shrinks to a bare
+   * label row. The caller supplies the surface and radius through
+   * `className`; this governs the geometry that has to agree with it.
+   */
+  card?: boolean;
+  /**
    * Whether the section can collapse. Defaults to `true`. `false` drops the
    * chevron/icon-swap affordance and the header's toggle behavior entirely,
    * and renders the content outside the Radix accordion machinery so it's
@@ -227,6 +235,7 @@ function CollapsibleNavSectionSection({
   collapsible = true,
   unbounded = false,
   isLast = false,
+  card = false,
   ...itemProps
 }: CollapsibleNavSectionSectionProps) {
   // The chevron forwards its clicks to the title trigger, keeping one
@@ -252,14 +261,19 @@ function CollapsibleNavSectionSection({
   /* Both header branches are the same row: one is a disclosure trigger and
      the other is inert, so the geometry and the content are declared once and
      the branch below chooses only the element. */
+  /* A card supplies the section's own inset, so the header sits flush
+     inside it as a bare 16px row with the smaller of the two title sizes. */
   const titleClasses = cn(
-    "py-[6px] max-md:py-3",
+    card ? "py-0" : "py-[6px] max-md:py-3",
     SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
+    /* `!` twice over: the shared title classes pin their own weight the same
+       way, so a plain utility here loses to them rather than replacing them. */
+    card && "text-body-small-default max-md:text-body-small-default font-[500]!",
   );
 
   const titleStyle = {
-    paddingLeft: SIDEBAR_ROW_PADDING_X,
-    paddingRight: SIDEBAR_ROW_PADDING_X,
+    paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X,
+    paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
     gap: SIDEBAR_CHIP_GAP,
   };
 
@@ -285,6 +299,11 @@ function CollapsibleNavSectionSection({
         // the click target and long labels still truncate. The primitive
         // hardcodes `flex` on it, so the growth comes from here.
         "[&>[data-slot=collapsible-header]]:min-w-0 [&>[data-slot=collapsible-header]]:flex-1",
+        /* A card's header is the height of its label. The controls beside it
+           are touch targets rather than content, so they keep their own size
+           and centre-overflow this row instead of setting it; the card's top
+           padding is deeper than the overflow, so nothing escapes the card. */
+        card && "h-4",
         drag && "cursor-grab active:cursor-grabbing",
       )}
       {...drag?.headerProps}
@@ -466,13 +485,16 @@ function CollapsibleNavSectionSection({
       {collapsible ? (
         <Collapsible.Content
           className={cn(
-            "sidebar-section-list pt-2 pb-2",
+            "sidebar-section-list",
+            card
+              ? "pt-3 [&_[data-slot=side-menu-sub-list]]:gap-0"
+              : "pt-2 pb-2",
             !unbounded && isLast && "flex min-h-0 flex-1 flex-col",
             contentClassName,
           )}
           style={{
-            paddingLeft: SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
-            paddingRight: SIDEBAR_ROW_PADDING_X,
+            paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
+            paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
           }}
         >
           {children}
@@ -482,10 +504,15 @@ function CollapsibleNavSectionSection({
         // content can't be collapsed even if this section's `value` isn't
         // in the root's open list.
         <div
-          className={cn("pt-2 pb-2", contentClassName)}
+          className={cn(
+            card
+              ? "pt-3 [&_[data-slot=side-menu-sub-list]]:gap-0"
+              : "pt-2 pb-2",
+            contentClassName,
+          )}
           style={{
-            paddingLeft: SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
-            paddingRight: SIDEBAR_ROW_PADDING_X,
+            paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
+            paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
           }}
         >
           {children}

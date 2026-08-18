@@ -1189,6 +1189,9 @@ export function ChatMainPanel({
     // State-driven, so the banner is already up when the user returns to an
     // app whose daily cap was reached by background turns.
     dailyLimitReached: balanceStatus.dailyLimitReached,
+    // A skip clears the banner even when the error that raised it is still the
+    // last thing that happened on this conversation.
+    dailyLimitSnoozed: balanceStatus.dailyLimitSnoozed,
   });
 
   // -------------------------------------------------------------------------

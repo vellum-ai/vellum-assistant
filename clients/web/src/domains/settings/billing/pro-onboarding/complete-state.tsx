@@ -2,6 +2,7 @@ import { useNavigate } from "react-router";
 
 import { setSelectedAssistant } from "@/assistant/selection";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -19,9 +20,11 @@ export function CompleteState({
   direction?: TakeoverDirection;
 }) {
   const navigate = useNavigate();
+  const { t } = useTranslation("settings");
   const isOrgReady = useIsOrgReady();
   const assistant = usePreferredOrActiveAssistant(assistantId, isOrgReady);
-  const assistantName = assistant?.name || "your assistant";
+  const assistantName =
+    assistant?.name || t("completeState.assistantFallbackName");
 
   return (
     <div className="relative flex min-h-[320px] flex-col items-center justify-center overflow-hidden px-8 pb-16 [animation:onboarding-step-in_350ms_ease-out] motion-reduce:[animation:none]">
@@ -30,7 +33,7 @@ export function CompleteState({
       {/* `relative` lifts the content above the absolute creature layer. */}
       <div className="relative flex w-full flex-col items-center">
         <WizardCardHeading
-          title="You're all set!"
+          title={t("completeState.title")}
           subtitle={takeoverCopy(direction).completeSubtitle}
         />
 
@@ -49,7 +52,7 @@ export function CompleteState({
               navigate(routes.assistant, { replace: true });
             }}
           >
-            Return to {assistantName}
+            {t("completeState.returnTo", { assistantName })}
           </Button>
         </div>
       </div>

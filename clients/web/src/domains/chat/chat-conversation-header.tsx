@@ -138,7 +138,7 @@ export function ChatConversationHeader({
           ? () =>
               copyIdToClipboard(
                 activeConversation.conversationId!,
-                "Conversation ID",
+                "conversation",
               )
           : undefined
       }

@@ -1,8 +1,7 @@
 /**
- * The document editor autosaves through one endpoint, including for a document
- * bound to a workspace file — the daemon writes that one through to the file —
- * so the guarantee under test is that the save carries the document's identity
- * and never writes the workspace directly.
+ * The document editor autosaves through one endpoint, so the guarantee under
+ * test is that the save carries the document's identity and the word count the
+ * documents API stores.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -11,18 +10,11 @@ const documentsPost = mock(async (_options: unknown) => ({
   error: undefined,
   response: { ok: true } as Response,
 }));
-// Not called any more: proving that is the point of the routing tests below.
-const workspaceWritePost = mock(async (_options: unknown) => ({
-  data: {},
-  error: undefined,
-  response: ({ ok: true } as unknown) as Response,
-}));
 
 const daemonSdk = await import("@/generated/daemon/sdk.gen");
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   documentsPost,
-  workspaceWritePost,
 }));
 
 const { markdownWordCount, saveDocumentContent } = await import(
@@ -31,7 +23,6 @@ const { markdownWordCount, saveDocumentContent } = await import(
 
 beforeEach(() => {
   documentsPost.mockClear();
-  workspaceWritePost.mockClear();
 });
 
 describe("markdownWordCount", () => {
@@ -45,7 +36,7 @@ describe("markdownWordCount", () => {
 });
 
 describe("saveDocumentContent", () => {
-  test("a db-backed document is saved through the documents API", async () => {
+  test("a document is saved through the documents API", async () => {
     await saveDocumentContent(
       {
         source: "document",
@@ -57,7 +48,6 @@ describe("saveDocumentContent", () => {
       "# Plan\nship it",
     );
 
-    expect(workspaceWritePost).not.toHaveBeenCalled();
     expect(documentsPost).toHaveBeenCalledTimes(1);
     expect(documentsPost.mock.calls[0]![0]).toMatchObject({
       path: { assistant_id: "asst-1" },
@@ -68,27 +58,6 @@ describe("saveDocumentContent", () => {
         content: "# Plan\nship it",
         wordCount: 4,
       },
-    });
-  });
-
-  test("a file-backed document saves the same way, not by writing the file", async () => {
-    await saveDocumentContent(
-      {
-        source: "document",
-        assistantId: "asst-1",
-        surfaceId: "surf-file",
-        conversationId: "conv-1",
-        title: "notes.md",
-      },
-      "# Notes",
-    );
-
-    // The daemon writes this document through to `drafts/notes.md` itself, so
-    // the client must not race it with a workspace write of its own.
-    expect(workspaceWritePost).not.toHaveBeenCalled();
-    expect(documentsPost).toHaveBeenCalledTimes(1);
-    expect(documentsPost.mock.calls[0]![0]).toMatchObject({
-      body: { surfaceId: "surf-file", content: "# Notes" },
     });
   });
 

@@ -7,20 +7,11 @@ const COLUMN_DEFINITION = "workspace_path TEXT";
 /**
  * Add `workspace_path` to `documents` and enforce one document per file.
  *
- * The column holds the workspace-relative path of the markdown file a document
- * is bound to. It is set when a client opens a workspace `.md` file through
- * `POST /v1/documents/for-workspace-file`, which gives the file a document
- * identity so comments, assistant iteration, and PDF export — all keyed off a
- * document id — work on it. Documents that have no file behind them (assistant
- * drafts, client-created surfaces) stay NULL.
- *
- * The unique index is partial (`WHERE workspace_path IS NOT NULL`) so the many
- * NULL rows stay unconstrained while a given file resolves to exactly one
- * document. The find-or-create route depends on that uniqueness for its
- * idempotency.
- *
- * Nullable with no backfill: nothing recorded a file binding before this
- * column existed, so pre-existing rows correctly stay NULL.
+ * The column and its partial unique index are unused by the daemon: no code
+ * reads or writes them. Some rows carry a non-NULL path; new rows stay NULL.
+ * The migration stays in the chain because migrations are append-only, and the
+ * drizzle model in `schema/documents.ts` carries the column so it keeps
+ * describing the physical table.
  *
  * Idempotent: the column add is guarded with `tableHasColumn` and the index
  * with `IF NOT EXISTS`, so a crash between the two does not break the next

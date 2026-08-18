@@ -23,6 +23,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 
 import { DetailCard } from "@/components/detail-card";
+import { useTranslation } from "@/i18n";
 import {
   DEFAULT_INTERRUPT_SENSITIVITY,
   DEFAULT_PAUSE_BEFORE_REPLY_MS,
@@ -113,16 +114,21 @@ export function VoicePage() {
 }
 
 export function VoiceSections() {
+  const { t } = useTranslation("settings");
+
   return (
     <div className="flex flex-col gap-8">
-      <VoiceSection heading="Output" description="How your assistant sounds.">
+      <VoiceSection
+        heading={t("voicePage.sectionOutputHeading")}
+        description={t("voicePage.sectionOutputDescription")}
+      >
         <VoicePickerCard />
         <SpeechServicesBanner />
       </VoiceSection>
 
       <VoiceSection
-        heading="Input"
-        description="How you talk to your assistant."
+        heading={t("voicePage.sectionInputHeading")}
+        description={t("voicePage.sectionInputDescription")}
       >
         <MicrophoneCard />
         <ListeningLanguageCard />
@@ -130,7 +136,7 @@ export function VoiceSections() {
         <ConversationTuningCard />
       </VoiceSection>
 
-      <VoiceSection heading="Captions">
+      <VoiceSection heading={t("voicePage.sectionCaptionsHeading")}>
         <CaptionsCard />
       </VoiceSection>
     </div>
@@ -148,6 +154,7 @@ export function VoiceSections() {
  * to offer — a second copy of the sentence directly beneath it just repeats.
  */
 function SpeechServicesBanner() {
+  const { t } = useTranslation("settings");
   const { available } = useManagedVoiceSelection(useActiveAssistantId());
 
   if (!available) {
@@ -157,14 +164,12 @@ function SpeechServicesBanner() {
   return (
     <div className="flex flex-wrap items-center gap-1.5 px-1 text-body-small-default text-[var(--content-tertiary)]">
       <Info className="h-3.5 w-3.5 shrink-0 text-[var(--content-quiet)]" />
-      <span>
-        Want to use your own API key for STT or TTS, or set a custom voice?
-      </span>
+      <span>{t("voicePage.speechServicesBannerPrompt")}</span>
       <Link
         to={`${routes.settings.ai}#text-to-speech`}
         className="inline-flex items-center gap-1 text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
       >
-        Set it up in Models &amp; Services
+        {t("voicePage.speechServicesBannerLink")}
         <ArrowUpRight className="h-3 w-3" />
       </Link>
     </div>
@@ -198,12 +203,14 @@ function VoiceSection({
 }
 
 function CaptionsCard() {
+  const { t } = useTranslation("settings");
+
   return (
     <DetailCard
-      title="Captions"
+      title={t("voicePage.captionsTitle")}
       // Named to match the voice room's own "Captions" toggle — same two prefs,
       // so calling it "Transcription" here sent people hunting.
-      subtitle="Show live text of what you and the assistant say during a voice conversation."
+      subtitle={t("voicePage.captionsSubtitle")}
     >
       <div className="flex flex-col gap-2">
         <VoiceTranscriptToggles showDescription />
@@ -223,6 +230,7 @@ function CaptionsCard() {
 const SYSTEM_DEFAULT_DEVICE = "";
 
 function MicrophoneCard() {
+  const { t } = useTranslation("settings");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [needsPermission, setNeedsPermission] = useState(false);
   // Whether the browser has given us a list we can draw conclusions from.
@@ -297,7 +305,9 @@ function MicrophoneCard() {
   const options = useMemo(() => {
     const live = devices.map((device, index) => ({
       value: device.deviceId,
-      label: device.label || `Microphone ${index + 1}`,
+      label:
+        device.label ||
+        t("voicePage.microphoneFallbackLabel", { index: index + 1 }),
     }));
     // A saved device absent from the list keeps its own row rather than being
     // displayed as System Default: capture already falls back, so the
@@ -311,20 +321,20 @@ function MicrophoneCard() {
       deviceId !== SYSTEM_DEFAULT_DEVICE &&
       !live.some((option) => option.value === deviceId);
     return [
-      { value: null, label: "System Default" },
+      { value: null, label: t("voicePage.systemDefault") },
       ...live,
       ...(savedIsAbsent
         ? [
             {
               value: deviceId,
               label: deviceListIsKnown
-                ? "Saved microphone (not connected)"
-                : "Saved microphone",
+                ? t("voicePage.savedMicrophoneNotConnected")
+                : t("voicePage.savedMicrophone"),
             },
           ]
         : []),
     ];
-  }, [devices, deviceId, deviceListIsKnown]);
+  }, [devices, deviceId, deviceListIsKnown, t]);
 
   const handleChange = useCallback((next: string) => {
     setDeviceId(next);
@@ -339,8 +349,8 @@ function MicrophoneCard() {
 
   return (
     <DetailCard
-      title="Microphone"
-      subtitle="Which input device is used for dictation and voice conversations."
+      title={t("voicePage.microphoneTitle")}
+      subtitle={t("voicePage.microphoneSubtitle")}
     >
       <div className="flex flex-col gap-3">
         <div className="max-w-xs">
@@ -349,16 +359,16 @@ function MicrophoneCard() {
             value={selectedValue}
             onChange={handleChange}
             onSelectNone={() => handleChange(SYSTEM_DEFAULT_DEVICE)}
-            aria-label="Microphone"
+            aria-label={t("voicePage.microphoneAriaLabel")}
           />
         </div>
         {needsPermission && (
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outlined" onClick={requestMicAccess}>
-              Allow Microphone Access
+              {t("voicePage.allowMicrophoneAccess")}
             </Button>
             <span className={labelClasses}>
-              Grant microphone access to list your available input devices.
+              {t("voicePage.grantMicrophoneAccessHint")}
             </span>
           </div>
         )}
@@ -368,6 +378,7 @@ function MicrophoneCard() {
 }
 
 function PushToTalkCard() {
+  const { t } = useTranslation("settings");
   const fnPushToTalkConfigurable = canConfigureFnPushToTalk();
   const [activator, setActivator] = useState<PTTActivator>(() => {
     const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
@@ -532,8 +543,8 @@ function PushToTalkCard() {
 
   return (
     <DetailCard
-      title="Push to Talk"
-      subtitle="Hold the activation key to dictate text or start a voice conversation."
+      title={t("voicePage.pushToTalkTitle")}
+      subtitle={t("voicePage.pushToTalkSubtitle")}
     >
       <div className="flex flex-col gap-4">
         <Toggle
@@ -551,12 +562,14 @@ function PushToTalkCard() {
               selectActivator({ kind: "off" });
             }
           }}
-          label="Enable Push to Talk"
+          label={t("voicePage.enablePushToTalk")}
         />
 
         {pttEnabled && (
           <div className="flex flex-col gap-2">
-            <span className={labelClasses}>Activation Key:</span>
+            <span className={labelClasses}>
+              {t("voicePage.activationKeyLabel")}
+            </span>
             <div
               ref={recordingZoneRef}
               tabIndex={isRecording ? 0 : -1}
@@ -580,7 +593,7 @@ function PushToTalkCard() {
                   label={
                     pendingModifiers.length > 0
                       ? modifierLabel(pendingModifiers)
-                      : "Press any key…"
+                      : t("voicePage.pressAnyKey")
                   }
                   selected
                   recording
@@ -588,7 +601,11 @@ function PushToTalkCard() {
                 />
               ) : (
                 <ActivationKeyOption
-                  label={isCustom ? activatorDisplayName(activator) : "Custom"}
+                  label={
+                    isCustom
+                      ? activatorDisplayName(activator)
+                      : t("voicePage.customKey")
+                  }
                   selected={isCustom}
                   onClick={beginRecording}
                 />
@@ -598,12 +615,7 @@ function PushToTalkCard() {
             {showFocusedTabNote && (
               <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
                 <Info className="mt-0.5 h-3 w-3 shrink-0" />
-                <span>
-                  Push-to-Talk only works while this tab is focused, and
-                  browsers may intercept some shortcuts (e.g. Ctrl+T) before the
-                  page can see them. For always-on PTT, use the Vellum desktop
-                  app.
-                </span>
+                <span>{t("voicePage.focusedTabNote")}</span>
               </div>
             )}
           </div>
@@ -650,14 +662,6 @@ function ActivationKeyOption({
   );
 }
 
-const INTERRUPT_SENSITIVITY_ITEMS: {
-  value: InterruptSensitivity;
-  label: string;
-}[] = [
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-];
 
 /**
  * The two turn-taking dials, in one card because they're one idea — where the
@@ -670,22 +674,35 @@ const INTERRUPT_SENSITIVITY_ITEMS: {
  * per-row "Default" state and the Reset affordance.
  */
 function ConversationTuningCard() {
+  const { t } = useTranslation("settings");
   const pauseMs = useVoicePrefsStore.use.pauseBeforeReplyMs();
   const setPauseMs = useVoicePrefsStore.use.setPauseBeforeReplyMs();
   const sensitivity = useVoicePrefsStore.use.interruptSensitivity();
   const setSensitivity = useVoicePrefsStore.use.setInterruptSensitivity();
 
+  const interruptSensitivityItems = useMemo(
+    () => [
+      { value: "low" as const, label: t("voicePage.interruptSensitivityLow") },
+      {
+        value: "medium" as const,
+        label: t("voicePage.interruptSensitivityMedium"),
+      },
+      { value: "high" as const, label: t("voicePage.interruptSensitivityHigh") },
+    ],
+    [t],
+  );
+
   const anySet = pauseMs !== null || sensitivity !== null;
 
   return (
     <DetailCard
-      title="Turn taking"
-      subtitle="Where your turn ends and the assistant's begins. Applies to hands-free conversations — under push to talk, the key decides."
+      title={t("voicePage.turnTakingTitle")}
+      subtitle={t("voicePage.turnTakingSubtitle")}
     >
       <div className="flex flex-col gap-5">
         <TuningRow
-          label="Pause before reply"
-          description="How long the assistant waits after you stop speaking before it replies. A longer pause lets you gather your thoughts mid-sentence without being cut off."
+          label={t("voicePage.pauseBeforeReplyLabel")}
+          description={t("voicePage.pauseBeforeReplyDescription")}
           isDefault={pauseMs === null}
         >
           <div className="max-w-xs">
@@ -703,22 +720,22 @@ function ConversationTuningCard() {
               formatValue={(value) =>
                 `${(typeof value === "number" ? value : value[0]).toFixed(1)}s`
               }
-              aria-label="Pause before reply"
+              aria-label={t("voicePage.pauseBeforeReplyAriaLabel")}
             />
           </div>
         </TuningRow>
 
         <TuningRow
-          label="Interrupt sensitivity"
-          description="How easily talking over the assistant interrupts it. Lower it if the assistant cuts itself off on background noise or filler words; raise it to interrupt more quickly."
+          label={t("voicePage.interruptSensitivityLabel")}
+          description={t("voicePage.interruptSensitivityDescription")}
           isDefault={sensitivity === null}
         >
           <div className="max-w-xs">
             <SegmentControl<InterruptSensitivity>
-              items={INTERRUPT_SENSITIVITY_ITEMS}
+              items={interruptSensitivityItems}
               value={sensitivity ?? DEFAULT_INTERRUPT_SENSITIVITY}
               onChange={setSensitivity}
-              ariaLabel="Interrupt sensitivity"
+              ariaLabel={t("voicePage.interruptSensitivityAriaLabel")}
             />
           </div>
         </TuningRow>
@@ -732,7 +749,7 @@ function ConversationTuningCard() {
                 setSensitivity(null);
               }}
             >
-              Reset to defaults
+              {t("voicePage.resetToDefaults")}
             </Button>
           </div>
         )}
@@ -752,6 +769,8 @@ function TuningRow({
   isDefault: boolean;
   children: ReactNode;
 }) {
+  const { t } = useTranslation("settings");
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
@@ -760,7 +779,7 @@ function TuningRow({
         </span>
         {isDefault && (
           <span className="shrink-0 rounded-full bg-[var(--surface-active)] px-2 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
-            Default
+            {t("voicePage.defaultBadge")}
           </span>
         )}
       </div>

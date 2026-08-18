@@ -368,6 +368,15 @@ const saveLockfileAssistant = (
     assistant,
     activeAssistant,
   ) as WriteResult;
+const renameLockfileAssistant = (
+  assistantId?: unknown,
+  name?: unknown,
+): WriteResult =>
+  handlers["vellum:localMode:renameLockfileAssistant"](
+    allowedEvent,
+    assistantId,
+    name,
+  ) as WriteResult;
 const writePairedLockfileAssistant = (assistantId: string): void => {
   fs.writeFileSync(
     lockfilePath,
@@ -516,6 +525,71 @@ describe("lockfile IPC handlers", () => {
         runtimeUrl: "https://h",
       },
     ]);
+  });
+
+  test("renameLockfileAssistant persists the rename and refreshes the watcher", () => {
+    saveLockfileAssistant(
+      {
+        assistantId: "asst-1",
+        cloud: "local",
+        runtimeUrl: "http://127.0.0.1:1",
+        name: "Old Name",
+      },
+      "asst-1",
+    );
+    refreshLockfileNowMock.mockClear();
+
+    const result = renameLockfileAssistant("asst-1", "Credence");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.lockfile.assistants).toEqual([
+      {
+        assistantId: "asst-1",
+        cloud: "local",
+        runtimeUrl: "http://127.0.0.1:1",
+        name: "Credence",
+      },
+    ]);
+    expect(result.lockfile.activeAssistant).toBe("asst-1");
+    expect(refreshLockfileNowMock).toHaveBeenCalledTimes(1);
+
+    const onDisk = JSON.parse(fs.readFileSync(lockfilePath, "utf-8")) as {
+      assistants: Array<Record<string, unknown>>;
+    };
+    expect(onDisk.assistants[0]?.name).toBe("Credence");
+  });
+
+  test("renameLockfileAssistant refuses a missing entry without creating the file", () => {
+    const result = renameLockfileAssistant("asst-gone", "Credence");
+
+    expect(result.ok).toBe(false);
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+    expect(refreshLockfileNowMock).not.toHaveBeenCalled();
+  });
+
+  test("renameLockfileAssistant refuses a corrupt file without clobbering it", () => {
+    fs.writeFileSync(lockfilePath, "{ not json");
+
+    const result = renameLockfileAssistant("asst-1", "Credence");
+
+    expect(result.ok).toBe(false);
+    expect(fs.readFileSync(lockfilePath, "utf-8")).toBe("{ not json");
+    expect(refreshLockfileNowMock).not.toHaveBeenCalled();
+  });
+
+  test("renameLockfileAssistant rejects a missing id or name with a structured error", () => {
+    expect(renameLockfileAssistant(undefined, "Credence")).toEqual({
+      ok: false,
+      error: "Missing assistantId or name",
+    });
+    expect(renameLockfileAssistant("asst-1", undefined)).toEqual({
+      ok: false,
+      error: "Missing assistantId or name",
+    });
+    expect(fs.existsSync(lockfilePath)).toBe(false);
   });
 
   test("replacePlatformAssistants swaps platform entries while preserving local ones", () => {

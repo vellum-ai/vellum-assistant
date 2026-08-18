@@ -2,10 +2,13 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
+  drainConversationList,
   hasAnyActiveConversation,
-  listBackgroundConversations,
-  listConversations,
 } from "@/utils/conversation-list-fetchers";
+import {
+  BACKGROUND_FILTER,
+  FOREGROUND_FILTER,
+} from "@/utils/conversation-list-keys";
 import {
   toConversation,
   type RawConversationSummary,
@@ -275,10 +278,10 @@ describe("toConversation — Slack channel binding", () => {
 });
 
 // ---------------------------------------------------------------------------
-// listConversations — pagination
+// drainConversationList (foreground) pagination
 // ---------------------------------------------------------------------------
 
-describe("listConversations — pagination", () => {
+describe("drainConversationList (foreground) pagination", () => {
   const originalGet = daemonClient.get;
   type GetOptions = {
     query?: Record<string, unknown>;
@@ -355,7 +358,10 @@ describe("listConversations — pagination", () => {
       ],
     });
 
-    const result = await listConversations("assistant-1");
+    const result = await drainConversationList(
+      "assistant-1",
+      FOREGROUND_FILTER,
+    );
 
     expect(result).toHaveLength(80);
     expect(result.at(0)?.conversationId).toBe("foreground-0");
@@ -380,7 +386,10 @@ describe("listConversations — pagination", () => {
       foreground: [{ conversations: [makeConversationRow("only-one")] }],
     });
 
-    const result = await listConversations("assistant-1");
+    const result = await drainConversationList(
+      "assistant-1",
+      FOREGROUND_FILTER,
+    );
 
     expect(result).toHaveLength(1);
     // Foreground only — a single page, no background fetch.
@@ -395,7 +404,10 @@ describe("listConversations — pagination", () => {
       ],
     });
 
-    const result = await listConversations("assistant-1");
+    const result = await drainConversationList(
+      "assistant-1",
+      FOREGROUND_FILTER,
+    );
 
     expect(result).toHaveLength(1);
     expect(calls).toHaveLength(2); // 2 foreground pages, no background
@@ -403,10 +415,10 @@ describe("listConversations — pagination", () => {
 });
 
 // ---------------------------------------------------------------------------
-// listBackgroundConversations — pagination
+// drainConversationList (background) pagination
 // ---------------------------------------------------------------------------
 
-describe("listBackgroundConversations — pagination", () => {
+describe("drainConversationList (background) pagination", () => {
   const originalGet = daemonClient.get;
   type GetOptions = {
     query?: Record<string, unknown>;
@@ -466,7 +478,10 @@ describe("listBackgroundConversations — pagination", () => {
     }) as typeof daemonClient.get;
 
     // WHEN we list background conversations
-    const result = await listBackgroundConversations("assistant-1");
+    const result = await drainConversationList(
+      "assistant-1",
+      BACKGROUND_FILTER,
+    );
 
     // THEN both pages are returned
     expect(result.map((c) => c.conversationId)).toEqual(["bg-0", "bg-1"]);

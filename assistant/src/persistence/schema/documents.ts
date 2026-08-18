@@ -22,13 +22,13 @@ export const documents = sqliteTable(
     wordCount: integer("word_count").notNull().default(0),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
-    // Workspace-relative path of the markdown file this document is bound to.
-    // NULL for documents with no file behind them.
+    // Unused by the daemon: no code reads or writes the column, and some rows
+    // carry a non-NULL path. It stays in the model because migration 360 puts
+    // it in the physical table and the model must keep describing that table.
     workspacePath: text("workspace_path"),
   },
   (table) => [
-    // Partial so the many file-less documents stay unconstrained while a given
-    // file resolves to exactly one document.
+    // Partial, so the NULL rows stay unconstrained.
     uniqueIndex("idx_documents_workspace_path")
       .on(table.workspacePath)
       .where(sql`workspace_path IS NOT NULL`),

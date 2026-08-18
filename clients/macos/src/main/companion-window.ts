@@ -57,7 +57,7 @@ export const isCompanionSurfaceEnabled = (): boolean =>
  * choice from the tray.
  *
  * The flag is a floor and the tray preference is a veto, so both have to say
- * yes. Exported for its tests, as `callOnStart` is: it is the rule that decides
+ * yes. Exported for its tests, as `callOnUpdate` is: it is the rule that decides
  * whether the most conspicuous window this app has appears at all.
  */
 export const shouldShowCompanionSurface = (
@@ -188,7 +188,11 @@ let call: VoiceActivityState | null = null;
  * and a card that came back empty would read as the exchange the user just had
  * on it having been thrown away.
  */
-let context: CompanionContext = { assistantName: "", turns: [] };
+let context: CompanionContext = {
+  assistantName: "",
+  turns: [],
+  working: false,
+};
 
 /**
  * The state the renderer sees, rebuilt on demand.
@@ -207,28 +211,9 @@ const currentState = (): CompanionSurfaceState => {
     call,
     assistantName: context.assistantName,
     turns: context.turns,
+    working: context.working,
   };
 };
-
-/**
- * The session after a `start`, which is not always a new session.
- *
- * A redundant start updates the running call rather than restarting its clock.
- * The mirror re-syncs on mount and the session controller remounts across
- * layout-level route changes while the store persists, so a second start for a
- * call already on screen is expected traffic, and an elapsed timer that jumped
- * back to zero on a route change would be a visible lie about a session that
- * never stopped.
- *
- * Exported for its tests, which is also why it takes `now` rather than reading
- * the clock.
- */
-export const callOnStart = (
-  current: VoiceActivityState | null,
-  start: Omit<VoiceActivityState, "startedAt">,
-  now: number,
-): VoiceActivityState =>
-  current === null ? { ...start, startedAt: now } : { ...current, ...start };
 
 /**
  * The session after an `update`, or `null` when there is nothing to update.
@@ -267,6 +252,46 @@ export const growthFor = (
     return "left";
   }
   return "right";
+};
+
+/**
+ * Keep the avatar on screen, whatever the drag asks for.
+ *
+ * A drag arrives as a delta and is applied blind, so nothing in the gesture
+ * itself stops the surface being pushed past the edge of the display. It has to
+ * be stopped here, because there is no way back: the canvas is transparent and
+ * mostly empty, so a surface pushed off screen leaves nothing to grab and
+ * nothing to see, and the position is not persisted, so the only recovery is
+ * relaunching the app.
+ *
+ * The avatar is what is kept inside the work area, not the canvas. The canvas
+ * reaches hundreds of points past the avatar in every direction to hold a pill
+ * that is usually not drawn, and clamping that box would fence the avatar into
+ * the middle of the display, unable to reach the corner it is meant to rest in.
+ *
+ * Exported for its tests, as {@link growthFor} is, and pure for the same
+ * reason: it is the rule that decides whether the surface can be lost.
+ */
+export const clampCanvasOrigin = (
+  origin: { x: number; y: number },
+  workArea: { x: number; y: number; width: number; height: number },
+): { x: number; y: number } => {
+  const centreX = origin.x + CANVAS_WIDTH / 2;
+  const centreY = origin.y + CANVAS_HEIGHT / 2;
+  // Half the avatar may hang past the edge, so the clamp is to its centre plus
+  // a half box. A work area smaller than the avatar would put the maximum below
+  // the minimum, which `Math.min` then resolves toward the top-left corner
+  // rather than producing a position outside the display.
+  const minCentreX = workArea.x + AVATAR_BOX / 2;
+  const maxCentreX = workArea.x + workArea.width - AVATAR_BOX / 2;
+  const minCentreY = workArea.y + AVATAR_BOX / 2;
+  const maxCentreY = workArea.y + workArea.height - AVATAR_BOX / 2;
+  const clampedX = Math.min(Math.max(centreX, minCentreX), maxCentreX);
+  const clampedY = Math.min(Math.max(centreY, minCentreY), maxCentreY);
+  return {
+    x: Math.round(clampedX - CANVAS_WIDTH / 2),
+    y: Math.round(clampedY - CANVAS_HEIGHT / 2),
+  };
 };
 
 /**
@@ -381,6 +406,11 @@ export const installCompanionWindow = (): void => {
   // that knows where the window currently is. Moving fires `move`, which
   // recomputes the direction, so dragging toward a screen edge flips the growth
   // before the user gets there.
+  //
+  // The delta is clamped rather than trusted. A drag that outruns the window,
+  // or one whose release this window never saw, arrives here as a single huge
+  // jump, and unclamped that jump puts the surface somewhere the user cannot
+  // reach it. See `clampCanvasOrigin`.
   on(
     "vellum:companion:moveBy",
     z.tuple([z.number(), z.number()]),
@@ -390,7 +420,17 @@ export const installCompanionWindow = (): void => {
         return;
       }
       const [x, y] = win.getPosition();
-      win.setPosition(Math.round(x + dx), Math.round(y + dy));
+      const wanted = { x: x + dx, y: y + dy };
+      // Measured against the display the drag is heading for rather than the
+      // one it started on, so a surface dragged onto a second display is
+      // clamped to that display's edges instead of being held back at the
+      // first one's.
+      const { workArea } = screen.getDisplayNearestPoint({
+        x: Math.round(wanted.x + CANVAS_WIDTH / 2),
+        y: Math.round(wanted.y + CANVAS_HEIGHT / 2),
+      });
+      const next = clampCanvasOrigin(wanted, workArea);
+      win.setPosition(next.x, next.y);
     },
   );
 
@@ -510,7 +550,12 @@ export const installCompanionWindow = (): void => {
     "vellum:voiceActivity:start",
     z.tuple([voiceActivityStartSchema]),
     ([start]) => {
-      call = callOnStart(call, start, Date.now());
+      // Taken whole, redundant or not. The mirror re-syncs on mount and the
+      // session controller remounts across layout-level route changes while the
+      // store persists, so a second start for a call already on screen is
+      // expected traffic; every field it carries is current, so there is
+      // nothing on the running call worth preserving against it.
+      call = start;
       pushState();
     },
   );

@@ -13,6 +13,7 @@ import type { FC, KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { ActionMenu, Button, toast } from "@vellumai/design-library";
 
 import { documentsByIdPdfGet } from "@/generated/daemon/sdk.gen";
+import { t } from "@/i18n";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
@@ -92,9 +93,11 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
     setIsSharing(true);
     try {
       await shareApp(assistantId, app.id, app.name);
-      toast.success("App exported", { description: `${app.name}.vellum` });
+      toast.success(t("chat:appAssetActions.appExported"), {
+        description: `${app.name}.vellum`,
+      });
     } catch (err) {
-      toast.error("Failed to share app", {
+      toast.error(t("chat:appAssetActions.shareFailed"), {
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
@@ -147,7 +150,7 @@ export const DocumentAssetActions: FC<DocumentAssetActionsProps> = ({
       parseAs: "blob",
     });
     if (!response?.ok || !blob) {
-      toast.error("Failed to download PDF");
+      toast.error(t("chat:documentAssetActions.pdfDownloadFailed"));
       return;
     }
     const url = URL.createObjectURL(blob);

@@ -95,3 +95,58 @@ describe("handleConfirmationSubmit — stale (404) interaction", () => {
     );
   });
 });
+
+describe("handleConfirmationSubmit — risk metadata stamping", () => {
+  function seedSnapshotWithFinishedCall(): void {
+    useChatSessionStore.setState({
+      snapshot: {
+        messages: [
+          {
+            id: "a-1",
+            role: "assistant",
+            toolCalls: [
+              // Finished and unstamped: what the deleted heuristic used to
+              // seize on when a prompt named no tool call.
+              { id: "tc-unrelated", name: "bash", input: {}, result: "ok" },
+            ],
+          },
+        ],
+      },
+    } as never);
+  }
+
+  it("does not stamp an unrelated tool call when the prompt named none", async () => {
+    seedSnapshotWithFinishedCall();
+    seedPendingConfirmation("cr-1");
+
+    await handleConfirmationSubmit("allow");
+
+    const stamped = (
+      useChatSessionStore.getState().snapshot?.messages ?? []
+    ).flatMap((m) =>
+      (m.toolCalls ?? []).filter((tc) => tc.confirmationDecision !== undefined),
+    );
+    // Risk metadata describes a tool call; a prompt with none has nothing to
+    // describe, so labelling the last finished step with this decision's risk
+    // is wrong about a step the user never approved.
+    expect(stamped).toEqual([]);
+  });
+
+  it("raises no unknown-risk nudge when the prompt named no tool call", async () => {
+    seedSnapshotWithFinishedCall();
+    useStreamStore.getState().setStreamContext({
+      assistantId: "ast-1",
+      conversationId: "conv-1",
+    });
+    useInteractionStore.getState().showConfirmation({
+      requestId: "cr-2",
+      toolName: "acp_spawn",
+      riskLevel: "unknown",
+      input: {},
+    });
+
+    await handleConfirmationSubmit("allow");
+
+    expect(useInteractionStore.getState().unknownNudgeToolCallIds.size).toBe(0);
+  });
+});

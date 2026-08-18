@@ -29,9 +29,6 @@
     "signOut": "Cerrar sesión"
   },
   "loginPage": {
-    "heading": "Inicia sesión en Vellum",
-    "continue": "Continuar",
-    "noAccount": "¿No tienes una cuenta?",
     "signUp": "Regístrate",
     "signIn": "Iniciar sesión"
   },

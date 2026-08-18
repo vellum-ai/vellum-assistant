@@ -22,6 +22,11 @@ import {
   formatRememberEntry,
   matchBufferEntryStart,
 } from "../buffer-format.js";
+import {
+  extractWikilinkTargets,
+  WIKILINK_REGEX,
+  wikilinkTarget,
+} from "../substrate/page-links.js";
 import type { MemoryGraphEdge, MemoryGraphNode } from "./types.js";
 
 /** Node id prefix marking a pending buffer entry (id = prefix + text hash). */
@@ -42,9 +47,6 @@ const PENDING_LABEL_MAX_CHARS = 60;
 /** Lenient fallback for hand-written buffers: a plain bullet with no
  * timestamped entry seen yet still counts as an entry of its own. */
 const PLAIN_BULLET_REGEX = /^-\s+(.+)$/;
-
-/** Matches `[[slug]]` / `[[slug|label]]` wikilinks inside an entry. */
-const WIKILINK_REGEX = /\[\[([^[\]|]+)(?:\|[^\]]*)?\]\]/g;
 
 export interface PendingBufferEntry {
   /** Stable node id (`buffer:` + content hash, deduped within one parse). */
@@ -116,13 +118,7 @@ export function parseBufferEntries(content: string): PendingBufferEntry[] {
   flush();
 
   for (const text of texts) {
-    const slugs: string[] = [];
-    for (const link of text.matchAll(WIKILINK_REGEX)) {
-      const slug = link[1]!.trim();
-      if (slug && !slugs.includes(slug)) {
-        slugs.push(slug);
-      }
-    }
+    const slugs = [...new Set(extractWikilinkTargets(text))];
 
     const hash = hashText(text);
     const count = (seen.get(hash) ?? 0) + 1;
@@ -144,8 +140,9 @@ export function parseBufferEntries(content: string): PendingBufferEntry[] {
 function pendingLabel(text: string): string {
   const firstLine = text.split("\n", 1)[0] ?? text;
   const plain = firstLine
-    .replace(WIKILINK_REGEX, (_match, slug: string) => {
-      return slug.trim().split("/").pop() ?? slug;
+    .replace(WIKILINK_REGEX, (_match, inner: string) => {
+      const slug = wikilinkTarget(inner);
+      return slug.split("/").pop() || slug;
     })
     .trim();
   if (plain.length <= PENDING_LABEL_MAX_CHARS) {

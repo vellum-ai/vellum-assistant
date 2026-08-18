@@ -1,5 +1,6 @@
 import { FRONTMATTER_REGEX, parseFrontmatterFields } from "../frontmatter.js";
 import { injectedConceptHeader } from "../substrate/injected-block-slugs.js";
+import { LINK_SEPARATOR, parseLinkEntry } from "../substrate/page-links.js";
 import type { Slug } from "./types.js";
 
 /**
@@ -31,16 +32,15 @@ const SECTION_HEADING_REGEX = /^## (.*)$/m;
  * Entries with no ` — ` separator are bare target slugs and pass through.
  */
 function renderLinkEntry(entry: string): string {
-  const sep = entry.indexOf(" — ");
-  if (sep === -1) {
-    return entry.trim();
+  const { target, description } = parseLinkEntry(entry);
+  if (description === undefined) {
+    return target;
   }
-  const target = entry.slice(0, sep).trim();
-  let note = entry.slice(sep + " — ".length).trim();
-  if (note.length > LINK_NOTE_MAX_CHARS) {
-    note = `${note.slice(0, LINK_NOTE_MAX_CHARS).trimEnd()}…`;
-  }
-  return note.length > 0 ? `${target} — ${note}` : target;
+  const note =
+    description.length > LINK_NOTE_MAX_CHARS
+      ? `${description.slice(0, LINK_NOTE_MAX_CHARS).trimEnd()}…`
+      : description;
+  return `${target}${LINK_SEPARATOR}${note}`;
 }
 
 /**

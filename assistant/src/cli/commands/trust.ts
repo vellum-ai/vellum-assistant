@@ -5,6 +5,7 @@
  * IPC route (`trust_rules_list`).
  */
 
+import type { TrustRulesListIpcResponse } from "@vellumai/gateway-client";
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
@@ -12,18 +13,6 @@ import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { trustHelp } from "./trust.help.js";
-
-// -- Types --------------------------------------------------------------------
-
-interface TrustRule {
-  id: string;
-  tool: string;
-  pattern: string;
-  risk: string;
-  origin: string;
-  userModified: boolean;
-  updatedAt: string;
-}
 
 // -- Registration -------------------------------------------------------------
 
@@ -44,7 +33,7 @@ export function registerTrustCommand(program: Command): void {
             ...(opts.tool ? { tool: opts.tool } : {}),
           };
 
-          const result = await cliIpcCall<{ rules: TrustRule[] }>(
+          const result = await cliIpcCall<TrustRulesListIpcResponse>(
             "trust_rules_list",
             { body: params },
           );
@@ -86,7 +75,7 @@ export function registerTrustCommand(program: Command): void {
             "MODIFIED",
           ];
 
-          const rows: string[][] = rules.map((r: TrustRule) => [
+          const rows: string[][] = rules.map((r) => [
             r.id.slice(0, 16),
             r.tool,
             r.pattern,

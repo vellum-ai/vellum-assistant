@@ -8,6 +8,7 @@ import {
   type WriteResult,
 } from "./lockfile";
 import { resolveCloud } from "./lockfile-contract";
+import { withLockfileLock } from "./lockfile-lock";
 
 /**
  * Forget a paired assistant on this machine: remove its lockfile entry and
@@ -18,6 +19,23 @@ import { resolveCloud } from "./lockfile-contract";
  * way; local and managed assistants go through retire.
  */
 export function unpairAssistant(
+  lockfilePaths: string[],
+  configDir: string,
+  assistantId: string,
+): WriteResult {
+  // The whole transaction holds the shared write lock so a concurrent
+  // read-modify-write (e.g. a persona-name rename) cannot restore the entry
+  // after its credential is deleted.
+  const locked = withLockfileLock(lockfilePaths, (): WriteResult =>
+    unpairAssistantLocked(lockfilePaths, configDir, assistantId),
+  );
+  if (!locked.ok) {
+    return { ok: false, status: 423, error: locked.error };
+  }
+  return locked.value;
+}
+
+function unpairAssistantLocked(
   lockfilePaths: string[],
   configDir: string,
   assistantId: string,

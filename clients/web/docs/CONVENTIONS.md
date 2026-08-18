@@ -276,6 +276,8 @@ src/
   utils/                           # cross-domain shared utilities
     conversation-cache.ts          #   low-level read/write over conversation caches
     conversation-cache-mutations.ts #  domain-level cache mutation helpers
+    conversation-list-keys.ts      #   generated conversationsGet keys + filter for every list cache
+    conversation-list-options.ts   #   the one queryOptions factory behind every list cache
     conversation-list-fetchers.ts  #   pure async fetch functions for conversation lists
     conversation-transforms.ts     #   daemon → client field mapping
     format-date.ts
