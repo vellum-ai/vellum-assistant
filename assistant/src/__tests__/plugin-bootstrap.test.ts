@@ -9,6 +9,8 @@
  *   sees the malformed plugin).
  * - Plugins' `shutdown` hooks fire through the unified `runHook(HOOKS.SHUTDOWN)`
  *   pipeline; `.disabled` plugins are excluded from that dispatch.
+ * - `activateDefaultPluginNow` runs the `init` of a plugin the boot pass
+ *   skipped for its sentinel, and stays a no-op for one that is already up.
  *
  * `resetPluginRegistryForTests()` isolates registry state between cases.
  */
@@ -19,7 +21,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
+import {
+  activateDefaultPluginNow,
+  bootstrapPlugins,
+} from "../daemon/external-plugins-bootstrap.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { registerDefaultPlugins } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
@@ -416,5 +421,83 @@ describe("plugin bootstrap", () => {
     expect(
       getRegisteredInjectors().some((i) => i.name === "workspace-context"),
     ).toBe(true);
+  });
+
+  // ── enabling a boot-disabled plugin ────────────────────────────────────
+  //
+  // Read-time filtering restores a re-enabled plugin's hooks and injectors,
+  // but its `init` never ran, so the handlers and workers those hooks depend
+  // on do not exist. `activateDefaultPluginNow` is the enable route's path to
+  // run that `init` in the live daemon.
+
+  test("activateDefaultPluginNow: init runs for a plugin the sentinel skipped at boot", async () => {
+    let initCount = 0;
+    registerPlugin(
+      buildPlugin("default-late", {
+        async init() {
+          initCount += 1;
+        },
+      }),
+    );
+
+    const sentinelDir = join(TEST_WORKSPACE_DIR, "plugins", "default-late");
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(sentinelDir, { recursive: true });
+    await writeFile(join(sentinelDir, ".disabled"), "");
+
+    await bootstrapPlugins();
+    expect(initCount).toBe(0);
+
+    // Enable removes the sentinel, then the route activates the plugin.
+    await rm(sentinelDir, { recursive: true, force: true });
+    expect(await activateDefaultPluginNow("default-late")).toBe(true);
+    expect(initCount).toBe(1);
+  });
+
+  test("activateDefaultPluginNow: a plugin that already initialized is not initialized twice", async () => {
+    let initCount = 0;
+    registerPlugin(
+      buildPlugin("default-early", {
+        async init() {
+          initCount += 1;
+        },
+      }),
+    );
+
+    await bootstrapPlugins();
+    expect(initCount).toBe(1);
+
+    expect(await activateDefaultPluginNow("default-early")).toBe(false);
+    expect(initCount).toBe(1);
+  });
+
+  test("activateDefaultPluginNow: no-op while the sentinel is still on disk, and for an unknown name", async () => {
+    let initCount = 0;
+    registerPlugin(
+      buildPlugin("default-still-off", {
+        async init() {
+          initCount += 1;
+        },
+      }),
+    );
+
+    const sentinelDir = join(
+      TEST_WORKSPACE_DIR,
+      "plugins",
+      "default-still-off",
+    );
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(sentinelDir, { recursive: true });
+    await writeFile(join(sentinelDir, ".disabled"), "");
+
+    await bootstrapPlugins();
+
+    expect(await activateDefaultPluginNow("default-still-off")).toBe(false);
+    expect(initCount).toBe(0);
+    // A workspace-installed plugin is activated by the source reconcile and is
+    // never in the registry, so it resolves to nothing here.
+    expect(await activateDefaultPluginNow("some-user-plugin")).toBe(false);
+
+    await rm(sentinelDir, { recursive: true, force: true });
   });
 });

@@ -41,6 +41,8 @@
  *   - Enable pokes the imperative plugin source reconcile, which activates a
  *     plugin the boot scan skipped for its sentinel and converges its
  *     schedules and MCP servers
+ *   - Enable also activates a default plugin, which the source reconcile does
+ *     not cover, so its `init` runs instead of waiting for the next daemon start
  *   - Disable pokes the plugin-declared schedule reconcile on a successful
  *     toggle (and not on a failed one), so the plugin's rows disarm
  *     immediately instead of at the reconciler's next backstop sweep
@@ -341,6 +343,17 @@ const actualMtimeCache: typeof import("../../../plugins/mtime-cache.js") =
 mock.module("../../../plugins/mtime-cache.js", () => ({
   ...actualMtimeCache,
   reconcilePluginSourcesNow: reconcilePluginSourcesNowSpy,
+}));
+
+// Spy on the default-plugin activation the enable route runs after the source
+// reconcile, which only covers installed plugin directories. Stubbed so the
+// assertion does not pull the daemon's plugin bootstrap into the test.
+const activateDefaultPluginNowSpy = mock((_name: string) =>
+  Promise.resolve(true),
+);
+
+mock.module("../../../daemon/external-plugins-bootstrap.js", () => ({
+  activateDefaultPluginNow: activateDefaultPluginNowSpy,
 }));
 
 // Spy on broadcastMessage so we can assert the sync_changed invalidation the
@@ -2634,6 +2647,32 @@ describe("POST /v1/plugins/:name/enable", () => {
     broadcastMessageSpy.mockReset();
     reconcilePluginSchedulesSpy.mockClear();
     reconcilePluginSourcesNowSpy.mockClear();
+    activateDefaultPluginNowSpy.mockClear();
+  });
+
+  test("activates a default plugin the boot pass left uninitialized", async () => {
+    enablePluginSpy.mockImplementation((name) => toggleResult(name, "enable"));
+
+    await invokeEnable({ pathParams: { name: "default-memory" } });
+
+    // The source reconcile walks installed plugin directories, so it never
+    // reaches a default plugin. Without this the re-enabled plugin's hooks come
+    // back through read-time filtering while the handlers and workers its
+    // `init` sets up are still missing.
+    expect(activateDefaultPluginNowSpy.mock.calls[0]?.[0]).toBe(
+      "default-memory",
+    );
+  });
+
+  test("a failed toggle does not activate a default plugin", async () => {
+    enablePluginSpy.mockImplementation((name) => {
+      throw new PluginAlreadyInStateException(name, "enable");
+    });
+
+    await expect(
+      invokeEnable({ pathParams: { name: "default-memory" } }),
+    ).rejects.toThrow(ConflictError);
+    expect(activateDefaultPluginNowSpy).not.toHaveBeenCalled();
   });
 
   test("awaits the source reconcile so a boot-disabled plugin activates before the route returns", async () => {

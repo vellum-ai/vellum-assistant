@@ -90,6 +90,7 @@ import {
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
 import { getPlatformBaseUrl } from "../../config/env.js";
+import { activateDefaultPluginNow } from "../../daemon/external-plugins-bootstrap.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
 import {
@@ -1675,8 +1676,9 @@ async function handleEnablePlugin({
   pathParams = {},
   headers,
 }: RouteHandlerArgs) {
+  let name: string;
   try {
-    enablePlugin(pathParams.name ?? "");
+    name = enablePlugin(pathParams.name ?? "").name;
   } catch (err) {
     throw mapTogglePluginError(err);
   }
@@ -1690,6 +1692,13 @@ async function handleEnablePlugin({
   // enable into a route error. The invalidation publishes after it for the
   // same reason: refetching clients should see the post-activation state.
   await reconcilePluginSourcesNow();
+  // That reconcile walks installed plugin directories, so it never reaches a
+  // default plugin, which the daemon initializes from its own bootstrap. One
+  // that was disabled at boot had its `init` skipped there, leaving it without
+  // the job handlers, workers, and storage handles its hooks rely on. Bring it
+  // up here. Contained and idempotent, so an already-running default plugin and
+  // a failing one both leave the enable successful.
+  await activateDefaultPluginNow(name);
   publishPluginsChanged(getOriginClientId(headers));
   return { ok: true };
 }
