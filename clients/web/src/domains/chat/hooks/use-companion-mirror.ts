@@ -31,7 +31,9 @@ import { selectTranscriptMessages } from "@/domains/chat/transcript/select-trans
 import { setCompanionContext } from "@/runtime/companion-surface";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useTurnStore } from "@/domains/chat/turn-store";
 import type { CompanionContext, CompanionTurn } from "@vellumai/ipc-contract";
+import type { TurnPhase } from "@/domains/chat/turn-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 /**
@@ -62,6 +64,24 @@ function isSpeech(message: DisplayMessage): boolean {
   );
 }
 
+/**
+ * The phases that mean a turn is actually being worked on.
+ *
+ * Read from the same store as the status text the user would otherwise have to
+ * read, which is the point: the ring and the words must never disagree about
+ * whether anything is happening.
+ *
+ * `awaiting_user_input` is deliberately not one of them. It is still a live
+ * turn, but the assistant is waiting on the user rather than working, and a
+ * surface pulsing away while it is the user's move says the opposite of what is
+ * true.
+ */
+const WORKING_PHASES = new Set<TurnPhase>(["queued", "thinking", "streaming"]);
+
+/** Whether the assistant is working, right now. */
+const isWorking = (): boolean =>
+  WORKING_PHASES.has(useTurnStore.getState().phase);
+
 /** The assistant and the conversation's tail, as the card wants them. */
 function currentContext(): CompanionContext {
   const { snapshot, optimisticSends } = useChatSessionStore.getState();
@@ -80,6 +100,7 @@ function currentContext(): CompanionContext {
     assistantName: assistantDisplayName(
       useAssistantIdentityStore.getState().name,
     ),
+    working: isWorking(),
     turns: messages
       .filter(isSpeech)
       .slice(-TAIL)
@@ -97,6 +118,7 @@ function currentContext(): CompanionContext {
 function sameContext(a: CompanionContext, b: CompanionContext): boolean {
   return (
     a.assistantName === b.assistantName &&
+    a.working === b.working &&
     a.turns.length === b.turns.length &&
     a.turns.every(
       (turn, index) =>
@@ -133,11 +155,31 @@ export function useCompanionMirror(): void {
     // than waiting for the next store write.
     sync();
     const unsubscribeSession = useChatSessionStore.subscribe(sync);
+    // A turn can begin and end without moving a single row the card draws: a
+    // reply that is still being thought about has no text yet, and one that
+    // finishes streaming leaves its last text exactly where it already was. The
+    // phase is its own signal and needs its own subscription.
+    //
+    // Gated on the flag actually flipping, not on the store being written. The
+    // turn store is written on roughly the same streaming cadence as the
+    // session store, and `sync` reselects and remaps the whole tail on every
+    // call, so an ungated second subscription would double that work for a
+    // boolean that changes twice a turn.
+    let working = isWorking();
+    const unsubscribeTurn = useTurnStore.subscribe(() => {
+      const next = isWorking();
+      if (next === working) {
+        return;
+      }
+      working = next;
+      sync();
+    });
     // The name arrives on its own schedule, after the identity resolves and
     // again on every assistant switch, so it needs a subscription of its own.
     const unsubscribeIdentity = useAssistantIdentityStore.subscribe(sync);
     return () => {
       unsubscribeSession();
+      unsubscribeTurn();
       unsubscribeIdentity();
     };
   }, []);

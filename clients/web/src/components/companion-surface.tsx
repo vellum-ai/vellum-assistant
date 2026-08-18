@@ -302,6 +302,19 @@ export interface CompanionSurfaceProps {
    */
   onAvatarClick?: () => void;
   /**
+   * Whether a turn is in flight, from the window that owns the conversation.
+   *
+   * Drawn as the working ring, and as the creature's own working pose. It is
+   * the surface's answer to "is it doing anything", which otherwise could only
+   * be had by reading the card, and only when the card was open.
+   *
+   * A running call reports its own turns through {@link call}, so this is what
+   * covers every turn that is not one: a message sent from the composer here,
+   * and anything the user set going in the app before turning back to their own
+   * work.
+   */
+  working?: boolean;
+  /**
    * The running session, when `phase` is `call`.
    *
    * Absent renders the call state from fixed sample values, which is what the
@@ -342,11 +355,25 @@ export function CompanionSurface({
   onSubmit,
   onCancelTyping,
   onAvatarClick,
+  working = false,
   call,
   onControl,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
   const typing = phase === "typing";
+
+  /**
+   * Whether the assistant is working, from whichever side is in a position to
+   * know.
+   *
+   * A call reports its own phase and everything else is reported by the window
+   * that owns the turn, but the surface draws one thing either way. Two
+   * treatments for one fact would make a spoken reply and a typed one look like
+   * different states of the assistant, when the only difference is which way
+   * the user happened to ask.
+   */
+  const assistantWorking =
+    working || (call !== undefined && ASSISTANT_TURN_PHASES.has(call.phase));
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [contentWidth, setContentWidth] = useState<number | null>(null);
 
@@ -448,6 +475,20 @@ export function CompanionSurface({
         style={{ opacity: expanded ? 1 : 0 }}
         aria-hidden
       />
+      {/* The turn itself, as a light travelling around the surface's edge.
+          Drawn over the body so it reads as the surface's own border in every
+          state, and outside it by a hair so it never crowds the avatar at rest,
+          which is the state it has to be legible in: the whole point is being
+          readable from the corner of an eye while the user works elsewhere. */}
+      {assistantWorking && (
+        <span
+          className={`companion-working-ring pointer-events-none absolute -inset-0.5 ${
+            typing ? "rounded-[24px]" : "rounded-full"
+          }`}
+          style={{ ["--companion-ring-accent" as string]: accentHex }}
+          aria-hidden
+        />
+      )}
       {typing && turns.length > 0 && <RecentTurns turns={turns} />}
       <div className="relative flex h-11 shrink-0 items-center">
         <Avatar
@@ -460,7 +501,7 @@ export function CompanionSurface({
           // focused, morphing pose, which is the same treatment the chat avatar
           // uses while a reply is streaming: one vocabulary for "it is working"
           // wherever the user meets it.
-          busy={call !== undefined && ASSISTANT_TURN_PHASES.has(call.phase)}
+          busy={assistantWorking}
           onMouseEnter={onHoverStart}
           onClick={onAvatarClick}
         />
