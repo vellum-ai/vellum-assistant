@@ -171,6 +171,97 @@ describe("Slack edit propagation", () => {
     expect(slackMeta!.editedAt!).toBeGreaterThanOrEqual(t0);
   });
 
+  test("an edit of a message the assistant never stored creates no conversation", async () => {
+    // Keying a conversation off the edit's own address made every edit of an
+    // unseen message mint one, permanently titled with the loading placeholder.
+    const db = getDb();
+    const countRows = (table: string): number =>
+      (
+        db.$client.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as {
+          n: number;
+        }
+      ).n;
+
+    const resp = (await handleEditIntercept({
+      sourceChannel: "slack",
+      conversationExternalId: "C0NEVERSEEN",
+      externalMessageId: nextEditEventId(),
+      sourceMessageId: "1999.0001",
+      assistantId: "self",
+      content: "edited text",
+    })) as Record<string, unknown>;
+
+    expect(resp.accepted).toBe(true);
+    expect(resp.edited).toBe(false);
+    expect(countRows("conversations")).toBe(0);
+    expect(countRows("channel_inbound_events")).toBe(0);
+    expect(countRows("messages")).toBe(0);
+  });
+
+  test("an edit records against the edited message's conversation, not a new one", async () => {
+    const seeded = await seedSlackMessage({
+      conversationExternalId: "C0123CHANNEL",
+      channelTs: "1234.5678",
+      initialContent: "original text",
+    });
+    const db = getDb();
+    const conversationsBefore = (
+      db.$client.prepare("SELECT COUNT(*) AS n FROM conversations").get() as {
+        n: number;
+      }
+    ).n;
+
+    await handleEditIntercept({
+      sourceChannel: "slack",
+      conversationExternalId: seeded.conversationExternalId,
+      externalMessageId: nextEditEventId(),
+      sourceMessageId: seeded.channelTs,
+      assistantId: "self",
+      content: "new text",
+    });
+
+    const conversationsAfter = (
+      db.$client.prepare("SELECT COUNT(*) AS n FROM conversations").get() as {
+        n: number;
+      }
+    ).n;
+    expect(conversationsAfter).toBe(conversationsBefore);
+
+    const editEvents = db.$client
+      .prepare(
+        `SELECT conversation_id AS conversationId FROM channel_inbound_events
+         WHERE external_message_id LIKE 'edit-event-%'`,
+      )
+      .all() as Array<{ conversationId: string }>;
+    expect(editEvents).toHaveLength(1);
+    expect(editEvents[0].conversationId).toBe(seeded.conversationId);
+  });
+
+  test("a redelivered edit is answered without repeating the lookup window", async () => {
+    const seeded = await seedSlackMessage({
+      conversationExternalId: "C0123CHANNEL",
+      channelTs: "1234.5678",
+      initialContent: "original text",
+    });
+    const editEventId = nextEditEventId();
+    const send = () =>
+      handleEditIntercept({
+        sourceChannel: "slack",
+        conversationExternalId: seeded.conversationExternalId,
+        externalMessageId: editEventId,
+        sourceMessageId: seeded.channelTs,
+        assistantId: "self",
+        content: "new text",
+      }) as Promise<Record<string, unknown>>;
+
+    const first = await send();
+    const second = await send();
+
+    expect(first.duplicate).toBe(false);
+    expect(second.duplicate).toBe(true);
+    expect(second.eventId).toBe(first.eventId);
+  });
+
   test("threaded Slack edits use the threaded conversation key and preserve thread metadata", async () => {
     const conversationExternalId = "C0123CHANNEL";
     const threadTs = "1234.0000";

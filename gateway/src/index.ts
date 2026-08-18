@@ -1,5 +1,6 @@
 process.title = "vellum-gateway";
 
+import { buildSlackSourceMetadata } from "./slack/source-metadata.js";
 import { randomBytes } from "node:crypto";
 
 import {
@@ -2360,19 +2361,13 @@ async function main() {
         const origMessageTs = normalized.event.source.messageId;
         if (!threadTs && origMessageTs) params.set("messageTs", origMessageTs);
         const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?${params}`;
-        const slackSourceMetadata = {
-          ...(normalized.event.raw.type === "app_mention"
-            ? { slackBotMentioned: true }
-            : {}),
-          ...(threadTs && !normalized.event.source.threadId
-            ? { threadId: threadTs }
-            : {}),
-        };
 
         // Whether this event represents an edit or callback action — these
-        // never carry attachments to upload.
+        // never carry attachments to upload, and neither names a thread.
         const isEdit = !!normalized.event.message.isEdit;
         const isCallback = !!normalized.event.message.callbackData;
+
+        const slackSourceMetadata = buildSlackSourceMetadata(normalized);
 
         // Handle /new command — reset conversation before it reaches the runtime
         if (isNewCommand(normalized.event.message.content)) {
