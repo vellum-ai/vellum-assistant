@@ -128,14 +128,8 @@ export function useAttachmentFilePicker({
     // can't fire on a later unrelated window focus, then restore the keyboard.
     disarmFocusFallbackRef.current?.();
     disarmFocusFallbackRef.current = null;
-    // Asked for before the hold ends, so a keyboard that is coming back is
-    // already on its way when the shell follows the measurement again.
-    if (shouldRestoreFocusRef.current) {
-      requestComposerFocus();
-    }
+    requestComposerFocus();
     setPickerOpen(false);
-    releaseViewportHoldRef.current?.();
-    releaseViewportHoldRef.current = null;
   }, []);
 
   const openPicker = useCallback(() => {
@@ -145,35 +139,11 @@ export function useAttachmentFilePicker({
     // `cancel`/`change` paths fire first and disarm this via refocusComposer,
     // so it never lingers past the picker session.
     disarmFocusFallbackRef.current?.();
-    // Sampled before the click, since presenting the picker is what takes the
-    // focus being asked about. A pointing device focuses the control it
-    // presses, so a desktop picker reads as unfocused and is always owed its
-    // caret back.
-    shouldRestoreFocusRef.current =
-      alwaysRestoreFocus || !isPointerCoarse() || isTextEntryFocused();
-    if (!isNativeIOS()) {
-      // Only where the `cancel` event cannot be counted on. The native shell
-      // is built against iOS 17, and WKWebView tracks the OS, so `cancel`
-      // (Safari 16.4) always arrives there; arming this as well would add a
-      // second close signal that also fires on plain app foregrounding, which
-      // ends the session with the picker still on screen.
-      const onFocus = () => refocusComposer();
-      window.addEventListener("focus", onFocus, { once: true });
-      disarmFocusFallbackRef.current = () =>
-        window.removeEventListener("focus", onFocus);
-    }
+    const onFocus = () => refocusComposer();
+    window.addEventListener("focus", onFocus, { once: true });
+    disarmFocusFallbackRef.current = () =>
+      window.removeEventListener("focus", onFocus);
     setPickerOpen(true);
-    // Before the click, so the size is taken while the keyboard is still up.
-    // Ahead of the hide below for the same reason: that call starts the
-    // dismissal, and the hold wants the height it is dismissing from.
-    releaseViewportHoldRef.current?.();
-    releaseViewportHoldRef.current = holdVisibleViewport();
-    // WebKit resigns the web view's first responder in the completion handler
-    // of the presentation animation, so left alone the keyboard drops a beat
-    // after the picker is already up. Asking first makes the dismissal part of
-    // the tap. `hide()` is iOS-supported; `show()` is not, which is why the way
-    // back is a DOM focus.
-    void hideNativeKeyboard();
     inputRef.current?.click();
   }, [alwaysRestoreFocus, refocusComposer]);
 
