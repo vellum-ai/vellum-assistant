@@ -6,6 +6,7 @@ import {
   voiceActivityContentSchema,
   voiceActivityControlSchema,
   voiceActivityStartSchema,
+  type CompanionCardGrowth,
   type CompanionGrowth,
   type CompanionContext,
   type CompanionSurfaceState,
@@ -155,20 +156,48 @@ const MAX_RISE = MAX_CARD_HEIGHT - AVATAR_BOX / 2;
 const CANVAS_WIDTH = MAX_REACH * 2 + CANVAS_PAD * 2;
 
 /**
- * Sized for the tallest state rather than resized on the phase, the same
- * bargain the width makes: the avatar is pinned to the centre of this canvas,
- * so the height it can reach upward is height it also spends downward. A canvas
- * that grew with the card would move the window under the pointer mid-press and
- * put the expansion back on the main process, which is what the fixed canvas
- * exists to avoid.
+ * How much canvas the card's side of the avatar needs, shadow included.
  */
-const CANVAS_HEIGHT = (MAX_RISE + CANVAS_PAD) * 2;
+const RISE_ABOVE = MAX_RISE + CANVAS_PAD;
+
+/**
+ * How much the other side needs, which is only the avatar and its shadow.
+ *
+ * The asymmetry is the point. Sizing both sides for the card, which is what
+ * pinning the avatar to the canvas's centre amounts to, spends {@link
+ * RISE_ABOVE} of canvas on a side that never draws anything taller than the
+ * avatar.
+ */
+const DROP_BELOW = AVATAR_BOX / 2 + CANVAS_PAD;
+
+/**
+ * Sized for the tallest state rather than resized on the phase, the same
+ * bargain the width makes. A canvas that grew with the card would move the
+ * window under the pointer mid-press and put the expansion back on the main
+ * process, which is what the fixed canvas exists to avoid.
+ *
+ * The avatar is *not* pinned to the centre of it. macOS refuses a window origin
+ * above the top of the work area, so an avatar fixed at the canvas's centre can
+ * never get closer to the top of the screen than half the canvas — 292pt on the
+ * old symmetric one, which is what JARVIS-1548 was. The height is the same
+ * either way up; which end the avatar sits at is {@link cardGrowthFor}'s call.
+ */
+const CANVAS_HEIGHT = RISE_ABOVE + DROP_BELOW;
 
 /** Gap from the work area's bottom-right on the first ever launch. */
 const DEFAULT_MARGIN = 24;
 
 
 let growth: CompanionGrowth = "right";
+
+/**
+ * Which way the card unfurls, and so where the avatar sits inside the canvas.
+ *
+ * Held beside {@link growth} and for the same reason: it is a fact about the
+ * window's position, which is main's to know, and the renderer has to be told
+ * it to draw the avatar where the window was actually put.
+ */
+let cardGrowth: CompanionCardGrowth = "up";
 
 /**
  * The running live-voice session, or `null` when none is.
@@ -206,6 +235,7 @@ const currentState = (): CompanionSurfaceState => {
   const character = getCharacter();
   return {
     growth,
+    cardGrowth,
     character: character === null ? undefined : character,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
@@ -275,29 +305,67 @@ export const growthFor = (
 };
 
 /**
- * Keep the avatar on screen, whatever the drag asks for.
+ * Which way the card unfurls, from the room the display has above the avatar.
  *
- * A drag arrives as a delta and is applied blind, so nothing in the gesture
- * itself stops the surface being pushed past the edge of the display. It has to
- * be stopped here, because there is no way back: the canvas is transparent and
- * mostly empty, so a surface pushed off screen leaves nothing to grab and
- * nothing to see, and the position is not persisted, so the only recovery is
- * relaunching the app.
+ * The vertical {@link growthFor}, and the fix for JARVIS-1548. Growing upward
+ * needs {@link RISE_ABOVE} of canvas above the avatar's centre, and macOS will
+ * not put that canvas above the top of the work area, so near the top of a
+ * display the card has to grow the other way instead.
  *
- * The avatar is what is kept inside the work area, not the canvas. The canvas
- * reaches hundreds of points past the avatar in every direction to hold a pill
- * that is usually not drawn, and clamping that box would fence the avatar into
- * the middle of the display, unable to reach the corner it is meant to rest in.
+ * Where {@link growthFor} falls back to its designed direction when neither
+ * fits, this falls back to the other one, because the two are not paying the
+ * same price. A canvas may hang off the left and right of a display freely, so
+ * a bad horizontal guess only clips the card. It may not hang off the top, so a
+ * bad vertical guess pushes the *avatar* down by the whole reserved height and
+ * fences it out of the top of the screen — which is the bug this exists to fix,
+ * in miniature. On a display too short for the card either way the card is
+ * already lost, and what is worth saving is the mascot's reach.
+ */
+export const cardGrowthFor = (
+  avatarCentreY: number,
+  workArea: { y: number; height: number },
+): CompanionCardGrowth =>
+  avatarCentreY - workArea.y >= RISE_ABOVE ? "up" : "down";
+
+/**
+ * Where the avatar's centre sits inside the canvas, measured from its top.
+ *
+ * The one number the renderer and main have to agree on for the surface to be
+ * drawn where the window was put. Published with the direction rather than
+ * recomputed on the other side, so there is one derivation of it.
+ */
+export const avatarOffsetFor = (cardGrowth: CompanionCardGrowth): number =>
+  cardGrowth === "up" ? RISE_ABOVE : DROP_BELOW;
+
+/**
+ * Where to put the canvas so the avatar lands on a given point, and which way
+ * the card unfurls once it is there.
+ *
+ * Everything is computed in the avatar's coordinates and converted to a window
+ * origin at the last step. Working the other way round — nudging the origin and
+ * reading the avatar out of it — is what made the direction flip impossible to
+ * do mid-drag: the avatar's offset inside the canvas changes with the
+ * direction, so the same origin means two different avatar positions, and a
+ * drag that crossed the threshold would teleport the mascot by the difference.
+ *
+ * **The avatar is what is kept on screen, not the canvas.** The canvas reaches
+ * hundreds of points past the avatar to hold a pill that is usually not drawn,
+ * and clamping that box would fence the avatar into the middle of the display,
+ * unable to reach the corner it is meant to rest in.
+ *
+ * **The origin is never asked for above the work area.** macOS silently refuses
+ * such a position and hands back one flush with the work area's top, which
+ * moves the avatar somewhere neither side chose. Asking only for positions the
+ * window server will honour is what keeps main's idea of where the avatar is
+ * equal to where it actually is.
  *
  * Exported for its tests, as {@link growthFor} is, and pure for the same
  * reason: it is the rule that decides whether the surface can be lost.
  */
-export const clampCanvasOrigin = (
-  origin: { x: number; y: number },
+export const placeCanvas = (
+  avatarCentre: { x: number; y: number },
   workArea: { x: number; y: number; width: number; height: number },
-): { x: number; y: number } => {
-  const centreX = origin.x + CANVAS_WIDTH / 2;
-  const centreY = origin.y + CANVAS_HEIGHT / 2;
+): { origin: { x: number; y: number }; cardGrowth: CompanionCardGrowth } => {
   // Half the avatar may hang past the edge, so the clamp is to its centre plus
   // a half box. A work area smaller than the avatar would put the maximum below
   // the minimum, which `Math.min` then resolves toward the top-left corner
@@ -306,11 +374,21 @@ export const clampCanvasOrigin = (
   const maxCentreX = workArea.x + workArea.width - AVATAR_BOX / 2;
   const minCentreY = workArea.y + AVATAR_BOX / 2;
   const maxCentreY = workArea.y + workArea.height - AVATAR_BOX / 2;
-  const clampedX = Math.min(Math.max(centreX, minCentreX), maxCentreX);
-  const clampedY = Math.min(Math.max(centreY, minCentreY), maxCentreY);
+  const centreX = Math.min(Math.max(avatarCentre.x, minCentreX), maxCentreX);
+  const wantedY = Math.min(Math.max(avatarCentre.y, minCentreY), maxCentreY);
+
+  const cardGrowth = cardGrowthFor(wantedY, workArea);
+  const offset = avatarOffsetFor(cardGrowth);
+  // The last of the three bounds, and the one macOS would otherwise apply
+  // itself: the canvas above the avatar has to fit under the work area's top.
+  const centreY = Math.max(wantedY, workArea.y + offset);
+
   return {
-    x: Math.round(clampedX - CANVAS_WIDTH / 2),
-    y: Math.round(clampedY - CANVAS_HEIGHT / 2),
+    origin: {
+      x: Math.round(centreX - CANVAS_WIDTH / 2),
+      y: Math.round(centreY - offset),
+    },
+    cardGrowth,
   };
 };
 
@@ -326,14 +404,15 @@ export const clampCanvasOrigin = (
 const defaultCanvasOrigin = (): { x: number; y: number } => {
   const cursor = screen.getCursorScreenPoint();
   const { workArea } = screen.getDisplayNearestPoint(cursor);
-  const avatarCentreX =
-    workArea.x + workArea.width - DEFAULT_MARGIN - AVATAR_BOX / 2;
-  const avatarCentreY =
-    workArea.y + workArea.height - DEFAULT_MARGIN - AVATAR_BOX / 2;
-  return {
-    x: Math.round(avatarCentreX - CANVAS_WIDTH / 2),
-    y: Math.round(avatarCentreY - CANVAS_HEIGHT / 2),
-  };
+  const placed = placeCanvas(
+    {
+      x: workArea.x + workArea.width - DEFAULT_MARGIN - AVATAR_BOX / 2,
+      y: workArea.y + workArea.height - DEFAULT_MARGIN - AVATAR_BOX / 2,
+    },
+    workArea,
+  );
+  cardGrowth = placed.cardGrowth;
+  return placed.origin;
 };
 
 const pushState = (): void => {
@@ -343,23 +422,50 @@ const pushState = (): void => {
   }
 };
 
-/** Recompute the growth direction from where the window currently is. */
+/**
+ * Where the avatar's centre currently is, in screen coordinates.
+ *
+ * Read from the window rather than remembered, because the window is moved by
+ * the drag, by a display change, and by the window server, and only one of
+ * those three goes through this module.
+ */
+const avatarCentre = (win: {
+  getPosition: () => number[];
+}): { x: number; y: number } => {
+  const [x, y] = win.getPosition();
+  return { x: x + CANVAS_WIDTH / 2, y: y + avatarOffsetFor(cardGrowth) };
+};
+
+/**
+ * Recompute both growth directions from where the window currently is.
+ *
+ * The vertical one can change without a drag: a display arriving or leaving, or
+ * the menu bar's height changing, moves the work area under a surface that
+ * never moved.
+ */
 const refreshGrowth = (): void => {
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win) {
     return;
   }
-  const [x, y] = win.getPosition();
-  const avatarCentreX = x + CANVAS_WIDTH / 2;
+  const centre = avatarCentre(win);
   const { workArea } = screen.getDisplayNearestPoint({
-    x: Math.round(avatarCentreX),
-    y: Math.round(y + CANVAS_HEIGHT / 2),
+    x: Math.round(centre.x),
+    y: Math.round(centre.y),
   });
-  const next = growthFor(avatarCentreX, workArea);
-  if (next === growth) {
+  const nextGrowth = growthFor(centre.x, workArea);
+  const nextCardGrowth = cardGrowthFor(centre.y, workArea);
+  if (nextGrowth === growth && nextCardGrowth === cardGrowth) {
     return;
   }
-  growth = next;
+  growth = nextGrowth;
+  if (nextCardGrowth !== cardGrowth) {
+    // The offset moved, so the same origin now means a different avatar
+    // position. Put the window back where the avatar was.
+    cardGrowth = nextCardGrowth;
+    const placed = placeCanvas(centre, workArea);
+    win.setPosition(placed.origin.x, placed.origin.y);
+  }
   pushState();
 };
 
@@ -430,7 +536,7 @@ export const installCompanionWindow = (): void => {
   // The delta is clamped rather than trusted. A drag that outruns the window,
   // or one whose release this window never saw, arrives here as a single huge
   // jump, and unclamped that jump puts the surface somewhere the user cannot
-  // reach it. See `clampCanvasOrigin`.
+  // reach it. See `placeCanvas`.
   on(
     "vellum:companion:moveBy",
     z.tuple([z.number(), z.number()]),
@@ -439,18 +545,33 @@ export const installCompanionWindow = (): void => {
       if (!win || win.isDestroyed()) {
         return;
       }
-      const [x, y] = win.getPosition();
-      const wanted = { x: x + dx, y: y + dy };
+      // In the avatar's coordinates, not the window's. The avatar is what the
+      // hand is holding, and its offset inside the canvas changes when the card
+      // direction flips, so a delta applied to the origin would drag the mascot
+      // out from under the pointer at the threshold.
+      const centre = avatarCentre(win);
+      const wanted = { x: centre.x + dx, y: centre.y + dy };
       // Measured against the display the drag is heading for rather than the
       // one it started on, so a surface dragged onto a second display is
       // clamped to that display's edges instead of being held back at the
       // first one's.
       const { workArea } = screen.getDisplayNearestPoint({
-        x: Math.round(wanted.x + CANVAS_WIDTH / 2),
-        y: Math.round(wanted.y + CANVAS_HEIGHT / 2),
+        x: Math.round(wanted.x),
+        y: Math.round(wanted.y),
       });
-      const next = clampCanvasOrigin(wanted, workArea);
-      win.setPosition(next.x, next.y);
+      const placed = placeCanvas(wanted, workArea);
+      // Before the move, not after. `setPosition` fires `move`, which runs
+      // `refreshGrowth`, which reads the avatar's position back out of the
+      // window using this exact variable — so it has to already say which
+      // offset the new origin was computed against, or the refresh measures the
+      // avatar somewhere it is not and moves the window a second time. The
+      // renderer cannot see the intervening frame: the push is a message and
+      // the move is immediate.
+      if (placed.cardGrowth !== cardGrowth) {
+        cardGrowth = placed.cardGrowth;
+        pushState();
+      }
+      win.setPosition(placed.origin.x, placed.origin.y);
     },
   );
 

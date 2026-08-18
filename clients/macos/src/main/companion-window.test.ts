@@ -19,7 +19,9 @@ mock.module("electron-store", () => ({
 // static imports hoist above it.
 const {
   growthFor,
-  clampCanvasOrigin,
+  cardGrowthFor,
+  avatarOffsetFor,
+  placeCanvas,
   callOnStart,
   callOnUpdate,
   shouldShowCompanionSurface,
@@ -101,53 +103,43 @@ describe("growthFor", () => {
  * dragged back, because there is nothing left on screen to grab.
  */
 
-// The canvas the avatar is centred in, from the constants the module derives
-// them from: 360 wide at most, a 44 avatar, 24 of shadow padding.
+// The canvas, from the constants the module derives it from: 360 wide at most,
+// a 44 avatar, 24 of shadow padding, a 290 card.
 const CANVAS_WIDTH = (360 - 44 / 2) * 2 + 24 * 2;
-const CANVAS_HEIGHT = (290 - 44 / 2 + 24) * 2;
+const RISE_ABOVE = 290 - 44 / 2 + 24;
+const DROP_BELOW = 44 / 2 + 24;
 
 /** A 1440x900 display with the menu bar taken off the top. */
 const WORK_AREA = { x: 0, y: 25, width: 1440, height: 875 };
 
-/** The canvas origin that puts the avatar's centre exactly here. */
-const originFor = (centreX: number, centreY: number) => ({
-  x: centreX - CANVAS_WIDTH / 2,
-  y: centreY - CANVAS_HEIGHT / 2,
+/** Where the avatar's centre ends up for a given placement. */
+const centreOf = (placed: ReturnType<typeof placeCanvas>) => ({
+  x: placed.origin.x + CANVAS_WIDTH / 2,
+  y: placed.origin.y + avatarOffsetFor(placed.cardGrowth),
 });
 
-/** Where the avatar's centre ends up for a given canvas origin. */
-const centreOf = (origin: { x: number; y: number }) => ({
-  x: origin.x + CANVAS_WIDTH / 2,
-  y: origin.y + CANVAS_HEIGHT / 2,
-});
-
-describe("clampCanvasOrigin", () => {
-  test("leaves a position inside the work area alone", () => {
-    const origin = originFor(700, 500);
-    expect(clampCanvasOrigin(origin, WORK_AREA)).toEqual({
-      x: Math.round(origin.x),
-      y: Math.round(origin.y),
+describe("placeCanvas", () => {
+  test("puts the avatar exactly where a position inside the work area asks", () => {
+    expect(centreOf(placeCanvas({ x: 700, y: 500 }, WORK_AREA))).toEqual({
+      x: 700,
+      y: 500,
     });
   });
 
   test("holds the avatar at the right edge rather than past it", () => {
-    const flung = originFor(9000, 500);
-    expect(centreOf(clampCanvasOrigin(flung, WORK_AREA)).x).toBe(1440 - 22);
+    expect(centreOf(placeCanvas({ x: 9000, y: 500 }, WORK_AREA)).x).toBe(
+      1440 - 22,
+    );
   });
 
   test("holds the avatar at the left edge rather than past it", () => {
-    const flung = originFor(-9000, 500);
-    expect(centreOf(clampCanvasOrigin(flung, WORK_AREA)).x).toBe(22);
-  });
-
-  test("keeps the avatar below the menu bar", () => {
-    const flung = originFor(700, -9000);
-    expect(centreOf(clampCanvasOrigin(flung, WORK_AREA)).y).toBe(25 + 22);
+    expect(centreOf(placeCanvas({ x: -9000, y: 500 }, WORK_AREA)).x).toBe(22);
   });
 
   test("holds the avatar at the bottom edge rather than past it", () => {
-    const flung = originFor(700, 9000);
-    expect(centreOf(clampCanvasOrigin(flung, WORK_AREA)).y).toBe(900 - 22);
+    expect(centreOf(placeCanvas({ x: 700, y: 9000 }, WORK_AREA)).y).toBe(
+      900 - 22,
+    );
   });
 
   /**
@@ -156,26 +148,104 @@ describe("clampCanvasOrigin", () => {
    * corner is exactly where the surface is meant to rest.
    */
   test("lets the avatar reach the corner the surface opens in", () => {
-    const corner = originFor(1440 - 22, 900 - 22);
-    expect(centreOf(clampCanvasOrigin(corner, WORK_AREA))).toEqual({
-      x: 1440 - 22,
-      y: 900 - 22,
-    });
+    expect(
+      centreOf(placeCanvas({ x: 1440 - 22, y: 900 - 22 }, WORK_AREA)),
+    ).toEqual({ x: 1440 - 22, y: 900 - 22 });
   });
 
   test("clamps against the display it is given, not the primary one", () => {
     const secondary = { x: 1440, y: 0, width: 1920, height: 1080 };
-    const flung = originFor(99999, 500);
-    expect(centreOf(clampCanvasOrigin(flung, secondary)).x).toBe(
+    expect(centreOf(placeCanvas({ x: 99999, y: 500 }, secondary)).x).toBe(
       1440 + 1920 - 22,
     );
   });
 
-  test("stays inside a work area too small for the avatar", () => {
+  /**
+   * A work area smaller than the canvas cannot hold the avatar inside it and
+   * keep the origin on screen, and the origin is the one macOS enforces. So the
+   * honest guarantee is bounded, not exact: the surface does not fly off to
+   * where the fling asked, and it asks for nothing the window server will
+   * quietly rewrite. Asserting the avatar lands inside a 10pt display would be
+   * asserting arithmetic that never survives contact with AppKit.
+   */
+  test("stays near a work area too small to hold the canvas", () => {
     const tiny = { x: 0, y: 0, width: 10, height: 10 };
-    const centre = centreOf(clampCanvasOrigin(originFor(9000, 9000), tiny));
-    expect(centre.x).toBeLessThanOrEqual(10);
-    expect(centre.y).toBeLessThanOrEqual(10);
+    const placed = placeCanvas({ x: 9000, y: 9000 }, tiny);
+    expect(placed.origin.y).toBeGreaterThanOrEqual(tiny.y);
+    expect(centreOf(placed).x).toBeLessThanOrEqual(10);
+    expect(centreOf(placed).y).toBeLessThanOrEqual(tiny.y + DROP_BELOW);
+  });
+
+  /**
+   * JARVIS-1548. macOS refuses a window origin above the top of the work area
+   * and hands back one flush with it, so an origin asked for any higher moves
+   * the avatar somewhere neither side chose. Every position this returns has to
+   * be one the window server will actually honour.
+   */
+  test("never asks for an origin above the work area", () => {
+    for (const y of [-9000, -100, 0, 25, 40, 70, 71, 200, 400]) {
+      expect(placeCanvas({ x: 700, y }, WORK_AREA).origin.y).toBeGreaterThanOrEqual(
+        WORK_AREA.y,
+      );
+    }
+  });
+
+  /**
+   * The bug as the user met it: the avatar stopped hundreds of points short of
+   * the top for no visible reason. It was the canvas's upper half, which the
+   * old symmetric canvas spent on a card that had nowhere to grow.
+   */
+  test("brings the avatar within a shadow's width of the top", () => {
+    const centre = centreOf(placeCanvas({ x: 700, y: -9000 }, WORK_AREA));
+    expect(centre.y).toBe(WORK_AREA.y + DROP_BELOW);
+    // Where it used to stop: the old canvas's half-height below the work area.
+    expect(centre.y).toBeLessThan(WORK_AREA.y + RISE_ABOVE);
+  });
+});
+
+describe("cardGrowthFor", () => {
+  test("grows up with room for the card above the avatar", () => {
+    expect(cardGrowthFor(500, WORK_AREA)).toBe("up");
+  });
+
+  test("grows down when the card would not fit above", () => {
+    expect(cardGrowthFor(WORK_AREA.y + 40, WORK_AREA)).toBe("down");
+  });
+
+  test("flips exactly where the card stops fitting", () => {
+    expect(cardGrowthFor(WORK_AREA.y + RISE_ABOVE, WORK_AREA)).toBe("up");
+    expect(cardGrowthFor(WORK_AREA.y + RISE_ABOVE - 1, WORK_AREA)).toBe("down");
+  });
+
+  /**
+   * Deliberately *not* the twin of "a display too narrow for either direction
+   * still grows right". A canvas may hang off the sides of a display but not
+   * off the top, so falling back to `up` here would reserve 292pt above an
+   * avatar that has nowhere to put it and fence the mascot out of the top of a
+   * short display. The card is already lost either way; the reach is not.
+   */
+  test("grows down on a display too short for the card either way", () => {
+    const short = { y: 0, height: 100 };
+    expect(cardGrowthFor(50, short)).toBe("down");
+  });
+
+  test("does not flip near the bottom, which is where the surface lives", () => {
+    expect(cardGrowthFor(900 - 22, WORK_AREA)).toBe("up");
+  });
+});
+
+describe("avatarOffsetFor", () => {
+  /**
+   * The avatar's offset is what converts a window origin into an avatar
+   * position on both sides of the bridge. Growing up reserves the card's height
+   * above it; growing down reserves only the avatar and its shadow.
+   */
+  test("reserves the card's height above the avatar when growing up", () => {
+    expect(avatarOffsetFor("up")).toBe(RISE_ABOVE);
+  });
+
+  test("reserves only the shadow above it when growing down", () => {
+    expect(avatarOffsetFor("down")).toBe(DROP_BELOW);
   });
 });
 

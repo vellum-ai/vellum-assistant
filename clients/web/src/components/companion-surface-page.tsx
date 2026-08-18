@@ -16,6 +16,7 @@ import {
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
 import type {
+  CompanionCardGrowth,
   CompanionCharacter,
   CompanionGrowth,
   CompanionSurfaceState,
@@ -55,6 +56,10 @@ const DRAG_SLOP = 3;
  */
 export function CompanionSurfacePage() {
   const [growth, setGrowth] = useState<CompanionGrowth>("right");
+  // Which way the card unfurls, and so which canvas edge the avatar is anchored
+  // to. Main's call: it owns the window position and is the only side that
+  // knows how much room the display has above the surface.
+  const [cardGrowth, setCardGrowth] = useState<CompanionCardGrowth>("up");
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>();
   const [character, setCharacter] = useState<CompanionCharacter | undefined>();
   const [call, setCall] = useState<VoiceActivityState | null>(null);
@@ -95,6 +100,7 @@ export function CompanionSurfacePage() {
   useEffect(() => {
     const apply = (state: CompanionSurfaceState) => {
       setGrowth(state.growth);
+      setCardGrowth(state.cardGrowth);
       setAvatarSrc(
         state.avatarBase64 === undefined
           ? undefined
@@ -282,6 +288,7 @@ export function CompanionSurfacePage() {
       <CompanionSurface
         phase={phase}
         growth={growth}
+        cardGrowth={cardGrowth}
         avatarSrc={avatarSrc}
         character={character}
         // The creature notices the hand, in every state including mid-call.

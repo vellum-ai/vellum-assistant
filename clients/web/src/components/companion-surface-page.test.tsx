@@ -9,6 +9,7 @@ const activateMock = mock(() => undefined);
 
 const STATE: CompanionSurfaceState = {
   growth: "right",
+  cardGrowth: "up",
   call: null,
   assistantName: "Ziggy",
   turns: [],

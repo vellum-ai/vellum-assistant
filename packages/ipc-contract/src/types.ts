@@ -607,6 +607,30 @@ export const COMPANION_GROWTHS = ["right", "left"] as const;
 export type CompanionGrowth = (typeof COMPANION_GROWTHS)[number];
 
 /**
+ * Which way the typing card grows out of the composer row, which holds the line
+ * the pill occupied.
+ *
+ * The vertical half of {@link CompanionGrowth}, decided the same way and for a
+ * sharper reason. macOS refuses to place a window frame above the top of the
+ * work area, so the canvas cannot hang off the top of the display the way it
+ * hangs off the bottom. With the avatar pinned to the canvas's centre the
+ * avatar could therefore never get closer to the top of the screen than half
+ * the canvas, which is where the surface used to stop dead for no visible
+ * reason (JARVIS-1548).
+ *
+ * So the avatar's offset inside the canvas is not fixed: `up` puts it low in
+ * the canvas with the card's height reserved above it, `down` puts it high with
+ * that height reserved below. Main picks from the room the display actually
+ * has, and the avatar still does not move — the canvas moves around it.
+ *
+ * `up` is the shape the surface is designed around, since it lives by the Dock
+ * where a card growing downward would grow off the bottom of the screen.
+ */
+export const COMPANION_CARD_GROWTHS = ["up", "down"] as const;
+
+export type CompanionCardGrowth = (typeof COMPANION_CARD_GROWTHS)[number];
+
+/**
  * The assistant's character, as the three trait ids it is composed from.
  *
  * Structurally the fields of the web layer's `CharacterTraits` that
@@ -675,6 +699,12 @@ export interface CompanionContext {
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
   growth: CompanionGrowth;
+  /**
+   * Which way the typing card unfurls, and with it where the avatar sits inside
+   * the canvas. See {@link CompanionCardGrowth}: main owns the window position,
+   * so main is the only side that can decide this.
+   */
+  cardGrowth: CompanionCardGrowth;
   /**
    * The assistant's display name, for the composer's placeholder.
    *
