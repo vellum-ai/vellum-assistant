@@ -59,8 +59,13 @@ mock.module("@/runtime/is-electron", () => ({
 // requests — see the composer's `handleLiveVoiceStart` note), so setting this to
 // iOS must NOT suppress the card. Defaults to non-iOS (web).
 let mockIsNativeIOS = false;
+// The Capacitor shells (iOS and Android), where the settings pills stand for
+// the whole session instead of following focus. Defaults to the browser, so
+// every case that does not set it exercises the focus-driven reveal.
+let mockIsNativeMobile = false;
 mock.module("@/runtime/platform-detection", () => ({
   isNativeIOS: () => mockIsNativeIOS,
+  useIsNativeMobile: () => mockIsNativeMobile,
 }));
 
 // The native shell, which is the only place dictation's inline preview takes
@@ -283,6 +288,7 @@ function resetLiveVoiceMocks() {
   mockSupportsLiveVoice = true;
   mockIsElectron = false;
   mockIsNativeIOS = false;
+  mockIsNativeMobile = false;
   mockIsNativePlatform = false;
   mockVoicePhase = "idle";
   mockPreflightVerdict = { status: "ready" };
@@ -1261,6 +1267,37 @@ describe("ChatComposer: mobile settings pills row", () => {
     // AND the action row does not carry the pickers either: mobile moves them
     // out of the card entirely
     expect(container.querySelector("form")?.innerHTML).not.toContain(">THR<");
+  });
+
+  test("an app shell keeps the row standing before anyone taps in", () => {
+    // GIVEN the same untouched phone composer, in a Capacitor shell
+    mockIsNativeMobile = true;
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // THEN the row is up already: on a phone these pills are the only place
+    // the access and profile pickers live, so a row that waited for focus put
+    // both behind a tap for as long as the composer rested
+    const row = pillsRow(container);
+    expect(row?.textContent).toBe("THRPROFILE");
+    expect(row?.hasAttribute("hidden")).toBe(false);
+
+    // AND it carries no entrance: the animation exists because the row
+    // arrives with the keyboard, and standing permanently it would instead
+    // replay on every mount, settling the composer on each navigation
+    expect(row?.className).not.toContain("animate-");
+    expect(row?.className).toContain("flex");
+  });
+
+  test("an app shell still rests the caption under the card", () => {
+    // GIVEN an untouched phone composer in a Capacitor shell
+    mockIsNativeMobile = true;
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // THEN both stand: the caption keeps its own at-rest rule, so a resting
+    // composer in a shell carries the row above the card and the caption below
+    // it at the same time
+    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(false);
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
   });
 
   test("focusing the composer raises the row above the card, access first", () => {

@@ -73,7 +73,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { isNativeIOS } from "@/runtime/platform-detection";
+import { isNativeIOS, useIsNativeMobile } from "@/runtime/platform-detection";
 import { isPointerCoarse, usePointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
@@ -772,11 +772,31 @@ export function ChatComposer({
   // sheet rises and the card would shift down under the scrim.
   const composerInUse =
     composerFocusWithin || settingsSheetOpen || addSheetOpen;
-  const settingsPillsVisible = isMobileMainComposer && composerInUse;
+  // The app shells hold the row up for the whole session. On a phone these
+  // pills are the only place the access and profile pickers live, and a row
+  // that comes and goes with the keyboard puts both a tap out of reach for as
+  // long as the composer is at rest. A mobile browser keeps the focus-driven
+  // reveal, where the row is competing with the page's own chrome for the
+  // bottom of the screen.
+  const isNativeMobileShell = useIsNativeMobile();
+  const settingsPillsVisible =
+    isMobileMainComposer && (isNativeMobileShell || composerInUse);
   // The caption is the row's opposite number: it stands under the card at rest
   // and steps aside the moment anything takes the bottom of the screen, which
-  // is where the keyboard and every sheet cover it anyway.
+  // is where the keyboard and every sheet cover it anyway. In the shells,
+  // where the pills row stands throughout, the two share the resting composer
+  // rather than trading places.
   const disclaimerVisible = isMobileMainComposer && !composerInUse;
+  // The entrance belongs to the row that arrives with the keyboard. A row that
+  // stands throughout has no arrival to animate, and the same animation there
+  // replays on every mount, settling the composer on each navigation.
+  const settingsPillsClassName = settingsPillsVisible
+    ? `mb-3 flex justify-end gap-1.5 pr-1.5${
+        isNativeMobileShell
+          ? ""
+          : " animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] motion-reduce:animate-none"
+      }`
+    : undefined;
 
   // A pill at mobile widths (half the card's 52px collapsed height), the 10px
   // panel elsewhere, both from the live-voice bar's module: the bar stacks on
@@ -1324,13 +1344,13 @@ export function ChatComposer({
             // Mounted for as long as the composer is, because each pill gates
             // itself on server state its own menu loads (access waits on the
             // global-threshold fetch), and a row that mounted on first focus
-            // would rise with that pill still missing. Only its visibility
-            // follows focus: `hidden` is `display: none`, which keeps the resting
-            // row out of the layout, the tab order and the accessibility tree,
-            // and lets the entrance animation run again on every reveal.
+            // would rise with that pill still missing.
             //
-            // The row rises into place rather than appearing, since it arrives
-            // with the keyboard; reduced motion keeps the placement and drops the
+            // In the app shells it then stays visible. In a mobile browser its
+            // visibility follows focus, and `hidden` is `display: none`, which
+            // keeps the resting row out of the layout, the tab order and the
+            // accessibility tree, and lets the entrance run again on every
+            // reveal. Reduced motion keeps the placement and drops the
             // movement.
             <div
               data-slot="composer-settings-pills"
@@ -1338,11 +1358,7 @@ export function ChatComposer({
               // The right inset lands the last pill's edge over the send
               // circle's, so the row reads as hung off the card rather than
               // floated past it.
-              className={
-                settingsPillsVisible
-                  ? "mb-3 flex animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] justify-end gap-1.5 pr-1.5 motion-reduce:animate-none"
-                  : undefined
-              }
+              className={settingsPillsClassName}
             >
               {thresholdPickerSlot}
               {modelPickerSlot}
