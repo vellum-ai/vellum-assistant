@@ -97,7 +97,7 @@ describe("useLiveVoiceStore — session starter", () => {
     expect(useLiveVoiceStore.getState().starter).toBeNull();
   });
 
-  test("reset preserves the starter and entry handler — session teardown must not deregister mount-scoped seams", () => {
+  test("reset preserves the starter and entry handler: session teardown must not deregister mount-scoped seams", () => {
     const starter = makeStarter();
     const entryHandler = mock(() => {});
     useLiveVoiceStore.getState().setStarter(starter);
@@ -236,9 +236,7 @@ describe("liveVoiceSurfaceLabel", () => {
     expect(liveVoiceSurfaceLabel("connecting", true, false)).toBe(
       "Reconnecting…",
     );
-    expect(liveVoiceSurfaceLabel("listening", false, false)).toBe(
-      "Listening…",
-    );
+    expect(liveVoiceSurfaceLabel("listening", false, false)).toBe("Listening…");
   });
 });
 

@@ -10,7 +10,7 @@ import {
 } from "@/utils/ptt-activator";
 
 /**
- * The binding that starts and ends a live voice session — a keyboard shortcut,
+ * The binding that starts and ends a live voice session: a keyboard shortcut,
  * or a tap of Fn on a Mac desktop host.
  *
  * Reuses the activator shape push to talk already stores, so the settings
@@ -35,7 +35,7 @@ export const isFnVoiceModeActivator = isFnPushToTalkActivator;
  * Ctrl+Shift+V elsewhere.
  *
  * Deliberately a chord with a real modifier and a non-modifier key. It emits
- * no character, so the listener can fire while the composer holds focus —
+ * no character, so the listener can fire while the composer holds focus,
  * which is where someone is standing when they reach for voice. Its one
  * collision is paste-as-plain-text, and our own text surfaces are plain
  * textareas where that is indistinguishable from an ordinary paste.
@@ -57,7 +57,7 @@ export function defaultVoiceModeActivator(
 
 /**
  * Whether `activator` can bind voice mode. Rejects modifier-only bindings
- * other than Fn — see the note on {@link VoiceModeActivator}.
+ * other than Fn; see the note on {@link VoiceModeActivator}.
  */
 export function isValidVoiceModeActivator(
   activator: VoiceModeActivator,
@@ -70,9 +70,9 @@ export function isValidVoiceModeActivator(
 
 /**
  * The stored binding, or the default when nothing is stored. A stored value
- * that no longer binds anything usable — a modifier-only leftover, or a Fn
- * binding read on a host that cannot see Fn — falls back to the default
- * rather than to "off", so voice mode never becomes unreachable by keyboard.
+ * that binds nothing usable (a modifier-only leftover, or a Fn binding read
+ * on a host that cannot see Fn) falls back to the default rather than to
+ * "off", so voice mode never becomes unreachable by keyboard.
  */
 export function readVoiceModeActivator(
   fnAvailable: boolean,

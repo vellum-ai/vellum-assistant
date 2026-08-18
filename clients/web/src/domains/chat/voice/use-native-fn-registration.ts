@@ -16,10 +16,16 @@ import { watchSetting } from "@/utils/local-settings";
  *
  * `shouldRegister` is re-read whenever `settingKey` changes in localStorage,
  * so a binding edited in settings takes effect without a reload.
+ *
+ * `onRegistered` reports whether the listener is actually running: false when
+ * the host refuses (no helper, or Input Monitoring ungranted), which is the
+ * caller's cue that a binding depending on Fn will never fire. A host with no
+ * bridge at all reports nothing, since it never claimed Fn in the first place.
  */
 export function useNativeFnRegistration(
   shouldRegister: () => boolean,
   settingKey: string,
+  onRegistered?: (registered: boolean) => void,
 ): void {
   useEffect(() => {
     if (typeof window === "undefined" || !supportsFnPushToTalk()) {
@@ -43,10 +49,14 @@ export function useNativeFnRegistration(
           if (!ok) {
             if (next) {
               applied = false;
+              onRegistered?.(false);
             }
             return;
           }
           applied = next;
+          if (next) {
+            onRegistered?.(true);
+          }
         }
       })().finally(() => {
         syncInFlight = null;
@@ -71,5 +81,5 @@ export function useNativeFnRegistration(
         void setFnPushToTalkEnabled(false);
       }
     };
-  }, [shouldRegister, settingKey]);
+  }, [shouldRegister, settingKey, onRegistered]);
 }

@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe("isValidVoiceModeActivator", () => {
-  test("rejects a bare modifier — a toggle would fire on every abandoned chord", () => {
+  test("rejects a bare modifier, which a toggle would fire on every abandoned chord", () => {
     expect(
       isValidVoiceModeActivator({
         kind: "modifierOnly",

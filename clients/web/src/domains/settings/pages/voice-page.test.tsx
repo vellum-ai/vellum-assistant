@@ -320,7 +320,7 @@ describe("VoiceSections microphone picker", () => {
 });
 
 describe("VoiceSections voice mode shortcut", () => {
-  // Cmd+Shift+V on macOS, Ctrl+Shift+V elsewhere — read the label off the
+  // Cmd+Shift+V on macOS, Ctrl+Shift+V elsewhere, so read the label off the
   // default rather than hardcoding one platform's.
   const defaultChord = activatorDisplayName(keyboardDefaultActivator());
 

@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 
 import type { HotkeyEvent } from "@/runtime/hotkey";
 
 let fnSupported = false;
+let fnRegistrationSucceeds = true;
 let emitHotkeyEvent: ((event: HotkeyEvent) => void) | null = null;
 
 mock.module("@/runtime/hotkey", () => ({
   supportsFnPushToTalk: () => fnSupported,
-  setFnPushToTalkEnabled: async () => true,
+  setFnPushToTalkEnabled: async (enable: boolean) =>
+    enable ? fnRegistrationSucceeds : true,
   subscribeToHotkeyEvents: (callback: (event: HotkeyEvent) => void) => {
     emitHotkeyEvent = callback;
     return () => {
@@ -26,6 +29,15 @@ const {
 } = await import("@/utils/voice-mode-activation");
 const { useVoiceModeHotkey } =
   await import("@/domains/chat/voice/use-voice-mode-hotkey");
+const { clearPendingVoiceModeStart, consumePendingVoiceModeStart } =
+  await import("@/domains/chat/voice/pending-voice-start");
+
+/** The hook navigates when nothing is registered, so it needs a router. */
+function renderVoiceModeHotkey(options?: { enabled?: boolean }) {
+  return renderHook(() => useVoiceModeHotkey(options), {
+    wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+  });
+}
 
 const entryHandler = mock(() => {});
 const stop = mock(() => {});
@@ -48,6 +60,8 @@ function chordEvent(): KeyboardEvent {
 
 beforeEach(() => {
   fnSupported = false;
+  fnRegistrationSucceeds = true;
+  clearPendingVoiceModeStart();
   emitHotkeyEvent = null;
   entryHandler.mockClear();
   stop.mockClear();
@@ -68,13 +82,14 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  clearPendingVoiceModeStart();
   useLiveVoiceStore.getState().setEntryHandler(null);
   useLiveVoiceStore.getState().reset();
 });
 
 describe("useVoiceModeHotkey", () => {
   test("starts a session through the composer's entry handler", () => {
-    renderHook(() => useVoiceModeHotkey());
+    renderVoiceModeHotkey();
     const event = chordEvent();
 
     window.dispatchEvent(event);
@@ -83,11 +98,11 @@ describe("useVoiceModeHotkey", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
-  test("fires with the composer focused — reaching for voice mid-sentence is the point", () => {
+  test("fires with the composer focused, which is where users reach for voice", () => {
     const textarea = document.createElement("textarea");
     document.body.append(textarea);
     textarea.focus();
-    renderHook(() => useVoiceModeHotkey());
+    renderVoiceModeHotkey();
 
     textarea.dispatchEvent(chordEvent());
 
@@ -97,7 +112,7 @@ describe("useVoiceModeHotkey", () => {
 
   test("ends the session instead of starting a second one", () => {
     useLiveVoiceStore.getState().setState("listening");
-    renderHook(() => useVoiceModeHotkey());
+    renderVoiceModeHotkey();
 
     window.dispatchEvent(chordEvent());
 
@@ -106,7 +121,7 @@ describe("useVoiceModeHotkey", () => {
   });
 
   test("ignores a chord that is not the binding", () => {
-    renderHook(() => useVoiceModeHotkey());
+    renderVoiceModeHotkey();
     const event = new KeyboardEvent("keydown", {
       key: "K",
       code: "KeyK",
@@ -122,7 +137,7 @@ describe("useVoiceModeHotkey", () => {
 
   test("does nothing when the shortcut is turned off", () => {
     writeVoiceModeActivator({ kind: "off" });
-    renderHook(() => useVoiceModeHotkey());
+    renderVoiceModeHotkey();
 
     window.dispatchEvent(chordEvent());
 
@@ -130,11 +145,35 @@ describe("useVoiceModeHotkey", () => {
   });
 
   test("stays out of the way when disabled for the host", () => {
-    renderHook(() => useVoiceModeHotkey({ enabled: false }));
+    renderVoiceModeHotkey({ enabled: false });
 
     window.dispatchEvent(chordEvent());
 
     expect(entryHandler).not.toHaveBeenCalled();
+  });
+
+  test("parks the start for the composer when no composer is registered", () => {
+    // Settings, Library, the app viewer: no composer means no guarded entry
+    // flow to call, so the press is handed to the one that mounts next.
+    useLiveVoiceStore.getState().setEntryHandler(null);
+    renderVoiceModeHotkey();
+
+    // Navigation re-renders the router, so let React flush it.
+    act(() => {
+      window.dispatchEvent(chordEvent());
+    });
+
+    expect(entryHandler).not.toHaveBeenCalled();
+    expect(consumePendingVoiceModeStart()).toBe(true);
+  });
+
+  test("parks nothing while a composer is registered", () => {
+    renderVoiceModeHotkey();
+
+    window.dispatchEvent(chordEvent());
+
+    expect(entryHandler).toHaveBeenCalledTimes(1);
+    expect(consumePendingVoiceModeStart()).toBe(false);
   });
 
   describe("Fn", () => {
@@ -143,7 +182,7 @@ describe("useVoiceModeHotkey", () => {
     });
 
     test("toggles on the down edge and ignores the release", () => {
-      renderHook(() => useVoiceModeHotkey());
+      renderVoiceModeHotkey();
 
       emitHotkeyEvent?.({ kind: "fnPushToTalk", state: "down" });
       expect(entryHandler).toHaveBeenCalledTimes(1);
@@ -154,9 +193,21 @@ describe("useVoiceModeHotkey", () => {
       expect(entryHandler).toHaveBeenCalledTimes(1);
     });
 
+    test("falls back to the chord when the host refuses the registration", async () => {
+      // No helper, or Input Monitoring ungranted. Fn never reaches the DOM, so
+      // without the fallback the shortcut reads as bound and does nothing.
+      fnRegistrationSucceeds = false;
+      renderVoiceModeHotkey();
+
+      await waitFor(() => {
+        window.dispatchEvent(chordEvent());
+        expect(entryHandler).toHaveBeenCalledTimes(1);
+      });
+    });
+
     test("ignores host Fn events once the binding is a chord", () => {
       writeVoiceModeActivator(keyboardDefaultActivator());
-      renderHook(() => useVoiceModeHotkey());
+      renderVoiceModeHotkey();
 
       emitHotkeyEvent?.({ kind: "fnPushToTalk", state: "down" });
 

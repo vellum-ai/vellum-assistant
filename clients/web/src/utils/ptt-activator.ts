@@ -2,10 +2,9 @@
  * Activator types and helpers: what a user-bound key or chord looks like, how
  * it serializes, and what counts as a keyboard event matching it.
  *
- * Named for push to talk, which is where the shape came from — it mirrors the
- * macOS `PTTActivator` model so the web port can read values the settings UI
- * already stored. Voice mode's binding now shares it; see
- * `domains/chat/voice/voice-mode-activation.ts` for what a toggle adds on top.
+ * Mirrors the macOS `PTTActivator` model, so the web port reads and writes the
+ * same serialized values. Voice mode's binding is built on this shape; see
+ * `utils/voice-mode-activation.ts` for the rules a toggle adds on top.
  *
  * Browsers cannot observe the Fn key, so stored Fn preferences fall back to
  * Ctrl on read unless the Electron host bridge asks to preserve the native

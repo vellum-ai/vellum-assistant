@@ -1,4 +1,5 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { isTextEntryElement } from "@/domains/chat/composer-focus";
 import {
@@ -6,11 +7,13 @@ import {
   isLiveVoiceSessionActive,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { requestVoiceModeStart } from "@/domains/chat/voice/pending-voice-start";
 import { useNativeFnRegistration } from "@/domains/chat/voice/use-native-fn-registration";
 import {
   LS_VOICE_MODE_ACTIVATION_KEY,
   eventMatchesVoiceModeActivator,
   isFnVoiceModeActivator,
+  keyboardDefaultActivator,
   readVoiceModeActivator,
 } from "@/utils/voice-mode-activation";
 import {
@@ -19,47 +22,69 @@ import {
   supportsFnPushToTalk,
 } from "@/runtime/hotkey";
 import { watchSetting } from "@/utils/local-settings";
+import { useConversationStore } from "@/stores/conversation-store";
+import { routes } from "@/utils/routes";
 
 /**
- * Start or end a session through the seams the visible composer registers, so
- * a shortcut start runs the same preflight, first-run card, and entry-origin
- * animation as its voice button. No composer registered means nothing to
- * start, which is the right answer: there is no chat to talk to.
- */
-function toggleVoiceMode(): void {
-  const { state, entryHandler } = useLiveVoiceStore.getState();
-  if (isLiveVoiceSessionActive(state)) {
-    endLiveVoiceSession();
-    return;
-  }
-  entryHandler?.();
-}
-
-/**
- * Binds the configured voice mode shortcut (Settings → Voice) to starting and
+ * Binds the configured voice mode shortcut (Settings, Voice) to starting and
  * ending a live voice session.
  *
- * Unlike the chat layout's other shortcuts, this one deliberately fires with
- * the composer focused. The binding is a chord with a real modifier, so it
- * types nothing, and reaching for voice mid-sentence is the whole point — a
- * shortcut that only worked with focus outside the textarea would be dead in
- * the state users are actually in.
+ * Unlike the chat layout's other shortcuts, this one fires with the composer
+ * focused. The binding is a chord with a real modifier, so it types nothing,
+ * and reaching for voice mid-sentence is the point: a shortcut that only
+ * worked with focus outside the textarea would be dead in the state users are
+ * actually in.
  *
- * Fn never reaches the DOM. When the binding is Fn, the desktop helper is
- * registered instead and its `down` edge is the tap: the helper reports a
- * hold (`down`/`up`) because push to talk needed both, and voice mode simply
- * ignores the release.
+ * Fn never reaches the DOM. When the binding is Fn the desktop helper is
+ * registered instead and its `down` edge is the tap, since the helper reports
+ * a hold (`down`/`up`) and a toggle has no use for the release. A host that
+ * accepts no Fn registration falls back to the keyboard chord, so the
+ * shortcut stays reachable without Input Monitoring.
  */
 export function useVoiceModeHotkey({
   enabled = true,
 }: { enabled?: boolean } = {}): void {
+  const navigate = useNavigate();
+  const [fnRegistered, setFnRegistered] = useState(true);
+
   const shouldRegisterFn = useCallback(
     () =>
       enabled &&
       isFnVoiceModeActivator(readVoiceModeActivator(supportsFnPushToTalk())),
     [enabled],
   );
-  useNativeFnRegistration(shouldRegisterFn, LS_VOICE_MODE_ACTIVATION_KEY);
+  useNativeFnRegistration(
+    shouldRegisterFn,
+    LS_VOICE_MODE_ACTIVATION_KEY,
+    setFnRegistered,
+  );
+
+  /**
+   * Start through the seam the visible composer registers, so a shortcut
+   * start runs the same preflight, first-run card, and entry-origin animation
+   * as its voice button. Off a chat route no composer is mounted, so the
+   * request is parked and the conversation surface brought up to serve it.
+   */
+  const startVoiceMode = useCallback(() => {
+    const { entryHandler } = useLiveVoiceStore.getState();
+    if (entryHandler) {
+      entryHandler();
+      return;
+    }
+    requestVoiceModeStart();
+    const conversationId = useConversationStore.getState().activeConversationId;
+    navigate(
+      conversationId ? routes.conversation(conversationId) : routes.assistant,
+    );
+  }, [navigate]);
+
+  const toggleVoiceMode = useCallback(() => {
+    if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
+      endLiveVoiceSession();
+      return;
+    }
+    startVoiceMode();
+  }, [startVoiceMode]);
 
   useEffect(() => {
     if (!enabled || typeof window === "undefined") {
@@ -67,18 +92,32 @@ export function useVoiceModeHotkey({
     }
 
     const fnAvailable = supportsFnPushToTalk();
-    let activator = readVoiceModeActivator(fnAvailable);
+    /**
+     * The binding as it can actually be delivered. A stored Fn binding on a
+     * host that rejected the registration is inert (the DOM never sees Fn),
+     * so it resolves to the chord instead of to nothing.
+     */
+    const resolveActivator = () => {
+      const stored = readVoiceModeActivator(fnAvailable);
+      if (isFnVoiceModeActivator(stored) && !fnRegistered) {
+        return keyboardDefaultActivator();
+      }
+      return stored;
+    };
+
+    let activator = resolveActivator();
     const unwatchSetting = watchSetting(LS_VOICE_MODE_ACTIVATION_KEY, () => {
-      activator = readVoiceModeActivator(fnAvailable);
+      activator = resolveActivator();
     });
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || activator.kind === "off") {
         return;
       }
-      // Something closer to the user already claimed this key — the terminal
-      // taking Ctrl+Shift+V as paste, say. This listener sits on `window`, so
-      // it sees the event after they do; acting anyway would fire both.
+      // Something closer to the user already claimed this key, the terminal
+      // taking Ctrl+Shift+V as paste being the case at hand. This listener
+      // sits on `window`, so it sees the event after they do; acting anyway
+      // would fire both.
       if (event.defaultPrevented) {
         return;
       }
@@ -121,5 +160,5 @@ export function useVoiceModeHotkey({
       window.removeEventListener("keydown", onKeyDown);
       unsubscribeHotkeys();
     };
-  }, [enabled]);
+  }, [enabled, fnRegistered, toggleVoiceMode]);
 }
