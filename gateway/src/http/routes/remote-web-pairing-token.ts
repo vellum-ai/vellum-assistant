@@ -102,7 +102,7 @@ export async function handleRemoteWebPairingToken(
       return noStore(
         errorResponse(
           "GUARDIAN_REPAIR_REQUIRED",
-          "gateway guardian binding is missing over evidence of prior onboarding — repair via guardian init, then retry pairing",
+          "gateway guardian binding is missing over evidence of prior onboarding; repair via guardian init, then retry pairing",
           503,
         ),
       );

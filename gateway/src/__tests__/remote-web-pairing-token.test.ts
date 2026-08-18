@@ -655,7 +655,7 @@ describe("remote web pairing token exchange", () => {
     );
 
     // Guardian rows lost, but a residual non-guardian contact is evidence of
-    // prior onboarding — the fallback mint must refuse rather than diverge.
+    // prior onboarding: the fallback mint must refuse rather than diverge.
     clearGatewayGuardian();
     const now = Date.now();
     getGatewayDb()
@@ -687,7 +687,7 @@ describe("remote web pairing token exchange", () => {
         error: {
           code: "GUARDIAN_REPAIR_REQUIRED",
           message:
-            "gateway guardian binding is missing over evidence of prior onboarding — repair via guardian init, then retry pairing",
+            "gateway guardian binding is missing over evidence of prior onboarding; repair via guardian init, then retry pairing",
         },
       });
       expect(setCookies(res)).toHaveLength(0);
