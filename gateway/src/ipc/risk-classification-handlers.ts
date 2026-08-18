@@ -40,7 +40,7 @@ import {
 } from "../risk/shell-identity.js";
 import { skillLoadRiskClassifier } from "../risk/skill-risk-classifier.js";
 import { webRiskClassifier } from "../risk/web-risk-classifier.js";
-import type { IpcRoute } from "./server.js";
+import { ipcRoute, type IpcRoute } from "./server.js";
 
 // ── Registry spec lookup ────────────────────────────────────────────────────
 
@@ -514,11 +514,9 @@ export async function handleClassifyRisk(
 // ── Route export ────────────────────────────────────────────────────────────
 
 export const riskClassificationRoutes: IpcRoute[] = [
-  {
+  ipcRoute({
     method: "classify_risk",
     schema: ClassifyRiskIpcParamsSchema,
-    handler: (params?: Record<string, unknown>) => {
-      return handleClassifyRisk(ClassifyRiskIpcParamsSchema.parse(params));
-    },
-  },
+    handler: handleClassifyRisk,
+  }),
 ];
