@@ -177,6 +177,13 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  with minimax-m3 on Fireworks). Off by default; scalars/arrays unaffected.
    *  See {@link coerceObjectParamsToJsonString}. */
   coerceObjectArgsToJsonString?: boolean;
+  /** Drop `tool_choice` when thinking/reasoning is on the wire. Strict
+   *  OpenAI-compatible reasoning upstreams (DeepSeek thinking mode) reject any
+   *  explicit `tool_choice` with `Thinking mode does not support this
+   *  tool_choice`. Off by default so catalog providers that honor the combo
+   *  (Fireworks, Together) keep sending `none` / forced choices. Enabled for
+   *  the generic `openai-compatible` adapter, whose upstream is unknown. */
+  omitToolChoiceWhenReasoning?: boolean;
 }
 
 const log = getLogger("chat-completions");
@@ -219,12 +226,29 @@ export function clampReasoningEffort(
     : value;
 }
 
+/** Human-readable text from an OpenAI-compatible error, including wrapped
+ *  upstream detail (OpenRouter `metadata.raw`). Used by the one-shot
+ *  compatibility retries so a generic SDK wrapper message cannot hide the
+ *  real reason. */
+function openaiCompatErrorHaystack(error: unknown): string {
+  return error instanceof OpenAI.APIError
+    ? normalizedErrorText(normalizeOpenAIAPIError(error))
+    : error instanceof Error
+      ? error.message
+      : String(error);
+}
+
+function isClientErrorStatus(error: unknown): boolean {
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" && status >= 400 && status < 500;
+}
+
 /**
  * True when the request carried an explicit reasoning opt-out (`"none"` sent
  * as flat `reasoning_effort` or nested `reasoning.effort`) and the provider
  * rejected it with a 4xx that names the reasoning field. Reasoning-only
  * models (e.g. DeepSeek R1) reject the opt-out rather than ignore it; that
- * one case is worth a single retry with the reasoning params stripped —
+ * one case is worth a single retry with the reasoning params stripped:
  * model-default reasoning beats a hard failure.
  */
 function isReasoningOptOutRejection(error: unknown, params: unknown): boolean {
@@ -240,22 +264,58 @@ function isReasoningOptOutRejection(error: unknown, params: unknown): boolean {
   if (!optedOut) {
     return false;
   }
-  const status = (error as { status?: unknown }).status;
-  if (typeof status !== "number" || status < 400 || status >= 500) {
+  if (!isClientErrorStatus(error)) {
     return false;
   }
-  // OpenRouter wraps upstream 4xxs in a generic "Provider returned error" and
-  // stashes the real reason under `metadata.raw`, which `normalizeOpenAIAPIError`
-  // promotes into the normalized fields. Scan those, not just `error.message` —
-  // otherwise the wrapped reasoning rejection is missed and this one-shot
-  // fallback never fires.
-  const haystack =
-    error instanceof OpenAI.APIError
-      ? normalizedErrorText(normalizeOpenAIAPIError(error))
-      : error instanceof Error
-        ? error.message
-        : String(error);
-  return /reasoning/i.test(haystack);
+  return /reasoning/i.test(openaiCompatErrorHaystack(error));
+}
+
+/**
+ * True when thinking/reasoning is active on the outbound chat-completions
+ * body: a non-`"none"` `reasoning_effort`, a nested `reasoning.effort`, or
+ * `reasoning.enabled: true` (OpenRouter / Vercel AI Gateway).
+ */
+export function isThinkingEnabledOnWire(params: unknown): boolean {
+  const p = params as {
+    reasoning_effort?: unknown;
+    reasoning?: { effort?: unknown; enabled?: unknown } | null;
+  };
+  const nested = p.reasoning;
+  if (nested && typeof nested === "object") {
+    if (nested.enabled === true) {
+      return true;
+    }
+    if (typeof nested.effort === "string" && nested.effort !== "none") {
+      return true;
+    }
+  }
+  return (
+    typeof p.reasoning_effort === "string" && p.reasoning_effort !== "none"
+  );
+}
+
+/**
+ * True when the request sent an explicit `tool_choice` and the provider
+ * rejected it because thinking/reasoning mode forbids that parameter.
+ * DeepSeek thinking mode 400s with `Thinking mode does not support this
+ * tool_choice` for any explicit value, including `"auto"` and `"none"`.
+ * One retry without `tool_choice` lets the same provider succeed instead of
+ * failing over to a different backend.
+ */
+function isThinkingModeToolChoiceRejection(
+  error: unknown,
+  params: unknown,
+): boolean {
+  const p = params as { tool_choice?: unknown };
+  if (p.tool_choice === undefined) {
+    return false;
+  }
+  if (!isClientErrorStatus(error)) {
+    return false;
+  }
+  return /does not support this tool_choice/i.test(
+    openaiCompatErrorHaystack(error),
+  );
 }
 
 /**
@@ -334,6 +394,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     | undefined;
   private backfillEmptyAssistantContent: boolean;
   private coerceObjectArgsToJsonString: boolean;
+  private omitToolChoiceWhenReasoning: boolean;
 
   constructor(
     apiKey: string,
@@ -363,6 +424,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
       options.backfillEmptyAssistantContent ?? false;
     this.coerceObjectArgsToJsonString =
       options.coerceObjectArgsToJsonString ?? false;
+    this.omitToolChoiceWhenReasoning =
+      options.omitToolChoiceWhenReasoning ?? false;
   }
 
   get defaultModel(): string {
@@ -469,11 +532,24 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
         // Honor a caller-supplied tool_choice (e.g. `{ type: "none" }` to force
         // a text-only answer, or `{ type: "tool", name }` for a forced call).
-        // Only meaningful when tools are present — OpenAI rejects a named or
+        // Only meaningful when tools are present: OpenAI rejects a named or
         // "required" choice with no tools.
+        //
+        // Strict reasoning upstreams (DeepSeek thinking mode) reject any
+        // explicit tool_choice, including `"auto"` (the API default when tools
+        // are present) and `"none"`. Omit `"auto"` whenever thinking is on the
+        // wire. Catalog providers that honor `none` / forced choices still
+        // receive them; the generic openai-compatible adapter drops every
+        // explicit value in thinking mode via `omitToolChoiceWhenReasoning`.
         const toolChoice = mapNeutralToolChoice(configObj?.tool_choice);
         if (toolChoice !== undefined) {
-          params.tool_choice = toolChoice;
+          const thinkingOn = isThinkingEnabledOnWire(params);
+          const skipAutoDefault = thinkingOn && toolChoice === "auto";
+          const skipAllChoices =
+            thinkingOn && this.omitToolChoiceWhenReasoning;
+          if (!skipAutoDefault && !skipAllChoices) {
+            params.tool_choice = toolChoice;
+          }
         }
       }
 
@@ -573,20 +649,32 @@ export class OpenAIChatCompletionsProvider implements Provider {
         try {
           stream = await createStream();
         } catch (error) {
-          if (!isReasoningOptOutRejection(error, params)) {
+          if (isReasoningOptOutRejection(error, params)) {
+            log.warn(
+              {
+                provider: this.name,
+                model: modelOverride ?? this.model,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              "Model rejected the explicit reasoning opt-out; retrying without reasoning params",
+            );
+            delete params.reasoning_effort;
+            delete (params as unknown as Record<string, unknown>).reasoning;
+            stream = await createStream();
+          } else if (isThinkingModeToolChoiceRejection(error, params)) {
+            log.warn(
+              {
+                provider: this.name,
+                model: modelOverride ?? this.model,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              "Upstream rejected tool_choice in thinking mode; retrying without tool_choice",
+            );
+            delete params.tool_choice;
+            stream = await createStream();
+          } else {
             throw error;
           }
-          log.warn(
-            {
-              provider: this.name,
-              model: modelOverride ?? this.model,
-              error: error instanceof Error ? error.message : String(error),
-            },
-            "Model rejected the explicit reasoning opt-out; retrying without reasoning params",
-          );
-          delete params.reasoning_effort;
-          delete (params as unknown as Record<string, unknown>).reasoning;
-          stream = await createStream();
         }
 
         for await (const chunk of stream) {
