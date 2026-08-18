@@ -9,6 +9,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 import { resolvePairDeviceTarget } from "./pair-device-client";
 import { PairDeviceReady } from "./pair-device-ready";
+import { PairedDevicesSection } from "./paired-devices-section";
 import { usePairDevice } from "./use-pair-device";
 
 /**
@@ -112,6 +113,8 @@ export function PairDeviceCard() {
             onCopy={copy}
           />
         )}
+
+        <PairedDevicesSection enabled />
       </div>
     </DetailCard>
   );

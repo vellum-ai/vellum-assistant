@@ -8,6 +8,8 @@ import {
   waitFor,
 } from "@testing-library/react";
 
+import type { LocalListDevicesResult } from "@/runtime/local-mode-host";
+
 let gatewayPath: string | undefined = "/assistant/__gateway/20100";
 let supportsPairingRoutes = true;
 let webRemoteIngressOn = true;
@@ -38,6 +40,19 @@ mock.module("@/stores/client-feature-flag-store", () => ({
 mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
 }));
+
+let listDevicesResult: LocalListDevicesResult = {
+  ok: false,
+  error: "unavailable",
+};
+
+mock.module(
+  "@/runtime/local-mode-host",
+  (): Partial<typeof import("@/runtime/local-mode-host")> => ({
+    listPairedDevicesHost: async () => listDevicesResult,
+    revokePairedDeviceHost: async () => ({ ok: true }),
+  }),
+);
 
 const { PairDeviceCard } = await import("./pair-device-card");
 
@@ -108,6 +123,7 @@ beforeEach(() => {
   supportsPairingRoutes = true;
   webRemoteIngressOn = true;
   selectedAssistant = { assistantId: "self", cloud: "local" };
+  listDevicesResult = { ok: false, error: "unavailable" };
   requests = [];
   localStorage.clear();
 });
@@ -265,6 +281,26 @@ describe("PairDeviceCard", () => {
       screen.getByText(
         "Scan with another device's camera — or open the link on it — to use My Assistant there.",
       ),
+    ).toBeTruthy();
+  });
+
+  test("shows the paired-devices section when the host reports a device", async () => {
+    listDevicesResult = {
+      ok: true,
+      devices: [
+        {
+          hashedDeviceId: "aaaabbbbccccdddd0000111122223333",
+          platform: "ios",
+          issuedAt: null,
+          expiresAt: null,
+          lastUsedAt: null,
+        },
+      ],
+    };
+    render(<PairDeviceCard />);
+
+    expect(
+      await screen.findByRole("button", { name: "Paired devices (1)" }),
     ).toBeTruthy();
   });
 
