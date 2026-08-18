@@ -17,7 +17,7 @@ import { ContextMenu, PanelItem } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
 
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useShowsHoverAffordance } from "@/hooks/use-hover-affordance";
 import {
   ConversationActionsMenu,
   ConversationActionsSheet,
@@ -127,18 +127,16 @@ const skipNestedControls = (target: Element | null) =>
  * - Swipe left (trailing) → Archive / Unarchive
  * - Swipe right (leading) → Pin / Unpin
  *
- * Returns empty arrays on desktop (fine pointer) or for channel conversations
- * (read-only — no pin/archive actions available). Actions without a callback
- * in the context are omitted, so the swipe surface gracefully degrades when
- * the host list doesn't provide every action.
+ * Returns empty arrays for channel conversations (read-only, so no pin/archive
+ * actions are available). Actions without a callback in the context are
+ * omitted, so the swipe surface gracefully degrades when the host list doesn't
+ * provide every action. Whether a swipe is the input at all is
+ * `SwipeActionReveal`'s question, which passes through untouched where it isn't.
  */
-export function buildSwipeActions(
+function buildSwipeActions(
   ctx: ConversationListContextValue,
   conversation: Conversation,
 ): { leadingActions: SwipeAction[]; trailingActions: SwipeAction[] } {
-  if (!isPointerCoarse()) {
-    return { leadingActions: [], trailingActions: [] };
-  }
   const isChannel = isChannelConversation(conversation);
 
   const leadingActions: SwipeAction[] = [];
@@ -217,15 +215,11 @@ export function ConversationRow({
   );
 
   const isTouch = isPointerCoarse();
-  // The ellipsis-hiding decision below also honors a narrow *viewport*, not
-  // just a coarse *pointer*: `isTouch` alone misses a desktop browser
-  // window narrowed to the mobile width with a mouse/trackpad, which still
-  // gets the mobile row layout (`max-md:` styling) but isn't touch. This
-  // doesn't affect which affordance actually opens the menu below (that
-  // still keys off real touch capability, via `isTouch`): a narrow desktop
-  // window still falls through to the right-click `ContextMenu.Root`
-  // branch, just without a visible ellipsis prompting it.
-  const isMobileViewport = useIsMobile();
+  // The swipe and the long-press sheet are the paths that replace the inline
+  // ellipsis, and both are armed by a coarse pointer, so a device that has
+  // neither hover nor a coarse pointer (a hoverless stylus) keeps the ellipsis:
+  // right-click alone is not a path ordinary tapping or a screen reader finds.
+  const showsEllipsis = useShowsHoverAffordance(withContextMenu && isTouch);
 
   const panelItem = (
     <SwipeActionReveal
@@ -243,18 +237,8 @@ export function ConversationRow({
           ) : undefined
         }
         badgeBare
-        // On touch, or a mobile-width viewport, the row already opens this
-        // exact menu another way (long-press → bottom sheet on touch,
-        // right-click on a narrow desktop window), so the trailing button
-        // isn't just hidden, it's absent: no leftover hover/active-state
-        // opacity rule can force it visible (as `hideTrailingActionOnTouch`
-        // alone didn't, for an active row), and the dot lands at the row's
-        // true right edge instead of sitting next to an invisible-but-
-        // space-reserving button.
         trailingAction={
-          (isTouch || isMobileViewport) && withContextMenu ? undefined : (
-            <ConversationActionsMenu {...menuProps} />
-          )
+          showsEllipsis ? <ConversationActionsMenu {...menuProps} /> : undefined
         }
         className={cn(
           // `!` forces this over PanelItem's own max-md:py-3: cross-package

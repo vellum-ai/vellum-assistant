@@ -16,15 +16,14 @@ import { filenameFromHref } from "@/domains/chat/components/local-file/local-fil
 import { toggleLocalFile } from "@/domains/chat/components/local-file/open-local-file";
 import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
 import { t } from "@/i18n";
-import { useConversationStore } from "@/stores/conversation-store";
 
 export interface LocalFileLinkProps {
   href: string;
   workspacePath: string | null;
   /**
-   * The active assistant, needed to read the file into the document drawer.
-   * Without it the click falls back to the workspace browser. A click is a
-   * toggle: on a file already open in the drawer, it closes it.
+   * The active assistant, needed to read the file into the drawer. Without it
+   * the click falls back to the workspace browser. A click is a toggle: on a
+   * file already open in the drawer, it closes it.
    */
   assistantId?: string;
   /** The markdown label. */
@@ -40,9 +39,6 @@ export function LocalFileLink({
   children,
   onActivate,
 }: LocalFileLinkProps): ReactNode {
-  // Markdown opens as a document bound to the conversation it was opened from,
-  // so the active conversation decides where a click on it lands.
-  const conversationId = useConversationStore.use.activeConversationId();
   const filename =
     workspacePath !== null
       ? workspaceBasenameOf(workspacePath)
@@ -58,7 +54,7 @@ export function LocalFileLink({
       toast.error(t("chat:localFileLink.unavailable"));
       return;
     }
-    toggleLocalFile(workspacePath, filename, assistantId, conversationId);
+    toggleLocalFile(workspacePath, filename, assistantId);
   };
 
   return (

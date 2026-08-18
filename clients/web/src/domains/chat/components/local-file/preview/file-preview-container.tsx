@@ -1,15 +1,15 @@
 /**
  * Read-only counterpart to the document viewer: the chat drawer showing a
- * workspace file the markdown editor cannot round-trip. Every non-markdown file
- * lands here, so the panel dispatches to a reader when the format has one and
- * names the file plus its way out when it does not.
+ * workspace file. Every workspace file lands here, so the panel dispatches to a
+ * reader when the format has one and names the file plus its way out when it
+ * does not.
  *
  * Mirrors `DocumentViewerContainer`'s shell (same panel frame, same navbar
- * rhythm, same close affordance) so switching between an editable markdown
- * file and a previewed one does not feel like landing in a different app. The
- * bytes come from the query cache under the key the inline media embeds use,
- * so a file already fetched for the transcript opens here without a second
- * request, and nothing about the file is copied into a store.
+ * rhythm, same close affordance) so switching between a document and a
+ * previewed file does not feel like landing in a different app. The bytes come
+ * from the query cache under the key the inline media embeds use, so a file
+ * already fetched for the transcript opens here without a second request, and
+ * nothing about the file is copied into a store.
  */
 
 import { lazy, useCallback, type ReactNode } from "react";
@@ -43,6 +43,9 @@ import { openWorkspaceFile } from "@/utils/open-workspace-file";
 const CsvPreview = lazy(() =>
   import("./csv-preview").then((m) => ({ default: m.CsvPreview })),
 );
+const MarkdownPreview = lazy(() =>
+  import("./markdown-preview").then((m) => ({ default: m.MarkdownPreview })),
+);
 const TextPreview = lazy(() =>
   import("./text-preview").then((m) => ({ default: m.TextPreview })),
 );
@@ -72,6 +75,8 @@ function previewFor(
   switch (previewKind) {
     case "csv":
       return <CsvPreview blob={blob} filename={filename} />;
+    case "markdown":
+      return <MarkdownPreview blob={blob} filename={filename} />;
     case "text":
       return <TextPreview blob={blob} filename={filename} />;
     case "pdf":

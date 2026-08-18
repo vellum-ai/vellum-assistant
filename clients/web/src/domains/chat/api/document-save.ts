@@ -2,9 +2,7 @@
  * Where the document editor's autosave writes.
  *
  * Every document the editor hosts is a surface in the daemon's document
- * database, including one bound to a workspace markdown file. The daemon
- * writes that one through to the file itself, so the client has a single
- * destination and the transcript and the workspace cannot fork.
+ * database, so the client has a single destination.
  */
 
 import { documentsPost } from "@/generated/daemon/sdk.gen";
