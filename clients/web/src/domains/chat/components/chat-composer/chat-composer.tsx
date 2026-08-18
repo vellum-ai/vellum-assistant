@@ -37,6 +37,7 @@ import {
   MOBILE_CONTROL_CLASS,
   MOBILE_GHOST_WASH_CLASS,
   MOBILE_GLYPH_CLASS,
+  preventPressFocusTransfer,
 } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import {
   COMPOSER_MOBILE_RADIUS_CLASS,
@@ -272,6 +273,10 @@ function AddToChatButton({ disabled, label, onClick }: AddToChatButtonProps) {
       // The row sizes its own controls, so the primitive's mobile growth is
       // off here and every narrow window gets the same plus.
       expandOnMobile={false}
+      // Mounted only in the focus-gated row, so the press always has to leave
+      // the composer's focus alone until the click arrives. Whatever the click
+      // opens takes focus into its own portal from there.
+      onMouseDown={preventPressFocusTransfer}
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
@@ -528,6 +533,11 @@ export function ChatComposer({
         return;
       }
       liveVoiceEntryOriginRef.current = origin ?? null;
+      // The voice button holds the composer's focus through the press so its
+      // click survives the row's focus gating, which leaves the soft keyboard
+      // raised under a room that takes the whole screen. Drop it here, now that
+      // the click has been delivered. Same move the drawer makes on open.
+      (document.activeElement as HTMLElement | null)?.blur();
       // First-run preferences card — shown on the first-ever voice entry on
       // EVERY platform, the Capacitor iOS shell included (web↔iOS parity for the
       // welcome card). On iOS the card renders locked (`nonDismissible`, see its
@@ -896,6 +906,11 @@ export function ChatComposer({
   const sendBlocked =
     sendDisabled || attachmentsUploadingCount > 0 || !canSendMessageContent;
 
+  // Read off the same signal that builds the row, so the guard covers the
+  // narrow desktop window that takes the row's structure as well as the phone.
+  // See `preventPressFocusTransfer` for what the press would otherwise cost.
+  const rowPressGuard = isMobile ? preventPressFocusTransfer : undefined;
+
   // macOS parity: the send button is hidden during recording and while
   // transcription is being processed. Only the voice button (mic / stop /
   // spinner) is shown. Otherwise the send slot holds voice mode until there is
@@ -917,6 +932,7 @@ export function ChatComposer({
       iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!isMobile}
       type="submit"
+      onMouseDown={rowPressGuard}
       disabled={sendBlocked}
       title={
         sendDisabled || !canSendMessageContent
@@ -943,6 +959,7 @@ export function ChatComposer({
       iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!isMobile}
       type="submit"
+      onMouseDown={rowPressGuard}
       title="Send message"
       aria-label="Send message"
       className={cn(
@@ -958,6 +975,7 @@ export function ChatComposer({
       iconOnly={<Square className="h-3 w-3" />}
       iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!isMobile}
+      onMouseDown={rowPressGuard}
       onClick={onStopGenerating}
       aria-label="Stop generating"
       className={isMobile ? MOBILE_CONTROL_CLASS : undefined}

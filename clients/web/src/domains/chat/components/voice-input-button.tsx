@@ -28,6 +28,7 @@ import {
   MOBILE_CONTROL_CLASS,
   MOBILE_GHOST_WASH_CLASS,
   MOBILE_GLYPH_CLASS,
+  preventPressFocusTransfer,
 } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useVellumCommands } from "@/runtime/vellum-commands";
@@ -1086,6 +1087,11 @@ export const VoiceInputButton = forwardRef<
       }
       // The row sizes its own controls when it owns this one.
       expandOnMobile={!mobileRow}
+      // The row this stands in is focus-gated, so the press has to leave the
+      // composer's focus alone until the click arrives. Dictation wants it
+      // there anyway: the transcript lands in the textarea, which the flow
+      // focuses again on its way out.
+      onMouseDown={mobileRow ? preventPressFocusTransfer : undefined}
       onClick={() => {
         if (processing) {
           return;

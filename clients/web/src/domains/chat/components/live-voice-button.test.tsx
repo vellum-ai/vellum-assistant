@@ -69,6 +69,35 @@ describe("LiveVoiceButton", () => {
     expect(plain.className).toContain("touch-mobile:h-10");
   });
 
+  test("mobileRow holds the composer's focus through the press", () => {
+    // GIVEN the button in the focus-gated mobile composer row
+    const { getByLabelText } = render(
+      <LiveVoiceButton onStart={onStartSpy} mobileRow />,
+    );
+    const button = getByLabelText("Start voice mode");
+
+    // THEN `pointerdown` runs untouched: WebKit drops the rest of the tap's
+    // sequence, `click` included, when it is cancelled
+    expect(fireEvent.pointerDown(button)).toBe(true);
+
+    // WHILE `mousedown` is cancelled, since that is the press that would blur
+    // the textarea, collapse the focus-gated row and move this circle out from
+    // under the finger before the click arrives
+    expect(fireEvent.mouseDown(button)).toBe(false);
+
+    // AND the click still starts the session
+    fireEvent.click(button);
+    expect(onStartSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("leaves the press alone off the mobile row", () => {
+    // GIVEN the desktop presentation, which gates no row on focus
+    const { getByLabelText } = render(<LiveVoiceButton onStart={onStartSpy} />);
+
+    // THEN the press behaves as the platform intends
+    expect(fireEvent.mouseDown(getByLabelText("Start voice mode"))).toBe(true);
+  });
+
   test("prevents starting a session when disabled", () => {
     // GIVEN a button the parent has disabled
     const { getByLabelText } = render(

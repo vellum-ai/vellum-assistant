@@ -651,4 +651,40 @@ describe("VoiceInputButton: mobile composer row chrome", () => {
       MOBILE_GLYPH_CLASS,
     );
   });
+
+  test("mobileRow holds the composer's focus through the press", () => {
+    // GIVEN the mic in the focus-gated mobile composer row
+    render(
+      <VoiceInputButton
+        assistantId="assistant-1"
+        onTranscript={async () => {}}
+        mobileRow
+      />,
+    );
+    const button = screen.getByRole("button", { name: "Start voice input" });
+
+    // THEN `pointerdown` runs untouched: WebKit drops the rest of the tap's
+    // sequence, `click` included, when it is cancelled
+    expect(fireEvent.pointerDown(button)).toBe(true);
+
+    // WHILE `mousedown` is cancelled, since that is the press that would blur
+    // the textarea, collapse the focus-gated row and move this circle out from
+    // under the finger before the click arrives
+    expect(fireEvent.mouseDown(button)).toBe(false);
+  });
+
+  test("the default leaves the press alone", () => {
+    // GIVEN the mic anywhere else, where no row is gated on the composer's
+    // focus
+    render(
+      <VoiceInputButton
+        assistantId="assistant-1"
+        onTranscript={async () => {}}
+      />,
+    );
+
+    // THEN the press behaves as the platform intends
+    const button = screen.getByRole("button", { name: "Start voice input" });
+    expect(fireEvent.mouseDown(button)).toBe(true);
+  });
 });

@@ -10,7 +10,7 @@
  *      send/stop button, disabled attribute).
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createRef, type ReactNode } from "react";
+import { createRef, type FormEvent, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import {
@@ -1986,6 +1986,97 @@ describe("ChatComposer: the mobile send slot", () => {
   });
 });
 
+describe("ChatComposer: the mobile row holds focus through a press", () => {
+  // WebKit blurs the textarea on a press without focusing the pressed button.
+  // The mobile composer is gated on that focus, so the pills row above the card
+  // and the disclaimer under it both swap in the same commit and the row's 40px
+  // controls move out from under the finger before the tap's click lands. Each
+  // control cancels the compatibility `mousedown`, the event the focus transfer
+  // rides on, and leaves `pointerdown` alone, since WebKit drops the whole rest
+  // of the sequence when that one is cancelled. See `docs/CAPACITOR.md`.
+
+  test("the plus cancels the press and still opens the sheet", () => {
+    // GIVEN a focused phone composer, the state that raises the pills row
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+    fireEvent.focusIn(textareaOf(container));
+    const plus = control(container, PLUS_LABEL)!;
+
+    // THEN the press is cancelled, while the pointer that precedes it is not
+    expect(fireEvent.pointerDown(plus)).toBe(true);
+    expect(fireEvent.mouseDown(plus)).toBe(false);
+
+    // AND the row is still up when the click arrives, so the plus is still
+    // under the finger
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
+
+    // AND the click opens what it always opened
+    fireEvent.click(plus);
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+  });
+
+  test("send cancels the press and still submits", () => {
+    // GIVEN a focused phone composer with a draft to send
+    const onSubmit = mock((event: FormEvent) => event.preventDefault());
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      input: "hello",
+      onSubmit,
+    });
+    fireEvent.focusIn(textareaOf(container));
+    const send = control(container, "Send message")!;
+
+    // THEN the press is cancelled, and the submit the click carries is not
+    expect(fireEvent.mouseDown(send)).toBe(false);
+    fireEvent.click(send);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  test("stop cancels the press and still stops the turn", () => {
+    // GIVEN the same row mid-turn, where stop takes the slot
+    const onStopGenerating = mock(() => {});
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      isAssistantBusy: true,
+      onStopGenerating,
+    });
+    fireEvent.focusIn(textareaOf(container));
+    const stop = control(container, "Stop generating")!;
+
+    expect(fireEvent.mouseDown(stop)).toBe(false);
+    fireEvent.click(stop);
+    expect(onStopGenerating).toHaveBeenCalledTimes(1);
+  });
+
+  test("a narrow mouse window gets the guard as well", () => {
+    // GIVEN the window dragged under the breakpoint, which takes the row's
+    // structure with a mouse still driving it. The row is gated on the same
+    // focus there, so the press costs the same click.
+    const { container } = renderNarrowMouseComposer({
+      ...SETTINGS_SLOTS,
+      input: "hello",
+    });
+    fireEvent.focusIn(textareaOf(container));
+
+    expect(fireEvent.mouseDown(control(container, "Send message")!)).toBe(
+      false,
+    );
+    expect(fireEvent.mouseDown(control(container, PLUS_LABEL)!)).toBe(false);
+  });
+
+  test("a roomy window leaves the press alone", () => {
+    // GIVEN a desktop composer, which gates no row on focus
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { container } = renderComposerView({
+      ...SETTINGS_SLOTS,
+      input: "hello",
+    });
+
+    // THEN the press behaves as the platform intends
+    expect(fireEvent.mouseDown(control(container, "Send message")!)).toBe(true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Empty composer with no attachments
 // ---------------------------------------------------------------------------
@@ -2159,6 +2250,35 @@ describe("ChatComposer — live-voice integration", () => {
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
     expect(liveCancelPrewarmSpy).not.toHaveBeenCalled();
+  });
+
+  test("entering voice mode drops the composer's focus", async () => {
+    // GIVEN a focused composer. The voice button cancels the press that would
+    // otherwise blur this, so its click survives the row's focus gating, which
+    // leaves the soft keyboard raised.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockPreflightVerdict = { status: "ready" };
+    const { container, getByLabelText } = renderVoiceComposer();
+    const textarea = container.querySelector("textarea")!;
+    // Real focus rather than a synthetic `focusIn`: the assertion below is
+    // about `document.activeElement`, and the focus this raises drives the
+    // composer's own focus-gated state.
+    act(() => {
+      textarea.focus();
+    });
+    expect(document.activeElement).toBe(textarea);
+
+    // WHEN the user taps into voice mode
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN the entry drops that focus itself, now that the click it depended on
+    // has been delivered. The room takes the whole screen and has no use for a
+    // keyboard under it.
+    expect(document.activeElement).not.toBe(textarea);
+
+    // Drain the preflight the click started, so its resolution does not land
+    // after the test has returned.
+    await flushPreflight();
   });
 
   test("a not-ready verdict keeps the room closed and surfaces the configure-voice prompt", async () => {

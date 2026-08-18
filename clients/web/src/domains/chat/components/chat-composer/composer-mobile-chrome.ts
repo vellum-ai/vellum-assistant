@@ -1,5 +1,6 @@
 /**
- * The chrome the mobile composer row's controls wear.
+ * The chrome the mobile composer row's controls wear, and the press behaviour
+ * every focus-gated control in the mobile composer shares.
  *
  * Its own module because the controls live outside the composer: the composer
  * assembles the row and passes the switch down, while `VoiceInputButton` and
@@ -7,6 +8,8 @@
  * `chat-composer.tsx` would close a cycle, and re-typing them in each control
  * is how the row drifts apart one button at a time.
  */
+
+import type { MouseEvent as ReactMouseEvent } from "react";
 
 /**
  * The 40x40 circle the mobile row's controls stand at.
@@ -31,3 +34,28 @@ export const MOBILE_GLYPH_CLASS = "size-5 [&_svg]:size-5";
  */
 export const MOBILE_GHOST_WASH_CLASS =
   "hover:bg-[var(--surface-active)] active:bg-[var(--surface-active)]";
+
+/**
+ * Keeps a press from moving focus off the composer's textarea.
+ *
+ * WebKit blurs the textarea on a press without focusing the pressed button, and
+ * the mobile composer is gated on that focus: the pills row above the card goes
+ * away and the disclaimer under it comes back in the same commit, all before the
+ * tap's `click` is dispatched. A pill vanishes outright; the action row's 40px
+ * controls shift far enough that the press lands off whichever one the finger
+ * started on. Either way the tap does nothing but drop the keyboard.
+ *
+ * `mousedown` is the press to cancel, not `pointerdown`. WebKit drops the whole
+ * compatibility sequence when `pointerdown` is cancelled, `click` included.
+ * Cancelling the compatibility `mousedown` suppresses the focus transfer and
+ * nothing else. See `docs/CAPACITOR.md` for the event ordering this relies on.
+ *
+ * Wire it only where a press is what activates the control and a focus-gated row
+ * is on screen. A presentation whose surface opens on the `pointerdown` before
+ * the press, as the pills' desktop menu does, needs nothing here. A control that
+ * wants the keyboard gone anyway drops focus from its own click handler, by
+ * which point the click it depends on has been delivered.
+ */
+export function preventPressFocusTransfer(event: ReactMouseEvent<HTMLElement>) {
+  event.preventDefault();
+}
