@@ -58,11 +58,11 @@ import {
   resolveSandboxBase,
 } from "./workspace-policy.js";
 
-/** The result of classifyRisk(): a risk level with an optional human-readable reason. */
+/** The result of classifyRisk(): a risk level and the classifier's reason for it. */
 export interface RiskClassification {
   level: RiskLevel;
   /** Human-readable explanation of why this risk level was assigned. */
-  reason?: string;
+  reason: string;
 }
 
 /**

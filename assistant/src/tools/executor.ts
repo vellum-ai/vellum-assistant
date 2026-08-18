@@ -82,7 +82,7 @@ export class ToolExecutor {
         context.signal,
       );
     } catch {
-      classification = undefined;
+      // Stays undefined; the audit row records RISK_LEVEL_UNCLASSIFIED.
     }
     let riskLevel: string = classification?.level ?? RISK_LEVEL_UNCLASSIFIED;
     let permRiskMeta:

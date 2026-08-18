@@ -133,7 +133,7 @@ export class PermissionChecker {
 
     const riskMeta = {
       riskLevel: classification.level,
-      riskReason: classification.reason ?? "",
+      riskReason: classification.reason,
       // Display ladder (regex patterns — internal only, not for save).
       riskScopeOptions: classification.scopeOptions,
       // Save ladder (Minimatch globs — what the gateway matches against).
