@@ -175,9 +175,14 @@ function flattenConcatenation(node) {
   return [node];
 }
 
+/** True for a string written out in the source rather than computed. */
+function isStringLiteral(node) {
+  return node.type === "Literal" && typeof node.value === "string";
+}
+
 /** True for an operand that stands in for a value, the way `${x}` does. */
 function isInterpolation(node) {
-  return Boolean(node) && !(node.type === "Literal");
+  return Boolean(node) && node.type !== "Literal";
 }
 
 /** Files whose strings are fixtures rather than shipped copy. */
@@ -286,7 +291,7 @@ export const noUntranslatedStrings = {
       if (!node) {
         return;
       }
-      if (node.type === "Literal" && typeof node.value === "string") {
+      if (isStringLiteral(node)) {
         if (isCopy(node.value)) {
           context.report({
             node,
@@ -297,74 +302,43 @@ export const noUntranslatedStrings = {
         return;
       }
       if (node.type === "TemplateLiteral") {
-        const statics = node.quasis
-          .map((quasi, index) =>
+        checkAssembled(
+          node,
+          node.quasis.map((quasi, index) =>
             unglue(
               quasi.value.cooked ?? "",
               index > 0,
               index < node.quasis.length - 1,
             ),
-          )
-          .join(" ");
-        // A template with an interpolation is copy assembled in the component
-        // whatever its static half looks like, so it is judged by
-        // `isTranslatable` rather than by `isCopy`. `aria-label={`${name}
-        // actions`}` leaves "actions" behind: one lowercase word, which reads
-        // as an enum value to the prop-level test and slips through, while the
-        // string it builds is exactly the untranslatable shape, since a
-        // translator cannot put the word before the name.
-        const isAssembled = node.expressions.length > 0;
-        if (isAssembled ? isTranslatable(statics) : isCopy(statics)) {
-          context.report({
-            node,
-            messageId,
-            data: { ...data, text: preview(statics) },
-          });
-        }
-        // The interpolations carry copy of their own: `${draft ? "Draft" :
-        // "Live"}` is a word chosen in the component, and sits in the one
-        // place the static halves are not.
-        for (const expression of node.expressions) {
-          checkExpression(expression, messageId, data, isCopy);
-        }
+          ),
+          node.expressions,
+          messageId,
+          data,
+          isCopy,
+        );
         return;
       }
-      // `"Delete " + name` is the concatenation `I18N.md` calls the most
-      // common way to make a string untranslatable: word order is fixed by
-      // the source, exactly as in the template form, so it is read the same
-      // way. Only `+` builds a string, so the other operators stay out of it.
+      // `"Delete " + name` builds its sentence the same way a template does,
+      // so it is read the same way. Only `+` builds a string, which leaves the
+      // other operators out of it.
       if (node.type === "BinaryExpression" && node.operator === "+") {
         const operands = flattenConcatenation(node);
-        const statics = operands
-          .map((operand, index) =>
-            operand.type === "Literal" && typeof operand.value === "string"
+        checkAssembled(
+          node,
+          operands.map((operand, index) =>
+            isStringLiteral(operand)
               ? unglue(
                   operand.value,
                   isInterpolation(operands[index - 1]),
                   isInterpolation(operands[index + 1]),
                 )
               : "",
-          )
-          .join(" ");
-        if (
-          operands.some((operand) => isInterpolation(operand))
-            ? isTranslatable(statics)
-            : isCopy(statics)
-        ) {
-          context.report({
-            node,
-            messageId,
-            data: { ...data, text: preview(statics) },
-          });
-          return;
-        }
-        // Nothing assembled, so each side is judged on its own: a lone
-        // capitalized word is still copy where a glued fragment is not.
-        for (const operand of operands) {
-          if (operand.type !== "Literal") {
-            checkExpression(operand, messageId, data, isCopy);
-          }
-        }
+          ),
+          operands.filter(isInterpolation),
+          messageId,
+          data,
+          isCopy,
+        );
         return;
       }
       // `cond ? "Open" : "Close"` and `label || "Untitled"` are copy chosen in
@@ -378,6 +352,31 @@ export const noUntranslatedStrings = {
       }
       if (node.type === "LogicalExpression") {
         checkExpression(node.right, messageId, data, isCopy);
+      }
+    }
+
+    /**
+     * Read a string the component assembles, from its static fragments and
+     * the values interleaved between them.
+     *
+     * Anything with a value in it is judged by `isTranslatable` rather than by
+     * `isCopy`: `` `${name} actions` `` leaves "actions" behind, one lowercase
+     * word that the prop-value test reads as an enum, while the string it
+     * builds is the shape a translator cannot reorder. The values are read in
+     * turn, since `${draft ? "Draft" : "Live"}` puts its copy in the one place
+     * the fragments are not.
+     */
+    function checkAssembled(node, fragments, values, messageId, data, isCopy) {
+      const statics = fragments.join(" ");
+      if (values.length > 0 ? isTranslatable(statics) : isCopy(statics)) {
+        context.report({
+          node,
+          messageId,
+          data: { ...data, text: preview(statics) },
+        });
+      }
+      for (const value of values) {
+        checkExpression(value, messageId, data, isCopy);
       }
     }
 
