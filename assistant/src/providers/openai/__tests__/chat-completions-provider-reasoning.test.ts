@@ -438,17 +438,87 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
     };
     const assistantMsg = params.messages.find((m) => m.role === "assistant")!;
     // Backfill defaults off, so providers that tolerate null assistant content
-    // (e.g. OpenAI proper) are unaffected by the OpenRouter-specific guard.
+    // (e.g. Fireworks, Together) are unaffected unless they opt in.
     expect(assistantMsg.content).toBeNull();
   });
 
-  test("does not backfill content when tool calls are present", async () => {
-    const { provider, requests } = stubProvider([
+  test("backfills placeholder when thinking is dropped and no text was emitted", async () => {
+    // Custom openai-compatible endpoints do not set assistantReasoningField, so
+    // a Stop during thinking serializes to { role: "assistant", content: null }
+    // unless the backfill guard runs.
+    const { provider, requests } = stubProvider(
+      [
+        {
+          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        },
+      ],
+      { backfillEmptyAssistantContent: true },
+    );
+
+    await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "question" }] },
       {
-        choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
-        usage: { prompt_tokens: 2, completion_tokens: 1 },
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "aborted mid-thought",
+            signature: "",
+          },
+        ],
       },
     ]);
+
+    const params = requests[0] as {
+      messages: Array<{
+        role: string;
+        content: string | null;
+        reasoning?: string;
+        reasoning_content?: string;
+        tool_calls?: unknown;
+      }>;
+    };
+    const assistantMsg = params.messages.find((m) => m.role === "assistant")!;
+    expect(assistantMsg.content).toBe(EMPTY_ASSISTANT_TURN_PLACEHOLDER);
+    expect(assistantMsg.tool_calls).toBeUndefined();
+    expect(assistantMsg.reasoning).toBeUndefined();
+    expect(assistantMsg.reasoning_content).toBeUndefined();
+  });
+
+  test("backfills placeholder for an empty aborted assistant turn", async () => {
+    const { provider, requests } = stubProvider(
+      [
+        {
+          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        },
+      ],
+      { backfillEmptyAssistantContent: true },
+    );
+
+    await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "question" }] },
+      { role: "assistant", content: [] },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{ role: string; content: string | null }>;
+    };
+    const assistantMsg = params.messages.find((m) => m.role === "assistant")!;
+    expect(assistantMsg.content).toBe(EMPTY_ASSISTANT_TURN_PLACEHOLDER);
+  });
+
+  test("does not backfill content when tool calls are present", async () => {
+    const { provider, requests } = stubProvider(
+      [
+        {
+          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        },
+      ],
+      { backfillEmptyAssistantContent: true },
+    );
 
     await provider.sendMessage([
       {
