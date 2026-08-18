@@ -1,12 +1,15 @@
 /**
  * Photo-library and document pickers for the Capacitor shells.
  *
- * A hidden `<input type="file">` cannot reach either surface on iOS: WebKit
- * answers every click with its own action sheet (Photo Library / Take Photo /
- * Choose File) unless `capture` forces the camera, which is why the sheet's
- * camera row already lands correctly and the other two do not. These go
- * straight to the system media and document pickers instead, so a row opens
- * the surface it names.
+ * What lets the composer show a sheet of its own. A hidden
+ * `<input type="file">` cannot reach either surface: WebKit answers every
+ * click with its own action sheet (Photo Library / Take Photo / Choose File)
+ * and offers no way to skip or narrow it, so rows built on inputs can only
+ * raise that same list a second time. `capture` is the one exception, which
+ * is why the camera row stays an input and these two do not.
+ *
+ * `PHPickerViewController` and `UIDocumentPickerViewController` are what the
+ * plugin reaches, which is also why neither row costs a permission prompt.
  *
  * Both return plain `File`s. Everything downstream of `onAddAttachmentFiles`
  * already accepts `File[]` because drag-and-drop built it that way, so the
@@ -86,14 +89,21 @@ export function isPickerDismissal(error: unknown): boolean {
 /**
  * Turns one of the plugin's base64 payloads into bytes.
  *
- * Reading the bytes through `fetch(convertFileSrc(path))` would stream them
- * rather than holding them in JS memory at all, but it cannot work in the
- * cloud shells: `server.url` carries a path (`.../assistant`), the file URL is
- * served from the custom scheme, and the asset handler answers that
- * cross-origin request with an `Access-Control-Allow-Origin` built from the
- * full server URL. An origin never has a path, so the value can never match
- * and every read is refused. Base64 costs memory and is the only path that
- * works for every file.
+ * The bridge is the only way in. `fetch(convertFileSrc(path))` is what the
+ * plugin's own documentation suggests, and it cannot work here: the shells
+ * load the app over `https`, the converted URL carries a custom scheme, and
+ * WebKit treats that as mixed content and blocks the request before CORS is
+ * consulted at all. Only image and media elements are exempt, so an `<img>`
+ * would load where a `fetch` is refused. A correct
+ * `Access-Control-Allow-Origin` would not rescue it either, and the header
+ * the asset handler sends is built from a `server.url` carrying a path, which
+ * can never equal an origin.
+ *
+ * Nor would it buy what it appears to. A `fetch` body is accumulated whole in
+ * memory before `blob()` hands it over, so the file exists there either way;
+ * base64 costs the encoding on top. What keeps that bounded is reading in
+ * slices, and the assembled blob is spooled to disk at rest whichever route
+ * built it.
  */
 function bytesFromBase64(data: string): Uint8Array<ArrayBuffer> {
   const binary = atob(data);

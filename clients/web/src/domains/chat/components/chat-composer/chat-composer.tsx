@@ -29,6 +29,7 @@ import {
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
+import { nativeAttachmentPickersAvailable } from "@/domains/chat/components/chat-attachments/native-attachment-pickers";
 import { AddToChatSheet } from "@/domains/chat/components/chat-composer/add-to-chat-sheet";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 import {
@@ -786,15 +787,27 @@ export function ChatComposer({
   // Subscribed rather than read once: a convertible whose keyboard comes off
   // mid-session changes whether a press on the row carries focus with it.
   const pointerCoarseNow = usePointerCoarse();
-  // The Android shell is the one surface that still needs a list of its own.
-  // Capacitor's `BridgeWebChromeClient` only reaches a camera intent when the
-  // input carries `capture` AND an `image/*` or `video/*` accept
+  // Two shells want a list of their own, for different reasons.
+  //
+  // A shell holding the native pickers wants one because its rows go straight
+  // to the surface they name: the photo row opens the system photo picker and
+  // the files row the document browser, neither of which a file input can
+  // reach. Without them a row can only raise the OS chooser the plain input
+  // already raises, which is a list in front of a list.
+  //
+  // The Android shell wants one either way. Capacitor's
+  // `BridgeWebChromeClient` only reaches a camera intent when the input
+  // carries `capture` AND an `image/*` or `video/*` accept
   // (`onShowFileChooser`); anything else goes straight to `ACTION_GET_CONTENT`,
   // which is a document picker with no way to take a photo. WebKit's own sheet
   // offers the camera for a bare input, and Android in a browser gets
   // Chromium's chooser, which does the same.
+  //
+  // Read rather than subscribed: neither the shell a session runs in nor the
+  // plugins its build links can change mid-session.
   const isNativeAndroidShell = useIsNativeAndroid();
-  const usesAddSheet = isMobile && isNativeAndroidShell;
+  const usesAddSheet =
+    isMobile && (isNativeAndroidShell || nativeAttachmentPickersAvailable());
 
   // Whether a press on one of the row's controls has to hold the composer's
   // focus for the click behind it. Both halves are load-bearing and neither one
