@@ -20,9 +20,9 @@
  * Callers gate this on the daemon preconditions every list query honors
  * (`useCanQueryDaemon`). The resolution runs through `queryClient.fetchQuery`
  * so it gets the app's retry policy (transient 5xx and network errors retry
- * with backoff, 4xx do not) and de-duplicates concurrent callers, the same
- * way the drained list query it replaces did; `gcTime: 0` keeps the answer
- * out of the cache once delivered.
+ * with backoff, 4xx do not) and de-duplicates concurrent callers, exactly as
+ * a list query does; `gcTime: 0` keeps the answer out of the cache once
+ * delivered.
  */
 
 import type { QueryClient } from "@tanstack/react-query";
