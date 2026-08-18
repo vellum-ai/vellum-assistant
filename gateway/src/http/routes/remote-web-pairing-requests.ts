@@ -22,7 +22,7 @@ import {
   listPendingRemoteWebPairingChallenges,
 } from "../../remote-web/pairing-challenge-store.js";
 import { enforceLoopbackOnly, errorResponse } from "../loopback-guard.js";
-import { readLimitedBody } from "../read-limited-body.js";
+import { methodNotAllowed, readJsonStringField } from "../route-helpers.js";
 
 const MAX_ACTION_BODY_BYTES = 256;
 const AUDIT_TAG = "remote-web-pairing-requests";
@@ -32,10 +32,7 @@ export function handleListRemoteWebPairingRequests(
   clientIp: string,
 ): Response {
   if (req.method !== "GET") {
-    return new Response("method not allowed", {
-      status: 405,
-      headers: { Allow: "GET" },
-    });
+    return methodNotAllowed("GET");
   }
 
   const guardError = enforceLoopbackOnly(req, clientIp, AUDIT_TAG);
@@ -51,38 +48,11 @@ export function handleListRemoteWebPairingRequests(
 
 function guardPostLoopback(req: Request, clientIp: string): Response | null {
   if (req.method !== "POST") {
-    return new Response("method not allowed", {
-      status: 405,
-      headers: { Allow: "POST" },
-    });
+    return methodNotAllowed("POST");
   }
   return enforceLoopbackOnly(req, clientIp, AUDIT_TAG);
 }
 
-async function readRequestIdBody(req: Request): Promise<string | Response> {
-  const rawBody = await readLimitedBody(req, MAX_ACTION_BODY_BYTES);
-  if (rawBody.status === "too_large") {
-    return errorResponse("PAYLOAD_TOO_LARGE", "request body too large", 413);
-  }
-  if (rawBody.status === "unreadable") {
-    return errorResponse("BAD_REQUEST", "failed to read request body", 400);
-  }
-
-  let requestId: string | null = null;
-  try {
-    const body = JSON.parse(rawBody.text) as { requestId?: unknown };
-    requestId =
-      typeof body.requestId === "string" && body.requestId.trim()
-        ? body.requestId
-        : null;
-  } catch {
-    return errorResponse("BAD_REQUEST", "invalid JSON body", 400);
-  }
-
-  return (
-    requestId ?? errorResponse("BAD_REQUEST", "requestId is required", 400)
-  );
-}
 
 // No code-guess rate limiter on approve/deny: request ids are server-minted
 // opaque ids from the list route, not guessable secrets typed by users.
@@ -93,7 +63,11 @@ export async function handleApproveRemoteWebPairingRequest(
   const guardError = guardPostLoopback(req, clientIp);
   if (guardError) return guardError;
 
-  const requestId = await readRequestIdBody(req);
+  const requestId = await readJsonStringField(
+    req,
+    MAX_ACTION_BODY_BYTES,
+    "requestId",
+  );
   if (requestId instanceof Response) return requestId;
 
   const result = approveRemoteWebPairingChallengeById(requestId);
@@ -114,12 +88,23 @@ export async function handleDenyRemoteWebPairingRequest(
   const guardError = guardPostLoopback(req, clientIp);
   if (guardError) return guardError;
 
-  const requestId = await readRequestIdBody(req);
+  const requestId = await readJsonStringField(
+    req,
+    MAX_ACTION_BODY_BYTES,
+    "requestId",
+  );
   if (requestId instanceof Response) return requestId;
 
   const result = denyRemoteWebPairingChallengeById(requestId);
   if (result.status === "invalid") {
     return errorResponse("INVALID_REQUEST_ID", "unknown pairing request", 404);
+  }
+  if (result.status === "already_approved") {
+    return errorResponse(
+      "ALREADY_APPROVED",
+      "this pairing request was already approved on another surface",
+      409,
+    );
   }
 
   return Response.json(

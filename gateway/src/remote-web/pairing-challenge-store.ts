@@ -29,6 +29,7 @@ export interface PendingRemoteWebPairingChallenge {
   expiresAtMs: number;
   requesterIp: string;
   requesterUserAgent: string | null;
+  viaEdgeProxy: boolean;
   approvedAtMs?: number;
   exchangeStartedAtMs?: number;
   consumedAtMs?: number;
@@ -119,7 +120,7 @@ export function checkRemoteWebPairingChallengeCapacity(): RemoteWebPairingChalle
 
 export function createRemoteWebPairingChallenge(
   publicBaseUrl: string,
-  requester: { ip: string; userAgent: string | null },
+  requester: { ip: string; userAgent: string | null; viaEdgeProxy: boolean },
 ): RemoteWebPairingChallengeResponse {
   cleanupExpiredChallenges();
 
@@ -147,6 +148,7 @@ export function createRemoteWebPairingChallenge(
     expiresAtMs,
     requesterIp: requester.ip,
     requesterUserAgent: requester.userAgent,
+    viaEdgeProxy: requester.viaEdgeProxy,
   };
   challengesByUserCodeHash.set(userCodeHash, challenge);
   challengesByDeviceCodeHash.set(deviceCodeHash, challenge);
@@ -216,6 +218,7 @@ export function listPendingRemoteWebPairingChallenges(): RemoteWebPairingRequest
     expiresAt: new Date(challenge.expiresAtMs).toISOString(),
     requesterIp: challenge.requesterIp,
     requesterUserAgent: challenge.requesterUserAgent,
+    viaEdgeProxy: challenge.viaEdgeProxy,
   }));
 }
 
@@ -227,12 +230,21 @@ export function approveRemoteWebPairingChallengeById(
   return approveChallenge(challenge);
 }
 
+export type DenyRemoteWebPairingChallengeResult =
+  | { status: "denied" }
+  | { status: "already_approved" }
+  | { status: "invalid" };
+
 export function denyRemoteWebPairingChallengeById(
   id: string,
-): { status: "denied" } | { status: "invalid" } {
+): DenyRemoteWebPairingChallengeResult {
   const challenge = findChallengeById(id);
-  if (!challenge || challenge.status !== "pending") {
-    return { status: "invalid" };
+  if (!challenge) return { status: "invalid" };
+  // Approved/exchanging/consumed: the remote device may already be pairing.
+  // Distinct from unknown-id so the route can surface it instead of a 404 the
+  // client would read as an already-handled row.
+  if (challenge.status !== "pending") {
+    return { status: "already_approved" };
   }
 
   deleteChallenge(challenge);
