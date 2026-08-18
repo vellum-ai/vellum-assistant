@@ -9,6 +9,7 @@
     "dev": "bun run install:all && bun scripts/dev.ts",
     "dev:standalone": "bun run install:all && concurrently --kill-others --names web,electron --prefix-colors blue,green \"bun run dev:web\" \"bun run dev:electron\"",
     "dev:electron-only": "bun run install:all && electron-vite dev",
+    "dev:electron-local-web": "bun scripts/dev-electron-local-web.ts",
     "install:all": "bun install && bun run setup && bun run build:native-helper",
     "dev:web": "cd ../web && bun run dev -- --port 5173 --strictPort",
     "dev:electron": "wait-on --timeout 30000 http://localhost:5173 && electron-vite dev",
