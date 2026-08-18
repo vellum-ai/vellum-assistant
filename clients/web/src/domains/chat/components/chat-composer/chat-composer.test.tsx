@@ -1436,6 +1436,25 @@ describe("ChatComposer: a banner standing over the card", () => {
     );
   });
 
+  test("a slot that renders nothing is not a banner", () => {
+    // GIVEN a shell composer whose notices slot is mounted but quiet, the way
+    // the disk-pressure slot sits there holding its dismiss flags while the
+    // disk is healthy
+    mockIsNativeMobile = true;
+    const Quiet = () => null;
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      noticesAboveFormSlot: <Quiet />,
+    });
+
+    // THEN the row stands: what the stack renders decides this, not what is
+    // mounted in it
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      false,
+    );
+  });
+
   test("a banner mounted with the composer takes the row down", () => {
     // GIVEN the same shell composer, with a banner in the stack above the card
     mockIsNativeMobile = true;
