@@ -319,6 +319,51 @@ function isThinkingModeToolChoiceRejection(
 }
 
 /**
+ * True when the provider rejected the request because a message's `content`
+ * was a content-parts array and the endpoint only accepts plain strings
+ * (e.g. `body/messages/1/content must be string`, or pydantic-style
+ * `messages.1.content: Input should be a valid string`). The official OpenAI
+ * spec allows array content, but string-only backends are common among
+ * "OpenAI-compatible" endpoints; one retry with content flattened to strings
+ * beats a hard failure the user cannot configure around.
+ */
+function isStringContentRejection(error: unknown, params: unknown): boolean {
+  const p = params as { messages?: Array<{ content?: unknown }> };
+  if (!p.messages?.some((m) => Array.isArray(m.content))) {
+    return false;
+  }
+  if (!isClientErrorStatus(error)) {
+    return false;
+  }
+  return /content[\s\S]{0,80}?(?:must|should)\s+be\s+(?:a\s+)?(?:valid\s+)?str(?:ing)?\b/i.test(
+    openaiCompatErrorHaystack(error),
+  );
+}
+
+/**
+ * Flatten content-parts arrays to plain strings for string-only backends.
+ * Non-text parts (images, audio) cannot survive the flattening; they are
+ * replaced with a bracketed placeholder naming the dropped part type.
+ */
+function coerceContentPartsToStrings(
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+  return messages.map((m) => {
+    if (!Array.isArray(m.content)) {
+      return m;
+    }
+    const content = (m.content as Array<{ type: string; text?: string }>)
+      .map((part) =>
+        typeof part.text === "string"
+          ? part.text
+          : `[${part.type} omitted: this endpoint only accepts plain-text message content]`,
+      )
+      .join("\n");
+    return { ...m, content } as typeof m;
+  });
+}
+
+/**
  * Translate the neutral (Anthropic-shaped) `tool_choice` carried on the call
  * config into the OpenAI chat-completions wire format. Callers express
  * `tool_choice` once in the Anthropic union — `{ type: "auto" | "any" | "none"
@@ -545,8 +590,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         if (toolChoice !== undefined) {
           const thinkingOn = isThinkingEnabledOnWire(params);
           const skipAutoDefault = thinkingOn && toolChoice === "auto";
-          const skipAllChoices =
-            thinkingOn && this.omitToolChoiceWhenReasoning;
+          const skipAllChoices = thinkingOn && this.omitToolChoiceWhenReasoning;
           if (!skipAutoDefault && !skipAllChoices) {
             params.tool_choice = toolChoice;
           }
@@ -671,6 +715,17 @@ export class OpenAIChatCompletionsProvider implements Provider {
               "Upstream rejected tool_choice in thinking mode; retrying without tool_choice",
             );
             delete params.tool_choice;
+            stream = await createStream();
+          } else if (isStringContentRejection(error, params)) {
+            log.warn(
+              {
+                provider: this.name,
+                model: modelOverride ?? this.model,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              "Endpoint rejected content-parts array; retrying with string message content",
+            );
+            params.messages = coerceContentPartsToStrings(params.messages);
             stream = await createStream();
           } else {
             throw error;
