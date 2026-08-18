@@ -48,7 +48,11 @@ const {
 
 const GUARDIAN_ID = "guardian-001";
 const PUBLIC_BASE_URL = "https://paired.example.com";
-const TEST_REQUESTER = { ip: "203.0.113.10", userAgent: "test-agent" };
+const TEST_REQUESTER = {
+  ip: "203.0.113.10",
+  userAgent: "test-agent",
+  viaEdgeProxy: true,
+};
 
 let testRoot: string;
 

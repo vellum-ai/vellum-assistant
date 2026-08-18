@@ -94,10 +94,20 @@ export interface RemoteWebPairingRequestSummary {
   requestedAt: string;
   /** ISO-8601 instant the challenge expires. */
   expiresAt: string;
-  /** Client IP the mint request arrived from (edge-forwarded when tunneled). */
+  /**
+   * Client IP of the mint request: the loopback/host address when minted
+   * locally, or the edge-observed client address when the mint arrived
+   * through the nginx tunnel edge (which stamps it via `proxy_set_header`,
+   * so a remote client cannot smuggle a value).
+   */
   requesterIp: string;
   /** User-Agent header of the mint request, or null when absent. */
   requesterUserAgent: string | null;
+  /**
+   * Whether the mint arrived through the public tunnel edge rather than the
+   * host itself.
+   */
+  viaEdgeProxy: boolean;
 }
 
 /** `GET /v1/remote-web/pairing-requests` success response body (200). */

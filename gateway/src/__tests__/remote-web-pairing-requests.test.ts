@@ -13,45 +13,17 @@ const {
   setRemoteWebPairingChallengeNowForTests,
 } = await import("../remote-web/pairing-challenge-store.js");
 
-const CLIENT_IP = "203.0.113.10";
-const LOOPBACK_IP = "127.0.0.1";
-const PUBLIC_BASE_URL = "https://paired.example.com";
+import {
+  LOOPBACK_IP,
+  makeLocalRequest,
+  makeRemoteRequest,
+  PUBLIC_BASE_URL,
+  REMOTE_IP as CLIENT_IP,
+} from "./helpers/remote-web-pairing-fixtures.js";
+
 const LIST_PATH = "/v1/remote-web/pairing-requests";
 const APPROVE_PATH = "/v1/remote-web/pairing-requests/approve";
 const DENY_PATH = "/v1/remote-web/pairing-requests/deny";
-
-function makeLocalRequest(
-  path: string,
-  init: {
-    method: string;
-    body?: BodyInit;
-    headers?: Record<string, string>;
-  },
-): Request {
-  return new Request(`http://localhost:7830${path}`, {
-    method: init.method,
-    headers: {
-      host: "localhost:7830",
-      "content-type": "application/json",
-      ...init.headers,
-    },
-    body: init.body,
-  });
-}
-
-function makeRemoteRequest(
-  path: string,
-  init: { method: string; body?: BodyInit },
-): Request {
-  return new Request(`https://paired.example.com${path}`, {
-    method: init.method,
-    headers: {
-      host: "paired.example.com",
-      "content-type": "application/json",
-    },
-    body: init.body,
-  });
-}
 
 function makeActionRequest(path: string, body: unknown): Request {
   return makeLocalRequest(path, {
@@ -83,22 +55,21 @@ async function createChallenge(): Promise<{
   };
 }
 
-async function listRequests(): Promise<
-  {
-    requestId: string;
-    userCode: string;
-    publicBaseUrl: string;
-  }[]
-> {
+interface ListedRequest {
+  requestId: string;
+  userCode: string;
+  publicBaseUrl: string;
+  viaEdgeProxy: boolean;
+}
+
+async function listRequests(): Promise<ListedRequest[]> {
   const res = handleListRemoteWebPairingRequests(
     makeLocalRequest(LIST_PATH, { method: "GET" }),
     LOOPBACK_IP,
   );
   expect(res.status).toBe(200);
   expect(res.headers.get("Cache-Control")).toBe("no-store");
-  const body = (await res.json()) as {
-    requests: { requestId: string; userCode: string; publicBaseUrl: string }[];
-  };
+  const body = (await res.json()) as { requests: ListedRequest[] };
   return body.requests;
 }
 
@@ -171,6 +142,7 @@ describe("remote web pairing requests", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]?.userCode).toBe(challenge.userCode);
     expect(requests[0]?.publicBaseUrl).toBe(PUBLIC_BASE_URL);
+    expect(requests[0]?.viaEdgeProxy).toBe(false);
 
     const approveRes = await handleApproveRemoteWebPairingRequest(
       makeActionRequest(APPROVE_PATH, { requestId: requests[0]?.requestId }),
@@ -206,6 +178,34 @@ describe("remote web pairing requests", () => {
     expect(
       claimRemoteWebPairingChallengeExchange(challenge.deviceCode).status,
     ).toBe("invalid");
+  });
+
+  test("returns 409 ALREADY_APPROVED when denying an approved request", async () => {
+    const challenge = await createChallenge();
+    const requests = await listRequests();
+    expect(requests).toHaveLength(1);
+
+    const approveRes = await handleApproveRemoteWebPairingRequest(
+      makeActionRequest(APPROVE_PATH, { requestId: requests[0]?.requestId }),
+      LOOPBACK_IP,
+    );
+    expect(approveRes.status).toBe(200);
+
+    const denyRes = await handleDenyRemoteWebPairingRequest(
+      makeActionRequest(DENY_PATH, { requestId: requests[0]?.requestId }),
+      LOOPBACK_IP,
+    );
+    expect(denyRes.status).toBe(409);
+    expect(await denyRes.json()).toEqual({
+      error: {
+        code: "ALREADY_APPROVED",
+        message: "this pairing request was already approved on another surface",
+      },
+    });
+
+    expect(
+      claimRemoteWebPairingChallengeExchange(challenge.deviceCode).status,
+    ).toBe("approved");
   });
 
   test("returns 404 for unknown request ids", async () => {
