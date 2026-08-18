@@ -204,7 +204,6 @@ import type { Tool, ToolContext } from "../tools/types.js";
 import {
   check,
   classifyRisk,
-  generateAllowlistOptions,
   generateScopeOptions,
   isInstalledStaticSkillLoad,
 } from "./checker.js";
@@ -1180,10 +1179,10 @@ describe("Permission Checker (gateway IPC)", () => {
     });
   });
 
-  // ── generateAllowlistOptions ──────────────────────────────────────────────
+  // ── allowlist ladder ──────────────────────────────────────────────────────
 
-  describe("generateAllowlistOptions", () => {
-    test("returns the gateway's options from the invocation's classification", async () => {
+  describe("allowlist ladder", () => {
+    test("is the gateway's, carried through unchanged", async () => {
       const mockOptions = [
         { label: "wc -l", description: "Exact command", pattern: "wc -l" },
         {
@@ -1201,28 +1200,19 @@ describe("Permission Checker (gateway IPC)", () => {
       };
 
       const classification = await classifyRisk("bash", { command: "wc -l" });
-      const options = await generateAllowlistOptions(
-        "bash",
-        { command: "wc -l" },
-        classification,
-      );
-      expect(options).toEqual(mockOptions);
+      expect(classification.allowlistOptions).toEqual(mockOptions);
     });
 
-    test("falls back to per-tool strategy for file tools without gateway options", async () => {
-      const options = await generateAllowlistOptions("file_read", {
-        path: "/tmp/foo.txt",
-      });
-      // Should get file-specific options (exact path, directory wildcards, etc.)
-      expect(options.length).toBeGreaterThan(0);
-      expect(options[0].pattern).toContain("file_read:");
-    });
+    test("is absent when the classifier produced none", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "no ladder",
+        matchType: "registry",
+        scopeOptions: [],
+      };
 
-    test("returns default option for unknown tools", async () => {
-      const options = await generateAllowlistOptions("custom_tool", {});
-      expect(options).toEqual([
-        { label: "*", description: "Everything", pattern: "*" },
-      ]);
+      const classification = await classifyRisk("custom_tool", {});
+      expect(classification.allowlistOptions).toBeUndefined();
     });
   });
 

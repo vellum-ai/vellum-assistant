@@ -5,9 +5,11 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
+import { holdVisibleViewport } from "@/hooks/use-visible-viewport";
 
 interface UseAttachmentFilePickerOptions {
   /** Receives the picked files. Not called when the picker closes empty. */
@@ -25,6 +27,13 @@ interface UseAttachmentFilePickerResult {
   openPicker: () => void;
   /** Hidden `<input type="file">` the caller must render. */
   inputNode: ReactElement;
+  /**
+   * True from the moment the picker is opened until it closes. The native
+   * picker takes the web view's first responder, which on iOS arrives in the
+   * DOM as the composer losing focus, so a caller that gates layout on its own
+   * focus has to hold that gate open for this instead.
+   */
+  pickerOpen: boolean;
 }
 
 /**
@@ -56,6 +65,13 @@ interface UseAttachmentFilePickerResult {
  * `requestComposerFocus()` is idempotent and a no-op on desktop (the textarea
  * is already focused there and the OS file dialog doesn't steal focus), so
  * running it from more than one of these paths is harmless.
+ *
+ * The shell is held at the size the keyboard left it for as long as the picker
+ * is up. The keyboard itself cannot stay: it and the picker are exclusive first
+ * responders, and iOS resigns one to present the other. The layout underneath
+ * has no such constraint, and letting it collapse would walk the composer down
+ * the screen on the way into a picker that then covers where it went, and back
+ * up on the way out. The same close paths that refocus end the hold.
  */
 export function useAttachmentFilePicker({
   onFiles,
@@ -64,6 +80,11 @@ export function useAttachmentFilePicker({
   capture,
 }: UseAttachmentFilePickerOptions): UseAttachmentFilePickerResult {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // The picker's own lifetime, which outlives the composer's focus: presenting
+  // it dismisses the keyboard, and `useComposerFocusWithin` reads that dismiss
+  // as focus returning to the body. Without this the composer would rearrange
+  // itself for an idle composer while the picker it opened is still up.
+  const [pickerOpen, setPickerOpen] = useState(false);
   // Kept in a ref so an unmemoized caller callback doesn't remint `inputNode`,
   // which would remount the input mid-picker for consumers that render it.
   const onFilesRef = useRef(onFiles);
@@ -75,13 +96,20 @@ export function useAttachmentFilePicker({
   // Held in a ref so every picker-close path (change, cancel, unmount) can
   // disarm it, not just a window focus event.
   const disarmFocusFallbackRef = useRef<(() => void) | null>(null);
+  // Release for the shell size held across this picker session.
+  const releaseViewportHoldRef = useRef<(() => void) | null>(null);
 
   const refocusComposer = useCallback(() => {
     // Any picker-close path lands here: disarm the pending focus fallback so it
     // can't fire on a later unrelated window focus, then restore the keyboard.
     disarmFocusFallbackRef.current?.();
     disarmFocusFallbackRef.current = null;
+    // Asked for before the hold ends, so the keyboard is already on its way
+    // back when the shell is free to follow the measurement again.
     requestComposerFocus();
+    setPickerOpen(false);
+    releaseViewportHoldRef.current?.();
+    releaseViewportHoldRef.current = null;
   }, []);
 
   const openPicker = useCallback(() => {
@@ -95,6 +123,10 @@ export function useAttachmentFilePicker({
     window.addEventListener("focus", onFocus, { once: true });
     disarmFocusFallbackRef.current = () =>
       window.removeEventListener("focus", onFocus);
+    setPickerOpen(true);
+    // Before the click, so the size is taken while the keyboard is still up.
+    releaseViewportHoldRef.current?.();
+    releaseViewportHoldRef.current = holdVisibleViewport();
     inputRef.current?.click();
   }, [refocusComposer]);
 
@@ -127,6 +159,8 @@ export function useAttachmentFilePicker({
       input?.removeEventListener("cancel", onCancel);
       disarmFocusFallbackRef.current?.();
       disarmFocusFallbackRef.current = null;
+      releaseViewportHoldRef.current?.();
+      releaseViewportHoldRef.current = null;
     };
   }, [refocusComposer]);
 
@@ -147,5 +181,5 @@ export function useAttachmentFilePicker({
     [multiple, accept, capture, handleChange],
   );
 
-  return { openPicker, inputNode };
+  return { openPicker, inputNode, pickerOpen };
 }

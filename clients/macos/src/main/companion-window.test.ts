@@ -22,12 +22,11 @@ const {
   cardGrowthFor,
   avatarOffsetFor,
   placeCanvas,
-  callOnStart,
   callOnUpdate,
   shouldShowCompanionSurface,
 } = await import("./companion-window");
 
-/** A session as the mirror publishes one, before main stamps its clock. */
+/** A session as the mirror publishes one, which is what main then holds. */
 const START = {
   phase: "listening",
   label: "Listening",
@@ -250,19 +249,8 @@ describe("avatarOffsetFor", () => {
 });
 
 describe("the session main holds", () => {
-  test("start stamps the clock", () => {
-    expect(callOnStart(null, START, 1_000).startedAt).toBe(1_000);
-  });
-
-  test("a redundant start updates the session without restarting its clock", () => {
-    const running = callOnStart(null, START, 1_000);
-    const again = callOnStart(running, { ...START, phase: "thinking" }, 9_000);
-    expect(again.startedAt).toBe(1_000);
-    expect(again.phase).toBe("thinking");
-  });
-
   test("update merges content and leaves the fixed fields alone", () => {
-    const running = callOnStart(null, START, 1_000);
+    const running = { ...START };
     const next = callOnUpdate(running, { phase: "speaking", detail: "Reading" });
     expect(next).toEqual({
       ...running,
@@ -278,7 +266,7 @@ describe("the session main holds", () => {
   });
 
   test("carries the pending approval through", () => {
-    const running = callOnStart(null, START, 1_000);
+    const running = { ...START };
     expect(
       callOnUpdate(running, { approvalRequestId: "req-1" })?.approvalRequestId,
     ).toBe("req-1");

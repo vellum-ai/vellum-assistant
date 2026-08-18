@@ -10,7 +10,6 @@ import { buildChannelPermissionCellQuery } from "../permissions/channel-permissi
 import {
   check,
   classifyRisk,
-  generateAllowlistOptions,
   generateScopeOptions,
   isDynamicSkillLoadInvocation,
   type RiskClassificationWithMeta,
@@ -132,11 +131,9 @@ export class PermissionChecker {
     const riskMeta = {
       riskLevel: classification.level,
       riskReason: classification.reason,
-      // Display ladder (regex patterns — internal only, not for save).
+      // Display ladder: bash only, internal, never persisted as a rule.
       riskScopeOptions: classification.scopeOptions,
-      // Save ladder (Minimatch globs — what the gateway matches against).
-      // Populated for classifiers that produce allowlist options
-      // (bash, file, skill); undefined otherwise.
+      // Save ladder: the patterns the gateway matches a rule by, exactly.
       riskAllowlistOptions: classification.allowlistOptions,
       riskDirectoryScopeOptions: classification.directoryScopeOptions,
       isContainerized: getIsContainerized(),
@@ -383,12 +380,7 @@ export class PermissionChecker {
           context.workingDir,
         );
         const promptOptions = {
-          allowlistOptions: await generateAllowlistOptions(
-            name,
-            input,
-            classification,
-            context.signal,
-          ),
+          allowlistOptions: classification.allowlistOptions ?? [],
           scopeOptions: generateScopeOptions(context.workingDir, name),
           persistentDecisionsAllowed: !context.requireFreshApproval,
         };

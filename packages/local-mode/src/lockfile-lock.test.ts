@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -83,6 +84,72 @@ describe("withLockfileLock", () => {
     const result = withLockfileLock([lockfilePath], () => "ran");
     expect(result).toEqual({ ok: true, value: "ran" });
     expect(fs.existsSync(lockDir)).toBe(false);
+  });
+
+  test("breaks a stale lock whose recorded owner process is dead", () => {
+    // A synchronously-spawned child has exited by the time spawnSync returns.
+    const deadPid = spawnSync(process.execPath, ["--version"]).pid;
+    fs.mkdirSync(lockDir);
+    fs.writeFileSync(path.join(lockDir, "owner"), String(deadPid));
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(lockDir, past, past);
+
+    const result = withLockfileLock([lockfilePath], () => "ran");
+    expect(result).toEqual({ ok: true, value: "ran" });
+    expect(fs.existsSync(lockDir)).toBe(false);
+  });
+
+  test("never steals a stale-aged lock whose owner is still alive", () => {
+    fs.mkdirSync(lockDir);
+    fs.writeFileSync(path.join(lockDir, "owner"), String(process.pid));
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(lockDir, past, past);
+
+    let ran = false;
+    const result = withLockfileLock([lockfilePath], () => {
+      ran = true;
+    });
+    expect(ran).toBe(false);
+    expect(result.ok).toBe(false);
+    expect(fs.existsSync(lockDir)).toBe(true);
+    expect(fs.readFileSync(path.join(lockDir, "owner"), "utf-8")).toBe(
+      String(process.pid),
+    );
+  });
+
+  test("breaks a hard-stale lock even when the recorded owner pid is alive", () => {
+    // Models a crashed holder whose pid was recycled to a live process: past
+    // the hard ceiling the pid check no longer keeps the lock alive.
+    fs.mkdirSync(lockDir);
+    fs.writeFileSync(path.join(lockDir, "owner"), String(process.pid));
+    const past = new Date(Date.now() - 11 * 60_000);
+    fs.utimesSync(lockDir, past, past);
+
+    const result = withLockfileLock([lockfilePath], () => "ran");
+    expect(result).toEqual({ ok: true, value: "ran" });
+    expect(fs.existsSync(lockDir)).toBe(false);
+  });
+
+  test("records this process as the owner while the lock is held", () => {
+    withLockfileLock([lockfilePath], () => {
+      expect(fs.readFileSync(path.join(lockDir, "owner"), "utf-8")).toBe(
+        String(process.pid),
+      );
+    });
+  });
+
+  test("release leaves a lock re-acquired by another owner untouched", () => {
+    const result = withLockfileLock([lockfilePath], () => {
+      // Simulate a break-and-reacquire while suspended: another process now
+      // records itself as the owner of the lock path.
+      fs.writeFileSync(path.join(lockDir, "owner"), String(process.pid + 1));
+      return "ran";
+    });
+    expect(result).toEqual({ ok: true, value: "ran" });
+    expect(fs.existsSync(lockDir)).toBe(true);
+    expect(fs.readFileSync(path.join(lockDir, "owner"), "utf-8")).toBe(
+      String(process.pid + 1),
+    );
   });
 
   test("creates a missing parent directory and acquires", () => {

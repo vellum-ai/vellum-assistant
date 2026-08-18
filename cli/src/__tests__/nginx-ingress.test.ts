@@ -187,6 +187,27 @@ describe("buildIngressNginxConfig", () => {
     expect(conf).toContain("location / {");
     expect(conf).toContain("proxy_pass http://127.0.0.1:7830;");
     expect(conf).toContain('proxy_set_header X-Vellum-Edge-Forwarded "1";');
+    expect(conf).toContain(
+      "proxy_set_header X-Vellum-Client-Ip $vellum_edge_client_ip;",
+    );
+  });
+
+  test("stamps the edge-observed client ip from the rightmost X-Forwarded-For entry", () => {
+    for (const config of [conf, remoteConf]) {
+      // Falls back to the raw peer when the TLS-terminating front sets no
+      // X-Forwarded-For; the client cannot smuggle a value because
+      // proxy_set_header overwrites inbound headers.
+      expect(config).toContain(
+        "map $http_x_forwarded_for $vellum_edge_client_ip {",
+      );
+      expect(config).toContain("default $remote_addr;");
+      expect(config).toContain(
+        '"~,?\\s*(?<vellum_last_xff>[^,\\s]+)\\s*$" $vellum_last_xff;',
+      );
+      expect(config).toContain(
+        "proxy_set_header X-Vellum-Client-Ip $vellum_edge_client_ip;",
+      );
+    }
   });
 
   test("blocks local-only bootstrap helpers before the catch-all proxy", () => {
@@ -312,6 +333,12 @@ describe("buildIngressNginxConfig", () => {
       "location = /v1/guardian/init/ { return 404; }",
       "location = /v1/guardian/reset-bootstrap { return 404; }",
       "location = /v1/guardian/reset-bootstrap/ { return 404; }",
+      "location = /v1/remote-web/pairing-requests { return 404; }",
+      "location = /v1/remote-web/pairing-requests/ { return 404; }",
+      "location = /v1/remote-web/pairing-requests/approve { return 404; }",
+      "location = /v1/remote-web/pairing-requests/approve/ { return 404; }",
+      "location = /v1/remote-web/pairing-requests/deny { return 404; }",
+      "location = /v1/remote-web/pairing-requests/deny/ { return 404; }",
       "location ^~ /assistant/__local/ { return 404; }",
       "location ^~ /assistant/__gateway/ { return 404; }",
       "location ^~ /assistant/__gateway-paired/ { return 404; }",
@@ -700,7 +727,7 @@ function spaConfigHash(assistantName?: string): string {
   return createHash("sha256")
     .update(
       JSON.stringify({
-        template: 2,
+        template: 3,
         config: {
           mode: "remote-gateway",
           apiBaseUrl: "/v1",

@@ -219,6 +219,21 @@
   "fileDownload": {
     "failed": "No se pudo descargar el archivo"
   },
+  "groupActions": {
+    "archiveAll": "Archivar todo…",
+    "copyGroupId": "Copiar ID del grupo",
+    "deleteGroup": "Eliminar grupo",
+    "deleteGroupWithConversations": "Eliminar grupo…",
+    "groupByChannel": "Agrupar por canal",
+    "markAllRead": "Marcar todo como leído",
+    "moveSectionDown": "Bajar sección",
+    "moveSectionUp": "Subir sección",
+    "rename": "Cambiar nombre",
+    "ungroup": "Desagrupar"
+  },
+  "groupActionsSheet": {
+    "title": "Acciones de {name}"
+  },
   "inspectPage": {
     "accessDenied": "El inspector está disponible para el personal de Vellum o cuando la marca de desarrollador settings-developer-nav está habilitada.",
     "allMessages": "Todos los mensajes",
