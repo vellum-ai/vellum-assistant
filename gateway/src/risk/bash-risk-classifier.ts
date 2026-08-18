@@ -52,8 +52,10 @@ export function escalateOne(risk: Risk): Risk {
 export { riskOrd, maxRisk };
 
 // ── Compiled regex cache ─────────────────────────────────────────────────────
-// The registry is static, so we can compile and cache RegExp instances for
-// arg rules' valuePatterns. This avoids re-compiling on every classify call.
+// Arg rules declare their `valuePattern` as a regex string in the command
+// registry, which is static, so a compiled RegExp is valid for the life of the
+// process and needs no invalidation. This is the only regex left in the rule
+// path: trust rules themselves are matched by exact string.
 
 const compiledPatterns = new Map<string, RegExp>();
 
@@ -64,11 +66,6 @@ function getCompiledPattern(pattern: string): RegExp {
     compiledPatterns.set(pattern, re);
   }
   return re;
-}
-
-/** Clear the compiled regex cache. Exposed for tests and hot-swap scenarios. */
-export function clearCompiledPatterns(): void {
-  compiledPatterns.clear();
 }
 
 // ── Arg rule matching ────────────────────────────────────────────────────────
