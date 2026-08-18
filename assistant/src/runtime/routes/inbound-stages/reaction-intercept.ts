@@ -268,10 +268,11 @@ export async function handleSlackReactionIntercept(
     sourceChannel,
     conversationExternalId,
     externalMessageId,
-    {
-      sourceMessageId: reactedMessageTs,
-      conversationId: targetConversationId,
-    },
+    // No `sourceMessageId`: that column names the provider id of the event's
+    // own message, and a reaction is not one. Claiming the reacted message's
+    // id here would put two linked rows on that id, leaving a later edit or
+    // delete of it free to resolve to the reaction instead.
+    { conversationId: targetConversationId },
   );
 
   // Record the reaction as an inline transcript signal.

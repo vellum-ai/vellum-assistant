@@ -483,6 +483,29 @@ describe("Slack reaction event persistence", () => {
     expect(reactionRow?.conversationId).toBe(conversationId);
   });
 
+  test("a reaction leaves the reacted message resolvable by its own id", async () => {
+    // Two linked rows on one provider id would let a later edit or delete of
+    // the message resolve to the reaction instead.
+    const reactedTs = "1700000000.111111";
+    seedStoredMessage(reactedTs);
+    await handleChannelInbound(
+      buildReactionRequest("reaction:thumbsup"),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+
+    const db = getDb();
+    const claimants = (
+      db.$client
+        .prepare(
+          `SELECT COUNT(*) AS n FROM channel_inbound_events
+           WHERE source_message_id = ? AND message_id IS NOT NULL`,
+        )
+        .get(reactedTs) as { n: number }
+    ).n;
+    expect(claimants).toBe(1);
+  });
+
   test("reaction on a message the assistant never stored creates no conversation", async () => {
     // The reported bug: Slack sends no `thread_ts` on a reaction, so keying a
     // conversation off the reaction's own address minted one per reacted
