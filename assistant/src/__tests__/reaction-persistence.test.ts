@@ -320,7 +320,8 @@ describe("Slack reaction event persistence", () => {
     expect(slackMeta!.eventKind).toBe("reaction");
     expect(slackMeta!.channelId).toBe(SLACK_CHANNEL_ID);
     expect(slackMeta!.channelTs).toBe("1700000000.111111");
-    expect(slackMeta!.threadTs).toBe("1700000000.111111");
+    // Slack sends no thread on a reaction, so the row claims none.
+    expect(slackMeta!.threadTs).toBeUndefined();
     expect(slackMeta!.displayName).toBe(SLACK_DISPLAY_NAME);
     expect(slackMeta!.reaction).toEqual({
       emoji: "thumbsup",
@@ -361,6 +362,25 @@ describe("Slack reaction event persistence", () => {
 
     const rows = readPersistedMessages();
     expect(rows.length).toBe(0);
+  });
+
+  test("a reaction never claims a thread, so it is not thread evidence", async () => {
+    // Storing the gateway's fabricated thread id here made the row look like
+    // proof that a thread belongs to this conversation.
+    seedStoredMessage("1700000000.111111");
+    await handleChannelInbound(
+      buildReactionRequest("reaction:thumbsup"),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const rows = readPersistedMessages().filter(
+      (r) => r.content === "[reaction]",
+    );
+    const meta = readSlackMetadata(
+      (JSON.parse(rows[0].metadata!) as Record<string, unknown>)
+        .slackMeta as string,
+    );
+    expect(meta?.threadTs).toBeUndefined();
   });
 
   test("reaction without threadId omits threadTs in metadata", async () => {

@@ -165,12 +165,6 @@ export async function handleSlackReactionIntercept(
     typeof sourceMetadata?.messageId === "string"
       ? sourceMetadata.messageId
       : undefined;
-  const threadTs =
-    typeof sourceMetadata?.threadId === "string" &&
-    sourceMetadata.threadId.trim().length > 0
-      ? sourceMetadata.threadId.trim()
-      : undefined;
-
   // Respect disk-pressure cleanup so reactions don't bypass storage
   // protection. Guardians resolve to `allow-cleanup-mode` (not `block`), so a
   // guardian's approval-by-reaction still flows. Blocked silently and before
@@ -283,7 +277,6 @@ export async function handleSlackReactionIntercept(
       eventId: result.eventId,
       callbackData,
       actorDisplayName,
-      threadTs,
       reactedMessageTs,
       duplicate: result.duplicate,
     });
@@ -317,7 +310,6 @@ async function persistSlackReactionAsMessage(params: {
   eventId: string;
   callbackData: string;
   actorDisplayName?: string;
-  threadTs?: string;
   reactedMessageTs: string;
   duplicate: boolean;
 }): Promise<void> {
@@ -342,7 +334,11 @@ async function persistSlackReactionAsMessage(params: {
     channelId: params.conversationExternalId,
     channelTs: params.reactedMessageTs,
     eventKind: "reaction",
-    ...(params.threadTs ? { threadTs: params.threadTs } : {}),
+    // No `threadTs`: Slack sends none on a reaction, so the gateway's thread
+    // id here is the reacted message's own ts. It equals `channelTs`, which
+    // every reader treats as "not in a thread" anyway, and storing it makes
+    // the row false evidence that a thread belongs to this conversation
+    // (`legacySlackConversationHasThreadEvidence`).
     ...(params.actorDisplayName
       ? { displayName: params.actorDisplayName }
       : {}),
