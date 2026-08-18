@@ -10,8 +10,7 @@ import { composeSvg } from "@/utils/avatar-svg-compositor";
 import type { VoiceActivityState } from "@vellumai/ipc-contract";
 
 /**
- * A session for the demo reel to draw. `startedAt` is restamped on every run,
- * so it is the one field the player overrides.
+ * A session for the demo reel to draw.
  *
  * Listening and unmuted with nothing waiting on a decision: the ordinary middle
  * of a call, which is what the reel is showing.
@@ -25,7 +24,6 @@ const DEMO_CALL: VoiceActivityState = {
   detail: "",
   approvalRequestId: "",
   assistantName: "Ziggy",
-  startedAt: 0,
 };
 
 /**
@@ -203,7 +201,6 @@ export const PendingApproval: Story = {
       label: "Thinking…",
       detail: "Read package.json",
       approvalRequestId: "req-1",
-      startedAt: Date.now() - 14_000,
     },
   },
 };
@@ -222,7 +219,6 @@ export const InCallAssistantTurn: Story = {
       ...DEMO_CALL,
       phase: "thinking",
       label: "Thinking\u2026",
-      startedAt: Date.now() - 9_000,
     },
   },
 };
@@ -235,7 +231,6 @@ export const InCallMuted: Story = {
       ...DEMO_CALL,
       muted: true,
       outputMuted: true,
-      startedAt: Date.now() - 14_000,
     },
   },
 };
@@ -459,7 +454,6 @@ function DemoReelPlayer(args: StoryArgs) {
   // Trails `step`. The backdrop is switched by `step` directly; the surface
   // waits out the lag before catching up, so the two never cut together.
   const [phaseStep, setPhaseStep] = useState(0);
-  const [callStartedAt, setCallStartedAt] = useState<number | undefined>();
 
   // The whole timeline up front, so playback is one timer walking an array
   // rather than two phases with their own bookkeeping. Built once: it is a
@@ -497,9 +491,6 @@ function DemoReelPlayer(args: StoryArgs) {
     }
     const timer = setTimeout(() => {
       setPhaseStep(step);
-      if (timeline[step].phase === "call") {
-        setCallStartedAt(Date.now());
-      }
     }, timeline[step].lag);
     return () => {
       clearTimeout(timer);
@@ -560,13 +551,7 @@ function DemoReelPlayer(args: StoryArgs) {
           {...args}
           phase={phase}
           spotlight={active?.spotlight}
-          // Restamped whenever the call step is entered, so the clock starts
-          // from zero on every run rather than from whenever the page loaded.
-          call={
-            phase === "call" && callStartedAt !== undefined
-              ? { ...DEMO_CALL, startedAt: callStartedAt }
-              : undefined
-          }
+          call={phase === "call" ? DEMO_CALL : undefined}
           // No turns: Type opens on the empty composer, which is the same
           // elongated single line as the states either side of it. Opening onto
           // a card of history would make this the one step that changes the

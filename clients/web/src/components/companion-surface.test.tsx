@@ -79,7 +79,6 @@ describe("the companion surface's working ring", () => {
           detail: "",
           approvalRequestId: "",
           assistantName: "Ziggy",
-          startedAt: 0,
         }}
       />,
     );
@@ -99,7 +98,6 @@ describe("the companion surface's working ring", () => {
           detail: "",
           approvalRequestId: "",
           assistantName: "Ziggy",
-          startedAt: 0,
         }}
       />,
     );

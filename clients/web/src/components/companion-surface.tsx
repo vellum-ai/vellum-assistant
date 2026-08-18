@@ -884,9 +884,6 @@ function CallBody({
       <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
         {line}
       </span>
-      <span className="ml-1 shrink-0 font-mono text-[11px] tabular-nums text-white/60">
-        <Elapsed startedAt={call?.startedAt} />
-      </span>
       <PillButton
         icon={
           muted ? <MicOff className="size-4" /> : <Mic className="size-4" />
@@ -971,38 +968,6 @@ function ApprovalBody({
         }}
       />
     </>
-  );
-}
-
-/**
- * Elapsed call time.
- *
- * Ticks from a timestamp the caller owns rather than one of its own, because
- * the session started before this component mounted and will outlive it: the
- * surface that renders this can reload mid-call. With no timestamp it holds a
- * fixed sample, which is what a static story wants.
- */
-function Elapsed({ startedAt }: { startedAt?: number }) {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (startedAt === undefined) {
-      return;
-    }
-    const timer = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
-    return () => {
-      clearInterval(timer);
-    };
-  }, [startedAt]);
-
-  if (startedAt === undefined) {
-    return <>0:14</>;
-  }
-  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
-  return (
-    <>{`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`}</>
   );
 }
 
