@@ -143,10 +143,11 @@ export class VellumAdapter implements ChannelAdapter {
    * carry the id of the row written into the conversation the notification
    * card links to. Editing a notification patches the feed item, so without
    * this the card would show the new body while "Go to Conversation" opened
-   * the old one, which is the mismatch the append exists to prevent.
+   * the old one.
    *
-   * Deliveries recorded before the append landed have no `messageId` and
-   * report a skip rather than failing the edit.
+   * That row holds the body, and the feed rewrites its summary only when the
+   * patch carries one, so a title-only patch leaves the row alone to keep the
+   * two in step. A delivery carrying no message id has no row to rewrite.
    */
   async update(
     delivery: ChannelUpdateContext,
@@ -159,12 +160,15 @@ export class VellumAdapter implements ChannelAdapter {
           "missing_message_id: this delivery persisted no conversation message",
       };
     }
-    const text = patch.body?.trim() || patch.title?.trim();
-    if (!text) {
-      return { success: false, error: "no body or title supplied for update" };
+    if (patch.body === undefined) {
+      log.info(
+        { deliveryId: delivery.deliveryId, messageId: delivery.messageId },
+        "Vellum notification edit carried no body, conversation message left as is",
+      );
+      return { success: true, messageId: delivery.messageId };
     }
     try {
-      updateMessageContent(delivery.messageId, text);
+      updateMessageContent(delivery.messageId, patch.body);
       log.info(
         { deliveryId: delivery.deliveryId, messageId: delivery.messageId },
         "Vellum notification conversation message updated",

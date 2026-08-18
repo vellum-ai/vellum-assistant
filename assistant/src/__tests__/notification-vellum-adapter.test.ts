@@ -196,15 +196,30 @@ describe("VellumAdapter update", () => {
     ]);
   });
 
-  test("falls back to the title when the patch carries no body", async () => {
+  test("leaves the message untouched on a title-only edit", async () => {
+    // The feed rewrites its summary only when the patch carries a body, so
+    // writing the title here would put the conversation out of step with the
+    // card it is supposed to match.
     const { adapter } = captureBroadcast();
 
-    await adapter.update!(
+    const result = await adapter.update!(
       { deliveryId: "delivery-1", destination: "vellum", messageId: "msg-1" },
       { title: "Daily Briefing" },
     );
 
-    expect(updateMessageContentMock.mock.calls[0]![1]).toBe("Daily Briefing");
+    expect(result.success).toBe(true);
+    expect(updateMessageContentMock).not.toHaveBeenCalled();
+  });
+
+  test("writes an empty body through, matching the feed summary patch", async () => {
+    const { adapter } = captureBroadcast();
+
+    await adapter.update!(
+      { deliveryId: "delivery-1", destination: "vellum", messageId: "msg-1" },
+      { title: "Daily Briefing", body: "" },
+    );
+
+    expect(updateMessageContentMock.mock.calls[0]![1]).toBe("");
   });
 
   test("skips deliveries that persisted no conversation message", async () => {
