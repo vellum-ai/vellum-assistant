@@ -773,23 +773,13 @@ function devicesMiddleware(baseDir: string): Connect.NextHandleFunction {
       if (revokeHash !== null) {
         void runDevicesRevoke(invocation, assistantId, revokeHash).then(
           (result) => {
-            respondJson(
-              res,
-              200,
-              result.ok ? { ok: true } : { ok: false, error: result.error },
-            );
+            respondJson(res, 200, result);
           },
         );
         return;
       }
       void runDevicesList(invocation, assistantId).then((result) => {
-        respondJson(
-          res,
-          200,
-          result.ok
-            ? { ok: true, devices: result.devices }
-            : { ok: false, error: result.error },
-        );
+        respondJson(res, 200, result);
       });
     });
   };

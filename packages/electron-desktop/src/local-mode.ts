@@ -330,19 +330,10 @@ const assistantRecord = z.record(z.string(), z.unknown());
 // optional on the wire and validated in the body.
 const assistantIdArgs = z.tuple([z.string().optional()]);
 
-// `connectImport` takes a pairing bundle plus an optional local name. Both are
-// optional on the wire (missing values resolve with structured errors, keeping
-// the never-reject contract); the shared `connectImport` op validates the
-// bundle, including the length cap that bounds what a hostile renderer can
-// make the main process buffer and decode.
-const connectImportArgs = z.tuple([
-  z.string().optional(),
-  z.string().optional(),
-]);
-
-// `revokeDevice` takes an assistant id plus the hashed device id to revoke.
-// Both optional on the wire, validated in the body (never-reject contract).
-const revokeDeviceArgs = z.tuple([
+// `connectImport` (pairing bundle + optional local name) and `revokeDevice`
+// (assistant id + hashed device id) each take two strings, optional on the
+// wire and validated in the body (never-reject contract).
+const twoOptionalStringArgs = z.tuple([
   z.string().optional(),
   z.string().optional(),
 ]);
@@ -479,7 +470,7 @@ export const installLocalMode = (): void => {
 
   ipc(
     "vellum:localMode:connectImport",
-    connectImportArgs,
+    twoOptionalStringArgs,
     ([bundle, name]): LocalConnectImportResult => {
       const result = connectImport(lockfilePaths, configDir, { bundle, name });
       if (!result.ok) {
@@ -510,7 +501,7 @@ export const installLocalMode = (): void => {
 
   ipc(
     "vellum:localMode:revokeDevice",
-    revokeDeviceArgs,
+    twoOptionalStringArgs,
     ([assistantId, hashedDeviceId]) => {
       if (!assistantId) {
         return { ok: false, error: "Missing assistantId" };

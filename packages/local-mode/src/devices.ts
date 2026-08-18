@@ -29,6 +29,20 @@ type CliRunResult =
   | { ok: true; stdout: string }
   | { ok: false; error: string };
 
+// The CLI prints an identity preamble before acting, so a failure transcript
+// is multi-line; surface only the final "Error:" line when one exists.
+function extractCliError(stderr: string, stdout: string): string {
+  const errorLines = stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("Error:"));
+  const last = errorLines[errorLines.length - 1];
+  if (last) {
+    return last.slice("Error:".length).trim();
+  }
+  return (stderr || stdout).trim();
+}
+
 function runDevicesCli(
   invocation: CliInvocation,
   args: string[],
@@ -71,7 +85,7 @@ function runDevicesCli(
       if (code === 0) {
         finish({ ok: true, stdout });
       } else {
-        finish({ ok: false, error: stderr || stdout });
+        finish({ ok: false, error: extractCliError(stderr, stdout) });
       }
     });
 
