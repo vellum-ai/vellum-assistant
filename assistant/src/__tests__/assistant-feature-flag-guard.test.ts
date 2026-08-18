@@ -40,7 +40,10 @@ interface RegistryFlag {
   key: string;
   label: string;
   description: string;
-  defaultEnabled: boolean;
+  /** Boolean for a gate; the winning variation's name for a multivariate flag. */
+  defaultEnabled: boolean | string;
+  /** Declared variations. Present only on multivariate flags. */
+  values?: string[];
 }
 
 interface Registry {
@@ -179,8 +182,27 @@ describe("assistant feature flag guard", () => {
     const violations: string[] = [];
 
     for (const flag of assistantFlags) {
-      if (typeof flag.defaultEnabled !== "boolean") {
-        violations.push(`${flag.key}: missing or non-boolean 'defaultEnabled'`);
+      // A gate declares a boolean default. A multivariate flag declares its
+      // variations in `values` and names the winning one in `defaultEnabled`,
+      // which the resolver serves verbatim to string consumers.
+      if (flag.values === undefined) {
+        if (typeof flag.defaultEnabled !== "boolean") {
+          violations.push(
+            `${flag.key}: missing or non-boolean 'defaultEnabled'`,
+          );
+        }
+      } else if (
+        !Array.isArray(flag.values) ||
+        flag.values.length < 2 ||
+        flag.values.some((value) => typeof value !== "string")
+      ) {
+        violations.push(
+          `${flag.key}: 'values' must list at least two string variations`,
+        );
+      } else if (!flag.values.includes(flag.defaultEnabled as string)) {
+        violations.push(
+          `${flag.key}: 'defaultEnabled' must name one of the declared 'values'`,
+        );
       }
       if (
         typeof flag.description !== "string" ||

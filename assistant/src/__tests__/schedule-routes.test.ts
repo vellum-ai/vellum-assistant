@@ -40,6 +40,18 @@ mock.module("../daemon/conversation-store.js", () => ({
   },
 }));
 
+/**
+ * Whether the daemon activated the fixture plugin. Run-now answers only for
+ * plugins this process brought up, and no route test runs the plugin loader,
+ * so the double says "activated" unless a case turns it off.
+ */
+let pluginActivated = true;
+const realMtimeCache = await import("../plugins/mtime-cache.js");
+mock.module("../plugins/mtime-cache.js", () => ({
+  ...realMtimeCache,
+  isPluginDirActivated: () => pluginActivated,
+}));
+
 import type { AssistantEventEnvelope } from "../api/index.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import {
@@ -1574,6 +1586,7 @@ describe("plugin-sourced schedules over routes", () => {
 
     beforeEach(() => {
       rmSync(RUN_MARKER, { force: true });
+      pluginActivated = true;
     });
 
     function seedSourcedScript() {
@@ -1621,6 +1634,16 @@ describe("plugin-sourced schedules over routes", () => {
         ),
         { recursive: true, force: true },
       );
+
+      await expect(runNow(sourced.id)).rejects.toThrow(BadRequestError);
+      expect(existsSync(RUN_MARKER)).toBe(false);
+    });
+
+    test("refuses a sourced row whose plugin the daemon never activated", async () => {
+      const sourced = await seedSourcedScript();
+      // The declaration is intact on disk, but nothing ran the plugin's
+      // `init`, so run-now must not execute its script.
+      pluginActivated = false;
 
       await expect(runNow(sourced.id)).rejects.toThrow(BadRequestError);
       expect(existsSync(RUN_MARKER)).toBe(false);

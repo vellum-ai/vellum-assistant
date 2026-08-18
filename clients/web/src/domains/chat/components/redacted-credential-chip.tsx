@@ -26,6 +26,7 @@ import { Check, Copy, Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 
 import { credentialsRevealPost } from "@/generated/daemon/sdk.gen";
+import { t } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -125,7 +126,7 @@ export function RedactedCredentialChip({
       }
     } catch {
       if (revealVersionRef.current === myVersion) {
-        toast.error(`Couldn't reveal ${name}.`);
+        toast.error(t("chat:redactedCredentialChip.revealFailed", { name }));
       }
     } finally {
       if (revealVersionRef.current === myVersion) {

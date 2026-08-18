@@ -5,15 +5,11 @@ import {
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import type { Conversation } from "@/types/conversation-types";
 import type { AssistantEvent } from "@/types/event-types";
-import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
 import type {
-  AllowlistOption,
-  DirectoryScopeOption,
   PendingAcpConnectState,
   PendingConfirmationState,
   PendingQuestionState,
-  ScopeOption,
 } from "@/types/interaction-ui-types";
 import {
   ACP_CLAUDE_AUTH_REQUIRED_CODE,
@@ -350,30 +346,21 @@ function applyConfirmationToToolCall(
 }
 
 /**
- * Attach a pending confirmation to the best-matching tool call in `messages`.
+ * Attach a pending confirmation to the tool call it names, if it names one.
  *
- * Search order:
- * 1. Exact `toolUseId` match (conf.toolUseId === toolCall.id)
- * 2. Fallback: last running tool call in the latest assistant message with tool calls
+ * A confirmation carries `toolUseId` when it belongs to a specific tool call
+ * and omits it when it belongs to none: `permissions/prompter.ts` passes the
+ * LLM's tool_use block id, while the ACP route approvals in
+ * `runtime/routes/acp-routes.ts` have no tool call of their own. So an absent
+ * `toolUseId` is an answer, not a gap, and this makes no attempt to guess one.
+ * Prompts that name no tool call stay unattached and render in the transcript's
+ * trailer row, which exists for exactly them.
  *
  * Returns updated messages and the id of the attached tool call (or undefined).
  */
 export function attachConfirmationToToolCall(
   messages: DisplayMessage[],
-  conf: {
-    requestId: string;
-    title?: string;
-    description?: string;
-    toolName?: string;
-    riskLevel?: string;
-    riskReason?: string;
-    input?: Record<string, unknown>;
-    allowlistOptions?: AllowlistOption[];
-    scopeOptions?: ScopeOption[];
-    directoryScopeOptions?: DirectoryScopeOption[];
-    persistentDecisionsAllowed?: boolean;
-    toolUseId?: string;
-  },
+  conf: PendingConfirmationState,
 ): {
   updatedMessages: DisplayMessage[];
   attachedToolCallId: string | undefined;
@@ -381,7 +368,6 @@ export function attachConfirmationToToolCall(
   const { toolUseId, ...pendingFields } = conf;
   const pending: PendingToolConfirmation = pendingFields;
 
-  // 1. Exact toolUseId match — search all messages with tool calls
   if (toolUseId) {
     for (let mi = messages.length - 1; mi >= 0; mi--) {
       const msg = messages[mi];
@@ -393,22 +379,6 @@ export function attachConfirmationToToolCall(
         return applyConfirmationToToolCall(messages, mi, tcIdx, pending);
       }
     }
-  }
-
-  // 2. Fallback: last running tool call in the latest assistant message with tool calls
-  for (let mi = messages.length - 1; mi >= 0; mi--) {
-    const msg = messages[mi];
-    if (msg?.role !== "assistant" || !msg.toolCalls?.length) {
-      continue;
-    }
-
-    for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
-      const tc = msg.toolCalls[ti];
-      if (tc && isToolCallRunning(tc)) {
-        return applyConfirmationToToolCall(messages, mi, ti, pending);
-      }
-    }
-    break;
   }
 
   return { updatedMessages: messages, attachedToolCallId: undefined };

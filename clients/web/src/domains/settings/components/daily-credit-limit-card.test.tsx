@@ -25,7 +25,13 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
@@ -35,7 +41,9 @@ import type {
 } from "@/generated/api/types.gen";
 
 let updateCalls: Array<Record<string, unknown>> = [];
+let resumeCalls: Array<Record<string, unknown>> = [];
 let updateError: unknown = null;
+let resumeError: unknown = null;
 let limitResponse: DailyCreditLimitResponse;
 let summaryResponse: BillingSummaryResponse;
 let autoTopUpResponse: AutoTopUpConfigResponse;
@@ -70,6 +78,17 @@ mock.module("@/generated/api/sdk.gen", () => ({
     Promise.resolve({ data: limitResponse, response: { ok: true } }),
   organizationsBillingSummaryRetrieve: () =>
     Promise.resolve({ data: summaryResponse, response: { ok: true } }),
+  organizationsBillingDailyCreditLimitSkipTodayDestroy: (
+    opts: Record<string, unknown>,
+  ) => {
+    resumeCalls.push(opts);
+    if (resumeError !== null) {
+      return Promise.reject(resumeError);
+    }
+    // Ending a skip returns the limit with the skip cleared.
+    limitResponse = { ...limitResponse, daily_limit_snoozed: false };
+    return Promise.resolve({ data: limitResponse, response: { ok: true } });
+  },
 }));
 
 import {
@@ -80,8 +99,11 @@ import {
 
 import { routes } from "@/utils/routes";
 
-const { DAILY_CREDIT_LIMIT_ANCHOR_ID, DailyCreditLimitCard, validateDailyLimit } =
-  await import("./daily-credit-limit-card");
+const {
+  DAILY_CREDIT_LIMIT_ANCHOR_ID,
+  DailyCreditLimitCard,
+  validateDailyLimit,
+} = await import("./daily-credit-limit-card");
 
 const AUTO_TOP_UP_OFF: AutoTopUpConfigResponse = {
   enabled: false,
@@ -134,6 +156,7 @@ const SUMMARY: BillingSummaryResponse = {
   daily_credit_limit_usd: null,
   daily_spend_usd: "0.00",
   daily_limit_reached: false,
+  daily_limit_snoozed: false,
   low_balance_threshold_usd: "5.00",
   low_balance_warning: false,
   credits_expiring_soon_usd: "0.00",
@@ -209,6 +232,8 @@ const OFF: DailyCreditLimitResponse = {
   daily_credit_limit_usd: null,
   current_day_spent_usd: "0.00",
   day_bucket: null,
+  daily_limit_snoozed: false,
+  daily_limit_snoozed_day_bucket: null,
 };
 
 const ON: DailyCreditLimitResponse = {
@@ -218,7 +243,9 @@ const ON: DailyCreditLimitResponse = {
 
 beforeEach(() => {
   updateCalls = [];
+  resumeCalls = [];
   updateError = null;
+  resumeError = null;
   limitResponse = { ...OFF };
   summaryResponse = { ...SUMMARY };
   autoTopUpResponse = { ...AUTO_TOP_UP_OFF };
@@ -237,6 +264,63 @@ describe("validateDailyLimit", () => {
   test("accepts valid amounts ≥ $1", () => {
     expect(validateDailyLimit("1")).toBeUndefined();
     expect(validateDailyLimit("25.50")).toBeUndefined();
+  });
+});
+
+describe("DailyCreditLimitCard skipped state", () => {
+  const SKIPPED: DailyCreditLimitResponse = {
+    ...ON,
+    daily_limit_snoozed: true,
+    daily_limit_snoozed_day_bucket: "2026-07-20",
+  };
+
+  test("surfaces that the limit is skipped for today", () => {
+    // Without this the page would show a configured limit with no hint that
+    // it is not in force, which is the UI lying about the user's own money
+    // control.
+    const { getByTestId } = renderCard(SKIPPED);
+    const notice = getByTestId("daily-credit-limit-skipped");
+    expect(notice.textContent).toContain("Skipped for today");
+  });
+
+  test("stays quiet when no skip is active", () => {
+    const { queryByTestId } = renderCard(ON);
+    expect(queryByTestId("daily-credit-limit-skipped")).toBeNull();
+  });
+
+  test("a skip from a prior day does not render as active", () => {
+    // The server decides expiry; the client must not re-derive it from the
+    // raw bucket.
+    const { queryByTestId } = renderCard({
+      ...ON,
+      daily_limit_snoozed: false,
+      daily_limit_snoozed_day_bucket: "2020-01-01",
+    });
+    expect(queryByTestId("daily-credit-limit-skipped")).toBeNull();
+  });
+
+  test("Resume now ends the skip", async () => {
+    const { getByTestId } = renderCard(SKIPPED);
+    // Wrapped in `act` because the mutation's success handler invalidates two
+    // queries, and those refetches settle after the click returns.
+    await act(async () => {
+      fireEvent.click(getByTestId("daily-credit-limit-resume-button"));
+      await flushMicrotasks();
+    });
+    expect(resumeCalls.length).toBe(1);
+  });
+
+  test("a rejected Resume now says the limit is still skipped", async () => {
+    // Silence here reads as success, and the user walks away believing the
+    // limit is back on when it is not.
+    resumeError = new Error("network down");
+    const { getByTestId, queryByTestId } = renderCard(SKIPPED);
+    await act(async () => {
+      fireEvent.click(getByTestId("daily-credit-limit-resume-button"));
+      await flushMicrotasks();
+    });
+    expect(queryByTestId("daily-credit-limit-resume-error")).not.toBeNull();
+    expect(queryByTestId("daily-credit-limit-skipped")).not.toBeNull();
   });
 });
 

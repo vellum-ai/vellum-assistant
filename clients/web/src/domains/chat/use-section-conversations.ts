@@ -29,25 +29,20 @@ import { useSupportsGroupFilter } from "@/lib/backwards-compat/use-supports-grou
 import { useSupportsNativeOriginFilter } from "@/lib/backwards-compat/use-supports-native-origin-filter";
 import type { Conversation } from "@/types/conversation-types";
 import { captureError } from "@/lib/sentry/capture-error";
-import { loadMoreSectionConversations } from "@/utils/conversation-cache-mutations";
+import { loadMoreConversations } from "@/utils/conversation-cache-mutations";
 import {
   NATIVE_ORIGIN_CHANNEL,
   ORIGIN_CHANNELS,
   SYSTEM_ALL_GROUP_ID,
   SYSTEM_PINNED_GROUP_ID,
-  drainSectionConversations,
-  sectionConversationsQueryKey,
+  drainConversationList,
   type ConversationListPage,
   type OriginChannel,
-  type SectionConversationFilter,
 } from "@/utils/conversation-list-fetchers";
-
-/**
- * Stable placeholder for a section with no filter of its own. The query is
- * disabled in that case, so this is never sent; it exists only because the
- * query hook takes a filter unconditionally.
- */
-const NO_FILTER: SectionConversationFilter = {};
+import {
+  type ConversationListFilter,
+  conversationListQueryKey,
+} from "@/utils/conversation-list-keys";
 
 /**
  * What this section asks the server for, or `null` when it has no filter yet.
@@ -86,7 +81,7 @@ const NO_FILTER: SectionConversationFilter = {};
 function sectionFilter(
   section: SidebarSection,
   supportsNativeOrigin: boolean,
-): SectionConversationFilter | null {
+): ConversationListFilter | null {
   switch (section.type) {
     case "pinned":
       return { groupId: SYSTEM_PINNED_GROUP_ID };
@@ -210,7 +205,7 @@ export function useSectionConversations(
   const enabled = filter !== null && isAssistantActive && supportsGroupFilter;
   const { conversations, hasData, hasMore } = useSectionConversationListQuery(
     assistantId,
-    filter ?? NO_FILTER,
+    filter,
     enabled,
   );
   const live = enabled && hasData;
@@ -219,7 +214,7 @@ export function useSectionConversations(
     if (!assistantId || filter === null) {
       return;
     }
-    loadMoreSectionConversations(queryClient, assistantId, filter).catch(
+    loadMoreConversations(queryClient, assistantId, filter).catch(
       (error: unknown) => {
         /* Best-effort: the sentinel re-fires on the next intersection, so
            daemon transients filter out and only unexpected failures reach
@@ -240,12 +235,12 @@ export function useSectionConversations(
       return sectionAll;
     }
     const page = queryClient.getQueryData<ConversationListPage>(
-      sectionConversationsQueryKey(assistantId, filter),
+      conversationListQueryKey(assistantId, filter),
     );
     if (page && !page.hasMore) {
       return page.conversations;
     }
-    return drainSectionConversations(assistantId, filter);
+    return drainConversationList(assistantId, filter);
   }, [assistantId, filter, live, queryClient, sectionAll]);
 
   /* `hasData`, not `!isPending`, and not `!isError` either.

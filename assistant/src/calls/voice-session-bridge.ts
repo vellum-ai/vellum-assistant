@@ -34,6 +34,7 @@ import {
   recordConversationPersistedSeq,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
+import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../plugin-api/constants.js";
 import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
 import type { ContentBlock } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -783,11 +784,13 @@ export async function startVoiceTurn(
   // model wakes, but they are not user speech and must not render as a live
   // user bubble. Their echo is suppressed below (parity with
   // `isEchoSuppressedUserMessage` on the text path).
+  const isEscalationContinuation =
+    opts.content === ESCALATION_CONTINUATION_CONTENT;
   const isSyntheticVoicePrompt =
     opts.hiddenSyntheticPrompt === true ||
     opts.content === CALL_OPENING_MARKER ||
     opts.content === CALL_VERIFICATION_COMPLETE_MARKER ||
-    opts.content === ESCALATION_CONTINUATION_CONTENT;
+    isEscalationContinuation;
 
   // The escalation-continuation prompt is a pure internal instruction ("give
   // the full answer now"), not a real utterance and not the sort of scaffolding
@@ -799,8 +802,7 @@ export async function startVoiceTurn(
   // affects client display. A caller whose prompt text is not a fixed sentinel
   // opts into the same treatment with `hiddenSyntheticPrompt`.
   const isHiddenSyntheticPrompt =
-    opts.hiddenSyntheticPrompt === true ||
-    opts.content === ESCALATION_CONTINUATION_CONTENT;
+    opts.hiddenSyntheticPrompt === true || isEscalationContinuation;
 
   // Build the call-control protocol prompt so the model knows how to emit
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
@@ -993,6 +995,9 @@ export async function startVoiceTurn(
         // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
         voiceSessionTurn: true,
         ...(isHiddenSyntheticPrompt ? { hidden: true } : {}),
+        ...(isEscalationContinuation
+          ? { messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND }
+          : {}),
         ...(opts.voiceTelemetry
           ? {
               // Projected onto `TurnTelemetryEvent.client` by
@@ -1725,6 +1730,9 @@ export async function startVoiceTurn(
         // prompt-as-user-speech consumers (e.g. title generation) from treating
         // it as user speech.
         ...(isHiddenSyntheticPrompt ? { isHiddenPrompt: true } : {}),
+        ...(isEscalationContinuation
+          ? { messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND }
+          : {}),
         // Triage-and-escalate routing pins this turn to the fast front-door or
         // strong escalation profile. `forceOverrideProfile` floats it above the
         // callAgent call-site layers (callAgent is not `mainAgent`, so the

@@ -6,6 +6,7 @@ import {
   getPairedGuardianAccessToken as getStoredPairedGuardianAccessToken,
   isActiveAssistant,
   isPairedLockfileEntry,
+  renameLockfileAssistantIfPresent,
   PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   getLockfileData,
   getLocalAssistantStatus,
@@ -393,6 +394,31 @@ export const installLocalMode = (): void => {
       return result.ok
         ? { ok: true, lockfile: result.lockfile }
         : { ok: false, error: result.error };
+    },
+  );
+
+  // Rename-if-present: refuses missing entries and unreadable files instead
+  // of upserting, so a stale renderer cache never re-creates an entry. Both
+  // args stay optional on the wire, keeping the never-reject contract.
+  ipc(
+    "vellum:localMode:renameLockfileAssistant",
+    z.tuple([z.string().optional(), z.string().optional()]),
+    ([assistantId, name]): LockfileWriteResult => {
+      if (!assistantId || !name) {
+        return { ok: false, error: "Missing assistantId or name" };
+      }
+      const result = renameLockfileAssistantIfPresent(
+        lockfilePaths,
+        assistantId,
+        name,
+      );
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+      // Refresh the watcher so lockfile-driven surfaces pick up the new name
+      // in the same tick instead of after the next poll.
+      refreshLockfile();
+      return { ok: true, lockfile: result.lockfile };
     },
   );
 

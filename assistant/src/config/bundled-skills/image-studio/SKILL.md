@@ -69,10 +69,11 @@ Edits on large photos are slow (1 to 2 minutes). If the tool reports a timeout (
 
 ## Output handling
 
-Images return as inline content blocks in the tool result; they are not written to disk automatically.
+Each generated image is saved into the workspace under `media/generated/` and the tool result lists the saved paths. The images also come back as inline content blocks so you can judge the result before presenting it.
 
-- If the user just wants to see the image, the inline result is enough.
-- If the user wants a file or you need to iterate on the result, save it to disk and deliver it through the conversation's attachment mechanism.
+- Present an image to the user by embedding its saved path in your reply: `![short description](vellum://workspace/media/generated/<file>.png)`. The app renders it inline where your text refers to it, and chat channels (Slack, Telegram, WhatsApp) deliver it as a native image upload.
+- If you do not embed it, the image is still auto-attached to your reply as a file, so it is never lost. Prefer embedding: an attachment chip at the end of the message is a worse presentation than the image inline.
+- To iterate on a result, pass its saved path via `source_paths` with `mode: "edit"`.
 
 ## Error handling
 
@@ -88,4 +89,4 @@ Do NOT rephrase the prompt and retry on the same model, even if the error sugges
 
 ## Complete when
 
-The tool has returned at least one image and the user can see it: either the inline result in chat or an attached saved file. An error report counts as complete only after the retry path in Error handling has been exhausted.
+The tool has returned at least one image and your reply presents it to the user, preferably as an inline `![description](vellum://workspace/...)` embed of the saved path. An error report counts as complete only after the retry path in Error handling has been exhausted.

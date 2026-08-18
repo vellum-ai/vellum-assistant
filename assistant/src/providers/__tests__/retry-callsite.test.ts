@@ -370,6 +370,26 @@ describe("RetryProvider — callSite resolution", () => {
     }
   });
 
+  test("memory-v3 selection does not inherit high effort", async () => {
+    setLlmConfig({ defaultProvider: { provider: "anthropic" } });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryV3SelectL2" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.effort).toBe("low");
+    expect(config.thinking).toEqual({ type: "disabled" });
+    expect(config.temperature).toBe(0);
+  });
+
   test("propagates resolved effort/speed/temperature; omits server-side fields", async () => {
     setLlmConfig({
       callSites: {

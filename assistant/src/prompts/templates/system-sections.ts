@@ -268,13 +268,6 @@ export const BUNDLED_SYSTEM_SECTIONS: readonly BundledSection[] = [
     enabled: "!excludeCustomPrefix",
   },
   {
-    id: "01-delegate-subagents",
-    body: `## Delegate independent work
-
-When part of a task can run on its own — a research sweep, a multi-file investigation, a build-and-test loop — hand it off instead of grinding through it inline: load the \`subagent\` skill, then \`subagent_spawn\` early and in parallel. Make delegating that kind of work your default, not a last resort; an unnecessary subagent is cheaper than serialized work, and a long inline dig floods your own context.
-`,
-  },
-  {
     id: "01-parallel-tool-calls",
     body: `<use_parallel_tool_calls>
 Batch independent tool calls into the same response. An extra LLM round trip costs orders of magnitude more than a few wasted tool calls — err on the side of parallelizing when calls are independent. Reading multiple files, \`glob\`/\`grep\`, \`ls\`, \`git status\`/\`diff\`/\`log\`, type-checks, and tests should be batched.

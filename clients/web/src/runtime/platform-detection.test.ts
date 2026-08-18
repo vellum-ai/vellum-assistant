@@ -42,6 +42,7 @@ const {
 } = await import("@/runtime/platform-detection");
 
 const ORIGINAL_UA = navigator.userAgent;
+const ORIGINAL_PLATFORM = navigator.platform;
 const IPHONE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) " +
   "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
@@ -52,6 +53,13 @@ const ANDROID_UA =
 function setUserAgent(ua: string): void {
   Object.defineProperty(navigator, "userAgent", {
     value: ua,
+    configurable: true,
+  });
+}
+
+function setPlatform(platform: string): void {
+  Object.defineProperty(navigator, "platform", {
+    value: platform,
     configurable: true,
   });
 }
@@ -75,6 +83,7 @@ afterEach(() => {
   nativeOsPlatform = "web";
   delete (window as unknown as { vellum?: unknown }).vellum;
   setUserAgent(ORIGINAL_UA);
+  setPlatform(ORIGINAL_PLATFORM);
 });
 
 describe("detectClientOs", () => {
@@ -88,9 +97,13 @@ describe("detectClientOs", () => {
     expect(detectClientOs()).toBe("macos");
   });
 
-  test("defaults legacy Electron bridges to 'macos'", () => {
+  test("uses the renderer platform for legacy Electron bridges", () => {
     setElectronHost();
+    setPlatform("MacIntel");
     expect(detectClientOs()).toBe("macos");
+
+    setPlatform("Win32");
+    expect(detectClientOs()).toBe("windows");
   });
 
   test("returns 'ios' inside the Capacitor iOS native shell", () => {

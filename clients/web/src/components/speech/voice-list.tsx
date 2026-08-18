@@ -24,9 +24,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Check, Square, Volume2 } from "lucide-react";
 
-import {
-  cn,
-} from "@vellumai/design-library";
+import { cn, CrossfadeStack } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
 
@@ -289,7 +287,7 @@ export function VoiceList({
                       between rows. At rest: the check on the selected row, empty
                       otherwise. On hover/focus (or while previewing) the speaker
                       takes over — so the selected row is previewable too. */}
-                  <div className="relative flex size-7 shrink-0 items-center justify-center">
+                  <CrossfadeStack className="size-7">
                     {voice.sampleUrl !== "" && (
                       <Button
                         variant="ghost"
@@ -301,7 +299,7 @@ export function VoiceList({
                             : `Preview ${voice.description}`
                         }
                         data-reveal=""
-                        className="absolute inset-0"
+                        className="size-full"
                         // Preview / stop only — don't let the row's select fire.
                         onClick={(event) => {
                           event.stopPropagation();
@@ -325,7 +323,7 @@ export function VoiceList({
                         className="pointer-events-none size-4 text-[var(--system-positive-strong)]"
                       />
                     )}
-                  </div>
+                  </CrossfadeStack>
                 </div>
               );
             })}

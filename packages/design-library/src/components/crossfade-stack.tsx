@@ -13,8 +13,11 @@ import { cn } from "../utils/cn";
  * is still keyboard reachable (`focus-within` cannot fire on a
  * `display:none` element).
  *
- * This owns placement only. Which occupant is visible at which moment is the
- * caller's, expressed as opacity on the children themselves.
+ * Marking the cell (`data-reveal-slot`) is all this does: the stylesheet places
+ * the occupants in it and seats them side by side where there is no hover to
+ * trade them with. Which occupant is visible at which moment is the caller's,
+ * expressed as `data-reveal` and `data-reveal-yield` on the children
+ * themselves.
  */
 function CrossfadeStack({
   className,
@@ -24,10 +27,8 @@ function CrossfadeStack({
   return (
     <span
       data-slot="crossfade-stack"
-      className={cn(
-        "grid shrink-0 place-items-center [&>*]:[grid-area:1/1]",
-        className,
-      )}
+      data-reveal-slot=""
+      className={cn("grid shrink-0 place-items-center", className)}
       {...props}
     >
       {children}

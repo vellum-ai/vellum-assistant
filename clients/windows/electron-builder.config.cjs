@@ -28,6 +28,7 @@ module.exports = {
   // Requires `bun run build:web` first so resources/web-dist exists.
   extraResources: [
     { from: "resources/web-dist", to: "web-dist" },
+    { from: `resources/native-helper/${targetArch}`, to: "native-helper" },
     { from: "resources/tray.ico", to: "tray.ico" },
     { from: "resources/cli-runtime", to: "cli-runtime" },
   ],

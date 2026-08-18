@@ -37,15 +37,6 @@
       "values": ["control", "variant-a", "personal-page"]
     },
     {
-      "id": "experiment-billing-cta-2026-07-23",
-      "scope": "client",
-      "key": "experiment-billing-cta-2026-07-23",
-      "label": "Experiment: Billing CTA 2026-07-23",
-      "description": "Credit paywall CTA experiment. control = single Add Credits CTA for everyone (opens Add Credits modal). upgrade-cta = FREE users (plan_id base) get a single Upgrade CTA (View Plans takeover) instead; PAID users still get Add Credits.",
-      "defaultEnabled": "control",
-      "values": ["control", "upgrade-cta"]
-    },
-    {
       "id": "local-docker-enabled",
       "scope": "client",
       "key": "local-docker-enabled",
@@ -372,6 +363,15 @@
       "label": "Plugin Schedules",
       "description": "Plugins declare recurring schedules as files that register and run automatically",
       "defaultEnabled": false
+    },
+    {
+      "id": "experiment-balanced-model-2026-08-06",
+      "scope": "assistant",
+      "key": "experiment-balanced-model-2026-08-06",
+      "label": "Experiment: Balanced Profile Model",
+      "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. control = gpt-5.6-luna (the shipped pin); terra = gpt-5.6-terra; glm-5p2 = accounts/fireworks/models/glm-5p2. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to control.",
+      "defaultEnabled": "control",
+      "values": ["control", "terra", "glm-5p2"]
     }
   ]
 }
