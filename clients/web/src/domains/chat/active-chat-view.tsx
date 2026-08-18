@@ -34,6 +34,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantReachability } from "@/assistant/use-assistant-reachability";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
+import { useResourcePressureMonitor } from "@/assistant/use-resource-pressure-monitor";
 import { useActiveAssistantIsPlatformHosted } from "@/hooks/use-platform-gate";
 import { useComposerStore } from "@/domains/chat/composer-store";
 
@@ -180,6 +181,10 @@ export function ActiveChatView() {
     monitorEnabled: diskPressure.mode !== null,
     hasResolvedStatus: diskPressure.hasResolvedStatus,
     status: diskPressure.status,
+  });
+  const resourcePressure = useResourcePressureMonitor({
+    assistantId,
+    enabled: isPlatformHosted,
   });
 
   // -------------------------------------------------------------------------
@@ -576,6 +581,9 @@ export function ActiveChatView() {
 
     // Disk pressure (single instance — avoids duplicate polling/subscriptions)
     diskPressure,
+
+    // Resource pressure (single instance, same reasoning as disk pressure)
+    resourcePressure,
 
     // Upward signals
     setRefreshEpoch,
