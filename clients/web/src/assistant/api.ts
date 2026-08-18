@@ -1,6 +1,8 @@
 import {
   type DiskPressureStatusResponse,
   DiskPressureStatusResponseSchema,
+  type ResourcePressureStatusResponse,
+  ResourcePressureStatusResponseSchema,
 } from "@vellumai/assistant-api";
 
 import {
@@ -26,6 +28,7 @@ import {
   diskpressureAcknowledgePost,
   diskpressureStatusGet,
   healthzGet,
+  resourcepressureStatusGet,
 } from "@/generated/daemon/sdk.gen";
 import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
 import { assertHasResponse, toErrorObject } from "@/utils/api-errors";
@@ -57,6 +60,10 @@ export type GetAssistantDiskPressureStatusResult =
 
 export type AcknowledgeAssistantDiskPressureResult =
   | { ok: true; status: number; data: DiskPressureStatusResponse }
+  | { ok: false; status: number; error: Record<string, unknown> };
+
+export type GetAssistantResourcePressureStatusResult =
+  | { ok: true; status: number; data: ResourcePressureStatusResponse }
   | { ok: false; status: number; error: Record<string, unknown> };
 
 /**
@@ -257,6 +264,44 @@ export async function getAssistantDiskPressureStatus(
 
   if (response.ok) {
     const parsed = DiskPressureStatusResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        status: response.status,
+        error: toErrorObject(parsed.error.message, response),
+      };
+    }
+
+    return {
+      ok: true,
+      status: response.status,
+      data: parsed.data,
+    };
+  }
+
+  return {
+    ok: false,
+    status: response.status,
+    error: toErrorObject(error, response),
+  };
+}
+
+export async function getAssistantResourcePressureStatus(
+  assistantId: string,
+): Promise<GetAssistantResourcePressureStatusResult> {
+  const { data, error, response } = await resourcepressureStatusGet({
+    path: { assistant_id: assistantId },
+    throwOnError: false,
+  });
+
+  assertHasResponse(
+    response,
+    error,
+    "Failed to get assistant resource pressure status.",
+  );
+
+  if (response.ok) {
+    const parsed = ResourcePressureStatusResponseSchema.safeParse(data);
     if (!parsed.success) {
       return {
         ok: false,
