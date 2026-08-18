@@ -633,6 +633,18 @@ Tool access is also narrowed during cleanup mode. The runtime marks cleanup turn
 
 The macOS app owns the local client contract through `DiskPressureStatusStore`. On app activation and SSE changes, it fetches or applies the latest status. If acknowledgement is required, the main window and pop-out thread windows show a blocking safe-storage banner; the guardian must acknowledge or dismiss before continuing. After acknowledgement, chat surfaces keep a persistent cleanup status banner explaining that background processes and trusted-contact messages remain blocked until storage is freed. Acknowledgement request failures are shown in the banner so the modal does not fail silently.
 
+## Resource Pressure Monitoring
+
+Resource pressure monitoring warns platform users when their assistant is under sustained CPU or memory pressure so they can upgrade their plan. Unlike the disk-pressure guard it never blocks work: the guard is observe-and-report only.
+
+`assistant/src/daemon/resource-pressure-guard.ts` is gated on `getIsPlatform()`; off-platform there is no plan allocation to measure against, so the guard stays disabled and samples nothing. On platform it samples every 30 seconds: CPU percent comes from the shared rolling container CPU sampler (`assistant/src/util/container-cpu-sampler.ts`) measured against the cgroup CPU allocation, and memory percent is the working set (cgroup usage minus reclaimable file cache, which the kernel can drop under pressure) measured against the container memory limit.
+
+Each signal keeps a 20-sample window (10 minutes) with hysteresis so the state never flaps: it enters `elevated` only when the window is full and at least 18 samples exceeded the enter threshold (CPU 85%, memory 90%), and clears only after 10 consecutive samples below the clear threshold (CPU 70%, memory 80%). An unavailable sample resets that signal's window; when both samples are unavailable the status becomes `unknown` with the sample error. The overall state is `elevated` while either signal holds.
+
+Clients read `GET /v1/resource-pressure/status` (read-only; there are no acknowledge or override transitions) and receive `resource_pressure_status_changed` SSE events. Events broadcast only on substantive transitions: the raw percents and sample timestamp are excluded from the change fingerprint so the 30-second cadence does not spam the SSE hub.
+
+The web app owns the client contract. `useResourcePressureMonitor` (enabled only for platform-hosted assistants) polls the status route every 60 seconds, refetches on app resume, and applies SSE updates immediately. While the state is `elevated`, chat surfaces show a warning banner with the current CPU/memory readouts and an Upgrade CTA that navigates to the plans page; the CTA is hidden on native Android and for non-active assistants. Dismissing the banner starts a per-assistant 7-day cooldown stored in localStorage, and checking "Don't show again" suppresses it permanently. The disk-pressure banner takes precedence: the resource slot yields whenever the disk-pressure slot is active, so a critical storage warning never competes with an upsell.
+
 ## Web Search Failure Normalization
 
 <!-- ATL-727: centralized web_search backend-failure normalization. -->
