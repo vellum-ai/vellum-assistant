@@ -7,6 +7,7 @@ import { resolveModelIntent } from "../providers/model-intents.js";
 import { isCodexSubscriptionModel } from "../providers/openai/codex-models.js";
 import type { ModelIntent } from "../providers/types.js";
 import { getManagedUpstream } from "../providers/vellum-model-routing.js";
+import { getAssistantFeatureFlagValue } from "./assistant-feature-flags.js";
 import {
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
@@ -506,6 +507,57 @@ export const CODE_DEFAULT_PROFILE_ENTRIES: Readonly<
   Record<string, ProfileEntry>
 > = buildDefaultProfileEntries();
 
+// ── Balanced model experiment ────────────────────────────────────────
+// A/B arms for the managed `balanced` model, selected per-user by a
+// LaunchDarkly-targeted string flag. The flag only picks an arm from this
+// closed, code-reviewed set — it never carries a model id — so an
+// unexpected value (old build, typo'd variation, flags not yet hydrated)
+// falls back to the control body. Resolved at effective-profile read time:
+// flags hydrate after the boot seeder runs, and read-time resolution means
+// arm changes apply without touching workspace config.
+const BALANCED_MODEL_EXPERIMENT_FLAG = "experiment-balanced-model-2026-08";
+
+const BALANCED_CANDIDATE_A_IMPL: DefaultProfileTemplate = {
+  ...VELLUM_PROFILE_IMPLS.balanced,
+  model: "accounts/fireworks/models/glm-5p2",
+};
+
+if (getManagedUpstream(BALANCED_CANDIDATE_A_IMPL.model ?? "") === null) {
+  throw new Error(
+    `Balanced experiment candidate model "${BALANCED_CANDIDATE_A_IMPL.model}" ` +
+      `is not served by any managed upstream. Update model-catalog.ts or ` +
+      `default-profile-catalog.ts.`,
+  );
+}
+
+const BALANCED_CANDIDATE_A_ENTRY: ProfileEntry = materializeProfile(
+  BALANCED_CANDIDATE_A_IMPL,
+  BALANCED_CANDIDATE_A_IMPL.provider,
+);
+
+/**
+ * Swap the managed `balanced` body for the flag-selected experiment arm.
+ * Applies only to the vellum-column body (`provider: "vellum"`, managed
+ * source): BYOK/chatgpt implementations of `balanced` are not part of the
+ * experiment, and a user-owned shadow wins before the body is consulted.
+ */
+function applyBalancedModelExperiment(
+  name: string,
+  body: ProfileEntry | undefined,
+): ProfileEntry | undefined {
+  if (
+    name !== "balanced" ||
+    body?.provider !== "vellum" ||
+    body.source !== "managed"
+  ) {
+    return body;
+  }
+  return getAssistantFeatureFlagValue(BALANCED_MODEL_EXPERIMENT_FLAG) ===
+    "candidate-a"
+    ? BALANCED_CANDIDATE_A_ENTRY
+    : body;
+}
+
 /**
  * The per-default-profile fields that remain workspace-owned state: the
  * exact whitelist `seedInferenceProfiles` preserves across reseeds (user
@@ -556,6 +608,7 @@ function resolveAgainstBody(
   name: string,
   body: ProfileEntry | undefined,
 ): ProfileEntry | undefined {
+  body = applyBalancedModelExperiment(name, body);
   if (body == null) {
     return workspace;
   }

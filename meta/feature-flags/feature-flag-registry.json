@@ -372,6 +372,15 @@
       "label": "Plugin Schedules",
       "description": "Plugins declare recurring schedules as files that register and run automatically",
       "defaultEnabled": false
+    },
+    {
+      "id": "experiment-balanced-model-2026-08",
+      "scope": "assistant",
+      "key": "experiment-balanced-model-2026-08",
+      "label": "Experiment: Balanced Model 2026-08",
+      "description": "Selects the managed Balanced profile's model arm. control = current pin (gpt-5.6-luna); candidate-a = GLM 5.2 on Fireworks. Unknown values resolve as control. Targeted via LaunchDarkly.",
+      "defaultEnabled": "control",
+      "values": ["control", "candidate-a"]
     }
   ]
 }
