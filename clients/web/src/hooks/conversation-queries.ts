@@ -27,7 +27,11 @@
  */
 
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import {
+  useQueries,
+  useQuery,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { groupsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
@@ -43,7 +47,10 @@ import {
   sidebarSectionsOptions,
   unreadConversationCountOptions,
 } from "@/utils/conversation-list-fetchers";
-import type { SidebarIndexSection } from "@/utils/conversation-list-fetchers";
+import type {
+  ConversationListPage,
+  SidebarIndexSection,
+} from "@/utils/conversation-list-fetchers";
 import {
   ARCHIVED_BACKGROUND_FILTER,
   ARCHIVED_FILTER,
@@ -113,8 +120,35 @@ export interface ConversationListQueryResult {
   refetch: () => void;
 }
 
+type ListQueryOptions = ReturnType<typeof conversationListOptions> & {
+  enabled: boolean;
+};
+
 /**
- * Subscribe to the list cache `filter` names.
+ * What a list hook returns when it has no query to observe: the same shape a
+ * never-enabled query reports (pending, not loading, nothing to show), so a
+ * consumer branches the same way in both cases.
+ */
+const NO_QUERY: ConversationListQueryResult = {
+  conversations: EMPTY_CONVERSATIONS,
+  isLoading: false,
+  isPending: true,
+  isError: false,
+  error: null,
+  hasData: false,
+  hasMore: false,
+  refetch: () => {},
+};
+
+/**
+ * Subscribe to the list cache `filter` names, or to nothing when `filter` is
+ * `null`.
+ *
+ * `null` mounts no query at all (`useQueries` with an empty list), which is
+ * what a section without a server filter needs: every filter names a real
+ * cache under the generated key, the empty filter included, so there is no
+ * placeholder key a disabled observer could sit on without subscribing to
+ * someone's data.
  *
  * `enabled` gates the network fetch; passing `false` keeps the observer
  * subscribed to cache updates without firing a request (attention tracking
@@ -129,14 +163,27 @@ export interface ConversationListQueryResult {
  */
 function useListQuery(
   assistantId: string | null,
-  filter: ConversationListFilter,
+  filter: ConversationListFilter | null,
   enabled: boolean,
 ): ConversationListQueryResult {
   const canQuery = useCanQueryDaemon(assistantId);
-  const query = useQuery({
-    ...conversationListOptions(assistantId ?? "", filter),
-    enabled: enabled && Boolean(assistantId) && canQuery,
-  });
+  /* An array, not a tuple, so `useQueries` types the results as a list of
+     one query kind whether it holds zero entries or one. */
+  const queries: ListQueryOptions[] =
+    filter === null
+      ? []
+      : [
+          {
+            ...conversationListOptions(assistantId ?? "", filter),
+            enabled: enabled && Boolean(assistantId) && canQuery,
+          },
+        ];
+  const query: UseQueryResult<ConversationListPage> | undefined = useQueries({
+    queries,
+  })[0];
+  if (query === undefined) {
+    return NO_QUERY;
+  }
   return {
     conversations: query.data?.conversations ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
@@ -185,7 +232,9 @@ export function useScheduledConversationListQuery(
 }
 
 /**
- * One sidebar section's conversations (a group and/or channel filter).
+ * One sidebar section's conversations (a group and/or channel filter), or
+ * nothing for a section that has no server filter (`null`: a channel this
+ * client's schema does not carry, or Chats below the native-origin gate).
  *
  * Each section mounts its own instance, so its contents come from the server
  * rather than from filtering another section's list. That is what lets a
@@ -194,7 +243,7 @@ export function useScheduledConversationListQuery(
  */
 export function useSectionConversationListQuery(
   assistantId: string | null,
-  filter: ConversationListFilter,
+  filter: ConversationListFilter | null,
   enabled: boolean = true,
 ): ConversationListQueryResult {
   return useListQuery(assistantId, filter, enabled);

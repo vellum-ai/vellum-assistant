@@ -16,7 +16,10 @@ import type * as ListFetchers from "@/utils/conversation-list-fetchers";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import type { Conversation } from "@/types/conversation-types";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
-import { conversationListQueryKey } from "@/utils/conversation-list-keys";
+import {
+  type ConversationListFilter,
+  conversationListQueryKey,
+} from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 
 /** What the section query answers with, per test. */
@@ -32,7 +35,7 @@ let serverHasData = true;
 /** Whether the query reports rows past the window (LUM-2444). */
 let serverHasMore = false;
 /** Filters the hook actually sent, so tests can assert the query is scoped. */
-let sentFilters: Array<{ groupId?: string; originChannel?: string }> = [];
+let sentFilters: Array<ConversationListFilter | null> = [];
 /** Whether the query was enabled, so a closed gate is distinguishable. */
 let lastEnabled = false;
 /** Filters the bulk-path drain was asked for, and what it answers. */
@@ -369,6 +372,8 @@ describe("useSectionConversations", () => {
     expect(result.current.conversations.map((c) => c.conversationId)).toEqual([
       "derived-1",
     ]);
+    /* No filter means no query: nothing to key on, so nothing observed. */
+    expect(sentFilters.at(-1)).toBeNull();
     expect(lastEnabled).toBe(false);
   });
 

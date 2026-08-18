@@ -45,15 +45,6 @@ import {
 } from "@/utils/conversation-list-keys";
 
 /**
- * Stable placeholder for a section with no filter of its own, because the
- * query hook takes a filter unconditionally. It keys onto the foreground
- * cache (the empty filter IS the foreground list), so it must only ever be
- * passed with `enabled: false`; the disabled observer sends nothing, and
- * `live` keeps its data out of the render.
- */
-const NO_FILTER: ConversationListFilter = {};
-
-/**
  * What this section asks the server for, or `null` when it has no filter yet.
  *
  * Pinned and the custom groups are answered by `groupId` alone, because
@@ -214,7 +205,7 @@ export function useSectionConversations(
   const enabled = filter !== null && isAssistantActive && supportsGroupFilter;
   const { conversations, hasData, hasMore } = useSectionConversationListQuery(
     assistantId,
-    filter ?? NO_FILTER,
+    filter,
     enabled,
   );
   const live = enabled && hasData;

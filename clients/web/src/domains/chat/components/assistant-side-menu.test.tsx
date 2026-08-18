@@ -81,9 +81,9 @@ mock.module(
     useSidebarSectionsQuery: () => null,
     useSectionConversationListQuery: (
       _assistantId: string | null,
-      filter: ConversationListFilter,
+      filter: ConversationListFilter | null,
     ): ConversationQueries.ConversationListQueryResult => ({
-      conversations: rowsMatching(filter),
+      conversations: filter === null ? [] : rowsMatching(filter),
       isLoading: false,
       isPending: false,
       isError: false,
