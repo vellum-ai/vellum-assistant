@@ -9,17 +9,22 @@
  * would put an opened envelope on every item the rest of the row calls
  * unread. The control's label ("Mark as read") names what it does.
  *
- * A bulk command has no single item state to name, so it takes the glyph of
- * the state it leaves everything in: `READ_ICON` for "Mark all as read".
+ * A bulk command names no single item's state, and reusing a state glyph for
+ * it puts two envelopes with opposite meanings a row apart in the same menu.
+ * It gets the check-marked envelope instead, which reads as a command in the
+ * same family.
  */
 
-import { Mail, MailOpen, type LucideIcon } from "lucide-react";
+import { Mail, MailCheck, MailOpen, type LucideIcon } from "lucide-react";
 
 /** An item nobody has read yet: still sealed. */
 export const UNREAD_ICON: LucideIcon = Mail;
 
 /** An item that has been read: opened. */
 export const READ_ICON: LucideIcon = MailOpen;
+
+/** A command that reads everything at once, rather than a state. */
+export const MARK_ALL_READ_ICON: LucideIcon = MailCheck;
 
 /** The glyph naming the state an item is currently in. */
 export function readStateIcon(isUnread: boolean): LucideIcon {

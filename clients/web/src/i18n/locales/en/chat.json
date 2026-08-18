@@ -219,6 +219,21 @@
   "fileDownload": {
     "failed": "Failed to download file"
   },
+  "groupActions": {
+    "archiveAll": "Archive All…",
+    "copyGroupId": "Copy group ID",
+    "deleteGroup": "Delete group",
+    "deleteGroupWithConversations": "Delete group…",
+    "groupByChannel": "Group by channel",
+    "markAllRead": "Mark All as Read",
+    "moveSectionDown": "Move Section Down",
+    "moveSectionUp": "Move Section Up",
+    "rename": "Rename",
+    "ungroup": "Ungroup"
+  },
+  "groupActionsSheet": {
+    "title": "{name} actions"
+  },
   "inspectPage": {
     "accessDenied": "Inspector is available to Vellum staff, or when the settings-developer-nav developer flag is enabled.",
     "allMessages": "All messages",
