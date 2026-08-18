@@ -2597,27 +2597,10 @@ async function invokeEnable(
   return (await enableHandler(args)) as { ok: boolean };
 }
 
-function invokeDisable(args: RouteHandlerArgs = {}): { ok: boolean } {
-  return disableHandler(args) as { ok: boolean };
-}
-
-/**
- * Wait for a toggle handler's fire-and-forget reconcile poke to land. The poke
- * runs off the microtask queue (the disable path also resolves a lazy
- * `import()` first), so the assertion cannot run on the handler's synchronous
- * return.
- */
-async function waitForReconcile(
-  spy: { mock: { calls: unknown[] } },
-  label: string,
-): Promise<void> {
-  for (let i = 0; i < 50; i++) {
-    if (spy.mock.calls.length > 0) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2));
-  }
-  throw new Error(`${label} was never triggered`);
+async function invokeDisable(
+  args: RouteHandlerArgs = {},
+): Promise<{ ok: boolean }> {
+  return (await disableHandler(args)) as { ok: boolean };
 }
 
 /** Assert the spy received exactly one sync_changed carrying `plugins:list`. */
@@ -2745,42 +2728,42 @@ describe("POST /v1/plugins/:name/disable", () => {
     reconcilePluginSourcesNowSpy.mockClear();
   });
 
-  test("reconciles plugin-declared schedules so the plugin's rows disarm now", async () => {
+  test("awaits the source reconcile so the plugin tears down before the route returns", async () => {
     disablePluginSpy.mockImplementation((name) =>
       toggleResult(name, "disable"),
     );
 
-    invokeDisable({ pathParams: { name: "simple-memory" } });
+    await invokeDisable({ pathParams: { name: "simple-memory" } });
 
-    // Without this poke the rows stay armed until the reconciler's next
-    // backstop sweep. Disable stays on the schedule poke: the sentinel filters
-    // the plugin out at read time, and a source reconcile here would run its
-    // shutdown hooks.
-    await waitForReconcile(
-      reconcilePluginSchedulesSpy,
-      "plugin schedule reconcile",
-    );
-    expect(reconcilePluginSourcesNowSpy).not.toHaveBeenCalled();
+    // Writing the sentinel only hides the plugin at read time; the source
+    // reconcile is what runs its shutdown hook and evicts its cached hooks and
+    // tools. The route awaits it, so by the time the response lands the plugin
+    // is down; the reconcile converges the schedules itself, so the route does
+    // not poke them separately.
+    expect(reconcilePluginSourcesNowSpy).toHaveBeenCalledTimes(1);
+    expect(reconcilePluginSchedulesSpy).not.toHaveBeenCalled();
   });
 
-  test("a failed toggle does not poke the schedule reconcile", async () => {
+  test("a failed toggle does not run the source reconcile", async () => {
     disablePluginSpy.mockImplementation((name) => {
       throw new PluginDirectoryNotFoundError(name);
     });
 
-    expect(() => invokeDisable({ pathParams: { name: "ghost" } })).toThrow(
-      NotFoundError,
-    );
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await expect(
+      invokeDisable({ pathParams: { name: "ghost" } }),
+    ).rejects.toThrow(NotFoundError);
+    expect(reconcilePluginSourcesNowSpy).not.toHaveBeenCalled();
     expect(reconcilePluginSchedulesSpy).not.toHaveBeenCalled();
   });
 
-  test("disables the plugin and broadcasts sync_changed(plugins:list)", () => {
+  test("disables the plugin and broadcasts sync_changed(plugins:list)", async () => {
     disablePluginSpy.mockImplementation((name) =>
       toggleResult(name, "disable"),
     );
 
-    const result = invokeDisable({ pathParams: { name: "simple-memory" } });
+    const result = await invokeDisable({
+      pathParams: { name: "simple-memory" },
+    });
 
     expect(result).toEqual({ ok: true });
     expect(disablePluginSpy.mock.calls[0]?.[0]).toBe("simple-memory");
@@ -2789,12 +2772,12 @@ describe("POST /v1/plugins/:name/disable", () => {
     expectPluginsListBroadcast();
   });
 
-  test("threads x-vellum-client-id into the published event's originClientId", () => {
+  test("threads x-vellum-client-id into the published event's originClientId", async () => {
     disablePluginSpy.mockImplementation((name) =>
       toggleResult(name, "disable"),
     );
 
-    invokeDisable({
+    await invokeDisable({
       pathParams: { name: "simple-memory" },
       headers: { "x-vellum-client-id": "client-xyz" },
     });
@@ -2806,35 +2789,52 @@ describe("POST /v1/plugins/:name/disable", () => {
     });
   });
 
-  test("PluginAlreadyInStateException → ConflictError (409), no broadcast", () => {
+  test("PluginAlreadyInStateException → ConflictError (409), no broadcast", async () => {
     disablePluginSpy.mockImplementation((name) => {
       throw new PluginAlreadyInStateException(name, "disable");
     });
 
-    expect(() =>
+    await expect(
       invokeDisable({ pathParams: { name: "simple-memory" } }),
-    ).toThrow(ConflictError);
+    ).rejects.toThrow(ConflictError);
+    // A no-op toggle must not fan out a spurious invalidation.
     expect(broadcastMessageSpy).not.toHaveBeenCalled();
   });
 
-  test("PluginDirectoryNotFoundError → NotFoundError (404)", () => {
+  test("PluginDirectoryNotFoundError → NotFoundError (404)", async () => {
     disablePluginSpy.mockImplementation((name) => {
       throw new PluginDirectoryNotFoundError(name);
     });
 
-    expect(() => invokeDisable({ pathParams: { name: "ghost" } })).toThrow(
-      NotFoundError,
-    );
+    await expect(
+      invokeDisable({ pathParams: { name: "ghost" } }),
+    ).rejects.toThrow(NotFoundError);
   });
 
-  test("InvalidPluginNameError → BadRequestError (400)", () => {
+  test("InvalidPluginNameError → BadRequestError (400)", async () => {
     disablePluginSpy.mockImplementation(() => {
       throw new ToggleInvalidPluginNameError("../escape");
     });
 
-    expect(() => invokeDisable({ pathParams: { name: "../escape" } })).toThrow(
-      BadRequestError,
+    await expect(
+      invokeDisable({ pathParams: { name: "../escape" } }),
+    ).rejects.toThrow(BadRequestError);
+  });
+
+  test("a disable then enable round trip reconciles the sources both times", async () => {
+    disablePluginSpy.mockImplementation((name) =>
+      toggleResult(name, "disable"),
     );
+    enablePluginSpy.mockImplementation((name) => toggleResult(name, "enable"));
+
+    await invokeDisable({ pathParams: { name: "simple-memory" } });
+    await invokeEnable({ pathParams: { name: "simple-memory" } });
+
+    // Each direction brings the caches back in line with the sentinel, so
+    // neither leaves the plugin half-torn-down. The teardown-then-init
+    // ordering is covered against a real plugin directory in mtime-cache.test.
+    expect(reconcilePluginSourcesNowSpy).toHaveBeenCalledTimes(2);
+    expect(broadcastMessageSpy.mock.calls).toHaveLength(2);
   });
 });
 

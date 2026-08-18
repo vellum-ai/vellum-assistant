@@ -235,15 +235,16 @@ export function isPluginDirActivated(dir: string): boolean {
  * Imperatively reconcile the plugin caches against the current on-disk state
  * *now*.
  *
- * An install / uninstall / enable / disable materializes files on disk;
- * nothing else applies that change to the caches. Callers that just changed
- * the plugin set on disk (the install / uninstall routes, and the CLI's
- * best-effort post-install poke) call this to bring the change up
- * deterministically, so a freshly installed plugin's `init` fires as part of
- * the install rather than at the next daemon boot. Together with the boot
- * scan this is the only path that activates plugins — dispatch-time hook and
- * tool reads are pure cache reads — so activation only ever happens in the
- * main daemon, where these routes run.
+ * An install / uninstall / upgrade / enable / disable materializes files on
+ * disk; nothing else applies that change to the caches. Callers that just
+ * changed the plugin set on disk (the install, uninstall, upgrade, enable and
+ * disable routes, and the CLI's best-effort post-install poke) call this to
+ * bring the change up deterministically, so a freshly installed plugin's
+ * `init` fires as part of the install rather than at the next daemon boot,
+ * and a disabled plugin's `shutdown` fires as part of the disable rather than
+ * at daemon exit. Together with the boot scan this is the only path that
+ * activates plugins — dispatch-time hook and tool reads are pure cache reads —
+ * so activation only ever happens in the main daemon, where these routes run.
  *
  * Idempotent and safe to call redundantly: `applySourceVersions` only
  * redeploys directories whose fingerprint moved, and activation is guarded so
@@ -1070,9 +1071,10 @@ async function deactivatePlugin(
  *
  * Called by `loadUserPlugins()` during daemon startup. After boot, the same
  * `activatePlugin`/`deactivatePlugin` reconciliation runs only through the
- * imperative poke ({@link reconcilePluginSourcesNow}) the install/uninstall/
- * upgrade/enable routes call, so plugin lifecycle stays confined to the main
- * daemon — dispatch-time hook and tool reads never activate anything.
+ * imperative poke ({@link reconcilePluginSourcesNow}) the install, uninstall,
+ * upgrade, enable and disable routes call, so plugin lifecycle stays confined
+ * to the main daemon — dispatch-time hook and tool reads never activate
+ * anything.
  */
 export async function populateCacheAtBoot(
   opts: { importTimeoutMs?: number } = {},
