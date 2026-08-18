@@ -238,6 +238,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "workspace/default-provider-ensure.ts", // legacy anthropic echo disambiguation (vault key presence check)
       "providers/inference/connection-availability.ts", // shared (provider, connection) availability status (credential presence check only; value never leaves the helper)
       "plugin-api/resolve-credential.ts", // plugin-facing resolveCredential — reveal-equivalent plaintext read, scoped to the in-context plugin's own field
+      "tools/credentials/store.ts", // shared credential write path (setSecureKeyAsync only; no reads) behind credentials/set and plugin-facing storeCredential
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
