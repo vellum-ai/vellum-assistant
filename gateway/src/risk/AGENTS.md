@@ -1,0 +1,9 @@
+# Risk: Agent Instructions
+
+The gateway is the **only** place a tool invocation's risk is classified and the only place trust rules are stored, matched, and applied. `gateway/src/ipc/risk-classification-handlers.ts` (`classify_risk`) is the sole entry point; the assistant calls it exactly once per tool invocation and never classifies locally. See `command-registry/AGENTS.md` for the registry rules.
+
+- **Trust rules live here** (`gateway/src/db/trust-rule-store.ts`, cached by `trust-rule-cache.ts`, seeded at startup by `db/seed-trust-rules.ts` and otherwise mutated only through the gateway HTTP routes, which refresh the cache in-process). A rule reaches the assistant only as the classified level plus `matchType: "user_rule"`; the assistant never sees, stores, or matches rules.
+- **A tool's risk is decided here or not at all.** Tools without a dedicated classifier fall through to the `registryDefaultRisk` the assistant sends (the tool's `defaultRiskLevel`); today that fallback consults no trust rule and emits no allowlist options, so a user rule cannot cover such a tool. Fix that here when it matters, not with a classifier in the assistant.
+- **What you return to the assistant is the whole answer.** Level, reason, `matchType`, allowlist / scope / directory-scope options, command candidates, sandbox flags, and the lexically-resolved path args. The assistant's only adjustment is the bash sandbox symlink-escape re-check, which needs its filesystem and only ever revokes `sandboxAutoApprove`.
+- **The wire shape is mirrored on the assistant side** in `assistant/src/permissions/ipc-risk-types.ts` (`ClassificationResult`); a change to the response here is a change there in the same PR.
+- The assistant's counterpart doc is `assistant/src/permissions/AGENTS.md`; the architecture doc is `assistant/docs/architecture/security.md`.
