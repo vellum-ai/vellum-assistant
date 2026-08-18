@@ -266,7 +266,7 @@ const ROOT_RAIL_RESIZABLE_CLASSES = [
 const ROOT_OVERLAY_CLASSES = [
   "w-full",
   "rounded-none",
-  "p-4",
+  "p-3",
   "bg-transparent",
 ].join(" ");
 

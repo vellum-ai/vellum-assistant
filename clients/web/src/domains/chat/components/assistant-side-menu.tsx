@@ -133,7 +133,7 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
  * {@link VOICE_WAVE_EDGE_FADE_CLASS} in `voice-listening-waves.tsx`.
  */
 const NATIVE_MOBILE_LIST_TOP_FADE =
-  "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)] native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]";
+  "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_2.25rem)] native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2.25rem)]";
 
 function SearchButton() {
   const toggle = useCommandPaletteStore.use.toggle();
@@ -521,7 +521,7 @@ export function AssistantSideMenu({
                scrollable. */
             <div
               data-slot="side-menu-glyph-row"
-              className="flex items-center justify-between gap-2 native-mobile:pointer-events-none native-mobile:absolute native-mobile:inset-x-4 native-mobile:top-4 native-mobile:z-10"
+              className="flex items-center justify-between gap-2 native-mobile:pointer-events-none native-mobile:absolute native-mobile:inset-x-3 native-mobile:top-4 native-mobile:z-10"
             >
               <div className="flex items-center gap-1">
                 <Button
@@ -549,7 +549,7 @@ export function AssistantSideMenu({
               ? /* pb-24 is a coarse floating-column reserve until the measured
                  inline padding below is applied. The native-mobile pt-14
                  clears the 40px floating icon row plus a 16px gap. */
-                `-mx-4 ${SIDEBAR_STACK_GAP} px-4 pb-24 native-mobile:pt-14 ${NATIVE_MOBILE_LIST_TOP_FADE}`
+                `-mx-3 ${SIDEBAR_STACK_GAP} px-3 pb-24 native-mobile:pt-9 ${NATIVE_MOBILE_LIST_TOP_FADE}`
               : /* The top inset is the same stack gap: the header closes
                    with no rule, so without it the first card (or the
                    collapsed rail's first group icon) butts against the
