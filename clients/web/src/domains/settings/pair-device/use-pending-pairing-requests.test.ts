@@ -13,7 +13,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
-import type { PendingPairingRequestSummary } from "./pair-device-client";
+import type { RemoteWebPairingRequestSummary } from "@vellumai/service-contracts/remote-web-pairing";
+
 import {
   createTimerHarness,
   fetchLog,
@@ -50,7 +51,7 @@ function listCalls() {
 /** Serve the list route with `summaries`; reassignable between polls. */
 let listResponder: () => Response | Promise<Response>;
 
-function serveList(summaries: PendingPairingRequestSummary[]) {
+function serveList(summaries: RemoteWebPairingRequestSummary[]) {
   listResponder = () => jsonResponse({ requests: summaries });
 }
 
@@ -85,14 +86,14 @@ async function tickPoll() {
   });
 }
 
-function renderPendingRequests(base: string | null = BASE) {
+function renderPendingRequests(base: string = BASE) {
   return renderHook(
-    (props: { base: string | null }) => usePendingPairingRequests(props.base),
+    (props: { base: string }) => usePendingPairingRequests(props.base),
     { initialProps: { base } },
   );
 }
 
-async function renderWithList(summaries: PendingPairingRequestSummary[]) {
+async function renderWithList(summaries: RemoteWebPairingRequestSummary[]) {
   serveList(summaries);
   installRoutedFetch();
   let rendered!: ReturnType<typeof renderPendingRequests>;
@@ -146,20 +147,6 @@ describe("usePendingPairingRequests: polling", () => {
 
     expect(listCalls()).toHaveLength(2);
     expect(result.current.requests).toBe(initial);
-  });
-
-  test("does nothing when base is null", async () => {
-    installRoutedFetch();
-
-    let result!: ReturnType<typeof renderPendingRequests>["result"];
-    await act(async () => {
-      ({ result } = renderPendingRequests(null));
-    });
-
-    expect(fetchLog).toHaveLength(0);
-    expect(pollTimers()).toHaveLength(0);
-    expect(result.current.requests).toEqual([]);
-    expect(result.current.error).toBeNull();
   });
 
   test("unmount clears the interval and aborts the in-flight poll", async () => {
@@ -416,21 +403,6 @@ describe("usePendingPairingRequests: approve/deny", () => {
     expect(result.current.error).toBeNull();
   });
 
-  test("actions are ignored while base is null", async () => {
-    installRoutedFetch();
-
-    let result!: ReturnType<typeof renderPendingRequests>["result"];
-    await act(async () => {
-      ({ result } = renderPendingRequests(null));
-    });
-
-    await act(async () => {
-      await result.current.approve("req-1");
-    });
-
-    expect(fetchLog).toHaveLength(0);
-    expect(result.current.actingOn).toBeNull();
-  });
 });
 
 describe("usePendingPairingRequests: deny racing an approve", () => {

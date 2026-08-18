@@ -79,6 +79,8 @@ function pendingRequestBody(
     requestedAt: new Date(Date.now() - 2 * 60_000).toISOString(),
     expiresAt: futureIso(),
     requesterUserAgent: "Mozilla/5.0 (iPhone; like Mac OS X)",
+    // Default rows carry a public requester IP, so they read as edge mints.
+    viaEdgeProxy: true,
     ...overrides,
   });
 }

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import type { RemoteWebPairingRequestSummary } from "@vellumai/service-contracts/remote-web-pairing";
+
 import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
@@ -9,7 +11,6 @@ import {
   denyPairingRequest,
   listPendingPairingRequests,
   PairDeviceError,
-  type PendingPairingRequestSummary,
 } from "./pair-device-client";
 
 /** Matches the gateway store's recommended poll interval for pending requests. */
@@ -19,8 +20,8 @@ export type PendingPairingAction = "approve" | "deny";
 
 /** Summaries are immutable per id, so id-sequence equality means unchanged. */
 function sameRequestList(
-  prev: PendingPairingRequestSummary[],
-  next: PendingPairingRequestSummary[],
+  prev: RemoteWebPairingRequestSummary[],
+  next: RemoteWebPairingRequestSummary[],
 ): boolean {
   return (
     prev.length === next.length &&
@@ -30,7 +31,7 @@ function sameRequestList(
 
 export interface PendingPairingRequestsController {
   /** The pending pairing requests, as last fetched from the host gateway. */
-  requests: PendingPairingRequestSummary[];
+  requests: RemoteWebPairingRequestSummary[];
   /** The request an approve/deny is currently in flight for, or `null`. */
   actingOn: { requestId: string; action: PendingPairingAction } | null;
   /** Non-fatal error message the card may surface, or `null`. */
@@ -42,8 +43,7 @@ export interface PendingPairingRequestsController {
 /**
  * Polls the host gateway's loopback-only pending pairing-request list while
  * mounted and exposes approve/deny actions on the rows. `base` is the resolved
- * local-gateway base URL, or `null` when request approval isn't available from
- * here (outside desktop/local mode); the hook is then inert.
+ * local-gateway base URL; the caller gates mounting on its availability.
  *
  * A failed poll keeps the previous list (a transient loopback-proxy hiccup
  * shouldn't flash the UI empty) and records a non-fatal error instead. A
@@ -59,9 +59,9 @@ export interface PendingPairingRequestsController {
  * in-flight action, so stale requests are never shown against the new base.
  */
 export function usePendingPairingRequests(
-  base: string | null,
+  base: string,
 ): PendingPairingRequestsController {
-  const [requests, setRequests] = useState<PendingPairingRequestSummary[]>(
+  const [requests, setRequests] = useState<RemoteWebPairingRequestSummary[]>(
     [],
   );
   const [actingOn, setActingOn] = useState<{
@@ -102,10 +102,6 @@ export function usePendingPairingRequests(
   }, [base]);
 
   useEffect(() => {
-    if (!base) {
-      return;
-    }
-
     const poll = async () => {
       pollAbortRef.current?.abort();
       const controller = new AbortController();
@@ -153,7 +149,7 @@ export function usePendingPairingRequests(
 
   const runAction = useCallback(
     async (requestId: string, action: PendingPairingAction) => {
-      if (!base || actionAbortRef.current) {
+      if (actionAbortRef.current) {
         return;
       }
       const controller = new AbortController();

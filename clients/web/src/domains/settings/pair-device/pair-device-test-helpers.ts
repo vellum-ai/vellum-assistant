@@ -7,7 +7,7 @@
 
 import { mock } from "bun:test";
 
-import type { PendingPairingRequestSummary } from "./pair-device-client";
+import type { RemoteWebPairingRequestSummary } from "@vellumai/service-contracts/remote-web-pairing";
 
 /** Local-gateway base URL used across the pair-device tests. */
 export const TEST_GATEWAY_BASE =
@@ -21,8 +21,8 @@ export function jsonResponse(body: unknown, status = 200): Response {
 }
 
 export function pendingRequest(
-  overrides: Partial<PendingPairingRequestSummary> = {},
-): PendingPairingRequestSummary {
+  overrides: Partial<RemoteWebPairingRequestSummary> = {},
+): RemoteWebPairingRequestSummary {
   return {
     requestId: "req-1",
     userCode: "WXYZ-1234",
@@ -31,6 +31,7 @@ export function pendingRequest(
     expiresAt: "2026-08-17T10:10:00.000Z",
     requesterIp: "203.0.113.7",
     requesterUserAgent: "Mozilla/5.0",
+    viaEdgeProxy: false,
     ...overrides,
   };
 }
