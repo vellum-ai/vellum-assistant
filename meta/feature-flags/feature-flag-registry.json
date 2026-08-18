@@ -362,7 +362,7 @@
       "key": "plugin-schedules",
       "label": "Plugin Schedules",
       "description": "Plugins declare recurring schedules as files that register and run automatically",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "experiment-balanced-model-2026-08-06",
