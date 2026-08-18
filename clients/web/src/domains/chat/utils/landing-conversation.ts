@@ -83,8 +83,22 @@ async function fetchStoredConversation(
   }
 }
 
-function firstSelectableId(rows: Conversation[]): string | null {
-  return rows.find(isStoredConversationSelectable)?.conversationId ?? null;
+function firstSelectable(rows: Conversation[]): Conversation | undefined {
+  return rows.find(isStoredConversationSelectable);
+}
+
+/**
+ * The newer of two candidate rows by recency, either possibly absent.
+ * Recency is `lastMessageAt`, the axis every list read is ordered on.
+ */
+function newerOf(
+  a: Conversation | undefined,
+  b: Conversation | undefined,
+): Conversation | undefined {
+  if (!a || !b) {
+    return a ?? b;
+  }
+  return (b.lastMessageAt ?? 0) > (a.lastMessageAt ?? 0) ? b : a;
 }
 
 /**
@@ -114,15 +128,38 @@ async function fetchLatestForegroundId(
     conversationListQueryKey(assistantId),
   );
   if (cached && cached.conversations.length > 0) {
-    return firstSelectableId(cached.conversations);
+    return firstSelectable(cached.conversations)?.conversationId ?? null;
   }
-  let page = await listConversationsFirstPage(assistantId, {}, "landing");
-  let found = firstSelectableId(page.conversations);
-  /* Advance by the server's page size, not by rows received: an unfiltered
-     page one carries the daemon's appended pinned rows beyond the limit. */
+  const first = await listConversationsFirstPage(assistantId, {}, "landing");
+  /* An unfiltered page one is the paginated window plus every pinned row
+     the daemon appends beyond it, sorted together by recency. An appended
+     pin is older than the whole window, so it may only win against what
+     later pages hold, never pre-empt them: a selectable row inside the
+     window is the answer outright; otherwise the pages after the window are
+     searched and the newest selectable of those and the appended pins is
+     the answer. Without this an old pinned chat below fifty unselectable
+     rows would beat a newer chat sitting at the top of page two. */
+  const unpinned = first.conversations.filter((c) => c.isPinned !== true);
+  const cutoff =
+    unpinned.length > 0
+      ? Math.min(...unpinned.map((c) => c.lastMessageAt ?? 0))
+      : Number.NEGATIVE_INFINITY;
+  const inWindow = first.conversations.filter(
+    (c) => (c.lastMessageAt ?? 0) >= cutoff,
+  );
+  const appended = first.conversations.filter(
+    (c) => (c.lastMessageAt ?? 0) < cutoff,
+  );
+  const inWindowFound = firstSelectable(inWindow);
+  if (inWindowFound) {
+    return inWindowFound.conversationId;
+  }
+  let found = firstSelectable(appended);
+  let page = first;
+  /* Advance by the server's page size, not by rows received, for the same
+     reason: page one is longer than the window. */
   for (
     let pageIndex = 1;
-    found === null &&
     pageIndex < LANDING_MAX_PAGES &&
     page.hasMore &&
     page.conversations.length > 0;
@@ -133,9 +170,13 @@ async function fetchLatestForegroundId(
       {},
       pageIndex * CONVERSATION_LIST_PAGE_SIZE,
     );
-    found = firstSelectableId(page.conversations);
+    const later = firstSelectable(page.conversations);
+    if (later) {
+      found = newerOf(found, later);
+      break;
+    }
   }
-  return found;
+  return found?.conversationId ?? null;
 }
 
 async function lookUpLanding(

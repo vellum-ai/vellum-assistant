@@ -344,6 +344,44 @@ describe("useConversationLoader cold-boot landing", () => {
     expect(await landedOn()).toContain("row-51-chat");
   });
 
+  test("an appended pin older than the window does not pre-empt a newer chat on page two", async () => {
+    /* The window's 50 newest rows are all unselectable; the daemon appends
+       an old pinned chat beyond the window; a newer (still selectable) chat
+       leads page two. Recency order: bg rows (100..51), the page-two chat
+       (30), the appended pin (1). */
+    pinnedExtras = [{ id: "old-pin", isPinned: true, lastMessageAt: 1 }];
+    listRows = [
+      ...Array.from({ length: 50 }, (_, i) => ({
+        id: `bg-${i}`,
+        conversationType: "background" as const,
+        groupId: "grp-1",
+        lastMessageAt: 100 - i,
+      })),
+      { id: "page-two-chat", lastMessageAt: 30 },
+    ];
+
+    renderColdBoot(new QueryClient());
+
+    expect(await landedOn()).toContain("page-two-chat");
+  });
+
+  test("an appended pin newer than everything past the window wins", async () => {
+    pinnedExtras = [{ id: "newer-pin", isPinned: true, lastMessageAt: 40 }];
+    listRows = [
+      ...Array.from({ length: 50 }, (_, i) => ({
+        id: `bg-${i}`,
+        conversationType: "background" as const,
+        groupId: "grp-1",
+        lastMessageAt: 100 - i,
+      })),
+      { id: "page-two-chat", lastMessageAt: 30 },
+    ];
+
+    renderColdBoot(new QueryClient());
+
+    expect(await landedOn()).toContain("newer-pin");
+  });
+
   test("retries a transient failure before falling back", async () => {
     saveLastViewedConversationId(ASSISTANT_ID, "old-visible");
     byIdRow = { id: "old-visible" };
