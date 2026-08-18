@@ -71,6 +71,7 @@ mock.module("../../../contacts/contact-store.js", () => ({
 
 let recordInboundCalls: Array<{ conversationId?: string }> = [];
 let recordedEvent: { eventId: string; conversationId: string } | null = null;
+let outboundTargetConversationId: string | null = null;
 let storedTarget: { messageId: string; conversationId: string } | null = null;
 mock.module("../../../persistence/delivery-crud.js", () => ({
   recordInbound: (
@@ -88,6 +89,7 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
     };
   },
   findMessageBySourceId: () => storedTarget,
+  findSlackConversationByMessageTs: () => outboundTargetConversationId,
   findInboundEvent: () => recordedEvent,
   clearPayload: () => {},
   linkMessage: () => {},
@@ -214,6 +216,7 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     contactLookups = 0;
     recordInboundCalls = [];
     recordedEvent = null;
+    outboundTargetConversationId = null;
     addMessageCalls = 0;
     guardianReplyCalls = [];
     guardianReplyResponse = undefined;
@@ -256,6 +259,25 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     expect(addMessageCalls).toBe(1);
     // Recorded into the reacted message's conversation, never a fresh one.
     expect(recordInboundCalls).toEqual([{ conversationId: "conv-target" }]);
+  });
+
+  test("a reaction on the assistant's own post resolves through slackMeta", async () => {
+    // Outbound posts open no inbound event, so the ts is only on the row.
+    storedTarget = null;
+    outboundTargetConversationId = "conv-assistant-post";
+
+    const result = await handleSlackReactionIntercept(
+      buildParams({
+        rawSenderId: MEMBER_USER_ID,
+        trustVerdict: MEMBER_VERDICT,
+      }),
+    );
+
+    expect(recordInboundCalls).toEqual([
+      { conversationId: "conv-assistant-post" },
+    ]);
+    expect(addMessageCalls).toBe(1);
+    expect(result).toMatchObject({ accepted: true, duplicate: false });
   });
 
   test("a reaction on a message that is not stored is dropped without minting", async () => {

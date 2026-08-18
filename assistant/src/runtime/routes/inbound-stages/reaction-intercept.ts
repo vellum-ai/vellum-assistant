@@ -10,7 +10,8 @@
  *   - a stranger's reaction creates no conversation, binding, or transcript
  *     row — it is dropped as channel noise,
  *   - a known contact's reaction is recorded as an inline transcript signal in
- *     the conversation of the message it was attached to,
+ *     the conversation of the message it was attached to, whether that message
+ *     arrived from the channel or the assistant posted it,
  *   - a guardian's reaction on an approval card is routed through the guardian
  *     decision pipeline (the same path as buttons and text replies).
  *
@@ -31,6 +32,7 @@ import { addMessage } from "../../../persistence/conversation-crud.js";
 import {
   findInboundEvent,
   findMessageBySourceId,
+  findSlackConversationByMessageTs,
   linkMessage,
   recordInbound,
 } from "../../../persistence/delivery-crud.js";
@@ -240,14 +242,21 @@ export async function handleSlackReactionIntercept(
   // finding the one that message lives in, minting an orphan per reaction.
   // A message the assistant never stored has nothing to annotate, so the
   // reaction is dropped rather than given a conversation of its own.
-  const target = reactedMessageTs
-    ? findMessageBySourceId(
+  // Inbound messages carry their provider id on the event that delivered
+  // them. The assistant's own posts open no inbound event, so a reaction on
+  // one is resolved through the `slackMeta` those rows carry.
+  const targetConversationId = reactedMessageTs
+    ? (findMessageBySourceId(
         sourceChannel,
         conversationExternalId,
         reactedMessageTs,
-      )
+      )?.conversationId ??
+      findSlackConversationByMessageTs(
+        conversationExternalId,
+        reactedMessageTs,
+      ))
     : null;
-  if (!target || !reactedMessageTs) {
+  if (!targetConversationId || !reactedMessageTs) {
     log.debug(
       { sourceChannel, conversationExternalId, reactedMessageTs },
       "Dropping reaction: reacted message is not stored",
@@ -261,7 +270,7 @@ export async function handleSlackReactionIntercept(
     externalMessageId,
     {
       sourceMessageId: reactedMessageTs,
-      conversationId: target.conversationId,
+      conversationId: targetConversationId,
     },
   );
 

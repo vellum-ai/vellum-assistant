@@ -439,6 +439,50 @@ describe("Slack reaction event persistence", () => {
     expect(rows.length).toBe(1);
   });
 
+  test("reaction on the assistant's own post lands in that conversation", async () => {
+    // An outbound post opens no inbound event, so the only record of its ts
+    // is the `slackMeta` on the assistant row. Seeded here the way the
+    // outbound reconciler writes it.
+    const botTs = "1700000000.999999";
+    const conversationId = seedStoredMessage("1700000000.111111");
+    const db = getDb();
+    db.$client
+      .prepare(
+        `INSERT INTO messages (id, conversation_id, role, content, created_at, metadata)
+         VALUES (?, ?, 'assistant', '"posted"', ?, ?)`,
+      )
+      .run(
+        "msg-bot-post",
+        conversationId,
+        Date.now(),
+        JSON.stringify({
+          slackMeta: JSON.stringify({
+            source: "slack",
+            channelId: SLACK_CHANNEL_ID,
+            channelTs: botTs,
+            eventKind: "message",
+          }),
+        }),
+      );
+
+    const resp = await handleChannelInbound(
+      buildReactionRequest("reaction:tada", {
+        externalMessageId: `${SLACK_CHANNEL_ID}:${botTs}:reactor`,
+        sourceMetadata: { messageId: botTs, chatType: "channel" },
+      }),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    expect(resp.status).toBe(200);
+
+    const reactionRow = db.$client
+      .prepare(
+        "SELECT conversation_id AS conversationId FROM messages WHERE content = '[reaction]'",
+      )
+      .get() as { conversationId: string } | null;
+    expect(reactionRow?.conversationId).toBe(conversationId);
+  });
+
   test("reaction on a message the assistant never stored creates no conversation", async () => {
     // The reported bug: Slack sends no `thread_ts` on a reaction, so keying a
     // conversation off the reaction's own address minted one per reacted

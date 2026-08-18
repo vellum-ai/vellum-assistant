@@ -5,7 +5,7 @@
  * finding messages by source identifiers, and managing raw payload storage.
  */
 
-import { and, desc, eq, isNotNull, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { ChannelId } from "../channels/types.js";
@@ -21,7 +21,12 @@ import {
 } from "./conversation-key-store.js";
 import type { NonScheduledConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
-import { channelInboundEvents, conversations } from "./schema.js";
+import {
+  channelInboundEvents,
+  conversationKeys,
+  conversations,
+  messages,
+} from "./schema.js";
 
 export interface InboundResult {
   accepted: boolean;
@@ -44,6 +49,14 @@ export interface RecordInboundOptions {
 
 const SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE = 50;
 const SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN = 500;
+
+/**
+ * Rows examined when locating a Slack message the assistant itself posted.
+ * Bounded on purpose: the scan runs on the inbound path while the gateway
+ * waits for its ack, and reactions land on recent messages, so a cap costs
+ * almost no recall and keeps the cost flat as the database grows.
+ */
+const SLACK_OUTBOUND_TS_MAX_SCAN = 400;
 
 /**
  * Channels where an inbound thread id scopes the conversation: a Slack thread
@@ -281,6 +294,61 @@ export function findInboundEvent(
     )
     .get();
   return row ? { eventId: row.id, conversationId: row.conversationId } : null;
+}
+
+/**
+ * The conversation holding the Slack message with this `ts`, found by reading
+ * the `slackMeta` the assistant's own posts carry.
+ *
+ * `findMessageBySourceId` covers every message that arrived as an inbound
+ * event. It cannot see what the assistant posted, because an outbound reply
+ * opens no inbound event, so a reaction on the assistant's own message needs
+ * this. The search is confined to conversations already bound to the same
+ * Slack channel and to the most recent {@link SLACK_OUTBOUND_TS_MAX_SCAN}
+ * rows among them; beyond that it gives up and the caller drops the
+ * annotation, which is the same outcome as never finding it at all.
+ */
+export function findSlackConversationByMessageTs(
+  externalChatId: string,
+  channelTs: string,
+): string | null {
+  const db = getDb();
+  const keyPrefix = `${CONVERSATION_KEY_SCOPE}:slack:${externalChatId}`;
+  const rows = db
+    .select({
+      conversationId: messages.conversationId,
+      metadata: messages.metadata,
+    })
+    .from(messages)
+    .innerJoin(
+      conversationKeys,
+      eq(conversationKeys.conversationId, messages.conversationId),
+    )
+    .where(
+      and(
+        or(
+          eq(conversationKeys.conversationKey, keyPrefix),
+          like(conversationKeys.conversationKey, `${keyPrefix}:thread:%`),
+        ),
+        like(messages.metadata, '%"slackMeta"%'),
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(SLACK_OUTBOUND_TS_MAX_SCAN)
+    .all();
+
+  for (const row of rows) {
+    const slackMeta = readSlackMetadataFromMessageMetadata(row.metadata, {
+      allowFlatLegacy: true,
+    });
+    if (
+      slackMeta?.channelId === externalChatId &&
+      slackMeta.channelTs === channelTs
+    ) {
+      return row.conversationId;
+    }
+  }
+  return null;
 }
 
 export function recordInbound(
