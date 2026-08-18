@@ -55,8 +55,8 @@ export async function handleVerifyRemoteWebPairingChallenge(
     return rateLimitedResponse(rateLimitedBeforeBodyRead);
   }
 
-  // Body/JSON/field failures still count as failed attempts for the
-  // per-client rate limiter, exactly as before the shared helper.
+  // Body/JSON/field failures count as failed attempts for the per-client
+  // rate limiter.
   const userCode = await readJsonStringField(
     req,
     MAX_VERIFICATION_BODY_BYTES,

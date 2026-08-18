@@ -36,7 +36,9 @@ export function handleListRemoteWebPairingRequests(
   }
 
   const guardError = enforceLoopbackOnly(req, clientIp, AUDIT_TAG);
-  if (guardError) return guardError;
+  if (guardError) {
+    return guardError;
+  }
 
   return Response.json(
     {
@@ -53,7 +55,6 @@ function guardPostLoopback(req: Request, clientIp: string): Response | null {
   return enforceLoopbackOnly(req, clientIp, AUDIT_TAG);
 }
 
-
 // No code-guess rate limiter on approve/deny: request ids are server-minted
 // opaque ids from the list route, not guessable secrets typed by users.
 export async function handleApproveRemoteWebPairingRequest(
@@ -61,14 +62,18 @@ export async function handleApproveRemoteWebPairingRequest(
   clientIp: string,
 ): Promise<Response> {
   const guardError = guardPostLoopback(req, clientIp);
-  if (guardError) return guardError;
+  if (guardError) {
+    return guardError;
+  }
 
   const requestId = await readJsonStringField(
     req,
     MAX_ACTION_BODY_BYTES,
     "requestId",
   );
-  if (requestId instanceof Response) return requestId;
+  if (requestId instanceof Response) {
+    return requestId;
+  }
 
   const result = approveRemoteWebPairingChallengeById(requestId);
   if (result.status === "invalid") {
@@ -86,14 +91,18 @@ export async function handleDenyRemoteWebPairingRequest(
   clientIp: string,
 ): Promise<Response> {
   const guardError = guardPostLoopback(req, clientIp);
-  if (guardError) return guardError;
+  if (guardError) {
+    return guardError;
+  }
 
   const requestId = await readJsonStringField(
     req,
     MAX_ACTION_BODY_BYTES,
     "requestId",
   );
-  if (requestId instanceof Response) return requestId;
+  if (requestId instanceof Response) {
+    return requestId;
+  }
 
   const result = denyRemoteWebPairingChallengeById(requestId);
   if (result.status === "invalid") {

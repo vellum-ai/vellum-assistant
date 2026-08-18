@@ -21,6 +21,7 @@ import {
   makePairingChallengeRequest as makeRequest,
   PUBLIC_BASE_URL,
   REMOTE_IP,
+  TEST_REQUESTER,
 } from "./helpers/remote-web-pairing-fixtures.js";
 
 beforeEach(() => {
@@ -309,17 +310,14 @@ describe("remote web pairing challenge", () => {
 });
 
 describe("remote web pairing request list/approve/deny", () => {
-  const REQUESTER = {
-    ip: REMOTE_IP,
-    userAgent: "PairBrowser/1.0",
-    viaEdgeProxy: true,
-  };
-
   test("lists only pending, non-expired challenges newest first with requester metadata", () => {
     let now = 1_000;
     setRemoteWebPairingChallengeNowForTests(() => now);
 
-    const first = createRemoteWebPairingChallenge(PUBLIC_BASE_URL, REQUESTER);
+    const first = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
     now = 2_000;
     const second = createRemoteWebPairingChallenge(PUBLIC_BASE_URL, {
       ip: "198.51.100.7",
@@ -329,7 +327,7 @@ describe("remote web pairing request list/approve/deny", () => {
     now = 3_000;
     const approved = createRemoteWebPairingChallenge(
       PUBLIC_BASE_URL,
-      REQUESTER,
+      TEST_REQUESTER,
     );
     const approvedRecord = getRemoteWebPairingChallengeForTests(
       approved.userCode,
@@ -368,7 +366,7 @@ describe("remote web pairing request list/approve/deny", () => {
     setRemoteWebPairingChallengeNowForTests(() => 1_000);
     const challenge = createRemoteWebPairingChallenge(
       PUBLIC_BASE_URL,
-      REQUESTER,
+      TEST_REQUESTER,
     );
     const record = getRemoteWebPairingChallengeForTests(challenge.userCode);
 
@@ -395,7 +393,7 @@ describe("remote web pairing request list/approve/deny", () => {
     setRemoteWebPairingChallengeNowForTests(() => now);
     const challenge = createRemoteWebPairingChallenge(
       PUBLIC_BASE_URL,
-      REQUESTER,
+      TEST_REQUESTER,
     );
     const record = getRemoteWebPairingChallengeForTests(challenge.userCode);
 
@@ -415,7 +413,7 @@ describe("remote web pairing request list/approve/deny", () => {
     setRemoteWebPairingChallengeNowForTests(() => 1_000);
     const challenge = createRemoteWebPairingChallenge(
       PUBLIC_BASE_URL,
-      REQUESTER,
+      TEST_REQUESTER,
     );
     const record = getRemoteWebPairingChallengeForTests(challenge.userCode);
 
@@ -439,7 +437,7 @@ describe("remote web pairing request list/approve/deny", () => {
     setRemoteWebPairingChallengeNowForTests(() => 1_000);
     const challenge = createRemoteWebPairingChallenge(
       PUBLIC_BASE_URL,
-      REQUESTER,
+      TEST_REQUESTER,
     );
     const record = getRemoteWebPairingChallengeForTests(challenge.userCode);
 
@@ -459,7 +457,7 @@ describe("remote web pairing request list/approve/deny", () => {
     setRemoteWebPairingChallengeNowForTests(() => 1_000);
     const challenge = createRemoteWebPairingChallenge(
       PUBLIC_BASE_URL,
-      REQUESTER,
+      TEST_REQUESTER,
     );
     const record = getRemoteWebPairingChallengeForTests(challenge.userCode);
     expect(approveRemoteWebPairingChallengeById(record!.id).status).toBe(
@@ -478,7 +476,7 @@ describe("remote web pairing request list/approve/deny", () => {
     setRemoteWebPairingChallengeNowForTests(() => 1_000);
     const challenge = createRemoteWebPairingChallenge(
       PUBLIC_BASE_URL,
-      REQUESTER,
+      TEST_REQUESTER,
     );
     const record = getRemoteWebPairingChallengeForTests(challenge.userCode);
     expect(approveRemoteWebPairingChallengeById(record!.id).status).toBe(

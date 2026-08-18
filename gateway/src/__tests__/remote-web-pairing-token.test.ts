@@ -7,6 +7,11 @@ import { eq } from "drizzle-orm";
 
 import { initSigningKey } from "../auth/token-service.js";
 
+import {
+  PUBLIC_BASE_URL,
+  TEST_REQUESTER,
+} from "./helpers/remote-web-pairing-fixtures.js";
+
 initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
 const mockQuery = mock();
@@ -47,12 +52,6 @@ const {
 } = await import("../guardian-integrity-reporter.js");
 
 const GUARDIAN_ID = "guardian-001";
-const PUBLIC_BASE_URL = "https://paired.example.com";
-const TEST_REQUESTER = {
-  ip: "203.0.113.10",
-  userAgent: "test-agent",
-  viaEdgeProxy: true,
-};
 
 let testRoot: string;
 

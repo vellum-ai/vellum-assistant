@@ -22,7 +22,9 @@ import { methodNotAllowed, readJsonStringField } from "../route-helpers.js";
 const MAX_CHALLENGE_BODY_BYTES = 512;
 
 function parsePublicBaseUrl(value: string): string | null {
-  if (!value.trim()) return null;
+  if (!value.trim()) {
+    return null;
+  }
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
@@ -107,7 +109,9 @@ export async function handleCreateRemoteWebPairingChallenge(
     MAX_CHALLENGE_BODY_BYTES,
     "publicBaseUrl",
   );
-  if (rawPublicBaseUrl instanceof Response) return rawPublicBaseUrl;
+  if (rawPublicBaseUrl instanceof Response) {
+    return rawPublicBaseUrl;
+  }
 
   const publicBaseUrl = parsePublicBaseUrl(rawPublicBaseUrl);
   if (!publicBaseUrl) {
