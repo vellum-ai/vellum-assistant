@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   buildBundleTarGz,
@@ -97,8 +97,11 @@ function installChromeMock(stores: MockStores): void {
   };
 }
 
+const TEST_EMAIL = "user@example.com";
+
 function makeEnv(): EnvironmentContext {
-  return { environment: "dev", apiBaseUrl: "https://dev-platform.vellum.ai" };
+  // Reserved documentation host. Tests never talk to a Vellum environment.
+  return { environment: "dev", apiBaseUrl: "https://example.com" };
 }
 
 function seedStorage(stores: MockStores, opts: {
@@ -220,7 +223,7 @@ describe("feedback.collectDiagnosticBundle", () => {
 
   test("includes extension metadata, mode, and SSE state", async () => {
     seedStorage(stores, {
-      session: { email: "vargas@vellum.ai", sessionToken: "tok_should_not_leak" },
+      session: { email: TEST_EMAIL, sessionToken: "tok_should_not_leak" },
       selectedAssistant: { id: "asst_1", name: "Jaxon" },
       organizationId: "org_42",
       clientId: "client-uuid",
@@ -235,24 +238,24 @@ describe("feedback.collectDiagnosticBundle", () => {
 
     expect(bundle.extension.version).toBe("1.2.3");
     expect(bundle.extension.environment).toBe("dev");
-    expect(bundle.extension.apiBaseUrl).toBe("https://dev-platform.vellum.ai");
+    expect(bundle.extension.apiBaseUrl).toBe("https://example.com");
     expect(bundle.mode).toBe("cloud");
     expect(bundle.sse).toEqual({ state: "connected", detail: { reason: "ok" } });
     expect(bundle.assistant).toEqual({ id: "asst_1", name: "Jaxon" });
     expect(bundle.organizationId).toBe("org_42");
     expect(bundle.clientId).toBe("client-uuid");
-    expect(bundle.email).toBe("vargas@vellum.ai");
+    expect(bundle.email).toBe(TEST_EMAIL);
   });
 
   test("never leaks session tokens or pair JWTs through storage snapshot", async () => {
     seedStorage(stores, {
-      session: { sessionToken: "VERY_SECRET_TOKEN", email: "x@y.com" },
+      session: { sessionToken: "VERY_SECRET_TOKEN", email: TEST_EMAIL },
       clientId: "abc",
     });
     stores.local["vellum.pairToken"] = "PAIR_SHOULD_NOT_LEAK";
     stores.local["vellum.cloudSession"] = {
       sessionToken: "VERY_SECRET_TOKEN",
-      email: "x@y.com",
+      email: TEST_EMAIL,
     };
 
     const bundle = await collectDiagnosticBundle({
@@ -292,11 +295,23 @@ describe("feedback.collectDiagnosticBundle", () => {
 
 describe("feedback.submitFeedback", () => {
   let stores: MockStores;
+  const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
     stores = { local: {}, session: {} };
     installChromeMock(stores);
     clearEventLog();
+    // Tests pass fetchImpl. Stub global fetch so a missing injection fails
+    // closed instead of posting to the network.
+    globalThis.fetch = (async () => {
+      throw new Error(
+        "global fetch must not be called from chrome-extension tests",
+      );
+    }) as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
   function captureFetch() {
@@ -312,7 +327,7 @@ describe("feedback.submitFeedback", () => {
   const baseForm: FeedbackFormData = {
     classification: "bug_report",
     message: "Things are broken",
-    email: "vargas@vellum.ai",
+    email: TEST_EMAIL,
     includeDiagnostics: false,
   };
 
@@ -323,16 +338,14 @@ describe("feedback.submitFeedback", () => {
     await submitFeedback(baseForm, null, makeEnv(), { fetchImpl });
 
     expect(calls.length).toBe(1);
-    expect(calls[0]!.url).toBe(
-      "https://dev-platform.vellum.ai/v1/upload/feedback/",
-    );
+    expect(calls[0]!.url).toBe("https://example.com/v1/upload/feedback/");
     expect(calls[0]!.init.method).toBe("POST");
     expect(calls[0]!.init.body).toBeInstanceOf(FormData);
 
     const formData = calls[0]!.init.body as FormData;
     expect(formData.get("message")).toBe("Things are broken");
     expect(formData.get("classification")).toBe("bug_report");
-    expect(formData.get("email")).toBe("vargas@vellum.ai");
+    expect(formData.get("email")).toBe(TEST_EMAIL);
     expect(formData.get("device_id")).toBe("client-uuid");
     expect(formData.get("client_version")).toBe("1.2.3");
     expect(formData.get("logs_file")).toBeNull();
@@ -378,7 +391,7 @@ describe("feedback.submitFeedback", () => {
 
   test("attaches X-Session-Token + Vellum-Organization-Id in cloud mode", async () => {
     seedStorage(stores, {
-      session: { email: "vargas@vellum.ai", sessionToken: "sess_xyz" },
+      session: { email: TEST_EMAIL, sessionToken: "sess_xyz" },
       organizationId: "org_42",
       selectedAssistant: { id: "asst_1", name: "Jaxon" },
       clientId: "client-uuid",
@@ -414,5 +427,13 @@ describe("feedback.submitFeedback", () => {
     await expect(
       submitFeedback(baseForm, null, makeEnv(), { fetchImpl }),
     ).rejects.toThrow(/Feedback upload failed: HTTP 500/);
+  });
+
+  test("fails closed when fetchImpl is omitted rather than hitting the network", async () => {
+    seedStorage(stores, { clientId: "client-uuid" });
+
+    await expect(submitFeedback(baseForm, null, makeEnv())).rejects.toThrow(
+      /global fetch must not be called from chrome-extension tests/,
+    );
   });
 });
