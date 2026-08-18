@@ -104,19 +104,36 @@ function bytesFromBase64(data: string): Uint8Array<ArrayBuffer> {
  */
 export const READ_SLICE_BYTES = 4 * 1024 * 1024;
 
+/** A file read in full, with the length it actually turned out to be. */
+interface FileParts {
+  parts: BlobPart[];
+  bytes: number;
+}
+
 /**
- * Reads a file into its parts, a slice at a time.
+ * Reads a file into its parts, a slice at a time, or refuses it.
  *
- * The size bounds the loop and the length of what comes back ends it: any
- * answer other than a full slice is the last one. Short or empty means the
- * file ran out, which is also how a zero-byte file reads. Longer means the
- * runtime ignored the range and answered with the whole file, which is a
- * complete read and needs no second call.
+ * A reported size can refuse a file before this is called but never bounds
+ * what it reads here. Sizes come from providers that may not publish one, so
+ * treating a low number as the length would hand on a truncated file, and a
+ * zero would hand on an empty one. What comes back ends the read instead: any
+ * answer other than a full slice is the last one, whether the file ran out,
+ * was empty to begin with, or the runtime ignored the range and answered with
+ * all of it at once.
+ *
+ * `withinLimits` is what bounds the read, judging the bytes actually in hand
+ * rather than a number that may be wrong. A file that outgrows what it is
+ * allowed is abandoned rather than truncated, which keeps this to one slice of
+ * overhead even for a source that never ends.
  */
-async function readFileParts(path: string, size: number): Promise<BlobPart[]> {
+async function readFileParts(
+  path: string,
+  withinLimits: (bytesRead: number) => boolean,
+): Promise<FileParts | null> {
   const { Filesystem } = await import("@capacitor/filesystem");
   const parts: BlobPart[] = [];
-  for (let offset = 0; offset < size; offset += READ_SLICE_BYTES) {
+  let bytes = 0;
+  for (let offset = 0; ; offset += READ_SLICE_BYTES) {
     const { data } = await Filesystem.readFile({
       path,
       offset,
@@ -124,17 +141,19 @@ async function readFileParts(path: string, size: number): Promise<BlobPart[]> {
     });
     // Only the web implementation answers with a Blob, and its picks carry one
     // of their own without ever reaching a path to read.
-    if (typeof data !== "string") {
-      parts.push(data);
-      break;
+    const slice = typeof data === "string" ? bytesFromBase64(data) : data;
+    const length = slice instanceof Blob ? slice.size : slice.length;
+    bytes += length;
+    if (!withinLimits(bytes)) {
+      return null;
     }
-    const bytes = bytesFromBase64(data);
-    parts.push(bytes);
-    if (bytes.length !== READ_SLICE_BYTES) {
-      break;
+    if (length > 0) {
+      parts.push(slice);
+    }
+    if (length !== READ_SLICE_BYTES) {
+      return { parts, bytes };
     }
   }
-  return parts;
 }
 
 interface PickedFile {
@@ -147,14 +166,19 @@ interface PickedFile {
 }
 
 /**
- * The size to judge an entry by.
+ * The size to judge an entry by, or null when nothing here knows it.
  *
  * The plugin's own number is trusted only when it is non-zero. On Android
  * `getSizeFromUri` starts at `0` and returns that whenever the provider does
  * not publish `OpenableColumns.SIZE`, so zero means "empty" and "no idea"
- * alike, and reading a cloud-backed document on the strength of it is exactly
- * the crash this check exists to avoid. A stat tells the two apart: a genuinely
- * empty file stats at zero and still attaches.
+ * alike. A stat gets a second opinion, but it asks the same provider and can
+ * answer zero for the same reason, so a zero from either is reported as
+ * unknown rather than as an empty file.
+ *
+ * Nothing is lost by refusing to guess. A size is only ever an early refusal,
+ * and an entry that has none is read under the same limits and judged on the
+ * bytes that arrive, so a genuinely empty file still attaches and a large one
+ * is still turned away.
  */
 async function resolveSize(file: PickedFile): Promise<number | null> {
   if (file.size > 0) {
@@ -166,11 +190,8 @@ async function resolveSize(file: PickedFile): Promise<number | null> {
   const { Filesystem } = await import("@capacitor/filesystem");
   try {
     const { size } = await Filesystem.stat({ path: file.path });
-    return size;
+    return size > 0 ? size : null;
   } catch {
-    // Still unknown, so it stays unread. Refusing an empty file whose stat
-    // failed costs an attachment; reading a file of unknown size costs the
-    // web view.
     return null;
   }
 }
@@ -279,24 +300,37 @@ async function readPicked(
       // included: a file skipped for its size is one whose bytes were never
       // wanted, so leaving it on disk is the worst of both.
       try {
+        // A known size refuses an entry without reading a byte of it. An
+        // unknown one cannot refuse anything, so the read below applies the
+        // same two limits to the bytes as they arrive and gives up on a file
+        // that outgrows them.
         const size = await resolveSize(file);
         if (
-          size === null ||
-          !canQueueFile({ name: file.name, type: mimeType, size })
+          size !== null &&
+          (!canQueueFile({ name: file.name, type: mimeType, size }) ||
+            readSoFar + size > MAX_PICK_TOTAL_BYTES)
         ) {
-          skipped.push(file.name);
-          continue;
-        }
-        if (readSoFar + size > MAX_PICK_TOTAL_BYTES) {
           skipped.push(file.name);
           continue;
         }
         if (!file.path) {
           continue;
         }
-        const parts = await readFileParts(file.path, size);
-        readSoFar += size;
-        onFile(new File(parts, file.name, { type: mimeType }));
+        const read = await readFileParts(
+          file.path,
+          (bytes) =>
+            canQueueFile({ name: file.name, type: mimeType, size: bytes }) &&
+            readSoFar + bytes <= MAX_PICK_TOTAL_BYTES,
+        );
+        if (!read) {
+          skipped.push(file.name);
+          continue;
+        }
+        // The budget counts what the entry was judged on: its own size where
+        // it has one, so a file that reports more than it reads still holds
+        // its claim, and what it actually read where it does not.
+        readSoFar += size ?? read.bytes;
+        onFile(new File(read.parts, file.name, { type: mimeType }));
       } finally {
         if (file.path) {
           pending.delete(file.path);

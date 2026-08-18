@@ -4,10 +4,12 @@
  * Two things matter here. The bytes arrive as base64 rather than being read
  * from a URL, because a cross-origin read of the file scheme cannot work under
  * the cloud shells' pathful `server.url`. And they arrive a bounded slice at a
- * time, only once the size has been checked: the plugin warns that reading a
- * large file can crash the app, and a document pick takes an unlimited
- * selection, so asking for the data up front would encode a whole video before
- * anything knew whether it could be attached.
+ * time, under limits applied to the bytes in hand: the plugin warns that
+ * reading a large file can crash the app, and a document pick takes an
+ * unlimited selection, so asking for the data up front would encode a whole
+ * video before anything knew whether it could be attached. A reported size can
+ * cut that short, but it is never what bounds a read, because a provider that
+ * publishes no size is indistinguishable from one reporting an empty file.
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -152,9 +154,10 @@ describe("native pickers: reading", () => {
     expect(files[0]?.type).toBe("image/jpeg");
   });
 
-  test("keeps a zero-byte file, which needs no read at all", async () => {
+  test("keeps a zero-byte file, which reads back as no bytes", async () => {
     // Empty is a valid payload, not a missing one, and a file input produces a
-    // zero-byte File for the same pick.
+    // zero-byte File for the same pick. It takes a read to establish that,
+    // since a reported zero is also what a provider with no size looks like.
     reset();
     mockFiles = [
       {
@@ -169,7 +172,7 @@ describe("native pickers: reading", () => {
     await pickFilesNative(sink.onFile);
     const files = sink.files;
 
-    expect(readPaths).toEqual([]);
+    expect(readPaths).toEqual(["/tmp/empty.txt"]);
     expect(files).toHaveLength(1);
     expect(files[0]?.name).toBe("empty.txt");
     expect(files[0]?.size).toBe(0);
@@ -223,7 +226,28 @@ describe("native pickers: slicing the read", () => {
     expect((await (file as File).text()).endsWith(tail)).toBe(true);
   });
 
-  test("stops at the first short answer rather than the declared size", async () => {
+  test("reads past a size that understates the file", async () => {
+    // A reported size can refuse an entry but never bounds its read: a
+    // provider that understates one would otherwise truncate the upload
+    // silently, which is worse than refusing it.
+    reset();
+    mockContent = () => "hello bytes";
+    mockFiles = [
+      {
+        path: "/tmp/understated.txt",
+        name: "understated.txt",
+        mimeType: "text/plain",
+        size: 3,
+      },
+    ];
+
+    const sink = collector();
+    await pickFilesNative(sink.onFile);
+
+    expect(await sink.files[0]?.text()).toBe("hello bytes");
+  });
+
+  test("stops at the first short answer rather than reading on", async () => {
     // A provider that overstates a size would otherwise keep asking past the
     // end of the file for every slice the number claims is left.
     reset();
@@ -443,11 +467,36 @@ describe("native pickers: unknown sizes", () => {
     expect(sink.files[0]?.size).toBe(0);
   });
 
-  test("refuses rather than reads when the size stays unknown", async () => {
-    // Losing an empty attachment costs an attachment; reading a file of
-    // unknown size costs the web view.
+  test("reads a stat of zero rather than calling the file empty", async () => {
+    // The stat asks the same provider the picker did, so it answers zero both
+    // for an empty file and for one whose length it does not publish. Taking
+    // that as a length would attach a cloud-backed document as nothing at all.
+    reset();
+    mockStat = () => 0;
+    mockContent = () => "real contents";
+    mockFiles = [
+      {
+        path: "/cloud.txt",
+        name: "cloud.txt",
+        mimeType: "text/plain",
+        size: 0,
+      },
+    ];
+
+    const sink = collector();
+    const { skipped } = await pickFilesNative(sink.onFile);
+
+    expect(skipped).toEqual([]);
+    expect(sink.files).toHaveLength(1);
+    expect(await sink.files[0]?.text()).toBe("real contents");
+  });
+
+  test("reads under the limits when the size stays unknown", async () => {
+    // A stat that fails leaves nothing to judge the entry on in advance, so
+    // the read is what judges it, on the bytes that turn up.
     reset();
     mockStat = () => new Error("stat failed");
+    mockContent = () => "bytes";
     mockFiles = [
       {
         path: "/unknown.bin",
@@ -460,8 +509,39 @@ describe("native pickers: unknown sizes", () => {
     const sink = collector();
     const { skipped } = await pickFilesNative(sink.onFile);
 
-    expect(readPaths).toEqual([]);
+    expect(skipped).toEqual([]);
+    expect(readPaths).toEqual(["/unknown.bin"]);
+    expect(sink.files[0]?.size).toBe(5);
+  });
+
+  test("abandons an unknown-size file that outgrows what is left", async () => {
+    // The first entry claims the whole allowance, so the second has nothing to
+    // spend. With no size to refuse it in advance, the read has to notice.
+    reset();
+    mockContent = () => "x";
+    mockStat = () => new Error("stat failed");
+    mockFiles = [
+      {
+        path: "/claimed.jpg",
+        name: "claimed.jpg",
+        mimeType: "image/jpeg",
+        size: 100 * MB,
+      },
+      {
+        path: "/unknown.bin",
+        name: "unknown.bin",
+        mimeType: "application/octet-stream",
+        size: 0,
+      },
+    ];
+
+    const sink = collector();
+    const { skipped } = await pickFilesNative(sink.onFile);
+
+    expect(sink.files).toHaveLength(1);
     expect(skipped).toEqual(["unknown.bin"]);
+    // Refused on the first slice, not after swallowing the whole file.
+    expect(readPaths).toEqual(["/claimed.jpg", "/unknown.bin"]);
   });
 });
 
