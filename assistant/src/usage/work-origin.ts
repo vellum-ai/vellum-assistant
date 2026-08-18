@@ -338,3 +338,75 @@ export function classifyWorkOrigin(input: WorkOriginInput): WorkOrigin {
   }
   return "unknown";
 }
+
+/**
+ * An immutable, record-time attribution of an in-flight LLM call, carried on
+ * the provider send config so the managed-proxy transport can forward it to
+ * the billing backend as `X-Vellum-*` headers. Every field is explicitly
+ * nullable so a non-conversation auxiliary call stays distinguishable from a
+ * conversation-scoped one (null is not an "unattributed default").
+ * {@link workOrigin} is the same bucket the `llm_usage` telemetry derives via
+ * {@link classifyWorkOrigin}, so managed billing rows and usage telemetry share
+ * one classifier and one vocabulary.
+ *
+ * `turnIndex` is the position of the user turn the call belongs to, counting
+ * real user turns, matching the `llm_usage` read-path convention.
+ * `parentConversationId` is the resolved spawn parent (`SPAWN_PARENT_ID_SQL` in
+ * `persistence/llm-usage-store.ts`): the subagent-spawn parent, or a background
+ * fork's source conversation. `parentTurnIndex` counts that conversation's real
+ * user turns. Both are null when the conversation was not spawned by another.
+ *
+ * `cronRunId` is the schedule firing behind the call, carried so the classifier
+ * sees a wake or defer schedule that fired inside an otherwise standard
+ * conversation, and so the auto-recorded `llm_usage` row can stamp the same
+ * firing.
+ *
+ * Every field is best-effort. Attribution never fails or blocks a provider
+ * call: an unresolvable field degrades to null (or, for a failed turn count, to
+ * 0) and the call proceeds without that header.
+ */
+export interface UsageOriginSnapshot {
+  conversationType: string | null;
+  conversationSource: string | null;
+  workOrigin: WorkOrigin | null;
+  conversationId: string | null;
+  turnIndex: number | null;
+  parentConversationId: string | null;
+  parentTurnIndex: number | null;
+  cronRunId: string | null;
+}
+
+/**
+ * Build a {@link UsageOriginSnapshot}, deriving
+ * {@link UsageOriginSnapshot.workOrigin} from the same {@link classifyWorkOrigin}
+ * the usage telemetry uses. Callers pass the record-time conversation metadata,
+ * call site, and already-resolved spawn parent; nulls are preserved verbatim so
+ * auxiliary (no-conversation) calls stay distinguishable.
+ */
+export function buildUsageOriginSnapshot(input: {
+  conversationType: string | null;
+  conversationSource: string | null;
+  callSite: string | null;
+  conversationId: string | null;
+  turnIndex: number | null;
+  parentConversationId: string | null;
+  parentTurnIndex: number | null;
+  cronRunId: string | null;
+}): UsageOriginSnapshot {
+  return {
+    conversationType: input.conversationType,
+    conversationSource: input.conversationSource,
+    workOrigin: classifyWorkOrigin({
+      conversationType: input.conversationType,
+      conversationSource: input.conversationSource,
+      callSite: input.callSite,
+      parentConversationId: input.parentConversationId,
+      cronRunId: input.cronRunId,
+    }),
+    conversationId: input.conversationId,
+    turnIndex: input.turnIndex,
+    parentConversationId: input.parentConversationId,
+    parentTurnIndex: input.parentTurnIndex,
+    cronRunId: input.cronRunId,
+  };
+}

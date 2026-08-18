@@ -80,6 +80,7 @@ import {
   startToolProfilingRequest,
 } from "../tools/tool-profiler.js";
 import type { UsageActor } from "../usage/actors.js";
+import { buildTurnUsageOriginSnapshot } from "../usage/usage-origin-snapshot.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
@@ -479,6 +480,22 @@ export async function runAgentLoopImpl(
   // firing.
   const turnCronRunId = options?.cronRunId ?? null;
 
+  // Immutable record-time usage attribution for every LLM call this turn emits,
+  // carrying the same work-origin classification the `llm_usage` telemetry
+  // derives, so managed billing rows and usage telemetry share one vocabulary.
+  // Both turn indexes count the same real-user-turn population the telemetry
+  // read path counts, and the spawn parent comes from the same expression the
+  // telemetry read path reads, so a retrospective fork classifies as
+  // `delegated_child` and carries its parent turn index on both paths. The
+  // firing's run id classifies a wake or defer schedule that fired inside an
+  // ordinary conversation. The wake path builds the identical snapshot through
+  // the same helper.
+  const usageOriginSnapshot = buildTurnUsageOriginSnapshot(
+    ctx,
+    turnCallSite,
+    turnCronRunId,
+  );
+
   // Optional per-turn inference-profile override. Plumbed through to every
   // LLM call the loop emits and inherited by any subagents spawned during
   // this turn. Caller-supplied `options.overrideProfile` (e.g.
@@ -648,6 +665,12 @@ export async function runAgentLoopImpl(
   // or message) stamps the delegated usage with this firing.
   ctx.currentTurnCronRunId = turnCronRunId;
 
+  // Mirrored for the same reason as the firing above, one level up: a tool that
+  // makes its own LLM call (style analysis) reads the turn's whole origin off
+  // the tool context, so its send carries this turn's work origin instead of a
+  // classification derived from the conversation row.
+  ctx.currentTurnUsageOriginSnapshot = usageOriginSnapshot;
+
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.
   // When context is unavailable (e.g. regenerate after daemon restart),
@@ -801,6 +824,7 @@ export async function runAgentLoopImpl(
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
     ctx.currentTurnCronRunId = undefined;
+    ctx.currentTurnUsageOriginSnapshot = undefined;
     ctx.currentTurnModelProfileNoticeKey = undefined;
     // Turn-scoped interactivity. Clear it so paths that bypass this loop
     // (e.g. opportunity wakes calling `agentLoop.run` directly) don't inherit
@@ -1327,6 +1351,7 @@ export async function runAgentLoopImpl(
           isNonInteractive,
           modelProfileKey,
           latencyTracker,
+          usageOriginSnapshot,
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,

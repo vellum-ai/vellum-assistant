@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildUsageOriginSnapshot,
   classifyWorkOrigin,
   type WorkOrigin,
   type WorkOriginInput,
@@ -480,4 +481,69 @@ describe("classifyWorkOrigin residual-bucket guard: unrecognized combinations st
       expect(classifyWorkOrigin(c.input)).toBe("unknown");
     });
   }
+});
+
+describe("buildUsageOriginSnapshot", () => {
+  // The spawn parent reaches the snapshot already resolved, by
+  // `resolveSpawnAttribution` on the store: the same expression the telemetry
+  // read path reads. A resolved parent classifies the call as delegated work
+  // whatever the conversation's own source says.
+  test("a resolved spawn parent carries through and classifies delegated_child", () => {
+    const snapshot = buildUsageOriginSnapshot({
+      conversationType: "background",
+      conversationSource: "memory-retrospective",
+      callSite: "memoryRetrospective",
+      conversationId: "retro-1",
+      turnIndex: 1,
+      parentConversationId: "source-1",
+      parentTurnIndex: null,
+      cronRunId: null,
+    });
+    expect(snapshot.parentConversationId).toBe("source-1");
+    expect(snapshot.workOrigin).toBe("delegated_child");
+    // Telemetry runs the same classifier over the same resolved parent, so the
+    // two surfaces agree.
+    expect(
+      classifyWorkOrigin({
+        conversationType: "background",
+        conversationSource: "memory-retrospective",
+        callSite: "memoryRetrospective",
+        parentConversationId: "source-1",
+      }),
+    ).toBe("delegated_child");
+  });
+
+  test("no spawn parent keeps the conversation's own attribution", () => {
+    const snapshot = buildUsageOriginSnapshot({
+      conversationType: "standard",
+      conversationSource: "user",
+      callSite: "mainAgent",
+      conversationId: "user-fork-1",
+      turnIndex: 2,
+      parentConversationId: null,
+      parentTurnIndex: null,
+      cronRunId: null,
+    });
+    expect(snapshot.parentConversationId).toBeNull();
+    expect(snapshot.workOrigin).toBe("user_interactive");
+  });
+
+  // A wake or defer schedule fires inside an ordinary conversation whose type
+  // and source stay standard/user, so the firing's run id is the only signal
+  // that the spend is schedule-driven. It rides the snapshot for both the
+  // billing headers and the auto-recorded usage row.
+  test("a cron run id classifies a standard conversation as user_created_schedule", () => {
+    const snapshot = buildUsageOriginSnapshot({
+      conversationType: "standard",
+      conversationSource: "user",
+      callSite: "mainAgent",
+      conversationId: "conv-123",
+      turnIndex: 3,
+      parentConversationId: null,
+      parentTurnIndex: null,
+      cronRunId: "cron-run-1",
+    });
+    expect(snapshot.cronRunId).toBe("cron-run-1");
+    expect(snapshot.workOrigin).toBe("user_created_schedule");
+  });
 });

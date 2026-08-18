@@ -156,6 +156,7 @@ function makeMockSession(
 ) {
   const provider = providerOverride ?? makeMockProvider();
   return {
+    conversationId: "conv-test-123",
     provider,
     systemPrompt: "You are a helpful assistant.",
     processing: false,
@@ -333,6 +334,39 @@ describe("POST /v1/btw", () => {
     expect(options!.config!.tool_choice).toEqual({ type: "none" });
     expect(options!.config!.callSite).toBe("identityIntro");
     expect(options!.config!.modelIntent).toBeUndefined();
+  });
+
+  // A keyed request runs against a persisted conversation, so its spend joins
+  // that conversation's; without the id the call bills as conversationless.
+  test("mapped keys pass the resolved conversation id on the send config", async () => {
+    const provider = makeMockProvider();
+    const session = makeMockSession(provider);
+    mockGetOrCreateConversation.mockImplementationOnce(async () => session);
+
+    const { result } = await callHandler({
+      conversationKey: "key",
+      content: "hello",
+    });
+    await readStream(result as ReadableStream<Uint8Array>);
+
+    const [, options] = provider.sendMessage.mock.calls[0];
+    expect(options!.config!.conversationId).toBe("conv-test-123");
+  });
+
+  test("unmapped keys stay conversationless", async () => {
+    mockGetConversationByKey.mockImplementationOnce(() => null);
+    const provider = makeMockProvider();
+    const session = makeMockSession(provider);
+    mockGetOrCreateConversation.mockImplementationOnce(async () => session);
+
+    const { result } = await callHandler({
+      conversationKey: "profile-intro",
+      content: "Generate an intro",
+    });
+    await readStream(result as ReadableStream<Uint8Array>);
+
+    const [, options] = provider.sendMessage.mock.calls[0];
+    expect(options!.config!.conversationId).toBeUndefined();
   });
 
   test("greeting requests pass callSite: 'emptyStateGreeting'", async () => {

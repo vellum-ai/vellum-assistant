@@ -432,6 +432,7 @@ export function createToolExecutor(
       transportInterface: ctx.transportInterface,
       overrideProfile: ctx.currentTurnOverrideProfile,
       cronRunId: ctx.currentTurnCronRunId,
+      usageOriginSnapshot: ctx.currentTurnUsageOriginSnapshot,
       invokingCallSite: ctx.currentCallSite ?? "mainAgent",
       attribution: resolveConversationAttribution(ctx),
       enabledPluginSet: effectiveEnabledPluginSet,

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lte, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getTelemetryMainDb } from "../telemetry/telemetry-main-db.js";
@@ -21,7 +21,7 @@ import {
   type ScheduleAttributionFilter,
   type ScheduleAttributionSqlParam,
 } from "./schedule-attribution-sql.js";
-import { conversations, llmUsageEvents } from "./schema/index.js";
+import { conversations, llmUsageEvents, messages } from "./schema/index.js";
 import {
   bucketEventsByDay,
   bucketEventsByHour,
@@ -133,6 +133,151 @@ export function recordUsageEvent(
     })
     .run();
   return event;
+}
+
+/**
+ * Count a conversation's real user turns: `role='user'` rows that survive
+ * {@link realUserTurnContentFilter}, so tool-result continuations persisted
+ * under the user role are excluded.
+ *
+ * This is the same population the `turn_index` and `parent_turn_index`
+ * correlated subqueries in {@link queryUnreportedUsageEvents} count, shared
+ * through that one filter. The live billing-origin snapshot stamps its
+ * `turnIndex` from here at agent-loop start, so it agrees with the `turn_index`
+ * the telemetry read path later derives for the same call: a coalesced batch of
+ * N user messages persists all N rows before the single agent-loop run, and the
+ * processing lock keeps a further real user turn from landing until that run
+ * finishes.
+ *
+ * `cutoffCreatedAt`, when given, bounds the count to turns with
+ * `created_at <=` that timestamp, the same bound the `parent_turn_index`
+ * subquery applies via {@link PARENT_TURN_CUTOFF_SQL}. Omit it to count the
+ * conversation's turns to date.
+ *
+ * Best-effort, like {@link lookupConversationAttribution}: a query failure
+ * degrades to 0 rather than throwing, so a billing-attribution detail can never
+ * abort the user's turn. Returns 0 for a conversation with no real user turn
+ * yet.
+ */
+export function countRealUserTurns(
+  conversationId: string,
+  cutoffCreatedAt?: number,
+): number {
+  try {
+    const row = getDb()
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, conversationId),
+          eq(messages.role, "user"),
+          realUserTurnContentFilter("messages"),
+          ...(cutoffCreatedAt === undefined
+            ? []
+            : [lte(messages.createdAt, cutoffCreatedAt)]),
+        ),
+      )
+      .get();
+    return row?.count ? Number(row.count) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Cutoff for a child conversation's parent-turn count, as a `conversations`
+ * expression. Subagent spawns attribute to the parent turn in flight at child
+ * creation. Retrospective forks can branch from a turn far earlier than the
+ * fork's creation time, so they anchor on the fork boundary message instead;
+ * child creation is the fallback when the boundary message is absent.
+ *
+ * One definition, two readers: the `parent_turn_index` subquery in
+ * {@link queryUnreportedUsageEvents} and {@link resolveSpawnAttribution}, which
+ * serves the live billing-origin snapshot. Both name the same cutoff for the
+ * same conversation, so the managed billing header and the telemetry row report
+ * the same parent turn for one call.
+ */
+const PARENT_TURN_CUTOFF_SQL = sql<number>`CASE
+  WHEN ${conversations.parentConversationId} IS NOT NULL THEN ${conversations.createdAt}
+  ELSE COALESCE(
+    (SELECT mb.created_at FROM messages AS mb
+      WHERE mb.id = ${conversations.forkParentMessageId}),
+    ${conversations.createdAt}
+  )
+END`;
+
+/**
+ * Id of the conversation that spawned this one, as a `conversations`
+ * expression.
+ *
+ * Precedence, highest first:
+ *   1. `parent_conversation_id`, the subagent-spawn parent,
+ *   2. `fork_parent_conversation_id`, but only for a `background` conversation
+ *      (retrospective forks), so a fork's spend is attributed to the delegating
+ *      turn,
+ *   3. null, meaning the conversation was not spawned by another.
+ *
+ * The `background` gate on rule 2 matters: user-initiated forks also stamp
+ * `fork_parent_conversation_id`, but they are first-class `standard`
+ * conversations whose spend belongs to themselves.
+ *
+ * One definition, two readers: the `parent_conversation_id` column of
+ * {@link queryUnreportedUsageEvents} and {@link resolveSpawnAttribution}, which
+ * serves the live billing-origin snapshot. Both name the same spawn parent for
+ * the same conversation, so the managed billing headers and the telemetry row
+ * agree about who owns the cost.
+ */
+const SPAWN_PARENT_ID_SQL = sql<string | null>`COALESCE(
+  ${conversations.parentConversationId},
+  CASE WHEN ${conversations.conversationType} = 'background'
+    THEN ${conversations.forkParentConversationId}
+  END
+)`;
+
+/** Spawn lineage of one child conversation, as the snapshot path needs it. */
+export interface SpawnAttribution {
+  /** {@link SPAWN_PARENT_ID_SQL} for this conversation. */
+  spawnParentConversationId: string | null;
+  /**
+   * {@link PARENT_TURN_CUTOFF_SQL} for this conversation, for bounding a
+   * {@link countRealUserTurns} of the spawn parent. Undefined when unresolvable,
+   * which counts the parent's turns to date.
+   */
+  cutoffCreatedAt: number | undefined;
+}
+
+/**
+ * Resolve one child conversation's spawn lineage from its `conversations` row:
+ * the spawn parent and the cutoff that bounds the parent's turn count.
+ *
+ * Both columns behind this are stamped when the conversation is created
+ * (`bootstrapConversation`), before any turn of it runs, so a live turn's
+ * snapshot reads the same values the telemetry read path later resolves for the
+ * same conversation.
+ *
+ * Best-effort: a missing row or a failed read resolves to no parent and no
+ * cutoff, degrading the snapshot to no parent linkage rather than failing the
+ * call.
+ */
+export function resolveSpawnAttribution(
+  childConversationId: string,
+): SpawnAttribution {
+  try {
+    const row = getDb()
+      .select({
+        spawnParentConversationId: SPAWN_PARENT_ID_SQL,
+        cutoff: PARENT_TURN_CUTOFF_SQL,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, childConversationId))
+      .get();
+    return {
+      spawnParentConversationId: row?.spawnParentConversationId ?? null,
+      cutoffCreatedAt: row?.cutoff == null ? undefined : Number(row.cutoff),
+    };
+  } catch {
+    return { spawnParentConversationId: null, cutoffCreatedAt: undefined };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -304,36 +449,11 @@ export function queryUnreportedUsageEvents(
   limit: number,
 ): UnreportedUsageEvent[] {
   const db = getTelemetryMainDb();
-  // Spawn linkage: `parent_conversation_id` (subagent spawns) with a
-  // fallback to `fork_parent_conversation_id` (retrospective forks — one
-  // hop up the fork chain is the intended attribution). The fallback is
-  // gated to background conversations: user-initiated forks also stamp
-  // `fork_parent_conversation_id` but are first-class standard
-  // conversations whose usage belongs to themselves, not the source turn.
-  // Null when the LEFT JOIN below misses or the conversation has no
-  // parent.
-  const parentIdSql = sql<string | null>`COALESCE(
-    ${conversations.parentConversationId},
-    CASE WHEN ${conversations.conversationType} = 'background'
-      THEN ${conversations.forkParentConversationId}
-    END
-  )`;
-  // Cutoff for the parent-turn count. Subagent spawns attribute to the
-  // parent turn in flight at child creation. Retrospective forks can
-  // branch from a turn far earlier than the fork's creation time, so
-  // they anchor on the fork boundary message instead; child creation is
-  // the fallback when the boundary message is absent.
+  // Spawn linkage comes from the shared `SPAWN_PARENT_ID_SQL` expression, and
+  // is null when the LEFT JOIN below misses or the conversation has no parent.
   // The turn-index subqueries below count user-role rows only. User rows are
   // always written finalized (only assistant turns stream), so no completeness
   // predicate is needed; do not copy this shape for assistant-row counts.
-  const parentTurnCutoffSql = sql<number>`CASE
-    WHEN ${conversations.parentConversationId} IS NOT NULL THEN ${conversations.createdAt}
-    ELSE COALESCE(
-      (SELECT mb.created_at FROM messages AS mb
-        WHERE mb.id = ${conversations.forkParentMessageId}),
-      ${conversations.createdAt}
-    )
-  END`;
   // `conversationType` prefers the value stamped on the row at record
   // time (migration 353) — the parent conversation may have been deleted
   // before this flush (retrospective fork GC, user deletion) — and falls
@@ -400,7 +520,7 @@ export function queryUnreportedUsageEvents(
         )
         END
       )`.as("turn_index"),
-      parentConversationId: parentIdSql.as("parent_conversation_id"),
+      parentConversationId: SPAWN_PARENT_ID_SQL.as("parent_conversation_id"),
       // The parent turn this child conversation branched from: count of
       // the PARENT conversation's real user turns with `created_at <=`
       // the cutoff (child creation for subagent spawns, fork boundary
@@ -412,13 +532,13 @@ export function queryUnreportedUsageEvents(
       subagentRole: conversations.subagentRole,
       subagentSpawnMode: conversations.subagentSpawnMode,
       parentTurnIndex: sql<number | null>`(
-        CASE WHEN ${parentIdSql} IS NULL THEN NULL
+        CASE WHEN ${SPAWN_PARENT_ID_SQL} IS NULL THEN NULL
         ELSE (
           SELECT COUNT(*) FROM messages AS m3
-          WHERE m3.conversation_id = ${parentIdSql}
+          WHERE m3.conversation_id = ${SPAWN_PARENT_ID_SQL}
             AND m3.role = 'user'
             AND ${realUserTurnContentFilter("m3")}
-            AND m3.created_at <= ${parentTurnCutoffSql}
+            AND m3.created_at <= ${PARENT_TURN_CUTOFF_SQL}
         )
         END
       )`.as("parent_turn_index"),

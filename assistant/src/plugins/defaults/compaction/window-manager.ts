@@ -42,6 +42,7 @@ import { findConversationOrSubagent } from "../../../daemon/conversation-registr
 import type { InjectionMode } from "../../../daemon/conversation-runtime-assembly.js";
 import type { ToolDefinition } from "../../../providers/types.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
+import type { UsageOriginSnapshot } from "../../../usage/work-origin.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   createInitialReducerState,
@@ -157,6 +158,12 @@ export interface ContextWindowCompactOptions {
    */
   minKeepRecentUserTurns?: number;
   /**
+   * Billing-origin attribution for the turn compaction runs inside, forwarded
+   * to the compactor's summary call. See
+   * {@link CompactionRunArgs.usageOriginSnapshot}.
+   */
+  usageOriginSnapshot?: UsageOriginSnapshot;
+  /**
    * Trust class of the actor whose turn triggered compaction. Forwarded to
    * the compactor so the image manifest excludes guardian-only attachments
    * for untrusted actors.
@@ -192,6 +199,12 @@ export interface EmergencyCompactOptions {
    * call.
    */
   overrideProfile?: string | null;
+  /**
+   * Billing-origin attribution for the turn the overflow occurred in,
+   * forwarded to the summary call. See
+   * {@link CompactionRunArgs.usageOriginSnapshot}.
+   */
+  usageOriginSnapshot?: UsageOriginSnapshot;
 }
 
 /**
@@ -217,6 +230,11 @@ export interface OverflowRecoveryRungOptions {
   allowAutoCompressLatestTurn: boolean;
   /** Per-conversation inference-profile override for the summary call. */
   overrideProfile?: string | null;
+  /**
+   * Billing-origin attribution for the turn the overflow occurred in,
+   * forwarded to every summary call the ladder makes.
+   */
+  usageOriginSnapshot?: UsageOriginSnapshot;
   /** Trust class of the actor whose turn triggered overflow recovery. */
   actorTrustClass?: TrustClass;
 }
@@ -236,6 +254,11 @@ export interface OverflowRecoveryOptions {
   isInteractive: boolean;
   /** Per-conversation inference-profile override for the summary call. */
   overrideProfile?: string | null;
+  /**
+   * Billing-origin attribution for the turn the overflow occurred in,
+   * forwarded to every summary call the ladder makes.
+   */
+  usageOriginSnapshot?: UsageOriginSnapshot;
   /** Trust class of the actor whose turn triggered overflow recovery. */
   actorTrustClass?: TrustClass;
 }
@@ -547,6 +570,7 @@ export class ContextWindowManager {
         actualTokens: options.actualTokens,
         allowAutoCompressLatestTurn,
         overrideProfile: options.overrideProfile,
+        usageOriginSnapshot: options.usageOriginSnapshot,
         actorTrustClass: options.actorTrustClass,
       },
       signal,
@@ -619,6 +643,7 @@ export class ContextWindowManager {
       toolTokenBudget: this.resolveTurnToolTokenBudget(),
       conversationId: this.conversationId,
       overrideProfile: options.overrideProfile ?? null,
+      usageOriginSnapshot: options.usageOriginSnapshot,
       actorTrustClass: options.actorTrustClass,
       previousEstimatedInputTokens: estimatedInputTokens,
       maxMiddleTierAttempts: this.config.overflowRecovery.maxAttempts,
@@ -778,6 +803,7 @@ export class ContextWindowManager {
       force: options?.force,
       signal,
       overrideProfile: options?.overrideProfile ?? null,
+      usageOriginSnapshot: options?.usageOriginSnapshot,
       actorTrustClass: options?.actorTrustClass,
       nonPersistedPrefixCount: this.resolveNonPersistedPrefixCount(messages),
     });
@@ -925,6 +951,7 @@ export class ContextWindowManager {
       force: true,
       signal,
       overrideProfile: options.overrideProfile ?? null,
+      usageOriginSnapshot: options.usageOriginSnapshot,
       nonPersistedPrefixCount: this.resolveNonPersistedPrefixCount(messages),
     });
     // A productive emergency pass rebuilds the history front just like the

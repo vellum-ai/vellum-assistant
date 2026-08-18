@@ -133,6 +133,7 @@ function makeConversation(
     source: "user",
     originChannel: null,
     originInterface: null,
+    parentConversationId: null,
     forkParentConversationId: null,
     forkParentMessageId: null,
     forkStrategy: null,

@@ -53,6 +53,7 @@ function makeConversation(): ConversationRow {
     source: "user",
     originChannel: null,
     originInterface: null,
+    parentConversationId: null,
     forkParentConversationId: null,
     forkParentMessageId: null,
     forkStrategy: null,

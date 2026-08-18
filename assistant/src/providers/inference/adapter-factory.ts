@@ -242,6 +242,15 @@ export function createAdapterFromConnection(
    * that just failed — otherwise a proxy 401 from any other cause (platform
    * auth degraded, revoked account) would make every request pay a second
    * doomed upstream call forever.
+   *
+   * The replacement is a bare adapter, never a wrapped chain. `RetryProvider`
+   * normalizes the send options once, before its attempt loop, and hands the
+   * same object to whichever inner provider it holds; a wrapped replacement
+   * would normalize them a second time, and since normalization derives
+   * attribution headers from routing fields it has already stripped, the
+   * refreshed request would reach billing with none. A bare adapter also keeps
+   * usage recording to the single `UsageTrackingProvider` wrapping this whole
+   * chain, so a rotation cannot double-count a call.
    */
   function makeCredentialRefresher(): () => Promise<Provider | null> {
     let lastAuth = JSON.stringify(resolvedAuth);

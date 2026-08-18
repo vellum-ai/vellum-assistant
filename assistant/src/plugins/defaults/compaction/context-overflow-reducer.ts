@@ -40,6 +40,7 @@ import {
 } from "../../../daemon/conversation-media-retry.js";
 import type { InjectionMode } from "../../../daemon/conversation-runtime-assembly.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
+import type { UsageOriginSnapshot } from "../../../usage/work-origin.js";
 import { getLogger } from "../../../util/logger.js";
 import { defaultCompact, defaultEmergencyCompact } from "./compact.js";
 import type {
@@ -130,6 +131,11 @@ export interface ReducerConfig {
   conversationId: string;
   /** Per-conversation inference-profile override for the summary call. */
   overrideProfile?: string | null;
+  /**
+   * Billing-origin attribution for the turn the overflow occurred in,
+   * forwarded to every summary call the ladder makes.
+   */
+  usageOriginSnapshot?: UsageOriginSnapshot;
   /** Trust class of the actor whose turn triggered overflow recovery. */
   actorTrustClass?: TrustClass;
   /**
@@ -284,6 +290,7 @@ async function applyEmergencyCompaction(
       messages,
       previousEstimatedInputTokens: config.previousEstimatedInputTokens,
       overrideProfile: config.overrideProfile ?? null,
+      usageOriginSnapshot: config.usageOriginSnapshot,
       signal,
     });
   } catch (err) {
@@ -337,6 +344,7 @@ async function applyForcedCompaction(
     signal,
     ...compactionOptions,
     overrideProfile: config.overrideProfile ?? null,
+    usageOriginSnapshot: config.usageOriginSnapshot,
     actorTrustClass: config.actorTrustClass,
   });
   const nextMessages = result.compacted ? result.messages : messages;
@@ -528,6 +536,7 @@ async function applyAutoCompressLatestTurn(
     signal,
     ...compactionOptions,
     overrideProfile: config.overrideProfile ?? null,
+    usageOriginSnapshot: config.usageOriginSnapshot,
     actorTrustClass: config.actorTrustClass,
   });
   const nextMessages = result.compacted ? result.messages : messages;

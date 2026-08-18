@@ -18,6 +18,13 @@ export interface BtwSidechainConversationLike {
   systemPrompt: string;
   hasSystemPromptOverride?: boolean;
   getMessages(): Message[];
+  /**
+   * Persisted conversation the side-chain runs against, when it has one. It
+   * rides the send config so the call's spend attributes to that conversation
+   * instead of classifying as conversationless. Absent for a side-chain on an
+   * ephemeral conversation, whose id names no row.
+   */
+  conversationId?: string;
 }
 
 export interface RunBtwSidechainParams {
@@ -86,6 +93,7 @@ export async function runBtwSidechain(
 
   let collectedText = "";
   let hadTextDeltas = false;
+  const conversationId = params.conversation?.conversationId;
 
   try {
     const response = await provider.sendMessage(messages, {
@@ -95,6 +103,7 @@ export async function runBtwSidechain(
         max_tokens: params.maxTokens ?? 1024,
         tool_choice: { type: "none" },
         callSite: params.callSite ?? ("identityIntro" as LLMCallSite),
+        ...(conversationId ? { conversationId } : {}),
       },
       onEvent: (event) => {
         if (event.type === "text_delta") {

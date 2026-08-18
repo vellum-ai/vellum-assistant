@@ -124,6 +124,7 @@ import {
   wrapUntrustedContent,
 } from "../security/untrusted-content.js";
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
+import { buildTurnUsageOriginSnapshot } from "../usage/usage-origin-snapshot.js";
 import { getLogger } from "../util/logger.js";
 import { createKeyedSingleFlight } from "../util/single-flight.js";
 
@@ -882,6 +883,22 @@ export async function wakeAgentForOpportunity(
     // the lock cannot change hands in between.
     conversation.setProcessing(true);
 
+    // Immutable record-time usage attribution for every LLM call this wake
+    // emits, the pre-run compaction summary below included. Built from the same
+    // helper `runAgentLoopImpl` uses, so a scheduled, retrospective, or
+    // background wake carries the same work-origin classification, turn
+    // indexes, spawn-parent linkage, and schedule firing as a normal turn.
+    // Built before the compaction gate so a compaction send never falls back
+    // to a row-derived origin (which would label a scheduled wake's summary
+    // call user-interactive). A wake that persists its trigger row rebuilds
+    // the run's snapshot after the persist, so each consumer's turn index
+    // matches the rows the telemetry read path counts for its calls.
+    let usageOriginSnapshot = buildTurnUsageOriginSnapshot(
+      conversation,
+      callSite,
+      opts.cronRunId ?? null,
+    );
+
     // ── Pre-run auto-compaction gate ──────────────────────────────────
     // The wake invokes `conversation.agentLoop.run()` with the loop's
     // in-loop budget gate disabled (see `resolveContextWindow` below), so
@@ -899,11 +916,14 @@ export async function wakeAgentForOpportunity(
     // window (and then overflow at the provider).
     if (!suppressAutoCompaction) {
       try {
-        await conversation.maybeCompact({
-          callSite,
-          overrideProfile,
-          forceOverrideProfile,
-        });
+        await conversation.maybeCompact(
+          {
+            callSite,
+            overrideProfile,
+            forceOverrideProfile,
+          },
+          usageOriginSnapshot,
+        );
       } catch (err) {
         log.warn(
           { conversationId, source, err },
@@ -953,6 +973,16 @@ export async function wakeAgentForOpportunity(
           "agent-wake: failed to persist wake trigger message; continuing",
         );
       }
+      // The persisted trigger row is a real user turn, so the run's
+      // attribution is rebuilt to include it: the telemetry read path counts
+      // rows persisted before each call, and the run's calls all follow the
+      // trigger. The compaction gate above keeps the pre-trigger build, whose
+      // calls precede the row.
+      usageOriginSnapshot = buildTurnUsageOriginSnapshot(
+        conversation,
+        callSite,
+        opts.cronRunId ?? null,
+      );
     }
 
     const baseline = conversation.getMessages();
@@ -1454,6 +1484,8 @@ export async function wakeAgentForOpportunity(
       const priorCallSite = conversation.currentCallSite;
       const priorTurnOverrideProfile = conversation.currentTurnOverrideProfile;
       const priorTurnCronRunId = conversation.currentTurnCronRunId;
+      const priorTurnUsageOriginSnapshot =
+        conversation.currentTurnUsageOriginSnapshot;
       const priorTurnIsNonInteractive =
         conversation.currentTurnIsNonInteractive;
       const priorTurnTrust = conversation.currentTurnTrustContext;
@@ -1462,6 +1494,8 @@ export async function wakeAgentForOpportunity(
       // Same reason as the stamps above: a wake triggered by a schedule firing
       // delegates work to subagents whose usage must attribute to that firing.
       conversation.currentTurnCronRunId = opts.cronRunId ?? null;
+      // The turn's own origin, for tools that emit their own LLM calls.
+      conversation.currentTurnUsageOriginSnapshot = usageOriginSnapshot;
       if (opts.clientless) {
         // Presence is per-turn state; a clientless wake declares no human is
         // present for the duration of its dispatch.
@@ -1480,6 +1514,7 @@ export async function wakeAgentForOpportunity(
           onEvent,
           requestId: `wake:${source}`,
           onCheckpoint,
+          usageOriginSnapshot,
           // Route through the caller-supplied call site (defaults to
           // `mainAgent` so a normal user-turn wake shares the user's chat
           // selection). Without an explicit callSite, the resolver in
@@ -1553,6 +1588,8 @@ export async function wakeAgentForOpportunity(
         conversation.currentCallSite = priorCallSite;
         conversation.currentTurnOverrideProfile = priorTurnOverrideProfile;
         conversation.currentTurnCronRunId = priorTurnCronRunId;
+        conversation.currentTurnUsageOriginSnapshot =
+          priorTurnUsageOriginSnapshot;
         conversation.currentTurnIsNonInteractive = priorTurnIsNonInteractive;
         conversation.currentTurnTrustContext = priorTurnTrust;
       }

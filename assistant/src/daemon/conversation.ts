@@ -93,6 +93,7 @@ import type { SubagentState } from "../subagent/types.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions } from "../tools/registry.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
+import type { UsageOriginSnapshot } from "../usage/work-origin.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -462,15 +463,29 @@ export class Conversation {
     return this.currentTurnIsNonInteractive ?? true;
   }
   /**
-   * For subagent conversations, the id of the parent that spawned this one; set
-   * once at construction and never reassigned. `undefined` for top-level
-   * conversations. It is the single source of truth for {@link isSubagent} and
-   * the authoritative (non-writable) routing target for child → parent
-   * notifications — as opposed to the durable subagent record, which lives under
-   * the sandbox workspace and could be tampered with by a sandbox-tool subagent.
+   * For subagent conversations, the id of the parent that spawned this one.
+   * `undefined` for top-level conversations. It is the single source of truth
+   * for {@link isSubagent} and the authoritative (non-writable) routing target
+   * for child to parent notifications, as opposed to the durable subagent
+   * record, which lives under the sandbox workspace and could be tampered with
+   * by a sandbox-tool subagent.
+   *
+   * A live spawn supplies it at construction. A conversation rehydrated after
+   * eviction or a daemon restart takes it from
+   * `conversations.parent_conversation_id` in {@link loadFromDb}, so its
+   * billing-origin snapshot keeps the parent linkage the row records. The
+   * construction value wins when both are present: the spawning process is the
+   * authority on the parent it just passed, and it is the same value it wrote
+   * to the row.
+   *
+   * Read-only to callers: the accessor has no setter, so the two writes above
+   * remain the only ones.
    * @internal
    */
-  readonly parentConversationId?: string;
+  get parentConversationId(): string | undefined {
+    return this.parentConversationIdValue;
+  }
+  private parentConversationIdValue?: string;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
@@ -529,6 +544,15 @@ export class Conversation {
    * @internal
    */
   currentTurnCronRunId?: string | null;
+  /**
+   * Immutable billing-origin attribution of the turn currently running, as
+   * built by `buildTurnUsageOriginSnapshot`. Exposed on the live
+   * conversation so the tool context can forward it to LLM calls a tool makes
+   * on its own (style analysis and the like), which then carry the turn's own
+   * work origin instead of a classification derived from the conversation row.
+   * @internal
+   */
+  currentTurnUsageOriginSnapshot?: UsageOriginSnapshot;
   /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
@@ -571,6 +595,15 @@ export class Conversation {
    * @internal
    */
   source?: string;
+  /**
+   * The source conversation this one was forked from
+   * (`conversations.fork_parent_conversation_id`), cached on load so the
+   * usage-attribution snapshot can resolve a background fork's spawn parent
+   * (retrospective forks) without a per-turn DB row read. Undefined when the
+   * conversation is not a fork.
+   * @internal
+   */
+  forkParentConversationId?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;
@@ -776,7 +809,7 @@ export class Conversation {
     const { maxTokens, speedOverride, cacheTtl, modelOverride } = options ?? {};
     const enableNativeWebSearch = options?.enableNativeWebSearch ?? false;
     this.conversationId = conversationId;
-    this.parentConversationId = options?.parentConversationId;
+    this.parentConversationIdValue = options?.parentConversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
     this.workingDir = workingDir;
@@ -1029,6 +1062,11 @@ export class Conversation {
           max_tokens: 1,
           callSite: "mainAgent",
           usageTracking: "manual",
+          // Attribution only: the managed transport derives this call's
+          // billing-origin headers from the conversation it warms the cache
+          // for, so the warming spend lands on that conversation rather than
+          // reading as conversationless system work.
+          conversationId: this.conversationId,
         },
         signal: abort.signal,
       })
@@ -1075,6 +1113,8 @@ export class Conversation {
     this.originInterface = parseInterfaceId(conv?.originInterface) ?? undefined;
     this.originChannel = parseChannelId(conv?.originChannel) ?? undefined;
     this.source = conv?.source ?? undefined;
+    this.parentConversationIdValue ??= conv?.parentConversationId ?? undefined;
+    this.forkParentConversationId = conv?.forkParentConversationId ?? undefined;
     this.contextSummary = conv?.contextSummary ?? null;
     this.slackContextCompactionWatermarkTs =
       conv?.slackContextCompactionWatermarkTs ?? null;
@@ -2306,14 +2346,20 @@ export class Conversation {
    * `sizing` lets a wake thread its own call-site/profile resolution into
    * the gate's context-window sizing — see {@link CompactionSizing}. Absent,
    * the gate sizes against `mainAgent` (the live-turn behavior).
+   *
+   * `usageOriginSnapshot` is the billing origin of the turn this gate runs
+   * ahead of. The summary call and the compaction usage row both carry it, so
+   * a scheduled wake's compaction attributes to the firing rather than
+   * classifying from the conversation row as ordinary interactive spend.
    */
   async maybeCompact(
     sizing?: CompactionSizing,
+    usageOriginSnapshot?: UsageOriginSnapshot,
   ): Promise<ContextWindowResult | null> {
     if (await this.agentLoop.compactionCircuit.isOpen()) {
       return null;
     }
-    return this.runCompaction(false, sizing);
+    return this.runCompaction(false, sizing, { usageOriginSnapshot });
   }
 
   /**
@@ -2330,6 +2376,9 @@ export class Conversation {
    * this pipeline derives row-exact persisted and Slack watermarks against
    * the cut the compactor actually used (the requested cut may retreat to
    * keep tool_use/tool_result pairs together).
+   * `opts.usageOriginSnapshot` is the billing origin of the turn compaction
+   * runs inside, forwarded to the summary call and stamped onto the
+   * compaction usage row.
    */
   private async runCompaction(
     force: boolean,
@@ -2341,6 +2390,7 @@ export class Conversation {
         rows: MessageRow[];
         firstRowByHistoryIndex: (number | null)[];
       };
+      usageOriginSnapshot?: UsageOriginSnapshot;
     },
   ): Promise<ContextWindowResult> {
     const overrideProfile = resolveOverrideProfile(this) ?? null;
@@ -2403,6 +2453,7 @@ export class Conversation {
       actorTrustClass: this.trustContext?.trustClass,
       fixedTailStartIndex: opts?.fixedTailStartIndex,
       fixedBoundaryRowIndex: opts?.fixedBoundaryRowIndex,
+      usageOriginSnapshot: opts?.usageOriginSnapshot,
     });
     // Row-exact watermark accounting for a caller-fixed boundary, derived
     // from the cut the compactor ACTUALLY used (`result.compactedMessages`
@@ -2461,6 +2512,7 @@ export class Conversation {
     }
     if (result.compacted) {
       await applyCompactionResult(this, result, this.emit, null, {
+        cronRunId: opts?.usageOriginSnapshot?.cronRunId ?? null,
         slackContextCompactionWatermarkTs:
           fixedBoundarySlackWatermarkTs ??
           getSlackCompactionWatermarkForPrefix(
