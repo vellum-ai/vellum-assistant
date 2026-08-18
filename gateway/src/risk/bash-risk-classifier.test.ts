@@ -20,7 +20,7 @@ import { cachedParse } from "./shell-identity.js";
 function makeClassifier(
   registry?: Record<string, CommandRiskSpec>,
 ): BashRiskClassifier {
-  return new BashRiskClassifier(registry ?? DEFAULT_COMMAND_REGISTRY, []);
+  return new BashRiskClassifier(registry ?? DEFAULT_COMMAND_REGISTRY);
 }
 
 // ── Risk ordering helpers ────────────────────────────────────────────────────

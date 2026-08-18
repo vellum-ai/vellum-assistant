@@ -313,7 +313,7 @@ export function handleOpenRuleEditorForToolCall(
 
   // Only `riskAllowlistOptions` are valid save-path patterns: a trust rule is
   // matched by exact string, and these are minted for that. `riskScopeOptions`
-  // are regex-flavored, display-only and must NOT be persisted as trust rules.
+  // are display-only and must NOT be persisted as trust rules.
   const resolvedAllowlistOptions: AllowlistOption[] =
     context.allowlistOptions.length > 0 ? context.allowlistOptions : [];
 
