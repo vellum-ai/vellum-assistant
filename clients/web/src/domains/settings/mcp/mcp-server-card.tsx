@@ -19,32 +19,47 @@ import { Card } from "@vellumai/design-library/components/card";
 import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
+import { useTranslation } from "@/i18n";
+
+type SettingsTranslate = ReturnType<
+  typeof useTranslation<"settings">
+>["t"];
+
 const STATUS_CONFIG: Record<
   string,
-  { icon: typeof CheckCircle2; label: string; className: string }
+  { icon: typeof CheckCircle2; className: string }
 > = {
   connected: {
     icon: CheckCircle2,
-    label: "Connected",
     className: "text-[var(--system-positive-strong)]",
   },
   "needs-auth": {
     icon: KeyRound,
-    label: "Needs Auth",
     className: "text-[var(--system-warning-strong)]",
   },
   disabled: {
     icon: Power,
-    label: "Disabled",
     className: "text-[var(--content-tertiary)]",
   },
 };
 
 const DEFAULT_STATUS = {
   icon: AlertCircle,
-  label: "Error",
   className: "text-[var(--system-negative-strong)]",
 };
+
+function statusLabel(status: string, t: SettingsTranslate): string {
+  switch (status) {
+    case "connected":
+      return t("mcpServerCard.statusConnected");
+    case "needs-auth":
+      return t("mcpServerCard.statusNeedsAuth");
+    case "disabled":
+      return t("mcpServerCard.statusDisabled");
+    default:
+      return t("mcpServerCard.statusError");
+  }
+}
 
 interface McpServerCardProps {
   server: McpServerEntry;
@@ -71,6 +86,7 @@ export function McpServerCard({
   isAuthenticating,
   isRevoking,
 }: McpServerCardProps) {
+  const { t } = useTranslation("settings");
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const statusInfo = STATUS_CONFIG[server.status] ?? DEFAULT_STATUS;
   const StatusIcon = statusInfo.icon;
@@ -119,11 +135,11 @@ export function McpServerCard({
                   className={`flex items-center gap-1 text-label-medium-default ${statusInfo.className}`}
                 >
                   <StatusIcon className="h-3.5 w-3.5" />
-                  {statusInfo.label}
+                  {statusLabel(server.status, t)}
                 </span>
                 {server.hasOAuth ? (
                   <span className="rounded-full bg-[var(--surface-lift)] px-2 py-0.5 text-label-small-default text-[var(--content-secondary)]">
-                    OAuth
+                    {t("mcpServerCard.oauthBadge")}
                   </span>
                 ) : null}
               </div>
@@ -133,12 +149,15 @@ export function McpServerCard({
                   <>
                     <span aria-hidden="true">&middot;</span>
                     <span>
-                      {toolsSummary.toolCount}{" "}
-                      {toolsSummary.toolCount === 1 ? "tool" : "tools"}
+                      {t("mcpServerCard.toolCount", {
+                        count: toolsSummary.toolCount,
+                      })}
                     </span>
                     <span aria-hidden="true">&middot;</span>
                     <span>
-                      ~{toolsSummary.estimatedTokens.toLocaleString()} tokens
+                      {t("mcpServerCard.estimatedTokens", {
+                        count: toolsSummary.estimatedTokens.toLocaleString(),
+                      })}
                     </span>
                   </>
                 ) : null}
@@ -160,7 +179,9 @@ export function McpServerCard({
                 onClick={handleAuthenticate}
                 disabled={isAuthenticating}
               >
-                {isAuthenticating ? "Authenticating..." : "Authenticate"}
+                {isAuthenticating
+                  ? t("mcpServerCard.authenticating")
+                  : t("mcpServerCard.authenticate")}
               </Button>
             ) : null}
             {server.hasOAuth ? (
@@ -171,9 +192,9 @@ export function McpServerCard({
                   leftIcon={<RefreshCw />}
                   onClick={handleAuthenticate}
                   disabled={isAuthenticating}
-                  tooltip="Re-authenticate OAuth"
+                  tooltip={t("mcpServerCard.reAuthTooltip")}
                 >
-                  Re-auth
+                  {t("mcpServerCard.reAuth")}
                 </Button>
                 <Button
                   variant="dangerGhost"
@@ -181,9 +202,11 @@ export function McpServerCard({
                   leftIcon={<LogOut />}
                   onClick={handleRevokeOAuth}
                   disabled={isRevoking}
-                  tooltip="Revoke OAuth credentials"
+                  tooltip={t("mcpServerCard.revokeOAuthTooltip")}
                 >
-                  {isRevoking ? "Revoking..." : "Revoke"}
+                  {isRevoking
+                    ? t("mcpServerCard.revoking")
+                    : t("mcpServerCard.revoke")}
                 </Button>
               </>
             ) : null}
@@ -191,23 +214,33 @@ export function McpServerCard({
               checked={server.enabled}
               onChange={handleToggle}
               disabled={isUpdating}
-              aria-label={`${server.enabled ? "Disable" : "Enable"} ${server.id}`}
+              aria-label={
+                server.enabled
+                  ? t("mcpServerCard.toggleDisableAriaLabel", {
+                      serverId: server.id,
+                    })
+                  : t("mcpServerCard.toggleEnableAriaLabel", {
+                      serverId: server.id,
+                    })
+              }
             />
             <Button
               variant="ghost"
               size="compact"
               onClick={handleConfigure}
-              tooltip="Configure"
+              tooltip={t("mcpServerCard.configureTooltip")}
             >
-              Configure
+              {t("mcpServerCard.configure")}
             </Button>
             <Button
               variant="dangerGhost"
               size="compact"
               iconOnly={<Trash2 />}
               onClick={handleRemove}
-              tooltip="Remove server"
-              aria-label={`Remove ${server.id}`}
+              tooltip={t("mcpServerCard.removeServerTooltip")}
+              aria-label={t("mcpServerCard.removeServerAriaLabel", {
+                serverId: server.id,
+              })}
             />
           </div>
         </div>
@@ -224,8 +257,9 @@ export function McpServerCard({
               ) : (
                 <ChevronRight className="h-3.5 w-3.5" />
               )}
-              {toolsSummary.toolCount} registered{" "}
-              {toolsSummary.toolCount === 1 ? "tool" : "tools"}
+              {t("mcpServerCard.registeredTools", {
+                count: toolsSummary.toolCount,
+              })}
             </button>
 
             {toolsExpanded ? (
@@ -237,7 +271,9 @@ export function McpServerCard({
                     subtitle={tool.description || undefined}
                     trailing={
                       <span className="whitespace-nowrap text-body-small-default text-[var(--content-secondary)]">
-                        ~{tool.estimatedTokens.toLocaleString()} tok
+                        {t("mcpServerCard.toolTokensAbbrev", {
+                          count: tool.estimatedTokens.toLocaleString(),
+                        })}
                       </span>
                     }
                   />
