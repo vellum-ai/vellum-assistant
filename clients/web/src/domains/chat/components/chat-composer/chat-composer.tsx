@@ -13,7 +13,7 @@ import {
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
 
-import { PlusIcon } from "@/components/icons/plus-icon";
+import { PlusIcon } from "@/domains/chat/components/plus-icon";
 import {
   AttachFileButton,
   ChatAttachmentsStrip,
