@@ -255,6 +255,34 @@ export function findInboundConversationId(
  * the conversation and tracks the reply. Both must key on the same three
  * fields for either to mean anything.
  */
+/**
+ * The inbound event already recorded for this address, if any. Read-only twin
+ * of the dedup check inside {@link recordInbound}, for callers that must know
+ * an event is a redelivery before doing work that recording would otherwise
+ * gate (routing a guardian decision, for one).
+ */
+export function findInboundEvent(
+  sourceChannel: string,
+  externalChatId: string,
+  externalMessageId: string,
+): { eventId: string; conversationId: string } | null {
+  const row = getDb()
+    .select({
+      id: channelInboundEvents.id,
+      conversationId: channelInboundEvents.conversationId,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.sourceChannel, sourceChannel),
+        eq(channelInboundEvents.externalChatId, externalChatId),
+        eq(channelInboundEvents.externalMessageId, externalMessageId),
+      ),
+    )
+    .get();
+  return row ? { eventId: row.id, conversationId: row.conversationId } : null;
+}
+
 export function recordInbound(
   sourceChannel: string,
   externalChatId: string,

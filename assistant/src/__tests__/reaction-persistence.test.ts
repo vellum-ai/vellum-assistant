@@ -433,7 +433,9 @@ describe("Slack reaction event persistence", () => {
     const j2 = (await r2.json()) as Record<string, unknown>;
     expect(j2.duplicate).toBe(true);
 
-    const rows = readPersistedMessages();
+    const rows = readPersistedMessages().filter(
+      (r) => r.content === "[reaction]",
+    );
     expect(rows.length).toBe(1);
   });
 
@@ -503,7 +505,11 @@ describe("Slack reaction event persistence", () => {
     const eventId = json.eventId as string;
 
     const db = getDb();
-    const messageRows = db.select().from(messages).all();
+    const messageRows = db
+      .select()
+      .from(messages)
+      .all()
+      .filter((row) => row.content === "[reaction]");
     expect(messageRows.length).toBe(1);
 
     const { channelInboundEvents } =

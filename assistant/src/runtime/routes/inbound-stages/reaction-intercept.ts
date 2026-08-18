@@ -29,6 +29,7 @@ import {
 } from "../../../messaging/providers/slack/message-metadata.js";
 import { addMessage } from "../../../persistence/conversation-crud.js";
 import {
+  findInboundEvent,
   findMessageBySourceId,
   linkMessage,
   recordInbound,
@@ -187,6 +188,22 @@ export async function handleSlackReactionIntercept(
       reaction: "dropped_disk_pressure",
       diskPressure: "blocked",
       reason: diskPressure.reason,
+    };
+  }
+
+  // A redelivery is answered before anything acts on it. Recording the event
+  // is what dedups a reaction, and that happens after the guardian rail, so
+  // without this probe the same emoji could drive a decision twice.
+  const alreadyRecorded = findInboundEvent(
+    sourceChannel,
+    conversationExternalId,
+    externalMessageId,
+  );
+  if (alreadyRecorded) {
+    return {
+      accepted: true,
+      duplicate: true,
+      eventId: alreadyRecorded.eventId,
     };
   }
 

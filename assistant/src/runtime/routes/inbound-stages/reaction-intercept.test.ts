@@ -70,6 +70,7 @@ mock.module("../../../contacts/contact-store.js", () => ({
 // ---------------------------------------------------------------------------
 
 let recordInboundCalls: Array<{ conversationId?: string }> = [];
+let recordedEvent: { eventId: string; conversationId: string } | null = null;
 let storedTarget: { messageId: string; conversationId: string } | null = null;
 mock.module("../../../persistence/delivery-crud.js", () => ({
   recordInbound: (
@@ -87,6 +88,7 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
     };
   },
   findMessageBySourceId: () => storedTarget,
+  findInboundEvent: () => recordedEvent,
   clearPayload: () => {},
   linkMessage: () => {},
 }));
@@ -211,6 +213,7 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     setMemberVerdictCalls = 0;
     contactLookups = 0;
     recordInboundCalls = [];
+    recordedEvent = null;
     addMessageCalls = 0;
     guardianReplyCalls = [];
     guardianReplyResponse = undefined;
@@ -268,6 +271,26 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     expect(result.reaction).toBe("dropped_unknown_target");
     expect(recordInboundCalls.length).toBe(0);
     expect(addMessageCalls).toBe(0);
+  });
+
+  test("a redelivered reaction never reaches the guardian rail twice", async () => {
+    recordedEvent = { eventId: "evt-1", conversationId: "conv-target" };
+
+    const result = await handleSlackReactionIntercept(
+      buildParams({
+        rawSenderId: GUARDIAN_USER_ID,
+        trustVerdict: GUARDIAN_VERDICT,
+      }),
+    );
+
+    expect(result).toEqual({
+      accepted: true,
+      duplicate: true,
+      eventId: "evt-1",
+    });
+    expect(guardianReplyCalls.length).toBe(0);
+    expect(addMessageCalls).toBe(0);
+    expect(recordInboundCalls.length).toBe(0);
   });
 
   test("a guardian card reaction still applies when the card is not a stored message", async () => {
