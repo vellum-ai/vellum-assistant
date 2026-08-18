@@ -328,6 +328,8 @@ describe("classifyWorkOrigin", () => {
         "interactionClassifier",
         "skillCategoryInference",
         "inviteInstructionGenerator",
+        "identityIntro",
+        "emptyStateGreeting",
       ] as const
     ).map((callSite) => ({
       name: `conversationless ${callSite} call maps to user_interactive`,
