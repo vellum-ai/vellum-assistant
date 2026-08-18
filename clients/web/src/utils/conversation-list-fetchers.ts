@@ -206,7 +206,12 @@ type TimedConversationListPage = ConversationListPage & {
 };
 
 /** Which path issued an offset-0 list GET. */
-type FirstPageFetchSource = "drain" | "first_page_refresh";
+/**
+ * `landing` is the cold-boot landing lookup (`landing-conversation.ts`),
+ * kept apart from a sync refresh so a slow boot is attributable to it.
+ */
+type FirstPageFetchSource = "drain" | "first_page_refresh" | "landing";
+export type FirstPageReadSource = Exclude<FirstPageFetchSource, "drain">;
 
 /**
  * Superset of {@link FirstPageFetchSource} for the error entry, which any
@@ -530,19 +535,10 @@ export async function fetchSidebarSections(
 export async function listConversationsFirstPage(
   assistantId: string,
   filter: ConversationListFilter = {},
+  source: FirstPageReadSource = "first_page_refresh",
 ): Promise<ConversationListPage> {
-  const page = await fetchConversationListPage(
-    assistantId,
-    0,
-    "first_page_refresh",
-    filter,
-  );
-  recordFirstPageFetch(
-    assistantId,
-    page,
-    drainListKind(filter),
-    "first_page_refresh",
-  );
+  const page = await fetchConversationListPage(assistantId, 0, source, filter);
+  recordFirstPageFetch(assistantId, page, drainListKind(filter), source);
   return {
     conversations: shapeListRows(filter, page.conversations),
     hasMore: page.hasMore,

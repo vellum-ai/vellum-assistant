@@ -116,7 +116,7 @@ async function fetchLatestForegroundId(
   if (cached && cached.conversations.length > 0) {
     return firstSelectableId(cached.conversations);
   }
-  let page = await listConversationsFirstPage(assistantId);
+  let page = await listConversationsFirstPage(assistantId, {}, "landing");
   let found = firstSelectableId(page.conversations);
   /* Advance by the server's page size, not by rows received: an unfiltered
      page one carries the daemon's appended pinned rows beyond the limit. */
