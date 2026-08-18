@@ -351,6 +351,23 @@ describe("PairDeviceCard: pending pairing requests", () => {
     expect(screen.queryByText("Pairing requests")).toBeNull();
   });
 
+  test("a failing list poll surfaces the error notice even with no rows", async () => {
+    installFetch(unexpectedMint, {
+      onPendingRequests: () =>
+        jsonResponse({ error: { message: "gateway unreachable" } }, 500),
+    });
+    render(<PairDeviceCard />);
+
+    await waitFor(() =>
+      expect(screen.getByText("gateway unreachable")).toBeTruthy(),
+    );
+    // The section shows with the error so an outage isn't mistaken for an
+    // empty queue, but no request rows or actions are offered.
+    expect(screen.getByText("Pairing requests")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
+  });
+
   test("renders a pending request's user code and requester metadata", async () => {
     installPendingFetch();
     render(<PairDeviceCard />);
@@ -362,7 +379,10 @@ describe("PairDeviceCard: pending pairing requests", () => {
     expect(
       screen.getByText(/matches the one shown on the requesting device/),
     ).toBeTruthy();
-    expect(screen.getByText(/203\.0\.113\.7/)).toBeTruthy();
+    // The relative timestamp is locale-aware (en active in tests).
+    expect(
+      screen.getByText(/Requested 2 minutes ago from 203\.0\.113\.7/),
+    ).toBeTruthy();
     expect(
       screen.getByText("Mozilla/5.0 (iPhone; like Mac OS X)"),
     ).toBeTruthy();

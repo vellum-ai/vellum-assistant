@@ -1,8 +1,7 @@
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 
-import { useTranslation } from "@/i18n";
-import { formatRelativeDate } from "@/utils/format-date";
+import { currentLocale, useTranslation } from "@/i18n";
 
 import { usePendingPairingRequests } from "./use-pending-pairing-requests";
 
@@ -11,19 +10,48 @@ interface PendingPairingRequestsProps {
   base: string;
 }
 
+const RELATIVE_UNITS: Array<{ unit: Intl.RelativeTimeFormatUnit; ms: number }> =
+  [
+    { unit: "day", ms: 86_400_000 },
+    { unit: "hour", ms: 3_600_000 },
+    { unit: "minute", ms: 60_000 },
+  ];
+
+/**
+ * Relative label for a request's timestamp in the active i18n locale.
+ * Pending requests are short-lived, so minutes/hours/days cover the range;
+ * anything under a minute reads as "now".
+ */
+function formatRequestedAt(iso: string): string {
+  const formatter = new Intl.RelativeTimeFormat(currentLocale(), {
+    numeric: "auto",
+  });
+  const diffMs = new Date(iso).getTime() - Date.now();
+  const absMs = Math.abs(diffMs);
+  for (const { unit, ms } of RELATIVE_UNITS) {
+    if (absMs >= ms) {
+      return formatter.format(Math.trunc(diffMs / ms), unit);
+    }
+  }
+  return formatter.format(0, "second");
+}
+
 /**
  * The approval half of the Pair Device card: pending pairing requests minted
  * elsewhere (the public `/assistant/pair` page), each approvable or deniable
- * by the host. Renders nothing while no request is pending. Each row shows its
- * user code prominently so the approver can match it against the requesting
- * device's screen: the device-flow anti-phishing binding.
+ * by the host. Renders nothing while no request is pending and the list poll
+ * is healthy. Each row shows its user code prominently so the approver can
+ * match it against the requesting device's screen: the device-flow
+ * anti-phishing binding.
  */
 export function PendingPairingRequests({ base }: PendingPairingRequestsProps) {
   const { t } = useTranslation("settings");
   const { requests, actingOn, error, approve, deny } =
     usePendingPairingRequests(base);
 
-  if (requests.length === 0) {
+  // An empty list with no error is the quiet normal state; a poll error must
+  // still surface so an outage isn't mistaken for an empty queue.
+  if (requests.length === 0 && !error) {
     return null;
   }
 
@@ -38,52 +66,54 @@ export function PendingPairingRequests({ base }: PendingPairingRequestsProps) {
         </p>
       </div>
       {error && <Notice tone="error" title={error} />}
-      <ul className="flex flex-col gap-2">
-        {requests.map((request) => (
-          <li
-            key={request.requestId}
-            className="flex flex-col gap-2 rounded-lg border border-[var(--border-element)] p-3"
-          >
-            <code className="w-fit rounded-md bg-[var(--surface-active)] px-2.5 py-1.5 text-title-medium tracking-wide text-[var(--content-emphasised)]">
-              {request.userCode}
-            </code>
-            <div className="flex flex-col gap-0.5">
-              <p className="text-body-small-default text-[var(--content-tertiary)]">
-                {t("pendingPairingRequests.requestedMeta", {
-                  when: formatRelativeDate(request.requestedAt),
-                  ip: request.requesterIp,
-                })}
-              </p>
-              {request.requesterUserAgent && (
-                <p
-                  className="truncate text-body-small-default text-[var(--content-tertiary)]"
-                  title={request.requesterUserAgent}
-                >
-                  {request.requesterUserAgent}
+      {requests.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {requests.map((request) => (
+            <li
+              key={request.requestId}
+              className="flex flex-col gap-2 rounded-lg border border-[var(--border-element)] p-3"
+            >
+              <code className="w-fit rounded-md bg-[var(--surface-active)] px-2.5 py-1.5 text-title-medium tracking-wide text-[var(--content-emphasised)]">
+                {request.userCode}
+              </code>
+              <div className="flex flex-col gap-0.5">
+                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                  {t("pendingPairingRequests.requestedMeta", {
+                    when: formatRequestedAt(request.requestedAt),
+                    ip: request.requesterIp,
+                  })}
                 </p>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="primary"
-                size="compact"
-                disabled={actingOn !== null}
-                onClick={() => void approve(request.requestId)}
-              >
-                {t("pendingPairingRequests.approveButton")}
-              </Button>
-              <Button
-                variant="dangerOutline"
-                size="compact"
-                disabled={actingOn !== null}
-                onClick={() => void deny(request.requestId)}
-              >
-                {t("pendingPairingRequests.denyButton")}
-              </Button>
-            </div>
-          </li>
-        ))}
-      </ul>
+                {request.requesterUserAgent && (
+                  <p
+                    className="truncate text-body-small-default text-[var(--content-tertiary)]"
+                    title={request.requesterUserAgent}
+                  >
+                    {request.requesterUserAgent}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="primary"
+                  size="compact"
+                  disabled={actingOn !== null}
+                  onClick={() => void approve(request.requestId)}
+                >
+                  {t("pendingPairingRequests.approveButton")}
+                </Button>
+                <Button
+                  variant="dangerOutline"
+                  size="compact"
+                  disabled={actingOn !== null}
+                  onClick={() => void deny(request.requestId)}
+                >
+                  {t("pendingPairingRequests.denyButton")}
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
