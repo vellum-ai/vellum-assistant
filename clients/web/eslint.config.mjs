@@ -191,6 +191,7 @@ const authBoundaryAllowedPaths = [
  */
 const i18nEnforcedPaths = [
   "src/components/not-found.tsx",
+  "src/components/section-actions-button.tsx",
   "src/domains/chat/components/allow-options-menu.tsx",
   "src/domains/chat/components/chat-composer/add-to-chat-sheet.tsx",
   "src/domains/chat/components/conversation-actions-menu.tsx",
