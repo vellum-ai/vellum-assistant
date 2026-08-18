@@ -201,4 +201,41 @@ describe("runDevicesRevoke", () => {
       error: "Failed to spawn CLI: EACCES",
     });
   });
+
+  test("multi-line stderr with a trailing Error: line surfaces just that message", async () => {
+    const pending = runDevicesRevoke(invocation, "asst-42", "hash-a");
+    lastChild.stderr.emit(
+      "data",
+      Buffer.from(
+        [
+          "Device to revoke:",
+          "  Platform: ios",
+          "  Issued:   2026-01-01",
+          "",
+          "Error: Gateway is unreachable",
+          "",
+        ].join("\n"),
+      ),
+    );
+    lastChild.emit("close", 1);
+
+    expect(await pending).toEqual({
+      ok: false,
+      error: "Gateway is unreachable",
+    });
+  });
+
+  test("stderr without an Error: line falls back to the whole stderr", async () => {
+    const pending = runDevicesRevoke(invocation, "asst-42", "hash-a");
+    lastChild.stderr.emit(
+      "data",
+      Buffer.from("Device to revoke:\n  Platform: ios\n"),
+    );
+    lastChild.emit("close", 1);
+
+    expect(await pending).toEqual({
+      ok: false,
+      error: "Device to revoke:\n  Platform: ios",
+    });
+  });
 });

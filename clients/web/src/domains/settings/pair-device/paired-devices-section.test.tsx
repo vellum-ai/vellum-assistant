@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -75,10 +76,11 @@ function setListResult(result: LocalListDevicesResult) {
 async function renderExpanded(devices: LocalPairedDeviceRecord[]) {
   setListResult({ ok: true, devices });
   render(<PairedDevicesSection />);
-  const trigger = await screen.findByRole("button", {
-    name: `Paired devices (${devices.length})`,
-  });
-  fireEvent.click(trigger);
+  // The list fetch is microtask-only; an awaited act drains it without timers.
+  await act(async () => {});
+  fireEvent.click(
+    screen.getByRole("button", { name: `Paired devices (${devices.length})` }),
+  );
 }
 
 function clickConfirm() {
@@ -174,8 +176,11 @@ describe("PairedDevicesSection", () => {
       });
 
     fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]!);
-    clickConfirm();
-    await waitFor(() => expect(listCalls.length).toBe(2));
+    // Drain the revoke and refetch kickoff; the refetch promise stays pending.
+    await act(async () => {
+      clickConfirm();
+    });
+    expect(listCalls.length).toBe(2);
 
     // Refetch in flight: the section (and its expanded rows) stays mounted.
     expect(screen.getByText("Ios")).toBeTruthy();
@@ -184,11 +189,13 @@ describe("PairedDevicesSection", () => {
       screen.getByRole("button", { name: "Paired devices (2)" }),
     ).toBeTruthy();
 
-    resolveRefetch({
-      ok: true,
-      devices: [device({ hashedDeviceId: HASH_B, platform: "android" })],
+    await act(async () => {
+      resolveRefetch({
+        ok: true,
+        devices: [device({ hashedDeviceId: HASH_B, platform: "android" })],
+      });
     });
-    await waitFor(() => expect(screen.queryByText("Ios")).toBeNull());
+    expect(screen.queryByText("Ios")).toBeNull();
     expect(
       screen.getByRole("button", { name: "Paired devices (1)" }),
     ).toBeTruthy();

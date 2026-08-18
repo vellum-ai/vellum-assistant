@@ -400,11 +400,8 @@ export async function listPairedDevicesHost(
 }
 
 /**
- * Revoke one paired device's tokens on a local assistant's gateway, the write
- * counterpart of {@link listPairedDevicesHost}. Same host-side-only rule (the
- * gateway's devices routes reject browser origins, so the trusted host drives
- * the CLI) and the same structured unsupported fallback on older Electron
- * hosts.
+ * Revoke one paired device's tokens; write counterpart of
+ * {@link listPairedDevicesHost} (same host-side-only rule and unsupported fallback).
  */
 export async function revokePairedDeviceHost(
   assistantId: string,
