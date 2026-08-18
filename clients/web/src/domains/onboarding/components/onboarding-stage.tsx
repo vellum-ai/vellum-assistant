@@ -50,7 +50,12 @@ interface OnboardingStageProps {
    * strips in one frame.
    */
   surfaceTransition?: string;
-  children: ReactNode;
+  /**
+   * Optional: a screen waiting on its art renders the stage bare rather than
+   * standing up a plain div, which would publish no surface and leave the
+   * strips on the neutral canvas.
+   */
+  children?: ReactNode;
 }
 
 export function OnboardingStage({

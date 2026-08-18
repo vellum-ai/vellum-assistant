@@ -173,13 +173,12 @@ export function IntroductionScreen({
     : t("introductionScreen.intro");
 
   if (!art) {
-    return (
-      <div
-        data-theme="dark"
-        className="h-full"
-        style={{ backgroundColor: "var(--surface-base)" }}
-      />
-    );
+    // The bundled avatar art is a dynamic import that can be slow on a restored
+    // journey and can fail outright, in which case this is what the user sits
+    // on. It goes through the stage rather than a bare div so the strips get
+    // the dark surface too: the stage is what publishes it, and the same stage
+    // instance carries on into the tinted render below once the art lands.
+    return <OnboardingStage className="bg-[var(--surface-base)]" />;
   }
 
   return (

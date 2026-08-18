@@ -18,17 +18,20 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+/** Null while the bundled-art import is outstanding, or if it failed. */
+let bundledArt: unknown = {
+  colors: [{ id: "teal", hex: "#2AA79B" }],
+  bodyShapes: [
+    {
+      id: "urchin",
+      svgPath: "M0 0h10v10H0z",
+      viewBox: { width: 10, height: 10 },
+    },
+  ],
+};
+
 mock.module("@/utils/use-bundled-avatar-components", () => ({
-  useBundledAvatarComponents: () => ({
-    colors: [{ id: "teal", hex: "#2AA79B" }],
-    bodyShapes: [
-      {
-        id: "urchin",
-        svgPath: "M0 0h10v10H0z",
-        viewBox: { width: 10, height: 10 },
-      },
-    ],
-  }),
+  useBundledAvatarComponents: () => bundledArt,
 }));
 
 // Decorative, and it measures itself; the surface handover is what is under
@@ -77,6 +80,16 @@ function renderScreen() {
 }
 
 beforeEach(() => {
+  bundledArt = {
+    colors: [{ id: "teal", hex: "#2AA79B" }],
+    bodyShapes: [
+      {
+        id: "urchin",
+        svgPath: "M0 0h10v10H0z",
+        viewBox: { width: 10, height: 10 },
+      },
+    ],
+  };
   frames = [];
   globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) =>
     frames.push(callback)) as typeof globalThis.requestAnimationFrame;
@@ -139,6 +152,20 @@ describe("IntroductionScreen surface handover", () => {
       `${ONBOARDING_DARK_SURFACE}|null`,
       `${TEAL}|${TINT_FADE_CSS}`,
     ]);
+    unmount();
+  });
+
+  test("still darkens the strips while the art is missing", () => {
+    // The bundled art is a dynamic import: slow on a restored journey, and on
+    // a failed chunk load this screen is what the user sits on for good. A
+    // bare fallback would publish nothing and put the pale strip back.
+    bundledArt = null;
+
+    const { unmount } = renderScreen();
+
+    expect(usePageSurfaceStore.getState().surface).toBe(
+      ONBOARDING_DARK_SURFACE,
+    );
     unmount();
   });
 
