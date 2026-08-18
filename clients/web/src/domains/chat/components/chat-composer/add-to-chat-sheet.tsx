@@ -47,7 +47,7 @@ interface AddToChatSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Receives the files picked from any of the three rows. */
-  onAttachFiles: (files: FileList | File[]) => void;
+  onAttachFiles: (files: FileList | File[]) => File[];
 }
 
 /**
@@ -113,8 +113,8 @@ export function AddToChatSheet({
         // Handed on one at a time rather than collected: the picker reads the
         // next file only after this one has left it, so a multi-select never
         // sits decoded in the picker all at once.
-        const { tooLarge, pickFull } = await pick((file) =>
-          onAttachFiles([file]),
+        const { tooLarge, pickFull } = await pick(
+          (file) => onAttachFiles([file]).length > 0,
         );
         // Refused by the picker, so the composer never sees them and cannot
         // report them itself. The two reasons are told apart because a file

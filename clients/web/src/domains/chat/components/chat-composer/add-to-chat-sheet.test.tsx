@@ -100,7 +100,7 @@ function renderSheet(
   props: Partial<Parameters<typeof AddToChatSheet>[0]> = {},
 ) {
   const onOpenChange = mock((_open: boolean) => {});
-  const onAttachFiles = mock((_files: FileList | File[]) => {});
+  const onAttachFiles = mock((files: FileList | File[]) => Array.from(files));
   const result = render(
     <AddToChatSheet
       open

@@ -131,7 +131,7 @@ export interface ChatComposerProps {
   // (which depends on the active model) before queueing the upload. The rest of
   // the attachment lifecycle — the strip, the uploading/can-send derivation, and
   // removal — is read straight from the composer store below.
-  onAddAttachmentFiles: (files: FileList | File[]) => void;
+  onAddAttachmentFiles: (files: FileList | File[]) => File[];
 
   // voice — optional; when `voiceInputRef` is omitted the voice button is
   // skipped entirely (matches the app-editing variant which has no voice).

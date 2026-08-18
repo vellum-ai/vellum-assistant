@@ -923,7 +923,7 @@ export function ChatMainPanel({
   // Attachment drop zone
   // -------------------------------------------------------------------------
   const handleDroppedFiles = useCallback(
-    (files: FileList | File[]) => {
+    (files: FileList | File[]): File[] => {
       const arr = Array.from(files);
       const allowed =
         !visionGateActive || activeModelSupportsVision
@@ -938,6 +938,10 @@ export function ChatMainPanel({
       if (allowed.length > 0) {
         addChatAttachmentFiles(allowed);
       }
+      // What a caller reading one file at a time needs to know: an image
+      // dropped here is never held, so it should not count against whatever
+      // budget that caller is keeping.
+      return allowed;
     },
     [addChatAttachmentFiles, activeModelSupportsVision, visionGateActive],
   );

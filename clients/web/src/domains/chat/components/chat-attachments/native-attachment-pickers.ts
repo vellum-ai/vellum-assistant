@@ -37,8 +37,16 @@ export interface PickOutcome {
   pickFull: string[];
 }
 
-/** Receives each file as it is read, before the next one is. */
-export type OnPickedFile = (file: File) => void;
+/**
+ * Receives each file as it is read, before the next one is, and answers
+ * whether it kept it.
+ *
+ * The composer turns files away for reasons this module does not model, the
+ * vision gate being the one that bites: with a non-vision model selected it
+ * drops images and keeps the rest. Only what it keeps is held in memory, so
+ * only what it keeps is worth counting against a pick's allowance.
+ */
+export type OnPickedFile = (file: File) => boolean;
 
 /** Registered name of the native plugin backing both pickers. */
 const FILE_PICKER_PLUGIN = "FilePicker";
@@ -350,12 +358,17 @@ async function readPicked(
           refuse(file.name, read.refused);
           continue;
         }
-        // Charged the larger of what the entry claimed and what it delivered.
-        // A size below the truth would otherwise let a pick hold well past the
-        // allowance, since nothing else here counts the difference, and one
-        // above the truth keeps a claim already spent against it.
-        readSoFar += Math.max(size ?? 0, read.bytes);
-        onFile(new File(read.parts, file.name, { type: mimeType }));
+        // Charged only if the composer kept it, and then the larger of what
+        // the entry claimed and what it delivered. A size below the truth
+        // would otherwise let a pick hold well past the allowance, since
+        // nothing else here counts the difference, and one above the truth
+        // keeps a claim already spent against it.
+        const kept = onFile(
+          new File(read.parts, file.name, { type: mimeType }),
+        );
+        if (kept) {
+          readSoFar += Math.max(size ?? 0, read.bytes);
+        }
       } finally {
         if (file.path) {
           pending.delete(file.path);

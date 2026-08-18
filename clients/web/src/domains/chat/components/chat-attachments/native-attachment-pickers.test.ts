@@ -101,10 +101,28 @@ const {
 
 const MB = 1024 * 1024;
 
-/** Collects what the picker hands over, one file at a time. */
+/** Collects what the picker hands over, one file at a time, keeping each. */
 function collector() {
   const files: File[] = [];
-  return { files, onFile: (file: File) => files.push(file) };
+  return {
+    files,
+    onFile: (file: File) => {
+      files.push(file);
+      return true;
+    },
+  };
+}
+
+/** Takes every file and keeps none, the way a refused attachment lands. */
+function discarder() {
+  const files: File[] = [];
+  return {
+    files,
+    onFile: (file: File) => {
+      files.push(file);
+      return false;
+    },
+  };
 }
 
 function reset() {
@@ -125,8 +143,8 @@ describe("native pickers: reading", () => {
     // is read until a size has been checked, so it is never requested.
     reset();
     mockFiles = [];
-    await pickMediaNative(() => {});
-    await pickFilesNative(() => {});
+    await pickMediaNative(() => true);
+    await pickFilesNative(() => true);
     expect(lastPickMediaOptions).toBeUndefined();
     expect(lastPickFilesOptions).toBeUndefined();
   });
@@ -279,7 +297,7 @@ describe("native pickers: selection limit", () => {
     mockPlatform = "ios";
     mockFiles = [];
 
-    await pickMediaNative(() => {});
+    await pickMediaNative(() => true);
 
     expect(lastPickMediaOptions).toEqual({ limit: 10 });
   });
@@ -291,7 +309,7 @@ describe("native pickers: selection limit", () => {
     mockPlatform = "android";
     mockFiles = [];
 
-    await pickMediaNative(() => {});
+    await pickMediaNative(() => true);
 
     expect(lastPickMediaOptions).toBeUndefined();
   });
@@ -303,7 +321,7 @@ describe("native pickers: selection limit", () => {
     mockPlatform = "ios";
     mockFiles = [];
 
-    await pickFilesNative(() => {});
+    await pickFilesNative(() => true);
 
     expect(lastPickFilesOptions).toBeUndefined();
   });
@@ -416,7 +434,10 @@ describe("native pickers: bounding what is held at once", () => {
       return "x";
     };
 
-    await pickFilesNative((file) => events.push(`deliver ${file.name}`));
+    await pickFilesNative((file) => {
+      events.push(`deliver ${file.name}`);
+      return true;
+    });
 
     expect(events).toEqual([
       "read /a.txt",
@@ -624,6 +645,68 @@ describe("native pickers: aggregate budget", () => {
     expect(sink.files).toHaveLength(1);
     expect(sink.files[0]?.size).toBe(READ_SLICE_BYTES);
     expect(pickFull).toEqual(["next.jpg"]);
+    expect(tooLarge).toEqual([]);
+  });
+});
+
+describe("native pickers: files the composer turns away", () => {
+  test("leaves the allowance untouched for a file that is not kept", async () => {
+    // The composer drops images outright when the model cannot see them, and
+    // a dropped file is never held, so charging the pick for it would refuse
+    // the next valid file with a batch message that is not true of it.
+    reset();
+    mockContent = () => "x";
+    mockFiles = [
+      {
+        path: "/big.jpg",
+        name: "big.jpg",
+        mimeType: "image/jpeg",
+        size: 80 * MB,
+      },
+      {
+        path: "/notes.pdf",
+        name: "notes.pdf",
+        mimeType: "application/pdf",
+        size: 30 * MB,
+      },
+    ];
+
+    const sink = discarder();
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
+
+    // Both were read and offered; 80 + 30 would have overrun the allowance
+    // had the refused image been charged for.
+    expect(sink.files.map((file) => file.name)).toEqual([
+      "big.jpg",
+      "notes.pdf",
+    ]);
+    expect(pickFull).toEqual([]);
+    expect(tooLarge).toEqual([]);
+  });
+
+  test("still charges the files it does keep", async () => {
+    reset();
+    mockContent = () => "x";
+    mockFiles = [
+      {
+        path: "/big.jpg",
+        name: "big.jpg",
+        mimeType: "image/jpeg",
+        size: 80 * MB,
+      },
+      {
+        path: "/notes.pdf",
+        name: "notes.pdf",
+        mimeType: "application/pdf",
+        size: 30 * MB,
+      },
+    ];
+
+    const sink = collector();
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
+
+    expect(sink.files.map((file) => file.name)).toEqual(["big.jpg"]);
+    expect(pickFull).toEqual(["notes.pdf"]);
     expect(tooLarge).toEqual([]);
   });
 });
