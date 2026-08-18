@@ -38,6 +38,7 @@ import { isStartupComplete } from "./daemon-readiness.js";
 import { stopDiskPressureGuardForLifecycle } from "./disk-pressure-guard-lifecycle.js";
 import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { stopOrphanReaper } from "./orphan-reaper.js";
+import { stopResourcePressureGuardForLifecycle } from "./resource-pressure-guard-lifecycle.js";
 
 const log = getLogger("lifecycle");
 
@@ -49,6 +50,7 @@ const log = getLogger("lifecycle");
 function stopBackgroundServicesAndCleanupPidFile(): void {
   stopGatewayFlagListener();
   stopDiskPressureGuardForLifecycle();
+  stopResourcePressureGuardForLifecycle();
   stopOrphanReaper();
   stopEventLoopWatchdog();
   cleanupPidFile();
