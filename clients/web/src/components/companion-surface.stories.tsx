@@ -133,6 +133,39 @@ export const Resting: Story = {
 };
 
 /**
+ * Resting, with a turn running somewhere the user is not looking.
+ *
+ * The state the working ring exists for: the assistant is doing something and
+ * nothing is open to say so. The ring has to carry that on its own, at the size
+ * the surface actually spends its day.
+ */
+export const RestingWhileWorking: Story = {
+  args: { phase: "resting", working: true },
+};
+
+/** The same turn with the pill open, where the ring follows the wider shape. */
+export const HoverWhileWorking: Story = {
+  args: { phase: "hover", hovered: true, working: true },
+};
+
+/**
+ * The reply to something typed on the surface, while the card is still open.
+ *
+ * The card is the tallest and squarest thing the surface draws, so it is where
+ * a ring written for a 44pt circle is most likely to come apart.
+ */
+export const TypingWhileWorking: Story = {
+  args: {
+    phase: "typing",
+    working: true,
+    assistantName: "Ziggy",
+    turns: [
+      { role: "user", text: "what is on my calendar tomorrow?" },
+    ],
+  },
+};
+
+/**
  * Expanded with the app idle: the two ways in.
  *
  * `hovered` is what the creature answers: the eyes widen while the hand is

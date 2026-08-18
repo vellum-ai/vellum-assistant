@@ -188,7 +188,11 @@ let call: VoiceActivityState | null = null;
  * and a card that came back empty would read as the exchange the user just had
  * on it having been thrown away.
  */
-let context: CompanionContext = { assistantName: "", turns: [] };
+let context: CompanionContext = {
+  assistantName: "",
+  turns: [],
+  working: false,
+};
 
 /**
  * The state the renderer sees, rebuilt on demand.
@@ -207,6 +211,7 @@ const currentState = (): CompanionSurfaceState => {
     call,
     assistantName: context.assistantName,
     turns: context.turns,
+    working: context.working,
   };
 };
 
