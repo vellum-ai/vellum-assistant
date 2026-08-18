@@ -1,4 +1,4 @@
-import { ArrowUp, Plus, Square } from "lucide-react";
+import { ArrowUp, Square } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -13,6 +13,7 @@ import {
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
 
+import { PlusIcon } from "@/components/icons/plus-icon";
 import {
   AttachFileButton,
   ChatAttachmentsStrip,
@@ -267,7 +268,7 @@ function AddToChatButton({ disabled, label, onClick }: AddToChatButtonProps) {
   return (
     <Button
       variant="ghost"
-      iconOnly={<Plus strokeWidth={2} />}
+      iconOnly={<PlusIcon strokeWidth={2} />}
       iconOnlyGlyphClassName={MOBILE_GLYPH_CLASS}
       // The row sizes its own controls, so the primitive's mobile growth is
       // off here and every narrow window gets the same plus.
