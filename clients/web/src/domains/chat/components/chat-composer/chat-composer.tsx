@@ -29,7 +29,6 @@ import {
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
-import { AddToChatSheet } from "@/domains/chat/components/chat-composer/add-to-chat-sheet";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 import {
   ComposerCompactProvider,
@@ -763,23 +762,9 @@ export function ChatComposer({
     [pointerCoarse, suggestion, input, attachments],
   );
 
-  const [addSheetOpen, setAddSheetOpen] = useState(false);
-  // Latched on the first open and never reset. The sheet closes itself before
-  // it hands off to the OS picker, so on a convertible that regained its
-  // keyboard while that picker was up both live terms below would go false in
-  // the same commit and take the sheet's hidden inputs with them.
-  const [addSheetEverPresented, setAddSheetEverPresented] = useState(false);
-  const handleAddSheetOpenChange = useCallback((open: boolean) => {
-    if (open) {
-      setAddSheetEverPresented(true);
-    }
-    setAddSheetOpen(open);
-  }, []);
   // Subscribed rather than read once: a convertible whose keyboard comes off
-  // mid-session changes what the plus should open, and the sheet has to be
-  // mounted by then to receive the press.
+  // mid-session changes whether a press on the row carries focus with it.
   const pointerCoarseNow = usePointerCoarse();
-  const usesAddSheet = isMobile && pointerCoarseNow;
 
   // Whether a press on one of the row's controls has to hold the composer's
   // focus for the click behind it. Both halves are load-bearing and neither one
@@ -796,24 +781,22 @@ export function ChatComposer({
     ? preventPressFocusTransfer
     : undefined;
 
-  // The picker the plus opens where the sheet has nothing to offer: the same
-  // picker behind the desktop paperclip, through the same hook so the iOS
-  // refocus dance is identical. Owned by the composer rather than by the plus,
-  // because both signals that decide what the plus opens can change while the
-  // OS picker is up (a keyboard reattached, a phone rotated), and an input that
-  // unmounted under an open picker would drop the selection.
+  // The picker behind both attach controls, through one hook so the iOS
+  // refocus dance is identical on either. The shells hand the whole choice to
+  // WebKit, whose own menu already offers the camera, the photo library and
+  // the file browser. Owned by the composer rather than by the control that
+  // opens it, so a width or pointer change while the OS picker is up cannot
+  // unmount the input under it and drop the selection.
   const { openPicker: openAttachPicker, inputNode: attachPickerInput } =
     useAttachmentFilePicker({
       onFiles: onAddAttachmentFiles,
       multiple: true,
     });
 
-  // Every surface opened from the composer moves focus into a portal, the
-  // composer's own add-to-chat sheet included, so each one has to hold the row
-  // up on its way out. Without the sheet's flag the row would drop away as the
-  // sheet rises and the card would shift down under the scrim.
-  const composerInUse =
-    composerFocusWithin || settingsSheetOpen || addSheetOpen;
+  // A surface opened from the composer moves focus into a portal, so it has to
+  // hold the row up on its way out. Without that flag the row would drop away
+  // as the sheet rises and the card would shift down under the scrim.
+  const composerInUse = composerFocusWithin || settingsSheetOpen;
   // Whether a banner is standing over the card. Read off the box rather than
   // derived from props: most of that stack arrives through
   // `noticesAboveFormSlot`, an opaque node, and the composer-owned notices in
@@ -956,9 +939,9 @@ export function ChatComposer({
     return () => observer.disconnect();
   }, [isMobile]);
 
-  // Mobile hands the attach flow to a plus, which opens the sheet on a touch
-  // surface and the file picker anywhere else. Every attach control answers to
-  // the same gating, so a busy assistant hides whichever one is mounted.
+  // Mobile hands the attach flow to a plus, which opens the same native picker
+  // the desktop paperclip does. Every attach control answers to the same
+  // gating, so a busy assistant hides whichever one is mounted.
   const attachDisabled = typingDisabled || !assistantId;
   const attachControl = !isMobile ? (
     <AttachFileButton
@@ -969,9 +952,7 @@ export function ChatComposer({
     <AddToChatButton
       disabled={attachDisabled}
       label={t("chatComposer.addToChat")}
-      onClick={
-        usesAddSheet ? () => handleAddSheetOpenChange(true) : openAttachPicker
-      }
+      onClick={openAttachPicker}
       onMouseDown={rowPressGuard}
     />
   );
@@ -1637,35 +1618,11 @@ export function ChatComposer({
           )}
           {/* Beside the form, not inside it: a hidden file input stays mounted
               while a native picker is up, and has no business in the form the
-              composer submits. Mounted whatever the row is showing, so neither
-              signal behind the plus can pull it out from under an open picker.
+              composer submits. Mounted whatever the row is showing, so a width
+              or pointer change cannot pull it out from under an open picker.
               The hook lays the input out as `absolute inset-0`, so it needs a
               positioned box of its own. */}
           <div className="relative">{attachPickerInput}</div>
-          {(pointerCoarseNow || addSheetOpen || addSheetEverPresented) && (
-            // The sheet's own three inputs, beside the form for the same reason.
-            //
-            // Mounted on the pointer rather than on the compound that decides
-            // whether the plus opens it. Rotating a phone into landscape crosses
-            // the width breakpoint, and unmounting the sheet's inputs there would
-            // drop a camera or gallery pick still being made. A touch device at
-            // desktop width just keeps a closed sheet mounted.
-            //
-            // The pointer is a live signal, so a convertible that regains its
-            // keyboard flips it mid-session: an already-open sheet holds itself
-            // up through that, rather than vanishing with its `open` still set.
-            //
-            // Both of those are live, though, and a sheet row closes the sheet
-            // before it launches the OS picker, so the keyboard case could take
-            // them false together while a pick is in flight. The latch keeps a
-            // sheet that has ever been presented mounted for the rest of the
-            // session, which costs one hidden row and cannot drop a selection.
-            <AddToChatSheet
-              open={addSheetOpen}
-              onOpenChange={handleAddSheetOpenChange}
-              onAttachFiles={onAddAttachmentFiles}
-            />
-          )}
         </ComposerCompactProvider>
       </div>
     </>

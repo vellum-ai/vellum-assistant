@@ -247,34 +247,6 @@ mock.module("react-router", () => ({
   useLocation: () => ({ search: "" }),
 }));
 
-// "Add to chat" sheet. Stubbed to a probe that surfaces its open state plus a
-// button standing in for a completed pick, so these cases assert the
-// composer's wiring: the plus opens the sheet, and files chosen inside it
-// reach the same attach callback the paperclip feeds. A second button stands
-// in for the real sheet closing itself before it launches the OS picker. The
-// real sheet, its three hidden file inputs included, is covered by
-// `add-to-chat-sheet.test.tsx`.
-const SHEET_PICK = [new File(["x"], "picked.png", { type: "image/png" })];
-mock.module(
-  "@/domains/chat/components/chat-composer/add-to-chat-sheet",
-  () => ({
-    AddToChatSheet: (props: {
-      open: boolean;
-      onOpenChange: (open: boolean) => void;
-      onAttachFiles: (files: File[]) => void;
-    }) => (
-      <div data-testid="add-to-chat-sheet" data-open={String(props.open)}>
-        <button type="button" onClick={() => props.onAttachFiles(SHEET_PICK)}>
-          sheet-pick
-        </button>
-        <button type="button" onClick={() => props.onOpenChange(false)}>
-          sheet-close
-        </button>
-      </div>
-    ),
-  }),
-);
-
 // Flush the microtask/timer queue so the composer's awaited preflight
 // resolves and the follow-on `starter` call / notice render settle. Wrapped in
 // `act` to absorb the post-await state updates.
@@ -835,10 +807,6 @@ function composerShell(container: HTMLElement) {
   return container.querySelector('[data-slot="chat-composer-shell"]');
 }
 
-function addSheet(container: HTMLElement) {
-  return container.querySelector('[data-testid="add-to-chat-sheet"]');
-}
-
 function control(container: HTMLElement, label: string) {
   return container.querySelector(`[aria-label="${label}"]`);
 }
@@ -1356,22 +1324,6 @@ describe("ChatComposer: mobile settings pills row", () => {
     expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
   });
 
-  test("the composer's own add-to-chat sheet holds the row up too", () => {
-    // GIVEN a focused phone composer
-    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
-    const textarea = textareaOf(container);
-    fireEvent.focusIn(textarea);
-
-    // WHEN the plus opens the add-to-chat sheet, which takes focus into a
-    // portal of its own
-    fireEvent.click(control(container, PLUS_LABEL)!);
-    fireEvent.focusOut(textarea, { relatedTarget: null });
-
-    // THEN the row stays up, rather than dropping away and shifting the card
-    // down under the sheet's scrim
-    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
-  });
-
   test("a sheet flag that goes false with focus gone puts the row away", () => {
     // GIVEN a phone composer holding the row up for an open sheet, focus gone
     const { container, rerender } = renderPhoneComposer({
@@ -1568,21 +1520,6 @@ describe("ChatComposer: the mobile external-models caption", () => {
     expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
   });
 
-  test("the composer's own add-to-chat sheet keeps it away too", () => {
-    // GIVEN a focused phone composer
-    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
-    const textarea = textareaOf(container);
-    fireEvent.focusIn(textarea);
-
-    // WHEN the plus opens the add-to-chat sheet, which takes focus into a
-    // portal of its own
-    fireEvent.click(control(container, PLUS_LABEL)!);
-    fireEvent.focusOut(textarea, { relatedTarget: null });
-
-    // THEN the caption stays away for as long as the sheet is up
-    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
-  });
-
   test("blurring back to the body brings the caption back", () => {
     // GIVEN a focused phone composer
     const { container } = renderPhoneComposer(SETTINGS_SLOTS);
@@ -1650,40 +1587,51 @@ describe("ChatComposer: single-row mobile composer", () => {
     );
   });
 
-  test("tapping the plus opens the add-to-chat sheet", () => {
-    // GIVEN a phone composer whose sheet is closed
+  test("tapping the plus opens the native picker", () => {
+    // GIVEN a phone composer
     const { container } = renderPhoneComposer();
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("false");
+    const input = fileInput(container);
+
+    // AND a picker that takes several files of any type, so WebKit offers its
+    // own camera, photo library and file browser menu
+    expect(input?.multiple).toBe(true);
+    expect(input?.getAttribute("accept")).toBeNull();
 
     // WHEN the plus is tapped
+    let opened = 0;
+    input?.addEventListener("click", () => {
+      opened += 1;
+    });
     fireEvent.click(control(container, PLUS_LABEL)!);
 
-    // THEN the sheet comes up
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+    // THEN the native picker comes up, with nothing of ours in between
+    expect(opened).toBe(1);
   });
 
-  test("files picked in the sheet reach the composer's attach callback", () => {
+  test("files picked from the plus reach the composer's attach callback", () => {
     // GIVEN a phone composer
     const onAddAttachmentFiles = mock((_files: FileList | File[]) => {});
-    const { getByText } = renderPhoneComposer({ onAddAttachmentFiles });
+    const { container } = renderPhoneComposer({ onAddAttachmentFiles });
+    const input = fileInput(container)!;
 
-    // WHEN a sheet row delivers its files
-    fireEvent.click(getByText("sheet-pick"));
+    // WHEN the picker returns a file
+    const picked = new File(["x"], "picked.png", { type: "image/png" });
+    selectFiles(input, [picked]);
 
-    // THEN they land on the same callback the paperclip feeds, which is what
+    // THEN it lands on the same callback the paperclip feeds, which is what
     // runs the vision gate and queues the upload
     expect(onAddAttachmentFiles).toHaveBeenCalledTimes(1);
-    expect(onAddAttachmentFiles.mock.calls[0]?.[0]).toBe(SHEET_PICK);
+    expect(onAddAttachmentFiles.mock.calls[0]?.[0]?.[0]).toBe(picked);
   });
 
-  test("the hidden picker input outlives a swap of what the plus opens", () => {
-    // GIVEN a phone composer, whose plus opens the sheet
+  test("the hidden picker input outlives a pointer change mid-pick", () => {
+    // GIVEN a phone composer
     const { container, rerender } = renderPhoneComposer();
     const before = fileInput(container);
     expect(before).not.toBeNull();
 
-    // WHEN a keyboard is attached mid-session, handing the plus the picker
-    // instead, while an OS file dialog opened from it is still up
+    // WHEN a keyboard is attached mid-session, while an OS file dialog opened
+    // from the plus is still up
     viewport.set({ narrow: true, coarsePointer: false });
     rerender(composerElement());
 
@@ -1692,15 +1640,14 @@ describe("ChatComposer: single-row mobile composer", () => {
     expect(fileInput(container)).toBe(before);
   });
 
-  test("a narrow window a mouse drives keeps the plus and mounts no sheet", () => {
+  test("a narrow window a mouse drives keeps the plus and the same picker", () => {
     // GIVEN a web or Electron window dragged under the mobile breakpoint,
     // still driven by a mouse
     const { container } = renderNarrowMouseComposer();
 
-    // THEN the compact row keeps its plus, while the touch sheet, whose camera
-    // and gallery rows have nothing to offer a mouse, never mounts
+    // THEN the compact row keeps its plus, over the picker every shape shares
     expect(control(container, PLUS_LABEL)).not.toBeNull();
-    expect(addSheet(container)).toBeNull();
+    expect(fileInput(container)).not.toBeNull();
   });
 
   test("the plus wears the row's chrome on either narrow window", () => {
@@ -1750,101 +1697,13 @@ describe("ChatComposer: single-row mobile composer", () => {
     expect(box?.className).toContain("h-10");
   });
 
-  test("a touch device at desktop width keeps the sheet mounted", () => {
+  test("a touch device at desktop width takes the desktop row back", () => {
     // GIVEN a tablet, or a phone turned into landscape
     const { container } = renderTouchTabletComposer();
 
-    // THEN the room it has takes the desktop row back, while the sheet stays
-    // mounted so its hidden inputs outlive the swap
+    // THEN the room it has takes the paperclip back, over the same picker
     expect(control(container, "Attach file")).not.toBeNull();
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("false");
-  });
-
-  test("rotating mid-pick leaves the open sheet and its inputs mounted", () => {
-    // GIVEN a phone whose add-to-chat sheet is up
-    const { container, rerender } = renderPhoneComposer();
-    fireEvent.click(control(container, PLUS_LABEL)!);
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
-
-    // WHEN the phone turns into landscape, crossing the width breakpoint while
-    // the camera or gallery pick is still resolving
-    viewport.set({ narrow: false, coarsePointer: true });
-    rerender(composerElement());
-
-    // THEN the sheet is still there to receive it, since what mounts it is the
-    // pointer, which rotating does not change
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
-  });
-
-  test("attaching a keyboard leaves an open sheet up", () => {
-    // GIVEN a convertible on a touch screen with its sheet up
-    const { container, rerender } = renderPhoneComposer();
-    fireEvent.click(control(container, PLUS_LABEL)!);
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
-
-    // WHEN its keyboard is reattached, which flips the live pointer signal the
-    // sheet is mounted on
-    viewport.set({ narrow: true, coarsePointer: false });
-    rerender(composerElement());
-
-    // THEN the sheet the user is looking at stays up, rather than vanishing
-    // with its open state still set and reappearing on the next flip
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
-  });
-
-  test("a sheet closed into an OS picker outlives a keyboard reattach", () => {
-    // GIVEN a phone whose sheet has been up and then closed itself, which is
-    // what its rows do before handing off to the OS picker
-    const { container, getByText, rerender } = renderPhoneComposer();
-    fireEvent.click(control(container, PLUS_LABEL)!);
-    fireEvent.click(getByText("sheet-close"));
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("false");
-
-    // WHEN a keyboard is attached while that picker is still up, flipping the
-    // live pointer with the sheet's own open flag already back to false
-    viewport.set({ narrow: true, coarsePointer: false });
-    rerender(composerElement());
-
-    // THEN the latch keeps the sheet's hidden inputs mounted to receive the
-    // selection, rather than both live mount terms going false together
-    expect(addSheet(container)).not.toBeNull();
-  });
-
-  test("the plus opens the picker directly when a mouse drives the window", () => {
-    // GIVEN a narrow mouse-driven window
-    const { container } = renderNarrowMouseComposer();
-    const input = fileInput(container);
-
-    // AND a picker that takes several files of any type, as the desktop
-    // paperclip's does
-    expect(input?.multiple).toBe(true);
-    expect(input?.getAttribute("accept")).toBeNull();
-
-    // WHEN the plus is pressed
-    let opened = 0;
-    input?.addEventListener("click", () => {
-      opened += 1;
-    });
-    fireEvent.click(control(container, PLUS_LABEL)!);
-
-    // THEN the native picker comes up with no sheet in between
-    expect(opened).toBe(1);
-    expect(addSheet(container)).toBeNull();
-  });
-
-  test("files picked from that plus reach the composer's attach callback", () => {
-    // GIVEN a narrow mouse-driven window
-    const onAddAttachmentFiles = mock((_files: FileList | File[]) => {});
-    const { container } = renderNarrowMouseComposer({ onAddAttachmentFiles });
-    const input = fileInput(container)!;
-
-    // WHEN the picker returns a file
-    const picked = new File(["x"], "picked.png", { type: "image/png" });
-    selectFiles(input, [picked]);
-
-    // THEN it lands on the same callback the paperclip and the sheet feed
-    expect(onAddAttachmentFiles).toHaveBeenCalledTimes(1);
-    expect(onAddAttachmentFiles.mock.calls[0]?.[0]?.[0]).toBe(picked);
+    expect(fileInput(container)).not.toBeNull();
   });
 
   test("a busy assistant takes the plus away, as it does the paperclip", () => {
@@ -1874,15 +1733,14 @@ describe("ChatComposer: single-row mobile composer", () => {
     );
   });
 
-  test("desktop keeps the paperclip, its own row, and mounts no sheet", () => {
+  test("desktop keeps the paperclip and its own row", () => {
     // GIVEN a desktop composer
     viewport.set({ narrow: false, coarsePointer: false });
     const { container } = renderComposerView();
 
-    // THEN the attach control is the paperclip and the sheet never mounts
+    // THEN the attach control is the paperclip, never the row's plus
     expect(control(container, "Attach file")).not.toBeNull();
     expect(control(container, PLUS_LABEL)).toBeNull();
-    expect(addSheet(container)).toBeNull();
 
     // AND the textarea stays above the action row rather than inside it
     const html = container.innerHTML;
@@ -2135,7 +1993,7 @@ describe("ChatComposer: the mobile row holds focus through a press", () => {
   // rides on, and leaves `pointerdown` alone, since WebKit drops the whole rest
   // of the sequence when that one is cancelled. See `docs/CAPACITOR.md`.
 
-  test("the plus cancels the press and still opens the sheet", () => {
+  test("the plus cancels the press and still opens the picker", () => {
     // GIVEN a focused phone composer, the state that raises the pills row
     const { container } = renderPhoneComposer(SETTINGS_SLOTS);
     fireEvent.focusIn(textareaOf(container));
@@ -2151,8 +2009,12 @@ describe("ChatComposer: the mobile row holds focus through a press", () => {
     expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
 
     // AND the click opens what it always opened
+    let opened = 0;
+    fileInput(container)?.addEventListener("click", () => {
+      opened += 1;
+    });
     fireEvent.click(plus);
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+    expect(opened).toBe(1);
   });
 
   test("send cancels the press and still submits", () => {
