@@ -123,6 +123,42 @@ describe("string-only content rejection fallback", () => {
     expect(requests).toHaveLength(1);
   });
 
+  test("does not retry a tool-schema error about a param named content", async () => {
+    // Not a message-content rejection: flattening would silently drop
+    // attachments without fixing anything.
+    const { provider, requests } = stubProviderWithErrors([
+      rejection(
+        "tools.0.function.parameters.properties.content: Input should be a valid string",
+      ),
+    ]);
+
+    await expect(provider.sendMessage(multiPartMessages)).rejects.toThrow();
+    expect(requests).toHaveLength(1);
+  });
+
+  test("removes two independent incompatibilities in one call", async () => {
+    const { provider, requests } = stubProviderWithErrors([
+      rejection("reasoning_effort 'none' is not supported for this model"),
+      rejection("body/messages/0/content must be string"),
+    ]);
+
+    const response = await provider.sendMessage(multiPartMessages, {
+      config: { effort: "none" },
+    });
+
+    expect(requests).toHaveLength(3);
+    const last = requests[2] as {
+      reasoning_effort?: string;
+      messages: Array<{ content: unknown }>;
+    };
+    expect(last.reasoning_effort).toBeUndefined();
+    expect(typeof last.messages[0].content).toBe("string");
+    const text = response.content.find((b) => b.type === "text") as
+      | { type: "text"; text: string }
+      | undefined;
+    expect(text?.text).toBe("ok");
+  });
+
   test("does not retry an unrelated 400", async () => {
     const { provider, requests } = stubProviderWithErrors([
       rejection("invalid api key"),
@@ -134,7 +170,7 @@ describe("string-only content rejection fallback", () => {
 
   test("does not retry server errors", async () => {
     const { provider, requests } = stubProviderWithErrors([
-      rejection("content must be string", 500),
+      rejection("body/messages/1/content must be string", 500),
     ]);
 
     await expect(provider.sendMessage(multiPartMessages)).rejects.toThrow();

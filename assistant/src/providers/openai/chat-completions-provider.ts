@@ -335,7 +335,11 @@ function isStringContentRejection(error: unknown, params: unknown): boolean {
   if (!isClientErrorStatus(error)) {
     return false;
   }
-  return /content[\s\S]{0,80}?(?:must|should)\s+be\s+(?:a\s+)?(?:valid\s+)?str(?:ing)?\b/i.test(
+  // Anchored to a `messages` path so a tool-schema validation error about a
+  // parameter that happens to be named `content` (e.g. `tools.0.function.
+  // parameters.properties.content: Input should be a valid string`) cannot
+  // trigger the flattening and silently drop attachments.
+  return /messages[\s\S]{0,40}?content[\s\S]{0,80}?(?:must|should)\s+be\s+(?:a\s+)?(?:valid\s+)?str(?:ing)?\b/i.test(
     openaiCompatErrorHaystack(error),
   );
 }
@@ -689,46 +693,59 @@ export class OpenAIChatCompletionsProvider implements Provider {
               ? { headers: requestHeaders }
               : {}),
           });
-        let stream: Awaited<ReturnType<typeof createStream>>;
-        try {
-          stream = await createStream();
-        } catch (error) {
-          if (isReasoningOptOutRejection(error, params)) {
-            log.warn(
-              {
-                provider: this.name,
-                model: modelOverride ?? this.model,
-                error: error instanceof Error ? error.message : String(error),
-              },
+        // One-shot compatibility adjustments. Each can fire at most once, and
+        // a retry's error is re-classified against the remaining adjustments,
+        // so a request tripping several independent incompatibilities (e.g.
+        // a reasoning opt-out plus array content) still succeeds in one call.
+        const compatAdjustments = [
+          {
+            matches: isReasoningOptOutRejection,
+            warning:
               "Model rejected the explicit reasoning opt-out; retrying without reasoning params",
-            );
-            delete params.reasoning_effort;
-            delete (params as unknown as Record<string, unknown>).reasoning;
-            stream = await createStream();
-          } else if (isThinkingModeToolChoiceRejection(error, params)) {
-            log.warn(
-              {
-                provider: this.name,
-                model: modelOverride ?? this.model,
-                error: error instanceof Error ? error.message : String(error),
-              },
+            apply: () => {
+              delete params.reasoning_effort;
+              delete (params as unknown as Record<string, unknown>).reasoning;
+            },
+          },
+          {
+            matches: isThinkingModeToolChoiceRejection,
+            warning:
               "Upstream rejected tool_choice in thinking mode; retrying without tool_choice",
-            );
-            delete params.tool_choice;
+            apply: () => {
+              delete params.tool_choice;
+            },
+          },
+          {
+            matches: isStringContentRejection,
+            warning:
+              "Endpoint rejected content-parts array; retrying with string message content",
+            apply: () => {
+              params.messages = coerceContentPartsToStrings(params.messages);
+            },
+          },
+        ];
+        let stream: Awaited<ReturnType<typeof createStream>>;
+        for (;;) {
+          try {
             stream = await createStream();
-          } else if (isStringContentRejection(error, params)) {
+            break;
+          } catch (error) {
+            const index = compatAdjustments.findIndex((a) =>
+              a.matches(error, params),
+            );
+            if (index < 0) {
+              throw error;
+            }
+            const [adjustment] = compatAdjustments.splice(index, 1);
             log.warn(
               {
                 provider: this.name,
                 model: modelOverride ?? this.model,
                 error: error instanceof Error ? error.message : String(error),
               },
-              "Endpoint rejected content-parts array; retrying with string message content",
+              adjustment.warning,
             );
-            params.messages = coerceContentPartsToStrings(params.messages);
-            stream = await createStream();
-          } else {
-            throw error;
+            adjustment.apply();
           }
         }
 
