@@ -16,5 +16,8 @@
     "dontShowAgain": "Don't show again",
     "cpuLabel": "CPU {value, number}%",
     "memoryLabel": "Memory {value, number}%"
+  },
+  "sectionActionsButton": {
+    "ariaLabel": "{name} actions"
   }
 }

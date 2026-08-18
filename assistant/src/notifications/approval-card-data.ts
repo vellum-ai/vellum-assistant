@@ -75,6 +75,39 @@ export function approvalCardSurfaceId(
   }
 }
 
+/**
+ * Whether a persisted message row is a guardian card rather than the
+ * conversation's own speech.
+ *
+ * Read off the card's own `ui_surface` id, using the prefixes above. The card
+ * builder writes that block on every path (`ensureSeedContentBlocks`), and the
+ * withdrawal path already recomputes the same id from the same constants, so
+ * the identity is structural rather than sniffed. Deriving it means rows
+ * written before this rule existed are recognized on the same terms as new
+ * ones, with no marker to backfill.
+ *
+ * Only a row that LEADS with an approval-card surface counts. A real assistant
+ * turn can carry a `ui_surface` block too (a wake card is unshifted onto the
+ * turn's own content), and those surfaces do not use these prefixes; requiring
+ * the lead position keeps the rule from ever swallowing a turn that has speech
+ * in it.
+ */
+export function isGuardianCardRow(
+  content: readonly unknown[] | string | null | undefined,
+): boolean {
+  if (!Array.isArray(content) || content.length === 0) {
+    return false;
+  }
+  const lead = content[0] as { type?: unknown; surfaceId?: unknown };
+  if (lead?.type !== "ui_surface" || typeof lead.surfaceId !== "string") {
+    return false;
+  }
+  return (
+    lead.surfaceId.startsWith(`${ACCESS_REQUEST_SURFACE_PREFIX}-`) ||
+    lead.surfaceId.startsWith(`${TOOL_APPROVAL_SURFACE_PREFIX}-`)
+  );
+}
+
 // ── Typed card data ─────────────────────────────────────────────────────────
 
 /** Resolved card data for an access-request notification. */
