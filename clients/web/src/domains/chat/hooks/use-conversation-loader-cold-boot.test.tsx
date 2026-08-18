@@ -118,6 +118,10 @@ function raw(row: RawRow) {
 let requests: string[] = [];
 let byIdRow: RawRow | null = null;
 let listRows: RawRow[] = [];
+/** Rows the daemon appends to an unfiltered page one beyond the limit. */
+let pinnedExtras: RawRow[] = [];
+/** How many upcoming requests answer 503 before the stub recovers. */
+let failNextRequests = 0;
 
 function stubDaemon() {
   daemonClient.get = mock(
@@ -128,6 +132,14 @@ function stubDaemon() {
     }) => {
       const url = options.url;
       requests.push(url);
+      if (failNextRequests > 0) {
+        failNextRequests -= 1;
+        return {
+          data: null,
+          error: { message: "waking" },
+          response: new Response(null, { status: 503 }),
+        };
+      }
       if (url.endsWith("/conversations/{id}")) {
         if (!byIdRow) {
           return {
@@ -147,7 +159,10 @@ function stubDaemon() {
         const limit = Number(options.query?.limit ?? 50);
         const offset = Number(options.query?.offset ?? 0);
         const body = {
-          conversations: listRows.slice(offset, offset + limit).map(raw),
+          conversations: [
+            ...listRows.slice(offset, offset + limit),
+            ...(offset === 0 ? pinnedExtras : []),
+          ].map(raw),
           hasMore: listRows.length > offset + limit,
         };
         return {
@@ -200,6 +215,8 @@ beforeEach(() => {
   requests = [];
   byIdRow = null;
   listRows = [];
+  pinnedExtras = [];
+  failNextRequests = 0;
   podIsServing = true;
   orgIsReady = true;
   navigateMock.mockClear();
@@ -279,6 +296,81 @@ describe("useConversationLoader cold-boot landing", () => {
     renderColdBoot(new QueryClient());
 
     expect(await landedOn()).toContain("first-chat");
+  });
+
+  test("keeps looking past page one when it has no chat, and stops after the 200 newest rows", async () => {
+    /* 60 background runs in a custom group lead the list; the first chat sits
+       on page two. The stub pages by the server's own offset arithmetic. */
+    listRows = [
+      ...Array.from({ length: 60 }, (_, i) => ({
+        id: `bg-${i}`,
+        conversationType: "background" as const,
+        groupId: "grp-1",
+      })),
+      { id: "first-chat" },
+    ];
+    renderColdBoot(new QueryClient());
+    expect(await landedOn()).toContain("first-chat");
+    expect(requests.filter((u) => u.endsWith("/conversations"))).toHaveLength(
+      2,
+    );
+
+    cleanup();
+    navigateMock.mockClear();
+    requests = [];
+    useConversationStore.setState({ activeConversationId: null });
+
+    /* 300 unselectable rows before the first chat: the search stops after
+       four pages and lands on the assistant itself rather than scanning on. */
+    listRows = [
+      ...Array.from({ length: 300 }, (_, i) => ({
+        id: `bg-${i}`,
+        conversationType: "background" as const,
+        groupId: "grp-1",
+      })),
+      { id: "deep-chat" },
+    ];
+    renderColdBoot(new QueryClient());
+    const landing = await landedOn();
+    expect(landing).toContain(ASSISTANT_ID);
+    expect(landing).not.toContain("deep-chat");
+    expect(requests.filter((u) => u.endsWith("/conversations"))).toHaveLength(
+      4,
+    );
+  });
+
+  test("pages by the server's page size, not by rows received, so appended pinned rows skip nothing", async () => {
+    /* Page one is 50 rows plus 2 appended pinned rows, all unselectable; the
+       first chat is row 51 in server order, so an offset advanced by rows
+       received (52) would skip it. */
+    pinnedExtras = [
+      { id: "pin-a", conversationType: "background", groupId: "grp-1" },
+      { id: "pin-b", conversationType: "background", groupId: "grp-1" },
+    ];
+    listRows = [
+      ...Array.from({ length: 50 }, (_, i) => ({
+        id: `bg-${i}`,
+        conversationType: "background" as const,
+        groupId: "grp-1",
+      })),
+      { id: "row-51-chat" },
+    ];
+    renderColdBoot(new QueryClient());
+    expect(await landedOn()).toContain("row-51-chat");
+  });
+
+  test("retries a transient failure before falling back", async () => {
+    saveLastViewedConversationId(ASSISTANT_ID, "old-visible");
+    byIdRow = { id: "old-visible" };
+    failNextRequests = 1;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: 2, retryDelay: 0 } },
+    });
+
+    renderColdBoot(queryClient);
+
+    expect(await landedOn()).toContain("old-visible");
+    expect(requests).toHaveLength(2);
   });
 
   test("does not resume a stored conversation that has since been archived", async () => {

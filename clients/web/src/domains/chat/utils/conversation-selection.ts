@@ -1,5 +1,6 @@
 import { useConversationStore } from "@/stores/conversation-store";
 import type { Conversation } from "@/types/conversation-types";
+import { isBackgroundConversation } from "@/utils/conversation-predicates";
 
 interface ResolveBootstrappedConversationIdArgs {
   queryParamKey: string | null;
@@ -91,20 +92,8 @@ export function shouldMintNewChatDraft({
 export function isStoredConversationSelectable(
   conversation: SelectableConversation,
 ): boolean {
-  if (conversation.archivedAt != null) {
-    return false;
-  }
-  // Surfaced conversations (`surfacedAt != null`) render in Recents even
-  // when their underlying type is background/scheduled, so restoring them
-  // on reload is expected — the user can see and select them in the sidebar.
-  if (conversation.surfacedAt != null) {
-    return true;
-  }
   return (
-    conversation.conversationType !== "background" &&
-    conversation.conversationType !== "scheduled" &&
-    conversation.groupId !== "system:background" &&
-    conversation.groupId !== "system:scheduled"
+    conversation.archivedAt == null && !isBackgroundConversation(conversation)
   );
 }
 

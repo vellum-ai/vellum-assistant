@@ -69,7 +69,13 @@ export function unreadConversationCountQueryKey(assistantId: string | null) {
 // Internal pagination helper
 // ---------------------------------------------------------------------------
 
-const CONVERSATION_LIST_PAGE_SIZE = 50;
+/**
+ * Rows per list request. Exported for callers that page a list read by hand
+ * (`listConversationsPage` takes an offset): the daemon advances by this
+ * limit, and appends pinned rows to an unfiltered page one beyond it, so a
+ * caller advancing by the rows it received would skip rows.
+ */
+export const CONVERSATION_LIST_PAGE_SIZE = 50;
 const CONVERSATION_LIST_MAX_PAGES = 200;
 
 /**

@@ -18,8 +18,11 @@
  * archived row in that cache until the settle refetch.
  *
  * Callers gate this on the daemon preconditions every list query honors
- * (`useCanQueryDaemon`); it does not retry, so a waking pod's 503 must not
- * reach it.
+ * (`useCanQueryDaemon`). The resolution runs through `queryClient.fetchQuery`
+ * so it gets the app's retry policy (transient 5xx and network errors retry
+ * with backoff, 4xx do not) and de-duplicates concurrent callers, the same
+ * way the drained list query it replaces did; `gcTime: 0` keeps the answer
+ * out of the cache once delivered.
  */
 
 import type { QueryClient } from "@tanstack/react-query";
@@ -30,6 +33,7 @@ import {
 } from "@/domains/chat/utils/conversation-selection";
 import type { Conversation } from "@/types/conversation-types";
 import {
+  CONVERSATION_LIST_PAGE_SIZE,
   type ConversationListPage,
   listConversationsFirstPage,
   listConversationsPage,
@@ -84,13 +88,23 @@ function firstSelectableId(rows: Conversation[]): string | null {
 }
 
 /**
+ * How far past page one the newest-row search looks: the 200 newest rows.
+ * Beyond that the landing is the assistant itself (a new chat is one click
+ * away), so cold boot stays bounded on an account whose newest rows are all
+ * background runs filed in custom groups, rather than scanning to the first
+ * chat wherever it sits.
+ */
+const LANDING_MAX_PAGES = 4;
+
+/**
  * The newest selectable foreground conversation's id.
  *
  * Reads the drained foreground cache when it already holds rows (free), else
  * page one of the foreground list, and later pages only while page one held
- * no selectable row and the server has more: the route's standard listing
- * admits background runs filed in custom groups, so the first row is not
- * always a chat. One request in the ordinary case.
+ * no selectable row and the server has more, up to {@link LANDING_MAX_PAGES}:
+ * the route's standard listing admits background runs filed in custom
+ * groups, so the first row is not always a chat. One request in the
+ * ordinary case, never more than four.
  */
 async function fetchLatestForegroundId(
   queryClient: QueryClient,
@@ -103,22 +117,28 @@ async function fetchLatestForegroundId(
     return firstSelectableId(cached.conversations);
   }
   let page = await listConversationsFirstPage(assistantId);
-  let offset = page.conversations.length;
   let found = firstSelectableId(page.conversations);
-  while (found === null && page.hasMore && page.conversations.length > 0) {
-    page = await listConversationsPage(assistantId, {}, offset);
-    offset += page.conversations.length;
+  /* Advance by the server's page size, not by rows received: an unfiltered
+     page one carries the daemon's appended pinned rows beyond the limit. */
+  for (
+    let pageIndex = 1;
+    found === null &&
+    pageIndex < LANDING_MAX_PAGES &&
+    page.hasMore &&
+    page.conversations.length > 0;
+    pageIndex += 1
+  ) {
+    page = await listConversationsPage(
+      assistantId,
+      {},
+      pageIndex * CONVERSATION_LIST_PAGE_SIZE,
+    );
     found = firstSelectableId(page.conversations);
   }
   return found;
 }
 
-/**
- * Resolve what a cold load should land on. The stored row is checked first
- * and the newest row fetched only when it is needed, so the common case (the
- * last-viewed conversation is still there) costs one request.
- */
-export async function resolveLandingConversation(
+async function lookUpLanding(
   queryClient: QueryClient,
   assistantId: string,
   storedConversationId: string | null,
@@ -138,4 +158,26 @@ export async function resolveLandingConversation(
     storedConversation,
     latestForegroundId: await fetchLatestForegroundId(queryClient, assistantId),
   };
+}
+
+/**
+ * Resolve what a cold load should land on. The stored row is checked first
+ * and the newest row fetched only when it is needed, so the common case (the
+ * last-viewed conversation is still there) costs one request.
+ *
+ * Not a server resource, so not a generated key: this is an in-app
+ * computation run through TanStack for its retry policy and dedupe.
+ */
+export function resolveLandingConversation(
+  queryClient: QueryClient,
+  assistantId: string,
+  storedConversationId: string | null,
+): Promise<LandingConversation> {
+  return queryClient.fetchQuery({
+    queryKey: ["cold-boot-landing", assistantId, storedConversationId],
+    queryFn: () =>
+      lookUpLanding(queryClient, assistantId, storedConversationId),
+    staleTime: 0,
+    gcTime: 0,
+  });
 }
