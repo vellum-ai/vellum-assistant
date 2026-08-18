@@ -1,8 +1,8 @@
 /**
  * Plugin-facing credential storage.
  *
- * {@link storeCredential} writes a credential's plaintext to the secure store —
- * the same write `assistant credentials set` performs — naming it either by an
+ * {@link storeCredential} writes a credential's plaintext to the secure store,
+ * the same write `assistant credentials set` performs, naming it either by an
  * existing credential's UUID or by a `"service/field"` string, the same
  * vocabulary {@link ./resolve-credential.resolveCredential} reads back. A
  * plugin that obtains a token for itself (an OAuth exchange it drives, a key a
@@ -11,21 +11,26 @@
  *
  * ## Plugin scoping
  *
- * Scoping mirrors the read path exactly. When a plugin is in context — its
- * hook, tool, or one of its own `/x/plugins/<name>/` routes is executing,
- * tracked by {@link ../plugins/plugin-execution-context.getCurrentPluginName} —
- * it may only write credentials whose `field` equals its manifest name. A plugin
- * named `acme` can therefore write `openai/acme` or `stripe/acme` but never
- * `openai/api_key`, so a plugin can neither read nor overwrite the user's own
- * credentials. Outside any plugin context (host-internal callers, CLI, tests)
- * the writer is unscoped and behaves like a direct `credentials set`.
+ * A plugin may only write credentials whose `field` equals its manifest name,
+ * so `acme` writes `openai/acme` or `stripe/acme` but never `openai/api_key`.
+ * The name comes from the execution context
+ * ({@link ../plugins/plugin-execution-context.getCurrentPluginName}), which the
+ * host establishes around a plugin's hook, tool, and route invocations.
+ *
+ * Unlike the read path, this **fails closed**: with no plugin in context there
+ * is nobody to scope the write to, so it is refused rather than treated as an
+ * unscoped host write. A plugin's module body is evaluated by the loader
+ * outside any context, and an unscoped branch there would let top-level code
+ * overwrite the user's own credentials. Host-internal callers that legitimately
+ * write unscoped (the `credentials/set` route, the CLI behind it) compose
+ * {@link ../tools/credentials/store.storeCredentialValue} directly. This
+ * matches the plugin-owned index (`indexDocument`), which likewise requires a
+ * context because a write with no owner has nothing to attribute.
  */
 
 import { getCurrentPluginName } from "../plugins/plugin-execution-context.js";
-import {
-  parseServiceFieldRef,
-  resolveCredentialRef,
-} from "../tools/credentials/resolve.js";
+import { parseServiceFieldRef } from "../tools/credentials/ref-parse.js";
+import { resolveCredentialRef } from "../tools/credentials/resolve.js";
 import { storeCredentialValue } from "../tools/credentials/store.js";
 
 /**
@@ -70,22 +75,30 @@ export interface StoredCredentialRef {
  * @param value The plaintext value. Edge whitespace is trimmed.
  * @returns The identity of the stored credential, which
  *   {@link ./resolve-credential.resolveCredential} accepts as a ref.
- * @throws {CredentialStoreError} when the ref is malformed or names no
- *   credential, the value is empty or invalid for its service, the store
- *   rejects the write, or a plugin in context is not scoped to the credential.
+ * @throws {CredentialStoreError} when no plugin is in context, the ref is
+ *   malformed or names no credential, the value is empty or invalid for its
+ *   service, the store rejects the write, or the calling plugin is not scoped
+ *   to the credential.
  */
 export async function storeCredential(
   ref: string,
   value: string,
   options: StoreCredentialOptions = {},
 ): Promise<StoredCredentialRef> {
-  const target = resolveStoreTarget(ref);
-
-  // Scope the write to the plugin in context, if any. The field-name gate is
-  // enforced before anything is written so an out-of-scope plugin never
-  // touches the secure backend.
+  // Both gates run before anything is written, so a refused write never
+  // touches the secure backend. Fail closed when there is no plugin to scope
+  // to: a plugin's module body is evaluated outside any context, and an
+  // unscoped branch there would be a way to overwrite the user's credentials.
   const pluginName = getCurrentPluginName();
-  if (pluginName !== undefined && target.field !== pluginName) {
+  if (pluginName === undefined) {
+    throw new CredentialStoreError(
+      "storeCredential requires an active plugin execution context (no calling plugin found). " +
+        "Call it from a hook, tool, or route handler rather than at module scope.",
+    );
+  }
+
+  const target = resolveStoreTarget(ref);
+  if (target.field !== pluginName) {
     throw new CredentialStoreError(
       `Plugin "${pluginName}" may only store credentials whose field matches its name; ` +
         `"${target.service}/${target.field}" is out of scope.`,

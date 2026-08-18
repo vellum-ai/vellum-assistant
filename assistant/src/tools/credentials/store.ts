@@ -1,5 +1,5 @@
 /**
- * Credential write path — the single sequence every "store a credential"
+ * Credential write path. The single sequence every "store a credential"
  * caller runs.
  *
  * Storing a credential is not one write: the plaintext goes to the secure
@@ -9,6 +9,13 @@
  * rather than being re-typed per entry point. The `credentials/set` route and
  * the plugin-facing {@link ../../plugin-api/store-credential.storeCredential}
  * both compose it.
+ *
+ * The transcript scrub and the connection sync are imported lazily, at the
+ * point of use. Both pull heavy graphs behind them (the scrub reaches the
+ * conversation database and registry; the sync reaches the OAuth store), and
+ * this module sits under `@vellumai/plugin-api`, so a static edge would drag
+ * that machinery into every plugin-api consumer for a write most of them never
+ * perform.
  *
  * Callers own their own transport-level argument validation and error mapping;
  * this module throws {@link InvalidCredentialInputError} for a value it will
@@ -20,11 +27,6 @@ import {
   ACP_SERVICE,
   assertAcpCredentialFormat,
 } from "../../acp/acp-credentials.js";
-import {
-  isNonSecretPlatformField,
-  scrubStoredCredentialFromTranscripts,
-} from "../../daemon/credential-transcript-scrub.js";
-import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { normalizeSecretValue } from "../../security/secret-normalize.js";
 import {
@@ -70,8 +72,8 @@ export interface StoreCredentialValueInput {
   injectionTemplates?: CredentialInjectionTemplate[];
   /**
    * Skip the retroactive transcript scrub. Set it only when the plaintext
-   * provably never transited a conversation — a token minted by an OAuth
-   * refresh, say — since the scrub is a bounded but real sweep of recent
+   * provably never transited a conversation (a token minted by an OAuth
+   * refresh, say), since the scrub is a bounded but real sweep of recent
    * history.
    */
   skipTranscriptScrub?: boolean;
@@ -129,21 +131,25 @@ export async function storeCredentialValue(
 
   // The stored plaintext may already sit in recent transcripts: the user
   // message that pasted it, the persisted tool_use input, the tool result
-  // echoing the command. This is the scrub seam — not setSecureKeyAsync,
-  // which also fires on OAuth refresh rotations and MCP header writes whose
-  // values never transited a transcript.
-  if (!input.skipTranscriptScrub && !isNonSecretPlatformField(service, field)) {
-    try {
-      const scrubbed = await scrubStoredCredentialFromTranscripts(value);
-      log.info(
-        { service, field, ...scrubbed },
-        "Credential stored; scrubbed value from recent transcripts",
-      );
-    } catch (err) {
-      log.warn(
-        { err, service, field },
-        "Credential stored, but transcript scrub failed",
-      );
+  // echoing the command. This is the scrub seam, not setSecureKeyAsync, which
+  // also fires on OAuth refresh rotations and MCP header writes whose values
+  // never transited a transcript.
+  if (!input.skipTranscriptScrub) {
+    const { isNonSecretPlatformField, scrubStoredCredentialFromTranscripts } =
+      await import("../../daemon/credential-transcript-scrub.js");
+    if (!isNonSecretPlatformField(service, field)) {
+      try {
+        const scrubbed = await scrubStoredCredentialFromTranscripts(value);
+        log.info(
+          { service, field, ...scrubbed },
+          "Credential stored; scrubbed value from recent transcripts",
+        );
+      } catch (err) {
+        log.warn(
+          { err, service, field },
+          "Credential stored, but transcript scrub failed",
+        );
+      }
     }
   }
 
@@ -154,6 +160,8 @@ export async function storeCredentialValue(
     allowedDomains: input.allowedDomains,
     injectionTemplates: input.injectionTemplates,
   });
+  const { syncManualTokenConnection } =
+    await import("../../oauth/manual-token-connection.js");
   await syncManualTokenConnection(service);
 
   return { credentialId: metadata.credentialId, service, field };

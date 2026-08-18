@@ -177,12 +177,13 @@ export {
   CredentialResolutionError,
   resolveCredential,
 } from "./resolve-credential.js";
-// Store a credential's plaintext value — the same write `assistant credentials
-// set` performs — creating it or replacing an existing one, named by UUID or a
-// "service/field" reference. Scoping mirrors the read path: a plugin in context
-// may only write credentials whose `field` matches its manifest name. Throws
-// CredentialStoreError when the ref is malformed, the value is invalid, the
-// store rejects the write, or the credential is out of the plugin's scope.
+// Store a credential's plaintext value (the same write `assistant credentials
+// set` performs), creating it or replacing an existing one, named by UUID or a
+// "service/field" reference. A plugin may only write credentials whose `field`
+// matches its manifest name, and the write fails closed with no plugin in
+// context. Throws CredentialStoreError when there is no calling plugin, the ref
+// is malformed, the value is invalid, the store rejects the write, or the
+// credential is out of the plugin's scope.
 export type {
   StoreCredentialOptions,
   StoredCredentialRef,
