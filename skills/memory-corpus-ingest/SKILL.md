@@ -118,7 +118,7 @@ cd "$VELLUM_WORKSPACE_DIR"
 assistant memory ingest --dir imports/<source>/.staging --dry-run
 ```
 
-The dry run validates every page and reports per-page results without writing. Fix anything reported `invalid` (bad frontmatter, bad slug), then run without `--dry-run`. Notes:
+The dry run validates every page and reports per-page results without writing. Fix anything reported `invalid` (bad frontmatter, bad slug), and resolve any warning about a `links:` or `[[wikilink]]` target that is neither on disk nor in the staged set (stage the missing page, or make the reference plain prose; retrieval drops a link whose target page does not exist), then run without `--dry-run`. Notes:
 
 - Requires concept-page memory (`memory.v3.live` or `memory.v2.enabled`).
 - Existing slugs are skipped unless `--overwrite` is passed; use `--overwrite` when re-running after edits.

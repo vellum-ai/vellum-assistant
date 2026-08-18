@@ -49,6 +49,21 @@ describe("SwipeActionReveal", () => {
     expect(html).toContain("Test");
   });
 
+  test("the content layer takes its opaque fill from the surface it sits on", () => {
+    const html = renderToStaticMarkup(
+      <SwipeActionReveal enabled={true} trailingActions={[noopAction]}>
+        <div>Row content</div>
+      </SwipeActionReveal>,
+    );
+    // The layer hides the actions until a swipe reveals them, so it can never
+    // be transparent. Reading `--swipe-reveal-bg` is what lets a host that
+    // rests its rows on something other than the panel surface (the sidebar's
+    // section card) hand down its own fill instead of banding every row.
+    expect(html).toContain(
+      "bg-[var(--swipe-reveal-bg,var(--surface-overlay))]",
+    );
+  });
+
   test("renders leading and trailing action buttons", () => {
     const leadingAction: SwipeAction = {
       id: "pin",

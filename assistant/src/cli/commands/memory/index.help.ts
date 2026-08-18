@@ -23,7 +23,7 @@ The 'items' subgroup exposes full CRUD over individual memory items
 
 The memory subsystem retrieves concept pages two ways: the v2 concept-page
 activation model (prose pages with directed edges) and the v3 section-lane
-model (section-grain lanes cached as live shadow state). Each subgroup exposes
+model (section-grain lanes held in memory inside the assistant). Each subgroup exposes
 operator-facing maintenance verbs — reindexing, backfills, validation, and evals.
 
 Examples:
@@ -34,7 +34,7 @@ Examples:
   $ assistant memory items list --search "coffee"
   $ assistant memory items update 9f2c4f3a-3f1a-41e4-88e7-abc123 --statement "Prefers tea"
   $ assistant memory items delete 9f2c4f3a-3f1a-41e4-88e7-abc123
-  $ assistant memory v2 validate
+  $ assistant memory validate
   $ assistant memory v3 rebuild-index
   $ assistant memory ingest --dir .mv3/staging --dry-run`,
   subcommands: [
@@ -43,8 +43,9 @@ Examples:
       description:
         "Content-based list, delete, and update of memory graph nodes",
       helpText: `
-Memory nodes are raw graph records (content, type, fidelity) produced by the
-memory v2 subsystem. Unlike 'memory items', which addresses nodes by UUID, these
+Memory nodes are raw graph records (content, type, fidelity) in the memory
+graph store, which every memory tier writes to. Unlike 'memory items', which
+addresses nodes by UUID, these
 commands address nodes by content text — matching the way an operator refers to
 a remembered fact without first looking up its ID.
 
@@ -390,7 +391,6 @@ except reembed-skills which runs synchronously inside the assistant.
 Read-only subcommands print diagnostic reports without mutating state.
 
 Examples:
-  $ assistant memory v2 validate
   $ assistant memory v2 reembed
   $ assistant memory v2 reembed-skills
   $ assistant memory v2 activation`,
@@ -400,9 +400,10 @@ Examples:
           description:
             "Refresh dense + sparse vectors for every concept page in Qdrant",
           helpText: `
-Fans out an embed_concept_page job per concept page slug (plus the four
-reserved meta-file slugs) so each page's dense and sparse vectors get
-recomputed against the current embedding backend. Useful after upgrading
+Fans out an embed_concept_page job per concept page slug so each page's
+dense and sparse vectors get recomputed against the current embedding
+backend (the direct-injected memory/*.md meta files are not embedded and are
+not enqueued). Useful after upgrading
 the embedding model or recovering a corrupted Qdrant collection.
 
 The fan-out runs on the background memory worker — this command returns
@@ -449,20 +450,13 @@ Examples:
         {
           name: "validate",
           description:
-            "Print a diagnostic report of v2 workspace state (read-only)",
+            "Same report as 'memory validate' (read-only concept-page check)",
           helpText: `
-Walks the v2 concept-page tree on disk and reports:
-  - Page count
-  - Edge count (total and unique outgoing targets)
-  - Missing outgoing edge targets (orphan edges)
-  - Oversized pages (over the per-folder size cap)
-  - Parse failures (missing or malformed frontmatter)
-
-Read-only — does not mutate the workspace. Exits non-zero if any
-violations are reported.
+Identical to 'assistant memory validate'; prefer that spelling. The report
+covers the concept-page store, which is the same under memory v2 and v3.
 
 Examples:
-  $ assistant memory v2 validate`,
+  $ assistant memory validate`,
         },
         {
           name: "ema",
@@ -600,9 +594,9 @@ Examples:
       name: "v3",
       description: "Memory v3 live-lane maintenance (section-lane model)",
       helpText: `
-The v3 memory subsystem retrieves concept pages over section-grain lanes and
-caches them as live shadow lanes inside the assistant. These commands maintain
-that live state safely.
+The v3 memory subsystem retrieves concept pages over section-grain lanes held
+in memory inside the assistant. These commands maintain that live state
+safely.
 
 Examples:
   $ assistant memory v3 rebuild-index
@@ -614,7 +608,7 @@ Examples:
           name: "rebuild-index",
           description: "Invalidate the v3 lanes so the next turn rebuilds",
           helpText: `
-Drops the assistant's cached v3 shadow lanes so the section index is rebuilt
+Drops the assistant's in-memory v3 lanes so the section index is rebuilt
 from the current on-disk state on the next turn. Useful after editing concept
 pages out-of-band.
 
@@ -635,10 +629,10 @@ Examples:
 Embeds EVERY concept page's sections — including synthetic skill and CLI
 capability rows — into the section dense store in one pass, then advances
 the maintain checkpoint so the next incremental pass only re-embeds future
-edits. Use this once on an existing install before the section-lane A/B and
-cutover: the dense collection starts empty, and the periodic maintenance
-pass only re-embeds pages edited since its last run (and never the synthetic
-rows), so most of the corpus would otherwise never be embedded.
+edits. Use this once on an install whose section dense store is empty or
+predates v3: the periodic maintenance pass only re-embeds pages edited since
+its last run (and never the synthetic rows), so most of the corpus would
+otherwise never be embedded.
 
 Idempotent and safe to re-run. Runs inside the assistant so it uses the live
 configuration and advances the checkpoint the assistant reads.
@@ -803,6 +797,26 @@ Example:
   $ assistant memory v3 eval-tally --verdicts .mv3/eval/verdicts.json --key .mv3/eval/key.json`,
         },
       ],
+    },
+    {
+      name: "validate",
+      description:
+        "Check the concept-page store for dangling links, oversized pages, and parse failures (read-only)",
+      helpText: `
+Walks memory/concepts/ on disk and reports:
+  - Page count and edge count
+  - Dangling links: an edges: entry, a links: entry, or an inline
+    [[wikilink]] whose target page does not exist (targets under skills/
+    and cli-commands/ resolve against the registered capability catalog)
+  - Oversized pages (over the configured per-page character cap)
+  - Parse failures (malformed frontmatter)
+
+Read-only. Exits non-zero if anything is reported. Works on every memory
+tier, including before memory.v3.live or memory.v2.enabled is set, so it
+doubles as the pre-flip check for a migration.
+
+Examples:
+  $ assistant memory validate`,
     },
     {
       name: "ingest",

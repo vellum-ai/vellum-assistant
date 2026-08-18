@@ -6608,6 +6608,20 @@ paths:
             predicate behind the unread count and the section index, so a client that keeps no complete conversation
             list can ask for exactly the rows its attention surfaces need. Composes with every other filter. Any value
             other than "true" is rejected. Omit to span every conversation.'
+        - name: foregroundOnly
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - "true"
+          description:
+            Pass "true" to return only user-facing foreground conversations, dropping the automated background and
+            scheduled runs the standard listing admits when they are filed in a custom group (a surfaced run stays).
+            This is the same predicate the unread count and the section index apply, so a client can ask for the newest
+            conversation a user can open in one row instead of paging past runs it would skip. Composes with every other
+            filter; a foreground-only first page never has pinned rows appended to it. Any value other than "true" is
+            rejected. Omit to keep every visible row.
       responses:
         "200":
           description: Successful response

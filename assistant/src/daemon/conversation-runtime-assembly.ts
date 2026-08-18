@@ -520,7 +520,7 @@ function injectActiveSurfaceContext(
       "RULES FOR WORKSPACE MODIFICATION:",
       `1. Use \`file_edit\` to make surgical changes to app files. The file path is \`${getAppDirPath(ctx.appId)}/<path>\`.`,
       "2. Use `file_write` to create new files or rewrite files.",
-      "3. Use `file_read` to read any file with line numbers before editing.",
+      "3. Use `file_read` to read any file before editing, and `code_search` when you need a line reference.",
       "4. Use `bash ls` to see all files in the app directory.",
       `5. Call \`app_refresh\` with app_id "${ctx.appId}" ONCE after all changes are complete.`,
       "6. NEVER respond with only text — the user expects a visual update.",

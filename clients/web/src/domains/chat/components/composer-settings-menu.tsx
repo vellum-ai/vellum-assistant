@@ -13,7 +13,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 
@@ -34,6 +33,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { conversationsByIdInferenceprofilePut } from "@/generated/daemon/sdk.gen";
 import { useComposerCompact } from "@/domains/chat/components/chat-composer/composer-compact";
+import { preventPressFocusTransfer } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import {
@@ -60,25 +60,6 @@ import {
   Tooltip,
 } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
-
-/**
- * Keeps a press from moving focus off the composer's textarea. WebKit blurs the
- * textarea on a press without focusing the pressed button, and the pills row is
- * focus-gated, so it goes away before the tap's click reaches the trigger.
- *
- * `mousedown` is the press to cancel, not `pointerdown`. WebKit drops the whole
- * compatibility sequence when `pointerdown` is cancelled, `click` included, and
- * the bottom sheet opens on that click. Cancelling the compatibility `mousedown`
- * suppresses the focus transfer and nothing else. See
- * `clients/web/docs/CAPACITOR.md` for the event ordering this relies on.
- *
- * Only ever wired on the touch presentation, whose sheet opens on click. The
- * mouse presentation's menu opens on the pointerdown before it, which this
- * leaves alone.
- */
-function preventPressFocusTransfer(event: ReactMouseEvent<HTMLElement>) {
-  event.preventDefault();
-}
 
 interface Props {
   assistantId: string;

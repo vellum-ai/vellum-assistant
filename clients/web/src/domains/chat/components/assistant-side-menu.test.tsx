@@ -1338,6 +1338,30 @@ describe("AssistantSideMenu · section spacing", () => {
   });
 });
 
+describe("AssistantSideMenu · section card surface", () => {
+  /* A conversation row rests transparent, so on touch the swipe layer wrapping
+     it is what actually paints behind the label. Left to its own default that
+     layer takes the panel surface, which is a different colour from the card,
+     and every row in the card reads as a sunken band. The card publishes its
+     own fill so the layer matches whatever the card is. */
+  test("every section card names the fill its swipeable rows sit on", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+      }),
+    );
+
+    const cards = sectionCards(container);
+    expect(cards).toHaveLength(4);
+    for (const card of cards) {
+      expect(card.className).toContain(
+        "[--swipe-reveal-bg:var(--surface-lift)]",
+      );
+    }
+  });
+});
+
 describe("AssistantSideMenu · default section order", () => {
   // The point of LUM-2909: groups are the deliberate organization layer, so
   // they lead rather than sitting under channel sections that come and go.

@@ -10,7 +10,7 @@
  *      send/stop button, disabled attribute).
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createRef, type ReactNode } from "react";
+import { createRef, type FormEvent, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import {
@@ -59,8 +59,13 @@ mock.module("@/runtime/is-electron", () => ({
 // requests — see the composer's `handleLiveVoiceStart` note), so setting this to
 // iOS must NOT suppress the card. Defaults to non-iOS (web).
 let mockIsNativeIOS = false;
+// The Capacitor shells (iOS and Android), where the settings pills stand for
+// the whole session instead of following focus. Defaults to the browser, so
+// every case that does not set it exercises the focus-driven reveal.
+let mockIsNativeMobile = false;
 mock.module("@/runtime/platform-detection", () => ({
   isNativeIOS: () => mockIsNativeIOS,
+  useIsNativeMobile: () => mockIsNativeMobile,
 }));
 
 // The native shell, which is the only place dictation's inline preview takes
@@ -283,6 +288,7 @@ function resetLiveVoiceMocks() {
   mockSupportsLiveVoice = true;
   mockIsElectron = false;
   mockIsNativeIOS = false;
+  mockIsNativeMobile = false;
   mockIsNativePlatform = false;
   mockVoicePhase = "idle";
   mockPreflightVerdict = { status: "ready" };
@@ -824,6 +830,11 @@ function disclaimer(container: HTMLElement) {
   return container.querySelector('[data-slot="composer-disclaimer"]');
 }
 
+/** The wrapper around the card, which publishes the banner flag. */
+function composerShell(container: HTMLElement) {
+  return container.querySelector('[data-slot="chat-composer-shell"]');
+}
+
 function addSheet(container: HTMLElement) {
   return container.querySelector('[data-testid="add-to-chat-sheet"]');
 }
@@ -1263,6 +1274,37 @@ describe("ChatComposer: mobile settings pills row", () => {
     expect(container.querySelector("form")?.innerHTML).not.toContain(">THR<");
   });
 
+  test("an app shell keeps the row standing before anyone taps in", () => {
+    // GIVEN the same untouched phone composer, in a Capacitor shell
+    mockIsNativeMobile = true;
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // THEN the row is up already: on a phone these pills are the only place
+    // the access and profile pickers live, so a row that waited for focus put
+    // both behind a tap for as long as the composer rested
+    const row = pillsRow(container);
+    expect(row?.textContent).toBe("THRPROFILE");
+    expect(row?.hasAttribute("hidden")).toBe(false);
+
+    // AND it carries no entrance: the animation exists because the row
+    // arrives with the keyboard, and standing permanently it would instead
+    // replay on every mount, settling the composer on each navigation
+    expect(row?.className).not.toContain("animate-");
+    expect(row?.className).toContain("flex");
+  });
+
+  test("an app shell still rests the caption under the card", () => {
+    // GIVEN an untouched phone composer in a Capacitor shell
+    mockIsNativeMobile = true;
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // THEN both stand: the caption keeps its own at-rest rule, so a resting
+    // composer in a shell carries the row above the card and the caption below
+    // it at the same time
+    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(false);
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+  });
+
   test("focusing the composer raises the row above the card, access first", () => {
     // GIVEN a phone composer
     const { container } = renderPhoneComposer(SETTINGS_SLOTS);
@@ -1373,6 +1415,104 @@ describe("ChatComposer: mobile settings pills row", () => {
 
     // THEN there is nothing to float, so no row is rendered
     expect(pillsRow(container)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Banners standing over the card, and what gives way to them
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer: a banner standing over the card", () => {
+  test("an empty banner stack leaves the row up and publishes nothing", () => {
+    // GIVEN a resting phone composer in an app shell, with nothing above it
+    mockIsNativeMobile = true;
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // THEN the row stands, and the shell carries no flag for the avatar peek
+    // that reads this off it
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      false,
+    );
+  });
+
+  test("a banner mounted with the composer takes the row down", () => {
+    // GIVEN the same shell composer, with a banner in the stack above the card
+    mockIsNativeMobile = true;
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      noticesAboveFormSlot: <div>BANNER</div>,
+    });
+
+    // THEN the row stands down: the banner docks to the card's top edge and
+    // takes the strip the row floats in
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+
+    // AND the shell publishes the banner, which is how `ComposerPeek` knows to
+    // hold its avatar down behind that same edge
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      true,
+    );
+  });
+
+  test("focus does not buy the row back from a banner", () => {
+    // GIVEN a browser phone composer under a banner, where focus is normally
+    // what raises the row
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      noticesAboveFormSlot: <div>BANNER</div>,
+    });
+
+    // WHEN the user taps into it
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN the banner still wins
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+  });
+
+  test("a banner arriving after mount takes the row down with it", async () => {
+    // GIVEN a standing row in an app shell
+    mockIsNativeMobile = true;
+    const { container, rerender } = renderPhoneComposer(SETTINGS_SLOTS);
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+
+    // WHEN a banner arrives mid-session, the way a low credit balance does
+    await act(async () => {
+      rerender(
+        composerElement({
+          ...SETTINGS_SLOTS,
+          noticesAboveFormSlot: <div>BANNER</div>,
+        }),
+      );
+    });
+
+    // THEN the row follows it down. The stack is watched rather than derived
+    // from props, so notices that source their own state take it down too
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      true,
+    );
+  });
+
+  test("a banner leaving gives the row back", async () => {
+    // GIVEN a shell composer whose row is down under a banner
+    mockIsNativeMobile = true;
+    const { container, rerender } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      noticesAboveFormSlot: <div>BANNER</div>,
+    });
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+
+    // WHEN the banner is dismissed
+    await act(async () => {
+      rerender(composerElement(SETTINGS_SLOTS));
+    });
+
+    // THEN the strip is free again and the row comes back up with it
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      false,
+    );
   });
 });
 
@@ -1986,6 +2126,104 @@ describe("ChatComposer: the mobile send slot", () => {
   });
 });
 
+describe("ChatComposer: the mobile row holds focus through a press", () => {
+  // WebKit blurs the textarea on a press without focusing the pressed button.
+  // The mobile composer is gated on that focus, so the pills row above the card
+  // and the disclaimer under it both swap in the same commit and the row's 40px
+  // controls move out from under the finger before the tap's click lands. Each
+  // control cancels the compatibility `mousedown`, the event the focus transfer
+  // rides on, and leaves `pointerdown` alone, since WebKit drops the whole rest
+  // of the sequence when that one is cancelled. See `docs/CAPACITOR.md`.
+
+  test("the plus cancels the press and still opens the sheet", () => {
+    // GIVEN a focused phone composer, the state that raises the pills row
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+    fireEvent.focusIn(textareaOf(container));
+    const plus = control(container, PLUS_LABEL)!;
+
+    // THEN the press is cancelled, while the pointer that precedes it is not
+    expect(fireEvent.pointerDown(plus)).toBe(true);
+    expect(fireEvent.mouseDown(plus)).toBe(false);
+
+    // AND the row is still up when the click arrives, so the plus is still
+    // under the finger
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
+
+    // AND the click opens what it always opened
+    fireEvent.click(plus);
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+  });
+
+  test("send cancels the press and still submits", () => {
+    // GIVEN a focused phone composer with a draft to send
+    const onSubmit = mock((event: FormEvent) => event.preventDefault());
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      input: "hello",
+      onSubmit,
+    });
+    fireEvent.focusIn(textareaOf(container));
+    const send = control(container, "Send message")!;
+
+    // THEN the press is cancelled, and the submit the click carries is not
+    expect(fireEvent.mouseDown(send)).toBe(false);
+    fireEvent.click(send);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  test("stop cancels the press and still stops the turn", () => {
+    // GIVEN the same row mid-turn, where stop takes the slot
+    const onStopGenerating = mock(() => {});
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      isAssistantBusy: true,
+      onStopGenerating,
+    });
+    fireEvent.focusIn(textareaOf(container));
+    const stop = control(container, "Stop generating")!;
+
+    expect(fireEvent.mouseDown(stop)).toBe(false);
+    fireEvent.click(stop);
+    expect(onStopGenerating).toHaveBeenCalledTimes(1);
+  });
+
+  test("a narrow mouse window keeps its press, and its row", () => {
+    // GIVEN the window dragged under the breakpoint, which takes the row's
+    // structure with a mouse still driving it. The row is gated on the same
+    // focus, but a pointing device focuses the button it presses rather than
+    // dropping focus to nothing, so the click lands without any help.
+    const { container } = renderNarrowMouseComposer({
+      ...SETTINGS_SLOTS,
+      input: "hello",
+    });
+    fireEvent.focusIn(textareaOf(container));
+    const send = control(container, "Send message")!;
+
+    // THEN the press is left alone, so the button still takes the focus it is
+    // owed and a keyboard user is not stranded on the body
+    expect(fireEvent.mouseDown(send)).toBe(true);
+    expect(fireEvent.mouseDown(control(container, PLUS_LABEL)!)).toBe(true);
+
+    // AND the row survives that press on its own: focus moves to a button
+    // inside the shell, which is not a leave
+    fireEvent.focusOut(textareaOf(container), { relatedTarget: send });
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+  });
+
+  test("a roomy window leaves the press alone", () => {
+    // GIVEN a desktop composer, which gates no row on focus
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { container } = renderComposerView({
+      ...SETTINGS_SLOTS,
+      input: "hello",
+    });
+
+    // THEN the press behaves as the platform intends
+    expect(fireEvent.mouseDown(control(container, "Send message")!)).toBe(true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Empty composer with no attachments
 // ---------------------------------------------------------------------------
@@ -2159,6 +2397,89 @@ describe("ChatComposer — live-voice integration", () => {
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
     expect(liveCancelPrewarmSpy).not.toHaveBeenCalled();
+  });
+
+  test("entering voice mode drops the composer's focus, and only that", async () => {
+    // GIVEN a focused composer on a soft-keyboard device. The voice button
+    // cancels the press that would otherwise blur this, so its click survives
+    // the row's focus gating, which leaves that keyboard raised.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockPreflightVerdict = { status: "ready" };
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { container, getByLabelText } = renderVoiceComposer();
+    const textarea = container.querySelector("textarea")!;
+    // Real focus rather than a synthetic `focusIn`: the assertion below is
+    // about `document.activeElement`, and the focus this raises drives the
+    // composer's own focus-gated state.
+    act(() => {
+      textarea.focus();
+    });
+    expect(document.activeElement).toBe(textarea);
+
+    // WHEN the user taps into voice mode
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN the entry drops that focus itself, now that the click it depended on
+    // has been delivered. The room takes the whole screen and has no use for a
+    // keyboard under it.
+    expect(document.activeElement).not.toBe(textarea);
+
+    // Drain the preflight the click started, so its resolution does not land
+    // after the test has returned.
+    await flushPreflight();
+  });
+
+  // The `not-ready` verdict is the one that makes stranded focus bite: the room
+  // never opens, and the configure-voice action it raises is what the user then
+  // has to reach. Both entries below drive it for that reason.
+  const NOT_READY_VERDICT = {
+    status: "not-ready" as const,
+    missing: [
+      { kind: "tts" as const, providerId: "elevenlabs", reason: "no key" },
+    ],
+    userMessage: "Add a voice provider to start talking.",
+  };
+
+  test("entering voice mode from the button itself leaves that focus alone", async () => {
+    // GIVEN a keyboard user on the voice button, which leaves focus there
+    // rather than on the textarea
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockPreflightVerdict = NOT_READY_VERDICT;
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { getByLabelText } = renderVoiceComposer();
+    const button = getByLabelText("Start voice mode");
+    act(() => {
+      button.focus();
+    });
+
+    // WHEN the entry runs
+    fireEvent.click(button);
+
+    // THEN it blurs the textarea by name, which holds no focus to take, and
+    // leaves this where it is
+    expect(document.activeElement).toBe(button);
+    await flushPreflight();
+  });
+
+  test("a pointing device keeps the composer's focus through the entry", async () => {
+    // GIVEN a focused composer with no soft keyboard to dismiss: a mouse-driven
+    // window, narrow enough to carry the row
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockPreflightVerdict = NOT_READY_VERDICT;
+    viewport.set({ narrow: true, coarsePointer: false });
+    const { container, getByLabelText } = renderVoiceComposer();
+    const textarea = container.querySelector("textarea")!;
+    act(() => {
+      textarea.focus();
+    });
+
+    // WHEN the entry runs
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN nothing is blurred at all. There is no keyboard raised over the room,
+    // so the only thing a blur could do here is cost the user their place.
+    expect(document.activeElement).toBe(textarea);
+    await flushPreflight();
   });
 
   test("a not-ready verdict keeps the room closed and surfaces the configure-voice prompt", async () => {

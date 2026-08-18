@@ -7,14 +7,15 @@ import { AssistantLifecyclePanel } from "@/domains/settings/components/panels/as
 import { EnvironmentConfigPanel } from "@/domains/settings/components/panels/environment-config-panel";
 import { FeatureFlagsPanel } from "@/domains/settings/components/panels/feature-flags-panel";
 import { SentryTestingPanel } from "@/domains/settings/components/panels/sentry-testing-panel";
+import { useTranslation } from "@/i18n";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
 
 const ALL_TABS = [
-  { id: "feature-flags", label: "Feature Flags" },
-  { id: "lifecycle", label: "Assistant Lifecycle" },
-  { id: "sentry", label: "Sentry Testing" },
-  { id: "memory", label: "Memory" },
+  { id: "feature-flags", labelKey: "developerPage.tabFeatureFlags" },
+  { id: "lifecycle", labelKey: "developerPage.tabLifecycle" },
+  { id: "sentry", labelKey: "developerPage.tabSentry" },
+  { id: "memory", labelKey: "developerPage.tabMemory" },
 ] as const;
 
 type DeveloperTabId = (typeof ALL_TABS)[number]["id"];
@@ -26,6 +27,7 @@ type DeveloperTabId = (typeof ALL_TABS)[number]["id"];
 const PANEL_CLASS = "flex min-h-0 flex-1 flex-col pt-6";
 
 export function DeveloperPage() {
+  const { t } = useTranslation("settings");
   const [searchParams, setSearchParams] = useSearchParams();
   const settingsDeveloperNav =
     useAssistantFeatureFlagStore.use.settingsDeveloperNav();
@@ -60,10 +62,13 @@ export function DeveloperPage() {
         onValueChange={setActiveTab}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <Tabs.List className="shrink-0" aria-label="Developer sections">
+        <Tabs.List
+          className="shrink-0"
+          aria-label={t("developerPage.sectionsAriaLabel")}
+        >
           {ALL_TABS.map((tab) => (
             <Tabs.Trigger key={tab.id} value={tab.id}>
-              {tab.label}
+              {t(tab.labelKey)}
             </Tabs.Trigger>
           ))}
         </Tabs.List>

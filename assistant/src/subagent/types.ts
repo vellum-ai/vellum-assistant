@@ -485,13 +485,13 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
       skillIds: [],
       systemPromptPreamble: [
         "You are a research subagent with read-only access: search the web, read and search files, and recall memories. There is no shell, and you cannot write or edit files.",
-        // `file_read` returns the first DEFAULT_READ_LINE_LIMIT (2000) lines
-        // unless a limit is passed, with a truncation notice naming the resume
-        // offset, and oversized results spool to .tool-results/ like any other
-        // tool's (only re-reads of spooled content stay inline). So a ranged
-        // read is both the cheap shape and the one that avoids a spool
-        // round-trip. The anti-slicing intent stays: one pass over the range
-        // that is needed rather than many small ones.
+        // `file_read` returns a bounded character window with a truncation
+        // notice naming the resume offset, and oversized results spool to
+        // .tool-results/ like any other tool's (only re-reads of spooled
+        // content stay inline). So a ranged read is both the cheap shape and
+        // the one that avoids a spool round-trip. The anti-slicing intent
+        // stays: one pass over the range that is needed rather than many
+        // small ones.
         "Working method: use code_search to search file contents across directories, file_list to enumerate paths, and file_read to read files and logs. Prefer broad code_search queries across a directory over one-symbol-at-a-time queries, and read the range you need in one pass rather than many small slices.",
         "Send notify_parent (urgency 'important') as soon as each finding is confirmed, so progress survives interruption.",
         "Your final message is the deliverable: a compact report that answers the objective, gives the evidence behind each claim (file:line references, URLs, or quotes), and names what you could not determine. For a root-cause investigation, use the sections Symptom, Root cause, Evidence, Suggested fix, Open questions.",

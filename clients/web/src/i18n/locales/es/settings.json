@@ -27,6 +27,16 @@
     "topUpCancelToast": "Se canceló el pago. No se añadieron créditos.",
     "upgradeCancelToast": "Mejora cancelada. No hay cambios en tu plan."
   },
+  "bookmarksPage": {
+    "emptyDescription": "Pasa el cursor sobre cualquier mensaje y haz clic en el icono de marcador para guardarlo aquí.",
+    "emptyTitle": "Sin marcadores",
+    "errorDescription": "Algo salió mal. Inténtalo de nuevo.",
+    "errorTitle": "No se pudieron cargar los marcadores",
+    "open": "Abrir",
+    "removeBookmark": "Eliminar marcador",
+    "retry": "Reintentar",
+    "untitledConversation": "Conversación sin título"
+  },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, one {# acción usa actualmente {profile}} other {# acciones usan actualmente {profile}}}",
     "applyTo": "{count, plural, one {Aplicar a # acción} other {Aplicar a # acciones}}",
@@ -94,6 +104,33 @@
     "tryAgain": "Intentar de nuevo",
     "viewPlans": "Ver planes"
   },
+  "communityPage": {
+    "communityHubDescription": "Muestras, guías y proyectos compartidos por la comunidad.",
+    "communityHubTitle": "Centro de la comunidad",
+    "discordBenefitAnswers": "Obtén respuestas más rápido de la comunidad",
+    "discordBenefitFeedback": "Comparte comentarios y solicita funciones",
+    "discordBenefitTeam": "Habla directamente con el equipo",
+    "discordLabel": "Discord",
+    "discordSubtitle": "Habla con el equipo, comparte comentarios, solicita funciones y obtén respuestas más rápido.",
+    "discordTitle": "Únete a nuestra comunidad",
+    "followOnXDescription": "Actualizaciones del producto, lanzamientos y detrás de escena.",
+    "followOnXTitle": "Seguir en X",
+    "heroDescription": "Vellum se construye en abierto con una comunidad creciente de desarrolladores, diseñadores y experimentadores. Así puedes participar.",
+    "heroTag": "Comunidad",
+    "heroTitle": "Construye con nosotros, en abierto.",
+    "joinDiscord": "Unirse a Discord",
+    "moreFromVellum": "Más de Vellum",
+    "openSourceBenefitContribute": "Contribuye con correcciones y nuevas funciones",
+    "openSourceBenefitIssues": "Abre incidencias y reporta errores",
+    "openSourceBenefitStar": "Marca el repositorio para seguir las actualizaciones",
+    "openSourceLabel": "Código abierto",
+    "openSourceSubtitle": "Lee el código fuente, marca el repositorio y contribuye con correcciones y funciones en GitHub.",
+    "openSourceTitle": "Vellum es de código abierto",
+    "starOnGitHub": "Marcar en GitHub",
+    "viewSource": "Ver código fuente",
+    "youtubeChannelDescription": "Recorridos, tutoriales y análisis profundos del producto.",
+    "youtubeChannelTitle": "Canal de YouTube"
+  },
   "completeState": {
     "assistantFallbackName": "tu asistente",
     "returnTo": "Volver a {assistantName}",
@@ -128,6 +165,13 @@
     "genericDescriptor": "Selecciona potencia de CPU, RAM y almacenamiento personalizados. O añade algunos tokens.",
     "prompt": "¿Necesitas algo más adaptado a tus necesidades?",
     "title": "Plan personalizado"
+  },
+  "developerPage": {
+    "sectionsAriaLabel": "Secciones de desarrollador",
+    "tabFeatureFlags": "Indicadores de funciones",
+    "tabLifecycle": "Ciclo de vida del asistente",
+    "tabMemory": "Memoria",
+    "tabSentry": "Pruebas de Sentry"
   },
   "domainStep": {
     "continue": "Continuar",
@@ -210,6 +254,32 @@
     "confirm": "Bajar a Base",
     "title": "¿Bajar a Base?"
   },
+  "generalPage": {
+    "chooseAssistant": "Elegir asistente",
+    "computeResourcesLoginNotice": "Inicia sesión en la plataforma Vellum para administrar los recursos de cómputo.",
+    "computeResourcesSubtitle": "Supervisa el uso de recursos y administra el perfil de cómputo de tu asistente.",
+    "computeResourcesTitle": "Cómputo y recursos",
+    "current": "Actual",
+    "customize": "Personalizar",
+    "dangerZoneTitle": "Zona de peligro",
+    "preferencesSubtitle": "Personaliza cómo se ve y se comporta Vellum en este dispositivo.",
+    "preferencesTitle": "Preferencias",
+    "retireAssistantDescription": "Retira permanentemente este asistente y elimina todos los datos asociados.",
+    "retireAssistantLoginNotice": "Inicia sesión en la plataforma Vellum para retirar este asistente.",
+    "retireAssistantTitle": "Retirar asistente",
+    "sleepPolicyLoginNotice": "Inicia sesión en la plataforma Vellum para administrar la política de suspensión.",
+    "sleepPolicySubtitle": "Controla cuánto tiempo permanece activo este asistente cuando está inactivo.",
+    "sleepPolicyTitle": "Política de suspensión",
+    "switchAssistantSubtitle": "Elige a qué asistente está conectado este dispositivo.",
+    "switchAssistantTitle": "Cambiar asistente",
+    "twoFactorDescription": "Requiere un código de una aplicación de autenticación cuando inicias sesión.",
+    "twoFactorLoginNotice": "Inicia sesión en la plataforma Vellum para administrar la autenticación de dos factores.",
+    "twoFactorTitle": "Autenticación de dos factores",
+    "updateWindow": "Ventana de actualización",
+    "updatesLoginNotice": "Inicia sesión en la plataforma Vellum para administrar las actualizaciones de software.",
+    "versionSubtitle": "Administra la versión de software de tu asistente y las actualizaciones.",
+    "versionTitle": "Versión"
+  },
   "imageGenerationCard": {
     "activeModelLabel": "Modelo activo",
     "apiKeyLabel": "Clave de API",
@@ -227,10 +297,35 @@
     "vellumNote": "La generación de imágenes se ejecuta a través de tu cuenta de Vellum."
   },
   "integrationsPage": {
-    "filterAriaLabel": "Filtrar integraciones",
+    "accountConnectedToast": "Cuenta de {providerLabel} conectada correctamente.",
+    "accountConnectedToastGeneric": "Cuenta conectada correctamente.",
+    "connectFailedToast": "No se pudo conectar {providerLabel}.",
+    "connectFailedToastGeneric": "No se pudo conectar. Inténtalo de nuevo.",
+    "emptyAllEnabledTitle": "Todas las integraciones están habilitadas",
+    "emptyDefaultSubtitle": "Comprueba tu conexión e inténtalo de nuevo.",
+    "emptyDefaultTitle": "No hay integraciones disponibles",
+    "emptyEnabledSubtitle": "Conecta una integración para comenzar.",
+    "emptyEnabledTitle": "No hay integraciones habilitadas",
+    "emptyNotEnabledSubtitle": "Todas las integraciones disponibles han sido conectadas.",
+    "emptySearchSubtitle": "Ninguna integración coincide con \"{query}\"",
+    "emptySearchTitle": "Ninguna integración coincide",
     "filterAll": "Todas",
+    "filterAriaLabel": "Filtrar integraciones",
     "filterEnabled": "Habilitadas",
-    "filterNotEnabled": "No habilitadas"
+    "filterNotEnabled": "No habilitadas",
+    "loadFailed": "No se pudieron cargar las integraciones. Inténtalo de nuevo.",
+    "loading": "Cargando...",
+    "noAssistant": "No se encontró ningún asistente. Crea un asistente para conectar integraciones.",
+    "oauthErrorDenied": "Se denegó la autorización. Inténtalo de nuevo.",
+    "oauthErrorExchangeFailed": "No se pudo completar la autorización. Inténtalo de nuevo.",
+    "oauthErrorIdentityFailed": "No se pudo verificar la identidad de la cuenta. Inténtalo de nuevo.",
+    "oauthErrorStateExpired": "La autorización expiró. Inténtalo de nuevo.",
+    "oauthErrorStateInvalid": "El estado de autorización no era válido. Inténtalo de nuevo.",
+    "searchAriaLabel": "Buscar integraciones",
+    "searchPlaceholder": "Buscar integraciones",
+    "tabMcp": "MCP",
+    "tabOAuth": "OAuth",
+    "tipBanner": "<tip>Consejo:</tip> Puedes habilitar integraciones mencionándolas en el chat."
   },
   "languageModelCard": {
     "defaultProviderUnavailable": "Tu proveedor predeterminado no está disponible.",
@@ -238,6 +333,11 @@
     "overridesTitle": "Anulaciones",
     "subtitle": "Los perfiles eligen qué modelo responde. Los proveedores dan acceso a él",
     "title": "Modelo de lenguaje"
+  },
+  "listeningLanguageCard": {
+    "change": "Cambiar",
+    "subtitle": "El idioma en el que hablas con tu asistente. Se aplica a partir de tu próximo turno hablado.",
+    "title": "Idioma de escucha"
   },
   "manageProfilesBlockedDeleteModal": {
     "actionOverridesTitle": "Anulaciones de acciones",
@@ -260,6 +360,10 @@
     "summaryThreeClauses": "\"{display}\" {clause1}, {clause2} y {clause3}. Elige un reemplazo abajo y esas referencias se moverán a él; después se eliminará \"{display}\".",
     "summaryTwoClauses": "\"{display}\" {clause1} y {clause2}. Elige un reemplazo abajo y esas referencias se moverán a él; después se eliminará \"{display}\".",
     "title": "Elige un perfil de reemplazo"
+  },
+  "notificationsPage": {
+    "description": "Administra cómo Vellum te notifica en este dispositivo Android.",
+    "title": "Notificaciones"
   },
   "overridesCallSiteList": {
     "emptySearch": "Ninguna acción coincide con tu búsqueda."
@@ -313,6 +417,23 @@
     "planUpdatedToast": "Plan actualizado.",
     "startFreeCta": "Empezar gratis",
     "subheading": "Elige el nivel que se ajuste a cuánto quieres que se encargue."
+  },
+  "privacyPage": {
+    "llmLogRetentionDescription": "Cuánto tiempo conservar los registros de solicitudes y respuestas LLM en este dispositivo. Estos registros documentan las solicitudes y completaciones enviadas a los proveedores de modelos y se usan para depuración. Una retención más corta mejora la privacidad; una retención más larga ayuda a solucionar problemas.",
+    "llmLogRetentionLabel": "Retención de registros de solicitudes LLM",
+    "retentionDontRetain": "No conservar",
+    "retentionKeepForever": "Conservar para siempre",
+    "retentionNinetyDays": "90 días",
+    "retentionOneDay": "1 día",
+    "retentionOneHour": "1 hora",
+    "retentionSevenDays": "7 días",
+    "retentionThirtyDays": "30 días",
+    "shareAnalyticsHelper": "Enviar datos agregados de uso del producto",
+    "shareAnalyticsLabel": "Compartir analíticas",
+    "shareDiagnosticsHelper": "Enviar informes de fallos, trazas de conversación y datos de reproducción de sesión",
+    "shareDiagnosticsLabel": "Compartir diagnósticos",
+    "subtitleWithPolicy": "Consulta detalles sobre qué datos recopilamos y cómo se usan en nuestra <policyLink>política de privacidad</policyLink>.",
+    "title": "Privacidad"
   },
   "profileAdvancedParams": {
     "contextWindowLabel": "Ventana de contexto",
@@ -540,6 +661,31 @@
     "verifyingTitle": "Los registros DNS se han aprovisionado. Esperando a que el proveedor de correo los verifique; esto suele tardar unos minutos.",
     "yourOwnLabel": "Propio"
   },
+  "soundsSections": {
+    "addSound": "Agregar sonido",
+    "allSoundsAdded": "Todos los sonidos agregados",
+    "defaultBlip": "Blip predeterminado",
+    "enableEvent": "Activar {eventName}",
+    "enableSoundEffects": "Activar efectos de sonido",
+    "enableSoundEffectsDescription": "Interruptor principal para cada sonido basado en eventos.",
+    "noSoundFiles": "Aún no hay archivos de sonido. Coloca archivos de audio en data/sounds/ en tu espacio de trabajo.",
+    "preview": "Vista previa",
+    "previewDefaultBlip": "Vista previa del blip predeterminado",
+    "previewSoundAriaLabel": "Vista previa de {filename}",
+    "removeSoundAriaLabel": "Eliminar {filename}",
+    "soundEventCharacterPoke": "Toque de personaje",
+    "soundEventMessageSent": "Mensaje enviado",
+    "soundEventNeedsInput": "Requiere entrada",
+    "soundEventNewConversation": "Nueva conversación",
+    "soundEventNotification": "Notificación",
+    "soundEventRandom": "Aleatorio",
+    "soundEventTaskComplete": "Tarea completada",
+    "soundEventTaskFailed": "Tarea fallida",
+    "soundEventsDescription": "Agrega uno o más sonidos por evento. Cuando hay varios configurados, uno se reproduce al azar.",
+    "soundEventsTitle": "Eventos de sonido",
+    "volume": "Volumen",
+    "volumeAriaLabel": "Volumen de efectos de sonido"
+  },
   "speechToTextCard": {
     "subtitle": "Configura cómo tu asistente transcribe el habla",
     "title": "Voz a texto"
@@ -626,6 +772,52 @@
     "deleteFailedToast": "No se pudo eliminar el proveedor. Inténtalo de nuevo.",
     "deleteInUseToast": "Este proveedor está en uso en un perfil o como proveedor predeterminado. Actualiza esas configuraciones antes de eliminarlo.",
     "setDefaultFailedToast": "No se pudo establecer el proveedor predeterminado. Inténtalo de nuevo."
+  },
+  "voicePage": {
+    "activationKeyLabel": "Tecla de activación:",
+    "allowMicrophoneAccess": "Permitir acceso al micrófono",
+    "captionsSubtitle": "Muestra texto en vivo de lo que tú y el asistente dicen durante una conversación de voz.",
+    "captionsTitle": "Subtítulos",
+    "customKey": "Personalizada",
+    "defaultBadge": "Predeterminado",
+    "enablePushToTalk": "Activar pulsar para hablar",
+    "focusedTabNote": "Pulsar para hablar solo funciona mientras esta pestaña está enfocada, y los navegadores pueden interceptar algunos atajos (p. ej., Ctrl+T) antes de que la página los detecte. Para PTT siempre activo, usa la aplicación de escritorio de Vellum.",
+    "grantMicrophoneAccessHint": "Concede acceso al micrófono para enumerar tus dispositivos de entrada disponibles.",
+    "interruptSensitivityAriaLabel": "Sensibilidad a interrupciones",
+    "interruptSensitivityDescription": "Qué tan fácilmente hablar por encima del asistente lo interrumpe. Redúcela si el asistente se corta a sí mismo por ruido de fondo o muletillas; aumenta la sensibilidad para interrumpir más rápido.",
+    "interruptSensitivityHigh": "Alta",
+    "interruptSensitivityLabel": "Sensibilidad a interrupciones",
+    "interruptSensitivityLow": "Baja",
+    "interruptSensitivityMedium": "Media",
+    "microphoneAriaLabel": "Micrófono",
+    "microphoneFallbackLabel": "Micrófono {index}",
+    "microphoneSubtitle": "Qué dispositivo de entrada se usa para dictado y conversaciones de voz.",
+    "microphoneTitle": "Micrófono",
+    "pauseBeforeReplyAriaLabel": "Pausa antes de responder",
+    "pauseBeforeReplyDescription": "Cuánto espera el asistente después de que dejas de hablar antes de responder. Una pausa más larga te permite reunir tus ideas a mitad de frase sin ser interrumpido.",
+    "pauseBeforeReplyLabel": "Pausa antes de responder",
+    "pressAnyKey": "Pulsa cualquier tecla…",
+    "pushToTalkSubtitle": "Mantén pulsada la tecla de activación para dictar texto o iniciar una conversación de voz.",
+    "pushToTalkTitle": "Pulsar para hablar",
+    "resetToDefaults": "Restablecer valores predeterminados",
+    "savedMicrophone": "Micrófono guardado",
+    "savedMicrophoneNotConnected": "Micrófono guardado (no conectado)",
+    "sectionCaptionsHeading": "Subtítulos",
+    "sectionInputDescription": "Cómo hablas con tu asistente.",
+    "sectionInputHeading": "Entrada",
+    "sectionOutputDescription": "Cómo suena tu asistente.",
+    "sectionOutputHeading": "Salida",
+    "speechServicesBannerLink": "Configúralo en Modelos y servicios",
+    "speechServicesBannerPrompt": "¿Quieres usar tu propia clave API para STT o TTS, o configurar una voz personalizada?",
+    "systemDefault": "Predeterminado del sistema",
+    "turnTakingSubtitle": "Dónde termina tu turno y comienza el del asistente. Se aplica a conversaciones manos libres. Con pulsar para hablar, lo decide la tecla.",
+    "turnTakingTitle": "Turnos de conversación"
+  },
+  "voicePickerCard": {
+    "changeButton": "Cambiar",
+    "creditsNote": "Usa créditos de Vellum, a través de proveedores como ElevenLabs y Deepgram.",
+    "title": "Voz",
+    "titleWithName": "Voz de {name}"
   },
   "webFetchCard": {
     "apiKeyLabel": "Clave de API",
