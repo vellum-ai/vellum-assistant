@@ -132,7 +132,7 @@ ruleTester.run("no-untranslated-strings", noUntranslatedStrings, {
     {
       name: "toast machinery is not copy",
       filename: COMPONENT,
-      code: `toast.success(t("done"), { id: "export", duration: 5000, position: "top-center" });`,
+      code: `toast.success(t("done"), { id: "export", duration: 5000, tone: "strong" });`,
     },
     {
       name: "toast copy read through t()",
@@ -207,14 +207,6 @@ ruleTester.run("no-untranslated-strings", noUntranslatedStrings, {
       // The message is translated and the copy hides in the second argument,
       // which is why every argument is read rather than the first.
       code: `toast.error(t("save.failed"), { description: "Try again later", action: { label: "Retry" } });`,
-      errors: [{ messageId: "toast" }, { messageId: "toast" }],
-    },
-    {
-      name: "copy in a toast.promise bag",
-      filename: COMPONENT,
-      // The promise sits where the message would be, so nothing is reported
-      // unless the bag is read.
-      code: `toast.promise(p, { loading: "Saving…", success: "Saved" });`,
       errors: [{ messageId: "toast" }, { messageId: "toast" }],
     },
     {

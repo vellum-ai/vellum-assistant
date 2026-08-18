@@ -149,20 +149,14 @@ function unglue(text, followsExpression, precedesExpression) {
 }
 
 /**
- * Toast option fields the user reads, and the nested bags that hold them.
- * Everything else in the bag (`id`, `duration`, `position`, callbacks) is
- * machinery.
+ * The fields of a toast's options bag that the toast renders, taken from
+ * `ToastOptions` in `packages/design-library/src/components/toast.tsx`, which
+ * is the only toast this app has: nothing imports `sonner` directly. The rest
+ * of that interface (`id`, `duration`, `tone`, and the `onClick` beside this
+ * `label`) is machinery. Add to these when that interface gains copy.
  */
-const TOAST_COPY_FIELDS = new Set([
-  "description",
-  "label",
-  "loading",
-  "success",
-  "error",
-  "message",
-  "title",
-]);
-const TOAST_COPY_BAGS = new Set(["action", "cancel"]);
+const TOAST_COPY_FIELDS = new Set(["description", "label"]);
+const TOAST_COPY_BAGS = new Set(["action"]);
 
 /** The operands of a `+` chain, left to right, with the chain flattened out. */
 function flattenConcatenation(node) {
