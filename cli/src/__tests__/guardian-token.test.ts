@@ -428,11 +428,11 @@ describe("refreshGuardianToken", () => {
 
   test("an unreachable gateway is a 503, not a 401", async () => {
     seed(future());
-    globalThis.fetch = (async () => {
+    globalThis.fetch = (async (_url: unknown, _init?: RequestInit) => {
       throw Object.assign(new TypeError("fetch failed"), {
         cause: { code: "ECONNREFUSED" },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const result = await refreshGuardianTokenResult(
       "http://127.0.0.1:59999",
@@ -451,7 +451,7 @@ describe("refreshGuardianToken", () => {
 
   test("an HTTP 401 from the gateway is a spent credential", async () => {
     seed(future());
-    globalThis.fetch = (async () =>
+    globalThis.fetch = (async (_url: unknown, _init?: RequestInit) =>
       new Response("", { status: 401 })) as typeof fetch;
 
     expect(
@@ -465,7 +465,7 @@ describe("refreshGuardianToken", () => {
 
   test("an HTTP 503 from a still-starting gateway is retryable", async () => {
     seed(future());
-    globalThis.fetch = (async () =>
+    globalThis.fetch = (async (_url: unknown, _init?: RequestInit) =>
       new Response("", { status: 503 })) as typeof fetch;
 
     const result = await refreshGuardianTokenResult(

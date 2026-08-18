@@ -3,11 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-
 import {
   getGuardianAccessToken,
   formatGuardianRefreshCliFailure,
@@ -17,7 +12,6 @@ import {
   saveGuardianToken,
   type GuardianTokenData,
 } from "../guardian-token";
-import type { CliInvocation } from "../util";
 import type { CliInvocation } from "../util";
 
 // An invocation that would fail loudly if any tested branch spawned the CLI.
