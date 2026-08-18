@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { wikilinkTarget } from "../substrate/page-links.js";
 import type { Slug } from "./types.js";
 
 /**
@@ -52,7 +53,10 @@ export function loadCoreSet(workspaceDir: string): Slug[] {
     if (!match) {
       continue;
     }
-    const slug = (match[1] ?? match[2] ?? "").trim();
+    const slug =
+      match[1] !== undefined
+        ? wikilinkTarget(match[1])
+        : (match[2] ?? "").trim();
     if (!SLUG_SHAPE.test(slug) || seen.has(slug)) {
       continue;
     }

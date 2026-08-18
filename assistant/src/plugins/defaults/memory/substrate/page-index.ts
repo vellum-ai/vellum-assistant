@@ -21,7 +21,12 @@
 
 import { getLogger } from "../logging.js";
 import { type DanglingLink, findDanglingLinks } from "./page-links.js";
-import { getPageMtimeMs, listPages, readPage } from "./page-store.js";
+import {
+  getPageMtimeMs,
+  isValidSlug,
+  listPages,
+  readPage,
+} from "./page-store.js";
 import type { ConceptPage } from "./types.js";
 
 // Dynamic import for `./skill-store.js` happens inside `getPageIndex` so that
@@ -304,7 +309,11 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0,
   );
 
-  const danglingLinks = findDanglingLinks(linkSources, new Set(bySlug.keys()));
+  const danglingLinks = findDanglingLinks(
+    linkSources,
+    new Set(bySlug.keys()),
+    isValidSlug,
+  );
 
   const rendered = renderIndex(entries);
   const index: PageIndex = {

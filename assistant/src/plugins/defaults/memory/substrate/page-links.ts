@@ -83,17 +83,20 @@ export interface PageLinkSource {
 
 /**
  * Structural references on `pages` whose target is not in `knownSlugs`.
- * Self-references are ignored, each `(from, to, kind)` is reported once, and
- * the result is sorted by `(from, to, kind)` so renderings are byte-stable.
+ * Only slug-shaped targets (`isSlug`, the page store's rule) are references
+ * at all: `[[ -f foo ]]` in a shell snippet is not a link to a page. Self
+ * references are ignored, each `(from, to, kind)` is reported once, and the
+ * result is sorted by `(from, to, kind)` so renderings are byte-stable.
  */
 export function findDanglingLinks(
   pages: readonly PageLinkSource[],
   knownSlugs: ReadonlySet<string>,
+  isSlug: (target: string) => boolean,
 ): DanglingLink[] {
   const seen = new Set<string>();
   const dangling: DanglingLink[] = [];
   const report = (from: string, to: string, kind: PageLinkKind): void => {
-    if (to.length === 0 || to === from || knownSlugs.has(to)) {
+    if (to === from || knownSlugs.has(to) || !isSlug(to)) {
       return;
     }
     const key = `${kind} ${from} ${to}`;

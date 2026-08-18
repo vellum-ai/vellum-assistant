@@ -31,6 +31,7 @@ import {
 import { parseOriginDate } from "./page-index.js";
 import { findDanglingLinks } from "./page-links.js";
 import {
+  isValidSlug,
   listPages,
   parsePageContent,
   validateSlug,
@@ -348,6 +349,7 @@ function warnDanglingLinks(
   const dangling = findDanglingLinks(
     toWrite.map(({ page }) => page),
     knownSlugs,
+    isValidSlug,
   ).filter(
     (d) => !RESERVED_SLUG_PREFIXES.some((prefix) => d.to.startsWith(prefix)),
   );

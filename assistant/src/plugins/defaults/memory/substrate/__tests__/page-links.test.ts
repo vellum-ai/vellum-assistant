@@ -14,6 +14,7 @@ import {
   WIKILINK_REGEX,
   wikilinkTarget,
 } from "../page-links.js";
+import { isValidSlug } from "../page-store.js";
 
 /** Build a `"<slug> <sep> <why>"` links entry without spelling the separator. */
 const link = (target: string, why?: string): string =>
@@ -101,6 +102,7 @@ describe("findDanglingLinks", () => {
         },
       ],
       known,
+      isValidSlug,
     );
     expect(result).toEqual([
       { from: "hub", to: "atl-1291", kind: "links" },
@@ -120,6 +122,7 @@ describe("findDanglingLinks", () => {
           },
         ],
         known,
+        isValidSlug,
       ),
     ).toEqual([]);
   });
@@ -140,6 +143,7 @@ describe("findDanglingLinks", () => {
         },
       ],
       known,
+      isValidSlug,
     );
     expect(result).toEqual([
       { from: "alice", to: "ghost", kind: "links" },
@@ -152,8 +156,12 @@ describe("findDanglingLinks", () => {
       { slug: "zed", frontmatter: { links: [link("nope")] }, body: "[[nope]]" },
       { slug: "amy", frontmatter: {}, body: "[[zzz]] [[aaa]]" },
     ];
-    const forward = findDanglingLinks(pages, known);
-    const reversed = findDanglingLinks([...pages].reverse(), known);
+    const forward = findDanglingLinks(pages, known, isValidSlug);
+    const reversed = findDanglingLinks(
+      [...pages].reverse(),
+      known,
+      isValidSlug,
+    );
     expect(forward).toEqual(reversed);
     expect(forward.map((d) => `${d.from}>${d.to}>${d.kind}`)).toEqual([
       "amy>aaa>wikilink",
@@ -161,6 +169,24 @@ describe("findDanglingLinks", () => {
       "zed>nope>links",
       "zed>nope>wikilink",
     ]);
+  });
+
+  test("targets that are not slug-shaped are not references at all", () => {
+    // Shell tests, code, and prose in double brackets must not be reported
+    // (and so never reach the repair step that would unwrap them).
+    expect(
+      findDanglingLinks(
+        [
+          {
+            slug: "procs/deploy",
+            frontmatter: { links: ["Not A Slug"] },
+            body: "Run `if [[ -f foo ]]; then` and [[ Some Prose ]] then [[real-missing]].",
+          },
+        ],
+        known,
+        isValidSlug,
+      ),
+    ).toEqual([{ from: "procs/deploy", to: "real-missing", kind: "wikilink" }]);
   });
 
   test("a fully resolved corpus yields an empty list", () => {
@@ -175,6 +201,7 @@ describe("findDanglingLinks", () => {
           { slug: "bob", frontmatter: { edges: ["alice"] }, body: "" },
         ],
         known,
+        isValidSlug,
       ),
     ).toEqual([]);
   });

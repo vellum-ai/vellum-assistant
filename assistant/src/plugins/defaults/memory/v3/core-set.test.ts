@@ -30,6 +30,13 @@ describe("loadCoreSet", () => {
     expect(loadCoreSet(workspaceDir)).toEqual(["page-a", "page-b"]);
   });
 
+  test("a wikilink's |display and #anchor suffixes are not part of the slug", () => {
+    writeCorePages(
+      ["- [[people/alice|Alice]]", "- [[page-b#current]] keep"].join("\n"),
+    );
+    expect(loadCoreSet(workspaceDir)).toEqual(["people/alice", "page-b"]);
+  });
+
   test("accepts inline annotations after the slug", () => {
     writeCorePages(
       [

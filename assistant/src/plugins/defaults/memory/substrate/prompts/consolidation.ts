@@ -458,7 +458,7 @@ summary: A short prose description of the article — 1-4 sentences, single line
 
 **If two pages genuinely "see-also" each other** — sibling arcs same date, mutual references — write the link in BOTH frontmatters explicitly. Each direction is its own edge.
 
-**Every target must exist when you finish.** An \`edges:\` entry is a structural edge, and retrieval follows it only if \`memory/concepts/<target>.md\` exists at the end of this pass (a stub you spawn this pass counts). Issue and ticket IDs, one-off names, dates, and phrases that have no article are prose: write them as plain text, never as an edge.
+**Every target must exist when you finish.** An \`edges:\` entry is a structural edge, and retrieval follows it only if \`memory/concepts/<target>.md\` exists at the end of this pass (a stub you spawn this pass counts; \`skills/<id>\` and \`cli-commands/<name>\` targets name registered capabilities and need no page). Issue and ticket IDs, one-off names, dates, and phrases that have no article are prose: write them as plain text, never as an edge.
 
 ### Caps are on OUTGOING edges only
 
@@ -837,7 +837,7 @@ Apply One-fact-one-home and Route-don't-restate as you write. Before adding a pa
 
 **Don't link to the top-level hubs by default** from leaf pages — the principal's hub, your self-article, the shared-context hub. They're reachable from everywhere anyway. Save links for connections retrieval can't infer for free. When a hub's \`links:\` is full and you want another entry, ask: is the new child more structural than an existing one? Swap or let the child carry \`main:\` only.
 
-**Every target must exist when you finish.** A \`links:\` entry or an inline \`[[wikilink]]\` is a structural edge, and retrieval follows it only if \`memory/concepts/<target>.md\` exists at the end of this pass (a stub you spawn this pass counts). Issue and ticket IDs, one-off names, dates, and phrases that have no article are prose: write them as plain text, never as a link.
+**Every target must exist when you finish.** A \`links:\` entry or an inline \`[[wikilink]]\` is a structural edge, and retrieval follows it only if \`memory/concepts/<target>.md\` exists at the end of this pass (a stub you spawn this pass counts; \`skills/<id>\` and \`cli-commands/<name>\` targets name registered capabilities and need no page). Issue and ticket IDs, one-off names, dates, and phrases that have no article are prose: write them as plain text, never as a link.
 
 ## 5. Article size — TOPIC COHERENCE, not char caps
 

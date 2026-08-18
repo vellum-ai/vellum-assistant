@@ -60,7 +60,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-30T14:17:04.000Z"
+      "updatedAt": "2026-08-18T16:11:30.000Z"
     },
     {
       "id": "chat-complex-documents",
@@ -370,7 +370,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T20:42:41.000Z"
+      "updatedAt": "2026-08-10T18:03:33.000Z"
     },
     {
       "id": "guardian-verify-setup",
@@ -626,7 +626,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-30T14:17:04.000Z"
+      "updatedAt": "2026-08-18T16:11:30.000Z"
     },
     {
       "id": "notifications",
@@ -732,7 +732,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T20:42:41.000Z"
+      "updatedAt": "2026-08-10T18:03:33.000Z"
     },
     {
       "id": "plugin-builder",
