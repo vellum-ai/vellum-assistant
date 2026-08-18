@@ -13,10 +13,9 @@ describe("PlusIcon", () => {
   test("draws both strokes in a single path", () => {
     const html = renderToStaticMarkup(<PlusIcon />);
 
-    // Two <path> elements are rasterized and composited separately, which is
-    // what lets WebKit open a one-pixel gap between them at the crossing.
-    // Splitting this back into a path per stroke reintroduces exactly the
-    // hole the icon exists to close.
+    // One shape, so there is no boundary between two strokes for the device's
+    // one-pixel gap to open along. Splitting this back into a path per stroke
+    // restores the structure that artifact needs.
     expect(html.match(/<path/g)?.length).toBe(1);
 
     // Both subpaths present, so it is still a plus and not half of one.
