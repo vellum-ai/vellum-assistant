@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 
 import { getConfig } from "../config/loader.js";
+import { classifyRisk } from "../permissions/checker.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
-import { RiskLevel } from "../permissions/types.js";
 import { runInPluginContext } from "../plugins/plugin-execution-context.js";
 import { TokenExpiredError } from "../security/token-manager.js";
 import {
@@ -30,6 +30,7 @@ import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
 import { ToolApprovalHandler } from "./tool-approval-handler.js";
 import { resolveToolInvocationAlias } from "./tool-name-aliases.js";
 import { recordToolCompletion } from "./tool-profiler.js";
+import { RISK_LEVEL_UNCLASSIFIED } from "./tool-types.js";
 import { type ToolContext, type ToolExecutionResult } from "./types.js";
 
 export class ToolExecutor {
@@ -60,7 +61,28 @@ export class ToolExecutor {
   ): Promise<ToolExecutionResult> {
     const startTime = Date.now();
     let decision = "allow";
-    let riskLevel: string = RiskLevel.Low;
+    // Classified before the gates so every audit row this call can produce
+    // (gate denial, gate error, grant-consumed execution, permission decision)
+    // records the risk of what the model asked for. `checkPermission`
+    // classifies the same input again and hits the classifier cache. A
+    // classification that does not complete (aborted, gateway unreachable) is
+    // recorded as such rather than as a level; the permission check still
+    // requires one and fails closed on its own.
+    let riskLevel: string = RISK_LEVEL_UNCLASSIFIED;
+    try {
+      riskLevel = (
+        await classifyRisk(
+          name,
+          input,
+          context.workingDir,
+          undefined,
+          undefined,
+          context.signal,
+        )
+      ).level;
+    } catch {
+      // Left as RISK_LEVEL_UNCLASSIFIED.
+    }
     let permRiskMeta:
       | {
           riskLevel: string;

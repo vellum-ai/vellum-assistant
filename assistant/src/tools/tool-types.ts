@@ -49,6 +49,14 @@ export enum RiskLevel {
   High = "high",
 }
 
+/**
+ * `riskLevel` recorded on a `tool_invocations` audit row when the call's risk
+ * was never classified (classification aborted, or the gateway was
+ * unreachable, before any decision was reached). Distinct from every
+ * {@link RiskLevel} so a reader can tell "not assessed" from "assessed as low".
+ */
+export const RISK_LEVEL_UNCLASSIFIED = "unclassified";
+
 export interface ToolDefinition {
   name: string;
   description: string;
