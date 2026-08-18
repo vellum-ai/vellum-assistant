@@ -1,4 +1,4 @@
-import { BottomSheet } from "@vellumai/design-library";
+import { BottomSheet, toast } from "@vellumai/design-library";
 import {
   Camera,
   File as FileIcon,
@@ -9,10 +9,12 @@ import {
 
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import {
+  isPickerDismissal,
   nativeAttachmentPickersAvailable,
   pickFilesNative,
   pickMediaNative,
 } from "@/domains/chat/components/chat-attachments/native-attachment-pickers";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
 import { useTranslation } from "@/i18n";
 
@@ -109,9 +111,16 @@ export function AddToChatSheet({
         if (picked.length > 0) {
           onAttachFiles(picked);
         }
-      } catch {
-        // Cancelling is a rejection, not an error worth surfacing: the user
-        // dismissed a sheet they opened.
+      } catch (error) {
+        // A dismissal is a rejection too, and not worth reporting: the user
+        // closed a sheet they opened. Anything else is a real failure (an iOS
+        // temporary-copy or unsupported-type error, an Android picker fault, a
+        // failed read in `fileFromNativePath`) and would otherwise look
+        // identical to picking nothing, so it is reported and shown.
+        if (!isPickerDismissal(error)) {
+          captureError(error, { context: "add_to_chat_sheet_native_picker" });
+          toast.error(t("addToChatSheet.pickFailed"));
+        }
       } finally {
         requestComposerFocus();
       }

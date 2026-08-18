@@ -43,6 +43,19 @@ export function nativeAttachmentPickersAvailable(): boolean {
 }
 
 /**
+ * Whether a rejection is the user dismissing the picker rather than a failure.
+ *
+ * The plugin reports a dismissal by rejecting with a message ending
+ * `canceled.` on both the native and web implementations, and carries no error
+ * code to key off instead. Matching the word is therefore the only signal
+ * available; it is matched loosely so either spelling counts, and anything
+ * that does not match is treated as a real failure rather than swallowed.
+ */
+export function isPickerDismissal(error: unknown): boolean {
+  return error instanceof Error && /cancell?ed/i.test(error.message);
+}
+
+/**
  * Reads a native file path into a `File` through the web view's own bridge.
  *
  * `convertFileSrc` maps a native path onto a URL WKWebView can fetch, which

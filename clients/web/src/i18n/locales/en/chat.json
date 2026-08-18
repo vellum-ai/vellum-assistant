@@ -8,7 +8,8 @@
     "closeAriaLabel": "Close",
     "camera": "Camera",
     "gallery": "Photo Library",
-    "files": "Files"
+    "files": "Files",
+    "pickFailed": "Could not add that file. Please try again."
   },
   "allowOptionsMenu": {
     "allowAndCreateRule": "Allow & Create Rule",

@@ -8,7 +8,8 @@
     "closeAriaLabel": "Cerrar",
     "camera": "Cámara",
     "gallery": "Fototeca",
-    "files": "Archivos"
+    "files": "Archivos",
+    "pickFailed": "No se pudo añadir ese archivo. Inténtalo de nuevo."
   },
   "allowOptionsMenu": {
     "allowAndCreateRule": "Permitir y crear regla",

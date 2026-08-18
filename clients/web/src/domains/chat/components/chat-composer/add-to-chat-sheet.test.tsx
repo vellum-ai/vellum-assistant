@@ -59,8 +59,17 @@ mock.module(
     nativeAttachmentPickersAvailable: () => mockNativePickersAvailable,
     pickMediaNative: () => mockPickMedia(),
     pickFilesNative: () => mockPickFiles(),
+    // The real discriminator, not a stub: what counts as a dismissal is the
+    // behaviour under test here.
+    isPickerDismissal: (error: unknown) =>
+      error instanceof Error && /cancell?ed/i.test(error.message),
   }),
 );
+
+const captureErrorSpy = mock(() => {});
+mock.module("@/lib/sentry/capture-error", () => ({
+  captureError: captureErrorSpy,
+}));
 
 const requestComposerFocusSpy = mock(() => {});
 mock.module("@/domains/chat/composer-focus", () => ({
@@ -79,6 +88,7 @@ afterEach(() => {
   mockPickMedia = async () => [];
   mockPickFiles = async () => [];
   requestComposerFocusSpy.mockClear();
+  captureErrorSpy.mockClear();
 });
 
 function renderSheet(
@@ -206,6 +216,32 @@ describe("AddToChatSheet: native pickers", () => {
     // AND the composer is refocused anyway. The native pickers fire none of
     // the input events `useAttachmentFilePicker` restores focus from, so
     // without this the picker would work and the keyboard would not return.
+    expect(requestComposerFocusSpy).toHaveBeenCalled();
+
+    // AND nothing is reported: closing a sheet you opened is not a fault.
+    expect(captureErrorSpy).not.toHaveBeenCalled();
+  });
+
+  test("a failed pick is reported rather than read as a dismissal", async () => {
+    // GIVEN a picker that fails for a real reason, which on iOS covers a
+    // temporary-copy or unsupported-type error and here stands for any of them
+    mockNativePickersAvailable = true;
+    mockPickFiles = async () => {
+      throw new Error("Unable to copy file to temporary directory");
+    };
+    const { onAttachFiles } = renderSheet();
+
+    // WHEN the files row is tapped
+    fireEvent.click(screen.getByText("Files"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // THEN nothing is attached, which on its own looks exactly like picking
+    // nothing, so the failure is reported instead of vanishing
+    expect(onAttachFiles).not.toHaveBeenCalled();
+    expect(captureErrorSpy).toHaveBeenCalled();
+
+    // AND focus still returns, the same as any other way out of the picker
     expect(requestComposerFocusSpy).toHaveBeenCalled();
   });
 
