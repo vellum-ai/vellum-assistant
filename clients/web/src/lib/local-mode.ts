@@ -1024,14 +1024,17 @@ function isGatewayStillStarting(error: unknown): boolean {
 /**
  * A `wake`-restarted gateway that hasn't finished coming back up: it refuses
  * connections (a thrown transport error), answers `503`/`5xx`, or rejects the
- * mint with a repairable `401` while it re-provisions its guardian binding. A
- * `403` loopback-boundary refusal is terminal, and a missing/expired guardian
- * token or an unresolved gateway won't heal by waiting (the just-run `wake`
- * already re-seeded the token and recorded the port), so those fall through.
+ * mint with a repairable `401` while it re-provisions its guardian binding.
+ * A guardian refresh `5xx` is the same window: the host shells out to
+ * `vellum gateway token refresh`, which cannot reach a gateway that is still
+ * binding its port. A `403` loopback-boundary refusal is terminal, and a
+ * missing (`404`) or rejected (`401`) guardian token will not heal by
+ * waiting (the just-run `wake` already re-seeded the token and recorded the
+ * port), so those fall through.
  */
 function isGatewayRestartTransient(error: unknown): boolean {
   if (error instanceof GuardianTokenError) {
-    return false;
+    return error.status >= 500;
   }
   if (error instanceof UnresolvedLocalGatewayError) {
     return false;

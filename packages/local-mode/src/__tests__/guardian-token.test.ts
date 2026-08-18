@@ -3,13 +3,21 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
 import {
   getGuardianAccessToken,
+  formatGuardianRefreshCliFailure,
+  parseGuardianRefreshCliFailure,
   PAIRED_GUARDIAN_TARGET_MISMATCH_ERROR,
   PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   saveGuardianToken,
   type GuardianTokenData,
 } from "../guardian-token";
+import type { CliInvocation } from "../util";
 import type { CliInvocation } from "../util";
 
 // An invocation that would fail loudly if any tested branch spawned the CLI.
@@ -199,5 +207,43 @@ describe("getGuardianAccessToken", () => {
       ),
     ) as GuardianTokenData;
     expect(stored.pairedGatewayUrl).toBe("https://gateway.example.com");
+  });
+});
+
+describe("parseGuardianRefreshCliFailure", () => {
+  test("reads a labeled 401 from stderr", () => {
+    expect(
+      parseGuardianRefreshCliFailure(
+        "",
+        `Failed to refresh guardian token.\n${formatGuardianRefreshCliFailure(401, "Failed to refresh guardian token")}\n`,
+      ),
+    ).toEqual({
+      ok: false,
+      status: 401,
+      error: "Failed to refresh guardian token",
+    });
+  });
+
+  test("reads a labeled 503 from stderr", () => {
+    expect(
+      parseGuardianRefreshCliFailure(
+        "",
+        formatGuardianRefreshCliFailure(503, "Assistant gateway is unreachable"),
+      ),
+    ).toEqual({
+      ok: false,
+      status: 503,
+      error: "Assistant gateway is unreachable",
+    });
+  });
+
+  test("an unlabeled non-zero CLI exit is a 503, not a 401", () => {
+    expect(
+      parseGuardianRefreshCliFailure("", "Failed to refresh guardian token."),
+    ).toEqual({
+      ok: false,
+      status: 503,
+      error: "Failed to refresh guardian token",
+    });
   });
 });
