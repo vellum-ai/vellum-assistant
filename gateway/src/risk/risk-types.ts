@@ -12,6 +12,15 @@
 
 // ── Risk level enum ──────────────────────────────────────────────────────────
 
+import type {
+  ClassifiedRisk,
+  RiskAllowlistOption,
+  RiskDirectoryScopeOption,
+  RiskLevelValue,
+  RiskMatchType,
+  RiskPatternScopeOption,
+} from "@vellumai/gateway-client";
+
 export enum RiskLevel {
   Low = "low",
   Medium = "medium",
@@ -28,42 +37,28 @@ export enum RiskLevel {
  * - `"high"`: Destructive, privilege escalation, force ops, arbitrary code exec
  * - `"unknown"`: Not in registry, unrecognized command or arg pattern
  */
-export type Risk = "low" | "medium" | "high" | "unknown";
+export type Risk = ClassifiedRisk;
 
 /**
  * Risk levels that can be assigned to commands in the registry.
  * Excludes "unknown" — that's a classifier output, not a registry value.
  */
-export type RegistryRisk = "low" | "medium" | "high";
+export type RegistryRisk = RiskLevelValue;
 
-// ── Allowlist option ─────────────────────────────────────────────────────────
+// ── Wire shapes ──────────────────────────────────────────────────────────────
+// The option ladders a classification carries are the `classify_risk`
+// contract's; the classifiers build them under their local names.
 
-export interface AllowlistOption {
-  label: string;
-  description: string;
-  pattern: string;
-}
-
-// ── Risk assessment output ───────────────────────────────────────────────────
+export type AllowlistOption = RiskAllowlistOption;
 
 /** A scope option presented to the user when classifying an unknown command. */
-export interface ScopeOption {
-  /** Stored in DB if user saves (always regex internally). */
-  pattern: string;
-  /** Human-readable description shown in UI. */
-  label: string;
-}
+export type ScopeOption = RiskPatternScopeOption;
 
 /**
  * A directory-scope option presented alongside the pattern ladder. Emitted
  * for filesystem ops (bash with filesystemOp=true) and file tools.
  */
-export interface DirectoryScopeOption {
-  /** Path glob (e.g. "/workspace/scratch/*") or the sentinel "everywhere". */
-  scope: string;
-  /** Human-readable label (e.g. "In scratch/"). */
-  label: string;
-}
+export type DirectoryScopeOption = RiskDirectoryScopeOption;
 
 /**
  * The output of a risk classifier. Tool-agnostic — every classifier
@@ -77,7 +72,7 @@ export interface RiskAssessment {
   /** Scope options for the "save this classification" UI, narrowest to broadest. */
   scopeOptions: ScopeOption[];
   /** How the risk was determined. */
-  matchType: "user_rule" | "registry" | "unknown";
+  matchType: RiskMatchType;
   /**
    * Allowlist options for the permission prompt "always allow" scope ladder.
    * Populated by classifiers that unify risk classification and scope option

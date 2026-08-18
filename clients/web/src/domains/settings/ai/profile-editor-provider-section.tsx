@@ -309,30 +309,29 @@ export function ProfileEditorProviderSection({
     }
   }, [modelEmptyState, t]);
 
-  // Clear the bound model when it isn't selectable for the current connection.
-  // Per-connection providers (openai-compatible) derive their model list from
-  // the connection, so a binding the connection doesn't offer must clear. For a
-  // catalog-backed provider a model that's entirely absent from the catalog is a
-  // newer/cloaked model the build doesn't list — keep it, clearing it would wipe
-  // a working profile. But a model that IS in the catalog yet filtered out of
-  // availableModels (e.g. a non-Codex model under a ChatGPT subscription
-  // connection) is a known-incompatible binding and still clears. The parent's
-  // handleProviderChange resets the model on provider switch, so this never
-  // strands a cross-provider binding.
+  // Clear only a catalog model the current connection has filtered out
+  // (e.g. a non-Codex model under a ChatGPT subscription). Pass-through ids
+  // stay: connection lists are advisory (gateway aliases, unrefreshed models),
+  // and a catalog-backed id this build doesn't list is a newer/cloaked model.
+  // `modelOptions` already offers those ids. The parent's handleProviderChange
+  // resets the model on provider switch, so this never strands a
+  // cross-provider binding.
   useEffect(() => {
     if (!provider) {
       return;
     }
     // While the user is typing a custom id it won't match the catalog or
-    // connection lists — leave it untouched instead of clearing every keystroke.
+    // connection lists, so leave it untouched instead of clearing every keystroke.
     if (isEnteringCustomModel) {
       return;
     }
     const catalogModels = getModelsForProvider(provider);
-    if (
-      catalogModels.length > 0 &&
-      !catalogModels.some((m) => m.id === model)
-    ) {
+    // Connection-derived providers (openai-compatible) have an empty catalog.
+    // An id the connection does not list is still a valid bound model.
+    if (catalogModels.length === 0) {
+      return;
+    }
+    if (!catalogModels.some((m) => m.id === model)) {
       return;
     }
     if (

@@ -67,7 +67,6 @@ mock.module("../permissions/checker.js", () => ({
   check: async () => ({ decision: checkDecision, reason: "medium risk" }),
   generateAllowlistOptions: () => [],
   generateScopeOptions: () => [],
-  getCachedAssessment: () => undefined,
 }));
 
 mock.module("../telemetry/tool-usage-store.js", () => ({

@@ -350,17 +350,17 @@ export interface VoiceActivityStart extends VoiceActivityContent {
 }
 
 /**
- * What the surface's own renderer receives: everything the session sent, plus
- * `startedAt`, which main stamps.
+ * What the surface's own renderer receives, which is exactly what the session
+ * sent.
  *
- * `startedAt` is main's rather than the sender's because the surface is a
- * separate renderer that can load, reload, or be recreated mid-session, and an
- * elapsed clock anchored in either renderer would restart when that happened.
+ * The same shape as {@link VoiceActivityStart} under a name that says which end
+ * is holding it: a `start` is an event a renderer publishes, and this is the
+ * session main keeps and pushes down. Main once added `startedAt` here to
+ * anchor an elapsed clock outside a renderer that can reload mid-session, and
+ * dropped it with the clock (JARVIS-1546): a timestamp nothing reads is a
+ * timestamp that quietly rots.
  */
-export interface VoiceActivityState extends VoiceActivityStart {
-  /** Epoch ms when main first saw this session. */
-  startedAt: number;
-}
+export type VoiceActivityState = VoiceActivityStart;
 
 /**
  * What a control on the session surface asks of the session.
@@ -655,6 +655,21 @@ export interface CompanionContext {
   assistantName: string;
   /** The conversation's tail, most recent last. */
   turns: CompanionTurn[];
+  /**
+   * Whether a turn is in flight right now.
+   *
+   * The surface has the tail of the conversation but no idea whether it is
+   * still being written: the last turn on a finished exchange and the last turn
+   * on one the assistant is still working through are the same rows. This is
+   * the difference, and it is what the surface draws its working ring from.
+   *
+   * Published rather than inferred for the same reason the turns are. The turn
+   * lives in the window that owns the conversation, and a surface guessing from
+   * the shape of the tail would be wrong in both directions: a user message with
+   * no reply yet is not proof of a live turn, and an assistant message already
+   * on screen is no proof the turn behind it has ended.
+   */
+  working: boolean;
 }
 
 /** What main tells the companion renderer. */
@@ -678,6 +693,14 @@ export interface CompanionSurfaceState {
    * the app at all.
    */
   turns: CompanionTurn[];
+  /**
+   * Whether a turn is in flight, as the window holding it last reported.
+   *
+   * What the surface turns into a signal a glance can read, so the assistant
+   * being busy does not have to be inferred from the words on the card. See
+   * {@link CompanionContext.working}.
+   */
+  working: boolean;
   /**
    * The character to render live, or `undefined` when there is none to
    * compose. See {@link CompanionCharacter}; `avatarBase64` is the fallback.

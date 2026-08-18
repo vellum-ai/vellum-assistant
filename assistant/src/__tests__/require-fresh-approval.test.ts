@@ -99,7 +99,6 @@ mock.module("../permissions/checker.js", () => ({
   ],
   generateScopeOptions: () =>
     scopeOptionsOverride ?? [{ label: "/tmp", scope: "/tmp" }],
-  getCachedAssessment: () => undefined,
 }));
 
 mock.module("../telemetry/tool-usage-store.js", () => ({

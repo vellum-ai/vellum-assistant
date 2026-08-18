@@ -49,7 +49,6 @@ mock.module("../permissions/checker.js", () => ({
   ],
   generateScopeOptions: () =>
     scopeOptionsOverride ?? [{ label: "/tmp", scope: "/tmp" }],
-  getCachedAssessment: () => undefined,
 }));
 
 // Mock every export so downstream test files that dynamically import modules

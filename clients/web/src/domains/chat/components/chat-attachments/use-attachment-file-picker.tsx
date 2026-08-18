@@ -5,6 +5,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
@@ -25,6 +26,13 @@ interface UseAttachmentFilePickerResult {
   openPicker: () => void;
   /** Hidden `<input type="file">` the caller must render. */
   inputNode: ReactElement;
+  /**
+   * True from the moment the picker is opened until it closes. The native
+   * picker takes the web view's first responder, which on iOS arrives in the
+   * DOM as the composer losing focus, so a caller that gates layout on its own
+   * focus has to hold that gate open for this instead.
+   */
+  pickerOpen: boolean;
 }
 
 /**
@@ -64,6 +72,11 @@ export function useAttachmentFilePicker({
   capture,
 }: UseAttachmentFilePickerOptions): UseAttachmentFilePickerResult {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // The picker's own lifetime, which outlives the composer's focus: presenting
+  // it dismisses the keyboard, and `useComposerFocusWithin` reads that dismiss
+  // as focus returning to the body. Without this the composer would rearrange
+  // itself for an idle composer while the picker it opened is still up.
+  const [pickerOpen, setPickerOpen] = useState(false);
   // Kept in a ref so an unmemoized caller callback doesn't remint `inputNode`,
   // which would remount the input mid-picker for consumers that render it.
   const onFilesRef = useRef(onFiles);
@@ -82,6 +95,7 @@ export function useAttachmentFilePicker({
     disarmFocusFallbackRef.current?.();
     disarmFocusFallbackRef.current = null;
     requestComposerFocus();
+    setPickerOpen(false);
   }, []);
 
   const openPicker = useCallback(() => {
@@ -95,6 +109,7 @@ export function useAttachmentFilePicker({
     window.addEventListener("focus", onFocus, { once: true });
     disarmFocusFallbackRef.current = () =>
       window.removeEventListener("focus", onFocus);
+    setPickerOpen(true);
     inputRef.current?.click();
   }, [refocusComposer]);
 
@@ -147,5 +162,5 @@ export function useAttachmentFilePicker({
     [multiple, accept, capture, handleChange],
   );
 
-  return { openPicker, inputNode };
+  return { openPicker, inputNode, pickerOpen };
 }

@@ -22,6 +22,7 @@ import {
   getRegisteredInjectors,
   registerPluginInjectors,
 } from "../plugins/injector-registry.js";
+import { resetPluginCacheForTests } from "../plugins/mtime-cache.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,
@@ -85,6 +86,7 @@ function makeFakeTool(name: string): Tool {
 
 beforeEach(() => {
   resetPluginRegistryForTests();
+  resetPluginCacheForTests();
   clearInjectorRegistry();
 });
 

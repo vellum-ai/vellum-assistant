@@ -1158,6 +1158,24 @@ describe("attachment extraction in normalize functions", () => {
 
         expect(result).toBeNull();
       });
+
+      it("normalizes a thread_broadcast channel reply", () => {
+        const config = makeConfig();
+        const event = makeChannelEvent({
+          subtype: "thread_broadcast",
+          text: "also sending this to the channel",
+          thread_ts: "1234567890.000001",
+          ts: "1234567890.123456",
+        });
+        const result = normalizeSlackChannelMessage(event, "evt-tb-1", config);
+
+        expect(result).not.toBeNull();
+        expect(result!.event.message.content).toBe(
+          "also sending this to the channel",
+        );
+        expect(result!.threadTs).toBe("1234567890.000001");
+        expect(result!.event.source.threadId).toBe("1234567890.000001");
+      });
     });
   });
 

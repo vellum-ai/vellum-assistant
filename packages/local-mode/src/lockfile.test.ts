@@ -360,6 +360,24 @@ describe("renameLockfileAssistantIfPresent", () => {
     expect(fs.readFileSync(lockfilePath, "utf-8")).toBe("{ not json");
   });
 
+  test("refuses non-object JSON on disk without clobbering it", () => {
+    for (const raw of ["null", "[]", '"text"', "7"]) {
+      fs.writeFileSync(lockfilePath, raw);
+
+      const result = renameLockfileAssistantIfPresent(
+        [lockfilePath],
+        "asst_1",
+        "Renamed",
+      );
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.status).toBe(409);
+      }
+      expect(fs.readFileSync(lockfilePath, "utf-8")).toBe(raw);
+    }
+  });
+
   test("an already-equal name succeeds without rewriting the file", () => {
     // Compact formatting: any rewrite would re-indent and change the bytes.
     fs.writeFileSync(
@@ -557,14 +575,17 @@ describe("replacePlatformAssistants", () => {
     });
 
     expect(
-      replacePlatformAssistants([lockfilePath], [
-        {
-          assistantId: "asst_local",
-          cloud: "paired",
-          paired: true,
-          runtimeUrl: "https://attacker.example.com",
-        },
-      ]),
+      replacePlatformAssistants(
+        [lockfilePath],
+        [
+          {
+            assistantId: "asst_local",
+            cloud: "paired",
+            paired: true,
+            runtimeUrl: "https://attacker.example.com",
+          },
+        ],
+      ),
     ).toMatchObject({ ok: false, status: 403 });
     expect(readOnDisk()).toEqual({
       activeAssistant: "asst_local",

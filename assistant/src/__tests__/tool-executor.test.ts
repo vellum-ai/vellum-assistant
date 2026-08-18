@@ -43,8 +43,11 @@ let checkFnOverride:
 /** Override for generateScopeOptions — when set, returns this value instead of the default. */
 let scopeOptionsOverride: ScopeOption[] | undefined;
 
-/** Override for getCachedAssessment — when set, returns this value. */
-let cachedAssessmentOverride:
+/**
+ * Override for the classification `classifyRisk` returns; when unset the
+ * classifier answers low with no reason and no options.
+ */
+let classificationOverride:
   | {
       riskLevel: string;
       reason: string;
@@ -61,7 +64,14 @@ let cachedAssessmentOverride:
 
 mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => false,
-  classifyRisk: async () => ({ level: "low" }),
+  classifyRisk: async () => ({
+    level: classificationOverride?.riskLevel ?? "low",
+    reason: classificationOverride?.reason,
+    scopeOptions: classificationOverride?.scopeOptions ?? [],
+    allowlistOptions: classificationOverride?.allowlistOptions,
+    directoryScopeOptions: classificationOverride?.directoryScopeOptions,
+    matchType: classificationOverride?.matchType ?? "unknown",
+  }),
   check: async (
     toolName: string,
     input: Record<string, unknown>,
@@ -82,7 +92,6 @@ mock.module("../permissions/checker.js", () => ({
   ],
   generateScopeOptions: () =>
     scopeOptionsOverride ?? [{ label: "/tmp", scope: "/tmp" }],
-  getCachedAssessment: () => cachedAssessmentOverride,
 }));
 
 // Mock every export so downstream test files that dynamically import modules
@@ -167,7 +176,7 @@ describe("ToolExecutor allowedToolNames gating", () => {
     getAllToolsOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
-    cachedAssessmentOverride = undefined;
+    classificationOverride = undefined;
   });
 
   test("executes normally when allowedToolNames is not set", async () => {
@@ -385,7 +394,7 @@ describe("ToolExecutor policy context plumbing", () => {
     getToolOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
-    cachedAssessmentOverride = undefined;
+    classificationOverride = undefined;
   });
 
   test("passes PolicyContext with executionTarget for skill-origin tools", async () => {
@@ -604,7 +613,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     getToolOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
-    cachedAssessmentOverride = undefined;
+    classificationOverride = undefined;
     promptCalled = false;
   });
 
@@ -989,11 +998,11 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     getToolOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
-    cachedAssessmentOverride = undefined;
+    classificationOverride = undefined;
   });
 
   test("auto-approved tool result includes risk metadata when classifier assessment exists", async () => {
-    cachedAssessmentOverride = {
+    classificationOverride = {
       riskLevel: "medium",
       reason: "Writes to a file outside the workspace",
       scopeOptions: [
@@ -1019,8 +1028,10 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     ]);
   });
 
-  test("tool result omits risk metadata when no classifier assessment exists (e.g. MCP tools)", async () => {
-    // cachedAssessmentOverride is undefined (no classifier ran)
+  test("tool result carries the classification's risk metadata even when the classifier produced no options", async () => {
+    // classificationOverride is unset: the classifier answered low with no
+    // reason and no options, which is what a tool with no dedicated classifier
+    // (registry default risk) looks like.
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "file_read",
@@ -1029,9 +1040,9 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     );
 
     expect(result.isError).toBe(false);
-    expect(result.riskLevel).toBeUndefined();
-    expect(result.riskReason).toBeUndefined();
-    expect(result.riskScopeOptions).toBeUndefined();
+    expect(result.riskLevel).toBe("low");
+    expect(result.riskScopeOptions).toEqual([]);
+    expect(result.riskAllowlistOptions).toBeUndefined();
   });
 
   test("denied tool result includes risk metadata", async () => {
@@ -1039,7 +1050,7 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
       decision: "deny",
       reason: "Blocked by deny rule",
     };
-    cachedAssessmentOverride = {
+    classificationOverride = {
       riskLevel: "high",
       reason: "Recursive force delete",
       scopeOptions: [{ pattern: "bash:rm -rf*", label: "rm -rf commands" }],
@@ -1066,7 +1077,7 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
       decision: "prompt",
       reason: "Medium risk: requires approval",
     };
-    cachedAssessmentOverride = {
+    classificationOverride = {
       riskLevel: "medium",
       reason: "Package manager installation",
       scopeOptions: [
@@ -1091,7 +1102,7 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
   });
 
   test("tool result includes riskDirectoryScopeOptions when classifier emits directoryScopeOptions", async () => {
-    cachedAssessmentOverride = {
+    classificationOverride = {
       riskLevel: "medium",
       reason: "Writes to file in workspace",
       scopeOptions: [
@@ -1124,7 +1135,7 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
   });
 
   test("tool result omits riskDirectoryScopeOptions when classifier does not emit directoryScopeOptions", async () => {
-    cachedAssessmentOverride = {
+    classificationOverride = {
       riskLevel: "low",
       reason: "Read-only operation",
       scopeOptions: [],
@@ -1144,7 +1155,7 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
   });
 
   test("riskScopeOptions and riskDirectoryScopeOptions are independent — one does not clobber the other", async () => {
-    cachedAssessmentOverride = {
+    classificationOverride = {
       riskLevel: "medium",
       reason: "Filesystem write",
       scopeOptions: [
@@ -1170,7 +1181,7 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
   });
 
   test("auto-approved tool result includes riskAllowlistOptions when classifier emits them (Minimatch-glob shape for save path)", async () => {
-    cachedAssessmentOverride = {
+    classificationOverride = {
       riskLevel: "medium",
       reason: "Reads workspace files",
       // Display ladder (regex shape — not for save).
@@ -1222,7 +1233,7 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
   });
 
   test("riskAllowlistOptions is undefined when classifier did not produce allowlist (e.g. web-risk classifier)", async () => {
-    cachedAssessmentOverride = {
+    classificationOverride = {
       riskLevel: "low",
       reason: "GET request to public URL",
       scopeOptions: [
@@ -1248,8 +1259,8 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     expect(result.riskAllowlistOptions).toBeUndefined();
   });
 
-  test("riskAllowlistOptions is undefined when no classifier ran (MCP tools)", async () => {
-    // cachedAssessmentOverride is undefined — no classifier ran.
+  test("riskAllowlistOptions is undefined when the classifier produced none", async () => {
+    // classificationOverride is unset: no allowlist options on the answer.
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "file_read",
@@ -1258,13 +1269,13 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     );
 
     expect(result.isError).toBe(false);
-    expect(result.riskScopeOptions).toBeUndefined();
+    expect(result.riskScopeOptions).toEqual([]);
     expect(result.riskAllowlistOptions).toBeUndefined();
   });
 
   test("denied tool result still carries riskAllowlistOptions for the rule editor save path", async () => {
     checkResultOverride = { decision: "deny", reason: "Blocked by deny rule" };
-    cachedAssessmentOverride = {
+    classificationOverride = {
       riskLevel: "high",
       reason: "Recursive force delete",
       scopeOptions: [{ pattern: "^rm\\s+-rf", label: "rm -rf *" }],
@@ -1334,7 +1345,7 @@ describe("ToolExecutor thrown-value rendering", () => {
     getAllToolsOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
-    cachedAssessmentOverride = undefined;
+    classificationOverride = undefined;
   });
 
   function throwingTool(name: string, thrown: unknown): void {
@@ -1406,7 +1417,7 @@ describe("ToolExecutor input-schema validation gate", () => {
     getAllToolsOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
-    cachedAssessmentOverride = undefined;
+    classificationOverride = undefined;
   });
 
   /**
