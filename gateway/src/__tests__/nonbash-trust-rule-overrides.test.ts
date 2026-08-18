@@ -126,6 +126,31 @@ describe("WebRiskClassifier user overrides", () => {
     expect(result.reason).toBe("User-blocked URL");
     expect(result.matchType).toBe("user_rule");
   });
+
+  test("an overridden classification still carries the allowlist ladder", async () => {
+    // The prompt is built from the ladder; an override changes the risk, not
+    // the user's ability to save a rule from the prompt it produces.
+    store.create({
+      tool: "web_fetch",
+      pattern: "https://example.com",
+      risk: "high",
+      description: "User-blocked URL",
+    });
+
+    initTrustRuleCache(store);
+
+    const result = await new WebRiskClassifier().classify({
+      toolName: "web_fetch",
+      url: "https://example.com",
+    });
+
+    expect(result.matchType).toBe("user_rule");
+    expect(result.allowlistOptions?.map((o) => o.pattern)).toEqual([
+      "web_fetch:https://example.com/",
+      "web_fetch:https://example.com/*",
+      "**",
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------

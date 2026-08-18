@@ -9,7 +9,13 @@
  * - network_request: always Medium (proxied credentials)
  */
 
-import type { RiskAssessment, RiskClassifier } from "./risk-types.js";
+import { normalizeWebUrl } from "@vellumai/service-contracts/url-normalization";
+
+import type {
+  AllowlistOption,
+  RiskAssessment,
+  RiskClassifier,
+} from "./risk-types.js";
 import { getTrustRuleCache } from "./trust-rule-cache.js";
 
 // -- Input type ---------------------------------------------------------------
@@ -22,6 +28,77 @@ export interface WebClassifierInput {
   url?: string;
   /** Whether the fetch is allowed to reach private/internal networks. */
   allowPrivateNetwork?: boolean;
+}
+
+// -- Allowlist ladder ---------------------------------------------------------
+
+const WEB_TOOL_DISPLAY_NAMES: Record<string, string> = {
+  web_fetch: "URL fetches",
+  network_request: "network requests",
+};
+
+/** Hostname as a person reads it. */
+function friendlyHostname(url: URL): string {
+  return url.hostname.replace(/^www\./, "");
+}
+
+/**
+ * Escape the characters Minimatch treats as syntax, so a URL that contains
+ * them matches as a literal in a saved rule.
+ */
+function escapeMinimatchLiteral(value: string): string {
+  return value.replace(/([\\*?[\]{}()!+@|])/g, "\\$1");
+}
+
+/**
+ * The "always allow" ladder for a web tool: this exact URL, anything on the
+ * origin, then the tool as a whole.
+ *
+ * The URL is normalized through the shared canonicalizer
+ * (`@vellumai/service-contracts/url-normalization`) that the daemon matches
+ * saved rules with, so a rule saved from this ladder matches the same URL on
+ * the next call.
+ */
+function buildWebAllowlistOptions(
+  toolName: string,
+  rawUrl: string,
+): AllowlistOption[] {
+  const trimmed = rawUrl.trim();
+  const normalized = normalizeWebUrl(trimmed);
+  const exact = normalized?.href ?? trimmed;
+
+  const options: AllowlistOption[] = [];
+  if (exact) {
+    options.push({
+      label: exact,
+      description: "This exact URL",
+      pattern: `${toolName}:${escapeMinimatchLiteral(exact)}`,
+    });
+  }
+  if (normalized) {
+    options.push({
+      label: `${normalized.origin}/*`,
+      description: `Any page on ${friendlyHostname(normalized)}`,
+      pattern: `${toolName}:${escapeMinimatchLiteral(normalized.origin)}/*`,
+    });
+  }
+  // A standalone globstar: Minimatch only treats `**` as a globstar when it is
+  // its own path segment, so `${toolName}:*` would fail to match a candidate
+  // containing `/`. The tool field is matched separately.
+  options.push({
+    label: `${toolName}:*`,
+    description: `All ${WEB_TOOL_DISPLAY_NAMES[toolName] ?? toolName}`,
+    pattern: `**`,
+  });
+
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    if (seen.has(option.pattern)) {
+      return false;
+    }
+    seen.add(option.pattern);
+    return true;
+  });
 }
 
 // -- Classifier ---------------------------------------------------------------
@@ -37,14 +114,12 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
   async classify(input: WebClassifierInput): Promise<RiskAssessment> {
     const { toolName, url, allowPrivateNetwork } = input;
 
-    // NOTE: We intentionally do NOT produce allowlistOptions here.
-    // The canonical URL normalization logic (normalizeWebFetchUrl in
-    // checker.ts) handles edge cases (path-only inputs, host:port
-    // shorthand, non-http schemes) that our simplified normalizeUrl()
-    // does not. Importing the canonical version would create a circular
-    // dependency. By omitting allowlistOptions, we let the fallback
-    // urlAllowlistStrategy in generateAllowlistOptions() handle scope
-    // option generation using the canonical normalization.
+    // `web_search` takes no URL, so it carries no ladder: a saved rule would
+    // have nothing to scope to.
+    const allowlistOptions =
+      toolName === "web_search"
+        ? undefined
+        : buildWebAllowlistOptions(toolName, url ?? "");
 
     // Run normal classification first (including security escalations like
     // allowPrivateNetwork), then check for user overrides at the end. Note
@@ -70,6 +145,7 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
             riskLevel: "high",
             reason: "Private network fetch",
             scopeOptions: [],
+            allowlistOptions,
             matchType: "registry",
           };
         } else {
@@ -77,6 +153,7 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
             riskLevel: "low",
             reason: "Web fetch (default)",
             scopeOptions: [],
+            allowlistOptions,
             matchType: "registry",
           };
         }
@@ -89,6 +166,7 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
           riskLevel: "medium",
           reason: "Network request (proxied credentials)",
           scopeOptions: [],
+          allowlistOptions,
           matchType: "registry",
         };
         break;
@@ -109,6 +187,7 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
           riskLevel: override.risk,
           reason: override.description,
           scopeOptions: [],
+          allowlistOptions,
           matchType: "user_rule",
         };
       }

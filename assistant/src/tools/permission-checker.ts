@@ -10,7 +10,6 @@ import { buildChannelPermissionCellQuery } from "../permissions/channel-permissi
 import {
   check,
   classifyRisk,
-  generateAllowlistOptions,
   generateScopeOptions,
   isDynamicSkillLoadInvocation,
   type RiskClassificationWithMeta,
@@ -383,12 +382,7 @@ export class PermissionChecker {
           context.workingDir,
         );
         const promptOptions = {
-          allowlistOptions: await generateAllowlistOptions(
-            name,
-            input,
-            classification,
-            context.signal,
-          ),
+          allowlistOptions: classification.allowlistOptions ?? [],
           scopeOptions: generateScopeOptions(context.workingDir, name),
           persistentDecisionsAllowed: !context.requireFreshApproval,
         };
