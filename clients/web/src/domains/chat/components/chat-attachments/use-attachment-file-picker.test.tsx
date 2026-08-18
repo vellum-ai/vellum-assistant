@@ -42,6 +42,15 @@ mock.module("@/utils/pointer", () => ({
   isPointerCoarse: () => pointerCoarse,
 }));
 
+// The shell is held at the keyboard's size for as long as the picker is up.
+// Stubbed to a counter so the arm/release pairing is assertable without a
+// layout the test environment does not have.
+const releaseViewportHoldMock = mock(() => {});
+const holdVisibleViewportMock = mock(() => releaseViewportHoldMock);
+mock.module("@/hooks/use-visible-viewport", () => ({
+  holdVisibleViewport: holdVisibleViewportMock,
+}));
+
 import { selectFiles } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
 
@@ -54,6 +63,8 @@ afterEach(() => {
 beforeEach(() => {
   requestComposerFocusMock.mockClear();
   hideNativeKeyboardMock.mockClear();
+  holdVisibleViewportMock.mockClear();
+  releaseViewportHoldMock.mockClear();
   textEntryFocused = false;
   nativeIOS = false;
   pointerCoarse = false;
@@ -156,6 +167,39 @@ describe("useAttachmentFilePicker", () => {
 
     window.dispatchEvent(new Event("focus"));
     expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("holds the shell's size across the picker, and gives it back after", () => {
+    // GIVEN a picker opened from a composer the keyboard is up for
+    const { input, open } = renderPicker({ onFiles: () => {} });
+    open();
+
+    // THEN the shell is pinned before the click that dismisses the keyboard,
+    // so it is taken at the size the keyboard left
+    expect(holdVisibleViewportMock).toHaveBeenCalledTimes(1);
+    expect(releaseViewportHoldMock).not.toHaveBeenCalled();
+
+    // WHEN the picker closes
+    fireEvent(input, new Event("cancel"));
+
+    // THEN the shell follows the measurement again, with the composer's focus
+    // already requested so the keyboard is on its way back
+    expect(releaseViewportHoldMock).toHaveBeenCalledTimes(1);
+    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a picker unmounted mid-session still gives the shell back", () => {
+    // GIVEN an open picker
+    const { open, unmount } = renderPicker({ onFiles: () => {} });
+    open();
+
+    // WHEN its owner unmounts before the picker closes, the way a navigation
+    // mid-pick would take it
+    unmount();
+
+    // THEN the hold goes with it, rather than stranding the shell at a size
+    // the keyboard no longer explains
+    expect(releaseViewportHoldMock).toHaveBeenCalledTimes(1);
   });
 
   test("reports the picker open from the click until it closes", () => {

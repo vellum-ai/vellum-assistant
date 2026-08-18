@@ -191,10 +191,12 @@ const authBoundaryAllowedPaths = [
  */
 const i18nEnforcedPaths = [
   "src/components/not-found.tsx",
+  "src/components/section-actions-button.tsx",
   "src/domains/chat/components/allow-options-menu.tsx",
   "src/domains/chat/components/chat-composer/add-to-chat-sheet.tsx",
   "src/domains/chat/components/conversation-actions-menu.tsx",
   "src/domains/chat/components/conversation-assets-pill.tsx",
+  "src/domains/chat/components/group-actions-menu.tsx",
   "src/domains/chat/components/pinned-app-color-swatches.tsx",
   "src/domains/chat/components/sidebar-conversation-error.tsx",
   "src/domains/schedules/**/*.{ts,tsx}",

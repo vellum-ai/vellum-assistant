@@ -12,6 +12,7 @@ import {
   isTextEntryFocused,
   requestComposerFocus,
 } from "@/domains/chat/composer-focus";
+import { holdVisibleViewport } from "@/hooks/use-visible-viewport";
 import { hideNativeKeyboard } from "@/runtime/native-keyboard";
 import { isNativeIOS } from "@/runtime/platform-detection";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -83,6 +84,12 @@ interface UseAttachmentFilePickerResult {
  *   tracks the OS, so `cancel` is always there; arming this too would add a
  *   close signal that also fires on plain app foregrounding, ending the
  *   session while the picker is still on screen.
+ *
+ * The layout under the picker has none of the keyboard's constraints, so the
+ * shell is held at the size the keyboard left it for as long as the picker is
+ * up. Letting it collapse would walk the composer down the screen on the way
+ * into a picker that then covers where it went, and back up on the way out.
+ * The same close paths that restore focus end the hold.
  */
 export function useAttachmentFilePicker({
   onFiles,
@@ -113,16 +120,22 @@ export function useAttachmentFilePicker({
   // a plus pressed on a resting composer never had a keyboard, and focusing
   // the textarea on the way out summons one nobody asked for.
   const shouldRestoreFocusRef = useRef(true);
+  // Release for the shell size held across this picker session.
+  const releaseViewportHoldRef = useRef<(() => void) | null>(null);
 
   const refocusComposer = useCallback(() => {
     // Any picker-close path lands here: disarm the pending focus fallback so it
     // can't fire on a later unrelated window focus, then restore the keyboard.
     disarmFocusFallbackRef.current?.();
     disarmFocusFallbackRef.current = null;
+    // Asked for before the hold ends, so a keyboard that is coming back is
+    // already on its way when the shell follows the measurement again.
     if (shouldRestoreFocusRef.current) {
       requestComposerFocus();
     }
     setPickerOpen(false);
+    releaseViewportHoldRef.current?.();
+    releaseViewportHoldRef.current = null;
   }, []);
 
   const openPicker = useCallback(() => {
@@ -150,11 +163,16 @@ export function useAttachmentFilePicker({
         window.removeEventListener("focus", onFocus);
     }
     setPickerOpen(true);
-    // Ahead of the click: WebKit resigns the web view's first responder in the
-    // completion handler of the presentation animation, so left alone the
-    // keyboard drops a beat after the picker is already up. Asking first makes
-    // the dismissal part of the tap. `hide()` is iOS-supported; `show()` is
-    // not, which is why the way back is a DOM focus.
+    // Before the click, so the size is taken while the keyboard is still up.
+    // Ahead of the hide below for the same reason: that call starts the
+    // dismissal, and the hold wants the height it is dismissing from.
+    releaseViewportHoldRef.current?.();
+    releaseViewportHoldRef.current = holdVisibleViewport();
+    // WebKit resigns the web view's first responder in the completion handler
+    // of the presentation animation, so left alone the keyboard drops a beat
+    // after the picker is already up. Asking first makes the dismissal part of
+    // the tap. `hide()` is iOS-supported; `show()` is not, which is why the way
+    // back is a DOM focus.
     void hideNativeKeyboard();
     inputRef.current?.click();
   }, [alwaysRestoreFocus, refocusComposer]);
@@ -188,6 +206,8 @@ export function useAttachmentFilePicker({
       input?.removeEventListener("cancel", onCancel);
       disarmFocusFallbackRef.current?.();
       disarmFocusFallbackRef.current = null;
+      releaseViewportHoldRef.current?.();
+      releaseViewportHoldRef.current = null;
     };
   }, [refocusComposer]);
 
