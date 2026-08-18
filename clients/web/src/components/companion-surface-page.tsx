@@ -177,6 +177,28 @@ export function CompanionSurfacePage() {
    * the moment it finished growing.
    */
   const onMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+    // **A drag whose release this window never saw ends here.**
+    //
+    // The drag is ended by `mouseup` or by the pointer leaving the canvas, and
+    // both are events this window has to receive. Neither arrives when the
+    // button comes up over another app: the canvas is a bounded rectangle, a
+    // fast drag outruns a window that is moved a message at a time, and the
+    // release then lands somewhere this page is not.
+    //
+    // Left alone that press never ends. Every later move is read as a drag
+    // frame, so the surface follows a pointer with no button held and the first
+    // move after the pointer returns carries the whole distance travelled in
+    // between, flinging it across the desktop. Hit-testing never resumes
+    // either, so the window stays clickable across a canvas many times the size
+    // of the pill, swallowing presses meant for whatever is behind it. That is
+    // the state that reads as the surface being dead until the app is
+    // relaunched.
+    //
+    // No button held means the press is over, whatever this window saw of it,
+    // so the drag is dropped and this move goes on to hit-test normally.
+    if (dragRef.current !== null && event.buttons === 0) {
+      dragRef.current = null;
+    }
     // A drag owns the pointer until it is released. Hit-testing through it
     // would collapse the surface the moment the cursor left the pill, which is
     // most of any drag worth making.
