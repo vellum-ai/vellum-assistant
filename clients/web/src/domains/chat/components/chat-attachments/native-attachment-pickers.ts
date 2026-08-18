@@ -22,11 +22,8 @@
 
 import { Capacitor } from "@capacitor/core";
 
-import {
-  IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES,
-  isAutoResizableImage,
-} from "@/domains/chat/components/chat-attachments/attachment-image-resize";
-import { MAX_ATTACHMENT_BYTES } from "@/domains/chat/composer-store";
+import { IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES } from "@/domains/chat/components/chat-attachments/attachment-image-resize";
+import { canQueueFile } from "@/domains/chat/composer-store";
 import { isNativeMobile } from "@/runtime/platform-detection";
 
 /** Names of any entries refused without being read. */
@@ -94,7 +91,7 @@ interface PickedFile {
   data?: string;
   path?: string;
   name: string;
-  mimeType: string;
+  mimeType: string | null;
   size: number;
 }
 
@@ -128,20 +125,15 @@ async function resolveSize(file: PickedFile): Promise<number | null> {
 }
 
 /**
- * Mirrors the ceiling `composer-store` already enforces, so a pick too large
- * to attach is refused before its bytes move rather than after. The store's
- * own rule is not a flat cap: an auto-resizable image is allowed a larger
- * source because it gets downscaled on the way up.
+ * The most one pick may read in total.
+ *
+ * Per-file checks alone do not bound a multi-select: several files that each
+ * pass still decode into memory together, since the composer holds every one
+ * it has been handed while its upload runs. One pick may therefore bring in at
+ * most what a single largest-allowed attachment could, which keeps the ceiling
+ * anchored to a limit the app already has rather than a new invented one.
  */
-function isWithinAttachmentLimit(file: PickedFile, size: number): boolean {
-  if (size <= MAX_ATTACHMENT_BYTES) {
-    return true;
-  }
-  return (
-    isAutoResizableImage({ name: file.name, type: file.mimeType }) &&
-    size <= IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES
-  );
-}
+const MAX_PICK_TOTAL_BYTES = IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES;
 
 /**
  * Reads the picked entries, handing each one on before reading the next.
@@ -163,16 +155,29 @@ async function readPicked(
   onFile: OnPickedFile,
 ): Promise<PickOutcome> {
   const skipped: string[] = [];
+  let readSoFar = 0;
 
   for (const file of picked) {
+    // An Android provider that publishes no type leaves this null, and the
+    // resize check reads it as a string. Normalising once here keeps every
+    // later use (the check, the `File`) working off the same value.
+    const mimeType = file.mimeType ?? "";
+
     // The web implementation hands back a Blob directly, already in memory and
     // carrying no path to read from.
     if (file.blob) {
-      onFile(new File([file.blob], file.name, { type: file.mimeType }));
+      onFile(new File([file.blob], file.name, { type: mimeType }));
       continue;
     }
     const size = await resolveSize(file);
-    if (size === null || !isWithinAttachmentLimit(file, size)) {
+    if (
+      size === null ||
+      !canQueueFile({ name: file.name, type: mimeType, size })
+    ) {
+      skipped.push(file.name);
+      continue;
+    }
+    if (readSoFar + size > MAX_PICK_TOTAL_BYTES) {
       skipped.push(file.name);
       continue;
     }
@@ -181,12 +186,13 @@ async function readPicked(
     }
     const { Filesystem } = await import("@capacitor/filesystem");
     const { data } = await Filesystem.readFile({ path: file.path });
+    readSoFar += size;
     // A zero-byte file reads back as an empty string, which is a valid payload
     // and not a missing one.
     if (typeof data === "string") {
-      onFile(fileFromBase64(data, file.name, file.mimeType));
+      onFile(fileFromBase64(data, file.name, mimeType));
     } else {
-      onFile(new File([data], file.name, { type: file.mimeType }));
+      onFile(new File([data], file.name, { type: mimeType }));
     }
   }
 

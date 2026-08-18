@@ -331,3 +331,76 @@ describe("native pickers: unknown sizes", () => {
     expect(skipped).toEqual(["unknown.bin"]);
   });
 });
+
+describe("native pickers: aggregate budget", () => {
+  test("stops reading once one pick has taken its whole allowance", async () => {
+    // Every file here passes on its own. Per-file checks alone therefore do
+    // not bound a multi-select, because the composer holds each one it has
+    // been handed while its upload runs.
+    reset();
+    mockRead = () => btoa("x");
+    mockFiles = [
+      {
+        path: "/1.bin",
+        name: "1.bin",
+        mimeType: "application/octet-stream",
+        size: 45 * MB,
+      },
+      {
+        path: "/2.bin",
+        name: "2.bin",
+        mimeType: "application/octet-stream",
+        size: 45 * MB,
+      },
+      {
+        path: "/3.bin",
+        name: "3.bin",
+        mimeType: "application/octet-stream",
+        size: 45 * MB,
+      },
+    ];
+
+    const sink = collector();
+    const { skipped } = await pickFilesNative(sink.onFile);
+
+    // 100 MB of allowance, so the third never gets read.
+    expect(readPaths).toEqual(["/1.bin", "/2.bin"]);
+    expect(sink.files).toHaveLength(2);
+    expect(skipped).toEqual(["3.bin"]);
+  });
+});
+
+describe("native pickers: missing metadata", () => {
+  test("survives a provider that reports no mime type", async () => {
+    // Android leaves this null when the provider does not publish one, and the
+    // resize check reads it as a string.
+    reset();
+    mockRead = () => btoa("bytes");
+    mockFiles = [
+      { path: "/nomime.jpg", name: "nomime.jpg", mimeType: null, size: 10 },
+    ];
+
+    const sink = collector();
+    const { skipped } = await pickFilesNative(sink.onFile);
+
+    expect(skipped).toEqual([]);
+    expect(sink.files).toHaveLength(1);
+    expect(sink.files[0]?.name).toBe("nomime.jpg");
+  });
+
+  test("still lets a large image through on its extension alone", async () => {
+    // Past the flat cap and with no mime type to go on, so only the filename
+    // can identify it as resizable. The input path this replaces accepts it.
+    reset();
+    mockRead = () => btoa("bytes");
+    mockFiles = [
+      { path: "/big.jpg", name: "big.jpg", mimeType: null, size: 80 * MB },
+    ];
+
+    const sink = collector();
+    const { skipped } = await pickFilesNative(sink.onFile);
+
+    expect(skipped).toEqual([]);
+    expect(sink.files).toHaveLength(1);
+  });
+});
