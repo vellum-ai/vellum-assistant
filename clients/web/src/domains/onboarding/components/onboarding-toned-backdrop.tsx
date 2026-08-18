@@ -21,6 +21,8 @@ import { OnboardingPeekingEyes } from "@/domains/onboarding/components/onboardin
 import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { pickOverlayColors } from "@/domains/onboarding/onboarding-avatar-colors";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
+import { ONBOARDING_DARK_SURFACE } from "@/domains/onboarding/onboarding-step-layout";
+import { usePublishPageSurface } from "@/stores/page-surface-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 /**
@@ -114,8 +116,6 @@ const PEEKERS: {
   },
 ];
 
-const DARK_SURFACE = "#17191C";
-
 /** The team that peeks in from the top, persisting once it forms. */
 const TOP_TEAM = [
   { bodyShape: "blob", eyeStyle: "gentle" },
@@ -164,13 +164,16 @@ export function OnboardingTonedBackdrop({
   const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
 
   const { bg, peekColors } = useMemo(() => {
-    const fallback = { bg: "var(--surface-base)", peekColors: [] as string[] };
+    const fallback = {
+      bg: ONBOARDING_DARK_SURFACE,
+      peekColors: [] as string[],
+    };
     if (!components || !chosen) {
       return fallback;
     }
     const color = components.colors.find((c) => c.id === chosen.color);
     return {
-      bg: color?.hex ?? "var(--surface-base)",
+      bg: color?.hex ?? ONBOARDING_DARK_SURFACE,
       peekColors: pickOverlayColors(
         chosen.color,
         components.colors.map((c) => c.id),
@@ -179,12 +182,16 @@ export function OnboardingTonedBackdrop({
     };
   }, [components, chosen]);
 
+  // The backdrop, not the stage, owns this screen's canvas color, so it is what
+  // hands it to the app shell for the safe-area strips. See `page-surface-store`.
+  usePublishPageSurface(darkBg ? ONBOARDING_DARK_SURFACE : bg);
+
   return (
     <>
       <motion.div
         className="absolute inset-0 z-0"
         initial={false}
-        animate={{ backgroundColor: darkBg ? DARK_SURFACE : bg }}
+        animate={{ backgroundColor: darkBg ? ONBOARDING_DARK_SURFACE : bg }}
         transition={
           reduce ? { duration: 0 } : { duration: 1, ease: "easeInOut" }
         }

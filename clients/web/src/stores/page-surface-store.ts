@@ -14,10 +14,11 @@
  * Consumed only under `isNativeMobile()`: desktop web and Electron keep the
  * neutral canvas that makes `PageShell`'s card read as a card.
  *
- * Publishers register from a `useEffect` and clear on unmount, the same
- * convention as the header slots in `chat-layout-slots-store`.
+ * Publishers register through {@link usePublishPageSurface} and clear on
+ * unmount, the same convention as the header slots in `chat-layout-slots-store`.
  */
 
+import { useLayoutEffect } from "react";
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
@@ -59,4 +60,31 @@ export function resolveShellBackground(
   nativeMobile: boolean,
 ): string {
   return pageSurface && nativeMobile ? pageSurface : DEFAULT_SHELL_BACKGROUND;
+}
+
+/**
+ * Publish `surface` as the shell canvas for as long as the caller is mounted.
+ *
+ * Layout effect, not passive: the page commits and can paint before a passive
+ * effect runs, so the safe-area strips would trail the page by a frame both on
+ * arrival and whenever the color resolves.
+ *
+ * Pass `null` to opt out (a screen whose color is owned by a child layer). The
+ * cleanup only clears a surface this caller still owns, so a screen that mounts
+ * before the outgoing one unmounts keeps its color instead of flashing the
+ * neutral canvas.
+ */
+export function usePublishPageSurface(surface: string | null): void {
+  const setSurface = usePageSurfaceStore.use.setSurface();
+  useLayoutEffect(() => {
+    if (surface === null) {
+      return;
+    }
+    setSurface(surface);
+    return () => {
+      if (usePageSurfaceStore.getState().surface === surface) {
+        setSurface(null);
+      }
+    };
+  }, [surface, setSurface]);
 }

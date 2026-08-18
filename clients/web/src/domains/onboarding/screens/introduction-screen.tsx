@@ -137,7 +137,7 @@ export function IntroductionScreen({
 
   return (
     // Starts on the picker's dark surface; the color layer below fades in.
-    <OnboardingStage className="bg-[var(--surface-base)]">
+    <OnboardingStage className="bg-[var(--surface-base)]" surface={art.color}>
       {/* The avatar color fills in so coverage is end-to-end even where the
           body shape has gaps/spikes. */}
       <motion.div

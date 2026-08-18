@@ -1,12 +1,15 @@
+import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "bun:test";
 
 import {
   DEFAULT_SHELL_BACKGROUND,
   resolveShellBackground,
   usePageSurfaceStore,
+  usePublishPageSurface,
 } from "@/stores/page-surface-store";
 
 afterEach(() => {
+  cleanup();
   usePageSurfaceStore.getState().setSurface(null);
 });
 
@@ -47,5 +50,39 @@ describe("usePageSurfaceStore", () => {
     usePageSurfaceStore.getState().setSurface("var(--surface-overlay)");
 
     expect(usePageSurfaceStore.getState()).toBe(before);
+  });
+});
+
+function Publisher({ surface }: { surface: string | null }) {
+  usePublishPageSurface(surface);
+  return null;
+}
+
+describe("usePublishPageSurface", () => {
+  it("publishes while mounted and clears on unmount", () => {
+    const { unmount } = render(<Publisher surface="#E5C100" />);
+    expect(usePageSurfaceStore.getState().surface).toBe("#E5C100");
+
+    unmount();
+    expect(usePageSurfaceStore.getState().surface).toBeNull();
+  });
+
+  it("opts out without touching what another publisher set", () => {
+    usePageSurfaceStore.getState().setSurface("#E5C100");
+
+    const { unmount } = render(<Publisher surface={null} />);
+    expect(usePageSurfaceStore.getState().surface).toBe("#E5C100");
+
+    unmount();
+    expect(usePageSurfaceStore.getState().surface).toBe("#E5C100");
+  });
+
+  it("leaves an incoming screen's surface alone when the outgoing one unmounts", () => {
+    const { unmount } = render(<Publisher surface="#E5C100" />);
+    render(<Publisher surface="#17191C" />);
+
+    unmount();
+
+    expect(usePageSurfaceStore.getState().surface).toBe("#17191C");
   });
 });

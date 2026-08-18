@@ -13,6 +13,12 @@
  * coordinate space than the content it is supposed to be pinned to. See
  * `use-element-size.ts` for the same hazard stated from the other side.
  *
+ * The stage is also the page's canvas, so it hands its color to the app shell
+ * (see `page-surface-store`): the safe-area strips are padding on the shell, so
+ * without this the home indicator sits on the shell's light `--surface-base`
+ * while the stage renders dark or avatar-tinted, leaving a pale band along the
+ * bottom edge on iOS.
+ *
  * This exists as a component rather than a snippet each screen repeats because
  * a story that mirrors the wrapper proves nothing about the real one: the two
  * drift, and the story keeps passing. Screens differ only in the surface they
@@ -22,17 +28,32 @@
 import { type ReactNode } from "react";
 
 import { OnboardingStageSizeProvider } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
+import { ONBOARDING_DARK_SURFACE } from "@/domains/onboarding/onboarding-step-layout";
 import { useElementSize } from "@/hooks/use-element-size";
+import { usePublishPageSurface } from "@/stores/page-surface-store";
 import { cn } from "@/utils/misc";
 
 interface OnboardingStageProps {
   /** Surface classes for this screen (background, text colour). */
   className?: string;
+  /**
+   * The color the shell should paint into the safe-area strips. Defaults to the
+   * dark surface every screen inherits from the stage's own theme; pass the
+   * avatar color on a screen tinted with it, or `null` on a screen whose color
+   * is owned and animated by a child layer (that layer publishes instead).
+   */
+  surface?: string | null;
   children: ReactNode;
 }
 
-export function OnboardingStage({ className, children }: OnboardingStageProps) {
+export function OnboardingStage({
+  className,
+  surface = ONBOARDING_DARK_SURFACE,
+  children,
+}: OnboardingStageProps) {
   const { ref, size } = useElementSize();
+
+  usePublishPageSurface(surface);
 
   return (
     <div
