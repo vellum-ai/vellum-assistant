@@ -68,18 +68,12 @@ function device(
   };
 }
 
-/** Queue list responses; later calls replay the last entry. */
-function queueListResults(...results: LocalListDevicesResult[]) {
-  let index = 0;
-  listImpl = async () => {
-    const result = results[Math.min(index, results.length - 1)]!;
-    index += 1;
-    return result;
-  };
+function setListResult(result: LocalListDevicesResult) {
+  listImpl = async () => result;
 }
 
 async function renderExpanded(devices: LocalPairedDeviceRecord[]) {
-  queueListResults({ ok: true, devices }, { ok: true, devices });
+  setListResult({ ok: true, devices });
   render(<PairedDevicesSection />);
   const trigger = await screen.findByRole("button", {
     name: `Paired devices (${devices.length})`,
@@ -113,14 +107,14 @@ describe("PairedDevicesSection", () => {
   });
 
   test("renders nothing when the host refuses the list", async () => {
-    queueListResults({ ok: false, error: "unavailable" });
+    setListResult({ ok: false, error: "unavailable" });
     const { container } = render(<PairedDevicesSection />);
     await waitFor(() => expect(listCalls.length).toBe(1));
     expect(container.firstChild).toBeNull();
   });
 
   test("renders nothing when no devices are paired", async () => {
-    queueListResults({ ok: true, devices: [] });
+    setListResult({ ok: true, devices: [] });
     const { container } = render(<PairedDevicesSection />);
     await waitFor(() => expect(listCalls.length).toBe(1));
     expect(container.firstChild).toBeNull();
@@ -200,18 +194,21 @@ describe("PairedDevicesSection", () => {
     ).toBeTruthy();
   });
 
-  test("revokes against the currently selected assistant id read at call time", async () => {
+  test("revokes against the assistant the rendered list was fetched for, not the current selection", async () => {
     await renderExpanded([device()]);
 
+    // Selection moves to another assistant while the section stays mounted;
+    // the rendered rows (and the confirm target) still belong to "self".
     selectedAssistantId = "other";
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
     clickConfirm();
 
     await waitFor(() =>
       expect(revokeCalls).toEqual([
-        { assistantId: "other", hashedDeviceId: HASH_A },
+        { assistantId: "self", hashedDeviceId: HASH_A },
       ]),
     );
+    // The post-revoke refresh re-reads the selection and fetches its list.
     await waitFor(() => expect(listCalls).toEqual(["self", "other"]));
   });
 
