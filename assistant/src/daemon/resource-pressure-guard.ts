@@ -24,8 +24,11 @@ import {
   getContainerMemoryUsageBytes,
 } from "../util/cgroup-memory.js";
 import { getCachedContainerCpuPercent } from "../util/container-cpu-sampler.js";
+import { getLogger } from "../util/logger.js";
 
-export const RESOURCE_PRESSURE_SAMPLE_INTERVAL_MS = 30_000;
+const log = getLogger("resource-pressure-guard");
+
+const RESOURCE_PRESSURE_SAMPLE_INTERVAL_MS = 30_000;
 // 20 samples at a 30s cadence: 10 minutes of history.
 export const RESOURCE_PRESSURE_WINDOW_SAMPLES = 20;
 // A signal must exceed its threshold in at least this many of the last
@@ -35,20 +38,20 @@ export const RESOURCE_PRESSURE_ENTER_SAMPLES = 18;
 // Consecutive samples below the clear threshold (5 minutes) required to leave
 // `elevated`.
 export const RESOURCE_PRESSURE_CLEAR_CONSECUTIVE_SAMPLES = 10;
-export const CPU_PRESSURE_THRESHOLD_PERCENT = 85;
-export const CPU_PRESSURE_CLEAR_THRESHOLD_PERCENT = 70;
-export const MEMORY_PRESSURE_THRESHOLD_PERCENT = 90;
-export const MEMORY_PRESSURE_CLEAR_THRESHOLD_PERCENT = 80;
+const CPU_PRESSURE_THRESHOLD_PERCENT = 85;
+const CPU_PRESSURE_CLEAR_THRESHOLD_PERCENT = 70;
+const MEMORY_PRESSURE_THRESHOLD_PERCENT = 90;
+const MEMORY_PRESSURE_CLEAR_THRESHOLD_PERCENT = 80;
 
 export { type ResourcePressureState, type ResourcePressureStatus };
 
-export interface ResourcePressureMemorySample {
+interface ResourcePressureMemorySample {
   usageBytes: number;
   limitBytes: number;
   reclaimableBytes: number;
 }
 
-export interface ResourcePressureSamplers {
+interface ResourcePressureSamplers {
   sampleCpuPercent?: () => number | null;
   sampleMemory?: () => ResourcePressureMemorySample | null;
 }
@@ -145,12 +148,12 @@ function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function sampleFailureStatus(error: unknown): ResourcePressureStatus {
+function sampleFailureStatus(errorMessage: string): ResourcePressureStatus {
   return {
     ...OK_STATUS,
     state: "unknown",
     lastCheckedAt: new Date().toISOString(),
-    error: formatError(error),
+    error: errorMessage,
   };
 }
 
@@ -266,13 +269,16 @@ export function evaluateResourcePressureNow(
   const sampleCpuPercent = deps?.sampleCpuPercent ?? defaultSampleCpuPercent;
   const sampleMemory = deps?.sampleMemory ?? defaultSampleMemory;
 
-  let sampleError: unknown = null;
+  // A sampler returning null means the signal is legitimately unavailable
+  // (e.g. no cgroup limit) and is not an error; only a throwing sampler
+  // contributes to sampleError.
+  const sampleErrors: string[] = [];
 
   let cpuPercent: number | null = null;
   try {
     cpuPercent = sampleCpuPercent();
   } catch (error) {
-    sampleError = error;
+    sampleErrors.push(`CPU sample failed: ${formatError(error)}`);
   }
 
   let memoryPercent: number | null = null;
@@ -288,8 +294,10 @@ export function evaluateResourcePressureNow(
       );
     }
   } catch (error) {
-    sampleError = error;
+    sampleErrors.push(`Memory sample failed: ${formatError(error)}`);
   }
+
+  const sampleError = sampleErrors.length > 0 ? sampleErrors.join("; ") : null;
 
   if (cpuPercent === null && memoryPercent === null) {
     resetSignalWindow(state.cpuWindow);
@@ -298,6 +306,16 @@ export function evaluateResourcePressureNow(
       sampleFailureStatus(
         sampleError ?? "Resource pressure samples unavailable",
       ),
+    );
+  }
+
+  // Log on the transition into a failing state, not on every 30s sample. The
+  // status fingerprint includes `error`, so the SSE broadcast below reflects
+  // the same transition exactly once.
+  if (sampleError !== null && sampleError !== state.status.error) {
+    log.warn(
+      { error: sampleError },
+      "Resource pressure sampler failed; the remaining signal still evaluated",
     );
   }
 
@@ -322,6 +340,7 @@ export function evaluateResourcePressureNow(
     cpuElevated,
     memoryElevated,
     lastCheckedAt: new Date().toISOString(),
+    error: sampleError,
   });
 }
 
