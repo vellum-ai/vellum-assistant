@@ -12,8 +12,9 @@
  *     from the current skill set.
  *   - `activation` — refresh persisted activation state for every
  *     conversation that has a stored row.
- *   - `validate` — print a diagnostic report (page count, edge count, and
- *     violation lists). Does not mutate the workspace.
+ *   - `validate`: the same read-only report as the top-level
+ *     `memory validate` (`memory-validate.ts`), registered here too while
+ *     this namespace exists.
  */
 
 import type { Command } from "commander";
@@ -25,7 +26,6 @@ import type {
   MemoryV2EmaScoresResult,
   MemoryV2ReembedSkillsResult,
   MemoryV2SimulateRouterResult,
-  MemoryV2ValidateResult,
 } from "../../../plugins/defaults/memory/src/memory-v2-routes.js";
 import type { ComparisonReport } from "../../../plugins/defaults/memory/v2/harness/runner.js";
 import { subcommand } from "../../lib/cli-command-help.js";
@@ -34,6 +34,7 @@ import {
   renderComparisonReport,
   renderTurnTrace,
 } from "./memory-v2-compare-render.js";
+import { runMemoryValidate } from "./memory-validate.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -97,56 +98,7 @@ export function registerMemoryV2Command(memory: Command): void {
 
   // ── validate ──────────────────────────────────────────────────────────
 
-  subcommand(v2, "validate").action(async () => {
-    const result = await cliIpcCall<MemoryV2ValidateResult>(
-      "memory_v2_validate",
-      { body: {} },
-    );
-
-    if (!result.ok) {
-      log.error(result.error ?? "Failed to validate memory v2 state");
-      process.exitCode = 1;
-      return;
-    }
-
-    const report = result.result!;
-    log.info(`Pages: ${report.pageCount}`);
-    log.info(`Edges: ${report.edgeCount}`);
-    log.info(
-      `Dangling links: ${
-        report.danglingLinks.length === 0 ? "none" : report.danglingLinks.length
-      }`,
-    );
-    for (const d of report.danglingLinks) {
-      log.info(`  - ${d.from} → ${d.to} (${d.kind})`);
-    }
-    log.info(
-      `Oversized pages: ${
-        report.oversizedPages.length === 0
-          ? "none"
-          : report.oversizedPages.length
-      }`,
-    );
-    for (const p of report.oversizedPages) {
-      log.info(`  - ${p.slug}: ${p.chars} chars`);
-    }
-    log.info(
-      `Parse failures: ${
-        report.parseFailures.length === 0 ? "none" : report.parseFailures.length
-      }`,
-    );
-    for (const p of report.parseFailures) {
-      log.info(`  - ${p.slug}: ${p.error}`);
-    }
-
-    if (
-      report.danglingLinks.length > 0 ||
-      report.oversizedPages.length > 0 ||
-      report.parseFailures.length > 0
-    ) {
-      process.exitCode = 1;
-    }
-  });
+  subcommand(v2, "validate").action(runMemoryValidate);
 
   // ── ema ───────────────────────────────────────────────────────────────
 

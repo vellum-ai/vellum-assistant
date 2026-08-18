@@ -713,8 +713,10 @@ not deleted**. Today the test-only hits are:
      client-coordinated change.
    - `cli/commands/memory/memory-v2.ts` — follows its routes rather than being
      deleted outright. `memory v2 reembed` (which posts the surviving `reembed`
-     backfill op), `memory v2 reembed-skills`, and `memory v2 validate` keep
-     working and move with the substrate routes; `memory v2 activation` (the
+     backfill op) and `memory v2 reembed-skills` keep working and move with
+     the substrate routes; `memory v2 validate` is a second registration of
+     the top-level `memory validate` (`cli/commands/memory/memory-validate.ts`)
+     and simply goes with the namespace; `memory v2 activation` (the
      `activation-recompute` op), `memory v2 ema`, `memory v2 simulate`, and
      `memory v2 compare` go with the engine. There is no `migrate` subcommand —
      the route is that job's only enqueue path.

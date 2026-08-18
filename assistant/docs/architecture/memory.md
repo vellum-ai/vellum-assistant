@@ -108,7 +108,8 @@ graph LR
     graph drops a dangling reference silently, so the job also counts them
     after each run (`danglingLinks` on the outcome, a warn line) without
     withholding the reindex follow-ups: the pages that were written still
-    become retrievable. `assistant memory v2 validate` reports the same list.
+    become retrievable. The `memory validate` CLI subcommand reports the same
+    list.
 - **Ingestion** (`substrate/ingest.ts`, exposed as `POST /v1/memory/ingest`;
   generated HTTP operation id `memory_ingest_post`, IPC method
   `memory_ingest`) is the second sanctioned writer of

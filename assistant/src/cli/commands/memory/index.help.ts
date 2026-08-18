@@ -34,7 +34,7 @@ Examples:
   $ assistant memory items list --search "coffee"
   $ assistant memory items update 9f2c4f3a-3f1a-41e4-88e7-abc123 --statement "Prefers tea"
   $ assistant memory items delete 9f2c4f3a-3f1a-41e4-88e7-abc123
-  $ assistant memory v2 validate
+  $ assistant memory validate
   $ assistant memory v3 rebuild-index
   $ assistant memory ingest --dir .mv3/staging --dry-run`,
   subcommands: [
@@ -390,7 +390,6 @@ except reembed-skills which runs synchronously inside the assistant.
 Read-only subcommands print diagnostic reports without mutating state.
 
 Examples:
-  $ assistant memory v2 validate
   $ assistant memory v2 reembed
   $ assistant memory v2 reembed-skills
   $ assistant memory v2 activation`,
@@ -449,20 +448,13 @@ Examples:
         {
           name: "validate",
           description:
-            "Print a diagnostic report of v2 workspace state (read-only)",
+            "Same report as 'memory validate' (read-only concept-page check)",
           helpText: `
-Walks the v2 concept-page tree on disk and reports:
-  - Page count
-  - Edge count (total and unique outgoing targets)
-  - Missing outgoing edge targets (orphan edges)
-  - Oversized pages (over the per-folder size cap)
-  - Parse failures (missing or malformed frontmatter)
-
-Read-only — does not mutate the workspace. Exits non-zero if any
-violations are reported.
+Identical to 'assistant memory validate'; prefer that spelling. The report
+covers the concept-page store, which is the same under memory v2 and v3.
 
 Examples:
-  $ assistant memory v2 validate`,
+  $ assistant memory validate`,
         },
         {
           name: "ema",
@@ -803,6 +795,26 @@ Example:
   $ assistant memory v3 eval-tally --verdicts .mv3/eval/verdicts.json --key .mv3/eval/key.json`,
         },
       ],
+    },
+    {
+      name: "validate",
+      description:
+        "Check the concept-page store for dangling links, oversized pages, and parse failures (read-only)",
+      helpText: `
+Walks memory/concepts/ on disk and reports:
+  - Page count and edge count
+  - Dangling links: an edges: entry, a links: entry, or an inline
+    [[wikilink]] whose target page does not exist (targets under skills/
+    and cli-commands/ resolve against the registered capability catalog)
+  - Oversized pages (over the configured per-page character cap)
+  - Parse failures (malformed frontmatter)
+
+Read-only. Exits non-zero if anything is reported. Works on every memory
+tier, including before memory.v3.live or memory.v2.enabled is set, so it
+doubles as the pre-flip check for a migration.
+
+Examples:
+  $ assistant memory validate`,
     },
     {
       name: "ingest",

@@ -216,7 +216,7 @@ git add -A && git commit -m "memory-v2-migration: pages + buffer drain + always-
 ### Step 10 — Validate
 
 ```
-assistant memory v2 validate
+assistant memory validate
 ```
 
 Walks `concepts/`, reports page count, edge count, dangling links (an `edges:` entry, `links:` entry, or `[[wikilink]]` whose target page does not exist), oversized pages, and parse failures. Read-only.
