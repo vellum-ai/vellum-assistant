@@ -404,6 +404,7 @@ const { SelectAssistantScreen } = await import(
 
 const PAIRED_ID = "paired-1";
 const PLATFORM_ID = "platform-1";
+const LOCAL_ID = "vellum-deep-hare-ww1iw1";
 
 function makePairedAssistant(
   overrides: Partial<ResolvedAssistant> = {},
@@ -428,6 +429,21 @@ function makePlatformAssistant(
     cloud: "vellum",
     isLocal: false,
     isPlatformHosted: true,
+    isPaired: false,
+    ...overrides,
+  };
+}
+
+/** A lockfile-backed local entry as a local client sees it. */
+function makeLocalAssistant(
+  overrides: Partial<ResolvedAssistant> = {},
+): ResolvedAssistant {
+  return {
+    id: LOCAL_ID,
+    name: "Desk Helper",
+    cloud: "local",
+    isLocal: true,
+    isPlatformHosted: false,
     isPaired: false,
     ...overrides,
   };
@@ -1694,5 +1710,72 @@ describe("SelectAssistantScreen local registrations on the platform hub", () => 
     await waitFor(() =>
       expect(refreshPlatformAssistantsIfStaleMock).toHaveBeenCalledTimes(1),
     );
+  });
+});
+
+describe("SelectAssistantScreen assistant labels", () => {
+  // Two entries per case: a sole accessible local entry auto-connects
+  // instead of rendering the chooser.
+  const SECOND_LOCAL_ID = "vellum-calm-otter-ab2cd3";
+
+  test("a named local entry shows its persona name", () => {
+    assistantsValue = [
+      makeLocalAssistant(),
+      makeLocalAssistant({ id: SECOND_LOCAL_ID, name: undefined }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    const named = screen
+      .getAllByRole("radio")
+      .find((r) => r.textContent?.includes("Desk Helper"));
+    expect(named).toBeTruthy();
+    expect(named!.textContent).not.toContain(LOCAL_ID);
+  });
+
+  test("unnamed local entries fall back to their instance ids", () => {
+    assistantsValue = [
+      makeLocalAssistant({ name: undefined }),
+      makeLocalAssistant({ id: SECOND_LOCAL_ID, name: undefined }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByText(LOCAL_ID)).toBeTruthy();
+    expect(screen.getByText(SECOND_LOCAL_ID)).toBeTruthy();
+    expect(screen.queryByText("Local Assistant")).toBeNull();
+  });
+
+  test("an unnamed hub local registration keeps the generic fallback, not its UUID", () => {
+    // API-sourced hub row: no lockfile entry behind it, so no `cloud`, and
+    // its id is the platform assistant record's UUID.
+    const HUB_LOCAL_UUID = "3f8a1c2e-9b4d-4e6f-8a70-1d2c3b4a5e6f";
+    assistantsValue = [
+      makeLocalAssistant({ name: undefined }),
+      {
+        id: HUB_LOCAL_UUID,
+        name: undefined,
+        isLocal: true,
+        isPlatformHosted: false,
+        isPaired: false,
+        ingressUrl: "https://mac.example.com",
+      },
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByText("Local Assistant")).toBeTruthy();
+    expect(screen.queryByText(HUB_LOCAL_UUID)).toBeNull();
+    // The lockfile-sourced entry still shows its friendly instance id.
+    expect(screen.getByText(LOCAL_ID)).toBeTruthy();
+  });
+
+  test("an unnamed cloud entry keeps the generic Cloud Assistant fallback", () => {
+    assistantsValue = [makePlatformAssistant({ name: undefined })];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByText("Cloud Assistant")).toBeTruthy();
+    expect(screen.queryByText(PLATFORM_ID)).toBeNull();
   });
 });

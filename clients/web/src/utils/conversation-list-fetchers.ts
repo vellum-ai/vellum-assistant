@@ -1,17 +1,18 @@
 /**
- * Fetch functions and `queryOptions` factories for conversation lists
- * (foreground, background, scheduled, archived).
+ * Fetch functions for the conversation list caches, plus the sidebar's two
+ * non-list reads (unread count, section index).
  *
- * Each fetcher returns a sorted `Conversation[]` from the daemon's paginated
- * `conversationsGet()` endpoint. The `queryOptions` factories co-locate
- * `queryKey` + `queryFn` + `staleTime` so consumers can spread them into
- * `useQuery()`, pass them to `queryClient.prefetchQuery()`, or destructure
- * `.queryKey` for imperative cache operations — all with full type safety.
+ * Every list read is the daemon's paginated `conversationsGet()` scoped by a
+ * {@link ConversationListFilter}; three primitives cover them all: a drain
+ * ({@link drainConversationList}), the newest page
+ * ({@link listConversationsFirstPage}), and a page at an offset
+ * ({@link listConversationsPage}). Rows come back as `Conversation`
+ * (`toConversation` runs here, in the fetch), shaped per bucket by
+ * {@link shapeListRows}. Keys live in `conversation-list-keys.ts` and the
+ * list `queryOptions` in `conversation-list-options.ts`.
  *
  * References:
- * - https://tanstack.com/query/latest/docs/framework/react/guides/query-options
  * - https://tanstack.com/query/latest/docs/framework/react/guides/query-functions
- * - https://tanstack.com/query/latest/docs/eslint/prefer-query-options
  */
 
 import { queryOptions } from "@tanstack/react-query";
@@ -39,106 +40,13 @@ import { emitClientPerfEvent } from "@/lib/telemetry/client-perf";
 import type { Conversation } from "@/types/conversation-types";
 import { readContentLength } from "@/utils/content-length";
 import {
-  byTimestampDesc,
-  mergeListFirstPage,
-} from "@/utils/conversation-order";
+  type ConversationListFilter,
+  isArchivedFilter,
+  isSectionFilter,
+} from "@/utils/conversation-list-keys";
+import { byTimestampDesc } from "@/utils/conversation-order";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { toConversation } from "@/utils/conversation-transforms";
-
-// ---------------------------------------------------------------------------
-// Conversation list query keys
-//
-// All conversation list caches share a common prefix:
-//   ["conversation-list", assistantId, ...discriminator]
-//
-// This enables TanStack Query's prefix matching to operate on ALL
-// conversation caches simultaneously (cancel, invalidate, snapshot, patch)
-// without maintaining a static registry.
-// ---------------------------------------------------------------------------
-
-export const CONVERSATION_LIST_PREFIX = "conversation-list" as const;
-
-/** Prefix key matching ALL conversation list caches for the given assistant. */
-export function conversationListPrefix(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? ""] as const;
-}
-
-export function conversationsQueryKey(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "foreground"] as const;
-}
-
-export function archivedConversationsQueryKey(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "archived"] as const;
-}
-
-export function backgroundConversationsQueryKey(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "background"] as const;
-}
-
-export function scheduledConversationsQueryKey(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "scheduled"] as const;
-}
-
-/** Prefix key matching every per-section conversation cache. */
-export function sectionListPrefix(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "section"] as const;
-}
-
-/**
- * Key for one section's conversation cache, a child of
- * {@link sectionListPrefix} so prefix-match invalidation reaches every
- * section at once.
- *
- * Both filter axes are in the key because both can be set at once, and two
- * sections differing only in channel must not share a cache entry.
- */
-export function sectionConversationsQueryKey(
-  assistantId: string | null,
-  filter: SectionConversationFilter,
-) {
-  return [
-    CONVERSATION_LIST_PREFIX,
-    assistantId ?? "",
-    "section",
-    filter.groupId ?? "",
-    filter.originChannel ?? "",
-  ] as const;
-}
-
-/**
- * Recover the filter a section cache was keyed by, or `null` when the key
- * is not a section key.
- *
- * The decoder to {@link sectionConversationsQueryKey}'s encoder, and it lives
- * beside it so the two cannot drift. It exists because a local write has to
- * answer "does this row belong in *this* cache", and the only statement of
- * what a cache holds is its own key: TanStack's `setQueriesData` hands its
- * updater the data alone, never the key it came from, so a membership-aware
- * write has to walk `getQueriesData` and decode each key itself.
- *
- * @see {@link https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientsetqueriesdata}
- */
-export function parseSectionConversationsQueryKey(
-  queryKey: readonly unknown[],
-): SectionConversationFilter | null {
-  const [prefix, , discriminator, groupId, originChannel] = queryKey;
-  if (
-    prefix !== CONVERSATION_LIST_PREFIX ||
-    discriminator !== "section" ||
-    typeof groupId !== "string" ||
-    typeof originChannel !== "string"
-  ) {
-    return null;
-  }
-  /* The encoder writes "" for an absent axis, so "" decodes back to absent
-     rather than to a filter on the empty string. */
-  return {
-    ...(groupId === "" ? {} : { groupId: groupId as ConversationGroupId }),
-    ...(originChannel === ""
-      ? {}
-      : { originChannel: originChannel as OriginChannel }),
-  };
-}
 
 /**
  * Key for the server-side unread conversation count
@@ -146,9 +54,10 @@ export function parseSectionConversationsQueryKey(
  * (see {@link fetchUnreadConversationCount}).
  *
  * Deliberately the generated key, NOT a child of
- * {@link conversationListPrefix}: the prefix-wide helpers in
- * `conversation-cache.ts` treat every entry under the prefix as a
- * `Conversation[]`, and this cache holds a scalar.
+ * the list prefix (`conversationListPrefix` in `conversation-list-keys.ts`):
+ * the prefix-wide helpers in `conversation-cache.ts` treat every entry
+ * under it as a {@link ConversationListPage}, and this cache holds a scalar.
+ * The generated key's `_id` keeps the two apart.
  */
 export function unreadConversationCountQueryKey(assistantId: string | null) {
   return conversationsUnreadcountGetQueryKey({
@@ -205,45 +114,6 @@ type _Exhaustive =
 export type ConversationGroupId = ConversationListQuery["groupId"];
 
 /**
- * What one sidebar section asks the server for.
- *
- * Both axes together, because a section can need both: a channel card is
- * that channel *and* ungrouped, since `origin_channel` is a separate column
- * from `group_id` and a Slack conversation filed into a custom group would
- * otherwise render in two cards.
- */
-export interface SectionConversationFilter {
-  groupId?: ConversationGroupId;
-  originChannel?: OriginChannel;
-}
-
-type FetchConversationListOptions = {
-  conversationType?: "background" | "scheduled";
-  /**
-   * Filter by archive state. Defaults to `"active"` on the daemon side, so
-   * omitting this returns non-archived rows only — matching how the sidebar
-   * wants to read the list. The Archive page passes `"archived"`.
-   */
-  archiveStatus?: "active" | "archived" | "all";
-  /**
-   * Filter by origin channel. When provided, only conversations with this
-   * exact `origin_channel` value are returned.
-   */
-  originChannel?: OriginChannel;
-  /**
-   * Filter to one group: {@link SYSTEM_PINNED_GROUP_ID} for Pinned,
-   * {@link SYSTEM_ALL_GROUP_ID} for what no group claimed, or a custom
-   * group's id.
-   *
-   * A conversation carries exactly one `group_id`, so group-scoped lists are
-   * disjoint by construction and no section needs to subtract another's rows.
-   * The server orders a group-scoped request by the user's own arrangement
-   * (display order, then recency) and never appends pinned rows to it.
-   */
-  groupId?: ConversationGroupId;
-};
-
-/**
  * Closed set of list labels carried by the `client_list.drain` watchdog event
  * and by every conversation-list ring entry. One label per real caller, so the
  * archive page and the channel sections stay distinguishable from the sidebar's
@@ -264,8 +134,8 @@ type DrainListKind =
  * channel collapses to one `"origin_channel"` label so the set stays bounded
  * as channels are added.
  */
-function drainListKind(options: FetchConversationListOptions): DrainListKind {
-  if (options.archiveStatus === "archived") {
+function drainListKind(options: ConversationListFilter): DrainListKind {
+  if (isArchivedFilter(options)) {
     return "archived";
   }
   if (options.conversationType !== undefined) {
@@ -285,6 +155,36 @@ export type ConversationListPage = {
   conversations: Conversation[];
   hasMore: boolean;
 };
+
+/**
+ * Per-bucket shaping applied to every list read before it is cached, as
+ * data on the filter so there is one fetch path.
+ *
+ * A section (a group or channel filter) keeps server order: it renders the
+ * server's recency order as-is (LUM-3108), and a client sort could disagree
+ * with it on ties. The archived reads sort by `archivedAt`, the other
+ * buckets by `lastMessageAt`. The active background bucket drops scheduled
+ * rows: the daemon's `background` value is the back-compat umbrella that
+ * includes them, and the sidebar keeps one conversation in one cache, with
+ * scheduled runs in their own bucket. The archived background read keeps
+ * them, because the archive view shows every type and there is no
+ * archived-scheduled cache to hold them.
+ */
+function shapeListRows(
+  filter: ConversationListFilter,
+  rows: Conversation[],
+): Conversation[] {
+  if (isSectionFilter(filter)) {
+    return rows;
+  }
+  const kept =
+    filter.conversationType === "background" && !isArchivedFilter(filter)
+      ? rows.filter((c) => !isScheduledConversation(c))
+      : rows;
+  return [...kept].sort(
+    byTimestampDesc(isArchivedFilter(filter) ? "archivedAt" : "lastMessageAt"),
+  );
+}
 
 /**
  * A page plus what it cost to fetch. Module-private, and every exported
@@ -347,20 +247,12 @@ async function fetchConversationListPage(
   assistantId: string,
   offset: number,
   source: ListFetchSource,
-  options: FetchConversationListOptions = {},
+  filter: ConversationListFilter = {},
 ): Promise<TimedConversationListPage> {
-  const { conversationType, archiveStatus, originChannel, groupId } = options;
   const startedAt = performance.now();
   const { data, error, response } = await conversationsGet({
     path: { assistant_id: assistantId },
-    query: {
-      limit: CONVERSATION_LIST_PAGE_SIZE,
-      offset,
-      ...(conversationType ? { conversationType } : {}),
-      ...(archiveStatus ? { archiveStatus } : {}),
-      ...(originChannel ? { originChannel } : {}),
-      ...(groupId ? { groupId } : {}),
-    },
+    query: { ...filter, limit: CONVERSATION_LIST_PAGE_SIZE, offset },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to list conversations.");
@@ -372,7 +264,7 @@ async function fetchConversationListPage(
       status: response.status,
       durationMs,
       bytes: readContentLength(response),
-      listKind: drainListKind(options),
+      listKind: drainListKind(filter),
       source,
     });
     const msg = extractErrorMessage(
@@ -392,9 +284,23 @@ async function fetchConversationListPage(
   };
 }
 
-async function fetchConversationList(
+/**
+ * Every row matching `filter`, drained page by page and shaped for its
+ * bucket ({@link shapeListRows}).
+ *
+ * The four bucket caches (foreground, background, scheduled, archived)
+ * drain because their readers assume a complete list; a section drains
+ * only for the bulk-action path (`getAllRows` in
+ * `use-section-conversations.ts`), which must cover a section's full
+ * membership while its rendered cache is a window. Bulk archive and
+ * mark-all-read send explicit id lists, so their completeness is exactly
+ * this list's completeness; a server-side group-scoped bulk operation
+ * replaces that drain. Do not reach for a drain anywhere new: a windowed
+ * cache plus load-more is the shape everything else uses.
+ */
+export async function drainConversationList(
   assistantId: string,
-  options: FetchConversationListOptions = {},
+  filter: ConversationListFilter = {},
 ): Promise<Conversation[]> {
   const all: Conversation[] = [];
   const seen = new Set<string>();
@@ -416,7 +322,7 @@ async function fetchConversationList(
       totalMs,
       maxPageMs,
       totalBytes,
-      listKind: drainListKind(options),
+      listKind: drainListKind(filter),
     });
     // The ring keeps `assistantId` for feedback bundles; the telemetry rail is
     // metadata only.
@@ -426,7 +332,7 @@ async function fetchConversationList(
       rows: all.length,
       max_page_ms: maxPageMs,
       total_bytes: totalBytes,
-      list_kind: drainListKind(options),
+      list_kind: drainListKind(filter),
     });
   };
 
@@ -437,7 +343,7 @@ async function fetchConversationList(
         assistantId,
         offset,
         "drain",
-        options,
+        filter,
       );
       pages++;
       maxPageMs = Math.max(maxPageMs, result.durationMs);
@@ -448,7 +354,7 @@ async function fetchConversationList(
         recordFirstPageFetch(
           assistantId,
           result,
-          drainListKind(options),
+          drainListKind(filter),
           "drain",
         );
       }
@@ -473,88 +379,12 @@ async function fetchConversationList(
   }
 
   recordDrain("ok");
-  return all;
-}
-
-// ---------------------------------------------------------------------------
-// Merged list (foreground + background, deduplicated)
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch active or archived conversations for an assistant — foreground and
- * background buckets fetched in parallel, deduplicated by `conversationId`,
- * and sorted. Used by the Conversations browser, which lists every
- * conversation type together.
- *
- * Either bucket failing rejects the whole list. The caller presents this as
- * the complete set, so silently dropping the background rows would read as
- * "these don't exist" rather than "these didn't load" — and an archived row
- * that looks gone is worse than an error with a retry.
- *
- * @param archiveStatus — `"active"` or `"archived"` (archive page)
- * @param sortKey — which timestamp to sort descending by (default: `lastMessageAt`)
- */
-async function fetchMergedConversationList(
-  assistantId: string,
-  archiveStatus: "active" | "archived" = "active",
-  sortKey: "lastMessageAt" | "archivedAt" = "lastMessageAt",
-): Promise<Conversation[]> {
-  const opts: FetchConversationListOptions =
-    archiveStatus === "active" ? {} : { archiveStatus };
-  const bgOpts: FetchConversationListOptions = {
-    ...opts,
-    conversationType: "background",
-  };
-
-  const [foregroundResult, backgroundResult] = await Promise.allSettled([
-    fetchConversationList(assistantId, opts),
-    fetchConversationList(assistantId, bgOpts),
-  ]);
-
-  if (foregroundResult.status === "rejected") {
-    throw foregroundResult.reason;
-  }
-  if (backgroundResult.status === "rejected") {
-    throw backgroundResult.reason;
-  }
-
-  const foreground = foregroundResult.value;
-  const background = backgroundResult.value;
-
-  const seen = new Set<string>();
-  const conversations: Conversation[] = [];
-  for (const conversation of [...foreground, ...background]) {
-    if (seen.has(conversation.conversationId)) {
-      continue;
-    }
-    seen.add(conversation.conversationId);
-    conversations.push(conversation);
-  }
-
-  conversations.sort(byTimestampDesc(sortKey));
-  return conversations;
+  return shapeListRows(filter, all);
 }
 
 // ---------------------------------------------------------------------------
 // Public fetchers
 // ---------------------------------------------------------------------------
-
-/**
- * Fetch all active (non-archived) foreground conversations for a given
- * assistant, sorted newest-first.
- *
- * Background and scheduled jobs are intentionally excluded — they load
- * through `listBackgroundConversations` / `listScheduledConversations` only
- * once the user expands the Background/Scheduled sidebar sections, so a large
- * background backlog never blocks the initial chat render (the conversation
- * the user actually opened).
- */
-export async function listConversations(
-  assistantId: string,
-): Promise<Conversation[]> {
-  const foreground = await fetchConversationList(assistantId);
-  return [...foreground].sort(byTimestampDesc("lastMessageAt"));
-}
 
 /**
  * Whether the assistant has ANY active (non-archived) foreground conversation.
@@ -575,50 +405,6 @@ export async function hasAnyActiveConversation(
 }
 
 /**
- * Fetch all active (non-archived) background conversations for a given
- * assistant, sorted newest-first.
- *
- * The daemon's `conversationType=background` filter is the back-compat
- * umbrella that also returns scheduled rows, so those are filtered out here
- * to keep the background cache disjoint from the scheduled cache (one
- * conversation, one cache). Scheduled jobs load through
- * `listScheduledConversations` instead.
- *
- * Mounted lazily by the sidebar — only enabled once the user reveals the
- * Background section — so this never runs on the initial load path. Cached
- * separately from the foreground list under `backgroundConversationsQueryKey`.
- */
-export async function listBackgroundConversations(
-  assistantId: string,
-): Promise<Conversation[]> {
-  const background = await fetchConversationList(assistantId, {
-    conversationType: "background",
-  });
-  return background
-    .filter((c) => !isScheduledConversation(c))
-    .sort(byTimestampDesc("lastMessageAt"));
-}
-
-/**
- * Fetch all active (non-archived) scheduled conversations for a given
- * assistant, sorted newest-first.
- *
- * Uses the daemon's dedicated `conversationType=scheduled` filter so the
- * Scheduled sidebar section can load independently of the background
- * backlog. Mounted lazily — only enabled once the user reveals the
- * Scheduled section — so this never runs on the initial load path. Cached
- * separately under `scheduledConversationsQueryKey`.
- */
-export async function listScheduledConversations(
-  assistantId: string,
-): Promise<Conversation[]> {
-  const scheduled = await fetchConversationList(assistantId, {
-    conversationType: "scheduled",
-  });
-  return [...scheduled].sort(byTimestampDesc("lastMessageAt"));
-}
-
-/**
  * The two group ids the daemon owns. Pinning is stored as group membership,
  * and `system:all` is what no group claimed, so a conversation belongs to
  * exactly one group and group-scoped lists never overlap.
@@ -635,16 +421,6 @@ export const SYSTEM_ALL_GROUP_ID = "system:all";
  * the build here rather than sending a value the daemon rejects.
  */
 export const NATIVE_ORIGIN_CHANNEL: NonNullable<OriginChannel> = "vellum";
-
-/**
- * Fetch all archived conversations for the archive page.
- * Sorted by `archivedAt` descending (most recently archived first).
- */
-export async function listArchivedConversations(
-  assistantId: string,
-): Promise<Conversation[]> {
-  return fetchMergedConversationList(assistantId, "archived", "archivedAt");
-}
 
 /**
  * Read the server-side unread conversation count, mapping a 404 to `null`.
@@ -689,10 +465,10 @@ export type SidebarIndexSection =
  * cache holds `SidebarIndexSection[] | null` (see
  * {@link fetchSidebarSections}).
  *
- * The generated key, NOT a child of {@link conversationListPrefix}, for the
- * same reason as the unread count: the prefix-wide helpers in
- * `conversation-cache.ts` treat every entry under the prefix as a
- * `Conversation[]`, and this cache holds section rows.
+ * Not a list cache, for the same reason as the unread count: the
+ * prefix-wide helpers in `conversation-cache.ts` treat every entry under
+ * the list prefix as a {@link ConversationListPage}, and this cache holds
+ * section rows.
  */
 export function sidebarSectionsQueryKey(assistantId: string | null) {
   return conversationsSectionsGetQueryKey({
@@ -731,84 +507,23 @@ export async function fetchSidebarSections(
 }
 
 // ---------------------------------------------------------------------------
-// First-page fetchers
+// Page fetchers
 //
-// Single-request variants of the list fetchers above, used by the
-// sync_changed consumer to refresh the top of a cached list without
-// re-draining every page. At thousands of conversations the full drain is
-// hundreds of sequential GETs, which exhausts the daemon's per-client
-// rate-limit budget when sync events arrive continuously during an active
-// turn. Each returns the bucket's newest rows (one page, already filtered
-// and sorted with the same semantics as its full-list counterpart) plus
-// `hasMore` so callers can tell a complete list from a window.
+// Single-request reads. The first-page read refreshes the top of a cached
+// list without re-draining every page (at thousands of conversations a
+// drain is hundreds of sequential GETs, which exhausts the daemon's
+// per-client rate-limit budget when sync events arrive continuously during
+// an active turn), and it is the whole cold read for a windowed section.
+// Both return `hasMore` so callers can tell a complete list from a window.
 // ---------------------------------------------------------------------------
 
-/** First page of {@link listConversations} (foreground bucket). */
+/**
+ * The newest page of the list `filter` names, shaped for its bucket
+ * ({@link shapeListRows}).
+ */
 export async function listConversationsFirstPage(
   assistantId: string,
-): Promise<ConversationListPage> {
-  const page = await fetchConversationListPage(
-    assistantId,
-    0,
-    "first_page_refresh",
-  );
-  recordFirstPageFetch(assistantId, page, "foreground", "first_page_refresh");
-  return {
-    conversations: [...page.conversations].sort(
-      byTimestampDesc("lastMessageAt"),
-    ),
-    hasMore: page.hasMore,
-  };
-}
-
-/** First page of {@link listBackgroundConversations} (background bucket). */
-export async function listBackgroundConversationsFirstPage(
-  assistantId: string,
-): Promise<ConversationListPage> {
-  const page = await fetchConversationListPage(
-    assistantId,
-    0,
-    "first_page_refresh",
-    { conversationType: "background" },
-  );
-  recordFirstPageFetch(assistantId, page, "background", "first_page_refresh");
-  return {
-    conversations: page.conversations
-      .filter((c) => !isScheduledConversation(c))
-      .sort(byTimestampDesc("lastMessageAt")),
-    hasMore: page.hasMore,
-  };
-}
-
-/** First page of {@link listScheduledConversations} (scheduled bucket). */
-export async function listScheduledConversationsFirstPage(
-  assistantId: string,
-): Promise<ConversationListPage> {
-  const page = await fetchConversationListPage(
-    assistantId,
-    0,
-    "first_page_refresh",
-    { conversationType: "scheduled" },
-  );
-  recordFirstPageFetch(assistantId, page, "scheduled", "first_page_refresh");
-  return {
-    conversations: [...page.conversations].sort(
-      byTimestampDesc("lastMessageAt"),
-    ),
-    hasMore: page.hasMore,
-  };
-}
-
-/**
- * First page of one sidebar section's conversations.
- *
- * Server order is preserved rather than re-sorted: a section renders the
- * server's order as-is (recency, LUM-3108), and a client-side sort here
- * could disagree with it on ties.
- */
-export async function listSectionConversationsFirstPage(
-  assistantId: string,
-  filter: SectionConversationFilter,
+  filter: ConversationListFilter = {},
 ): Promise<ConversationListPage> {
   const page = await fetchConversationListPage(
     assistantId,
@@ -822,32 +537,16 @@ export async function listSectionConversationsFirstPage(
     drainListKind(filter),
     "first_page_refresh",
   );
-  return { conversations: page.conversations, hasMore: page.hasMore };
+  return {
+    conversations: shapeListRows(filter, page.conversations),
+    hasMore: page.hasMore,
+  };
 }
 
 /**
- * Every row of one section, drained page by page.
- *
- * Transitional, and deliberately narrow: the only caller is the bulk-action
- * path (`getAllRows` in `use-section-conversations.ts`), which must cover a
- * section's full membership while the rendered cache is a window
- * (LUM-2444). Bulk archive / mark-all-read send explicit id lists, so their
- * completeness is exactly this list's completeness. The better shape is a
- * server-side group-scoped bulk operation (one filter parameter instead of
- * an id list); when that exists, this drain goes with it. Do not reach for
- * this anywhere new - a windowed cache plus load-more is the shape
- * everything else uses.
- */
-export async function drainSectionConversations(
-  assistantId: string,
-  filter: SectionConversationFilter,
-): Promise<Conversation[]> {
-  return fetchConversationList(assistantId, filter);
-}
-
-/**
- * One page of a section's conversations at an arbitrary offset, for
- * extending a windowed cache (`loadMoreSectionConversations`).
+ * One page at an arbitrary offset, for extending a windowed cache
+ * (`loadMoreConversations`). Server order, unshaped: a load-more appends
+ * below rows already on screen.
  *
  * The offset is the caller's cached row count, not a stored page cursor:
  * optimistic writes add and remove rows, so a cursor recorded at fetch time
@@ -856,9 +555,9 @@ export async function drainSectionConversations(
  * id at the append, and a skipped row surfaces on the next first-page merge
  * or deeper load.
  */
-export async function listSectionConversationsPage(
+export async function listConversationsPage(
   assistantId: string,
-  filter: SectionConversationFilter,
+  filter: ConversationListFilter,
   offset: number,
 ): Promise<ConversationListPage> {
   const page = await fetchConversationListPage(
@@ -873,8 +572,10 @@ export async function listSectionConversationsPage(
 // ---------------------------------------------------------------------------
 // queryOptions factories
 //
-// Co-locate queryKey + queryFn + staleTime so hooks can spread them into
-// useQuery() and imperative callers can use .queryKey for cache operations.
+// The list caches' options live in `conversation-list-options.ts`; these
+// two are the sidebar's other reads. Co-locate queryKey + queryFn +
+// staleTime so hooks can spread them into useQuery() and imperative callers
+// can use .queryKey for cache operations.
 //
 // References:
 // - https://tanstack.com/query/latest/docs/framework/react/guides/query-options
@@ -882,107 +583,6 @@ export async function listSectionConversationsPage(
 // ---------------------------------------------------------------------------
 
 const QUERY_STALE_TIME_MS = 30_000;
-
-/**
- * A fully drained list as a {@link ConversationListPage}. Every list cache
- * holds the page shape, windowed or not, so the cross-cache helpers in
- * `conversation-cache.ts` never branch on shape; a drained list is simply a
- * page the server has nothing beyond.
- */
-async function drainedPage(
-  fetchAll: Promise<Conversation[]>,
-): Promise<ConversationListPage> {
-  return { conversations: await fetchAll, hasMore: false };
-}
-
-/**
- * Query options for the foreground conversation list. Spread into
- * `useQuery()` and override `enabled` at the hook level.
- */
-export function conversationListOptions(assistantId: string) {
-  return queryOptions({
-    queryKey: conversationsQueryKey(assistantId),
-    queryFn: () => drainedPage(listConversations(assistantId)),
-    staleTime: QUERY_STALE_TIME_MS,
-  });
-}
-
-/**
- * Query options for the background conversation list.
- */
-export function backgroundConversationListOptions(assistantId: string) {
-  return queryOptions({
-    queryKey: backgroundConversationsQueryKey(assistantId),
-    queryFn: () => drainedPage(listBackgroundConversations(assistantId)),
-    staleTime: QUERY_STALE_TIME_MS,
-  });
-}
-
-/**
- * Query options for the scheduled conversation list.
- */
-export function scheduledConversationListOptions(assistantId: string) {
-  return queryOptions({
-    queryKey: scheduledConversationsQueryKey(assistantId),
-    queryFn: () => drainedPage(listScheduledConversations(assistantId)),
-    staleTime: QUERY_STALE_TIME_MS,
-  });
-}
-
-/**
- * Query options for the archived conversation list.
- */
-export function archivedConversationListOptions(assistantId: string) {
-  return queryOptions({
-    queryKey: archivedConversationsQueryKey(assistantId),
-    queryFn: () => drainedPage(listArchivedConversations(assistantId)),
-    staleTime: QUERY_STALE_TIME_MS,
-  });
-}
-
-/**
- * Query options for one sidebar section's conversations.
- *
- * One factory for every section, parameterized by the filter rather than one
- * factory per filter axis: a section can constrain both at once, which a
- * per-axis factory cannot express. Caches independently per
- * `(assistantId, groupId, originChannel)`.
- *
- * The fetch is one page, not a drain (LUM-2444): a cold section costs a
- * single GET, `hasMore` marks the cache as a window, and older rows arrive
- * through `loadMoreSectionConversations` as the user scrolls.
- *
- * The queryFn is *window-preserving*: a windowed cache holds every page the
- * user scrolled in, and a plain refetch (focus past staleTime, the settle
- * invalidation after every placement) that returned page one bare would
- * truncate the window back to 50 rows under the user's scrollbar. Merging
- * the fresh page over the cached window (`mergeListFirstPage`, the same
- * rule the sync refresh uses) makes every refresh path "refresh the top,
- * keep the window". The cache is read through the query function's own
- * context, so the factory stays keyed by request identity alone like its
- * siblings; the read happens after the response so it merges against the
- * freshest rows, and a mutation that lands mid-fetch cancels this query
- * outright (`cancelConversationQueries`), so the merge cannot land on top
- * of an optimistic write.
- */
-export function sectionConversationListOptions(
-  assistantId: string,
-  filter: SectionConversationFilter,
-) {
-  return queryOptions({
-    queryKey: sectionConversationsQueryKey(assistantId, filter),
-    queryFn: async ({ client, queryKey }) => {
-      const page = await listSectionConversationsFirstPage(assistantId, filter);
-      const prev = client.getQueryData<ConversationListPage>(queryKey);
-      /* A section page has no daemon pinned-row injection; see
-         mergeListFirstPage. */
-      return prev
-        ? mergeListFirstPage(prev, page, { pinnedInjected: false })
-        : page;
-    },
-    staleTime: QUERY_STALE_TIME_MS,
-  });
-}
 
 /**
  * Query options for the server-side unread conversation count. The cache

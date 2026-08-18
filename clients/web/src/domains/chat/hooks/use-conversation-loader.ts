@@ -123,7 +123,7 @@ export function useConversationLoader({
   // refreshConversations -- invalidate the cached conversation list + groups
   // so subscribed query consumers refetch. The active list query is mounted
   // by `ChatLayout` and `ChatPage`, so invalidation triggers a background
-  // refetch through the same `listConversations` queryFn used at boot.
+  // refetch through the same `conversationListOptions` queryFn used at boot.
   // -------------------------------------------------------------------------
   const refreshConversations = useCallback(async () => {
     if (!assistantId) {
@@ -152,8 +152,8 @@ export function useConversationLoader({
   // `useBackgroundConversationListQuery`, gated on the sidebar revealing
   // those sections, so a large background backlog never blocks the initial
   // render. Sibling consumers in `ChatLayout` and `ChatPage` mount the same
-  // foreground query — they all share one cache entry under
-  // `conversationsQueryKey(assistantId)`, so dedupe and structural-sharing
+  // foreground query; they all share one cache entry under
+  // `conversationListQueryKey(assistantId)`, so dedupe and structural-sharing
   // are automatic.
   //
   // The query owns:

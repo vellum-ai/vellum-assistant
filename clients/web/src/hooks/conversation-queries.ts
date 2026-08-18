@@ -6,11 +6,17 @@
  * companion `conversation-store.ts` keeps only the client-side slice —
  * active/editing key, processing/attention sets, and snapshots.
  *
- * Each hook spreads a `queryOptions` factory from
- * `utils/conversation-list-fetchers.ts` and adds runtime concerns
+ * Each hook spreads a `queryOptions` factory (`conversationListOptions` in
+ * `utils/conversation-list-options.ts` for the list caches; the fetchers
+ * module for the sidebar's other reads) and adds runtime concerns
  * (`enabled` gating via `useCanQueryDaemon()`, `select` transforms). This
  * co-locates `queryKey` + `queryFn` + `staleTime` in one place so they
  * can be reused across hooks, prefetches, and imperative cache reads.
+ *
+ * The list hooks are one hook, {@link useListQuery}, under the names the
+ * consumers read: every list cache is `conversationListOptions` with a
+ * different filter, and the named hooks exist for the consumers that still
+ * read the four buckets rather than a section. They go with those consumers.
  *
  * Cache mutation helpers live in `utils/conversation-cache-mutations.ts`.
  *
@@ -21,7 +27,11 @@
  */
 
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import {
+  useQueries,
+  useQuery,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { groupsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
@@ -32,20 +42,26 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
-import { countUnreadConversationsInList } from "@/utils/conversation-predicates";
+import { mergeConversationLists } from "@/utils/conversation-cache";
 import {
-  archivedConversationListOptions,
-  backgroundConversationListOptions,
-  conversationListOptions,
-  sectionConversationListOptions,
-  scheduledConversationListOptions,
   sidebarSectionsOptions,
   unreadConversationCountOptions,
 } from "@/utils/conversation-list-fetchers";
 import type {
-  SectionConversationFilter,
+  ConversationListPage,
   SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
+import {
+  ARCHIVED_BACKGROUND_FILTER,
+  ARCHIVED_FILTER,
+  BACKGROUND_FILTER,
+  type ConversationListFilter,
+  FOREGROUND_FILTER,
+  SCHEDULED_FILTER,
+} from "@/utils/conversation-list-keys";
+import { conversationListOptions } from "@/utils/conversation-list-options";
+import { byTimestampDesc } from "@/utils/conversation-order";
+import { countUnreadConversationsInList } from "@/utils/conversation-predicates";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -77,47 +93,105 @@ function useCanQueryDaemon(assistantId: string | null): boolean {
   return isOrgReady && isServing;
 }
 
-/**
- * Subscribe to the foreground conversation list for the given assistant.
- *
- * Fetches foreground conversations via `listConversations()` and stores a
- * `ConversationListPage` under `conversationsQueryKey`. Background and
- * scheduled jobs are deliberately excluded — they load through
- * `useBackgroundConversationListQuery` only when the user reveals them — so
- * the initial chat render is never blocked on a large background backlog.
- *
- * Returns an empty array until the query resolves so consumers can render
- * an empty sidebar without null-checking. Cache writes from mutations and
- * SSE handlers feed through here automatically.
- *
- * `isError`, `error`, and `refetch` are exposed so chat-surface consumers
- * can surface a visible error state when the conversation list fails —
- * most notably for self-hosted assistants, where a missing actor-token
- * JWT surfaces as a gateway 401 that has to terminate the loading spinner
- * with an actionable retry instead of silently keeping the sidebar empty.
- */
-export function useConversationListQuery(
-  assistantId: string | null,
-  enabled: boolean = true,
-): {
+/** What every list hook returns. */
+export interface ConversationListQueryResult {
+  /** Empty until the query resolves, so consumers render without null checks. */
   conversations: Conversation[];
   isLoading: boolean;
   isPending: boolean;
   isError: boolean;
   error: Error | null;
+  /**
+   * Whether the query has ever resolved; survives a failed refetch. What a
+   * consumer branches on to decide whether to trust `conversations`:
+   * `isError` is not its complement, since React Query keeps the last
+   * successful data when a later refetch fails, and treating an errored
+   * query as unusable would swap real rows for a worse list. `hasData` is
+   * false in exactly the cases with nothing to show: never fetched, still
+   * pending, or failed before it ever succeeded.
+   */
+  hasData: boolean;
+  /**
+   * Whether the server holds rows past this window (LUM-2444). `false`
+   * until the query resolves, so nothing offers a load-more for a list that
+   * has not answered once, and always `false` for a drained bucket.
+   */
+  hasMore: boolean;
   refetch: () => void;
-} {
+}
+
+type ListQueryOptions = ReturnType<typeof conversationListOptions> & {
+  enabled: boolean;
+};
+
+/**
+ * What a list hook returns when it has no query to observe: the same shape a
+ * never-enabled query reports (pending, not loading, nothing to show), so a
+ * consumer branches the same way in both cases.
+ */
+const NO_QUERY: ConversationListQueryResult = {
+  conversations: EMPTY_CONVERSATIONS,
+  isLoading: false,
+  isPending: true,
+  isError: false,
+  error: null,
+  hasData: false,
+  hasMore: false,
+  refetch: () => {},
+};
+
+/**
+ * Subscribe to the list cache `filter` names, or to nothing when `filter` is
+ * `null`.
+ *
+ * `null` mounts no query at all (`useQueries` with an empty list), which is
+ * what a section without a server filter needs: every filter names a real
+ * cache under the generated key, the empty filter included, so there is no
+ * placeholder key a disabled observer could sit on without subscribing to
+ * someone's data.
+ *
+ * `enabled` gates the network fetch; passing `false` keeps the observer
+ * subscribed to cache updates without firing a request (attention tracking
+ * reads the background and scheduled buckets that way: it reflects their
+ * rows once the sidebar loads them, but never triggers the fetch itself).
+ *
+ * `isError`, `error`, and `refetch` let a chat surface render a visible
+ * error state when the list fails, most notably for self-hosted assistants,
+ * where a missing actor-token JWT surfaces as a gateway 401 that has to
+ * terminate the loading spinner with an actionable retry instead of
+ * silently keeping the sidebar empty.
+ */
+function useListQuery(
+  assistantId: string | null,
+  filter: ConversationListFilter | null,
+  enabled: boolean,
+): ConversationListQueryResult {
   const canQuery = useCanQueryDaemon(assistantId);
-  const query = useQuery({
-    ...conversationListOptions(assistantId!),
-    enabled: enabled && Boolean(assistantId) && canQuery,
-  });
+  /* An array, not a tuple, so `useQueries` types the results as a list of
+     one query kind whether it holds zero entries or one. */
+  const queries: ListQueryOptions[] =
+    filter === null
+      ? []
+      : [
+          {
+            ...conversationListOptions(assistantId ?? "", filter),
+            enabled: enabled && Boolean(assistantId) && canQuery,
+          },
+        ];
+  const query: UseQueryResult<ConversationListPage> | undefined = useQueries({
+    queries,
+  })[0];
+  if (query === undefined) {
+    return NO_QUERY;
+  }
   return {
     conversations: query.data?.conversations ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
     isPending: query.isPending,
     isError: query.isError,
     error: query.error,
+    hasData: query.data !== undefined,
+    hasMore: query.data?.hasMore ?? false,
     refetch: () => {
       void query.refetch();
     },
@@ -125,129 +199,96 @@ export function useConversationListQuery(
 }
 
 /**
- * Subscribe to the background conversation list for the given assistant.
- * Cached separately from the foreground list under
- * `backgroundConversationsQueryKey`.
- *
- * `enabled` gates the network fetch on whether the user has revealed the
- * Background sidebar section. Passing `enabled: false` keeps the observer
- * subscribed to cache updates without firing a request — used by attention
- * tracking so it reflects background rows once the sidebar has loaded them,
- * but never triggers the fetch itself.
+ * The foreground conversation list: the primary list that gates the initial
+ * chat render. Background and scheduled jobs are excluded on purpose; they
+ * load through their own hooks only when the user reveals them, so the
+ * initial render is never blocked on a large background backlog.
  */
+export function useConversationListQuery(
+  assistantId: string | null,
+  enabled: boolean = true,
+): ConversationListQueryResult {
+  return useListQuery(assistantId, FOREGROUND_FILTER, enabled);
+}
+
+/** The background conversation list, its own cache from the foreground list. */
 export function useBackgroundConversationListQuery(
   assistantId: string | null,
   enabled: boolean = true,
-): {
-  conversations: Conversation[];
-  isLoading: boolean;
-  isPending: boolean;
-  isError: boolean;
-  refetch: () => void;
-} {
-  const canQuery = useCanQueryDaemon(assistantId);
-  const query = useQuery({
-    ...backgroundConversationListOptions(assistantId!),
-    enabled: enabled && Boolean(assistantId) && canQuery,
-  });
-  return {
-    conversations: query.data?.conversations ?? EMPTY_CONVERSATIONS,
-    isLoading: query.isLoading,
-    isPending: query.isPending,
-    isError: query.isError,
-    refetch: () => {
-      void query.refetch();
-    },
-  };
+): ConversationListQueryResult {
+  return useListQuery(assistantId, BACKGROUND_FILTER, enabled);
 }
 
 /**
- * Subscribe to the scheduled conversation list for the given assistant.
- * Cached separately under `scheduledConversationsQueryKey` so revealing the
- * Scheduled section fetches only scheduled jobs, independently of the
- * background backlog.
- *
- * `enabled` gates the network fetch on whether the user has revealed the
- * Scheduled sidebar section. Passing `enabled: false` keeps the observer
- * subscribed to cache updates without firing a request — mirroring the
- * background hook so attention tracking reflects scheduled rows once loaded
- * without triggering the fetch itself.
+ * The scheduled conversation list, its own cache so revealing the Scheduled
+ * section fetches only scheduled jobs, independently of the background
+ * backlog.
  */
 export function useScheduledConversationListQuery(
   assistantId: string | null,
   enabled: boolean = true,
-): {
-  conversations: Conversation[];
-  isLoading: boolean;
-  isPending: boolean;
-  isError: boolean;
-  refetch: () => void;
-} {
-  const canQuery = useCanQueryDaemon(assistantId);
-  const query = useQuery({
-    ...scheduledConversationListOptions(assistantId!),
-    enabled: enabled && Boolean(assistantId) && canQuery,
-  });
-  return {
-    conversations: query.data?.conversations ?? EMPTY_CONVERSATIONS,
-    isLoading: query.isLoading,
-    isPending: query.isPending,
-    isError: query.isError,
-    refetch: () => {
-      void query.refetch();
-    },
-  };
+): ConversationListQueryResult {
+  return useListQuery(assistantId, SCHEDULED_FILTER, enabled);
 }
 
 /**
- * Subscribe to one sidebar section's conversations.
+ * One sidebar section's conversations (a group and/or channel filter), or
+ * nothing for a section that has no server filter (`null`: a channel this
+ * client's schema does not carry, or Chats below the native-origin gate).
  *
  * Each section mounts its own instance, so its contents come from the server
  * rather than from filtering another section's list. That is what lets a
  * pinned conversation appear in Pinned even when it sorts many pages deep in
  * the full list.
- *
- * `enabled` gates the network fetch; passing `false` keeps the observer
- * subscribed to cache updates without firing a request.
- *
- * `hasData` rather than `isError` is what a section should branch on when
- * deciding whether to trust this result. The two are not complements: React
- * Query keeps the last successful data when a later refetch fails, so an
- * errored query can still be holding the section's real rows, and treating
- * `isError` as "unusable" would swap them for a worse list. `hasData` is
- * false in exactly the cases with nothing to show - never fetched, still
- * pending, or failed before it ever succeeded.
  */
 export function useSectionConversationListQuery(
   assistantId: string | null,
-  filter: SectionConversationFilter,
+  filter: ConversationListFilter | null,
   enabled: boolean = true,
-): {
-  conversations: Conversation[];
-  isLoading: boolean;
-  isPending: boolean;
-  isError: boolean;
-  /** Whether the query has ever resolved; survives a failed refetch. */
-  hasData: boolean;
-  /**
-   * Whether the server holds rows past this window (LUM-2444). `false`
-   * until the query resolves, so nothing offers a load-more for a section
-   * that has not answered once.
-   */
-  hasMore: boolean;
-} {
-  const canQuery = useCanQueryDaemon(assistantId);
-  const query = useQuery({
-    ...sectionConversationListOptions(assistantId!, filter),
-    enabled: enabled && Boolean(assistantId) && canQuery,
-  });
+): ConversationListQueryResult {
+  return useListQuery(assistantId, filter, enabled);
+}
+
+/**
+ * The archived conversations of every type, newest-archived first.
+ *
+ * Two caches, merged here: the daemon's `conversationType` defaults to
+ * standard and has no "all", so archived background rows are a second read
+ * ({@link ARCHIVED_BACKGROUND_FILTER}). Either failing is the whole list
+ * failing: this is presented as the complete set, and an archived row that
+ * looks gone is worse than an error with a retry.
+ */
+export function useArchivedConversationListQuery(
+  assistantId: string | null,
+  enabled: boolean = true,
+): ConversationListQueryResult {
+  const foreground = useListQuery(assistantId, ARCHIVED_FILTER, enabled);
+  const background = useListQuery(
+    assistantId,
+    ARCHIVED_BACKGROUND_FILTER,
+    enabled,
+  );
+  const conversations = useMemo(() => {
+    const merged = mergeConversationLists(
+      foreground.conversations,
+      background.conversations,
+    );
+    return merged === foreground.conversations
+      ? merged
+      : [...merged].sort(byTimestampDesc("archivedAt"));
+  }, [foreground.conversations, background.conversations]);
   return {
-    conversations: query.data?.conversations ?? EMPTY_CONVERSATIONS,
-    isLoading: query.isLoading,
-    isPending: query.isPending,
-    isError: query.isError,
-    hasData: query.data !== undefined,
-    hasMore: query.data?.hasMore ?? false,
+    conversations,
+    isLoading: foreground.isLoading || background.isLoading,
+    isPending: foreground.isPending || background.isPending,
+    isError: foreground.isError || background.isError,
+    error: foreground.error ?? background.error,
+    hasData: foreground.hasData && background.hasData,
+    hasMore: false,
+    refetch: () => {
+      foreground.refetch();
+      background.refetch();
+    },
   };
 }
 
@@ -335,43 +376,6 @@ export function useUnreadConversationCount(
     [fallbackConversations],
   );
   return Math.max(0, serverCount ?? derivedCount);
-}
-
-/**
- * Subscribe to the archived conversation list for the given assistant. The
- * cache lives under a separate query key (`archivedConversationsQueryKey`)
- * so that mutations to the active list don't refetch the archive view and
- * vice versa.
- *
- * Returns an empty array until the query resolves so consumers can render
- * an empty state without null-checking.
- */
-export function useArchivedConversationListQuery(
-  assistantId: string | null,
-  enabled: boolean = true,
-): {
-  conversations: Conversation[];
-  isLoading: boolean;
-  isPending: boolean;
-  isError: boolean;
-  error: Error | null;
-  refetch: () => void;
-} {
-  const canQuery = useCanQueryDaemon(assistantId);
-  const query = useQuery({
-    ...archivedConversationListOptions(assistantId!),
-    enabled: enabled && Boolean(assistantId) && canQuery,
-  });
-  return {
-    conversations: query.data?.conversations ?? EMPTY_CONVERSATIONS,
-    isLoading: query.isLoading,
-    isPending: query.isPending,
-    isError: query.isError,
-    error: query.error,
-    refetch: () => {
-      void query.refetch();
-    },
-  };
 }
 
 /**
