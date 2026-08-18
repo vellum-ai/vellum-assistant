@@ -194,6 +194,8 @@ export function OnboardingTonedBackdrop({
   // The backdrop, not the stage, owns this screen's canvas color, so it is what
   // hands it to the app shell for the safe-area strips, on the same crossfade
   // timing so the two arrive together. See `page-surface-store`.
+  // The crossfade applies to changes of target only, never to the arrival, so
+  // this matches the `initial={false}` below on both counts.
   usePublishPageSurface(
     darkBg ? ONBOARDING_DARK_SURFACE : bg,
     reduce ? null : CANVAS_FADE_CSS,

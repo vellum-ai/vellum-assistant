@@ -90,20 +90,30 @@ describe("usePublishPageSurface", () => {
     expect(usePageSurfaceStore.getState().surface).toBeNull();
   });
 
-  it("carries the page's timing so the strips animate with it", () => {
+  it("lands the first surface outright, whatever timing is offered", () => {
+    // A page takes its canvas color on arrival rather than fading into it, so
+    // the strips must not fade up from whatever the last page left behind.
     render(<Publisher surface="#E5C100" transition="0.6s ease-out 0.35s" />);
 
-    expect(usePageSurfaceStore.getState().transition).toBe(
-      "0.6s ease-out 0.35s",
-    );
+    expect(usePageSurfaceStore.getState().surface).toBe("#E5C100");
+    expect(usePageSurfaceStore.getState().transition).toBeNull();
+  });
+
+  it("carries the page's timing once the color changes", () => {
+    const { rerender } = render(<Publisher surface="#17191C" />);
+
+    rerender(<Publisher surface="#E5C100" transition="1s ease-in-out" />);
+
+    expect(usePageSurfaceStore.getState().transition).toBe("1s ease-in-out");
   });
 
   it("clears the timing along with the surface", () => {
-    const { unmount } = render(
-      <Publisher surface="#E5C100" transition="1s ease-in-out" />,
-    );
+    const { rerender, unmount } = render(<Publisher surface="#17191C" />);
+    rerender(<Publisher surface="#E5C100" transition="1s ease-in-out" />);
+
     unmount();
 
+    expect(usePageSurfaceStore.getState().surface).toBeNull();
     expect(usePageSurfaceStore.getState().transition).toBeNull();
   });
 
@@ -118,6 +128,7 @@ describe("usePublishPageSurface", () => {
     stop();
 
     expect(steps).toEqual(["#17191C", "#E5C100"]);
+    expect(usePageSurfaceStore.getState().transition).toBe("1s ease-in-out");
     unmount();
   });
 

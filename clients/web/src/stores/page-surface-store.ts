@@ -39,6 +39,9 @@ interface PageSurfaceState {
    * snaps them there while the canvas is still crossfading, which is the same
    * visible seam along the edge that publishing a surface at all is meant to
    * remove. Mirror the page's own motion transition here.
+   *
+   * Applies to a publisher's changes of color, never to its first: see
+   * {@link usePublishPageSurface}.
    */
   transition: string | null;
 }
@@ -98,6 +101,9 @@ export function resolveShellTransition(
  * Publish `surface` as the shell canvas for as long as the caller is mounted,
  * reaching it over `transition` when the page's own canvas animates there.
  *
+ * `transition` applies to this caller's changes of color, never to its first
+ * publish, which always lands outright.
+ *
  * Layout effect, not passive: the page commits and can paint before a passive
  * effect runs, so the safe-area strips would trail the page by a frame both on
  * arrival and whenever the color resolves. It also puts the strips' transition
@@ -120,8 +126,15 @@ export function usePublishPageSurface(
     if (surface === null) {
       return;
     }
+    // A transition is for a change of color, not an arrival. A page takes its
+    // canvas color outright when it mounts, so the strips do too, and only the
+    // publisher's later changes animate. Without this a page resumed straight
+    // onto a themed step would leave them fading up from the neutral canvas
+    // while the page itself was already there.
+    const changing =
+      published.current !== null && published.current !== surface;
     published.current = surface;
-    setSurface(surface, transition);
+    setSurface(surface, changing ? transition : null);
   }, [surface, transition, setSurface]);
 
   // Releasing is its own effect so that publishing a new color is one store
