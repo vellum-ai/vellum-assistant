@@ -123,19 +123,19 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
 /**
  * Top-edge fade for the overlay drawer's scrollport in Capacitor mobile
  * shells, where the close and search glyphs float over the list. The gradient
- * spans the whole reserve the scrollport carries (`native-mobile:pt-9`), so a
- * row is fully transparent at the top of the glyph band and only reaches full
- * opacity once it has passed below the glyphs. Keep the two in step: a stop
- * shorter than the reserve leaves a row opaque while it is still behind a
- * glyph. The glyphs live in a sibling of the scrollport, so the mask never
- * dims them.
+ * spans the whole reserve the scrollport carries (`native-mobile:pt-11`), so
+ * a row is fully transparent at the top of the glyph band and only reaches
+ * full opacity once it has passed below the glyphs. Keep the two in step: a
+ * stop shorter than the reserve leaves a row opaque while it is still behind
+ * a glyph, which reads as text printed over a bare icon. The glyphs live in a
+ * sibling of the scrollport, so the mask never dims them.
  *
  * Both declarations are spelled out in full because Tailwind only emits the
  * candidates it finds verbatim in source; the prefixed pairing follows
  * {@link VOICE_WAVE_EDGE_FADE_CLASS} in `voice-listening-waves.tsx`.
  */
 const NATIVE_MOBILE_LIST_TOP_FADE =
-  "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_2.25rem)] native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2.25rem)]";
+  "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)] native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)]";
 
 function SearchButton() {
   const toggle = useCommandPaletteStore.use.toggle();
@@ -551,10 +551,12 @@ export function AssistantSideMenu({
               ? /* pb-24 is a coarse floating-column reserve until the measured
                  inline padding below is applied. The native-mobile reserve is
                  the glyph row's own extent: it floats 1rem below the sheet's
-                 top and stands 2rem tall, and this scrollport starts one
-                 overlay inset down, so 2.25rem reaches exactly its bottom
-                 edge. The gap below it belongs to the assistant cluster. */
-                `-mx-3 ${SIDEBAR_STACK_GAP} px-3 pb-24 native-mobile:pt-9 ${NATIVE_MOBILE_LIST_TOP_FADE}`
+                 top and stands 2.5rem tall. An icon-only Button carries a
+                 40px touch target on a coarse pointer, not the 32px box the
+                 mock draws. This scrollport starts one overlay inset down, so
+                 2.75rem reaches the row's bottom edge, and the assistant
+                 cluster's own top padding supplies the 1rem gap beneath it. */
+                `-mx-3 ${SIDEBAR_STACK_GAP} px-3 pb-24 native-mobile:pt-11 ${NATIVE_MOBILE_LIST_TOP_FADE}`
               : /* The top inset is the same stack gap: the header closes
                    with no rule, so without it the first card (or the
                    collapsed rail's first group icon) butts against the

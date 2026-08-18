@@ -901,18 +901,20 @@ describe("AssistantSideMenu · native mobile floating glyph row", () => {
       overlayDom().querySelector('[data-slot="side-menu-body"]'),
     );
 
-    // The reserve is the glyph row's own extent (its 16px offset plus its
-    // 32px height), so the assistant cluster below supplies the gap rather
-    // than inheriting one from a deeper reserve.
-    expect(body).toContain("native-mobile:pt-9");
+    // The reserve is the glyph row's own extent, measured off the 40px touch
+    // target an icon-only Button takes on a coarse pointer (its 16px offset
+    // plus that height, less the overlay inset this scrollport already sits
+    // behind). Sizing it off the mock's 32px box instead leaves the bottom
+    // 8px of each glyph over fully opaque content.
+    expect(body).toContain("native-mobile:pt-11");
     // Complete declarations, so the fade geometry is pinned too: a different
     // stop or gradient direction is a different token. The stop tracks the
     // reserve, so a row is clear of the glyphs exactly when it is opaque.
     expect(body).toContain(
-      "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_2.25rem)]",
+      "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)]",
     );
     expect(body).toContain(
-      "native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2.25rem)]",
+      "native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)]",
     );
   });
 });
