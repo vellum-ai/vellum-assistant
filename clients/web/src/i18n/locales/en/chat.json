@@ -179,6 +179,12 @@
     "copied": "Copied",
     "copyFailed": "Could not copy to the clipboard."
   },
+  "copyIdToClipboard": {
+    "conversationCopied": "Conversation ID copied to clipboard.",
+    "conversationFailed": "Couldn't copy the conversation ID.",
+    "groupCopied": "Group ID copied to clipboard.",
+    "groupFailed": "Couldn't copy the group ID."
+  },
   "detailPanelStopButton": {
     "tooltip": "Stop"
   },

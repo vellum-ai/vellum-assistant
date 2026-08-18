@@ -840,7 +840,7 @@ export function listDeclaredSchedules(): ScheduleJob[] {
  * a null `lastRunAt` is a declared schedule inserted disabled, not an engine
  * latch, and stays re-armable.
  */
-function isEngineLatched(row: {
+export function isEngineLatched(row: {
   status: string;
   nextRunAt: number;
   lastRunAt: number | null;
@@ -1051,6 +1051,10 @@ export async function setUserEnabled(
     // again. The reconciler is the authority on the declaration set; this
     // probe only closes that fire-before-next-sweep window. The override
     // itself is still recorded, so it applies if the declaration returns.
+    // The probe is deliberately disk-only. A schedule tool calls this from a
+    // conversation turn, which can run in a sidecar worker process where the
+    // daemon's activation ledger is empty, so consulting activation here would
+    // refuse to re-arm anything. Activation stays the reconciler's call.
     if (value && !(await declarationExistsOnDisk(existing.sourceKey))) {
       logger.info(
         { scheduleId: id, sourceKey: existing.sourceKey },

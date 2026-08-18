@@ -53,6 +53,42 @@ public class ConnectDeepLinkTest {
     }
 
     @Test
+    public void decodesAndTrimsTheOptionalNameLabel() {
+        ConnectDeepLink connect = ConnectDeepLink.parse(
+            SCHEME + "://connect?url=https%3A%2F%2Fexample.com&code=device-code&name=Living+Room",
+            SCHEME
+        );
+
+        assertEquals("Living Room", connect.name());
+    }
+
+    @Test
+    public void preservesEscapedPlusSignsInNameLabels() {
+        ConnectDeepLink connect = ConnectDeepLink.parse(
+            SCHEME + "://connect?url=https%3A%2F%2Fexample.com&code=device-code&name=A%2BB",
+            SCHEME
+        );
+
+        assertEquals("A+B", connect.name());
+    }
+
+    @Test
+    public void collapsesMissingOrBlankNameLabelsToNull() {
+        ConnectDeepLink withoutName = ConnectDeepLink.parse(
+            SCHEME + "://connect?url=https%3A%2F%2Fexample.com&code=device-code",
+            SCHEME
+        );
+        ConnectDeepLink blankName = ConnectDeepLink.parse(
+            SCHEME + "://connect?url=https%3A%2F%2Fexample.com&code=device-code&name=",
+            SCHEME
+        );
+
+        assertNull(withoutName.name());
+        assertEquals("https://example.com", blankName.server().toASCIIString());
+        assertNull(blankName.name());
+    }
+
+    @Test
     public void ownsConnectLinksThatStrictUriParsingRejects() {
         String raw = SCHEME + "://connect?url=https%3A%2F%2Fexample.com&code=bare value%";
 

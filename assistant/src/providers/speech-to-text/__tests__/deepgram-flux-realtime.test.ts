@@ -185,7 +185,6 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
     const transcriber = new DeepgramFluxRealtimeTranscriber(TEST_API_KEY, {
       // Long enough that no watchdog fires mid-test.
       inactivityTimeoutMs: 60_000,
-      keepaliveIntervalMs: 0,
       ...options,
     });
     const events: SttStreamServerEvent[] = [];
@@ -571,16 +570,22 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
       expect(events).toEqual([{ type: "closed" }]);
     });
 
-    test("keepalive frames go out on the configured interval", async () => {
-      const { transcriber } = await startSession({ keepaliveIntervalMs: 10 });
+    test("no KeepAlive is ever sent: Flux rejects it and closes", async () => {
+      const { transcriber } = await startSession();
 
+      // Flux accepts only CloseStream and Configure. A KeepAlive earns an
+      // UNPARSABLE_CLIENT_MESSAGE error frame and a server close, which on a
+      // stream held across turns kills it every keepalive interval.
       await Bun.sleep(35);
       transcriber.stop();
 
-      const keepalives = mockWs.sentData.filter(
-        (data) => data === JSON.stringify({ type: "KeepAlive" }),
+      const controlFrames = mockWs.sentData.filter(
+        (data) => typeof data === "string",
       );
-      expect(keepalives.length).toBeGreaterThanOrEqual(2);
+      expect(controlFrames).not.toContain(
+        JSON.stringify({ type: "KeepAlive" }),
+      );
+      expect(controlFrames).toContain(JSON.stringify({ type: "CloseStream" }));
     });
 
     test("finalizeUtterance is absent, Flux has no mid-stream flush", async () => {

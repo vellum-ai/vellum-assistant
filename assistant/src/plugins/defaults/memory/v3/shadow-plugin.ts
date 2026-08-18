@@ -28,7 +28,9 @@ import { existsSync, readFileSync } from "node:fs";
 import {
   getMessages,
   listInstalledSkills,
+  parseMessageMetadata,
   stringifyMessageContent,
+  VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
 } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
@@ -490,9 +492,11 @@ function buildSituationalContext(): string {
 
 /**
  * Build a v3 {@link MemoryRoutingTurn} from the conversation's persisted messages.
- * `currentMessage` is the latest user message; `previousAssistantMessage` is
- * the tail of the last assistant reply BEFORE that message (the reply-query
- * pass's input — absent on a conversation's first turn); `recentContext` is
+ * `currentMessage` is the latest user message, except that the synthetic voice
+ * escalation continuation routes on the preceding caller message;
+ * `previousAssistantMessage` is the tail of the last assistant reply BEFORE
+ * the routed message (the reply-query pass's input, absent on a conversation's
+ * first turn); `recentContext` is
  * the tail of the recent transcript; `situationalContext` carries the current
  * date and the live NOW.md scratchpad. Returns `null` when there is no user
  * message to route on (nothing to shadow this turn).
@@ -509,12 +513,22 @@ async function buildShadowTurn(
   let currentMessage = "";
   let currentIndex = -1;
   for (let i = rows.length - 1; i >= 0; i--) {
-    if (rows[i]!.role === "user") {
-      currentMessage = stringifyMessageContent(rows[i]!.content);
-      if (currentMessage.length > 0) {
-        currentIndex = i;
-        break;
-      }
+    const row = rows[i]!;
+    if (row.role !== "user") {
+      continue;
+    }
+    const candidate = stringifyMessageContent(row.content);
+    const metadata = await parseMessageMetadata(row.metadata);
+    const isVoiceEscalationContinuation =
+      metadata?.hidden === true &&
+      metadata.messageKind === VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND;
+    if (isVoiceEscalationContinuation) {
+      continue;
+    }
+    if (candidate.length > 0) {
+      currentMessage = candidate;
+      currentIndex = i;
+      break;
     }
   }
   if (currentMessage.length === 0) {

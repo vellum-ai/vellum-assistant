@@ -3,7 +3,7 @@
  *
  * Flux is Deepgram's conversational speech API: the model itself decides where
  * a turn ends, so this adapter carries no endpointing heuristics of its own.
- * It owns the socket lifecycle (connect, keepalive, teardown) and delegates
+ * It owns the socket lifecycle (connect, teardown) and delegates
  * every inbound transcript frame to {@link parseFluxFrame}, the pure protocol
  * module, which maps Flux's wire shapes onto the daemon's
  * {@link SttStreamServerEvent} contract.
@@ -23,6 +23,14 @@
  * commit the provider never made and lose the tail of every turn released on
  * a caller-side boundary, so the optional method is left off and callers
  * feature-detect it and fall back to {@link stop}.
+ *
+ * There is also **no keepalive**. Flux accepts exactly two control messages,
+ * `CloseStream` and `Configure`; the v1 streaming `KeepAlive` is not one of
+ * them, and sending it earns an `UNPARSABLE_CLIENT_MESSAGE` error frame
+ * followed by a server close. Audio is the only thing that holds a Flux stream
+ * open, so a stream that has to survive a long silence must carry silent
+ * frames rather than a control message.
+ * See https://developers.deepgram.com/docs/flux/close-stream
  *
  * Error handling mirrors `deepgram-realtime.ts`: socket closes and errors map
  * onto {@link SttErrorCategory} values (`auth`, `rate-limit`, `timeout`,
@@ -69,13 +77,6 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
  */
 const DEFAULT_INACTIVITY_TIMEOUT_MS = 30_000;
 
-/**
- * Interval (ms) between `KeepAlive` control frames. Deepgram closes a socket
- * that carries no audio for ~10s, and raw silence does not reset that timer.
- * Only the explicit control message does.
- */
-const DEFAULT_KEEPALIVE_INTERVAL_MS = 5_000;
-
 /** Outbound buffer ceiling (bytes) before {@link sendAudio} drops frames. */
 const MAX_BUFFERED_AMOUNT = 1024 * 1024; // 1 MiB
 
@@ -114,11 +115,6 @@ export interface DeepgramFluxRealtimeOptions {
   connectTimeoutMs?: number;
   /** Inactivity timeout in milliseconds. Default: 30_000. */
   inactivityTimeoutMs?: number;
-  /**
-   * Interval (ms) between `KeepAlive` control frames. Default: 5_000. Set to
-   * 0 to disable (tests only, because Deepgram closes silent sockets after ~10s).
-   */
-  keepaliveIntervalMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +165,6 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
   private readonly sampleRate: number;
   private readonly connectTimeoutMs: number;
   private readonly inactivityTimeoutMs: number;
-  private readonly keepaliveIntervalMs: number;
 
   /** The live WebSocket connection, set during start(). */
   private ws: WsLike | null = null;
@@ -208,9 +203,6 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
   /** Close grace timer handle. */
   private closeGraceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Periodic `KeepAlive` timer. */
-  private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
-
   constructor(apiKey: string, options: DeepgramFluxRealtimeOptions = {}) {
     this.apiKey = apiKey;
     this.flux = getConfig().liveVoice.flux;
@@ -219,8 +211,6 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
       options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
     this.inactivityTimeoutMs =
       options.inactivityTimeoutMs ?? DEFAULT_INACTIVITY_TIMEOUT_MS;
-    this.keepaliveIntervalMs =
-      options.keepaliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS;
   }
 
   // ── StreamingTranscriber interface ──────────────────────────────────
@@ -300,7 +290,6 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
     // Socket is open. Attach the handlers for the active session lifetime.
     this.attachSessionHandlers(ws);
     this.resetInactivityTimer();
-    this.startKeepaliveTimer();
 
     log.info({ model: this.flux.model }, "Deepgram Flux session opened");
   }
@@ -586,35 +575,6 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
       clearTimeout(this.closeGraceTimer);
       this.closeGraceTimer = null;
     }
-    if (this.keepaliveTimer !== null) {
-      clearInterval(this.keepaliveTimer);
-      this.keepaliveTimer = null;
-    }
-  }
-
-  /**
-   * Start the periodic keepalive. A `KeepAlive` control frame is the only
-   * thing that resets Deepgram's server-side inactivity timer while the
-   * stream carries silence. Raw silent PCM does not count.
-   */
-  private startKeepaliveTimer(): void {
-    if (this.closed || this.stopping || this.keepaliveIntervalMs <= 0) {
-      return;
-    }
-    this.keepaliveTimer = setInterval(() => {
-      if (this.closed || this.stopping) {
-        return;
-      }
-      const ws = this.ws;
-      if (!ws || ws.readyState !== WS_OPEN) {
-        return;
-      }
-      try {
-        ws.send(JSON.stringify({ type: "KeepAlive" }));
-      } catch (err) {
-        log.warn({ err }, "Deepgram Flux KeepAlive send failed");
-      }
-    }, this.keepaliveIntervalMs);
   }
 
   /**

@@ -57,6 +57,7 @@ mock.module("../persistence/lifecycle-quiesce.js", () => ({
 
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { isPluginDirActivated } from "../plugins/mtime-cache.js";
 import {
   createSchedule,
   deferClaimedSchedule,
@@ -340,6 +341,26 @@ describe("fire-time source-availability gate", () => {
     expect(result.skipped).toBe(1);
     expect(existsSync(marker)).toBe(false);
     expect(skipRunsFor(job.id)).toHaveLength(1);
+  });
+
+  test("executes an armed sourced row even though no plugin is activated in this process", async () => {
+    const job = await seedDueSourcedScript();
+    // The tick runs in the schedule worker, which activates no plugins, so the
+    // activation ledger is empty here. The gate must therefore read the disk
+    // alone: reading activation would skip every plugin schedule. Arming is
+    // the daemon-side reconciler's call.
+    expect(isPluginDirActivated(pluginDir)).toBe(false);
+
+    const result = await runDueSchedulesOnce();
+
+    expect(result.completed).toBe(1);
+    expect(result.skipped).toBe(0);
+    expect(existsSync(marker)).toBe(true);
+    const runs = rawDb()
+      .query("SELECT status FROM cron_runs WHERE job_id = ?")
+      .all(job.id) as Array<{ status: string }>;
+    expect(runs).toHaveLength(1);
+    expect(runs[0].status).toBe("ok");
   });
 
   test("does not execute a due sourced row while the feature flag is off", async () => {
