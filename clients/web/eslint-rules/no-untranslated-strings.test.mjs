@@ -113,6 +113,18 @@ ruleTester.run("no-untranslated-strings", noUntranslatedStrings, {
       code: `const C = () => <span title={\`\${label}: \${cost}\`} />;`,
     },
     {
+      name: "an identifier built from pieces is not copy",
+      filename: COMPONENT,
+      // Nothing here is word separated: the fragments are a file extension
+      // and an id segment, which no translator should receive.
+      code: `const C = () => <span title={\`\${app.name}.vellum\`} id={\`\${id}-opt\`} />;`,
+    },
+    {
+      name: "a toast options bag holding no copy of its own",
+      filename: COMPONENT,
+      code: `toast.success(t("app.exported"), { id: "export-status", description: filename, duration: 5000 });`,
+    },
+    {
       name: "toast copy read through t()",
       filename: COMPONENT,
       code: `toast.error(t("save.failed"));`,
@@ -170,6 +182,30 @@ ruleTester.run("no-untranslated-strings", noUntranslatedStrings, {
       // The words sit in the one place the static halves are not.
       code: `const C = () => <span title={\`\${live ? "Live" : "Draft"} · \${host}\`} />;`,
       errors: [{ messageId: "prop" }, { messageId: "prop" }],
+    },
+    {
+      name: "a sentence assembled with +",
+      filename: COMPONENT,
+      // The same untranslatable shape as the template form, and the one
+      // `I18N.md` calls the most common of all.
+      code: `const C = () => <button aria-label={"Delete " + name} />;`,
+      errors: [{ messageId: "prop" }],
+    },
+    {
+      name: "copy in a toast options bag",
+      filename: COMPONENT,
+      // The message is translated and the copy hides in the second argument,
+      // which is why every argument is read rather than the first.
+      code: `toast.error(t("save.failed"), { description: "Try again later", action: { label: "Retry" } });`,
+      errors: [{ messageId: "toast" }, { messageId: "toast" }],
+    },
+    {
+      name: "copy in a toast.promise bag",
+      filename: COMPONENT,
+      // The promise sits where the message would be, so nothing is reported
+      // unless the bag is read.
+      code: `toast.promise(p, { loading: "Saving…", success: "Saved" });`,
+      errors: [{ messageId: "toast" }, { messageId: "toast" }],
     },
     {
       name: "a sentence assembled by template literal as a JSX child",

@@ -124,6 +124,30 @@ function looksLikeCopy(text) {
   return trimmed.includes(" ") || /^\p{Lu}/u.test(trimmed);
 }
 
+/**
+ * Whether a template's static fragment reads as a word rather than as part of
+ * an identifier.
+ *
+ * A sentence separates its words: `${label} actions` puts a space between the
+ * two. A built identifier does not: `${name}.vellum` and `${id}-opt-${i}` glue
+ * their pieces together, and their fragments are file extensions and id
+ * segments, which no translator should receive. So a fragment counts only when
+ * every side of it that touches an interpolation is whitespace separated. The
+ * ends of the template are free, since nothing is joined there.
+ */
+function isWordBoundary(template, quasi, index) {
+  const text = quasi.value.cooked ?? "";
+  const followsExpression = index > 0;
+  const precedesExpression = index < template.quasis.length - 1;
+  if (followsExpression && !/^\s/.test(text)) {
+    return false;
+  }
+  if (precedesExpression && !/\s$/.test(text)) {
+    return false;
+  }
+  return true;
+}
+
 /** Files whose strings are fixtures rather than shipped copy. */
 const EXEMPT_FILE_PATTERN = /\.(test|spec|stories)\.[cm]?[jt]sx?$/;
 
@@ -241,7 +265,10 @@ export const noUntranslatedStrings = {
         return;
       }
       if (node.type === "TemplateLiteral") {
-        const statics = node.quasis.map((q) => q.value.cooked ?? "").join(" ");
+        const statics = node.quasis
+          .filter((quasi, index) => isWordBoundary(node, quasi, index))
+          .map((quasi) => quasi.value.cooked ?? "")
+          .join(" ");
         // A template with an interpolation is copy assembled in the component
         // whatever its static half looks like, so it is judged by
         // `isTranslatable` rather than by `isCopy`. `aria-label={`${name}
@@ -265,6 +292,15 @@ export const noUntranslatedStrings = {
         }
         return;
       }
+      // `"Delete " + name` is the concatenation `I18N.md` calls the most
+      // common way to make a string untranslatable: word order is fixed by
+      // the source, exactly as in the template form. Only `+` builds a
+      // string, so the other operators stay out of it.
+      if (node.type === "BinaryExpression" && node.operator === "+") {
+        checkExpression(node.left, messageId, data, isCopy);
+        checkExpression(node.right, messageId, data, isCopy);
+        return;
+      }
       // `cond ? "Open" : "Close"` and `label || "Untitled"` are copy chosen in
       // the component. Picking a string in TypeScript is the same problem as
       // writing one there: the choice belongs in the catalog, where a
@@ -276,6 +312,34 @@ export const noUntranslatedStrings = {
       }
       if (node.type === "LogicalExpression") {
         checkExpression(node.right, messageId, data, isCopy);
+      }
+    }
+
+    /**
+     * The copy in a toast's options bag: `description`, and the `label` on an
+     * `action` or `cancel`. Keyed rather than walked, because the same object
+     * carries a toast `id`, durations, and callbacks, none of which a
+     * translator has any use for.
+     */
+    function checkToastOptions(node) {
+      for (const property of node.properties) {
+        if (property.type !== "Property" || property.computed) {
+          continue;
+        }
+        const key =
+          property.key.type === "Identifier"
+            ? property.key.name
+            : property.key.type === "Literal"
+              ? String(property.key.value)
+              : undefined;
+        if (!key || isStructuralProp(key)) {
+          continue;
+        }
+        if (property.value.type === "ObjectExpression") {
+          checkToastOptions(property.value);
+          continue;
+        }
+        checkExpression(property.value, "toast", {}, looksLikeCopy);
       }
     }
 
@@ -328,15 +392,24 @@ export const noUntranslatedStrings = {
         checkExpression(value, "prop", { prop: name }, looksLikeCopy);
       },
 
+      // Every argument, not just the first: `toast.error(t("x"), {
+      // description: "raw" })` carries its untranslated half in the options
+      // bag, and `toast.promise(p, { loading, success })` puts a promise where
+      // the message would be and all of its copy in the bag.
       CallExpression(node) {
         if (!isToastCall(node.callee)) {
           return;
         }
-        const [first] = node.arguments;
-        if (!first || insideTranslationCall(first)) {
-          return;
+        for (const argument of node.arguments) {
+          if (insideTranslationCall(argument)) {
+            continue;
+          }
+          if (argument.type === "ObjectExpression") {
+            checkToastOptions(argument);
+            continue;
+          }
+          checkExpression(argument, "toast", {});
         }
-        checkExpression(first, "toast", {});
       },
     };
   },
