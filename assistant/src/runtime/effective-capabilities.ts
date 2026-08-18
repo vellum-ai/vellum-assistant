@@ -45,30 +45,29 @@ export function canActOnPrivilegedDocuments(actor: {
 }
 
 /**
- * Channels whose actors see personal memory regardless of trust class. The
- * `vellum` first-party console is the operator's own surface rather than an
- * external contact channel, mirroring {@link PRIVILEGED_DOCUMENT_CHANNELS}.
- */
-const PERSONAL_MEMORY_CHANNELS = new Set<string>(["vellum"]);
-
-/**
  * Whether personal-memory content (memory pages, PKB, matched v3 card
  * sections, the v2 static block) may be surfaced to an actor.
  *
- * True when the trust class grants it, when the request arrived on a personal
- * memory channel, or when no channel is present at all -- a resolved actor
- * always carries one, so its absence means no actor was resolved, which is how
- * local/native turns arrive.
+ * Personal memory is the guardian's own material, so the trust class governs.
+ * The one composition with runtime context is the absence of a channel: a
+ * resolved actor always carries one, so no channel means no actor was resolved,
+ * which is how local and native turns arrive. Those are the guardian's own
+ * surface and keep their memory.
+ *
+ * Deliberately not keyed on the channel otherwise. Trust is a property of the
+ * actor, not of the surface a request arrived on. An actor whose class cannot
+ * be resolved fails closed to `unknown` upstream, and treating the first-party
+ * console as a blanket grant would hand that actor the guardian's memory and
+ * undo the fail-closed resolution.
  */
 export function canSeePersonalMemory(actor: {
   trustClass: RawTrustClass;
   executionChannel?: string;
 }): boolean {
-  return (
-    resolveCapabilities(actor.trustClass).canAccessMemory ||
-    actor.executionChannel == null ||
-    PERSONAL_MEMORY_CHANNELS.has(actor.executionChannel)
-  );
+  if (actor.executionChannel == null) {
+    return true;
+  }
+  return resolveCapabilities(actor.trustClass).canAccessMemory;
 }
 
 /**

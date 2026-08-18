@@ -119,9 +119,10 @@ describe("canSeePersonalMemory", () => {
     }
   });
 
-  test("a non-guardian on the first-party console currently keeps memory", () => {
-    // Pins today's channel override so a change to it is a deliberate,
-    // visible edit rather than a silent drift.
+  test("a non-guardian is denied memory on the first-party console too", () => {
+    // The console is a surface, not an actor. An actor whose class could not
+    // be resolved fails closed upstream; a blanket channel grant here would
+    // hand it the guardian's memory and undo that.
     for (const trustClass of [
       "trusted_contact",
       "unverified_contact",
@@ -129,7 +130,16 @@ describe("canSeePersonalMemory", () => {
     ]) {
       expect(
         canSeePersonalMemory({ trustClass, executionChannel: "vellum" }),
-      ).toBe(true);
+      ).toBe(false);
     }
+  });
+
+  test("an unrecognized class fails closed rather than reading as privileged", () => {
+    expect(
+      canSeePersonalMemory({
+        trustClass: "non_guardian",
+        executionChannel: "vellum",
+      }),
+    ).toBe(false);
   });
 });
