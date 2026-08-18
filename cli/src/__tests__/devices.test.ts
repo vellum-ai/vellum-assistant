@@ -287,7 +287,7 @@ describe("vellum devices", () => {
     expect(logs).not.toContain("Devices paired to");
   });
 
-  test("list --json with zero devices emits {\"devices\":[]}", async () => {
+  test('list --json with zero devices emits {"devices":[]}', async () => {
     seedLocal("json-empty-host");
     stubFetch(() => jsonResponse({ devices: [] }));
 
@@ -298,7 +298,7 @@ describe("vellum devices", () => {
     expect(logs).toBe('{"devices":[]}');
   });
 
-  test("revoke --json --yes emits { ok, hashedDeviceId } and no preamble", async () => {
+  test("revoke --json --yes emits one JSON line; identity preamble on stderr", async () => {
     seedLocal("json-revoke-host", "http://127.0.0.1:7836");
     stubFetch((url) =>
       url.endsWith("/v1/devices/revoke")
@@ -316,12 +316,40 @@ describe("vellum devices", () => {
       "--yes",
       "--json",
     ];
-    const { exited, logs } = await runDevices();
+    const { exited, logs, errors } = await runDevices();
 
     expect(exited).toBe(false);
+    // Stdout is exactly one JSON document, no prose.
     expect(logs).not.toContain("\n");
-    expect(JSON.parse(logs)).toEqual({ ok: true, hashedDeviceId: "hashAAA111" });
+    expect(JSON.parse(logs)).toEqual({
+      ok: true,
+      hashedDeviceId: "hashAAA111",
+      assistantId: "json-revoke-host",
+    });
     expect(logs).not.toContain("Device to revoke");
+    // Destructive-identity preamble still printed, on stderr (cli/AGENTS.md).
+    expect(errors).toContain("Device to revoke:");
+    expect(errors).toContain("hashAAA111");
+  });
+
+  test("revoke --json without --yes exits 1 with empty stdout", async () => {
+    seedLocal("json-noyes-host");
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "devices",
+      "revoke",
+      "hashAAA111",
+      "json-noyes-host",
+      "--json",
+    ];
+    const { exited, logs, errors } = await runDevices();
+
+    expect(exited).toBe(true);
+    expect(logs).toBe("");
+    expect(errors).toContain("--json requires --yes");
+    expect(fetchCalls).toHaveLength(0);
   });
 
   test("list --json still exits 1 with stderr on a non-2xx gateway response", async () => {
