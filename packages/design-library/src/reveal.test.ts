@@ -121,6 +121,20 @@ describe("hover reveal", () => {
     expect(hover[0].body).toContain("[data-reveal-yield]");
   });
 
+  /* `:has()` reached Safari in 15.4, so a rule keyed on it is dropped whole by
+     the WKWebView on an iOS 15.0 device. Where hover is unavailable that rule is
+     the one bringing a yielding occupant back, and losing it hides the occupant
+     on exactly the devices the block exists for. */
+  test("restores the yielding occupant without asking `:has()`", () => {
+    const hoverless = mediaBlocks(css).filter(({ condition }) =>
+      condition.includes("hover: none"),
+    );
+
+    expect(hoverless).toHaveLength(1);
+    expect(hoverless[0].body).toContain("[data-reveal-yield]");
+    expect(hoverless[0].body).not.toContain(":has(");
+  });
+
   /* The base rule outside any media query, which is what makes the affordance
      visible by default and the yielding occupant the hidden one. */
   test("hides the yielding occupant by default, not the affordance", () => {
