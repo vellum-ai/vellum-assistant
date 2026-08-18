@@ -74,12 +74,12 @@ describe("parseToolInput", () => {
   test("file_read drops malformed optional fields the tool always ignored", () => {
     const result = parseToolInput("file_read", {
       path: "notes.md",
-      offset: "not-a-number",
-      limit: 10,
+      start_index: "not-a-number",
+      max_chars: 10,
     });
     expect(result).toEqual({
       ok: true,
-      data: { path: "notes.md", limit: 10 },
+      data: { path: "notes.md", max_chars: 10 },
     });
   });
 
@@ -184,9 +184,9 @@ describe("derived input_schema", () => {
       properties: Record<string, { type?: string; description?: string }>;
       required: string[];
     };
-    expect(schema.properties.offset?.type).toBe("number");
-    expect(schema.properties.offset?.description).toContain("1-indexed");
-    expect(schema.required).not.toContain("offset");
-    expect(schema.required).not.toContain("limit");
+    expect(schema.properties.start_index?.type).toBe("number");
+    expect(schema.properties.start_index?.description).toContain("0-indexed");
+    expect(schema.required).not.toContain("start_index");
+    expect(schema.required).not.toContain("max_chars");
   });
 });

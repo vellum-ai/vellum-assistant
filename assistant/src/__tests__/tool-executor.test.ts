@@ -1457,7 +1457,11 @@ describe("ToolExecutor input-schema validation gate", () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "file_read",
-      { path: "a.txt", offset: "not-a-number", activity: "Reading a file" },
+      {
+        path: "a.txt",
+        start_index: "not-a-number",
+        activity: "Reading a file",
+      },
       makeContext(),
     );
 
