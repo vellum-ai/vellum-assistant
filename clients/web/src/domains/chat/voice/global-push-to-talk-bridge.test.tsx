@@ -70,8 +70,8 @@ mock.module("@/domains/chat/voice/use-push-to-talk", () => ({
   usePushToTalk: () => undefined,
 }));
 
-mock.module("@/domains/chat/voice/push-to-talk-host", () => ({
-  shouldEnablePushToTalk: () => false,
+mock.module("@/domains/chat/voice/keyboard-activation-host", () => ({
+  supportsKeyboardActivation: () => false,
 }));
 
 mock.module("@/domains/chat/voice/dictation-api", () => ({

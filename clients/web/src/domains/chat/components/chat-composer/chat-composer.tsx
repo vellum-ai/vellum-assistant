@@ -576,6 +576,23 @@ export function ChatComposer({
     startLiveVoiceSession();
   }, [startLiveVoiceSession]);
 
+  // The voice mode shortcut fires from anywhere in the app, but this composer
+  // owns the guarded entry flow, so register the same handler the button uses
+  // and let the shortcut reach voice through it. Cleanup is identity-safe so
+  // an unmounting composer cannot clear a newer handler.
+  useEffect(() => {
+    if (!showVoiceInput || !assistantId || !supportsLiveVoice) {
+      return;
+    }
+    useLiveVoiceStore.getState().setEntryHandler(handleLiveVoiceStart);
+    return () => {
+      const store = useLiveVoiceStore.getState();
+      if (store.entryHandler === handleLiveVoiceStart) {
+        store.setEntryHandler(null);
+      }
+    };
+  }, [assistantId, handleLiveVoiceStart, showVoiceInput, supportsLiveVoice]);
+
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   // `shouldSubmitOnEnter` ignores Enter under a coarse primary pointer, since a
   // soft keyboard's Enter inserts a newline. Anything that stands in for
