@@ -175,6 +175,21 @@ const USER_INVOKED_CONVERSATIONLESS_CALL_SITES: ReadonlySet<string> = new Set([
   "emptyStateGreeting",
   "homeGreeting",
   "homeSuggestedPrompts",
+  "conversationStarters",
+]);
+
+/**
+ * Call sites whose work is internal-state upkeep the user never sees, pinned
+ * to `other_system` regardless of conversation metadata: preference
+ * extraction runs as an asynchronous pass over persisted messages and
+ * produces notification-preference state, not content the user asked for.
+ * The pin keeps the bucket stable even when a caller threads a conversation
+ * id onto the send. The line against the user-invoked set above: fetch
+ * triggered generation of user-visible content is user work; extraction of
+ * internal state is not.
+ */
+const SYSTEM_UPKEEP_CALL_SITES: ReadonlySet<string> = new Set([
+  "preferenceExtraction",
 ]);
 
 /**
@@ -214,17 +229,19 @@ export interface WorkOriginInput {
  *   4. heartbeat, by call site or by source,
  *   5. memory maintenance, by call site or by source, so in-turn recall is
  *      billed as upkeep rather than as the user's chat,
- *   6. a standard conversation the user is chatting in,
- *   7. background work the user explicitly created,
- *   8. a system-owned conversation source,
- *   9. a workflow-leaf call, user-caused work that runs without a
+ *   6. system-upkeep call sites pinned to `other_system` whatever
+ *      conversation they run against ({@link SYSTEM_UPKEEP_CALL_SITES}),
+ *   7. a standard conversation the user is chatting in,
+ *   8. background work the user explicitly created,
+ *   9. a system-owned conversation source,
+ *  10. a workflow-leaf call, user-caused work that runs without a
  *      persisted conversation,
- *  10. a user-invoked call site that runs without a conversation
+ *  11. a user-invoked call site that runs without a conversation
  *      ({@link USER_INVOKED_CONVERSATIONLESS_CALL_SITES}),
- *  11. a recognized call site with no conversation behind it,
- *  12. `unknown`.
+ *  12. a recognized call site with no conversation behind it,
+ *  13. `unknown`.
  *
- * Rules 6 to 11 are allowlists. Nothing here may become a residual that
+ * Rules 6 to 12 are allowlists. Nothing here may become a residual that
  * absorbs unrecognized combinations: an unnamed kind of work belongs in
  * `unknown`, where it is visible, not in a bucket whose name asserts a cause
  * nobody verified.
@@ -265,6 +282,9 @@ export function classifyWorkOrigin(input: WorkOriginInput): WorkOrigin {
       MEMORY_MAINTENANCE_SOURCES.has(conversationSource))
   ) {
     return "memory_maintenance";
+  }
+  if (callSite !== null && SYSTEM_UPKEEP_CALL_SITES.has(callSite)) {
+    return "other_system";
   }
   if (
     conversationType === "standard" &&

@@ -315,7 +315,22 @@ describe("classifyWorkOrigin", () => {
       }),
       expected: "user_created_schedule",
     },
-    // 10. User-invoked call sites that run without a conversation.
+    // 6. System-upkeep call sites pinned to other_system.
+    {
+      name: "preferenceExtraction with no conversation maps to other_system",
+      input: input({ callSite: "preferenceExtraction" }),
+      expected: "other_system",
+    },
+    {
+      name: "preferenceExtraction inside a standard user conversation stays other_system (internal-state upkeep, not the user's chat)",
+      input: input({
+        conversationType: "standard",
+        conversationSource: "user",
+        callSite: "preferenceExtraction",
+      }),
+      expected: "other_system",
+    },
+    // 11. User-invoked call sites that run without a conversation.
     ...(
       [
         "inference",
@@ -332,6 +347,7 @@ describe("classifyWorkOrigin", () => {
         "emptyStateGreeting",
         "homeGreeting",
         "homeSuggestedPrompts",
+        "conversationStarters",
       ] as const
     ).map((callSite) => ({
       name: `conversationless ${callSite} call maps to user_interactive`,
