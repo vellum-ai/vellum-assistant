@@ -29,9 +29,6 @@
     "signOut": "Sign out"
   },
   "loginPage": {
-    "heading": "Sign in to Vellum",
-    "continue": "Continue",
-    "noAccount": "Don't have an account?",
     "signUp": "Sign up",
     "signIn": "Sign in"
   },

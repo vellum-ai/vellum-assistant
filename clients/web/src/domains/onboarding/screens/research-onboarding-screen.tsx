@@ -12,7 +12,7 @@ import { useState } from "react";
 import { ArrowRight } from "lucide-react";
 
 import { OnboardingEdgeCharacters } from "@/domains/onboarding/components/onboarding-edge-characters";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { OnboardingLayout } from "@/components/onboarding-layout";
 import { TagAutocompleteInput } from "@/domains/onboarding/components/onboarding-autocomplete";
 import { HOBBY_SUGGESTIONS } from "@/domains/onboarding/onboarding-suggestions";
 import { Button } from "@vellumai/design-library/components/button";
