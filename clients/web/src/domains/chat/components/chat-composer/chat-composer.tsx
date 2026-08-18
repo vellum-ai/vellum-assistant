@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
@@ -37,6 +38,7 @@ import {
   MOBILE_CONTROL_CLASS,
   MOBILE_GHOST_WASH_CLASS,
   MOBILE_GLYPH_CLASS,
+  preventPressFocusTransfer,
 } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import {
   COMPOSER_MOBILE_RADIUS_CLASS,
@@ -260,10 +262,17 @@ interface AddToChatButtonProps {
   disabled: boolean;
   label: string;
   onClick: () => void;
+  /** See `holdsFocusOnPress`. The row's other controls read the same signal. */
+  onMouseDown?: (event: ReactMouseEvent<HTMLElement>) => void;
 }
 
 /** The narrow row's plus. What a press opens is the caller's decision. */
-function AddToChatButton({ disabled, label, onClick }: AddToChatButtonProps) {
+function AddToChatButton({
+  disabled,
+  label,
+  onClick,
+  onMouseDown,
+}: AddToChatButtonProps) {
   return (
     <Button
       variant="ghost"
@@ -272,6 +281,10 @@ function AddToChatButton({ disabled, label, onClick }: AddToChatButtonProps) {
       // The row sizes its own controls, so the primitive's mobile growth is
       // off here and every narrow window gets the same plus.
       expandOnMobile={false}
+      // Where the press would not carry focus to this button, it has to leave
+      // the composer's focus alone until the click arrives. Whatever the click
+      // opens takes focus into its own portal from there.
+      onMouseDown={onMouseDown}
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
@@ -528,6 +541,19 @@ export function ChatComposer({
         return;
       }
       liveVoiceEntryOriginRef.current = origin ?? null;
+      // A soft keyboard is the only thing worth dropping focus for: it would
+      // otherwise stay raised under a room that takes the whole screen. Read at
+      // press time rather than from render, since a convertible can gain or lose
+      // its keyboard between the two.
+      //
+      // Everywhere else the focus stays put. A pointing device or a keyboard
+      // entry leaves focus on the button, and a `not-ready` verdict never opens
+      // the room at all: it raises a "Configure voice" action that the user then
+      // has to reach, which is a good deal harder from the body. The textarea by
+      // name for the same reason, so nothing else can be blurred by accident.
+      if (isPointerCoarse()) {
+        inputRef.current?.blur();
+      }
       // First-run preferences card — shown on the first-ever voice entry on
       // EVERY platform, the Capacitor iOS shell included (web↔iOS parity for the
       // welcome card). On iOS the card renders locked (`nonDismissible`, see its
@@ -542,7 +568,7 @@ export function ChatComposer({
       }
       startLiveVoiceSession();
     },
-    [assistantId, startLiveVoiceSession],
+    [assistantId, inputRef, startLiveVoiceSession],
   );
   const handleFirstRunStart = useCallback(() => {
     useVoicePrefsStore.getState().markFirstRunSeen();
@@ -754,6 +780,21 @@ export function ChatComposer({
   const pointerCoarseNow = usePointerCoarse();
   const usesAddSheet = isMobile && pointerCoarseNow;
 
+  // Whether a press on one of the row's controls has to hold the composer's
+  // focus for the click behind it. Both halves are load-bearing and neither one
+  // alone is the question: the row is what gates itself on that focus, and a
+  // press is what fails to carry it. A pointing device focuses the button it
+  // presses, and the button sits inside the shell `useComposerFocusWithin`
+  // watches, so the row never drops and the click never misses. Cancelling the
+  // press there would only take the focus the button is owed. Live rather than
+  // read once, since a convertible crosses this mid-session.
+  const holdsFocusOnPress = isMobile && pointerCoarseNow;
+  // The handler form, for the controls this file renders itself. See
+  // `preventPressFocusTransfer` for what the press would otherwise cost.
+  const rowPressGuard = holdsFocusOnPress
+    ? preventPressFocusTransfer
+    : undefined;
+
   // The picker the plus opens where the sheet has nothing to offer: the same
   // picker behind the desktop paperclip, through the same hook so the iOS
   // refocus dance is identical. Owned by the composer rather than by the plus,
@@ -892,6 +933,7 @@ export function ChatComposer({
       onClick={
         usesAddSheet ? () => handleAddSheetOpenChange(true) : openAttachPicker
       }
+      onMouseDown={rowPressGuard}
     />
   );
 
@@ -910,6 +952,7 @@ export function ChatComposer({
       onBeforeStart={onVoiceBeforeStart}
       onStreamReady={setVoiceStream}
       mobileRow={isMobile}
+      holdComposerFocus={holdsFocusOnPress}
     />
   ) : null;
 
@@ -929,6 +972,7 @@ export function ChatComposer({
       onStart={handleLiveVoiceStart}
       disabled={typingDisabled || isVoiceActive || isLiveVoiceSessionLive}
       mobileRow={isMobile}
+      holdComposerFocus={holdsFocusOnPress}
     />
   ) : (
     <Button
@@ -937,6 +981,7 @@ export function ChatComposer({
       iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!isMobile}
       type="submit"
+      onMouseDown={rowPressGuard}
       disabled={sendBlocked}
       title={
         sendDisabled || !canSendMessageContent
@@ -963,6 +1008,7 @@ export function ChatComposer({
       iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!isMobile}
       type="submit"
+      onMouseDown={rowPressGuard}
       title="Send message"
       aria-label="Send message"
       className={cn(
@@ -978,6 +1024,7 @@ export function ChatComposer({
       iconOnly={<Square className="h-3 w-3" />}
       iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!isMobile}
+      onMouseDown={rowPressGuard}
       onClick={onStopGenerating}
       aria-label="Stop generating"
       className={isMobile ? MOBILE_CONTROL_CLASS : undefined}
