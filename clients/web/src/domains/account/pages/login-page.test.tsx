@@ -105,6 +105,35 @@ describe("LoginPage native split", () => {
 });
 
 /**
+ * The browser hands off by navigating the page to the provider, so the screen
+ * is on its way out the moment the button is pressed. A Cancel offered there
+ * flashes and disappears, and there is nothing it could stop — only Electron's
+ * flow, which keeps this screen mounted, is interruptible.
+ */
+describe("LoginPage web handoff", () => {
+  setupAuthEntry();
+
+  const logInButton = () => screen.getByText("Log In").closest("button");
+
+  test("the log-in button goes inert rather than offering Cancel", () => {
+    renderAuthEntry(LoginPage, ROUTE, entryUrl(ROUTE, CHECKOUT));
+    fireEvent.click(screen.getByText("Log In"));
+
+    expect(screen.queryByText("Cancel")).toBeNull();
+    expect(logInButton()?.disabled).toBe(true);
+    expect(authEntry.authFlowCalls).toHaveLength(1);
+  });
+
+  test("a second press cannot open a second flow", () => {
+    renderAuthEntry(LoginPage, ROUTE, entryUrl(ROUTE, CHECKOUT));
+    fireEvent.click(screen.getByText("Log In"));
+    fireEvent.click(screen.getByText("Log In"));
+
+    expect(authEntry.authFlowCalls).toHaveLength(1);
+  });
+});
+
+/**
  * What the user is left looking at when the platform refuses the sign-in — the
  * failure they report as "I tried to log in and it errored right away". The
  * refusal happens in the session exchange that runs after the auth sheet

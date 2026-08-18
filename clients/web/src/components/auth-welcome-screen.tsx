@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { OnboardingLayout } from "@/components/onboarding-layout";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { useTranslation } from "@/i18n";
+import { isElectron } from "@/runtime/is-electron";
 import { Button } from "@vellumai/design-library/components/button";
 
 /**
@@ -91,6 +92,17 @@ export function AuthWelcomeScreen({
     errorContext,
   });
 
+  // Only the desktop shell keeps this screen up while the login runs: it hands
+  // off to the system browser and waits for the deep link back. Every other
+  // path navigates the page to the provider (`startProviderRedirect`, or the
+  // loopback redirect in standalone local mode), so the screen is on its way
+  // out and `cancel()` — which only reaches the Electron main process — has
+  // nothing to stop. Offering Cancel there just flickers the button on its way
+  // off screen; the button still goes inert so a second click can't open a
+  // second flow.
+  const cancellable = isElectron();
+  const awaitingRedirect = loading && !cancellable;
+
   // Leaving the screen mid-login would strand the OAuth window (and, on
   // Electron, the main process's pending flow) behind us, so the secondary
   // action cancels first whichever way it leaves.
@@ -164,9 +176,10 @@ export function AuthWelcomeScreen({
           size="regular"
           fullWidth
           className="h-11 text-base"
-          onClick={loading ? cancel : () => void login()}
+          disabled={awaitingRedirect}
+          onClick={loading && cancellable ? cancel : () => void login()}
         >
-          {loading ? t("actions.cancel") : t("actions.logIn")}
+          {loading && cancellable ? t("actions.cancel") : t("actions.logIn")}
         </Button>
         {secondaryButton}
       </div>
