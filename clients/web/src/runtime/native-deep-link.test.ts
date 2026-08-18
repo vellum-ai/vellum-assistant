@@ -389,10 +389,10 @@ describe("command URL provenance", () => {
   });
 
   test("honors only the raw `src=intent` item, never a percent-encoded spelling", () => {
-    // The iOS shell strips the marker by its raw item; `URLSearchParams`
-    // would decode these to `src` / `intent` and honor a marker the shell
-    // never saw (ATL-1293). Each is a distinct spelling the shell's raw
-    // comparison keeps intact.
+    // `URLSearchParams` decodes each of these to `src` / `intent`; the shell
+    // and this parser are different URL parsers over the same string, so the
+    // only spelling this side may honor is the raw item both see identically
+    // (ATL-1293).
     const opts = { acceptProvenance: true };
     const encodedSpellings = [
       "vellum-assistant://voice?s%72c=intent&prompt=hi",
