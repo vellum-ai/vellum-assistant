@@ -58,8 +58,15 @@ async function main(): Promise<void> {
   // runs at all. Awaited so the first tick reads real values, and best-effort:
   // a gateway that never answers leaves the cache unset and the worker falls
   // back to registry defaults rather than failing to start.
+  // Bounded to one short attempt: a gateway that accepts the socket but never
+  // answers would otherwise hold the first tick for the full production retry
+  // schedule. A miss here leaves the cache unset (registry defaults) and the
+  // periodic refresh below converges to real values within a minute.
   try {
-    await initFeatureFlagOverrides();
+    await initFeatureFlagOverrides({
+      retryBackoffsMs: [],
+      callTimeoutMs: 2_000,
+    });
   } catch (err) {
     log.warn(
       { err },
