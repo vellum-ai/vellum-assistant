@@ -7,14 +7,17 @@ import {
   type LocalPairedDeviceRecord,
 } from "@/runtime/local-mode-host";
 
-export type PairedDevicesPhase =
-  | { kind: "idle" }
-  | { kind: "loading" }
-  | { kind: "ready"; devices: LocalPairedDeviceRecord[] }
-  | { kind: "unavailable" };
+function selectedAssistantId(): string | undefined {
+  return getSelectedAssistant()?.assistantId;
+}
 
 export interface PairedDevicesController {
-  phase: PairedDevicesPhase;
+  /**
+   * Paired devices for the selected assistant, or `null` when the list is
+   * not loaded or unavailable. A refresh keeps the previous list rendered
+   * until the new result lands.
+   */
+  devices: LocalPairedDeviceRecord[] | null;
   /** Device awaiting revoke confirmation, or `null` when no dialog is open. */
   confirmTarget: LocalPairedDeviceRecord | null;
   /** Whether a revoke request is in flight. */
@@ -27,22 +30,21 @@ export interface PairedDevicesController {
   cancelRevoke: () => void;
   /** Revoke {@link confirmTarget}'s tokens; refreshes the list on success. */
   confirmRevoke: () => void;
-  /** Re-fetch the device list from the host. */
-  refresh: () => void;
 }
 
 /**
  * Drives the "Paired devices" accordion: fetches the selected assistant's
  * paired devices through the host seam and runs the confirm-then-revoke flow.
  * Any `{ ok: false }` list result (older app shells, unavailable hosts,
- * transport failures) collapses to the `unavailable` phase so the section
- * degrades silently instead of showing a broken state.
+ * transport failures) collapses `devices` to `null` so the section degrades
+ * silently instead of showing a broken state. The assistant id is read at
+ * call time so every fetch and revoke targets the currently selected
+ * assistant.
  */
-export function usePairedDevices(enabled: boolean): PairedDevicesController {
-  const [assistantId] = useState(
-    () => getSelectedAssistant()?.assistantId ?? null,
+export function usePairedDevices(): PairedDevicesController {
+  const [devices, setDevices] = useState<LocalPairedDeviceRecord[] | null>(
+    null,
   );
-  const [phase, setPhase] = useState<PairedDevicesPhase>({ kind: "idle" });
   const [confirmTarget, setConfirmTarget] =
     useState<LocalPairedDeviceRecord | null>(null);
   const [isRevoking, setIsRevoking] = useState(false);
@@ -61,22 +63,18 @@ export function usePairedDevices(enabled: boolean): PairedDevicesController {
   }, []);
 
   const refresh = useCallback(() => {
-    if (!enabled || !assistantId) {
+    const assistantId = selectedAssistantId();
+    if (!assistantId) {
       return;
     }
     const seq = ++fetchSeqRef.current;
-    setPhase({ kind: "loading" });
     void listPairedDevicesHost(assistantId).then((result) => {
       if (!mountedRef.current || seq !== fetchSeqRef.current) {
         return;
       }
-      setPhase(
-        result.ok
-          ? { kind: "ready", devices: result.devices }
-          : { kind: "unavailable" },
-      );
+      setDevices(result.ok ? result.devices : null);
     });
-  }, [enabled, assistantId]);
+  }, []);
 
   useEffect(() => {
     refresh();
@@ -93,6 +91,7 @@ export function usePairedDevices(enabled: boolean): PairedDevicesController {
   }, []);
 
   const confirmRevoke = useCallback(() => {
+    const assistantId = selectedAssistantId();
     if (!assistantId || !confirmTarget || isRevoking) {
       return;
     }
@@ -112,16 +111,15 @@ export function usePairedDevices(enabled: boolean): PairedDevicesController {
         }
       },
     );
-  }, [assistantId, confirmTarget, isRevoking, refresh]);
+  }, [confirmTarget, isRevoking, refresh]);
 
   return {
-    phase,
+    devices,
     confirmTarget,
     isRevoking,
     revokeError,
     requestRevoke,
     cancelRevoke,
     confirmRevoke,
-    refresh,
   };
 }
