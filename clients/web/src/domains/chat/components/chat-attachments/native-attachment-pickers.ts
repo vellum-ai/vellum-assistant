@@ -56,41 +56,47 @@ export function isPickerDismissal(error: unknown): boolean {
 }
 
 /**
- * Reads a native file path into a `File` through the web view's own bridge.
+ * Turns the plugin's base64 payload into a `File`.
  *
- * `convertFileSrc` maps a native path onto a URL WKWebView can fetch, which
- * streams the bytes. The alternative the plugin offers is base64 in the result
- * payload, which materialises the whole file in JS memory: fine for a photo,
- * not for the video a photo library will happily hand over.
+ * Reading the bytes through `fetch(convertFileSrc(path))` would stream them
+ * rather than holding the whole file in JS memory, but it cannot work in the
+ * cloud shells: `server.url` carries a path (`.../assistant`), the file URL is
+ * served from the custom scheme, and the asset handler answers that
+ * cross-origin request with an `Access-Control-Allow-Origin` built from the
+ * full server URL. An origin never has a path, so the value can never match
+ * and every read is refused. Base64 costs memory on a large video and is the
+ * only path that works for every file.
  */
-async function fileFromNativePath(
-  path: string,
-  name: string,
-  mimeType: string,
-): Promise<File> {
-  const response = await fetch(Capacitor.convertFileSrc(path));
-  const blob = await response.blob();
-  return new File([blob], name, { type: mimeType || blob.type });
+function fileFromBase64(data: string, name: string, mimeType: string): File {
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new File([bytes], name, { type: mimeType });
 }
 
 interface PickedFile {
   blob?: Blob;
-  path?: string;
+  data?: string;
   name: string;
   mimeType: string;
 }
 
-async function toFiles(picked: PickedFile[]): Promise<File[]> {
-  return Promise.all(
-    picked.map(async (file) => {
-      // The web implementation hands back a Blob directly; the native ones
-      // hand back a path.
-      if (file.blob) {
-        return new File([file.blob], file.name, { type: file.mimeType });
-      }
-      return fileFromNativePath(file.path ?? "", file.name, file.mimeType);
-    }),
-  );
+function toFiles(picked: PickedFile[]): File[] {
+  return picked.flatMap((file) => {
+    // The web implementation hands back a Blob directly; the native ones fill
+    // `data` because both pick calls ask for it.
+    if (file.blob) {
+      return [new File([file.blob], file.name, { type: file.mimeType })];
+    }
+    if (file.data) {
+      return [fileFromBase64(file.data, file.name, file.mimeType)];
+    }
+    // Neither form present is not a shape the plugin documents. Dropping the
+    // entry keeps the rest of a multi-select rather than failing all of it.
+    return [];
+  });
 }
 
 /**
@@ -105,13 +111,13 @@ export async function pickMediaNative(): Promise<File[]> {
   // reach a Promise-resolution context dispatches `then()` natively and hangs
   // the await for good. See `docs/CAPACITOR.md`.
   const { FilePicker } = await import("@capawesome/capacitor-file-picker");
-  const { files } = await FilePicker.pickMedia();
+  const { files } = await FilePicker.pickMedia({ readData: true });
   return toFiles(files);
 }
 
 /** Opens the system document picker. */
 export async function pickFilesNative(): Promise<File[]> {
   const { FilePicker } = await import("@capawesome/capacitor-file-picker");
-  const { files } = await FilePicker.pickFiles();
+  const { files } = await FilePicker.pickFiles({ readData: true });
   return toFiles(files);
 }
