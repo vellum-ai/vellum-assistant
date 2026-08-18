@@ -69,15 +69,41 @@ function challengeBody() {
   };
 }
 
+function pendingRequestBody() {
+  return {
+    requestId: "req-1",
+    userCode: "QRST-7890",
+    publicBaseUrl: PUBLIC_URL,
+    requestedAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+    expiresAt: futureIso(),
+    requesterIp: "203.0.113.7",
+    requesterUserAgent: "Mozilla/5.0 (iPhone; like Mac OS X)",
+  };
+}
+
+interface FetchHandlers {
+  onVerification?: () => Response;
+  onPendingRequests?: () => Response | Promise<Response>;
+  onRequestAction?: () => Response | Promise<Response>;
+}
+
+function unexpectedMint(): Response {
+  throw new Error("unexpected challenge mint");
+}
+
 /** Install a fetch mock that records requests and answers per route. */
 function installFetch(
   onChallenge: () => Response,
-  onVerification: () => Response = () =>
-    jsonResponse({
-      status: "approved",
-      verificationUri: "https://foo.ts.net/assistant/pair",
-      expiresAt: futureIso(),
-    }),
+  {
+    onVerification = () =>
+      jsonResponse({
+        status: "approved",
+        verificationUri: "https://foo.ts.net/assistant/pair",
+        expiresAt: futureIso(),
+      }),
+    onPendingRequests = () => jsonResponse({ requests: [] }),
+    onRequestAction = () => jsonResponse({ status: "done" }),
+  }: FetchHandlers = {},
 ) {
   const fetchMock = mock(async (input: string | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -91,10 +117,32 @@ function installFetch(
     if (url.endsWith("/v1/remote-web/pairing-verification")) {
       return onVerification();
     }
+    if (url.endsWith("/v1/remote-web/pairing-requests")) {
+      return onPendingRequests();
+    }
+    if (
+      url.endsWith("/v1/remote-web/pairing-requests/approve") ||
+      url.endsWith("/v1/remote-web/pairing-requests/deny")
+    ) {
+      return onRequestAction();
+    }
     throw new Error(`unexpected fetch: ${url}`);
   });
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   return fetchMock;
+}
+
+function actionCalls(action: "approve" | "deny") {
+  return requests.filter((request) =>
+    request.url.endsWith(`/v1/remote-web/pairing-requests/${action}`),
+  );
+}
+
+/** The mint-flow calls (challenge + verification), without the section's list polls. */
+function mintCalls() {
+  return requests.filter(
+    (request) => !request.url.endsWith("/v1/remote-web/pairing-requests"),
+  );
 }
 
 function typeUrl(value: string) {
@@ -110,6 +158,9 @@ beforeEach(() => {
   selectedAssistant = { assistantId: "self", cloud: "local" };
   requests = [];
   localStorage.clear();
+  // A rendered card polls the pending-request list on mount, so every test
+  // needs the route answered; minting stays unexpected unless overridden.
+  installFetch(unexpectedMint);
 });
 
 afterEach(() => {
@@ -150,7 +201,7 @@ describe("PairDeviceCard", () => {
   });
 
   test("mints + approves, then shows the QR and pair URL", async () => {
-    const fetchMock = installFetch(() => jsonResponse(challengeBody()));
+    installFetch(() => jsonResponse(challengeBody()));
     render(<PairDeviceCard />);
     typeUrl(PUBLIC_URL);
     fireEvent.click(
@@ -162,15 +213,15 @@ describe("PairDeviceCard", () => {
     );
     expect(screen.getByTestId("pair-device-url").textContent).toBe(PAIR_URL);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(requests[0]?.url).toContain(
+    expect(mintCalls()).toHaveLength(2);
+    expect(mintCalls()[0]?.url).toContain(
       "/assistant/__gateway/20100/v1/remote-web/pairing-challenge",
     );
-    expect(requests[0]?.body).toEqual({ publicBaseUrl: PUBLIC_URL });
-    expect(requests[1]?.url).toContain(
+    expect(mintCalls()[0]?.body).toEqual({ publicBaseUrl: PUBLIC_URL });
+    expect(mintCalls()[1]?.url).toContain(
       "/assistant/__gateway/20100/v1/remote-web/pairing-verification",
     );
-    expect(requests[1]?.body).toEqual({ userCode: "WXYZ-1234" });
+    expect(mintCalls()[1]?.body).toEqual({ userCode: "WXYZ-1234" });
   });
 
   test("surfaces the server's rejection message with a connectivity hint", async () => {
@@ -193,7 +244,7 @@ describe("PairDeviceCard", () => {
   });
 
   test("blocks a loopback URL client-side without a network call", () => {
-    const fetchMock = installFetch(() => jsonResponse(challengeBody()));
+    installFetch(() => jsonResponse(challengeBody()));
     render(<PairDeviceCard />);
     typeUrl("http://localhost:3000");
     fireEvent.click(
@@ -205,7 +256,7 @@ describe("PairDeviceCard", () => {
         "This is a loopback address other devices can't reach. Enter the assistant's public https URL.",
       ),
     ).toBeTruthy();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mintCalls()).toHaveLength(0);
   });
 
   test("prefills the URL field from the assistant's recorded tunnel URL", () => {
@@ -237,7 +288,7 @@ describe("PairDeviceCard", () => {
   });
 
   test("rejects a tunnel-provider website URL (Tailscale admin invite) with a service-website message", () => {
-    const fetchMock = installFetch(() => jsonResponse(challengeBody()));
+    installFetch(() => jsonResponse(challengeBody()));
     render(<PairDeviceCard />);
     typeUrl("https://login.tailscale.com/admin/invite/abc123");
     fireEvent.click(
@@ -250,7 +301,7 @@ describe("PairDeviceCard", () => {
       ),
     ).toBeTruthy();
     // The bad URL is refused client-side — no challenge is ever minted.
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mintCalls()).toHaveLength(0);
   });
 
   test("names the assistant it pairs in the subtitle", () => {
@@ -276,5 +327,115 @@ describe("PairDeviceCard", () => {
         "Scan with another device's camera — or open the link on it — to use this assistant there.",
       ),
     ).toBeTruthy();
+  });
+});
+
+describe("PairDeviceCard: pending pairing requests", () => {
+  function installPendingFetch(handlers: FetchHandlers = {}) {
+    return installFetch(unexpectedMint, {
+      onPendingRequests: () =>
+        jsonResponse({ requests: [pendingRequestBody()] }),
+      ...handlers,
+    });
+  }
+
+  test("hides the approval section while no request is pending", async () => {
+    render(<PairDeviceCard />);
+
+    // The list was polled and came back empty.
+    await waitFor(() =>
+      expect(
+        requests.some((r) => r.url.endsWith("/v1/remote-web/pairing-requests")),
+      ).toBe(true),
+    );
+    expect(screen.queryByText("Pairing requests")).toBeNull();
+  });
+
+  test("renders a pending request's user code and requester metadata", async () => {
+    installPendingFetch();
+    render(<PairDeviceCard />);
+
+    await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
+    expect(screen.getByText("Pairing requests")).toBeTruthy();
+    // The anti-phishing binding: approval is tied to matching the code shown
+    // on the requesting device.
+    expect(
+      screen.getByText(/matches the one shown on the requesting device/),
+    ).toBeTruthy();
+    expect(screen.getByText(/203\.0\.113\.7/)).toBeTruthy();
+    expect(
+      screen.getByText("Mozilla/5.0 (iPhone; like Mac OS X)"),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Deny" })).toBeTruthy();
+  });
+
+  test("Approve posts the request id and removes the row", async () => {
+    installPendingFetch();
+    render(<PairDeviceCard />);
+    await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => expect(actionCalls("approve")).toHaveLength(1));
+    expect(actionCalls("approve")[0]?.body).toEqual({ requestId: "req-1" });
+    await waitFor(() => expect(screen.queryByText("QRST-7890")).toBeNull());
+    expect(actionCalls("deny")).toHaveLength(0);
+  });
+
+  test("Deny posts the request id and removes the row", async () => {
+    installPendingFetch();
+    render(<PairDeviceCard />);
+    await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+
+    await waitFor(() => expect(actionCalls("deny")).toHaveLength(1));
+    expect(actionCalls("deny")[0]?.body).toEqual({ requestId: "req-1" });
+    await waitFor(() => expect(screen.queryByText("QRST-7890")).toBeNull());
+    expect(actionCalls("approve")).toHaveLength(0);
+  });
+
+  test("action buttons disable while an action is in flight", async () => {
+    // An approve that never resolves keeps the action in flight.
+    installPendingFetch({
+      onRequestAction: () => new Promise<Response>(() => {}),
+    });
+    render(<PairDeviceCard />);
+    await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true),
+    );
+    expect(
+      (screen.getByRole("button", { name: "Deny" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  test("stays hidden with the card when there is no local gateway", () => {
+    gatewayPath = undefined;
+    installPendingFetch();
+    const { container } = render(<PairDeviceCard />);
+
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText("Pairing requests")).toBeNull();
+    // The gate keeps the poll from ever firing.
+    expect(requests).toHaveLength(0);
+  });
+
+  test("stays hidden with the card when web-remote-ingress is off", () => {
+    webRemoteIngressOn = false;
+    installPendingFetch();
+    const { container } = render(<PairDeviceCard />);
+
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText("Pairing requests")).toBeNull();
+    expect(requests).toHaveLength(0);
   });
 });

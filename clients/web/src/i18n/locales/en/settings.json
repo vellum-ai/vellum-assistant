@@ -200,6 +200,13 @@
     "searchPlaceholder": "Search actions…",
     "title": "Action Overrides"
   },
+  "pendingPairingRequests": {
+    "approveButton": "Approve",
+    "denyButton": "Deny",
+    "instruction": "A device is asking to use this assistant. Approve a request only after confirming its code matches the one shown on the requesting device.",
+    "requestedMeta": "Requested {when} from {ip}",
+    "title": "Pairing requests"
+  },
   "profileAdvancedParams": {
     "contextWindowLabel": "Context Window",
     "defaultValueLabel": "Default · {value}",
