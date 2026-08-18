@@ -802,24 +802,7 @@ export async function check(
     signal,
   );
 
-  const { level: classifiedRisk, reason: riskReason } = classification;
-
-  // Inline-command ("dynamic") skill loads execute embedded shell at load time
-  // via child_process.spawn, outside the tool-approval pipeline that the
-  // auto-approve threshold governs. Treat an uncovered one as High so the
-  // standard threshold decides it like any other high-risk action: it runs at
-  // Full access (autoApproveUpTo "high") and prompts below it. A covering user
-  // trust rule arrives as matchType
-  // "user_rule" with the risk already lowered (the escape hatch), so leave it
-  // untouched. The gateway classifier is authoritative and also returns High;
-  // this local elevation is defense-in-depth for an under-classified result.
-  // The separate non-interactive denial (no human to approve embedded shell)
-  // lives in tools/permission-checker.ts.
-  const risk =
-    isDynamicSkillLoadInvocation(toolName, input) &&
-    classification.matchType !== "user_rule"
-      ? RiskLevel.High
-      : classifiedRisk;
+  const { level: risk, reason: riskReason } = classification;
 
   // Use gateway-provided sandboxAutoApprove instead of evaluating locally.
   const hasSandboxAutoApprove = classification.sandboxAutoApprove ?? false;
