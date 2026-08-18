@@ -106,3 +106,29 @@ describe("AssistantNavItem leading slot", () => {
     expect(html).toContain("<svg");
   });
 });
+
+describe("AssistantNavItem New Chat shortcut tooltip", () => {
+  function renderNewChat(collapsed = false): string {
+    return renderToStaticMarkup(
+      createElement(AssistantNavItem, {
+        assistantId: "a1",
+        label: "Haze II",
+        active: false,
+        collapsed,
+        onSelect: () => {},
+        onNewConversation: () => {},
+      }),
+    );
+  }
+
+  test("the expanded row keeps its New Chat label", () => {
+    const html = renderNewChat();
+    expect(html).toContain(">New Chat<");
+  });
+
+  test("the collapsed tile is named New Chat without a native title", () => {
+    const html = renderNewChat(true);
+    expect(html).toContain('aria-label="New Chat"');
+    expect(html).not.toContain('title="New Chat"');
+  });
+});
