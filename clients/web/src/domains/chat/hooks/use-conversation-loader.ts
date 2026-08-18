@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useViewerStore } from "@/stores/viewer-store";
 
@@ -216,7 +217,7 @@ export function useConversationLoader({
       conversationListError instanceof ApiError &&
       conversationListError.status === 401
     ) {
-      toast.error("Failed to authenticate user.");
+      toast.error(t("chat:useConversationLoader.authFailed"));
     }
   }, [conversationListError]);
 

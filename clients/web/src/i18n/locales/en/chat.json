@@ -14,6 +14,10 @@
     "allowAndCreateRule": "Allow & Create Rule",
     "trigger": "More allow options"
   },
+  "appAssetActions": {
+    "appExported": "App exported",
+    "shareFailed": "Failed to share app"
+  },
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again."
   },
@@ -145,6 +149,10 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Trigger"
   },
+  "composerSettingsMenu": {
+    "profileSwitchFailed": "Profile created, but couldn't switch to it",
+    "profileSwitchFallback": "Failed to switch profile. Please try again."
+  },
   "conversationActions": {
     "archive": "Archive",
     "copyConversation": "Copy Full Conversation",
@@ -188,6 +196,9 @@
   "detailPanelStopButton": {
     "tooltip": "Stop"
   },
+  "documentAssetActions": {
+    "pdfDownloadFailed": "Failed to download PDF"
+  },
   "exportProgressModal": {
     "cancel": "Cancel",
     "close": "Close",
@@ -204,6 +215,9 @@
     "titleDone": "Export complete",
     "titleError": "Export failed",
     "titleRunning": "Exporting inspector data"
+  },
+  "fileDownload": {
+    "failed": "Failed to download file"
   },
   "inspectPage": {
     "accessDenied": "Inspector is available to Vellum staff, or when the settings-developer-nav developer flag is enabled.",
@@ -252,6 +266,12 @@
     "chipUpstreamType": "Upstream type",
     "noResponse": "The provider rejected this call and returned no response.",
     "title": "Call failed"
+  },
+  "localFileEmbed": {
+    "pictureInPictureUnavailable": "Picture in Picture isn't available"
+  },
+  "localFileLink": {
+    "unavailable": "This file isn't available here"
   },
   "memoryRouterPlaygroundPage": {
     "addOlderPairButton": "+ Add older pair",
@@ -511,6 +531,9 @@
     "responsePayload": "Response payload",
     "retry": "Retry"
   },
+  "redactedCredentialChip": {
+    "revealFailed": "Couldn't reveal {name}."
+  },
   "responseTab": {
     "argumentsPreview": "Arguments preview",
     "copySectionAria": "Copy section content",
@@ -555,5 +578,21 @@
     "noInputSchema": "No input schema - this tool takes no structured input.",
     "required": "required",
     "settings": "Settings"
+  },
+  "transcriptMessageBody": {
+    "fileUnavailable": "File not available for download",
+    "fileUnavailableHostTimeout": "File not available for download (host file approval may have timed out)"
+  },
+  "useConversationLoader": {
+    "authFailed": "Failed to authenticate user."
+  },
+  "useConversationSecondaryActions": {
+    "assistantBusy": "Your assistant is busy. Try again when it finishes replying.",
+    "retryFailed": "Couldn't retry the response",
+    "summarizeFailed": "Couldn't summarize the conversation"
+  },
+  "useSendMessage": {
+    "commandFailed": "Couldn't run that command. Please try again.",
+    "doctorUnavailable": "The Doctor isn't available on this assistant."
   }
 }

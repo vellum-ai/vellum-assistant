@@ -14,6 +14,10 @@
     "allowAndCreateRule": "Permitir y crear regla",
     "trigger": "Más opciones para permitir"
   },
+  "appAssetActions": {
+    "appExported": "Aplicación exportada",
+    "shareFailed": "No se pudo compartir la aplicación"
+  },
   "assistantSideMenu": {
     "bulkActionMembersFailed": "No se pudieron cargar todas las conversaciones de esta sección. Inténtalo de nuevo."
   },
@@ -145,6 +149,10 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Disparador"
   },
+  "composerSettingsMenu": {
+    "profileSwitchFailed": "Perfil creado, pero no se pudo cambiar a él",
+    "profileSwitchFallback": "No se pudo cambiar de perfil. Inténtalo de nuevo."
+  },
   "conversationActions": {
     "archive": "Archivar",
     "copyConversation": "Copiar conversación completa",
@@ -188,6 +196,9 @@
   "detailPanelStopButton": {
     "tooltip": "Detener"
   },
+  "documentAssetActions": {
+    "pdfDownloadFailed": "No se pudo descargar el PDF"
+  },
   "exportProgressModal": {
     "cancel": "Cancelar",
     "close": "Cerrar",
@@ -204,6 +215,9 @@
     "titleDone": "Exportación completa",
     "titleError": "Error al exportar",
     "titleRunning": "Exportando datos del inspector"
+  },
+  "fileDownload": {
+    "failed": "No se pudo descargar el archivo"
   },
   "inspectPage": {
     "accessDenied": "El inspector está disponible para el personal de Vellum o cuando la marca de desarrollador settings-developer-nav está habilitada.",
@@ -252,6 +266,12 @@
     "chipUpstreamType": "Tipo ascendente",
     "noResponse": "El proveedor rechazó esta llamada y no devolvió respuesta.",
     "title": "Llamada fallida"
+  },
+  "localFileEmbed": {
+    "pictureInPictureUnavailable": "Imagen sobre imagen no está disponible"
+  },
+  "localFileLink": {
+    "unavailable": "Este archivo no está disponible aquí"
   },
   "memoryRouterPlaygroundPage": {
     "addOlderPairButton": "+ Añadir par más antiguo",
@@ -511,6 +531,9 @@
     "responsePayload": "Carga de la respuesta",
     "retry": "Reintentar"
   },
+  "redactedCredentialChip": {
+    "revealFailed": "No se pudo revelar {name}."
+  },
   "responseTab": {
     "argumentsPreview": "Vista previa de argumentos",
     "copySectionAria": "Copiar contenido de la sección",
@@ -555,5 +578,21 @@
     "noInputSchema": "Sin esquema de entrada: esta herramienta no acepta entrada estructurada.",
     "required": "obligatorio",
     "settings": "Configuración"
+  },
+  "transcriptMessageBody": {
+    "fileUnavailable": "El archivo no está disponible para descargar",
+    "fileUnavailableHostTimeout": "El archivo no está disponible para descargar (puede que la aprobación del archivo en el host haya caducado)"
+  },
+  "useConversationLoader": {
+    "authFailed": "No se pudo autenticar al usuario."
+  },
+  "useConversationSecondaryActions": {
+    "assistantBusy": "Tu asistente está ocupado. Inténtalo de nuevo cuando termine de responder.",
+    "retryFailed": "No se pudo reintentar la respuesta",
+    "summarizeFailed": "No se pudo resumir la conversación"
+  },
+  "useSendMessage": {
+    "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",
+    "doctorUnavailable": "El Doctor no está disponible en este asistente."
   }
 }
