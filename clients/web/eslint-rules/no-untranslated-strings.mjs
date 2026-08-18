@@ -125,27 +125,59 @@ function looksLikeCopy(text) {
 }
 
 /**
- * Whether a template's static fragment reads as a word rather than as part of
- * an identifier.
+ * The words a static fragment contributes, once whatever is glued to an
+ * interpolation is taken off it.
  *
- * A sentence separates its words: `${label} actions` puts a space between the
- * two. A built identifier does not: `${name}.vellum` and `${id}-opt-${i}` glue
- * their pieces together, and their fragments are file extensions and id
- * segments, which no translator should receive. So a fragment counts only when
- * every side of it that touches an interpolation is whitespace separated. The
- * ends of the template are free, since nothing is joined there.
+ * A sentence separates its words, so `${label} actions` keeps "actions" and
+ * `${count}-day trial` keeps "trial". An identifier does not separate
+ * anything, so `${name}.vellum` and `${id}-opt-${expr}` are left with nothing:
+ * a file extension and an id segment are not copy, and neither is the "-day"
+ * that a translator would have to leave attached to the number anyway. The
+ * ends of the run are free, since nothing is joined there.
  */
-function isWordBoundary(template, quasi, index) {
-  const text = quasi.value.cooked ?? "";
-  const followsExpression = index > 0;
-  const precedesExpression = index < template.quasis.length - 1;
-  if (followsExpression && !/^\s/.test(text)) {
-    return false;
+function unglue(text, followsExpression, precedesExpression) {
+  let words = text;
+  if (followsExpression) {
+    const boundary = words.search(/\s/);
+    words = boundary === -1 ? "" : words.slice(boundary);
   }
-  if (precedesExpression && !/\s$/.test(text)) {
-    return false;
+  if (precedesExpression) {
+    const boundary = words.search(/\s\S*$/);
+    words = boundary === -1 ? "" : words.slice(0, boundary + 1);
   }
-  return true;
+  return words;
+}
+
+/**
+ * Toast option fields the user reads, and the nested bags that hold them.
+ * Everything else in the bag (`id`, `duration`, `position`, callbacks) is
+ * machinery.
+ */
+const TOAST_COPY_FIELDS = new Set([
+  "description",
+  "label",
+  "loading",
+  "success",
+  "error",
+  "message",
+  "title",
+]);
+const TOAST_COPY_BAGS = new Set(["action", "cancel"]);
+
+/** The operands of a `+` chain, left to right, with the chain flattened out. */
+function flattenConcatenation(node) {
+  if (node.type === "BinaryExpression" && node.operator === "+") {
+    return [
+      ...flattenConcatenation(node.left),
+      ...flattenConcatenation(node.right),
+    ];
+  }
+  return [node];
+}
+
+/** True for an operand that stands in for a value, the way `${x}` does. */
+function isInterpolation(node) {
+  return Boolean(node) && !(node.type === "Literal");
 }
 
 /** Files whose strings are fixtures rather than shipped copy. */
@@ -266,8 +298,13 @@ export const noUntranslatedStrings = {
       }
       if (node.type === "TemplateLiteral") {
         const statics = node.quasis
-          .filter((quasi, index) => isWordBoundary(node, quasi, index))
-          .map((quasi) => quasi.value.cooked ?? "")
+          .map((quasi, index) =>
+            unglue(
+              quasi.value.cooked ?? "",
+              index > 0,
+              index < node.quasis.length - 1,
+            ),
+          )
           .join(" ");
         // A template with an interpolation is copy assembled in the component
         // whatever its static half looks like, so it is judged by
@@ -294,11 +331,40 @@ export const noUntranslatedStrings = {
       }
       // `"Delete " + name` is the concatenation `I18N.md` calls the most
       // common way to make a string untranslatable: word order is fixed by
-      // the source, exactly as in the template form. Only `+` builds a
-      // string, so the other operators stay out of it.
+      // the source, exactly as in the template form, so it is read the same
+      // way. Only `+` builds a string, so the other operators stay out of it.
       if (node.type === "BinaryExpression" && node.operator === "+") {
-        checkExpression(node.left, messageId, data, isCopy);
-        checkExpression(node.right, messageId, data, isCopy);
+        const operands = flattenConcatenation(node);
+        const statics = operands
+          .map((operand, index) =>
+            operand.type === "Literal" && typeof operand.value === "string"
+              ? unglue(
+                  operand.value,
+                  isInterpolation(operands[index - 1]),
+                  isInterpolation(operands[index + 1]),
+                )
+              : "",
+          )
+          .join(" ");
+        if (
+          operands.some((operand) => isInterpolation(operand))
+            ? isTranslatable(statics)
+            : isCopy(statics)
+        ) {
+          context.report({
+            node,
+            messageId,
+            data: { ...data, text: preview(statics) },
+          });
+          return;
+        }
+        // Nothing assembled, so each side is judged on its own: a lone
+        // capitalized word is still copy where a glued fragment is not.
+        for (const operand of operands) {
+          if (operand.type !== "Literal") {
+            checkExpression(operand, messageId, data, isCopy);
+          }
+        }
         return;
       }
       // `cond ? "Open" : "Close"` and `label || "Untitled"` are copy chosen in
@@ -316,10 +382,14 @@ export const noUntranslatedStrings = {
     }
 
     /**
-     * The copy in a toast's options bag: `description`, and the `label` on an
-     * `action` or `cancel`. Keyed rather than walked, because the same object
-     * carries a toast `id`, durations, and callbacks, none of which a
-     * translator has any use for.
+     * The copy in a toast's options bag: the fields the toast renders, and the
+     * nested `action` / `cancel` bags that carry a label of their own. Keyed
+     * rather than walked, because the same object holds a toast id, durations,
+     * placement and callbacks, none of which a translator has any use for.
+     *
+     * These are judged as copy on sight rather than through the prop-value
+     * test: `description: "saved"` is one lowercase word, which that test
+     * reads as an enum value, and a toast renders it to the user regardless.
      */
     function checkToastOptions(node) {
       for (const property of node.properties) {
@@ -332,14 +402,19 @@ export const noUntranslatedStrings = {
             : property.key.type === "Literal"
               ? String(property.key.value)
               : undefined;
-        if (!key || isStructuralProp(key)) {
+        if (!key) {
           continue;
         }
-        if (property.value.type === "ObjectExpression") {
+        if (
+          TOAST_COPY_BAGS.has(key) &&
+          property.value.type === "ObjectExpression"
+        ) {
           checkToastOptions(property.value);
           continue;
         }
-        checkExpression(property.value, "toast", {}, looksLikeCopy);
+        if (TOAST_COPY_FIELDS.has(key)) {
+          checkExpression(property.value, "toast", {});
+        }
       }
     }
 
