@@ -7,8 +7,14 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { requestComposerFocus } from "@/domains/chat/composer-focus";
+import {
+  pickFilesNative,
+  pickPhotosNative,
+} from "@/domains/chat/components/chat-attachments/native-attachment-pickers";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
 import { useTranslation } from "@/i18n";
+import { isNativeMobile } from "@/runtime/platform-detection";
 
 interface AddToChatRowProps {
   icon: LucideIcon;
@@ -37,12 +43,18 @@ interface AddToChatSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Receives the files picked from any of the three rows. */
-  onAttachFiles: (files: FileList) => void;
+  onAttachFiles: (files: FileList | File[]) => void;
 }
 
 /**
  * Mobile "Add to chat" bottom sheet: Camera, Find in Gallery, and Files, each
- * backed by its own hidden `<input type="file">`.
+ * backed by its own hidden `<input type="file">` in a browser.
+ *
+ * In the Capacitor shells the photo and document rows open the native pickers
+ * instead, because WebKit answers a file input with its own action sheet and
+ * neither surface is reachable through it (see `native-attachment-pickers`).
+ * Camera keeps the input everywhere: `capture` already forces the camera
+ * rather than that sheet.
  *
  * The three inputs render as siblings of `BottomSheet.Root`, outside the
  * dialog portal. A row tap closes the sheet before opening the native picker,
@@ -77,6 +89,38 @@ export function AddToChatSheet({
     onOpenChange(false);
     openPicker();
   };
+
+  /**
+   * The shells' photo and document rows, which open a native surface instead
+   * of an `<input type="file">`.
+   *
+   * `useAttachmentFilePicker` restores composer focus from the input's own
+   * `change` / `cancel` / window-`focus` events, none of which a native picker
+   * fires. Without the explicit call here the picker would work and the
+   * keyboard would not come back, so every path out of this promise refocuses:
+   * a selection, an empty return, and the rejection the plugins raise on
+   * cancel alike.
+   */
+  const closeThenPickNative =
+    (pick: () => Promise<File[]>) => async (): Promise<void> => {
+      onOpenChange(false);
+      try {
+        const picked = await pick();
+        if (picked.length > 0) {
+          onAttachFiles(picked);
+        }
+      } catch {
+        // Cancelling is a rejection, not an error worth surfacing: the user
+        // dismissed a sheet they opened.
+      } finally {
+        requestComposerFocus();
+      }
+    };
+
+  // Read once per render rather than per row, and deliberately not a hook:
+  // the shell a session runs in cannot change mid-session, and the sheet is
+  // already mounted for the session by the time a row can be tapped.
+  const native = isNativeMobile();
 
   return (
     <>
@@ -118,12 +162,20 @@ export function AddToChatSheet({
             <AddToChatRow
               icon={ImageIcon}
               label={t("addToChatSheet.gallery")}
-              onSelect={closeThenPick(gallery.openPicker)}
+              onSelect={
+                native
+                  ? closeThenPickNative(pickPhotosNative)
+                  : closeThenPick(gallery.openPicker)
+              }
             />
             <AddToChatRow
               icon={FileIcon}
               label={t("addToChatSheet.files")}
-              onSelect={closeThenPick(files.openPicker)}
+              onSelect={
+                native
+                  ? closeThenPickNative(pickFilesNative)
+                  : closeThenPick(files.openPicker)
+              }
             />
           </BottomSheet.Body>
         </BottomSheet.Content>
