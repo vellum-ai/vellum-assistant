@@ -32,6 +32,7 @@ mock.module("@capawesome/capacitor-file-picker", () => ({
 }));
 
 const statPaths: string[] = [];
+const deletedPaths: string[] = [];
 let mockStat: (path: string) => number | Error = () => 0;
 
 mock.module("@capacitor/filesystem", () => ({
@@ -39,6 +40,10 @@ mock.module("@capacitor/filesystem", () => ({
     readFile: ({ path }: { path: string }) => {
       readPaths.push(path);
       return Promise.resolve({ data: mockRead(path) });
+    },
+    deleteFile: ({ path }: { path: string }) => {
+      deletedPaths.push(path);
+      return Promise.resolve();
     },
     stat: ({ path }: { path: string }) => {
       statPaths.push(path);
@@ -64,6 +69,7 @@ function collector() {
 function reset() {
   readPaths.length = 0;
   statPaths.length = 0;
+  deletedPaths.length = 0;
   mockStat = () => 0;
   mockRead = () => "";
   lastPickMediaOptions = "unset";
@@ -402,5 +408,70 @@ describe("native pickers: missing metadata", () => {
 
     expect(skipped).toEqual([]);
     expect(sink.files).toHaveLength(1);
+  });
+});
+
+describe("native pickers: temporary copies", () => {
+  test("drops the copy after reading it", async () => {
+    // iOS copies every selection into a fresh directory under Caches and never
+    // clears it up, so a path handed back there is ours to remove once the
+    // bytes are in memory.
+    reset();
+    mockRead = () => btoa("bytes");
+    mockFiles = [
+      {
+        path: "/Caches/abc/photo.jpg",
+        name: "photo.jpg",
+        mimeType: "image/jpeg",
+        size: 10,
+      },
+    ];
+
+    const sink = collector();
+    await pickMediaNative(sink.onFile);
+
+    expect(sink.files).toHaveLength(1);
+    expect(deletedPaths).toEqual(["/Caches/abc/photo.jpg"]);
+  });
+
+  test("drops the copy of a file it refuses to read", async () => {
+    // The worst case for leaving them behind: bytes nobody wanted, kept.
+    reset();
+    mockFiles = [
+      {
+        path: "/Caches/def/huge.mov",
+        name: "huge.mov",
+        mimeType: "video/quicktime",
+        size: 900 * MB,
+      },
+    ];
+
+    const sink = collector();
+    const { skipped } = await pickFilesNative(sink.onFile);
+
+    expect(readPaths).toEqual([]);
+    expect(skipped).toEqual(["huge.mov"]);
+    expect(deletedPaths).toEqual(["/Caches/def/huge.mov"]);
+  });
+
+  test("leaves an Android content URI alone", async () => {
+    // That names the provider's own document rather than a copy, so deleting
+    // it would delete the user's file.
+    reset();
+    mockRead = () => btoa("bytes");
+    mockFiles = [
+      {
+        path: "content://downloads/42",
+        name: "doc.pdf",
+        mimeType: "application/pdf",
+        size: 10,
+      },
+    ];
+
+    const sink = collector();
+    await pickFilesNative(sink.onFile);
+
+    expect(sink.files).toHaveLength(1);
+    expect(deletedPaths).toEqual([]);
   });
 });

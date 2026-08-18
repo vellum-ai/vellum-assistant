@@ -136,6 +136,33 @@ async function resolveSize(file: PickedFile): Promise<number | null> {
 const MAX_PICK_TOTAL_BYTES = IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES;
 
 /**
+ * Removes the copy iOS made for this pick.
+ *
+ * Both iOS delegates copy every selection into a fresh UUID directory under
+ * the app's Caches before resolving, and the plugin never clears them up, so
+ * a path handed back there belongs to us and nothing else reads it once the
+ * bytes are in memory. Left alone they accumulate silently, and the entries
+ * this module refuses without reading would stack up fastest of all.
+ *
+ * Android hands back a `content://` URI naming the provider's own document
+ * rather than a copy, so those are left strictly alone.
+ *
+ * Best effort: a pick that has been read is already attached, and failing to
+ * tidy afterwards is not worth losing it over.
+ */
+async function discardTemporaryCopy(path: string | undefined): Promise<void> {
+  if (!path || path.startsWith("content://")) {
+    return;
+  }
+  const { Filesystem } = await import("@capacitor/filesystem");
+  try {
+    await Filesystem.deleteFile({ path });
+  } catch {
+    // Nothing to do about it, and nothing depends on it having worked.
+  }
+}
+
+/**
  * Reads the picked entries, handing each one on before reading the next.
  *
  * Neither pick asks for the data up front. The plugin's own note on that
@@ -169,30 +196,38 @@ async function readPicked(
       onFile(new File([file.blob], file.name, { type: mimeType }));
       continue;
     }
-    const size = await resolveSize(file);
-    if (
-      size === null ||
-      !canQueueFile({ name: file.name, type: mimeType, size })
-    ) {
-      skipped.push(file.name);
-      continue;
-    }
-    if (readSoFar + size > MAX_PICK_TOTAL_BYTES) {
-      skipped.push(file.name);
-      continue;
-    }
-    if (!file.path) {
-      continue;
-    }
-    const { Filesystem } = await import("@capacitor/filesystem");
-    const { data } = await Filesystem.readFile({ path: file.path });
-    readSoFar += size;
-    // A zero-byte file reads back as an empty string, which is a valid payload
-    // and not a missing one.
-    if (typeof data === "string") {
-      onFile(fileFromBase64(data, file.name, mimeType));
-    } else {
-      onFile(new File([data], file.name, { type: mimeType }));
+
+    // Every way out of this entry drops the copy behind it, refusals included:
+    // a file skipped for its size is one whose bytes were never wanted, so
+    // leaving it on disk is the worst of both.
+    try {
+      const size = await resolveSize(file);
+      if (
+        size === null ||
+        !canQueueFile({ name: file.name, type: mimeType, size })
+      ) {
+        skipped.push(file.name);
+        continue;
+      }
+      if (readSoFar + size > MAX_PICK_TOTAL_BYTES) {
+        skipped.push(file.name);
+        continue;
+      }
+      if (!file.path) {
+        continue;
+      }
+      const { Filesystem } = await import("@capacitor/filesystem");
+      const { data } = await Filesystem.readFile({ path: file.path });
+      readSoFar += size;
+      // A zero-byte file reads back as an empty string, which is a valid
+      // payload and not a missing one.
+      if (typeof data === "string") {
+        onFile(fileFromBase64(data, file.name, mimeType));
+      } else {
+        onFile(new File([data], file.name, { type: mimeType }));
+      }
+    } finally {
+      await discardTemporaryCopy(file.path);
     }
   }
 
