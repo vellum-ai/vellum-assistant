@@ -34,6 +34,11 @@ export interface RecapAction {
    * reachable by long press and by pointer, which suits one that navigates
    * rather than acting on the row: a swipe that scrolls the app out from under
    * the thumb is a surprise, where an undoable state change is not.
+   *
+   * Rows under the chat shell keep their commands on the trailing edge, since a
+   * rightward drag there belongs to the navigation drawer. See
+   * `clients/web/docs/PLATFORM_ADAPTATION.md`, "Swipe edges under the chat
+   * shell".
    */
   swipeEdge?: "leading" | "trailing";
   /** Show the label beside the glyph rather than only as the accessible name. */
@@ -89,7 +94,7 @@ export function buildRecapActions({
       label: isUnread ? t("actions.markAsRead") : t("actions.markAsUnread"),
       icon: isUnread ? MailOpen : Mail,
       onSelect: () => onToggleRead(item.id, isUnread ? "seen" : "new"),
-      swipeEdge: "leading",
+      swipeEdge: "trailing",
     });
   }
 

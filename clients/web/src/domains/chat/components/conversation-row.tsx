@@ -215,10 +215,11 @@ export function ConversationRow({
   );
 
   const isTouch = isPointerCoarse();
-  // Long-press on touch and right-click on a pointer both reach this row's
-  // menu, so the inline ellipsis is one path among several rather than the
-  // only one.
-  const showsEllipsis = useShowsHoverAffordance(withContextMenu);
+  // The swipe and the long-press sheet are the paths that replace the inline
+  // ellipsis, and both are armed by a coarse pointer, so a device that has
+  // neither hover nor a coarse pointer (a hoverless stylus) keeps the ellipsis:
+  // right-click alone is not a path ordinary tapping or a screen reader finds.
+  const showsEllipsis = useShowsHoverAffordance(withContextMenu && isTouch);
 
   const panelItem = (
     <SwipeActionReveal

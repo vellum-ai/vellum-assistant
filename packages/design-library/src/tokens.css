@@ -899,9 +899,12 @@
  * for the affordance painted over it. `pointer-events` does not gate keyboard
  * activation, so the tab path is unaffected.
  *
- * An engine that drops the rule (an unsupported selector in the list) leaves
- * every affordance painted, which is a busier row rather than an unreachable
- * control.
+ * The conditions beyond `:hover` sit inside `:is()`, whose list is forgiving:
+ * an engine without `:has()` drops those conditions and keeps the rest of the
+ * rule, so the row still trades its occupants on hover and only loses the focus
+ * and open-menu exceptions. Left in a bare `:not()` list, which is not
+ * forgiving, one unsupported selector would invalidate the whole rule and leave
+ * a yielding occupant hidden at every moment.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover
  * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer
@@ -919,6 +922,12 @@
   pointer-events: auto;
 }
 
+/* Every occupant of a shared slot takes the same cell, so a pair trades places
+ * in one spot and the slot sizes itself from the wider of the two. */
+[data-reveal-slot] > * {
+  grid-area: 1 / 1;
+}
+
 /* Hidden wherever the affordance it shares a slot with is shown, and out of the
  * hit path while hidden: the two occupy one cell, so a faded occupant left
  * clickable takes the affordance's clicks. */
@@ -932,10 +941,12 @@
       :hover,
       [data-reveal-hold],
       :focus-visible,
-      :has(:focus-visible),
-      :has([data-reveal]:focus-within),
-      :has([data-reveal][aria-expanded="true"]),
-      :has([data-reveal] [aria-expanded="true"])
+      :is(
+          :has(:focus-visible),
+          :has([data-reveal]:focus-within),
+          :has([data-reveal][aria-expanded="true"]),
+          :has([data-reveal] [aria-expanded="true"])
+        )
     ) {
     & [data-reveal] {
       opacity: 0;
@@ -950,19 +961,22 @@
 }
 
 @media (hover: none) {
-  /* Nothing trades the two occupants here, so the cell seats them side by side
-     rather than picking one: the count stays readable and the command stays
-     tappable, at the cost of the width the row would otherwise save. */
-  [data-reveal-slot]:has([data-reveal-yield]) {
+  /* Nothing trades the occupants here, so the slot seats them side by side in
+     source order rather than picking one: the count stays readable and the
+     command stays tappable, at the cost of the width a hover row saves. A slot
+     holding one occupant lays out identically either way, which is why this asks
+     nothing about the contents: the same restoration then reaches every engine,
+     including one with no `:has()` to ask with. */
+  [data-reveal-slot] {
     grid-auto-flow: column;
     gap: var(--app-spacing-xs);
   }
 
-  [data-reveal-slot]:has([data-reveal-yield]) > * {
+  [data-reveal-slot] > * {
     grid-area: auto;
   }
 
-  [data-reveal-slot] [data-reveal-yield] {
+  [data-reveal-yield] {
     opacity: 1;
     pointer-events: auto;
   }
