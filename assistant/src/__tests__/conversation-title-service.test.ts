@@ -98,8 +98,10 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
 }));
 
 import {
+  applyDeterministicTitleIfReplaceable,
   AUTO_TITLE_DETERMINISTIC,
   AUTO_TITLE_LLM,
+  deriveChannelInboundMintTitle,
   generateAndPersistConversationTitle,
   queueGenerateConversationTitle,
   regenerateConversationTitle,
@@ -564,5 +566,153 @@ describe("conversation-title-service", () => {
       mockUpdateConversationTitle.mock.calls as unknown as string[][]
     ).find((c) => c[0] === "conv-2" && c[1] === "Recovery Title");
     expect(secondUpdate).toBeTruthy();
+  });
+});
+
+describe("channel inbound mint title", () => {
+  beforeEach(() => {
+    mockGetConversation.mockClear();
+    mockGetConversation.mockImplementation(
+      (_conversationId: string) =>
+        ({
+          title: "Generating title...",
+          isAutoTitle: 1,
+        }) as {
+          title: string;
+          isAutoTitle: number;
+        },
+    );
+    mockUpdateConversationTitle.mockClear();
+    mockPublishConversationTitleChanged.mockClear();
+  });
+
+  test("names the sender: display name, then username, then external id", () => {
+    expect(
+      deriveChannelInboundMintTitle({
+        sourceChannel: "slack",
+        actorDisplayName: "Alice Example",
+        actorUsername: "alice",
+        actorExternalId: "U0123ABCDEF",
+      }),
+    ).toBe("Message from Alice Example");
+    expect(
+      deriveChannelInboundMintTitle({
+        sourceChannel: "slack",
+        actorUsername: "alice",
+        actorExternalId: "U0123ABCDEF",
+      }),
+    ).toBe("Message from alice");
+    expect(
+      deriveChannelInboundMintTitle({
+        sourceChannel: "slack",
+        actorExternalId: "U0123ABCDEF",
+      }),
+    ).toBe("Message from U0123ABCDEF");
+  });
+
+  test("names the channel when no sender label is known", () => {
+    expect(deriveChannelInboundMintTitle({ sourceChannel: "slack" })).toBe(
+      "New Slack message",
+    );
+    expect(deriveChannelInboundMintTitle({ sourceChannel: "telegram" })).toBe(
+      "New Telegram message",
+    );
+    expect(deriveChannelInboundMintTitle({ sourceChannel: "whatsapp" })).toBe(
+      "New WhatsApp message",
+    );
+    expect(deriveChannelInboundMintTitle({ sourceChannel: "discord" })).toBe(
+      "New Discord message",
+    );
+    expect(
+      deriveChannelInboundMintTitle({
+        sourceChannel: "slack",
+        actorDisplayName: "   ",
+        actorUsername: null,
+        actorExternalId: "",
+      }),
+    ).toBe("New Slack message");
+  });
+
+  test("collapses whitespace and truncates like other deterministic titles", () => {
+    expect(
+      deriveChannelInboundMintTitle({
+        sourceChannel: "slack",
+        actorDisplayName: "  Alice \n  Example  ",
+      }),
+    ).toBe("Message from Alice Example");
+    expect(
+      deriveChannelInboundMintTitle({
+        sourceChannel: "slack",
+        actorDisplayName: "Alexandra Montgomery-Wellington Example",
+      }),
+    ).toBe("Message from Alexandra");
+    // A single token that cannot fit beside the prefix falls back to the
+    // channel form rather than a bare "Message from".
+    expect(
+      deriveChannelInboundMintTitle({
+        sourceChannel: "slack",
+        actorExternalId: "x".repeat(60),
+      }),
+    ).toBe("New Slack message");
+  });
+
+  test("applies the mint title over the placeholder as deterministic and broadcasts", () => {
+    mockGetConversation.mockReturnValueOnce({
+      title: "Generating title...",
+      isAutoTitle: 1,
+    });
+
+    const changed = applyDeterministicTitleIfReplaceable(
+      "conv-1",
+      "Message from Alice",
+    );
+
+    expect(changed).toBe(true);
+    expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
+      "conv-1",
+      "Message from Alice",
+      AUTO_TITLE_DETERMINISTIC,
+    );
+    expect(mockPublishConversationTitleChanged).toHaveBeenCalledWith(
+      "conv-1",
+      "Message from Alice",
+    );
+  });
+
+  test("never overwrites a user or LLM title", () => {
+    mockGetConversation.mockReturnValueOnce({
+      title: "Lunch plans",
+      isAutoTitle: 0,
+    });
+
+    const changed = applyDeterministicTitleIfReplaceable(
+      "conv-1",
+      "Message from Alice",
+    );
+
+    expect(changed).toBe(false);
+    expect(mockUpdateConversationTitle).not.toHaveBeenCalled();
+    expect(mockPublishConversationTitleChanged).not.toHaveBeenCalled();
+  });
+
+  test("the first genuine turn upgrades a mint title to an LLM title", async () => {
+    mockGetConversation.mockImplementation(() => ({
+      title: "Message from Alice",
+      isAutoTitle: AUTO_TITLE_DETERMINISTIC,
+    }));
+    const provider = makeProvider(async () => toolResponse("Lunch Plans"));
+
+    const result = await generateAndPersistConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "want to grab lunch tomorrow?",
+    });
+
+    expect(result).toEqual({ title: "Lunch Plans", updated: true });
+    expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
+      "conv-1",
+      "Lunch Plans",
+      AUTO_TITLE_LLM,
+    );
   });
 });

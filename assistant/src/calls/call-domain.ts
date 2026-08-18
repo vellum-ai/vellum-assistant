@@ -16,7 +16,10 @@ import {
 } from "../inbound/public-ingress-urls.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
-import { queueGenerateConversationTitle } from "../persistence/conversation-title-service.js";
+import {
+  applyDeterministicTitleIfReplaceable,
+  queueGenerateConversationTitle,
+} from "../persistence/conversation-title-service.js";
 import { upsertBinding } from "../persistence/external-conversation-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { isGuardian } from "../runtime/channel-verification-service.js";
@@ -925,9 +928,15 @@ export async function startVerificationCall(
 
     // Create a minimal conversation so the call session has a valid FK,
     // and bind it to the voice channel so it never appears as an unbound
-    // desktop conversation.
+    // desktop conversation. No turn ever titles it, so title it at the mint.
     const convKey = `guardian-verify:${verificationSessionId}`;
-    const { conversationId } = getOrCreateConversation(convKey);
+    const { conversationId, created } = getOrCreateConversation(convKey);
+    if (created) {
+      applyDeterministicTitleIfReplaceable(
+        conversationId,
+        "Guardian verification call",
+      );
+    }
 
     upsertBinding({
       conversationId,
@@ -1057,10 +1066,13 @@ export async function startInviteCall(
 
     // Create a minimal conversation so the call session has a valid FK,
     // and bind it to the voice channel so it never appears as an unbound
-    // desktop conversation.
+    // desktop conversation. No turn ever titles it, so title it at the mint.
     const timestamp = Date.now();
     const convKey = `invite-call:${phoneNumber}:${timestamp}`;
-    const { conversationId } = getOrCreateConversation(convKey);
+    const { conversationId, created } = getOrCreateConversation(convKey);
+    if (created) {
+      applyDeterministicTitleIfReplaceable(conversationId, "Invite call");
+    }
 
     upsertBinding({
       conversationId,

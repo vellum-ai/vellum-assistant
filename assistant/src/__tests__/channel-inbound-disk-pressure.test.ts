@@ -55,7 +55,11 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import * as deliveryCrud from "../persistence/delivery-crud.js";
-import { channelInboundEvents, messages } from "../persistence/schema/index.js";
+import {
+  channelInboundEvents,
+  conversations,
+  messages,
+} from "../persistence/schema/index.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 import {
   handleChannelInbound,
@@ -159,6 +163,21 @@ describe("channel inbound disk pressure gate", () => {
     expect(event?.messageId).toBeNull();
     expect(event?.rawPayload).toBeNull();
     expect(db.select().from(messages).all()).toHaveLength(0);
+
+    // The block runs no turn, so the minted conversation carries the
+    // deterministic mint title rather than the placeholder.
+    const minted = db
+      .select({
+        title: conversations.title,
+        isAutoTitle: conversations.isAutoTitle,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, event!.conversationId))
+      .get();
+    expect(minted).toEqual({
+      title: "Message from telegram-user-1",
+      isAutoTitle: 2,
+    });
   });
 
   test("preserves retryable duplicate ingress without re-sending block replies", async () => {

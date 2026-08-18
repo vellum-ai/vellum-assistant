@@ -19,11 +19,13 @@ mock.module("../runtime/gateway-client.js", () => ({
 }));
 
 import type { TrustVerdict } from "@vellumai/gateway-client";
+import { eq } from "drizzle-orm";
 
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import { getConversationByKey } from "../persistence/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { messages } from "../persistence/schema/index.js";
+import { conversations, messages } from "../persistence/schema/index.js";
 import {
   handleChannelInbound,
   setAdapterProcessMessage,
@@ -167,15 +169,35 @@ describe("inbound trust verdict → TrustContext", () => {
 
   test("trusted_contact denied under a guardian_only floor", async () => {
     const res = await handleChannelInbound(
-      makeInboundRequest({
-        trustVerdict: memberVerdict("trusted_contact"),
-        admissionPolicy: "guardian_only",
-      }),
+      makeInboundRequest(
+        {
+          trustVerdict: memberVerdict("trusted_contact"),
+          admissionPolicy: "guardian_only",
+        },
+        { actorDisplayName: "Member One" },
+      ),
     );
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
     expect(body.denied).toBe(true);
     expect(body.reason).toBe("admission_policy_guardian_only");
+
+    // The deny lane runs no turn, so the conversation carries the
+    // deterministic mint title rather than the placeholder.
+    const mapping = getConversationByKey("asst:self:telegram:chat-123");
+    expect(mapping).not.toBeNull();
+    const minted = getDb()
+      .select({
+        title: conversations.title,
+        isAutoTitle: conversations.isAutoTitle,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, mapping!.conversationId))
+      .get();
+    expect(minted).toEqual({
+      title: "Message from Member One",
+      isAutoTitle: 2,
+    });
   });
 
   test("present unknown (stranger) verdict admitted under a strangers floor", async () => {

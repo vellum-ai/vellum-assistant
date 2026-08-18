@@ -294,6 +294,27 @@ describe("title-generate stop hook", () => {
     });
   });
 
+  test("retries a channel mint title after the first successful turn", async () => {
+    // A channel conversation is titled deterministically at the mint
+    // ("Message from <sender>", isAutoTitle 2); a real first turn must still
+    // upgrade it to an LLM title.
+    mockGetConversation.mockReturnValueOnce({
+      title: "Message from Alice",
+      isAutoTitle: 2,
+      conversationType: "standard",
+    });
+    const ctx = makeStopCtx({ messages: historyWithUserTurns(1) });
+
+    await stop(ctx);
+    await flushMacrotasks();
+
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
+    expect(queueRegenerateConversationTitleMock).toHaveBeenCalledWith({
+      conversationId: "conv-1",
+      onlyIfReplaceable: true,
+    });
+  });
+
   test("preserves the third-turn retitle when the title is still replaceable", async () => {
     mockGetConversation.mockReturnValueOnce({
       title: "Untitled Conversation",

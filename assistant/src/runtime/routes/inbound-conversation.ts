@@ -17,6 +17,10 @@ import {
   deleteConversationKey,
   getOrCreateConversation,
 } from "../../persistence/conversation-key-store.js";
+import {
+  applyDeterministicTitleIfReplaceable,
+  deriveChannelInboundMintTitle,
+} from "../../persistence/conversation-title-service.js";
 import { buildScopedConversationKey } from "../../persistence/delivery-crud.js";
 import {
   deleteBindingByChannelChatNullThread,
@@ -53,11 +57,19 @@ export function handleDeleteConversation({ body = {} }: RouteHandlerArgs) {
     deleteBindingByChannelChatNullThread(sourceChannel, conversationExternalId);
   } else {
     // Slack adapter: eagerly re-mint a fresh conversation for the threaded
-    // key so mid-thread turns racing the reset land in the new conversation.
-    // Telegram deliberately skips this — a reset topic simply creates its
-    // fresh conversation on the next inbound message.
+    // key. The fresh key is what keeps the next inbound from re-aliasing the
+    // thread onto the flat channel conversation it was reset away from, and
+    // gives mid-thread turns racing the reset a home. Titled at the mint like
+    // any channel conversation. Telegram deliberately skips this: a reset
+    // topic simply creates its fresh conversation on the next inbound message.
     if (sourceChannel === "slack") {
-      getOrCreateConversation(scopedKey);
+      const { conversationId, created } = getOrCreateConversation(scopedKey);
+      if (created) {
+        applyDeterministicTitleIfReplaceable(
+          conversationId,
+          deriveChannelInboundMintTitle({ sourceChannel }),
+        );
+      }
     }
     deleteBindingByChannelChatThread(
       sourceChannel,

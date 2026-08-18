@@ -64,8 +64,13 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   isGuardian: () => false,
 }));
 
+const applyDeterministicTitleIfReplaceableMock = mock(
+  (_conversationId: string, _title: string): boolean => true,
+);
 mock.module("../persistence/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: () => {},
+  applyDeterministicTitleIfReplaceable:
+    applyDeterministicTitleIfReplaceableMock,
 }));
 
 import { startVerificationCall } from "../calls/call-domain.js";
@@ -104,6 +109,12 @@ describe("startVerificationCall — voice binding", () => {
     const binding = getBindingByConversation(conversationId);
     expect(binding).not.toBeNull();
     expect(binding!.sourceChannel).toBe("phone");
+
+    // No turn ever titles this conversation, so the mint names it.
+    expect(applyDeterministicTitleIfReplaceableMock).toHaveBeenCalledWith(
+      conversationId,
+      "Guardian verification call",
+    );
   });
 
   test("fails with 503 when voice ingress preflight fails", async () => {

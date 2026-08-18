@@ -64,7 +64,10 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => _testApprovalConversationGenerator,
 }));
 
+import { eq } from "drizzle-orm";
+
 import type { Conversation } from "../daemon/conversation.js";
+import { getConversationByKey } from "../persistence/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import * as deliveryChannels from "../persistence/delivery-channels.js";
@@ -832,6 +835,23 @@ describe("stale callback handling", () => {
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("stale_ignored");
+
+    // A stale button press mints the chat's conversation and runs no turn, so
+    // it carries the deterministic mint title rather than the placeholder.
+    const mapping = getConversationByKey("asst:self:telegram:chat-123");
+    expect(mapping).not.toBeNull();
+    const minted = getDb()
+      .select({
+        title: conversations.title,
+        isAutoTitle: conversations.isAutoTitle,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, mapping!.conversationId))
+      .get();
+    expect(minted).toEqual({
+      title: "Message from telegram-user-default",
+      isAutoTitle: 2,
+    });
   });
 
   test("callback with non-empty content but no pending approval returns stale_ignored", async () => {

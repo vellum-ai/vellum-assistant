@@ -7,6 +7,7 @@
  * overwritten, never user-provided custom titles.
  */
 
+import { CHANNEL_METADATA, isChannelId } from "../channels/types.js";
 import {
   createTimeout,
   extractAllText,
@@ -138,15 +139,70 @@ export function deriveDeterministicTitle(context: TitleContext): string {
   return truncateTitle(base.replace(/\s+/g, " ").trim());
 }
 
+export interface ChannelInboundMintTitleInput {
+  sourceChannel: string;
+  actorDisplayName?: string | null;
+  actorUsername?: string | null;
+  actorExternalId?: string | null;
+}
+
+/**
+ * Human-readable channel name for title copy: the channel card label where
+ * one exists (`Slack`, `Telegram`, `WhatsApp`), otherwise the id capitalized.
+ */
+function channelDisplayLabel(sourceChannel: string): string {
+  const label = isChannelId(sourceChannel)
+    ? CHANNEL_METADATA[sourceChannel]?.label
+    : undefined;
+  if (label) {
+    return label;
+  }
+  const trimmed = sourceChannel.trim();
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+/**
+ * Title a channel conversation carries from the moment it is minted, before
+ * any turn has run: `Message from <sender>` when the inbound named its
+ * sender, else `New <Channel> message`. Names only the sender, never the
+ * channel or chat, because clients render channel context beside the title
+ * already. Persist it with `AUTO_TITLE_DETERMINISTIC` (see
+ * `applyDeterministicTitleIfReplaceable`) so the first genuine turn upgrades
+ * it to an LLM title.
+ */
+export function deriveChannelInboundMintTitle(
+  input: ChannelInboundMintTitleInput,
+): string {
+  const actorLabel = [
+    input.actorDisplayName,
+    input.actorUsername,
+    input.actorExternalId,
+  ]
+    .map((value) => value?.replace(/\s+/g, " ").trim())
+    .find((value) => value);
+  if (actorLabel) {
+    const prefix = "Message from ";
+    const title = truncateTitle(`${prefix}${actorLabel}`);
+    // A single token too long to fit truncates to the bare prefix; the
+    // channel form reads better than "Message from".
+    if (title.length > prefix.length) {
+      return title;
+    }
+  }
+  return truncateTitle(
+    `New ${channelDisplayLabel(input.sourceChannel)} message`,
+  );
+}
+
 /**
  * Apply a deterministic title to a conversation, but only while its current
- * title is still a replaceable placeholder — never clobbering a user or LLM
- * title. For conversations that will never run an agent turn (so neither the
- * `user-prompt-submit` nor `stop` title hook ever fires), e.g. a floor-denied
- * inbound whose only content is a guardian access-request card: without this
- * the sidebar shows a permanent "Generating title…". Persisted as
- * `AUTO_TITLE_DETERMINISTIC` so a later genuine turn can still upgrade it, and
- * broadcast so connected clients converge. Returns whether the title changed.
+ * title is still a replaceable placeholder, never clobbering a user or LLM
+ * title. This is the mint-seam title: a conversation created by a channel
+ * inbound or a call session gets one immediately so it never sits on
+ * "Generating title..." when the inbound is denied, blocked, intercepted, or
+ * dead-lettered before a turn runs. Persisted as `AUTO_TITLE_DETERMINISTIC`
+ * so the first genuine turn still upgrades it to an LLM title, and broadcast
+ * so connected clients converge. Returns whether the title changed.
  */
 export function applyDeterministicTitleIfReplaceable(
   conversationId: string,

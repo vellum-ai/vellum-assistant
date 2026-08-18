@@ -81,7 +81,10 @@ import {
   updateMessageContent,
   updateMessageMetadata,
 } from "../../persistence/conversation-crud.js";
-import { applyDeterministicTitleIfReplaceable } from "../../persistence/conversation-title-service.js";
+import {
+  applyDeterministicTitleIfReplaceable,
+  deriveChannelInboundMintTitle,
+} from "../../persistence/conversation-title-service.js";
 import {
   clearPayload,
   findMessageBySourceId,
@@ -713,6 +716,22 @@ export async function handleChannelInbound({
     },
   );
 
+  // Title the conversation at the mint, before any lane can return without a
+  // turn (admission deny, disk-pressure block, bootstrap or guardian-reply
+  // intercept, stale callback, secret block, dead-letter). Deterministic and
+  // upgradeable: the first genuine turn replaces it with an LLM title.
+  if (result.created) {
+    applyDeterministicTitleIfReplaceable(
+      result.conversationId,
+      deriveChannelInboundMintTitle({
+        sourceChannel,
+        actorDisplayName: body.actorDisplayName,
+        actorUsername: body.actorUsername,
+        actorExternalId: canonicalSenderId ?? rawSenderId,
+      }),
+    );
+  }
+
   const replyCallbackUrl = body.replyCallbackUrl;
 
   // `external_conversation_bindings` is assistant-agnostic: one row per chat,
@@ -874,22 +893,6 @@ export async function handleChannelInbound({
           "Failed to notify guardian of access request (admission policy)",
         );
       }
-    }
-
-    // recordInbound created this conversation, but a floor-denied inbound never
-    // runs an agent turn, so neither title-generation hook fires and the
-    // conversation would sit on the "Generating title…" placeholder forever.
-    // Give it a deterministic title (the access-request card is its content).
-    // Only for the access-request path — a callback interaction seeds no card.
-    if (!isCallbackInteraction) {
-      const requesterLabel =
-        body.actorDisplayName ?? body.actorUsername ?? floorSenderId;
-      applyDeterministicTitleIfReplaceable(
-        result.conversationId,
-        requesterLabel
-          ? `Access request — ${requesterLabel}`
-          : "Access request",
-      );
     }
 
     // Canned reply mirrors the not_a_member surface. §8.2: no upgrade

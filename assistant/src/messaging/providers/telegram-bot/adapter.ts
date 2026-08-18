@@ -7,6 +7,10 @@
 import type { OAuthConnection } from "../../../oauth/connection.js";
 import { getConnectionByProvider } from "../../../oauth/oauth-store.js";
 import { getOrCreateConversation } from "../../../persistence/conversation-key-store.js";
+import {
+  applyDeterministicTitleIfReplaceable,
+  deriveChannelInboundMintTitle,
+} from "../../../persistence/conversation-title-service.js";
 import { upsertOutboundBinding } from "../../../persistence/external-conversation-store.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
@@ -108,8 +112,14 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     try {
       const sourceChannel = "telegram";
       const conversationKey = `asst:self:${sourceChannel}:${conversationId}`;
-      const { conversationId: internalId } =
+      const { conversationId: internalId, created } =
         getOrCreateConversation(conversationKey);
+      if (created) {
+        applyDeterministicTitleIfReplaceable(
+          internalId,
+          deriveChannelInboundMintTitle({ sourceChannel }),
+        );
+      }
       upsertOutboundBinding({
         conversationId: internalId,
         sourceChannel,
