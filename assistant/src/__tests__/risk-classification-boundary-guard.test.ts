@@ -31,11 +31,11 @@ function isTestFile(path: string): boolean {
   );
 }
 
-/** `git grep -lE` over assistant/src production TypeScript, or [] on no match. */
-function productionFilesMatching(pattern: string): string[] {
+/** `git grep -E` over assistant/src production TypeScript, one entry per match. */
+function gitGrepProduction(pattern: string, ...flags: string[]): string[] {
   const result = spawnSync(
     "git",
-    ["grep", "-lE", pattern, "--", `${ASSISTANT_SRC}/*.ts`],
+    ["grep", "-E", ...flags, pattern, "--", `${ASSISTANT_SRC}/*.ts`],
     { encoding: "utf-8", cwd: process.cwd() + "/.." },
   );
   // Exit code 1 is "no matches"; anything else is a real failure.
@@ -44,8 +44,18 @@ function productionFilesMatching(pattern: string): string[] {
   }
   return result.stdout
     .split("\n")
-    .filter((f) => f.length > 0)
-    .filter((f) => !isTestFile(f));
+    .filter((line) => line.length > 0)
+    .filter((line) => !isTestFile(line.split(":")[0]));
+}
+
+/** Files with at least one match. */
+function productionFilesMatching(pattern: string): string[] {
+  return gitGrepProduction(pattern, "-l");
+}
+
+/** Every matching line as `file:line:text`. */
+function productionLinesMatching(pattern: string): string[] {
+  return gitGrepProduction(pattern, "-n");
 }
 
 describe("risk classification boundary guard", () => {
@@ -57,20 +67,24 @@ describe("risk classification boundary guard", () => {
   });
 
   test("ipcClassifyRisk has exactly one production call site", () => {
-    const files = productionFilesMatching("ipcClassifyRisk\\(").filter(
-      (f) => f !== CLASSIFY_RISK_CLIENT,
+    // Per line, not per file: a second call inside checker.ts is the case
+    // this exists to catch.
+    const calls = productionLinesMatching("ipcClassifyRisk\\(").filter(
+      (line) => !line.startsWith(`${CLASSIFY_RISK_CLIENT}:`),
     );
     expect(
-      files,
+      calls,
       [
         "The gateway classifier must be called from exactly one place,",
-        `${CLASSIFY_RISK_CALLER} (classifyRisk). Callers found:`,
-        ...files.map((f) => `  - ${f}`),
+        `${CLASSIFY_RISK_CALLER} (classifyRisk). Calls found:`,
+        ...calls.map((c) => `  - ${c}`),
         "",
         "Thread the invocation's RiskClassificationWithMeta from classifyRisk",
         "instead of classifying again.",
       ].join("\n"),
-    ).toEqual([CLASSIFY_RISK_CALLER]);
+    ).toHaveLength(1);
+    expect(calls[0]).toStartWith(`${CLASSIFY_RISK_CALLER}:`);
+    expect(calls[0]).toContain("await ipcClassifyRisk(");
   });
 
   test("no production module under assistant/src classifies risk locally", () => {
