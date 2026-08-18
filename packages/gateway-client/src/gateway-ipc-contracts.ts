@@ -63,11 +63,16 @@ export type TrustRulesListIpcParams = z.infer<
   typeof TrustRulesListIpcParamsSchema
 >;
 
+/** The three risk levels a trust rule can set and a registry default can carry. */
+export const RISK_LEVEL_VALUES = ["low", "medium", "high"] as const;
+export type RiskLevelValue = (typeof RISK_LEVEL_VALUES)[number];
+export const RiskLevelValueSchema = z.enum(RISK_LEVEL_VALUES);
+
 export const TrustRuleSchema = z.object({
   id: z.string(),
   tool: z.string(),
   pattern: z.string(),
-  risk: z.enum(["low", "medium", "high"]),
+  risk: RiskLevelValueSchema,
   description: z.string(),
   origin: z.enum(["default", "user_defined"]),
   userModified: z.boolean(),
@@ -349,9 +354,6 @@ export type GetGuardianContactIpcResponse = z.infer<
 // response against `ClassifyRiskIpcResponseSchema` and fails closed on a
 // mismatch.
 
-export const RISK_LEVEL_VALUES = ["low", "medium", "high"] as const;
-export type RiskLevelValue = (typeof RISK_LEVEL_VALUES)[number];
-
 /** A classified risk; `unknown` is the classifier's own "not in registry". */
 export const ClassifiedRiskSchema = z.enum([...RISK_LEVEL_VALUES, "unknown"]);
 export type ClassifiedRisk = z.infer<typeof ClassifiedRiskSchema>;
@@ -429,7 +431,7 @@ export const ClassifyRiskIpcParamsSchema = z.object({
    * The gateway answers with it (`matchType: "registry"`); absent, the tool is
    * unknown and answers `medium`.
    */
-  registryDefaultRisk: z.enum(RISK_LEVEL_VALUES).optional(),
+  registryDefaultRisk: RiskLevelValueSchema.optional(),
   /** Number of credential references attached to this tool invocation. */
   credentialRefCount: z.number().int().nonnegative().optional(),
   /**
