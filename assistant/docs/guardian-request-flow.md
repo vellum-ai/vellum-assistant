@@ -60,9 +60,9 @@ anti-pattern was retired in #35642 and again in the ask_question redesign).
 card renders and deep-links. For a guardian card that row is addressed to a
 conversation the request is _about_, not one the assistant is speaking in:
 `buildVellumCardAffinity` pins the vellum card to the originating
-conversation, and a channel card lands in whatever conversation the
-guardian's chat binds to. Either way the row is written straight to the DB by
-the notification pipeline, so the live turn's in-memory history never sees it.
+conversation, and a channel card lands in whatever conversation the guardian's
+chat binds to. Either way the row is written straight to the DB by the
+notification pipeline, so the live turn's in-memory history never sees it.
 
 That row must never be replayed to the model. The conversation it lands in is
 typically parked mid-approval, with its last assistant message carrying the
@@ -73,11 +73,21 @@ card left as the tail row instead ends the history on an assistant message,
 which extended-thinking models reject outright ("does not support assistant
 message prefill").
 
-So guardian card rows carry `transcriptOnly` in their metadata and the history
-load in `daemon/conversation.ts` drops them. This is the mirror of `hidden`,
-which suppresses the transcript and leaves the row LLM-visible. Passive
-notification seeds are NOT stamped: those are the assistant addressing that
-chat, and a reply needs them to continue from.
+`isGuardianCardRow` (`notifications/approval-card-data.ts`) is the one
+definition of which rows those are, read off the card's own `ui_surface` id
+using the same prefixes `approvalCardSurfaceId` recomputes for withdrawal. It
+is derived rather than stored so a row written before the rule existed is
+recognized on the same terms as a new one, with no marker to backfill.
+
+**Both history assemblers must consult it.** `Conversation.loadFromDb` builds
+`this.messages`, but Slack conversations do not use that list:
+`loadSlackChronologicalContext` re-reads the rows. A rule applied to only one
+exempts the other channel. Each applies it _after_ its own compaction boundary,
+since both boundaries are computed against unfiltered row lists.
+
+Surface state is deliberately NOT filtered this way. `restoreSurfaceStateFromHistory`
+takes the pre-filter window, because a card's Approve/Reject buttons must keep
+routing after a restart even though the card is absent from the model's history.
 
 Two instruction modes exist per request kind (`notifications/guardian-question-mode.ts`):
 **approval** ("CODE approve" / approve–reject buttons) and **answer**
@@ -122,9 +132,6 @@ Two instruction modes exist per request kind (`notifications/guardian-question-m
    rather than approves.
 5. Register a resolver (`guardian-request-resolvers.ts`) for the kind's
    follow-through.
-6. Add the kind's `sourceEventName` to `GUARDIAN_CARD_EVENT_NAMES`
-   (`notifications/signal.ts`) so its card row is stamped `transcriptOnly`.
-   See "Cards are not conversation history" below.
 
 That is the whole checklist. If a design requires touching the inbound
 message handler, a channel transport, or a new callback prefix, the design is

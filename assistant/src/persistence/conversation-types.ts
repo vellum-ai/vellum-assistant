@@ -122,22 +122,6 @@ export function isHiddenMessageMetadata(
 }
 
 /**
- * Shared predicate for the history-suppression flag (the `transcriptOnly`
- * field of the persisted `metadata` column): the row renders in the
- * transcript but is never replayed to the model.
- *
- * The mirror of {@link isHiddenMessageMetadata}, which suppresses the
- * transcript and leaves the row LLM-visible. One definition so the write side
- * (notification conversation pairing) and the single read side (the history
- * load in `daemon/conversation.ts`) cannot drift.
- */
-export function isTranscriptOnlyMessage(
-  metadata: Record<string, unknown> | null | undefined,
-): boolean {
-  return metadata?.transcriptOnly === true;
-}
-
-/**
  * True when the row is a persisted `<background_event source="...">` trigger.
  * Every wake, scheduled run, and backgrounded-tool completion stamps one (see
  * `persistWakeTriggerMessage`). The permission mode such a turn ran under

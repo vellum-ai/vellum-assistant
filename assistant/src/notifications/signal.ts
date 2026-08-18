@@ -150,33 +150,6 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
 export type NotificationSourceEventName =
   (typeof NOTIFICATION_SOURCE_EVENT_NAMES)[number]["id"];
 
-/**
- * Source events whose vellum card is a guardian request rather than the
- * assistant speaking.
- *
- * The pairing layer persists a message row per delivery so the card renders
- * and deep-links. For these events that row is a control-plane artifact about
- * work happening in some other turn, so it is stamped `transcriptOnly` and
- * never enters LLM history: a guardian card lands in a conversation whose turn
- * is parked mid-tool-approval, and an assistant row spliced between a
- * `tool_use` and its `tool_result` breaks the pairing invariant on the next
- * reload. Every other notification seed IS the assistant addressing that chat
- * and stays LLM-visible.
- *
- * Kept beside the event registry, not derived from the payload, so adding a
- * request kind is a visible edit here (see the checklist in
- * `docs/guardian-request-flow.md`).
- */
-export const GUARDIAN_CARD_EVENT_NAMES: readonly string[] = [
-  "guardian.question",
-  "ingress.access_request",
-];
-
-/** True when this signal's card is a guardian request. */
-export function isGuardianCardEvent(sourceEventName: string): boolean {
-  return GUARDIAN_CARD_EVENT_NAMES.includes(sourceEventName);
-}
-
 // ── Attention hints & routing ──────────────────────────────────────────
 
 export const AttentionHintsSchema = z.object({

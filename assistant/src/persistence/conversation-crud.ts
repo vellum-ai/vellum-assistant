@@ -328,25 +328,6 @@ export const messageMetadataSchema = z
      */
     hidden: z.boolean().optional(),
     /**
-     * History-suppression flag, the mirror of {@link hidden}: the row renders
-     * in the transcript but is never replayed to the model. Test with
-     * `isTranscriptOnlyMessage`.
-     *
-     * For rows that are about a conversation rather than speech within it.
-     * Guardian cards (tool approvals, access requests, questions) are the
-     * case it exists for: the notification pairing layer appends one to the
-     * conversation the request came from, and that conversation's turn is
-     * parked mid-approval, so replaying the card as an assistant turn splices
-     * a foreign message between a `tool_use` and its `tool_result`. History
-     * repair then reads the pair as broken, synthesizes a stub result, and
-     * downgrades the real one to text.
-     *
-     * `hidden` cannot serve here: it is transcript suppression and leaves the
-     * row LLM-visible, which is the opposite end of this axis. A row may set
-     * both.
-     */
-    transcriptOnly: z.boolean().optional(),
-    /**
      * Marks a role-`"user"` row that opened a live phone or in-app voice turn.
      * Test with {@link isVoiceSessionUserMessage}, which documents why the
      * channel/interface fields cannot stand in for it.
