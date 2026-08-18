@@ -44,30 +44,18 @@ function friendlyHostname(url: URL): string {
 }
 
 /**
- * Escape the characters a glob matcher would treat as syntax.
- *
- * Kept because it is what the ladder has always minted and what existing
- * saved rules are keyed on. It no longer does what its name suggests: v3
- * matching is an exact-string lookup (`TrustRuleCache.findToolOverride`), so
- * these backslashes are part of the stored key rather than an escape, and a
- * URL containing `[`, `{` or `(` mints a pattern the raw invocation cannot
- * match. Part of LUM-3337, which is where the minted pattern and the lookup
- * key get reconciled together.
- */
-function escapeMinimatchLiteral(value: string): string {
-  return value.replace(/([\\*?[\]{}()!+@|])/g, "\\$1");
-}
-
-/**
  * The "always allow" ladder for a web tool: this exact URL, anything on the
  * origin, then the tool as a whole.
  *
+ * Patterns are the URL verbatim: a rule is matched by exact string
+ * (`TrustRuleCache.findToolOverride`), so anything done to the pattern that
+ * is not also done to the lookup key produces a rule that cannot fire.
+ *
  * The URL is normalized through the shared canonicalizer
- * (`@vellumai/service-contracts/url-normalization`), so the pattern a rule is
- * saved under has one spelling rather than whichever the model happened to
- * write. Rule *lookup* (`findToolOverride`) is still an exact-string match on
- * the raw input, so a saved rule only matches an invocation spelled the same
- * way; normalizing the lookup key is LUM-3337.
+ * (`@vellumai/service-contracts/url-normalization`), so the saved pattern has
+ * one spelling rather than whichever the model wrote; lookup does not
+ * normalize yet, so a saved rule matches only an invocation already in
+ * canonical form. Reconciling the two is LUM-3337.
  */
 function buildWebAllowlistOptions(
   toolName: string,
@@ -82,14 +70,14 @@ function buildWebAllowlistOptions(
     options.push({
       label: exact,
       description: "This exact URL",
-      pattern: `${toolName}:${escapeMinimatchLiteral(exact)}`,
+      pattern: `${toolName}:${exact}`,
     });
   }
   if (normalized) {
     options.push({
       label: `${normalized.origin}/*`,
       description: `Any page on ${friendlyHostname(normalized)}`,
-      pattern: `${toolName}:${escapeMinimatchLiteral(normalized.origin)}/*`,
+      pattern: `${toolName}:${normalized.origin}/*`,
     });
   }
   // A standalone globstar: Minimatch only treats `**` as a globstar when it is

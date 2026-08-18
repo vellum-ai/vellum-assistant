@@ -211,14 +211,16 @@ describe("allowlistOptions", () => {
     ]);
   });
 
-  test("Minimatch syntax in a URL is escaped so it matches literally", async () => {
+  test("a URL carrying glob-looking characters is offered verbatim", async () => {
+    // Rules are matched by exact string, so a pattern that escapes anything
+    // the lookup key does not escape is a rule that can never fire.
     const classifier = makeClassifier();
     const result = await classifier.classify({
       toolName: "web_fetch",
-      url: "https://example.com/a(b)+c",
+      url: "https://example.com/a(b)+c[d]",
     });
     expect(result.allowlistOptions?.[0].pattern).toBe(
-      "web_fetch:https://example.com/a\\(b\\)\\+c",
+      "web_fetch:https://example.com/a(b)+c[d]",
     );
   });
 
