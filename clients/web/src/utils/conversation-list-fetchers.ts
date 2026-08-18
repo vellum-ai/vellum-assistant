@@ -41,6 +41,7 @@ import type { Conversation } from "@/types/conversation-types";
 import { readContentLength } from "@/utils/content-length";
 import {
   type ConversationListFilter,
+  isArchivedFilter,
   isSectionFilter,
 } from "@/utils/conversation-list-keys";
 import { byTimestampDesc } from "@/utils/conversation-order";
@@ -113,18 +114,6 @@ type _Exhaustive =
 export type ConversationGroupId = ConversationListQuery["groupId"];
 
 /**
- * A list read's filter is the route's query parameters minus pagination,
- * defined once in `conversation-list-keys.ts` from the generated request
- * type. A section is a filter on the group and/or channel axis (both at
- * once for a channel card: that channel *and* ungrouped, since
- * `origin_channel` is a separate column from `group_id`); the buckets are
- * filters on type and archive status. Re-exported here while callers
- * migrate; the canonical home is the key module.
- */
-export type { ConversationListFilter } from "@/utils/conversation-list-keys";
-
-
-/**
  * Closed set of list labels carried by the `client_list.drain` watchdog event
  * and by every conversation-list ring entry. One label per real caller, so the
  * archive page and the channel sections stay distinguishable from the sidebar's
@@ -146,7 +135,7 @@ type DrainListKind =
  * as channels are added.
  */
 function drainListKind(options: ConversationListFilter): DrainListKind {
-  if (options.archiveStatus === "archived") {
+  if (isArchivedFilter(options)) {
     return "archived";
   }
   if (options.conversationType !== undefined) {
@@ -190,9 +179,7 @@ function shapeListRows(
       ? rows.filter((c) => !isScheduledConversation(c))
       : rows;
   return [...kept].sort(
-    byTimestampDesc(
-      filter.archiveStatus === "archived" ? "archivedAt" : "lastMessageAt",
-    ),
+    byTimestampDesc(isArchivedFilter(filter) ? "archivedAt" : "lastMessageAt"),
   );
 }
 

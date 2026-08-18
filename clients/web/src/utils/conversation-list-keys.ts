@@ -26,6 +26,13 @@
  *    prefix, a prefix scan would find that entry as a phantom list. So
  *    {@link conversationListQueryKey} always writes a `query` object, and
  *    {@link conversationListPrefix} never does.
+ * 3. **The same partial matching cuts the other way.** A cache key used as
+ *    a `queryClient` *filter* (`invalidateQueries`, `cancelQueries`) matches
+ *    every key its `query` is a subset of, so the foreground key
+ *    `{ query: {} }` would match every list cache. Read and write one cache
+ *    by its key (`getQueryData`, `setQueryData`, exact by construction);
+ *    to filter to one cache pass `exact: true`; to filter to a subset use
+ *    {@link conversationListQueryFilter}.
  *
  * `limit` and `offset` are deliberately not part of the key. The key names
  * the filter; pagination lives inside the cached page (`hasMore` and the
@@ -78,6 +85,11 @@ export const ARCHIVED_BACKGROUND_FILTER: ConversationListFilter = {
   conversationType: "background",
 };
 
+/** The `_id` the generated key stamps on every list read, read off the key itself. */
+const LIST_OPERATION_ID = conversationsGetQueryKey({
+  path: { assistant_id: "" },
+})[0]._id;
+
 /** The generated key type for one list cache; what `partialMatchKey` walks. */
 export type ConversationListQueryKey = ReturnType<
   typeof conversationsGetQueryKey
@@ -106,7 +118,9 @@ export function conversationListQueryKey(
 export function conversationListPrefix(
   assistantId: string | null,
 ): ConversationListQueryKey {
-  return conversationsGetQueryKey({ path: { assistant_id: assistantId ?? "" } });
+  return conversationsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  });
 }
 
 /**
@@ -139,7 +153,7 @@ export function conversationListFilterOf(
   if (
     typeof head !== "object" ||
     head === null ||
-    (head as { _id?: unknown })._id !== "conversationsGet"
+    (head as { _id?: unknown })._id !== LIST_OPERATION_ID
   ) {
     return undefined;
   }
@@ -182,6 +196,11 @@ export function isSectionFilter(filter: ConversationListFilter): boolean {
   return filter.groupId !== undefined || filter.originChannel !== undefined;
 }
 
+/** Whether a list filter names an archived list (the archive view's reads). */
+export function isArchivedFilter(filter: ConversationListFilter): boolean {
+  return filter.archiveStatus === "archived";
+}
+
 /**
  * Whether the daemon appends every pinned row to this filter's first page.
  * True for exactly one read, the fully unfiltered foreground list (every
@@ -191,7 +210,9 @@ export function isSectionFilter(filter: ConversationListFilter): boolean {
  * unfiltered list, and matters to `mergeListFirstPage`, which must keep the
  * injected rows out of its window cutoff.
  */
-export function isPinnedInjectedFilter(filter: ConversationListFilter): boolean {
+export function isPinnedInjectedFilter(
+  filter: ConversationListFilter,
+): boolean {
   return (
     filter.conversationType === undefined &&
     (filter.archiveStatus === undefined || filter.archiveStatus === "active") &&

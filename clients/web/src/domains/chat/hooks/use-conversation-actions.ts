@@ -18,9 +18,7 @@ import {
   adjustSectionUnreadCache,
   adjustUnreadCountCache,
 } from "@/utils/conversation-cache-mutations";
-import {
-  sidebarSectionsQueryKey,
-} from "@/utils/conversation-list-fetchers";
+import { sidebarSectionsQueryKey } from "@/utils/conversation-list-fetchers";
 import {
   conversationListQueryFilter,
   isSectionFilter,

@@ -48,6 +48,7 @@ import {
   conversationListPrefix,
   conversationListQueryKey,
   FOREGROUND_FILTER,
+  isArchivedFilter,
   isPinnedInjectedFilter,
   SCHEDULED_FILTER,
 } from "@/utils/conversation-list-keys";
@@ -175,10 +176,12 @@ export function prependConversation(
   assistantId: string | null,
   conversation: Conversation,
 ): void {
-  updateConversationListCache(queryClient, assistantId, FOREGROUND_FILTER, (conversations) => [
-    conversation,
-    ...conversations,
-  ]);
+  updateConversationListCache(
+    queryClient,
+    assistantId,
+    FOREGROUND_FILTER,
+    (conversations) => [conversation, ...conversations],
+  );
 }
 
 export function removeConversation(
@@ -253,10 +256,16 @@ export function applySurfacedConversation(
     findConversation(queryClient, assistantId, conversation.conversationId) ??
     conversation;
   const surfaced: Conversation = { ...latest, surfacedAt };
-  updateConversationListCache(queryClient, assistantId, FOREGROUND_FILTER, (conversations) =>
-    conversations.some((c) => c.conversationId === conversation.conversationId)
-      ? conversations
-      : insertByRecency(conversations, surfaced),
+  updateConversationListCache(
+    queryClient,
+    assistantId,
+    FOREGROUND_FILTER,
+    (conversations) =>
+      conversations.some(
+        (c) => c.conversationId === conversation.conversationId,
+      )
+        ? conversations
+        : insertByRecency(conversations, surfaced),
   );
   patchConversation(queryClient, assistantId, conversation.conversationId, {
     surfacedAt,
@@ -289,12 +298,17 @@ export function surfaceConversationInCaches(
     return changed ? next : conversations;
   });
 
-  updateConversationListCache(queryClient, assistantId, FOREGROUND_FILTER, (conversations) => [
-    surfacedConversation,
-    ...conversations.filter(
-      (c) => c.conversationId !== conversation.conversationId,
-    ),
-  ]);
+  updateConversationListCache(
+    queryClient,
+    assistantId,
+    FOREGROUND_FILTER,
+    (conversations) => [
+      surfacedConversation,
+      ...conversations.filter(
+        (c) => c.conversationId !== conversation.conversationId,
+      ),
+    ],
+  );
 }
 
 /**
@@ -384,10 +398,12 @@ export async function refreshConversationRow(
     );
     return;
   }
-  updateConversationListCache(queryClient, assistantId, FOREGROUND_FILTER, (conversations) => [
-    ...conversations,
-    result,
-  ]);
+  updateConversationListCache(
+    queryClient,
+    assistantId,
+    FOREGROUND_FILTER,
+    (conversations) => [...conversations, result],
+  );
 }
 
 /**
@@ -482,7 +498,7 @@ export async function refreshConversationListWindows(
     .findAll({ queryKey: conversationListPrefix(assistantId) })
     .map(async (query) => {
       const filter = conversationListFilterOf(query.queryKey);
-      if (!filter || filter.archiveStatus === "archived") {
+      if (!filter || isArchivedFilter(filter)) {
         return;
       }
       await refresh(
@@ -502,17 +518,22 @@ export function resolveDraftKey(
   oldKey: string,
   newKey: string,
 ): void {
-  updateConversationListCache(queryClient, assistantId, FOREGROUND_FILTER, (conversations) => {
-    let changed = false;
-    const next = conversations.map((c) => {
-      if (c.conversationId !== oldKey) {
-        return c;
-      }
-      changed = true;
-      return { ...c, conversationId: newKey, draft: false };
-    });
-    return changed ? next : conversations;
-  });
+  updateConversationListCache(
+    queryClient,
+    assistantId,
+    FOREGROUND_FILTER,
+    (conversations) => {
+      let changed = false;
+      const next = conversations.map((c) => {
+        if (c.conversationId !== oldKey) {
+          return c;
+        }
+        changed = true;
+        return { ...c, conversationId: newKey, draft: false };
+      });
+      return changed ? next : conversations;
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------

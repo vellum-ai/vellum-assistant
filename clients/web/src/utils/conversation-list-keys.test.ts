@@ -6,6 +6,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import {
+  matchQuery,
+  partialMatchKey,
+  QueryClient,
+  type Query,
+} from "@tanstack/react-query";
 
 import {
   conversationsByIdGetQueryKey,
@@ -21,6 +27,13 @@ import {
 } from "./conversation-list-keys";
 
 const ASSISTANT_ID = "asst-1";
+
+/** A real `Query` for `queryKey`, so `matchQuery` runs against the real thing. */
+function queryFor(queryKey: readonly unknown[]): Query {
+  return new QueryClient().getQueryCache().build(new QueryClient(), {
+    queryKey,
+  });
+}
 
 describe("conversationListPrefix", () => {
   test("matches every list cache for the assistant, whatever its filter", () => {
@@ -84,21 +97,41 @@ describe("conversationListPrefix", () => {
   });
 });
 
+describe("a cache key as a queryClient filter", () => {
+  test("partial-matches every list whose query it is a subset of; exact does not", () => {
+    /* Fact 3 in the module doc. The foreground key's `query: {}` is a
+       subset of every filter, so as a non-exact filter it is the prefix. */
+    const foreground = conversationListQueryKey(ASSISTANT_ID, {});
+    const section = conversationListQueryKey(ASSISTANT_ID, {
+      groupId: "system:pinned",
+    });
+    expect(partialMatchKey(section, foreground)).toBe(true);
+    expect(
+      matchQuery({ queryKey: foreground, exact: true }, queryFor(section)),
+    ).toBe(false);
+    expect(
+      matchQuery({ queryKey: foreground, exact: true }, queryFor(foreground)),
+    ).toBe(true);
+  });
+});
+
 describe("conversationListFilterOf", () => {
   test("reads the filter straight off a list key", () => {
     const filter = { groupId: "system:all", originChannel: "slack" as const };
     expect(
       conversationListFilterOf(conversationListQueryKey(ASSISTANT_ID, filter)),
     ).toEqual(filter);
-    expect(conversationListFilterOf(conversationListQueryKey(ASSISTANT_ID))).toEqual(
-      {},
-    );
+    expect(
+      conversationListFilterOf(conversationListQueryKey(ASSISTANT_ID)),
+    ).toEqual({});
   });
 
   test("is undefined for a non-list key", () => {
     expect(
       conversationListFilterOf(
-        conversationsSectionsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
+        conversationsSectionsGetQueryKey({
+          path: { assistant_id: ASSISTANT_ID },
+        }),
       ),
     ).toBeUndefined();
     expect(conversationListFilterOf(["something", "else"])).toBeUndefined();

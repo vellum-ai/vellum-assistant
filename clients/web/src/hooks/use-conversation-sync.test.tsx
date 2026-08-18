@@ -1,16 +1,25 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  hashKey,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { Conversation } from "@/types/conversation-types";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
-  conversationsQueryKey,
   unreadConversationCountQueryKey,
   type ConversationListPage,
 } from "@/utils/conversation-list-fetchers";
+import {
+  conversationListQueryKey,
+  isConversationListKey,
+  isSectionFilter,
+  type ConversationListFilter,
+} from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import { __resetForTesting, publish } from "@/lib/event-bus";
@@ -70,18 +79,23 @@ let listFirstPageImpl: (
 });
 const listFirstPageCalls: Array<{ bucket: string; assistantId: string }> = [];
 
-function recordFirstPage(bucket: string) {
-  return (assistantId: string) => {
-    listFirstPageCalls.push({ bucket, assistantId });
-    return listFirstPageImpl(bucket, assistantId);
-  };
+/** The bucket a list filter names, so the call log stays readable. */
+function bucketOf(filter: ConversationListFilter): string {
+  return isSectionFilter(filter)
+    ? "section"
+    : (filter.conversationType ?? "foreground");
 }
 
 mock.module("@/utils/conversation-list-fetchers", () => ({
   ...realListFetchersModule,
-  listConversationsFirstPage: recordFirstPage("foreground"),
-  listBackgroundConversationsFirstPage: recordFirstPage("background"),
-  listScheduledConversationsFirstPage: recordFirstPage("scheduled"),
+  listConversationsFirstPage: (
+    assistantId: string,
+    filter: ConversationListFilter = {},
+  ) => {
+    const bucket = bucketOf(filter);
+    listFirstPageCalls.push({ bucket, assistantId });
+    return listFirstPageImpl(bucket, assistantId);
+  },
 }));
 
 const { useConversationSync } = await import("@/hooks/use-conversation-sync");
@@ -162,7 +176,7 @@ describe("useConversationSync", () => {
 
   test("debounces conversations:list signals into one first-page window refresh", async () => {
     const queryClient = freshQueryClient();
-    queryClient.setQueryData(conversationsQueryKey("asst-1"), listPage([]));
+    queryClient.setQueryData(conversationListQueryKey("asst-1"), listPage([]));
     const spy = mock(() => Promise.resolve());
     queryClient.invalidateQueries = spy as never;
     renderHook(() => useConversationSync("asst-1", true), {
@@ -185,7 +199,10 @@ describe("useConversationSync", () => {
       spy.mock.calls as unknown as Array<[unknown]>
     ).filter((call) => {
       const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-      return arg?.queryKey?.[2] === "foreground";
+      return (
+        arg?.queryKey !== undefined &&
+        hashKey(arg.queryKey) === hashKey(conversationListQueryKey("asst-1"))
+      );
     });
     expect(foregroundCalls.length).toBe(0);
   });
@@ -193,7 +210,7 @@ describe("useConversationSync", () => {
   test("merges the fetched first page into the cached foreground window", async () => {
     const queryClient = freshQueryClient();
     queryClient.setQueryData(
-      conversationsQueryKey("asst-1"),
+      conversationListQueryKey("asst-1"),
       listPage([
         { conversationId: "conv-new", title: "Recent", lastMessageAt: 5000 },
         // Inside the fresh window (>= its oldest row) but missing from the
@@ -233,7 +250,7 @@ describe("useConversationSync", () => {
     emit(syncEvent([SYNC_TAGS.conversationsList]));
     await waitFor(() => {
       const list = queryClient.getQueryData<ConversationListPage>(
-        conversationsQueryKey("asst-1"),
+        conversationListQueryKey("asst-1"),
       )!.conversations;
       expect(list.map((c) => c.conversationId)).toEqual([
         "conv-new",
@@ -247,7 +264,7 @@ describe("useConversationSync", () => {
   test("per-conversation metadata tags GET-and-patch the cached row (no list refetch)", async () => {
     const queryClient = freshQueryClient();
     queryClient.setQueryData(
-      conversationsQueryKey("asst-1"),
+      conversationListQueryKey("asst-1"),
       listPage([
         {
           conversationId: "conv-1",
@@ -282,7 +299,7 @@ describe("useConversationSync", () => {
 
     await waitFor(() => {
       const list = queryClient.getQueryData<ConversationListPage>(
-        conversationsQueryKey("asst-1"),
+        conversationListQueryKey("asst-1"),
       )!.conversations;
       const conv1 = list.find((c) => c.conversationId === "conv-1");
       expect(conv1?.hasUnseenLatestAssistantMessage).toBe(false);
@@ -296,7 +313,7 @@ describe("useConversationSync", () => {
 
     // Untouched row stays untouched.
     const listAfter = queryClient.getQueryData<ConversationListPage>(
-      conversationsQueryKey("asst-1"),
+      conversationListQueryKey("asst-1"),
     )!.conversations;
     const conv2 = listAfter.find((c) => c.conversationId === "conv-2");
     expect(conv2?.hasUnseenLatestAssistantMessage).toBe(true);
@@ -306,7 +323,10 @@ describe("useConversationSync", () => {
       invalidateSpy.mock.calls as unknown as Array<[unknown]>
     ).filter((call) => {
       const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-      return arg?.queryKey?.[0] === conversationsQueryKey("asst-1")[0];
+      return (
+        arg?.queryKey !== undefined &&
+        isConversationListKey(arg.queryKey, "asst-1")
+      );
     });
     expect(listCalls.length).toBe(0);
   });
@@ -314,7 +334,7 @@ describe("useConversationSync", () => {
   test("per-conversation metadata tag handles a 404 (deleted-by-other-client) by removing the row", async () => {
     const queryClient = freshQueryClient();
     queryClient.setQueryData(
-      conversationsQueryKey("asst-1"),
+      conversationListQueryKey("asst-1"),
       listPage([
         { conversationId: "conv-1", title: "Tombstone" },
         { conversationId: "conv-2", title: "Survivor" },
@@ -331,7 +351,7 @@ describe("useConversationSync", () => {
 
     await waitFor(() => {
       const list = queryClient.getQueryData<ConversationListPage>(
-        conversationsQueryKey("asst-1"),
+        conversationListQueryKey("asst-1"),
       )!.conversations;
       expect(list.some((c) => c.conversationId === "conv-1")).toBe(false);
       expect(list.some((c) => c.conversationId === "conv-2")).toBe(true);
@@ -352,7 +372,10 @@ describe("useConversationSync", () => {
     const listCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
       (call) => {
         const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-        return arg?.queryKey?.[0] === conversationsQueryKey("asst-1")[0];
+        return (
+          arg?.queryKey !== undefined &&
+          isConversationListKey(arg.queryKey, "asst-1")
+        );
       },
     );
     expect(listCalls.length).toBe(0);
@@ -360,7 +383,7 @@ describe("useConversationSync", () => {
 
   test("refreshes the list window on sse.opened reconnect (debounced)", async () => {
     const queryClient = freshQueryClient();
-    queryClient.setQueryData(conversationsQueryKey("asst-1"), listPage([]));
+    queryClient.setQueryData(conversationListQueryKey("asst-1"), listPage([]));
     const spy = mock(() => Promise.resolve());
     queryClient.invalidateQueries = spy as never;
     renderHook(() => useConversationSync("asst-1", true), {
@@ -394,7 +417,7 @@ describe("useConversationSync", () => {
 
   test("does NOT refresh on sse.opened (cause=fresh)", async () => {
     const queryClient = freshQueryClient();
-    queryClient.setQueryData(conversationsQueryKey("asst-1"), listPage([]));
+    queryClient.setQueryData(conversationListQueryKey("asst-1"), listPage([]));
     const spy = mock(() => Promise.resolve());
     queryClient.invalidateQueries = spy as never;
     renderHook(() => useConversationSync("asst-1", true), {
@@ -465,7 +488,7 @@ describe("useConversationSync", () => {
   test("patches conversation title in cache on conversation_title_updated", async () => {
     const queryClient = freshQueryClient();
     queryClient.setQueryData<ConversationListPage>(
-      conversationsQueryKey("asst-1"),
+      conversationListQueryKey("asst-1"),
       listPage([
         { conversationId: "conv-1", title: "Old Title" } as Conversation,
       ]),
@@ -485,7 +508,7 @@ describe("useConversationSync", () => {
     } as AssistantEventEnvelope);
     await waitFor(() => {
       const cached = queryClient.getQueryData<ConversationListPage>(
-        conversationsQueryKey("asst-1"),
+        conversationListQueryKey("asst-1"),
       )?.conversations;
       const conv = cached?.find((c) => c.conversationId === "conv-1");
       expect(conv?.title).toBe("New Title");

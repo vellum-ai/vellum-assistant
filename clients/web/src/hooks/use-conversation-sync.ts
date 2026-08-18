@@ -38,7 +38,10 @@ import {
   sidebarSectionsQueryKey,
   unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
-import { conversationListQueryFilter } from "@/utils/conversation-list-keys";
+import {
+  conversationListQueryFilter,
+  isArchivedFilter,
+} from "@/utils/conversation-list-keys";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import {
   parseConversationSyncTag,
@@ -211,10 +214,7 @@ function scheduleConversationListRefetch(
     // they are mounted only while the archive view is open, so invalidation
     // refetches nothing until then. Groups are a single unpaginated GET.
     void queryClient.invalidateQueries(
-      conversationListQueryFilter(
-        assistantId,
-        (filter) => filter.archiveStatus === "archived",
-      ),
+      conversationListQueryFilter(assistantId, isArchivedFilter),
     );
     void queryClient.invalidateQueries({
       queryKey: groupsGetQueryKey({

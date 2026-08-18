@@ -48,10 +48,7 @@ function setSectionRows(conversations: Conversation[]) {
  * for "no group claimed it" AND its own `origin_channel`. Honoring only the
  * group would hand every channel card the whole ungrouped bucket.
  */
-function rowsMatching(filter: {
-  groupId?: string;
-  originChannel?: string;
-}): Conversation[] {
+function rowsMatching(filter: ConversationListFilter): Conversation[] {
   if (filter.groupId === "system:pinned") {
     return sectionSource.filter((c) => c.isPinned);
   }
@@ -84,12 +81,13 @@ mock.module(
     useSidebarSectionsQuery: () => null,
     useSectionConversationListQuery: (
       _assistantId: string | null,
-      filter: { groupId?: string; originChannel?: string },
-    ) => ({
+      filter: ConversationListFilter,
+    ): ConversationQueries.ConversationListQueryResult => ({
       conversations: rowsMatching(filter),
       isLoading: false,
       isPending: false,
       isError: false,
+      error: null,
       // A resolved query. Omitting this reads as falsy, which would send every
       // section back to its derived rows and pass these tests for the wrong
       // reason: green because nothing is filtered, not because it is.
@@ -98,6 +96,7 @@ mock.module(
       // load-more path, and a stub window would mount sentinels under every
       // section.
       hasMore: false,
+      refetch: () => {},
     }),
   }),
 );
@@ -132,6 +131,7 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
+import type { ConversationListFilter } from "@/utils/conversation-list-keys";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { CONVERSATION_LIST_VIRTUALIZE_THRESHOLD } from "@/domains/chat/components/conversation-nav-section";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";

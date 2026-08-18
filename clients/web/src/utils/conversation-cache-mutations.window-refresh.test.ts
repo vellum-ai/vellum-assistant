@@ -20,27 +20,28 @@ import * as fetchers from "@/utils/conversation-list-fetchers";
 import type { Conversation } from "@/types/conversation-types";
 import { listPage } from "@/utils/conversation-list.test-helper";
 import {
-  backgroundConversationsQueryKey,
-  conversationsQueryKey,
-  sectionConversationsQueryKey,
-  type SectionConversationFilter,
-} from "@/utils/conversation-list-fetchers";
+  BACKGROUND_FILTER,
+  conversationListQueryKey,
+  isPinnedInjectedFilter,
+  isSectionFilter,
+  type ConversationListFilter,
+} from "@/utils/conversation-list-keys";
 
 type Page = { conversations: Conversation[]; hasMore: boolean };
 
 /** One safe no-op page: empty window, so the merge keeps the cache as-is. */
 const NOOP_PAGE: Page = { conversations: [], hasMore: true };
 
-const sectionCalls: SectionConversationFilter[] = [];
+const sectionCalls: ConversationListFilter[] = [];
 let sectionPages: (
-  filter: SectionConversationFilter,
+  filter: ConversationListFilter,
 ) => Page | Promise<Page> = () => NOOP_PAGE;
 const loadMoreCalls: Array<{
-  filter: SectionConversationFilter;
+  filter: ConversationListFilter;
   offset: number;
 }> = [];
 let loadMorePages: (
-  filter: SectionConversationFilter,
+  filter: ConversationListFilter,
   offset: number,
 ) => Page | Promise<Page> = () => NOOP_PAGE;
 let foregroundCalls = 0;
@@ -48,22 +49,23 @@ let foregroundPage: Page = NOOP_PAGE;
 
 mock.module("@/utils/conversation-list-fetchers", (): typeof fetchers => ({
   ...fetchers,
-  listConversationsFirstPage: async (): Promise<Page> => {
-    foregroundCalls += 1;
-    return foregroundPage;
-  },
-  listBackgroundConversationsFirstPage: async (): Promise<Page> => NOOP_PAGE,
-  listScheduledConversationsFirstPage: async (): Promise<Page> => NOOP_PAGE,
-  listSectionConversationsFirstPage: async (
+  listConversationsFirstPage: async (
     _assistantId: string,
-    filter: SectionConversationFilter,
+    filter: ConversationListFilter = {},
   ): Promise<Page> => {
-    sectionCalls.push(filter);
-    return sectionPages(filter);
+    if (isSectionFilter(filter)) {
+      sectionCalls.push(filter);
+      return sectionPages(filter);
+    }
+    if (isPinnedInjectedFilter(filter)) {
+      foregroundCalls += 1;
+      return foregroundPage;
+    }
+    return NOOP_PAGE;
   },
-  listSectionConversationsPage: async (
+  listConversationsPage: async (
     _assistantId: string,
-    filter: SectionConversationFilter,
+    filter: ConversationListFilter,
     offset: number,
   ): Promise<Page> => {
     loadMoreCalls.push({ filter, offset });
@@ -75,8 +77,8 @@ const { loadMoreConversations, refreshConversationListWindows } =
   await import("@/utils/conversation-cache-mutations");
 
 const ASSISTANT_ID = "ast-test";
-const PINNED: SectionConversationFilter = { groupId: "system:pinned" };
-const SLACK: SectionConversationFilter = {
+const PINNED: ConversationListFilter = { groupId: "system:pinned" };
+const SLACK: ConversationListFilter = {
   groupId: "system:all",
   originChannel: "slack",
 };
@@ -97,13 +99,10 @@ function reset(): QueryClient {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 
-function rowsIn(
-  client: QueryClient,
-  filter: SectionConversationFilter,
-): string[] {
+function rowsIn(client: QueryClient, filter: ConversationListFilter): string[] {
   return (
     client
-      .getQueryData<Page>(sectionConversationsQueryKey(ASSISTANT_ID, filter))
+      .getQueryData<Page>(conversationListQueryKey(ASSISTANT_ID, filter))
       ?.conversations.map((c) => c.conversationId) ?? []
   );
 }
@@ -112,11 +111,11 @@ describe("refreshConversationListWindows and sections", () => {
   test("each populated section cache gets one first-page fetch with its own filter", async () => {
     const client = reset();
     client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, PINNED),
+      conversationListQueryKey(ASSISTANT_ID, PINNED),
       listPage([conversation({ conversationId: "p1", isPinned: true })]),
     );
     client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, SLACK),
+      conversationListQueryKey(ASSISTANT_ID, SLACK),
       listPage([
         conversation({ conversationId: "s1", originChannel: "slack" }),
       ]),
@@ -132,7 +131,7 @@ describe("refreshConversationListWindows and sections", () => {
   test("a section that was never fetched is not fetched by a sync signal", async () => {
     const client = reset();
     client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, SLACK),
+      conversationListQueryKey(ASSISTANT_ID, SLACK),
       listPage([conversation({ conversationId: "s1" })]),
     );
 
@@ -144,7 +143,7 @@ describe("refreshConversationListWindows and sections", () => {
   test("the Pinned section merges its page even though every row is pinned", async () => {
     const client = reset();
     client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, PINNED),
+      conversationListQueryKey(ASSISTANT_ID, PINNED),
       listPage([
         // Inside the page's window (between 3000 and 5000) but missing from
         // the page: no longer pinned, must be dropped.
@@ -180,7 +179,7 @@ describe("refreshConversationListWindows and sections", () => {
   test("a complete section page replaces the cache", async () => {
     const client = reset();
     client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, SLACK),
+      conversationListQueryKey(ASSISTANT_ID, SLACK),
       listPage([conversation({ conversationId: "s-gone" })]),
     );
     sectionPages = () => ({
@@ -196,11 +195,11 @@ describe("refreshConversationListWindows and sections", () => {
   test("static buckets are still refreshed alongside the sections", async () => {
     const client = reset();
     client.setQueryData(
-      conversationsQueryKey(ASSISTANT_ID),
+      conversationListQueryKey(ASSISTANT_ID),
       listPage([conversation({ conversationId: "f1" })]),
     );
     client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, SLACK),
+      conversationListQueryKey(ASSISTANT_ID, SLACK),
       listPage([conversation({ conversationId: "s1" })]),
     );
 
@@ -216,7 +215,7 @@ describe("refreshConversationListWindows and sections", () => {
        after it would resurrect the old placement; the guard drops any
        response the cache was written past. */
     const client = reset();
-    const slackKey = sectionConversationsQueryKey(ASSISTANT_ID, SLACK);
+    const slackKey = conversationListQueryKey(ASSISTANT_ID, SLACK);
     client.setQueryData(
       slackKey,
       listPage([conversation({ conversationId: "s1" })]),
@@ -247,7 +246,7 @@ describe("refreshConversationListWindows and sections", () => {
 
   test("a slower refresh cannot overwrite a faster newer one", async () => {
     const client = reset();
-    const slackKey = sectionConversationsQueryKey(ASSISTANT_ID, SLACK);
+    const slackKey = conversationListQueryKey(ASSISTANT_ID, SLACK);
     client.setQueryData(
       slackKey,
       listPage([conversation({ conversationId: "s-old" })]),
@@ -284,7 +283,7 @@ describe("refreshConversationListWindows and sections", () => {
        strands the section on its derived fallback forever: the sync signal
        is its only retry path now that the prefix invalidation is gone. */
     const client = reset();
-    const failedKey = sectionConversationsQueryKey(ASSISTANT_ID, PINNED);
+    const failedKey = conversationListQueryKey(ASSISTANT_ID, PINNED);
     await client
       .prefetchQuery({
         queryKey: failedKey,
@@ -307,7 +306,7 @@ describe("refreshConversationListWindows and sections", () => {
        of sync signals arriving faster than a first load completes would
        keep that load from ever finishing. */
     const client = reset();
-    const pendingKey = sectionConversationsQueryKey(ASSISTANT_ID, SLACK);
+    const pendingKey = conversationListQueryKey(ASSISTANT_ID, SLACK);
     void client
       .prefetchQuery({
         queryKey: pendingKey,
@@ -325,7 +324,7 @@ describe("refreshConversationListWindows and sections", () => {
     // Same recovery contract as the sections; the bucket path had the same
     // hole (a failed first fetch was skipped, not retried).
     const client = reset();
-    const foregroundKey = conversationsQueryKey(ASSISTANT_ID);
+    const foregroundKey = conversationListQueryKey(ASSISTANT_ID);
     await client
       .prefetchQuery({
         queryKey: foregroundKey,
@@ -343,7 +342,7 @@ describe("refreshConversationListWindows and sections", () => {
   test("an unpopulated bucket is skipped", async () => {
     const client = reset();
     client.setQueryData(
-      backgroundConversationsQueryKey(ASSISTANT_ID),
+      conversationListQueryKey(ASSISTANT_ID, BACKGROUND_FILTER),
       listPage([conversation({ conversationId: "b1" })]),
     );
 
@@ -357,7 +356,7 @@ describe("refreshConversationListWindows and sections", () => {
 describe("loadMoreConversations", () => {
   test("appends the next page at the cache's current row count", async () => {
     const client = reset();
-    const slackKey = sectionConversationsQueryKey(ASSISTANT_ID, SLACK);
+    const slackKey = conversationListQueryKey(ASSISTANT_ID, SLACK);
     client.setQueryData(
       slackKey,
       listPage(
@@ -387,7 +386,7 @@ describe("loadMoreConversations", () => {
        a row from the previous page; appending it again would render the
        conversation twice in one section. */
     const client = reset();
-    const slackKey = sectionConversationsQueryKey(ASSISTANT_ID, SLACK);
+    const slackKey = conversationListQueryKey(ASSISTANT_ID, SLACK);
     client.setQueryData(
       slackKey,
       listPage([conversation({ conversationId: "s1" })], true),
@@ -408,7 +407,7 @@ describe("loadMoreConversations", () => {
   test("a complete or unfetched cache is a no-op without a request", async () => {
     const client = reset();
     client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, SLACK),
+      conversationListQueryKey(ASSISTANT_ID, SLACK),
       listPage([conversation({ conversationId: "s1" })]),
     );
 
@@ -421,7 +420,7 @@ describe("loadMoreConversations", () => {
   test("one request per section while in flight", async () => {
     const client = reset();
     client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, SLACK),
+      conversationListQueryKey(ASSISTANT_ID, SLACK),
       listPage([conversation({ conversationId: "s1" })], true),
     );
     let resolvePage!: (page: Page) => void;
@@ -449,7 +448,7 @@ describe("loadMoreConversations", () => {
        page. The sentinel is still visible and re-fires against the new
        cache. */
     const client = reset();
-    const slackKey = sectionConversationsQueryKey(ASSISTANT_ID, SLACK);
+    const slackKey = conversationListQueryKey(ASSISTANT_ID, SLACK);
     client.setQueryData(
       slackKey,
       listPage([conversation({ conversationId: "s1" })], true),
@@ -479,7 +478,7 @@ describe("loadMoreConversations", () => {
   test("the guard clears after a failed fetch so the next attempt retries", async () => {
     const client = reset();
     client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, SLACK),
+      conversationListQueryKey(ASSISTANT_ID, SLACK),
       listPage([conversation({ conversationId: "s1" })], true),
     );
     loadMorePages = () => Promise.reject(new Error("network down"));

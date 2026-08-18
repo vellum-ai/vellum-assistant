@@ -16,6 +16,7 @@ import type * as ListFetchers from "@/utils/conversation-list-fetchers";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import type { Conversation } from "@/types/conversation-types";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { conversationListQueryKey } from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 
 /** What the section query answers with, per test. */
@@ -54,8 +55,10 @@ mock.module(
         isLoading: serverPending,
         isPending: serverPending,
         isError: serverErrored,
+        error: serverErrored ? new Error("section query failed") : null,
         hasData: enabled && serverHasData && !serverPending,
         hasMore: enabled && serverHasData ? serverHasMore : false,
+        refetch: () => {},
       };
     },
   }),
@@ -64,7 +67,7 @@ mock.module(
 const actualFetchers = await import("@/utils/conversation-list-fetchers");
 mock.module("@/utils/conversation-list-fetchers", (): typeof ListFetchers => ({
   ...actualFetchers,
-  drainSectionConversations: async (_assistantId, filter) => {
+  drainConversationList: async (_assistantId, filter = {}) => {
     drainCalls.push(filter);
     return drainRows;
   },
@@ -406,9 +409,7 @@ describe("useSectionConversations", () => {
 
     const { result } = renderSection(pinnedSection());
     queryClient.setQueryData(
-      actualFetchers.sectionConversationsQueryKey("asst-1", {
-        groupId: "system:pinned",
-      }),
+      conversationListQueryKey("asst-1", { groupId: "system:pinned" }),
       listPage(FROM_SERVER),
     );
 
@@ -427,9 +428,7 @@ describe("useSectionConversations", () => {
 
     const { result } = renderSection(pinnedSection());
     queryClient.setQueryData(
-      actualFetchers.sectionConversationsQueryKey("asst-1", {
-        groupId: "system:pinned",
-      }),
+      conversationListQueryKey("asst-1", { groupId: "system:pinned" }),
       listPage(FROM_SERVER, true),
     );
 

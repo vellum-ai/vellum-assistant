@@ -43,6 +43,7 @@ import {
   type ConversationListFilter,
   conversationListQueryKey,
   FOREGROUND_FILTER,
+  isPinnedInjectedFilter,
   isSectionFilter,
 } from "@/utils/conversation-list-keys";
 import {
@@ -77,10 +78,10 @@ export function conversationListOptions(
       queryFn: async ({ client }) => {
         const page = await listConversationsFirstPage(assistantId, filter);
         const prev = client.getQueryData<ConversationListPage>(queryKey);
-        /* A section page has no daemon pinned-row injection; see
-           mergeListFirstPage. */
         return prev
-          ? mergeListFirstPage(prev, page, { pinnedInjected: false })
+          ? mergeListFirstPage(prev, page, {
+              pinnedInjected: isPinnedInjectedFilter(filter),
+            })
           : page;
       },
       staleTime: QUERY_STALE_TIME_MS,
