@@ -283,12 +283,6 @@ export async function runConversationTurn(
   const { parseInterfaceId } = await import("../channels/types.js");
   const { resolveChannelCapabilities } =
     await import("../daemon/conversation-runtime-assembly.js");
-  const { initializeTools } = await import("../tools/registry.js");
-  // Idempotent. A process that can drive a turn (the daemon, a route-host,
-  // a sidecar) must have the core tool registry populated before the
-  // conversation snapshots it at construction. Missing this is an empty
-  // tool list on the wire, and the model writes tool calls as prose.
-  await initializeTools();
 
   // Plugin-driven turns run as the guardian: plugins are installed by the
   // guardian, so their conversations inherit guardian trust. This lets the

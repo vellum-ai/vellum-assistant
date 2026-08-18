@@ -40,13 +40,11 @@ import { getBindingByConversation } from "../persistence/external-conversation-s
 import { createConnection } from "../providers/inference/connections.js";
 import * as providerRegistry from "../providers/registry.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
-import { initializeTools } from "../tools/registry.js";
 import { createMockProvider, textResponse } from "./helpers/mock-provider.js";
 import { setConfig } from "./helpers/set-config.js";
 import { waitFor } from "./helpers/wait-for.js";
 
 await initializeDb();
-await initializeTools();
 
 // A conversation is built against the default provider, which resolves from
 // config through a connection row. Both are seeded for real so the store takes
@@ -421,7 +419,8 @@ describe("runConversationTurn channel binding", () => {
     // Plugin-driven iMessage turns are non-interactive, so host tools stay
     // off, but sandbox tools (bash, web_search, ...) have to remain on the
     // request. Missing them is what makes the model dump `to=bash code:`
-    // into the SMS as prose.
+    // into the SMS as prose. getOrCreateConversation initializes the
+    // registry before constructing the Conversation that snapshots it.
     await runConversationTurn({
       channel: CHANNEL,
       content: [{ type: "text", text: "hello" }],
