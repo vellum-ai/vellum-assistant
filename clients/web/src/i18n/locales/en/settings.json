@@ -27,6 +27,16 @@
     "topUpCancelToast": "Checkout was cancelled. No credits were added.",
     "upgradeCancelToast": "Upgrade canceled. No changes to your plan."
   },
+  "bookmarksPage": {
+    "emptyDescription": "Hover any message and click the bookmark icon to save it here.",
+    "emptyTitle": "No bookmarks",
+    "errorDescription": "Something went wrong. Please try again.",
+    "errorTitle": "Failed to load bookmarks",
+    "open": "Open",
+    "removeBookmark": "Remove bookmark",
+    "retry": "Retry",
+    "untitledConversation": "Untitled conversation"
+  },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, one {# action currently uses {profile}} other {# actions currently use {profile}}}",
     "applyTo": "{count, plural, one {Apply to # action} other {Apply to # actions}}",
@@ -94,6 +104,33 @@
     "tryAgain": "Try again",
     "viewPlans": "View plans"
   },
+  "communityPage": {
+    "communityHubDescription": "Showcases, guides, and projects shared by the community.",
+    "communityHubTitle": "Community Hub",
+    "discordBenefitAnswers": "Get answers faster from the community",
+    "discordBenefitFeedback": "Share feedback and request features",
+    "discordBenefitTeam": "Talk directly with the team",
+    "discordLabel": "Discord",
+    "discordSubtitle": "Talk to the team, share feedback, request features, and get answers faster.",
+    "discordTitle": "Join our community",
+    "followOnXDescription": "Product updates, releases, and behind-the-scenes.",
+    "followOnXTitle": "Follow on X",
+    "heroDescription": "Vellum is built in the open with a growing community of developers, designers, and tinkerers. Here's how to get involved.",
+    "heroTag": "Community",
+    "heroTitle": "Build with us, in the open.",
+    "joinDiscord": "Join Discord",
+    "moreFromVellum": "More from Vellum",
+    "openSourceBenefitContribute": "Contribute fixes and new features",
+    "openSourceBenefitIssues": "Open issues and report bugs",
+    "openSourceBenefitStar": "Star the repo to follow updates",
+    "openSourceLabel": "Open Source",
+    "openSourceSubtitle": "Read the source, star the repo, and contribute fixes and features on GitHub.",
+    "openSourceTitle": "Vellum is open source",
+    "starOnGitHub": "Star on GitHub",
+    "viewSource": "View source",
+    "youtubeChannelDescription": "Walkthroughs, tutorials, and product deep-dives.",
+    "youtubeChannelTitle": "YouTube channel"
+  },
   "completeState": {
     "assistantFallbackName": "your assistant",
     "returnTo": "Return to {assistantName}",
@@ -128,6 +165,13 @@
     "genericDescriptor": "Select custom CPU power, Ram and Storage. Or just throw in some tokens.",
     "prompt": "Need something more tailored to your needs?",
     "title": "Custom Plan"
+  },
+  "developerPage": {
+    "sectionsAriaLabel": "Developer sections",
+    "tabFeatureFlags": "Feature Flags",
+    "tabLifecycle": "Assistant Lifecycle",
+    "tabMemory": "Memory",
+    "tabSentry": "Sentry Testing"
   },
   "domainStep": {
     "continue": "Continue",
@@ -210,6 +254,32 @@
     "confirm": "Downgrade to Base",
     "title": "Downgrade to Base?"
   },
+  "generalPage": {
+    "chooseAssistant": "Choose Assistant",
+    "computeResourcesLoginNotice": "Log in to the Vellum platform to manage compute resources.",
+    "computeResourcesSubtitle": "Monitor resource usage and manage your assistant's compute profile.",
+    "computeResourcesTitle": "Compute & Resources",
+    "current": "Current",
+    "customize": "Customize",
+    "dangerZoneTitle": "Danger Zone",
+    "preferencesSubtitle": "Customize how Vellum looks and behaves on this device.",
+    "preferencesTitle": "Preferences",
+    "retireAssistantDescription": "Permanently retire this assistant and delete all associated data.",
+    "retireAssistantLoginNotice": "Log in to the Vellum platform to retire this assistant.",
+    "retireAssistantTitle": "Retire Assistant",
+    "sleepPolicyLoginNotice": "Log in to the Vellum platform to manage sleep policy.",
+    "sleepPolicySubtitle": "Control how long this assistant stays awake when idle.",
+    "sleepPolicyTitle": "Sleep Policy",
+    "switchAssistantSubtitle": "Choose which assistant this device is connected to.",
+    "switchAssistantTitle": "Switch Assistant",
+    "twoFactorDescription": "Require a code from an authenticator app when you sign in.",
+    "twoFactorLoginNotice": "Log in to the Vellum platform to manage two-factor authentication.",
+    "twoFactorTitle": "Two-Factor Authentication",
+    "updateWindow": "Update Window",
+    "updatesLoginNotice": "Log in to the Vellum platform to manage software updates.",
+    "versionSubtitle": "Manage your assistant's software version and updates.",
+    "versionTitle": "Version"
+  },
   "imageGenerationCard": {
     "activeModelLabel": "Active Model",
     "apiKeyLabel": "API Key",
@@ -227,10 +297,35 @@
     "vellumNote": "Image generation runs through your Vellum account."
   },
   "integrationsPage": {
-    "filterAriaLabel": "Filter integrations",
+    "accountConnectedToast": "{providerLabel} account connected successfully.",
+    "accountConnectedToastGeneric": "Account connected successfully.",
+    "connectFailedToast": "Failed to connect {providerLabel}.",
+    "connectFailedToastGeneric": "Failed to connect. Please try again.",
+    "emptyAllEnabledTitle": "All Integrations Are Enabled",
+    "emptyDefaultSubtitle": "Check your connection and try again.",
+    "emptyDefaultTitle": "No Integrations Available",
+    "emptyEnabledSubtitle": "Connect an integration to get started.",
+    "emptyEnabledTitle": "No Enabled Integrations",
+    "emptyNotEnabledSubtitle": "All available integrations have been connected.",
+    "emptySearchSubtitle": "No integrations matched \"{query}\"",
+    "emptySearchTitle": "No integrations matched",
     "filterAll": "All",
+    "filterAriaLabel": "Filter integrations",
     "filterEnabled": "Enabled",
-    "filterNotEnabled": "Not Enabled"
+    "filterNotEnabled": "Not Enabled",
+    "loadFailed": "Failed to load integrations. Please try again.",
+    "loading": "Loading...",
+    "noAssistant": "No assistant found. Hatch an assistant to connect integrations.",
+    "oauthErrorDenied": "Authorization was denied. Please try again.",
+    "oauthErrorExchangeFailed": "Failed to complete authorization. Please try again.",
+    "oauthErrorIdentityFailed": "Failed to verify account identity. Please try again.",
+    "oauthErrorStateExpired": "Authorization expired. Please try again.",
+    "oauthErrorStateInvalid": "Authorization state was invalid. Please try again.",
+    "searchAriaLabel": "Search integrations",
+    "searchPlaceholder": "Search Integrations",
+    "tabMcp": "MCP",
+    "tabOAuth": "OAuth",
+    "tipBanner": "<tip>Tip:</tip> You can enable integrations by mentioning them in chat."
   },
   "languageModelCard": {
     "defaultProviderUnavailable": "Your default provider is not available.",
@@ -238,6 +333,11 @@
     "overridesTitle": "Overrides",
     "subtitle": "Profiles choose which model answers. Providers supply access to it",
     "title": "Language Model"
+  },
+  "listeningLanguageCard": {
+    "change": "Change",
+    "subtitle": "The language you speak to your assistant. Applies from your next spoken turn.",
+    "title": "Listening language"
   },
   "manageProfilesBlockedDeleteModal": {
     "actionOverridesTitle": "Action overrides",
@@ -260,6 +360,10 @@
     "summaryThreeClauses": "\"{display}\" {clause1}, {clause2}, and {clause3}. Pick a replacement below and those references move to it, then \"{display}\" is deleted.",
     "summaryTwoClauses": "\"{display}\" {clause1} and {clause2}. Pick a replacement below and those references move to it, then \"{display}\" is deleted.",
     "title": "Choose a Replacement Profile"
+  },
+  "notificationsPage": {
+    "description": "Manage how Vellum notifies you on this Android device.",
+    "title": "Notifications"
   },
   "overridesCallSiteList": {
     "emptySearch": "No actions match your search."
@@ -313,6 +417,23 @@
     "planUpdatedToast": "Plan updated.",
     "startFreeCta": "Start Free",
     "subheading": "Choose the level that matches how much you want it to take on."
+  },
+  "privacyPage": {
+    "llmLogRetentionDescription": "How long to keep LLM request and response logs on this device. These logs record the prompts and completions sent to model providers and are used for debugging. Shorter retention improves privacy; longer retention helps troubleshoot issues.",
+    "llmLogRetentionLabel": "LLM Request Log Retention",
+    "retentionDontRetain": "Don't retain",
+    "retentionKeepForever": "Keep forever",
+    "retentionNinetyDays": "90 days",
+    "retentionOneDay": "1 day",
+    "retentionOneHour": "1 hour",
+    "retentionSevenDays": "7 days",
+    "retentionThirtyDays": "30 days",
+    "shareAnalyticsHelper": "Send aggregated product usage data",
+    "shareAnalyticsLabel": "Share Analytics",
+    "shareDiagnosticsHelper": "Send crash reports, conversation traces, and session replay data",
+    "shareDiagnosticsLabel": "Share Diagnostics",
+    "subtitleWithPolicy": "View details about what data we collect and how it's used in our <policyLink>privacy policy</policyLink>.",
+    "title": "Privacy"
   },
   "profileAdvancedParams": {
     "contextWindowLabel": "Context Window",
@@ -540,6 +661,31 @@
     "verifyingTitle": "DNS records have been provisioned. Waiting for the email provider to verify them - this usually takes a few minutes.",
     "yourOwnLabel": "Your Own"
   },
+  "soundsSections": {
+    "addSound": "Add sound",
+    "allSoundsAdded": "All sounds added",
+    "defaultBlip": "Default Blip",
+    "enableEvent": "Enable {eventName}",
+    "enableSoundEffects": "Enable sound effects",
+    "enableSoundEffectsDescription": "Master switch for every event-driven sound.",
+    "noSoundFiles": "No sound files yet. Drop audio files into data/sounds/ in your workspace.",
+    "preview": "Preview",
+    "previewDefaultBlip": "Preview default blip",
+    "previewSoundAriaLabel": "Preview {filename}",
+    "removeSoundAriaLabel": "Remove {filename}",
+    "soundEventCharacterPoke": "Character Poke",
+    "soundEventMessageSent": "Message Sent",
+    "soundEventNeedsInput": "Needs Input",
+    "soundEventNewConversation": "New Conversation",
+    "soundEventNotification": "Notification",
+    "soundEventRandom": "Random",
+    "soundEventTaskComplete": "Task Complete",
+    "soundEventTaskFailed": "Task Failed",
+    "soundEventsDescription": "Add one or more sounds per event. When multiple are configured, one plays at random.",
+    "soundEventsTitle": "Sound Events",
+    "volume": "Volume",
+    "volumeAriaLabel": "Sound effect volume"
+  },
   "speechToTextCard": {
     "subtitle": "Configure how your assistant transcribes speech",
     "title": "Speech-to-Text"
@@ -626,6 +772,52 @@
     "deleteFailedToast": "Failed to delete the provider. Please try again.",
     "deleteInUseToast": "This provider is in use by a profile or as the default provider. Update those settings before deleting it.",
     "setDefaultFailedToast": "Failed to set the default provider. Please try again."
+  },
+  "voicePage": {
+    "activationKeyLabel": "Activation Key:",
+    "allowMicrophoneAccess": "Allow Microphone Access",
+    "captionsSubtitle": "Show live text of what you and the assistant say during a voice conversation.",
+    "captionsTitle": "Captions",
+    "customKey": "Custom",
+    "defaultBadge": "Default",
+    "enablePushToTalk": "Enable Push to Talk",
+    "focusedTabNote": "Push-to-Talk only works while this tab is focused, and browsers may intercept some shortcuts (e.g. Ctrl+T) before the page can see them. For always-on PTT, use the Vellum desktop app.",
+    "grantMicrophoneAccessHint": "Grant microphone access to list your available input devices.",
+    "interruptSensitivityAriaLabel": "Interrupt sensitivity",
+    "interruptSensitivityDescription": "How easily talking over the assistant interrupts it. Lower it if the assistant cuts itself off on background noise or filler words; raise it to interrupt more quickly.",
+    "interruptSensitivityHigh": "High",
+    "interruptSensitivityLabel": "Interrupt sensitivity",
+    "interruptSensitivityLow": "Low",
+    "interruptSensitivityMedium": "Medium",
+    "microphoneAriaLabel": "Microphone",
+    "microphoneFallbackLabel": "Microphone {index}",
+    "microphoneSubtitle": "Which input device is used for dictation and voice conversations.",
+    "microphoneTitle": "Microphone",
+    "pauseBeforeReplyAriaLabel": "Pause before reply",
+    "pauseBeforeReplyDescription": "How long the assistant waits after you stop speaking before it replies. A longer pause lets you gather your thoughts mid-sentence without being cut off.",
+    "pauseBeforeReplyLabel": "Pause before reply",
+    "pressAnyKey": "Press any key…",
+    "pushToTalkSubtitle": "Hold the activation key to dictate text or start a voice conversation.",
+    "pushToTalkTitle": "Push to Talk",
+    "resetToDefaults": "Reset to defaults",
+    "savedMicrophone": "Saved microphone",
+    "savedMicrophoneNotConnected": "Saved microphone (not connected)",
+    "sectionCaptionsHeading": "Captions",
+    "sectionInputDescription": "How you talk to your assistant.",
+    "sectionInputHeading": "Input",
+    "sectionOutputDescription": "How your assistant sounds.",
+    "sectionOutputHeading": "Output",
+    "speechServicesBannerLink": "Set it up in Models & Services",
+    "speechServicesBannerPrompt": "Want to use your own API key for STT or TTS, or set a custom voice?",
+    "systemDefault": "System Default",
+    "turnTakingSubtitle": "Where your turn ends and the assistant's begins. Applies to hands-free conversations. Under push to talk, the key decides.",
+    "turnTakingTitle": "Turn taking"
+  },
+  "voicePickerCard": {
+    "changeButton": "Change",
+    "creditsNote": "Uses Vellum credits, through providers like ElevenLabs and Deepgram.",
+    "title": "Voice",
+    "titleWithName": "{name}'s Voice"
   },
   "webFetchCard": {
     "apiKeyLabel": "API Key",

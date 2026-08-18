@@ -214,6 +214,7 @@ const i18nEnforcedPaths = [
   "src/domains/settings/ai/**/*.{ts,tsx}",
   "src/domains/chat/inspector/**/*.{ts,tsx}",
   "src/domains/settings/billing/**/*.{ts,tsx}",
+  "src/domains/settings/pages/**/*.{ts,tsx}",
 ];
 
 const eslintConfig = defineConfig([

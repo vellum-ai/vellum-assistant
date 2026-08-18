@@ -32,8 +32,10 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { SttLanguagePickerModal } from "@/components/speech/stt-language-picker-modal";
 import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 import { sttLanguageLabelForCode } from "@/lib/stt/language-catalog";
+import { useTranslation } from "@/i18n";
 
 export function ListeningLanguageCard() {
+  const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
   const {
     available,
@@ -50,11 +52,11 @@ export function ListeningLanguageCard() {
 
   return (
     <DetailCard
-      title="Listening language"
+      title={t("listeningLanguageCard.title")}
       // Named for what it governs rather than for the setting's key: people
       // arrive here having noticed the assistant mishearing them, not having
       // gone looking for a speech-recognition parameter.
-      subtitle="The language you speak to your assistant. Applies from your next spoken turn."
+      subtitle={t("listeningLanguageCard.subtitle")}
     >
       <div className="flex items-center gap-3">
         <span className="min-w-0 text-body-medium-lighter text-[var(--content-default)]">
@@ -65,13 +67,13 @@ export function ListeningLanguageCard() {
           onClick={() => setPickerOpen(true)}
           className="shrink-0"
         >
-          Change
+          {t("listeningLanguageCard.change")}
         </Button>
       </div>
       <SttLanguagePickerModal
         open={pickerOpen}
         onOpenChange={setPickerOpen}
-        title="Listening language"
+        title={t("listeningLanguageCard.title")}
         currentCode={currentCode}
         configuredProviderId={configuredProviderId}
         selectLanguage={selectLanguage}
