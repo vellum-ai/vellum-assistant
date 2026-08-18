@@ -42,6 +42,7 @@ import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
 import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-detection";
 import type { SendChatMessageOptions } from "@/domains/chat/hooks/use-send-message";
 import { DiskPressureBannerSlot } from "@/domains/chat/components/disk-pressure-banner-slot";
+import { ResourcePressureBannerSlot } from "@/domains/chat/components/resource-pressure-banner-slot";
 import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge";
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
@@ -135,6 +136,7 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 
 import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
+import type { UseResourcePressureMonitorResult } from "@/assistant/use-resource-pressure-monitor";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
 import {
@@ -200,6 +202,9 @@ export interface ChatMainPanelProps {
   // Disk pressure (single instance lives in ActiveChatView; passed down to
   // avoid duplicate polling intervals and bus subscriptions)
   diskPressure: UseDiskPressureMonitorResult;
+
+  // Resource pressure (single instance, same reasoning as disk pressure)
+  resourcePressure: UseResourcePressureMonitorResult;
 
   // Upward signals to ActiveChatView local state
   setRefreshEpoch: Dispatch<SetStateAction<number>>;
@@ -282,6 +287,7 @@ export function ChatMainPanel({
   handleInspectMessage,
   historyPagination,
   diskPressure,
+  resourcePressure,
   setRefreshEpoch,
   inputRef,
   sanitizedMessagesRef,
@@ -1119,6 +1125,17 @@ export function ChatMainPanel({
   );
 
   // -------------------------------------------------------------------------
+  // Resource pressure banner (localStorage-backed dismiss/cooldown)
+  // -------------------------------------------------------------------------
+  const resourcePressureBannerSlot = (
+    <ResourcePressureBannerSlot
+      resourcePressure={resourcePressure}
+      assistantId={assistantId}
+      assistantStateKind={assistantState.kind}
+    />
+  );
+
+  // -------------------------------------------------------------------------
   // Empty state (greeting, starters, avatar)
   // -------------------------------------------------------------------------
   const {
@@ -1363,6 +1380,14 @@ export function ChatMainPanel({
               ) : null
             }
             diskPressureBanner={diskPressureBannerSlot}
+            // A storage warning is actionable-critical and must not stack
+            // with or compete against an upsell banner, so the resource
+            // slot yields whenever the disk-pressure slot is active.
+            resourcePressureBanner={
+              diskPressure.mode !== "inactive"
+                ? null
+                : resourcePressureBannerSlot
+            }
             showMissingApiKeyBanner={error?.code === "PROVIDER_NOT_CONFIGURED"}
             onOpenAiSettings={pushToAiSettings}
             onDismissApiKeyError={handleDismissApiKeyError}
