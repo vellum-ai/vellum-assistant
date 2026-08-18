@@ -499,6 +499,31 @@ describe("plugin routes", () => {
     expect(body.plugin).toBe("my-plugin");
   });
 
+  test("evaluates the route module in the plugin's context too", async () => {
+    // A module can reach a scoped host API at import time, and the import
+    // happens once per mtime. A load left outside the context would take the
+    // unscoped branch and never be re-run scoped, so the context has to cover
+    // module evaluation and not just the handler call.
+    writePluginHandler(
+      "my-plugin",
+      "at-import.ts",
+      `import { getCurrentPluginName } from ${JSON.stringify(PLUGIN_CONTEXT_MODULE)};
+       const atImport = getCurrentPluginName() ?? null;
+       export function GET(request) {
+        return Response.json({ atImport });
+      }`,
+    );
+
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch(
+      "plugins/my-plugin/at-import",
+      makeRequest("GET"),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.atImport).toBe("my-plugin");
+  });
+
   test("leaves a workspace route outside any plugin context", async () => {
     writeHandler(
       "whoami.ts",
