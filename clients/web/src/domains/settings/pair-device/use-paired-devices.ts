@@ -7,10 +7,6 @@ import {
   type LocalPairedDeviceRecord,
 } from "@/runtime/local-mode-host";
 
-function selectedAssistantId(): string | undefined {
-  return getSelectedAssistant()?.assistantId;
-}
-
 export interface PairedDevicesController {
   /**
    * The most recently fetched paired-device list, or `null` when the list is
@@ -59,10 +55,6 @@ export function usePairedDevices(): PairedDevicesController {
   // out-of-order responses) with a mounted flag + request sequence.
   const mountedRef = useRef(true);
   const fetchSeqRef = useRef(0);
-  // Mirrors `list?.assistantId` so the stable `refresh` callback can detect a
-  // selection change without depending on state (which would refetch-loop the
-  // mount effect).
-  const listAssistantIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -72,28 +64,18 @@ export function usePairedDevices(): PairedDevicesController {
   }, []);
 
   const refresh = useCallback(() => {
-    const assistantId = selectedAssistantId();
+    const assistantId = getSelectedAssistant()?.assistantId;
     if (!assistantId) {
       return;
     }
-    if (
-      listAssistantIdRef.current !== null &&
-      listAssistantIdRef.current !== assistantId
-    ) {
-      // The rendered rows belong to a different assistant: drop them and any
-      // pending confirmation instead of presenting them as the new
-      // selection's.
-      listAssistantIdRef.current = null;
-      setList(null);
-      setConfirmTarget(null);
-      setRevokeError(null);
-    }
+    // Rows fetched for a different assistant must not render as the new
+    // selection's while the fetch is in flight.
+    setList((prev) => (prev && prev.assistantId !== assistantId ? null : prev));
     const seq = ++fetchSeqRef.current;
     void listPairedDevicesHost(assistantId).then((result) => {
       if (!mountedRef.current || seq !== fetchSeqRef.current) {
         return;
       }
-      listAssistantIdRef.current = result.ok ? assistantId : null;
       setList(result.ok ? { assistantId, devices: result.devices } : null);
     });
   }, []);
