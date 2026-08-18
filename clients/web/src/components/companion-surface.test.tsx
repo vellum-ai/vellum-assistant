@@ -106,3 +106,56 @@ describe("the companion surface's working ring", () => {
     expect(ringOf(container)).toBeNull();
   });
 });
+
+/**
+ * The avatar is the surface's drag handle, and it renders as one of two very
+ * different things: a composed creature of SVG and divs, or a bare `<img>` for
+ * a custom uploaded avatar. Only the image is natively draggable, so only the
+ * image can hand the press to the platform's own HTML5 drag and starve the
+ * surface of the `mousemove` stream its drag runs on.
+ *
+ * jsdom implements no native image drag, so what a test can hold is the opt
+ * out itself rather than its effect: the attribute, and the WebKit-only CSS
+ * that covers the paths where WebKit ignores the attribute.
+ */
+describe("the companion surface's custom avatar", () => {
+  const imageOf = (container: HTMLElement): HTMLImageElement | null =>
+    container.querySelector("img");
+
+  test("renders for an assistant with no traits to compose", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" avatarSrc="data:image/png;base64,AA" />,
+    );
+    expect(imageOf(container)?.getAttribute("src")).toBe(
+      "data:image/png;base64,AA",
+    );
+  });
+
+  test("refuses the browser's own image drag", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" avatarSrc="data:image/png;base64,AA" />,
+    );
+    expect(imageOf(container)?.getAttribute("draggable")).toBe("false");
+  });
+
+  test("refuses it in WebKit, which reads the CSS and not the attribute", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" avatarSrc="data:image/png;base64,AA" />,
+    );
+    expect(imageOf(container)?.className).toContain("[-webkit-user-drag:none]");
+  });
+
+  /**
+   * The creature branch has no image at all, which is why the bug reached the
+   * custom avatars alone.
+   */
+  test("is not what a composed creature renders", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="resting"
+        character={{ bodyShape: "blob", eyeStyle: "curious", color: "teal" }}
+      />,
+    );
+    expect(imageOf(container)).toBeNull();
+  });
+});

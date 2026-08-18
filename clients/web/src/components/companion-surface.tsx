@@ -769,10 +769,18 @@ function Avatar({
       ) : (
         // A custom uploaded image, which has no traits to compose and so no
         // eyes to animate.
+        //
+        // Undraggable, because the avatar is the surface's drag handle. An
+        // image is natively draggable, and the platform's own HTML5 image drag
+        // takes the pointer and ends the `mousemove` stream the surface's drag
+        // runs on, so pressing a custom avatar would move nothing where
+        // pressing a composed creature moves the window. WebKit honours the CSS
+        // on paths where it ignores the attribute, so both are needed.
         <img
           src={avatarSrc}
           alt=""
-          className="relative size-7 rounded-full object-contain drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
+          draggable={false}
+          className="relative size-7 rounded-full object-contain drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)] [-webkit-user-drag:none]"
         />
       )}
     </div>
