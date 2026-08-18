@@ -22,7 +22,6 @@ import {
   Archive,
   ArrowDown,
   ArrowUp,
-  CircleCheck,
   Copy,
   Layers,
   Pencil,
@@ -36,6 +35,7 @@ import {
   buildPanelMenuItem,
   PanelMenuDivider,
 } from "@/domains/chat/components/panel-menu-item";
+import { READ_ICON } from "@/utils/read-state-icon";
 import {
   BottomSheet,
   ContextMenu,
@@ -160,7 +160,7 @@ export function renderGroupMenuItems({
       ) : null}
       {onMarkAllRead ? (
         <Primitive.Item
-          leftIcon={<CircleCheck size={14} />}
+          leftIcon={<READ_ICON size={14} />}
           onSelect={onMarkAllRead}
           disabled={!hasUnreadConversations}
         >
@@ -256,7 +256,7 @@ export function renderGroupMenuItemsAsPanelItems({
       {onMarkAllRead
         ? buildPanelMenuItem({
             key: "mark-all-read",
-            icon: CircleCheck,
+            icon: READ_ICON,
             label: "Mark All as Read",
             disabled: !hasUnreadConversations,
             run: onMarkAllRead,

@@ -478,6 +478,37 @@ describe("renderConversationMenuItems — mark read/unread exclusivity", () => {
   });
 });
 
+describe("renderConversationMenuItems — read-state iconography", () => {
+  // The glyph names the conversation's current state: a conversation offering
+  // "Mark as read" is unread, so it shows the sealed envelope. `lucide-mail`
+  // is a prefix of `lucide-mail-open`, so that case rules the open glyph out
+  // explicitly.
+  function menuHtml(props: Parameters<typeof renderConversationMenuItems>[0]) {
+    return renderToStaticMarkup(<>{renderConversationMenuItems(props)}</>);
+  }
+
+  test("an unread conversation shows the sealed envelope", () => {
+    const html = menuHtml({
+      Primitive: Menu as unknown as ConversationMenuPrimitive,
+      t,
+      onMarkRead: () => {},
+    });
+    expect(html).toContain("Mark as read");
+    expect(html).toContain('lucide-mail"');
+    expect(html).not.toContain("lucide-mail-open");
+  });
+
+  test("a read conversation shows the opened envelope", () => {
+    const html = menuHtml({
+      Primitive: Menu as unknown as ConversationMenuPrimitive,
+      t,
+      onMarkUnread: () => {},
+    });
+    expect(html).toContain("Mark as unread");
+    expect(html).toContain("lucide-mail-open");
+  });
+});
+
 describe("ConversationActionsMenu — mobile panel details", () => {
   test("isMarkUnreadDisabled renders disabled panel item on mobile", () => {
     mockIsTouchMobile = true;
