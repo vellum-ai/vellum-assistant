@@ -4,6 +4,13 @@ export const LOOPBACK_IP = "127.0.0.1";
 export const REMOTE_IP = "203.0.113.10";
 export const PUBLIC_BASE_URL = "https://paired.example.com";
 
+/** Requester metadata for challenges minted directly against the store. */
+export const TEST_REQUESTER = {
+  ip: REMOTE_IP,
+  userAgent: "PairBrowser/1.0",
+  viaEdgeProxy: true,
+};
+
 /** A request as sent by a local loopback client (host machine). */
 export function makeLocalRequest(
   path: string,
@@ -51,8 +58,12 @@ export function makePairingChallengeRequest(
   } = {},
 ): Request {
   const headers: Record<string, string> = {};
-  if (overrides.host) headers.host = overrides.host;
-  if (overrides.edgeForwarded) headers["x-vellum-edge-forwarded"] = "1";
+  if (overrides.host) {
+    headers.host = overrides.host;
+  }
+  if (overrides.edgeForwarded) {
+    headers["x-vellum-edge-forwarded"] = "1";
+  }
   if (overrides.edgeClientIp) {
     headers["x-vellum-client-ip"] = overrides.edgeClientIp;
   }

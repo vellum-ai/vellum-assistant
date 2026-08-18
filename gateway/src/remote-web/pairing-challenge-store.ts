@@ -190,7 +190,9 @@ export function approveRemoteWebPairingChallenge(
 ): ApproveRemoteWebPairingChallengeResult {
   const userCodeHash = hashSecret(normalizeUserCode(userCode));
   const challenge = challengesByUserCodeHash.get(userCodeHash);
-  if (!challenge) return { status: "invalid" };
+  if (!challenge) {
+    return { status: "invalid" };
+  }
   return approveChallenge(challenge);
 }
 
@@ -198,7 +200,9 @@ function findChallengeById(
   id: string,
 ): PendingRemoteWebPairingChallenge | undefined {
   for (const challenge of challengesByUserCodeHash.values()) {
-    if (challenge.id === id) return challenge;
+    if (challenge.id === id) {
+      return challenge;
+    }
   }
   return undefined;
 }
@@ -226,7 +230,9 @@ export function approveRemoteWebPairingChallengeById(
   id: string,
 ): ApproveRemoteWebPairingChallengeResult {
   const challenge = findChallengeById(id);
-  if (!challenge) return { status: "invalid" };
+  if (!challenge) {
+    return { status: "invalid" };
+  }
   return approveChallenge(challenge);
 }
 
@@ -239,7 +245,9 @@ export function denyRemoteWebPairingChallengeById(
   id: string,
 ): DenyRemoteWebPairingChallengeResult {
   const challenge = findChallengeById(id);
-  if (!challenge) return { status: "invalid" };
+  if (!challenge) {
+    return { status: "invalid" };
+  }
   // Approved/exchanging/consumed: the remote device may already be pairing.
   // Distinct from unknown-id so the route can surface it instead of a 404 the
   // client would read as an already-handled row.
