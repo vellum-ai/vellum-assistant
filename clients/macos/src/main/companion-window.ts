@@ -6,9 +6,11 @@ import {
   voiceActivityContentSchema,
   voiceActivityControlSchema,
   voiceActivityStartSchema,
+  COMPANION_SIZE_BOXES,
   type CompanionCardGrowth,
   type CompanionGrowth,
   type CompanionContext,
+  type CompanionSize,
   type CompanionSurfaceState,
   type VellumCommand,
   type VoiceActivityState,
@@ -19,6 +21,8 @@ import {
 } from "@vellumai/electron-desktop/settings";
 import {
   readCompanionHidden,
+  readCompanionSize,
+  writeCompanionSize,
   writeCompanionHidden,
 } from "@vellumai/electron-desktop/window-state";
 
@@ -104,85 +108,103 @@ export const shouldShowCompanionSurface = (
 const COMPANION_KIND = "companion";
 const COMPANION_ROUTE = "/floating/companion";
 
-/** The avatar's resting footprint, matching `CompanionSurface`. */
-const AVATAR_BOX = 44;
+/**
+ * The avatar's resting footprint at `small`, which is the size the renderer's
+ * layout is authored at and the size everything else here is stated in.
+ *
+ * A larger companion is the same layout multiplied: the renderer scales itself
+ * by the published box over this one, so every constant below scales with it
+ * rather than being restated per size (JARVIS-1549).
+ */
+const BASE_AVATAR_BOX = 44;
 
 /**
- * The widest the pill gets, matching `FALLBACK_WIDTHS.call` in the renderer.
+ * The widest the pill gets at {@link BASE_AVATAR_BOX}, matching
+ * `FALLBACK_WIDTHS.call` in the renderer.
  *
  * A ceiling rather than a width: the pill measures its own content, so this is
  * what the canvas is sized to hold, and content wider than it is clipped by the
  * window. The call's approval row is the widest thing the surface renders.
  */
-const MAX_PILL_WIDTH = 360;
-
-/**
- * How far the pill reaches from the avatar's centre.
- *
- * The avatar holds its place and the body runs off one side of it, so the reach
- * is almost the pill's whole width. The canvas has to hold it in whichever
- * direction main later picks, so it is sized for that reach on both sides.
- */
-const MAX_REACH = MAX_PILL_WIDTH - AVATAR_BOX / 2;
+const BASE_MAX_PILL_WIDTH = 360;
 
 /** Room for the pill's shadow, which paints outside its box. */
-const CANVAS_PAD = 24;
+const BASE_CANVAS_PAD = 24;
 
 /**
  * The tallest the surface gets, which is the typing card.
  *
- * Every other state is a pill exactly {@link AVATAR_BOX} tall. The card stacks
- * the conversation on top of that row, in a viewport that scrolls once it is
- * full, so the card has a ceiling rather than growing with the exchange: the
- * renderer's `TURNS_MAX_HEIGHT` (220) and its padding, over the composer.
+ * Every other state is a pill exactly {@link BASE_AVATAR_BOX} tall. The card
+ * stacks the conversation on top of that row, in a viewport that scrolls once
+ * it is full, so the card has a ceiling rather than growing with the exchange:
+ * the renderer's `TURNS_MAX_HEIGHT` (220) and its padding, over the composer.
  * Rounded up from what that comes to, because the text is laid out in the
  * renderer and a canvas a few points short clips the top of the card off.
  *
  * Matched to `CompanionSurface`'s card in `companion-surface.tsx`, the way
- * {@link MAX_PILL_WIDTH} is matched to its widths.
+ * {@link BASE_MAX_PILL_WIDTH} is matched to its widths.
  */
-const MAX_CARD_HEIGHT = 290;
+const BASE_MAX_CARD_HEIGHT = 290;
 
 /**
- * How far the surface reaches above the avatar's centre.
+ * Everything the window's placement depends on, for one companion size.
  *
- * The card grows upward out of the composer row, which holds the line the pill
- * occupied, so the avatar stays exactly where it was when Type was pressed. It
- * has to: the surface is parked by the Dock, where a card growing downward
- * grows off the bottom of the screen.
+ * A record rather than a set of module constants because it is no longer fixed:
+ * the user picks the size and the whole canvas follows. Passed to the placement
+ * rules explicitly rather than read off the module, so they stay pure functions
+ * of their inputs and every size is a case a test can state.
  */
-const MAX_RISE = MAX_CARD_HEIGHT - AVATAR_BOX / 2;
-
-const CANVAS_WIDTH = MAX_REACH * 2 + CANVAS_PAD * 2;
+export interface CompanionGeometry {
+  /** The avatar's box, and the scale: this over {@link BASE_AVATAR_BOX}. */
+  avatarBox: number;
+  /** The canvas, sized to hold the largest state in either direction. */
+  canvasWidth: number;
+  canvasHeight: number;
+  /** How much canvas the card's side of the avatar needs, shadow included. */
+  riseAbove: number;
+  /** How much the other side needs: the avatar and its shadow, and no more. */
+  dropBelow: number;
+  /** What {@link growthFor} measures the room against. */
+  maxPillWidth: number;
+}
 
 /**
- * How much canvas the card's side of the avatar needs, shadow included.
- */
-const RISE_ABOVE = MAX_RISE + CANVAS_PAD;
-
-/**
- * How much the other side needs, which is only the avatar and its shadow.
+ * The canvas for a named size.
  *
- * The asymmetry is the point. Sizing both sides for the card, which is what
- * pinning the avatar to the canvas's centre amounts to, spends {@link
- * RISE_ABOVE} of canvas on a side that never draws anything taller than the
- * avatar.
- */
-const DROP_BELOW = AVATAR_BOX / 2 + CANVAS_PAD;
-
-/**
- * Sized for the tallest state rather than resized on the phase, the same
- * bargain the width makes. A canvas that grew with the card would move the
- * window under the pointer mid-press and put the expansion back on the main
- * process, which is what the fixed canvas exists to avoid.
+ * The asymmetry between {@link CompanionGeometry.riseAbove} and `dropBelow` is
+ * the point of the shape. Sizing both sides for the card, which is what pinning
+ * the avatar to the canvas's centre amounts to, spends the card's whole height
+ * on a side that never draws anything taller than the avatar — and macOS
+ * refuses a window origin above the top of the work area, so that spend is
+ * exactly how far short of the top the surface used to stop (JARVIS-1548).
  *
- * The avatar is *not* pinned to the centre of it. macOS refuses a window origin
- * above the top of the work area, so an avatar fixed at the canvas's centre can
- * never get closer to the top of the screen than half the canvas — 292pt on the
- * old symmetric one, which is what JARVIS-1548 was. The height is the same
- * either way up; which end the avatar sits at is {@link cardGrowthFor}'s call.
+ * The canvas is sized for the tallest state rather than resized on the phase,
+ * the same bargain the width makes. A canvas that grew with the card would move
+ * the window under the pointer mid-press and put the expansion back on the main
+ * process, which is what the fixed canvas exists to avoid. It *is* resized when
+ * the user picks a different size, which is a deliberate, one-off event rather
+ * than something that happens mid-gesture.
  */
-const CANVAS_HEIGHT = RISE_ABOVE + DROP_BELOW;
+export const geometryFor = (size: CompanionSize): CompanionGeometry => {
+  const avatarBox = COMPANION_SIZE_BOXES[size];
+  const scale = avatarBox / BASE_AVATAR_BOX;
+  const pad = BASE_CANVAS_PAD * scale;
+  const maxPillWidth = BASE_MAX_PILL_WIDTH * scale;
+  // The avatar holds its place and the body runs off one side of it, so the
+  // reach is almost the pill's whole width. The canvas has to hold it in
+  // whichever direction main later picks, so it is sized for both sides.
+  const maxReach = maxPillWidth - avatarBox / 2;
+  const riseAbove = BASE_MAX_CARD_HEIGHT * scale - avatarBox / 2 + pad;
+  const dropBelow = avatarBox / 2 + pad;
+  return {
+    avatarBox,
+    canvasWidth: Math.round(maxReach * 2 + pad * 2),
+    canvasHeight: Math.round(riseAbove + dropBelow),
+    riseAbove,
+    dropBelow,
+    maxPillWidth,
+  };
+};
 
 /** Gap from the work area's bottom-right on the first ever launch. */
 const DEFAULT_MARGIN = 24;
@@ -198,6 +220,16 @@ let growth: CompanionGrowth = "right";
  * it to draw the avatar where the window was actually put.
  */
 let cardGrowth: CompanionCardGrowth = "up";
+
+/**
+ * The canvas the surface is currently drawn in.
+ *
+ * Read from the store at startup and replaced when the user picks a different
+ * size. Held rather than derived per call because it is what every position
+ * computed here is measured in, and reading the store on each mouse-move of a
+ * drag would be a file read per frame.
+ */
+let geometry: CompanionGeometry = geometryFor(readCompanionSize());
 
 /**
  * The running live-voice session, or `null` when none is.
@@ -236,6 +268,7 @@ const currentState = (): CompanionSurfaceState => {
   return {
     growth,
     cardGrowth,
+    avatarBox: geometry.avatarBox,
     character: character === null ? undefined : character,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
@@ -282,7 +315,7 @@ export const callOnUpdate = (
 /**
  * Which way the pill grows, from where the avatar actually sits.
  *
- * The body needs `MAX_PILL_WIDTH - AVATAR_BOX` of clearance on the side it
+ * The body needs `maxPillWidth - avatarBox` of clearance on the side it
  * grows into. Rightward is the default and leftward is what it flips to when
  * the right edge is too close, so the avatar stays exactly where the user put
  * it instead of the controls running off the display.
@@ -294,8 +327,9 @@ export const callOnUpdate = (
 export const growthFor = (
   avatarCentreX: number,
   workArea: { x: number; width: number },
+  geometry: CompanionGeometry,
 ): CompanionGrowth => {
-  const needed = MAX_PILL_WIDTH - AVATAR_BOX;
+  const needed = geometry.maxPillWidth - geometry.avatarBox;
   const roomRight = workArea.x + workArea.width - avatarCentreX;
   const roomLeft = avatarCentreX - workArea.x;
   if (roomRight < needed && roomLeft >= needed) {
@@ -308,7 +342,7 @@ export const growthFor = (
  * Which way the card unfurls, from the room the display has above the avatar.
  *
  * The vertical {@link growthFor}, and the fix for JARVIS-1548. Growing upward
- * needs {@link RISE_ABOVE} of canvas above the avatar's centre, and macOS will
+ * needs `riseAbove` of canvas above the avatar's centre, and macOS will
  * not put that canvas above the top of the work area, so near the top of a
  * display the card has to grow the other way instead.
  *
@@ -324,8 +358,9 @@ export const growthFor = (
 export const cardGrowthFor = (
   avatarCentreY: number,
   workArea: { y: number; height: number },
+  geometry: CompanionGeometry,
 ): CompanionCardGrowth =>
-  avatarCentreY - workArea.y >= RISE_ABOVE ? "up" : "down";
+  avatarCentreY - workArea.y >= geometry.riseAbove ? "up" : "down";
 
 /**
  * Where the avatar's centre sits inside the canvas, measured from its top.
@@ -334,8 +369,10 @@ export const cardGrowthFor = (
  * drawn where the window was put. Published with the direction rather than
  * recomputed on the other side, so there is one derivation of it.
  */
-export const avatarOffsetFor = (cardGrowth: CompanionCardGrowth): number =>
-  cardGrowth === "up" ? RISE_ABOVE : DROP_BELOW;
+export const avatarOffsetFor = (
+  cardGrowth: CompanionCardGrowth,
+  geometry: CompanionGeometry,
+): number => (cardGrowth === "up" ? geometry.riseAbove : geometry.dropBelow);
 
 /**
  * Where to put the canvas so the avatar lands on a given point, and which way
@@ -365,27 +402,29 @@ export const avatarOffsetFor = (cardGrowth: CompanionCardGrowth): number =>
 export const placeCanvas = (
   avatarCentre: { x: number; y: number },
   workArea: { x: number; y: number; width: number; height: number },
+  geometry: CompanionGeometry,
 ): { origin: { x: number; y: number }; cardGrowth: CompanionCardGrowth } => {
   // Half the avatar may hang past the edge, so the clamp is to its centre plus
   // a half box. A work area smaller than the avatar would put the maximum below
   // the minimum, which `Math.min` then resolves toward the top-left corner
   // rather than producing a position outside the display.
-  const minCentreX = workArea.x + AVATAR_BOX / 2;
-  const maxCentreX = workArea.x + workArea.width - AVATAR_BOX / 2;
-  const minCentreY = workArea.y + AVATAR_BOX / 2;
-  const maxCentreY = workArea.y + workArea.height - AVATAR_BOX / 2;
+  const half = geometry.avatarBox / 2;
+  const minCentreX = workArea.x + half;
+  const maxCentreX = workArea.x + workArea.width - half;
+  const minCentreY = workArea.y + half;
+  const maxCentreY = workArea.y + workArea.height - half;
   const centreX = Math.min(Math.max(avatarCentre.x, minCentreX), maxCentreX);
   const wantedY = Math.min(Math.max(avatarCentre.y, minCentreY), maxCentreY);
 
-  const cardGrowth = cardGrowthFor(wantedY, workArea);
-  const offset = avatarOffsetFor(cardGrowth);
+  const cardGrowth = cardGrowthFor(wantedY, workArea, geometry);
+  const offset = avatarOffsetFor(cardGrowth, geometry);
   // The last of the three bounds, and the one macOS would otherwise apply
   // itself: the canvas above the avatar has to fit under the work area's top.
   const centreY = Math.max(wantedY, workArea.y + offset);
 
   return {
     origin: {
-      x: Math.round(centreX - CANVAS_WIDTH / 2),
+      x: Math.round(centreX - geometry.canvasWidth / 2),
       y: Math.round(centreY - offset),
     },
     cardGrowth,
@@ -404,12 +443,14 @@ export const placeCanvas = (
 const defaultCanvasOrigin = (): { x: number; y: number } => {
   const cursor = screen.getCursorScreenPoint();
   const { workArea } = screen.getDisplayNearestPoint(cursor);
+  const half = geometry.avatarBox / 2;
   const placed = placeCanvas(
     {
-      x: workArea.x + workArea.width - DEFAULT_MARGIN - AVATAR_BOX / 2,
-      y: workArea.y + workArea.height - DEFAULT_MARGIN - AVATAR_BOX / 2,
+      x: workArea.x + workArea.width - DEFAULT_MARGIN - half,
+      y: workArea.y + workArea.height - DEFAULT_MARGIN - half,
     },
     workArea,
+    geometry,
   );
   cardGrowth = placed.cardGrowth;
   return placed.origin;
@@ -433,7 +474,10 @@ const avatarCentre = (win: {
   getPosition: () => number[];
 }): { x: number; y: number } => {
   const [x, y] = win.getPosition();
-  return { x: x + CANVAS_WIDTH / 2, y: y + avatarOffsetFor(cardGrowth) };
+  return {
+    x: x + geometry.canvasWidth / 2,
+    y: y + avatarOffsetFor(cardGrowth, geometry),
+  };
 };
 
 /**
@@ -453,8 +497,8 @@ const refreshGrowth = (): void => {
     x: Math.round(centre.x),
     y: Math.round(centre.y),
   });
-  const nextGrowth = growthFor(centre.x, workArea);
-  const nextCardGrowth = cardGrowthFor(centre.y, workArea);
+  const nextGrowth = growthFor(centre.x, workArea, geometry);
+  const nextCardGrowth = cardGrowthFor(centre.y, workArea, geometry);
   if (nextGrowth === growth && nextCardGrowth === cardGrowth) {
     return;
   }
@@ -463,7 +507,7 @@ const refreshGrowth = (): void => {
     // The offset moved, so the same origin now means a different avatar
     // position. Put the window back where the avatar was.
     cardGrowth = nextCardGrowth;
-    const placed = placeCanvas(centre, workArea);
+    const placed = placeCanvas(centre, workArea, geometry);
     win.setPosition(placed.origin.x, placed.origin.y);
   }
   pushState();
@@ -559,7 +603,7 @@ export const installCompanionWindow = (): void => {
         x: Math.round(wanted.x),
         y: Math.round(wanted.y),
       });
-      const placed = placeCanvas(wanted, workArea);
+      const placed = placeCanvas(wanted, workArea, geometry);
       // Before the move, not after. `setPosition` fires `move`, which runs
       // `refreshGrowth`, which reads the avatar's position back out of the
       // window using this exact variable — so it has to already say which
@@ -777,8 +821,8 @@ export const openCompanionWindow = (): void => {
   const win = createFloatingWindow({
     kind: COMPANION_KIND,
     route: COMPANION_ROUTE,
-    width: CANVAS_WIDTH,
-    height: CANVAS_HEIGHT,
+    width: geometry.canvasWidth,
+    height: geometry.canvasHeight,
     // The canvas is a click-through sheet until the pointer reaches the pill.
     ignoreMouseEvents: { forward: true },
     position: defaultCanvasOrigin,
@@ -838,6 +882,53 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
   } else {
     closeCompanionWindow();
   }
+};
+
+/** Which size the surface is currently drawn at, for the tray's radio items. */
+export const readCompanionSurfaceSize = (): CompanionSize => readCompanionSize();
+
+/**
+ * Draw the surface at a different size, keeping the avatar where it is.
+ *
+ * The canvas is derived from the size, so this is the one moment it resizes.
+ * That is safe here in a way it would not be mid-gesture: a menu pick is a
+ * deliberate, isolated event, where a canvas that grew during a drag would move
+ * the window out from under the pointer.
+ *
+ * **The avatar's position is preserved, not the window's.** They are not the
+ * same point and the difference is most of the canvas: keeping the origin would
+ * slide the mascot by the change in its offset, which at the extremes is
+ * hundreds of points, and the user would watch the thing they were trying to
+ * enlarge walk off across the desktop. So the centre is read in the old
+ * geometry, and the window placed in the new one around the same point.
+ */
+export const setCompanionSurfaceSize = (size: CompanionSize): void => {
+  writeCompanionSize(size);
+  const next = geometryFor(size);
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (!win || win.isDestroyed()) {
+    geometry = next;
+    return;
+  }
+  const centre = avatarCentre(win);
+  geometry = next;
+  const { workArea } = screen.getDisplayNearestPoint({
+    x: Math.round(centre.x),
+    y: Math.round(centre.y),
+  });
+  const placed = placeCanvas(centre, workArea, geometry);
+  cardGrowth = placed.cardGrowth;
+  growth = growthFor(centre.x, workArea, geometry);
+  // Bounds rather than size then position: two calls would put the window at
+  // the new size in the old place for a frame, which on the largest step is a
+  // visible jump of most of a canvas.
+  win.setBounds({
+    x: placed.origin.x,
+    y: placed.origin.y,
+    width: geometry.canvasWidth,
+    height: geometry.canvasHeight,
+  });
+  pushState();
 };
 
 /**

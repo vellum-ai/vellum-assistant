@@ -631,6 +631,33 @@ export const COMPANION_CARD_GROWTHS = ["up", "down"] as const;
 export type CompanionCardGrowth = (typeof COMPANION_CARD_GROWTHS)[number];
 
 /**
+ * How big the companion is drawn, as a named step rather than a number.
+ *
+ * Named rather than free, because the avatar's box is not a style — it is the
+ * geometry both sides of the bridge agree on, and everything derives from it:
+ * the pill's reach, the card's height, and the canvas sized to hold the largest
+ * state. A continuous scale would be a layout nobody had ever looked at; four
+ * steps are four layouts, each checkable in Storybook.
+ *
+ * `large` is the default. The surface shipped at `small`, which is the size the
+ * pill was designed at and too small to find on a busy desktop (JARVIS-1549).
+ */
+export const COMPANION_SIZES = ["small", "medium", "large", "huge"] as const;
+
+export type CompanionSize = (typeof COMPANION_SIZES)[number];
+
+/** The avatar's box in points, per named size. The scale is this over `small`. */
+export const COMPANION_SIZE_BOXES: Record<CompanionSize, number> = {
+  small: 44,
+  medium: 66,
+  large: 88,
+  huge: 110,
+};
+
+/** What the surface is drawn at when nothing has been chosen. */
+export const DEFAULT_COMPANION_SIZE: CompanionSize = "large";
+
+/**
  * The assistant's character, as the three trait ids it is composed from.
  *
  * Structurally the fields of the web layer's `CharacterTraits` that
@@ -705,6 +732,15 @@ export interface CompanionSurfaceState {
    * so main is the only side that can decide this.
    */
   cardGrowth: CompanionCardGrowth;
+  /**
+   * The avatar's box in points, which is the whole of the surface's scale.
+   *
+   * One number rather than the named size, because the name is a lookup both
+   * sides would then have to hold the same copy of. Everything the surface
+   * draws derives from this, so the renderer scales itself by this over the
+   * size the layout is authored at. See {@link COMPANION_SIZE_BOXES}.
+   */
+  avatarBox: number;
   /**
    * The assistant's display name, for the composer's placeholder.
    *
