@@ -61,10 +61,14 @@ const STRUCTURAL_PROPS = new Set([
   "transform",
   "viewBox",
   // ARIA relationships hold element ids, not copy: `aria-labelledby` points at
-  // the node holding the label rather than spelling one out.
+  // the node holding the label rather than spelling one out. This is every
+  // attribute WAI-ARIA types as an ID reference or ID reference list.
   "aria-activedescendant",
   "aria-controls",
   "aria-describedby",
+  "aria-details",
+  "aria-errormessage",
+  "aria-flowto",
   "aria-labelledby",
   "aria-owns",
   "as",

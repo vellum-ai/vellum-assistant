@@ -88,7 +88,22 @@ ruleTester.run("no-untranslated-strings", noUntranslatedStrings, {
     {
       name: "ARIA relationships holding element ids are not copy",
       filename: COMPONENT,
-      code: `const C = () => <input aria-activedescendant={\`\${id}-opt-\${i}\`} aria-controls={\`\${id}-list\`} />;`,
+      // Every attribute WAI-ARIA types as an ID reference, since the
+      // tightened template test would otherwise read the id suffix as a word.
+      code: [
+        "const C = () => (",
+        "  <input",
+        "    aria-activedescendant={`${id}-opt-${i}`}",
+        "    aria-controls={`${id}-list`}",
+        "    aria-describedby={`${id}-hint`}",
+        "    aria-details={`${id}-details`}",
+        "    aria-errormessage={`${id}-error`}",
+        "    aria-flowto={`${id}-next`}",
+        "    aria-labelledby={`${id}-label`}",
+        "    aria-owns={`${id}-popup`}",
+        "  />",
+        ");",
+      ].join("\n"),
     },
     {
       name: "values joined by punctuation carry no copy of their own",
