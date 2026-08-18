@@ -286,8 +286,8 @@ async function fetchConversationListPage(
  * bucket ({@link shapeListRows}).
  *
  * The four bucket caches (foreground, background, scheduled, archived)
- * still drain because their remaining readers assume a complete list; a
- * section drains only for the bulk-action path (`getAllRows` in
+ * drain because their readers assume a complete list; a section drains
+ * only for the bulk-action path (`getAllRows` in
  * `use-section-conversations.ts`), which must cover a section's full
  * membership while its rendered cache is a window. Bulk archive and
  * mark-all-read send explicit id lists, so their completeness is exactly

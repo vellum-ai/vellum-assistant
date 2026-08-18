@@ -20,18 +20,19 @@
  *   section (a filter on the group or channel axis) is windowed.
  * - **Drained**: every page fetched serially, `hasMore: false` at rest.
  *   The four bucket reads (foreground, background, scheduled, archived)
- *   still drain because their remaining readers assume a complete list;
- *   they stop draining as those readers move to server answers, not as a
- *   side effect of a key change.
+ *   drain because their readers assume a complete list; a bucket becomes
+ *   windowed only when its readers stop needing every row, never as a side
+ *   effect of the key.
  *
  * The transform runs in the queryFn, so the cache holds `Conversation` and
  * not the wire shape. That is a documented TanStack option with a named
  * cost: the raw response is not available from the cache, so the generated
- * `SetQueryData` helpers for this route do not apply. It is kept for now
- * because the placement seam mints rows optimistically (`prependConversation`,
- * `surfaceConversationInCaches`) and there is no `Conversation` -> wire
- * inverse; once mutation responses carry the row's post-state the seam
- * applies server rows and the transform moves to `select`.
+ * `SetQueryData` helpers for this route do not apply. The constraint that
+ * forces it is the placement seam: it mints rows optimistically
+ * (`prependConversation`, `surfaceConversationInCaches`) and there is no
+ * `Conversation` -> wire inverse, so the cache cannot hold the wire shape
+ * while the client authors rows. A seam that applies server-returned rows
+ * lets the transform move to `select`.
  *
  * @see {@link https://tanstack.com/query/latest/docs/framework/react/guides/query-options}
  * @see {@link https://tkdodo.eu/blog/react-query-data-transformations}

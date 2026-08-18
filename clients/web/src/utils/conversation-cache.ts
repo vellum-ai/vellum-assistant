@@ -12,10 +12,10 @@
  *
  * The caches that exist at any moment are whatever filters are mounted:
  *
- * - The four **buckets** (foreground `{}`, background, scheduled, archived)
- *   that predate the per-section queries. Foreground gates the initial chat
- *   render; the others mount when their sidebar section or the archive view
- *   is revealed.
+ * - The four **buckets** (foreground `{}`, background, scheduled, archived):
+ *   whole-list reads for the surfaces that need every row of a type.
+ *   Foreground gates the initial chat render; the others mount when their
+ *   sidebar section or the archive view is revealed.
  * - One **section** cache per sidebar section (a group and/or channel
  *   filter): Pinned, each custom group, each channel, and Chats each key
  *   their own entry. Membership here is the server's answer, not a

@@ -5,9 +5,9 @@
  * Every conversation list cache is a `GET /v1/conversations` read scoped by
  * its filter, so its key is the generated key for that request:
  * `[{ _id: "conversationsGet", path: { assistant_id }, query: <filter> }]`.
- * The four caches the app used to name (foreground, background, scheduled,
- * archived) and the per-section caches are all this one key with different
- * `query` values; there is no second key scheme.
+ * The four bucket caches (foreground, background, scheduled, archived) and
+ * the per-section caches are all this one key with different `query`
+ * values; there is no second key scheme.
  *
  * Two facts about the generated key shape decide how it is used, both
  * verified by executing `partialMatchKey` against the generated functions
@@ -59,9 +59,10 @@ export type ConversationListFilter = Omit<
 >;
 
 /**
- * Filters for the four bucket reads that predate the per-section queries.
- * Named so callers spread the same object and get the same key; every one
- * of them is still one `conversationsGet` request scoped by these params.
+ * Filters for the four bucket reads: whole-list reads for the surfaces that
+ * need every row of a type. Named so callers spread the same object and get
+ * the same key; each is one `conversationsGet` request scoped by these
+ * params.
  */
 export const FOREGROUND_FILTER: ConversationListFilter = {};
 export const BACKGROUND_FILTER: ConversationListFilter = {
@@ -206,8 +207,8 @@ export function isArchivedFilter(filter: ConversationListFilter): boolean {
  * True for exactly one read, the fully unfiltered foreground list (every
  * axis at its default); every scoped read gets the filtered page alone.
  * Mirrors the guard in the daemon's `handleListConversations`, the
- * compatibility shim for clients that still read Pinned out of the
- * unfiltered list, and matters to `mergeListFirstPage`, which must keep the
+ * compatibility shim for clients that read Pinned out of the unfiltered
+ * list, and matters to `mergeListFirstPage`, which must keep the
  * injected rows out of its window cutoff.
  */
 export function isPinnedInjectedFilter(
