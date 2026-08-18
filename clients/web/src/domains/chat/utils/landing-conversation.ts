@@ -1,26 +1,39 @@
 /**
- * The two server answers a cold-load landing needs, each a single-row read.
+ * The two server answers a cold-load landing needs, each a single-row
+ * question.
  *
  * A cold load with nothing selected (no conversation in the URL, no
  * in-memory selection, no draft) resumes the last-viewed conversation if it
- * is still selectable, else lands on the newest foreground conversation.
- * Both are questions about one row, so both are answered by one request
- * each: the last-viewed row by id, and the newest row as page one of the
- * foreground list with `limit: 1`. Neither waits on the drained foreground
- * list, whose length grows with the account and whose readers are elsewhere.
+ * is still selectable, else lands on the newest selectable foreground
+ * conversation. The last-viewed row is read by id; the newest is the first
+ * selectable row of the foreground list's page one, read through the app's
+ * own page fetcher so nothing lands in the query cache under the list prefix
+ * (every `conversationsGet` key is a list cache to the prefix scanners, and
+ * this read is not one). Neither waits on the drained foreground list, whose
+ * length grows with the account and whose readers are elsewhere.
  *
- * The drained list is still consulted when it already holds data (a warm
- * cache from an earlier mount), because reading it costs nothing.
+ * The drained list is still consulted when it already holds rows (a warm
+ * cache from an earlier mount), because reading it costs nothing; the same
+ * selectability rule applies to it, since an optimistic archive can leave an
+ * archived row in that cache until the settle refetch.
+ *
+ * Callers gate this on the daemon preconditions every list query honors
+ * (`useCanQueryDaemon`); it does not retry, so a waking pod's 503 must not
+ * reach it.
  */
 
 import type { QueryClient } from "@tanstack/react-query";
 
-import { conversationsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   isStoredConversationSelectable,
   type SelectableConversation,
 } from "@/domains/chat/utils/conversation-selection";
-import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
+import type { Conversation } from "@/types/conversation-types";
+import {
+  type ConversationListPage,
+  listConversationsFirstPage,
+  listConversationsPage,
+} from "@/utils/conversation-list-fetchers";
 import { conversationListQueryKey } from "@/utils/conversation-list-keys";
 import {
   ConversationNotFoundError,
@@ -34,7 +47,7 @@ export interface LandingConversation {
    */
   storedConversation: SelectableConversation | null;
   /**
-   * The newest active foreground conversation's id, or `null` when the
+   * The newest selectable foreground conversation's id, or `null` when the
    * assistant has none.
    */
   latestForegroundId: string | null;
@@ -66,14 +79,18 @@ async function fetchStoredConversation(
   }
 }
 
+function firstSelectableId(rows: Conversation[]): string | null {
+  return rows.find(isStoredConversationSelectable)?.conversationId ?? null;
+}
+
 /**
- * The newest active foreground conversation's id.
+ * The newest selectable foreground conversation's id.
  *
  * Reads the drained foreground cache when it already holds rows (free), else
- * asks the server for page one with `limit: 1`. The route orders by recency
- * and defaults to active, standard conversations, so the first row is the
- * answer; the pinned rows the daemon appends to an unfiltered page one come
- * after it, never before.
+ * page one of the foreground list, and later pages only while page one held
+ * no selectable row and the server has more: the route's standard listing
+ * admits background runs filed in custom groups, so the first row is not
+ * always a chat. One request in the ordinary case.
  */
 async function fetchLatestForegroundId(
   queryClient: QueryClient,
@@ -83,17 +100,17 @@ async function fetchLatestForegroundId(
     conversationListQueryKey(assistantId),
   );
   if (cached && cached.conversations.length > 0) {
-    return cached.conversations[0]?.conversationId ?? null;
+    return firstSelectableId(cached.conversations);
   }
-  const page = await queryClient.fetchQuery({
-    ...conversationsGetOptions({
-      path: { assistant_id: assistantId },
-      query: { limit: 1 },
-    }),
-    staleTime: 0,
-    retry: false,
-  });
-  return page.conversations[0]?.id ?? null;
+  let page = await listConversationsFirstPage(assistantId);
+  let offset = page.conversations.length;
+  let found = firstSelectableId(page.conversations);
+  while (found === null && page.hasMore && page.conversations.length > 0) {
+    page = await listConversationsPage(assistantId, {}, offset);
+    offset += page.conversations.length;
+    found = firstSelectableId(page.conversations);
+  }
+  return found;
 }
 
 /**

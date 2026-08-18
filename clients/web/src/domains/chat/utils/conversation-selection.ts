@@ -26,7 +26,11 @@ interface ResolveBootstrappedConversationIdArgs {
 /** The fields the resume rule reads off a conversation. */
 export type SelectableConversation = Pick<
   Conversation,
-  "conversationId" | "conversationType" | "groupId" | "surfacedAt"
+  | "conversationId"
+  | "conversationType"
+  | "groupId"
+  | "surfacedAt"
+  | "archivedAt"
 >;
 
 /**
@@ -78,13 +82,18 @@ export function shouldMintNewChatDraft({
 }
 
 /**
- * Whether a stored last-viewed conversation may be resumed implicitly on a
- * cold load. Background and scheduled runs may not: they live behind a
- * collapsed-by-default section and are selected only by explicit URL.
+ * Whether a conversation may be landed on implicitly on a cold load, as the
+ * resumed last-viewed conversation or as the newest one. Archived
+ * conversations may not: the sidebar does not show them. Background and
+ * scheduled runs may not either: they live behind a collapsed-by-default
+ * section and are selected only by explicit URL.
  */
 export function isStoredConversationSelectable(
   conversation: SelectableConversation,
 ): boolean {
+  if (conversation.archivedAt != null) {
+    return false;
+  }
   // Surfaced conversations (`surfacedAt != null`) render in Recents even
   // when their underlying type is background/scheduled, so restoring them
   // on reload is expected — the user can see and select them in the sidebar.

@@ -86,8 +86,12 @@ const EMPTY_GROUPS: ConversationGroup[] = [];
  * budget there gives up for good. Gating instead of retrying also supplies the
  * recovery edge, since TanStack Query refetches when `enabled` flips back to
  * true. See {@link useAssistantIsServing}.
+ *
+ * Exported for the one imperative daemon read that shares the queries'
+ * preconditions (the cold-boot landing lookup in `use-conversation-loader`),
+ * so the gate has one definition.
  */
-function useCanQueryDaemon(assistantId: string | null): boolean {
+export function useCanQueryDaemon(assistantId: string | null): boolean {
   const isOrgReady = useIsOrgReady();
   const isServing = useAssistantIsServing(assistantId);
   return isOrgReady && isServing;
