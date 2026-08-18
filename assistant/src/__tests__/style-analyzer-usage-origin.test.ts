@@ -42,6 +42,7 @@ mock.module("../providers/provider-send-message.js", () => ({
 
 import type { Message as ProviderMessage } from "../messaging/provider-types.js";
 import { extractStylePatterns } from "../messaging/style-analyzer.js";
+import { buildUsageOriginSnapshot } from "../usage/work-origin.js";
 
 function sentMessage(text: string): ProviderMessage {
   return {
@@ -62,5 +63,42 @@ describe("extractStylePatterns billing origin", () => {
 
     expect(lastSendOptions?.config?.callSite).toBe("styleAnalyzer");
     expect(lastSendOptions?.config?.conversationId).toBe("conv-xyz");
+  });
+
+  // A schedule firing inside a conversation whose type and source stay
+  // standard/user is invisible to a row-derived classification, so the turn's
+  // snapshot is what keeps a scheduled analysis out of interactive spend.
+  test("carries the turn's origin when the analysis runs inside a scheduled turn", async () => {
+    const snapshot = buildUsageOriginSnapshot({
+      conversationType: "standard",
+      conversationSource: "user",
+      callSite: "mainAgent",
+      conversationId: "conv-xyz",
+      turnIndex: 4,
+      parentConversationId: null,
+      parentTurnIndex: null,
+      cronRunId: "cron-run-1",
+    });
+
+    await extractStylePatterns([sentMessage("Hi Bob, sounds good.")], {
+      conversationId: "conv-xyz",
+      usageOriginSnapshot: snapshot,
+    });
+
+    expect(lastSendOptions?.config?.usageOriginSnapshot).toBe(snapshot);
+    expect(lastSendOptions?.config?.usageOriginSnapshot?.workOrigin).toBe(
+      "user_created_schedule",
+    );
+    // The conversation id still rides alongside for callers running outside a
+    // turn, whose sends have no snapshot to classify from.
+    expect(lastSendOptions?.config?.conversationId).toBe("conv-xyz");
+  });
+
+  test("omits the snapshot key when the caller has no turn origin", async () => {
+    await extractStylePatterns([sentMessage("Hi Bob, sounds good.")], {
+      conversationId: "conv-xyz",
+    });
+
+    expect(lastSendOptions?.config?.usageOriginSnapshot).toBeUndefined();
   });
 });

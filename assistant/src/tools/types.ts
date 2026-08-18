@@ -8,6 +8,7 @@ import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/trust-class.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
+import type { UsageOriginSnapshot } from "../usage/work-origin.js";
 import type {
   DiffInfo,
   ProxyApprovalCallback,
@@ -424,6 +425,15 @@ export interface ToolContext {
    * cost reporting.
    */
   cronRunId?: string | null;
+  /**
+   * Immutable billing-origin attribution of the turn executing this tool: work
+   * origin, conversation type and source, turn indexes, spawn lineage, and the
+   * schedule firing behind it. Tools that make their own LLM call stamp it on
+   * the send config so the managed billing headers and the recorded usage row
+   * describe the turn the call ran inside, rather than being classified from
+   * the conversation row alone. Undefined outside a live turn.
+   */
+  usageOriginSnapshot?: UsageOriginSnapshot;
   /**
    * The LLM call site of the turn currently executing this tool (`mainAgent`,
    * `heartbeatAgent`, scheduled work, etc.). `subagent_spawn` reads it to

@@ -123,6 +123,12 @@ interface WakeConversationProbe {
    */
   maybeCompactSizings: unknown[];
   /**
+   * The billing-origin snapshot passed to each `conversation.maybeCompact()`
+   * call — the gate's summary call bills against the wake's own origin, not a
+   * classification derived from the conversation row.
+   */
+  maybeCompactSnapshots: unknown[];
+  /**
    * Options passed to each `conversation.waitForIdle()` call — the wake's
    * pre-run busy gate. Lets tests pin the wait budget the wake hands to the
    * conversation's event-driven wait.
@@ -466,6 +472,7 @@ function makeWakeConversation(options: {
     persistedAtEachEmit: [],
     maybeCompactOrders: [],
     maybeCompactSizings: [],
+    maybeCompactSnapshots: [],
     waitForIdleCalls: [],
     processingLockStomps: 0,
   };
@@ -618,9 +625,10 @@ function makeWakeConversation(options: {
     // Pre-run auto-compaction gate. The double only records the call (and
     // the sizing argument) — compaction side effects are exercised in the
     // Conversation tests.
-    maybeCompact: async (sizing?: unknown) => {
+    maybeCompact: async (sizing?: unknown, usageOriginSnapshot?: unknown) => {
       probe.maybeCompactOrders.push(order++);
       probe.maybeCompactSizings.push(sizing);
+      probe.maybeCompactSnapshots.push(usageOriginSnapshot);
       probe.callSequence.push("maybeCompact");
       return null;
     },
@@ -751,6 +759,43 @@ describe("wakeAgentForOpportunity", () => {
         conversationId: "wake-scheduled-1",
         callSite: "mainAgent",
         cronRunId: "cron-run-1",
+      },
+    ]);
+  });
+
+  // The pre-run compaction gate runs before the agent loop, so its summary
+  // call is the wake's first LLM spend. Without the wake's own snapshot it
+  // would fall back to a row-derived origin and label a scheduled wake's
+  // compaction as interactive user spend.
+  test("hands the pre-run compaction gate the same snapshot the run gets", async () => {
+    const conversation = makeWakeConversation({
+      conversationId: "wake-compact-origin-1",
+      scriptedAssistant: null,
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "scheduled",
+        source: "schedule",
+        cronRunId: "cron-run-2",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(conversation.maybeCompactSnapshots).toEqual([
+      SENTINEL_USAGE_ORIGIN_SNAPSHOT,
+    ]);
+    expect(conversation.runCalls[0]!.usageOriginSnapshot).toBe(
+      SENTINEL_USAGE_ORIGIN_SNAPSHOT,
+    );
+    // One assembly per wake: it counts turns and resolves spawn lineage from
+    // the DB, and both consumers describe the same turn.
+    expect(buildTurnUsageOriginSnapshotCalls).toEqual([
+      {
+        conversationId: "wake-compact-origin-1",
+        callSite: "mainAgent",
+        cronRunId: "cron-run-2",
       },
     ]);
   });

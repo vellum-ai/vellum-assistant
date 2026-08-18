@@ -157,6 +157,10 @@ let mockCompactResult: ContextWindowResult = {
 // before delegating to the manager.
 const updateConfigCalls: Array<{ maxInputTokens?: number }> = [];
 
+// Options the manager's `maybeCompact` received — the compaction pipeline
+// forwards the caller's billing origin through them onto the summary call.
+const managerCompactOptions: Array<{ usageOriginSnapshot?: unknown }> = [];
+
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
     estimateInputTokens() {
@@ -173,7 +177,12 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
-    async maybeCompact(): Promise<ContextWindowResult> {
+    async maybeCompact(
+      _messages: Message[],
+      _signal?: AbortSignal,
+      options?: { usageOriginSnapshot?: unknown },
+    ): Promise<ContextWindowResult> {
+      managerCompactOptions.push(options ?? {});
       return mockCompactResult;
     }
     resetOverflowRecovery() {}
@@ -185,8 +194,18 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   getSummaryFromContextMessage: () => null,
 }));
 
+// Ledger rows written for the compaction summary call — the cron run id on
+// them is what attributes a scheduled wake's compaction to its firing.
+const recordedUsageEvents: Array<{
+  actor: string;
+  cronRunId: string | null;
+}> = [];
+
 mock.module("../persistence/llm-usage-store.js", () => ({
-  recordUsageEvent: () => ({ id: "mock-id", createdAt: Date.now() }),
+  recordUsageEvent: (event: { actor: string; cronRunId: string | null }) => {
+    recordedUsageEvents.push(event);
+    return { id: "mock-id", createdAt: Date.now() };
+  },
   listUsageEvents: () => [],
 }));
 
@@ -217,6 +236,7 @@ mock.module("../agent/loop.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { Conversation } from "../daemon/conversation.js";
+import { buildUsageOriginSnapshot } from "../usage/work-origin.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -550,6 +570,65 @@ describe("maybeCompact gate sizing", () => {
     expect(updateConfigCalls.map((cfg) => cfg.maxInputTokens)).toEqual([
       100000, 50000,
     ]);
+  });
+
+  // A wake fired by a schedule compacts before its run, and the conversation
+  // it fires in stays standard/user, so the firing on the turn's snapshot is
+  // the only thing that keeps the summary call's spend attributed to the
+  // schedule.
+  test("forwards the caller's billing origin to the summary call and the usage row", async () => {
+    mockCompactResult = {
+      messages: [],
+      compacted: true,
+      previousEstimatedInputTokens: 150_000,
+      estimatedInputTokens: 80_000,
+      maxInputTokens: 200_000,
+      thresholdTokens: 160_000,
+      compactedMessages: 10,
+      compactedPersistedMessages: 5,
+      summaryCalls: 1,
+      summaryInputTokens: 500,
+      summaryOutputTokens: 200,
+      summaryModel: "test-model",
+      summaryText: "summary text",
+    };
+    const snapshot = buildUsageOriginSnapshot({
+      conversationType: "standard",
+      conversationSource: "user",
+      callSite: "mainAgent",
+      conversationId: "conv-compact-origin",
+      turnIndex: 3,
+      parentConversationId: null,
+      parentTurnIndex: null,
+      cronRunId: "cron-run-1",
+    });
+    const conversation = makeConversation([], "conv-compact-origin");
+
+    managerCompactOptions.length = 0;
+    recordedUsageEvents.length = 0;
+    await conversation.maybeCompact({ callSite: "mainAgent" }, snapshot);
+
+    expect(managerCompactOptions).toHaveLength(1);
+    expect(managerCompactOptions[0]!.usageOriginSnapshot).toBe(snapshot);
+    const compactorRows = recordedUsageEvents.filter(
+      (event) => event.actor === "context_compactor",
+    );
+    expect(compactorRows).toHaveLength(1);
+    expect(compactorRows[0]!.cronRunId).toBe("cron-run-1");
+  });
+
+  test("records no firing on a compaction with no billing origin", async () => {
+    mockCompactResult = { ...mockCompactResult, compacted: true };
+    const conversation = makeConversation([], "conv-compact-origin-absent");
+
+    recordedUsageEvents.length = 0;
+    await conversation.maybeCompact();
+
+    const compactorRows = recordedUsageEvents.filter(
+      (event) => event.actor === "context_compactor",
+    );
+    expect(compactorRows).toHaveLength(1);
+    expect(compactorRows[0]!.cronRunId).toBeNull();
   });
 
   test("forceCompact keeps mainAgent sizing", async () => {

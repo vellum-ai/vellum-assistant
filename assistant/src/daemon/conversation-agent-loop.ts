@@ -665,6 +665,12 @@ export async function runAgentLoopImpl(
   // or message) stamps the delegated usage with this firing.
   ctx.currentTurnCronRunId = turnCronRunId;
 
+  // Mirrored for the same reason as the firing above, one level up: a tool that
+  // makes its own LLM call (style analysis) reads the turn's whole origin off
+  // the tool context, so its send carries this turn's work origin instead of a
+  // classification derived from the conversation row.
+  ctx.currentTurnUsageOriginSnapshot = usageOriginSnapshot;
+
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.
   // When context is unavailable (e.g. regenerate after daemon restart),
@@ -818,6 +824,7 @@ export async function runAgentLoopImpl(
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
     ctx.currentTurnCronRunId = undefined;
+    ctx.currentTurnUsageOriginSnapshot = undefined;
     ctx.currentTurnModelProfileNoticeKey = undefined;
     // Turn-scoped interactivity. Clear it so paths that bypass this loop
     // (e.g. opportunity wakes calling `agentLoop.run` directly) don't inherit

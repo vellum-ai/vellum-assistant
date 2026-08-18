@@ -123,6 +123,7 @@ export async function run(
 
     const result = await extractStylePatterns(searchResult.messages, {
       conversationId: context.conversationId,
+      usageOriginSnapshot: context.usageOriginSnapshot,
     });
 
     if (result.stylePatterns.length === 0) {

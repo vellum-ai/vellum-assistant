@@ -8,6 +8,7 @@
 
 import { getConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
+import type { UsageOriginSnapshot } from "../usage/work-origin.js";
 import { truncate } from "../util/truncate.js";
 import type { Message as ProviderMessage } from "./provider-types.js";
 
@@ -120,10 +121,19 @@ function buildCorpus(messages: ProviderMessage[]): string[] {
  * `options.conversationId` is the assistant conversation the analysis runs
  * under. It rides the send config so the call carries the same billing-origin
  * attribution as the rest of that conversation's spend.
+ *
+ * `options.usageOriginSnapshot` is the origin of the turn that asked for the
+ * analysis, when there is one. It states the work origin outright, so a
+ * schedule-driven turn's analysis attributes to the firing instead of being
+ * classified from the conversation row as interactive spend. The conversation
+ * id stays the fallback for callers running outside a turn.
  */
 export async function extractStylePatterns(
   messages: ProviderMessage[],
-  options?: { conversationId?: string | null },
+  options?: {
+    conversationId?: string | null;
+    usageOriginSnapshot?: UsageOriginSnapshot;
+  },
 ): Promise<StyleAnalysisResult> {
   const corpusEntries = buildCorpus(messages);
   if (corpusEntries.length === 0) {
@@ -151,6 +161,7 @@ export async function extractStylePatterns(
   ];
 
   const conversationId = options?.conversationId;
+  const usageOriginSnapshot = options?.usageOriginSnapshot;
   const response = await provider.sendMessage(promptMessages, {
     tools: [storeStyleAnalysisTool],
     systemPrompt: STYLE_EXTRACTION_SYSTEM_PROMPT,
@@ -158,6 +169,7 @@ export async function extractStylePatterns(
     config: {
       callSite: "styleAnalyzer",
       ...(conversationId ? { conversationId } : {}),
+      ...(usageOriginSnapshot ? { usageOriginSnapshot } : {}),
     },
   });
 

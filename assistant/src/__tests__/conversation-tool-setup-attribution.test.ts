@@ -70,6 +70,7 @@ import {
   createToolExecutor,
   resolveConversationAttribution,
 } from "../daemon/conversation-tool-setup.js";
+import { buildUsageOriginSnapshot } from "../usage/work-origin.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -288,6 +289,32 @@ describe("createToolExecutor attribution threading", () => {
       appliedProfile: "active",
       profileSource: "active",
     });
+  });
+
+  // Tools that make their own LLM call (style analysis) stamp this onto their
+  // send config. Without it their spend is classified from the conversation
+  // row, which shows a scheduled turn as ordinary interactive work.
+  test("stamps the turn's billing origin onto the ToolContext", async () => {
+    const snapshot = buildUsageOriginSnapshot({
+      conversationType: "standard",
+      conversationSource: "user",
+      callSite: "mainAgent",
+      conversationId: "conv-test",
+      turnIndex: 2,
+      parentConversationId: null,
+      parentTurnIndex: null,
+      cronRunId: "cron-run-1",
+    });
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeCtx({ currentTurnUsageOriginSnapshot: snapshot }),
+    );
+
+    await toolFn("file_read", { path: "/tmp/a" });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].context.usageOriginSnapshot).toBe(snapshot);
   });
 
   test("attribution resolution failure yields null and does not break tool execution", async () => {

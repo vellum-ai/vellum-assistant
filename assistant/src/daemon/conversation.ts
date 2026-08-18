@@ -93,6 +93,7 @@ import type { SubagentState } from "../subagent/types.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions } from "../tools/registry.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
+import type { UsageOriginSnapshot } from "../usage/work-origin.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -543,6 +544,15 @@ export class Conversation {
    * @internal
    */
   currentTurnCronRunId?: string | null;
+  /**
+   * Immutable billing-origin attribution of the turn currently running, as
+   * built by `buildTurnUsageOriginSnapshot`. Exposed on the live
+   * conversation so the tool context can forward it to LLM calls a tool makes
+   * on its own (style analysis and the like), which then carry the turn's own
+   * work origin instead of a classification derived from the conversation row.
+   * @internal
+   */
+  currentTurnUsageOriginSnapshot?: UsageOriginSnapshot;
   /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
@@ -2336,14 +2346,20 @@ export class Conversation {
    * `sizing` lets a wake thread its own call-site/profile resolution into
    * the gate's context-window sizing — see {@link CompactionSizing}. Absent,
    * the gate sizes against `mainAgent` (the live-turn behavior).
+   *
+   * `usageOriginSnapshot` is the billing origin of the turn this gate runs
+   * ahead of. The summary call and the compaction usage row both carry it, so
+   * a scheduled wake's compaction attributes to the firing rather than
+   * classifying from the conversation row as ordinary interactive spend.
    */
   async maybeCompact(
     sizing?: CompactionSizing,
+    usageOriginSnapshot?: UsageOriginSnapshot,
   ): Promise<ContextWindowResult | null> {
     if (await this.agentLoop.compactionCircuit.isOpen()) {
       return null;
     }
-    return this.runCompaction(false, sizing);
+    return this.runCompaction(false, sizing, { usageOriginSnapshot });
   }
 
   /**
@@ -2360,6 +2376,9 @@ export class Conversation {
    * this pipeline derives row-exact persisted and Slack watermarks against
    * the cut the compactor actually used (the requested cut may retreat to
    * keep tool_use/tool_result pairs together).
+   * `opts.usageOriginSnapshot` is the billing origin of the turn compaction
+   * runs inside, forwarded to the summary call and stamped onto the
+   * compaction usage row.
    */
   private async runCompaction(
     force: boolean,
@@ -2371,6 +2390,7 @@ export class Conversation {
         rows: MessageRow[];
         firstRowByHistoryIndex: (number | null)[];
       };
+      usageOriginSnapshot?: UsageOriginSnapshot;
     },
   ): Promise<ContextWindowResult> {
     const overrideProfile = resolveOverrideProfile(this) ?? null;
@@ -2433,6 +2453,7 @@ export class Conversation {
       actorTrustClass: this.trustContext?.trustClass,
       fixedTailStartIndex: opts?.fixedTailStartIndex,
       fixedBoundaryRowIndex: opts?.fixedBoundaryRowIndex,
+      usageOriginSnapshot: opts?.usageOriginSnapshot,
     });
     // Row-exact watermark accounting for a caller-fixed boundary, derived
     // from the cut the compactor ACTUALLY used (`result.compactedMessages`
@@ -2491,6 +2512,7 @@ export class Conversation {
     }
     if (result.compacted) {
       await applyCompactionResult(this, result, this.emit, null, {
+        cronRunId: opts?.usageOriginSnapshot?.cronRunId ?? null,
         slackContextCompactionWatermarkTs:
           fixedBoundarySlackWatermarkTs ??
           getSlackCompactionWatermarkForPrefix(

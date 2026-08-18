@@ -26,6 +26,7 @@ import { getConversationByKey } from "../../persistence/conversation-key-store.j
 import { getAllToolDefinitions } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import type { BtwSidechainConversationLike } from "../btw-sidechain.js";
 import { runBtwSidechain } from "../btw-sidechain.js";
 import {
   getCachedEmptyStateGreeting,
@@ -137,6 +138,19 @@ async function handleBtw({
     throw new ServiceUnavailableError("Message processing is not available");
   }
 
+  // The side-chain attributes its call to the conversation id it is handed. A
+  // mapped key resolves to a persisted conversation, so the call joins that
+  // conversation's spend; the ephemeral instance an unmapped key runs on has no
+  // row, so it is handed no id and classifies from its call site alone.
+  const sidechainConversation: BtwSidechainConversationLike = mapping
+    ? conversation
+    : {
+        provider: conversation.provider,
+        systemPrompt: conversation.systemPrompt,
+        hasSystemPromptOverride: conversation.hasSystemPromptOverride,
+        getMessages: () => conversation.getMessages(),
+      };
+
   return new ReadableStream({
     start(controller) {
       (async () => {
@@ -144,7 +158,7 @@ async function handleBtw({
           const isGreeting = conversationKey === GREETING_KEY;
           const result = await runBtwSidechain({
             content: effectiveContent,
-            conversation,
+            conversation: sidechainConversation,
             tools: getAllToolDefinitions(),
             signal: abortSignal,
             ...(isGreeting ? { callSite: "emptyStateGreeting" as const } : {}),
