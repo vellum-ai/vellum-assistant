@@ -339,6 +339,41 @@ describe("refreshConversationListWindows and sections", () => {
     expect(foregroundCalls).toBe(0);
   });
 
+  test("a failed bucket's retry invalidates that bucket alone", async () => {
+    /* The foreground key's filter is the empty object, and a key used as a
+       partial filter matches every key whose query extends it, so an inexact
+       invalidation here would refetch every section and re-drain every other
+       bucket on each sync signal while the foreground list is errored. */
+    const client = reset();
+    const foregroundKey = conversationListQueryKey(ASSISTANT_ID);
+    await client
+      .prefetchQuery({
+        queryKey: foregroundKey,
+        queryFn: () => Promise.reject(new Error("first fetch failed")),
+        retry: false,
+      })
+      .catch(() => {});
+    const pinnedKey = conversationListQueryKey(ASSISTANT_ID, PINNED);
+    client.setQueryData(
+      pinnedKey,
+      listPage([conversation({ conversationId: "p1", isPinned: true })]),
+    );
+    const backgroundKey = conversationListQueryKey(
+      ASSISTANT_ID,
+      BACKGROUND_FILTER,
+    );
+    client.setQueryData(
+      backgroundKey,
+      listPage([conversation({ conversationId: "b1" })]),
+    );
+
+    await refreshConversationListWindows(client, ASSISTANT_ID);
+
+    expect(client.getQueryState(foregroundKey)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(pinnedKey)?.isInvalidated).toBe(false);
+    expect(client.getQueryState(backgroundKey)?.isInvalidated).toBe(false);
+  });
+
   test("an unpopulated bucket is skipped", async () => {
     const client = reset();
     client.setQueryData(

@@ -464,7 +464,9 @@ export async function refreshConversationListWindows(
     const before = queryClient.getQueryData<ConversationListPage>(queryKey);
     if (before === undefined) {
       if (fetchStatus === "idle") {
-        await queryClient.invalidateQueries({ queryKey });
+        /* Exact: this cache alone. As a partial filter the foreground key
+           (`query: {}`) would match every list cache. */
+        await queryClient.invalidateQueries({ queryKey, exact: true });
       }
       return;
     }
