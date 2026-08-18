@@ -37,6 +37,7 @@ import {
   isConversationSeedSane,
 } from "./conversation-seed-composer.js";
 import type { NotificationSignal } from "./signal.js";
+import { isGuardianCardEvent } from "./signal.js";
 import type {
   ConversationAction,
   DestinationBindingContext,
@@ -156,6 +157,24 @@ export async function pairDeliveryWithConversation(
         ? copy.conversationSeedMessage
         : composeConversationSeed(signal, channel, copy);
 
+    // Row options shared by every branch below, so the five pairing writes
+    // cannot drift on what they persist.
+    //
+    // A guardian card is about a conversation rather than speech within it,
+    // so its row renders in the transcript and stays out of LLM history
+    // (`isTranscriptOnlyMessage`). Without that, the card the pairing layer
+    // appends to the conversation a tool approval came from is replayed as an
+    // assistant turn sitting between that turn's `tool_use` and its
+    // `tool_result`, and history repair reads the pair as broken. Every other
+    // notification seed IS the assistant addressing this chat, and stays
+    // LLM-visible so a reply has something to continue from.
+    const messageOptions = {
+      skipIndexing: true,
+      ...(isGuardianCardEvent(signal.sourceEventName)
+        ? { metadata: { transcriptOnly: true } }
+        : {}),
+    };
+
     // Attempt to reuse an existing conversation when the model requests it
     if (conversationAction?.action === "reuse_existing") {
       const targetId = conversationAction.conversationId;
@@ -169,7 +188,7 @@ export async function pairDeliveryWithConversation(
           existing.id,
           "assistant",
           messageContent,
-          { skipIndexing: true },
+          messageOptions,
         );
 
         // Rebind the destination so subsequent deliveries to the same
@@ -231,7 +250,7 @@ export async function pairDeliveryWithConversation(
         conversation.id,
         "assistant",
         messageContent,
-        { skipIndexing: true },
+        messageOptions,
       );
 
       // Bind the new conversation to the destination so subsequent
@@ -288,7 +307,7 @@ export async function pairDeliveryWithConversation(
             inboundConversation.id,
             "assistant",
             messageContent,
-            { skipIndexing: true },
+            messageOptions,
           );
 
           log.info(
@@ -336,7 +355,7 @@ export async function pairDeliveryWithConversation(
             boundConversation.id,
             "assistant",
             messageContent,
-            { skipIndexing: true },
+            messageOptions,
           );
 
           // Touch the outbound timestamp so the binding stays fresh.
@@ -403,7 +422,7 @@ export async function pairDeliveryWithConversation(
       conversation.id,
       "assistant",
       messageContent,
-      { skipIndexing: true },
+      messageOptions,
     );
 
     // When binding context is available, record the new conversation so

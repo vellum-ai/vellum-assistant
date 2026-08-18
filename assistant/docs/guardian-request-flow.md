@@ -54,6 +54,31 @@ anti-pattern was retired in #35642 and again in the ask_question redesign).
 | Kind-specific follow-through            | resolver registry (`kind` → resolver)                    | switch statements in the router     |
 | Reply understanding                     | guardian reply router (codes, buttons, reactions, modes) | per-feature inbound intercepts      |
 
+## Cards are not conversation history
+
+`pairDeliveryWithConversation` persists one message row per delivery so the
+card renders and deep-links. For a guardian card that row is addressed to a
+conversation the request is _about_, not one the assistant is speaking in:
+`buildVellumCardAffinity` pins the vellum card to the originating
+conversation, and a channel card lands in whatever conversation the
+guardian's chat binds to. Either way the row is written straight to the DB by
+the notification pipeline, so the live turn's in-memory history never sees it.
+
+That row must never be replayed to the model. The conversation it lands in is
+typically parked mid-approval, with its last assistant message carrying the
+`tool_use` still waiting on this very decision. Replayed, the card sits
+between that `tool_use` and its `tool_result`; history repair reads the pair
+as broken, synthesizes a stub result, and downgrades the real one to text. A
+card left as the tail row instead ends the history on an assistant message,
+which extended-thinking models reject outright ("does not support assistant
+message prefill").
+
+So guardian card rows carry `transcriptOnly` in their metadata and the history
+load in `daemon/conversation.ts` drops them. This is the mirror of `hidden`,
+which suppresses the transcript and leaves the row LLM-visible. Passive
+notification seeds are NOT stamped: those are the assistant addressing that
+chat, and a reply needs them to continue from.
+
 Two instruction modes exist per request kind (`notifications/guardian-question-mode.ts`):
 **approval** ("CODE approve" / approve–reject buttons) and **answer**
 ("CODE <your answer>" / option buttons). `pending_question` is answer-mode.
@@ -97,6 +122,9 @@ Two instruction modes exist per request kind (`notifications/guardian-question-m
    rather than approves.
 5. Register a resolver (`guardian-request-resolvers.ts`) for the kind's
    follow-through.
+6. Add the kind's `sourceEventName` to `GUARDIAN_CARD_EVENT_NAMES`
+   (`notifications/signal.ts`) so its card row is stamped `transcriptOnly`.
+   See "Cards are not conversation history" below.
 
 That is the whole checklist. If a design requires touching the inbound
 message handler, a channel transport, or a new callback prefix, the design is

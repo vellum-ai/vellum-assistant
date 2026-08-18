@@ -54,6 +54,7 @@ import {
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
+import { isTranscriptOnlyMessage } from "../persistence/conversation-types.js";
 import { reportSlowSync } from "../persistence/slow-sync-log.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
@@ -95,6 +96,7 @@ import { getAllToolDefinitions } from "../tools/registry.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { UserError } from "../util/errors.js";
+import { parseJsonSafe } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { WorkspaceGitService } from "../workspace/git-service.js";
@@ -1341,6 +1343,27 @@ export class Conversation {
       parsedMessages.length,
     );
     for (const [index, message] of parsedMessages.entries()) {
+      // Rows that render in the transcript but are not this conversation's
+      // own speech never reach the model. Guardian cards are the case: the
+      // notification pairing layer appends one to the conversation the
+      // request came from, whose turn is parked mid-approval, so replaying it
+      // would splice a foreign assistant turn between a `tool_use` and its
+      // `tool_result` and history repair would then destroy the real result.
+      // Dropped here rather than filtered upstream so `dbMessages` stays the
+      // full row list the compaction slice and `rowToHistoryIndex` are
+      // computed against; a dropped row maps to a null history index exactly
+      // like a fully-injected user row that strips to nothing. `index` is
+      // shared with `slicedDbMessages`, which `parsedMessages` maps 1:1.
+      if (
+        isTranscriptOnlyMessage(
+          parseJsonSafe<Record<string, unknown>>(
+            slicedDbMessages[index]?.metadata ?? "",
+          ),
+        )
+      ) {
+        preRepairIndexBySlicedRow[index] = null;
+        continue;
+      }
       const stripped =
         index < preStrippedCount
           ? stripInjectionsForCompaction([message])
