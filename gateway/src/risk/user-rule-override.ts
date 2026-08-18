@@ -9,13 +9,10 @@ import type { RiskAssessment } from "./risk-types.js";
  * classifier derived from the invocation (the allowlist ladder, directory
  * scopes, command candidates, sandbox flags) survives untouched.
  *
- * Overriding by spread rather than by rebuilding the assessment is the point.
- * Every classifier used to return a fresh object on this path and silently
- * dropped whatever it did not restate: the ladder went missing for skill and
- * schedule tools, directory scopes for file tools. Since the assistant builds
- * no options of its own, a dropped ladder means a prompt the user cannot save
- * a rule from, which is exactly the situation a user who already wrote a rule
- * is trying to get out of.
+ * Override by spread, never by building a fresh assessment: the assistant
+ * builds no options of its own, so an option this drops is one the user
+ * cannot save a rule from, which is exactly what a user who already wrote a
+ * rule is trying to avoid.
  */
 export function applyUserRuleOverride(
   assessment: RiskAssessment,

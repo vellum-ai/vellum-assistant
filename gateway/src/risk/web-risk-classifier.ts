@@ -44,8 +44,15 @@ function friendlyHostname(url: URL): string {
 }
 
 /**
- * Escape the characters Minimatch treats as syntax, so a URL that contains
- * them matches as a literal in a saved rule.
+ * Escape the characters a glob matcher would treat as syntax.
+ *
+ * Kept because it is what the ladder has always minted and what existing
+ * saved rules are keyed on. It no longer does what its name suggests: v3
+ * matching is an exact-string lookup (`TrustRuleCache.findToolOverride`), so
+ * these backslashes are part of the stored key rather than an escape, and a
+ * URL containing `[`, `{` or `(` mints a pattern the raw invocation cannot
+ * match. Part of LUM-3337, which is where the minted pattern and the lookup
+ * key get reconciled together.
  */
 function escapeMinimatchLiteral(value: string): string {
   return value.replace(/([\\*?[\]{}()!+@|])/g, "\\$1");
