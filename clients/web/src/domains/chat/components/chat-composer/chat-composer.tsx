@@ -813,6 +813,39 @@ export function ChatComposer({
   // sheet rises and the card would shift down under the scrim.
   const composerInUse =
     composerFocusWithin || settingsSheetOpen || addSheetOpen;
+  // Whether a banner is standing over the card. Read off the box rather than
+  // derived from props: most of that stack arrives through
+  // `noticesAboveFormSlot`, an opaque node, and the composer-owned notices in
+  // it source their own state, so what the box holds is the one answer that
+  // covers all of them at once.
+  const bannerStackRef = useRef<HTMLDivElement>(null);
+  const [hasBannerAboveCard, setHasBannerAboveCard] = useState(false);
+  const readBannerStack = useCallback(() => {
+    const node = bannerStackRef.current;
+    if (node) {
+      setHasBannerAboveCard(node.childElementCount > 0);
+    }
+  }, []);
+  // On every commit, so a banner that arrives with a render of this composer
+  // (the slot above, or a notice keyed on state it already subscribes to)
+  // settles in that same commit rather than a frame later.
+  useLayoutEffect(readBannerStack);
+  // The backstop for the rest: `ComposerDraftNotices` sources its own state,
+  // and its restored-draft notice comes and goes without this composer
+  // rendering at all. `childList` alone, since every notice in there is an
+  // element of its own.
+  useLayoutEffect(() => {
+    const node = bannerStackRef.current;
+    if (!node) {
+      return;
+    }
+    const observer = new MutationObserver(readBannerStack);
+    observer.observe(node, { childList: true });
+    return () => {
+      observer.disconnect();
+    };
+  }, [readBannerStack]);
+
   // The app shells hold the row up for the whole session. On a phone these
   // pills are the only place the access and profile pickers live, and a row
   // that comes and goes with the keyboard puts both a tap out of reach for as
@@ -820,8 +853,13 @@ export function ChatComposer({
   // reveal, where the row is competing with the page's own chrome for the
   // bottom of the screen.
   const isNativeMobileShell = useIsNativeMobile();
+  // A banner docks to the card's top edge and takes the strip this row floats
+  // in, so the row stands down while one is up rather than crowding it. The
+  // avatar peeking over that same edge stands down with it (`ComposerPeek`).
   const settingsPillsVisible =
-    isMobileMainComposer && (isNativeMobileShell || composerInUse);
+    isMobileMainComposer &&
+    !hasBannerAboveCard &&
+    (isNativeMobileShell || composerInUse);
   // The caption is the row's opposite number: it stands under the card at rest
   // and steps aside the moment anything takes the bottom of the screen, which
   // is where the keyboard and every sheet cover it anyway. In the shells,
@@ -1316,49 +1354,55 @@ export function ChatComposer({
           nonDismissible={isNativeIOS()}
         />
       )}
-      {/* Composer-owned draft/attachment notices (self-sourced), above the
-          orchestration banner stack. */}
-      <ComposerDraftNotices />
-      {/* Live-voice failure notice — surfaced by the voice-enabled composer
-          the user is looking at, mirroring the dictation `voiceError` Notice
-          rendered by `ComposerNotices` in the orchestration stack below.
-          Keyed on the session state (not entry eligibility) for the same
-          reason as `isLiveVoiceActive`: a session that fails right after an
-          eligibility drop must still surface its error. */}
-      {showVoiceInput && liveVoiceState === "failed" && liveVoiceError && (
-        <div className="mb-2">
-          <Notice tone="error" onDismiss={dismissLiveVoiceFailure}>
-            {liveVoiceError}
-          </Notice>
-        </div>
-      )}
-      {/* Pre-open "configure voice" prompt — surfaced when the readiness
-          preflight returns `not-ready` (no usable STT/TTS provider that
-          couldn't be auto-configured). The room stays closed; the action
-          deep-links to voice settings so the user can wire a provider. */}
-      {showVoiceInput && voiceConfigNotice && (
-        <div className="mb-2">
-          <Notice
-            tone="warning"
-            onDismiss={() => setVoiceConfigNotice(null)}
-            actions={
-              <Button
-                variant="outlined"
-                size="compact"
-                onClick={() => {
-                  setVoiceConfigNotice(null);
-                  navigate(routes.settings.voice);
-                }}
-              >
-                Configure voice
-              </Button>
-            }
-          >
-            {voiceConfigNotice}
-          </Notice>
-        </div>
-      )}
-      {noticesAboveFormSlot}
+      {/* Every banner that stands over the card, in one watched box. While
+          anything is in it the strip between the banner and the card is
+          spoken for, and the two things that float in that strip (the mobile
+          settings row below, and `ComposerPeek`'s avatar) stand down. */}
+      <div ref={bannerStackRef} data-slot="composer-banner-stack">
+        {/* Composer-owned draft/attachment notices (self-sourced), above the
+            orchestration banner stack. */}
+        <ComposerDraftNotices />
+        {/* Live-voice failure notice, surfaced by the voice-enabled composer
+            the user is looking at, mirroring the dictation `voiceError` Notice
+            rendered by `ComposerNotices` in the orchestration stack below.
+            Keyed on the session state (not entry eligibility) for the same
+            reason as `isLiveVoiceActive`: a session that fails right after an
+            eligibility drop must still surface its error. */}
+        {showVoiceInput && liveVoiceState === "failed" && liveVoiceError && (
+          <div className="mb-2">
+            <Notice tone="error" onDismiss={dismissLiveVoiceFailure}>
+              {liveVoiceError}
+            </Notice>
+          </div>
+        )}
+        {/* Pre-open "configure voice" prompt, surfaced when the readiness
+            preflight returns `not-ready` (no usable STT/TTS provider that
+            couldn't be auto-configured). The room stays closed; the action
+            deep-links to voice settings so the user can wire a provider. */}
+        {showVoiceInput && voiceConfigNotice && (
+          <div className="mb-2">
+            <Notice
+              tone="warning"
+              onDismiss={() => setVoiceConfigNotice(null)}
+              actions={
+                <Button
+                  variant="outlined"
+                  size="compact"
+                  onClick={() => {
+                    setVoiceConfigNotice(null);
+                    navigate(routes.settings.voice);
+                  }}
+                >
+                  Configure voice
+                </Button>
+              }
+            >
+              {voiceConfigNotice}
+            </Notice>
+          </div>
+        )}
+        {noticesAboveFormSlot}
+      </div>
       {isLiveVoiceActive && (
         // The minimized session surface, directly above the composer card
         // rather than in place of it: the session gets a bar, the user keeps a
@@ -1382,7 +1426,14 @@ export function ChatComposer({
           />
         </div>
       )}
-      <div ref={composerShellRef} data-slot="chat-composer-shell">
+      {/* `data-banner-above` is published for `ComposerPeek`, which reads the
+          flag off this shell rather than watching the same stack a second
+          time on its own clock. */}
+      <div
+        ref={composerShellRef}
+        data-slot="chat-composer-shell"
+        data-banner-above={hasBannerAboveCard ? "" : undefined}
+      >
         {/* Above every slot placement, the pills row included: what a control
             does when the card runs narrow is the control's own business, and
             must not depend on which row it happens to be sitting in. */}
