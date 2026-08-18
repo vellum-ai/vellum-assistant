@@ -474,6 +474,7 @@ import { migrateBackfillScheduleInferenceProfile } from "./migrations/363-backfi
 import { migrateAddScheduleSourceKey } from "./migrations/364-add-schedule-source-key.js";
 import { migrateAddConversationForkStrategy } from "./migrations/365-add-conversation-fork-strategy.js";
 import { migrateChatgptSubscriptionRowIdentity } from "./migrations/366-chatgpt-subscription-row-identity.js";
+import { migrateRetitleStuckChannelPlaceholders } from "./migrations/367-retitle-stuck-channel-placeholders.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1581,5 +1582,19 @@ export const migrationSteps: MigrationStep[] = [
     // creating migration must be checkpointed first or a repair flow could
     // permanently checkpoint the no-op.
     dependsOn: ["migrateCreateProviderConnections"],
+  },
+  {
+    name: "migrateRetitleStuckChannelPlaceholders",
+    run: migrateRetitleStuckChannelPlaceholders,
+    // The table/column guards treat missing schema as nothing-to-do, so the
+    // migrations that create the tables and the `is_auto_title` /
+    // `archived_at` columns must be checkpointed first or a repair flow could
+    // permanently checkpoint the no-op.
+    dependsOn: [
+      "migrateCoreTables",
+      "createWatchersAndLogsTables",
+      "addCoreColumns",
+      "migrateConversationsArchivedAt",
+    ],
   },
 ];
