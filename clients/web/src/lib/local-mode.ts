@@ -135,7 +135,7 @@ function getRemoteGatewayLockfile(): Lockfile {
     assistants: [
       {
         assistantId: "self",
-        name: "Local Assistant",
+        name: getRemoteGatewayAssistantName() ?? "Local Assistant",
         cloud: "local",
         runtimeUrl: window.location.origin,
         hatchedAt: "1970-01-01T00:00:00.000Z",
@@ -677,19 +677,24 @@ export function getLockfileAssistant(
 }
 
 /**
- * React subscription to one lockfile entry's `name`. `undefined` while the
- * lockfile hasn't hydrated or the id has no entry, so effects depending on it
- * re-fire once the entry appears. Narrow on purpose: the lockfile store stays
- * internal to this module.
+ * React subscription to one lockfile entry's `name`: `undefined` while the
+ * lockfile hasn't hydrated or the id has no entry, `null` when the entry
+ * exists but is unnamed. Distinguishing absence from an unnamed entry lets
+ * effects depending on this value re-fire even when the appearing entry
+ * carries no name.
  */
 export function useLockfileAssistantName(
   assistantId: string | null,
-): string | undefined {
-  return useLockfileStore((s) =>
-    assistantId === null
-      ? undefined
-      : s.lockfile?.assistants.find((a) => a.assistantId === assistantId)?.name,
-  );
+): string | null | undefined {
+  return useLockfileStore((s) => {
+    if (assistantId === null) {
+      return undefined;
+    }
+    const entry = s.lockfile?.assistants.find(
+      (a) => a.assistantId === assistantId,
+    );
+    return entry === undefined ? undefined : (entry.name ?? null);
+  });
 }
 
 /**

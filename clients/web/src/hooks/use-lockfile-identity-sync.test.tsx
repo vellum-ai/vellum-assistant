@@ -29,7 +29,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function lockfileEntry(assistantId: string, name: string): LockfileAssistant {
+function lockfileEntry(assistantId: string, name?: string): LockfileAssistant {
   return { assistantId, cloud: "local", name } as LockfileAssistant;
 }
 
@@ -122,6 +122,32 @@ describe("useLockfileIdentitySync", () => {
     act(() => {
       useLockfileStore.getState().setLockfile({
         assistants: [lockfileEntry("assistant-1", "Stale Name")],
+        activeAssistant: "assistant-1",
+      });
+    });
+
+    expect(renameLockfileAssistantMock).toHaveBeenCalledTimes(2);
+    expect(renameLockfileAssistantMock).toHaveBeenLastCalledWith(
+      "assistant-1",
+      "Aria",
+    );
+  });
+
+  test("re-fires when an unnamed lockfile entry hydrates after the identity store", () => {
+    renderHook(() => useLockfileIdentitySync());
+
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("Aria", "1.2.3", "assistant-1");
+    });
+    // First attempt ran against an unhydrated lockfile (helper no-ops on a
+    // missing entry).
+    expect(renameLockfileAssistantMock).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useLockfileStore.getState().setLockfile({
+        assistants: [lockfileEntry("assistant-1")],
         activeAssistant: "assistant-1",
       });
     });
