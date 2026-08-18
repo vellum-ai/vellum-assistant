@@ -207,11 +207,7 @@ describe("completeSubmittedSurface", () => {
     ];
 
     expect(
-      completeSubmittedSurface(
-        messages,
-        "s-first-run-scope",
-        "scope_work",
-      ),
+      completeSubmittedSurface(messages, "s-first-run-scope", "scope_work"),
     ).toBe(messages);
   });
 
@@ -365,8 +361,6 @@ describe("parsePendingConfirmationData", () => {
       requestId: "req-1",
       title: "Confirm action",
       description: "Are you sure?",
-      confirmLabel: "Yes",
-      denyLabel: "No",
       toolName: "delete_file",
       riskLevel: "high",
       riskReason: "Irreversible",
@@ -377,8 +371,6 @@ describe("parsePendingConfirmationData", () => {
     const { confData, state } = parsePendingConfirmationData(raw);
 
     expect(state.requestId).toBe("req-1");
-    expect(state.confirmLabel).toBe("Yes");
-    expect(state.denyLabel).toBe("No");
     expect(state.toolName).toBe("delete_file");
 
     expect(confData.requestId).toBe("req-1");

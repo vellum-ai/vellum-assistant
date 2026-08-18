@@ -10,7 +10,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { resolveConfirmationDecisions } from "@/domains/chat/confirmation-decisions";
+import { offersRuleOption } from "@/domains/chat/confirmation-decisions";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -180,7 +180,7 @@ export async function handleConfirmationSubmit(
   // Same predicate the cards render from, so the hint cannot be sent for a
   // request whose card withheld the option (or withheld for one that offered).
   const ruleHint =
-    decision === "allow" && resolveConfirmationDecisions(snapshot).offersRule
+    decision === "allow" && offersRuleOption(snapshot)
       ? {
           selectedPattern: snapshot.allowlistOptions![0]!.pattern,
           selectedScope:

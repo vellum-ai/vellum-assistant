@@ -156,8 +156,7 @@ export function completeSubmittedSurface(
       return prev;
     }
     const matchedAction = surface.actions?.find((a) => a.id === actionId);
-    const isCancellation =
-      actionId === "cancel" || actionId === "dismiss";
+    const isCancellation = actionId === "cancel" || actionId === "dismiss";
     const updated = [...prev];
     updated[i] = mapMessageSurfaces(prev[i]!, (s) =>
       s.surfaceId === surfaceId
@@ -257,8 +256,6 @@ export function parsePendingConfirmationData(raw: Record<string, unknown>): {
   };
   const state: PendingConfirmationState = {
     ...confData,
-    confirmLabel: optionalString(raw.confirmLabel),
-    denyLabel: optionalString(raw.denyLabel),
   };
   return { confData, state };
 }

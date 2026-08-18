@@ -17,8 +17,6 @@ function makeConfirmationToolCall(
     riskReason?: string | null;
     allowlistOptions?: boolean;
     input?: Record<string, unknown> | null;
-    confirmLabel?: string;
-    denyLabel?: string;
     persistentDecisionsAllowed?: boolean;
   } = {},
 ): ChatMessageToolCall {
@@ -28,8 +26,6 @@ function makeConfirmationToolCall(
     riskReason = null,
     allowlistOptions = true,
     input = { command: "ls -lt ~/Downloads | head -20" },
-    confirmLabel,
-    denyLabel,
     persistentDecisionsAllowed,
   } = overrides;
   return {
@@ -43,8 +39,6 @@ function makeConfirmationToolCall(
     pendingConfirmation: {
       requestId: "req-1",
       riskLevel: "high",
-      ...(confirmLabel ? { confirmLabel } : {}),
-      ...(denyLabel ? { denyLabel } : {}),
       ...(persistentDecisionsAllowed !== undefined
         ? { persistentDecisionsAllowed }
         : {}),
@@ -127,20 +121,6 @@ export const Submitting: Story = {
   args: {
     toolCall: makeConfirmationToolCall(),
     isSubmitting: true,
-  },
-};
-
-/**
- * The daemon can name the decision itself. Both confirmation surfaces read
- * those verbs, so the same request never reads "Allow" in one place and
- * "Run it" in the other.
- */
-export const DaemonSuppliedVerbs: Story = {
-  args: {
-    toolCall: makeConfirmationToolCall({
-      confirmLabel: "Run it",
-      denyLabel: "Skip",
-    }),
   },
 };
 
