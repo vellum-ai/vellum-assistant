@@ -16,13 +16,14 @@
  * it (still only for platform-hosted assistants; the call site ANDs
  * this gate with `useActiveAssistantIsPlatformHosted()`).
  *
- * MIN_VERSION is the dev floor of the daemon-side commit that added the
- * route (d77d014, 2026-08-18T19:12Z UTC) rather than a predicted
- * release number: v0.11.3 was already tagged without the route, so
- * naming a release would either guess the next number or leave dev
- * builds dark. `versionSupports` compares base versions first, so every
- * later release satisfies this floor whatever it is numbered, and dev
- * builds cut from main after that timestamp read as supported.
+ * MIN_VERSION is 0.11.5, the first release line that can contain the
+ * route: the v0.11.4 release branch was cut from main before the route
+ * landed, so no 0.11.4 build carries it. `versionSupports` compares
+ * base versions first, so any lower floor (a dev-timestamp floor on an
+ * earlier base included) would admit every 0.11.4 build and 404-poll
+ * against it. Dev builds with a pre-0.11.5 base are excluded too, even
+ * though ones cut after the route landed do carry it; that is the
+ * deliberate conservative trade for zero 404 noise against 0.11.4.
  *
  * Unscoped on purpose: the monitor polls only the active assistant and
  * resets its snapshot on every assistant switch, so the worst a stale
@@ -32,7 +33,7 @@
  */
 import { useAssistantSupports } from "./utils";
 
-export const MIN_VERSION = "0.11.3-dev.202608181912.d77d014";
+export const MIN_VERSION = "0.11.5";
 
 /**
  * Render-path gate for the resource-pressure status poll. `false` while

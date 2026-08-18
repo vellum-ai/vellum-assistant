@@ -173,6 +173,16 @@ describe("ResourcePressureBannerSlot", () => {
     ).toBeTruthy();
   });
 
+  test("both signals elevated shows the combined body", () => {
+    render(slot(elevatedStatus));
+
+    expect(
+      screen.getByText(
+        "CPU and memory usage have stayed high for an extended period.",
+      ),
+    ).toBeTruthy();
+  });
+
   test("memory-only elevation shows the memory body", () => {
     render(
       slot({
