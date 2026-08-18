@@ -44,6 +44,7 @@ import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-o
 
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
 import { useAssistantCapability } from "@/hooks/use-assistant-capability";
+import { useSupportsResourcePressureStatus } from "@/lib/backwards-compat/use-supports-resource-pressure-status";
 import { useSupportsSummarizeUpToHere } from "@/lib/backwards-compat/use-supports-summarize-up-to-here";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
@@ -182,9 +183,12 @@ export function ActiveChatView() {
     hasResolvedStatus: diskPressure.hasResolvedStatus,
     status: diskPressure.status,
   });
+  // Daemons below the gate's floor lack the status route; the gate keeps
+  // the poller from 404ing against them every tick and app resume.
+  const supportsResourcePressureStatus = useSupportsResourcePressureStatus();
   const resourcePressure = useResourcePressureMonitor({
     assistantId,
-    enabled: isPlatformHosted,
+    enabled: isPlatformHosted && supportsResourcePressureStatus,
   });
 
   // -------------------------------------------------------------------------
