@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { RemoteWebPairingRequestSummary } from "@vellumai/service-contracts/remote-web-pairing";
 
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import {
@@ -49,6 +50,9 @@ export interface PendingPairingRequestsController {
  * 404/410 from approve/deny means the request expired or was handled elsewhere
  * (the CLI `--web-approve` path can race the UI), so the row is removed as if
  * the action succeeded.
+ *
+ * A `base` change drops the previous gateway's rows and errors and aborts its
+ * in-flight action, so stale requests are never shown against the new base.
  */
 export function usePendingPairingRequests(
   base: string | null,
@@ -66,9 +70,26 @@ export function usePendingPairingRequests(
   const pollAbortRef = useRef<AbortController | null>(null);
   const actionAbortRef = useRef<AbortController | null>(null);
 
+  // Requests and errors belong to the gateway they came from. When `base`
+  // changes, drop them during render so the old assistant's rows can never be
+  // shown against (or acted on toward) the new one.
+  const [lastBase, setLastBase] = useState(base);
+  if (base !== lastBase) {
+    setLastBase(base);
+    setRequests([]);
+    setActingOn(null);
+    setPollError(null);
+    setActionError(null);
+  }
+
+  // Abort any in-flight approve/deny on base change and unmount, and release
+  // the single-action guard so the new base's actions aren't blocked.
   useEffect(() => {
-    return () => actionAbortRef.current?.abort();
-  }, []);
+    return () => {
+      actionAbortRef.current?.abort();
+      actionAbortRef.current = null;
+    };
+  }, [base]);
 
   useEffect(() => {
     if (!base) {
@@ -98,9 +119,7 @@ export function usePendingPairingRequests(
           return;
         }
         captureError(err, { context: "pair-device-pending-requests-poll" });
-        setPollError(
-          "Something went wrong while checking for pairing requests.",
-        );
+        setPollError(t("settings:usePendingPairingRequests.pollErrorFallback"));
       }
     };
 
@@ -134,6 +153,10 @@ export function usePendingPairingRequests(
         const perform =
           action === "approve" ? approvePairingRequest : denyPairingRequest;
         await perform({ base, requestId, signal: controller.signal });
+        if (controller.signal.aborted) {
+          // Aborted by a base change; the row no longer belongs to this list.
+          return;
+        }
         removeRequest();
       } catch (err) {
         if (controller.signal.aborted) {
@@ -148,10 +171,16 @@ export function usePendingPairingRequests(
           }
         } else {
           captureError(err, { context: "pair-device-pending-request-action" });
-          setActionError("Something went wrong. Try again.");
+          setActionError(
+            t("settings:usePendingPairingRequests.actionErrorFallback"),
+          );
         }
       } finally {
-        actionAbortRef.current = null;
+        // Only release the guard if it's still ours; a base change may have
+        // cleared it and a new base's action may already hold it.
+        if (actionAbortRef.current === controller) {
+          actionAbortRef.current = null;
+        }
         if (!controller.signal.aborted) {
           setActingOn(null);
         }

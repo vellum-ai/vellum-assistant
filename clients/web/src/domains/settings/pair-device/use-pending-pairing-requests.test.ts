@@ -21,6 +21,9 @@ const BASE = "http://localhost:3000/assistant/__gateway/20100";
 const LIST_URL = `${BASE}/v1/remote-web/pairing-requests`;
 const APPROVE_URL = `${LIST_URL}/approve`;
 const DENY_URL = `${LIST_URL}/deny`;
+const OTHER_BASE = "http://localhost:3000/assistant/__gateway/20200";
+const OTHER_LIST_URL = `${OTHER_BASE}/v1/remote-web/pairing-requests`;
+const OTHER_APPROVE_URL = `${OTHER_LIST_URL}/approve`;
 const POLL_INTERVAL_MS = 5000;
 
 function pendingRequest(requestId = "req-1"): RemoteWebPairingRequestSummary {
@@ -118,7 +121,10 @@ async function tickPoll() {
 }
 
 function renderPendingRequests(base: string | null = BASE) {
-  return renderHook(() => usePendingPairingRequests(base));
+  return renderHook(
+    (props: { base: string | null }) => usePendingPairingRequests(props.base),
+    { initialProps: { base } },
+  );
 }
 
 async function renderWithList(summaries: RemoteWebPairingRequestSummary[]) {
@@ -341,6 +347,89 @@ describe("usePendingPairingRequests: approve/deny", () => {
     await act(async () => {
       await result.current.approve("req-1");
     });
+    expect(result.current.requests).toEqual([]);
+    expect(result.current.error).toBeNull();
+  });
+
+  test("a base change clears rows and errors before the new base's poll resolves", async () => {
+    serveList([pendingRequest("req-1")]);
+    // The new base's list never resolves, so anything shown for it is stale.
+    installRoutedFetch({
+      [OTHER_LIST_URL]: () => new Promise<Response>(() => {}),
+    });
+
+    let result!: ReturnType<typeof renderPendingRequests>["result"];
+    let rerender!: ReturnType<typeof renderPendingRequests>["rerender"];
+    await act(async () => {
+      ({ result, rerender } = renderPendingRequests());
+    });
+    expect(result.current.requests).toHaveLength(1);
+
+    // Put both error channels in a non-null state first.
+    listResponder = () =>
+      jsonResponse({ error: { message: "Not available." } }, 503);
+    await tickPoll();
+    expect(result.current.error).toBe("Not available.");
+
+    await act(async () => {
+      rerender({ base: OTHER_BASE });
+    });
+
+    expect(result.current.requests).toEqual([]);
+    expect(result.current.error).toBeNull();
+    // The new base was polled, but its hung response left the list empty.
+    const otherListCalls = requests.filter((r) => r.url === OTHER_LIST_URL);
+    expect(otherListCalls).toHaveLength(1);
+  });
+
+  test("a base change aborts the pending action and frees the guard for the new base", async () => {
+    serveList([pendingRequest("req-1")]);
+    let resolveOldApprove!: (response: Response) => void;
+    installRoutedFetch({
+      [APPROVE_URL]: () =>
+        new Promise<Response>((resolve) => {
+          resolveOldApprove = resolve;
+        }),
+      [OTHER_LIST_URL]: () =>
+        jsonResponse({ requests: [pendingRequest("req-9")] }),
+      [OTHER_APPROVE_URL]: approvedResponse,
+    });
+
+    let result!: ReturnType<typeof renderPendingRequests>["result"];
+    let rerender!: ReturnType<typeof renderPendingRequests>["rerender"];
+    await act(async () => {
+      ({ result, rerender } = renderPendingRequests());
+    });
+
+    await act(async () => {
+      void result.current.approve("req-1");
+    });
+    expect(result.current.actingOn).toEqual({
+      requestId: "req-1",
+      action: "approve",
+    });
+
+    await act(async () => {
+      rerender({ base: OTHER_BASE });
+    });
+
+    // The old action was aborted and its marker cleared.
+    const oldApprove = requests.filter((r) => r.url === APPROVE_URL);
+    expect(oldApprove[0]?.init?.signal?.aborted).toBe(true);
+    expect(result.current.actingOn).toBeNull();
+    expect(result.current.requests.map((r) => r.requestId)).toEqual(["req-9"]);
+
+    // A late success from the old base must not touch the new base's list.
+    await act(async () => {
+      resolveOldApprove(approvedResponse());
+    });
+    expect(result.current.requests.map((r) => r.requestId)).toEqual(["req-9"]);
+
+    // The guard is free: an action against the new base goes through.
+    await act(async () => {
+      await result.current.approve("req-9");
+    });
+    expect(requests.filter((r) => r.url === OTHER_APPROVE_URL)).toHaveLength(1);
     expect(result.current.requests).toEqual([]);
     expect(result.current.error).toBeNull();
   });

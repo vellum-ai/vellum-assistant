@@ -417,6 +417,10 @@
     "assistantNotReadyToast": "Assistant not ready. Please try again.",
     "saveApiKeyFailedToast": "Failed to save {providerName} API key. Please try again."
   },
+  "usePendingPairingRequests": {
+    "actionErrorFallback": "Something went wrong. Try again.",
+    "pollErrorFallback": "Something went wrong while checking for pairing requests."
+  },
   "useProfileSave": {
     "createdToast": "Profile \"{name}\" created"
   },
