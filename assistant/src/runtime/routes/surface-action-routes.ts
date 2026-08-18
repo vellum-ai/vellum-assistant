@@ -44,25 +44,18 @@ const log = getLogger("surface-action-routes");
  * {@link resolveVellumActorTrustContext} so the surface content route's
  * read-only requester scoping cannot drift from it.
  *
- * The resting slot is only rewritten while the conversation is idle. A click
- * that lands mid-turn belongs to its clicker, not to the running turn, so it
- * travels as an argument; repointing the slot underneath a turn already in
- * flight would hand that turn a different actor's capabilities partway through.
+ * Resolution only: the requester travels to `handleSurfaceAction` as an
+ * argument, and the conversation's slot is stamped there, at the point the
+ * click is committed to starting a turn. Stamping here instead would repoint
+ * the actor of a turn already in flight, or of a turn that starts between this
+ * call and the dispatch.
  */
-async function resolveAndBindTrustContext(
-  conversation: {
-    setTrustContext(ctx: TrustContext): void;
-    isProcessing(): boolean;
-  },
+async function resolveRequesterTrustContext(
   actorPrincipalId: string | undefined,
 ): Promise<TrustContext> {
-  const trustContext = await resolveVellumActorTrustContext(actorPrincipalId, {
+  return resolveVellumActorTrustContext(actorPrincipalId, {
     healResetDrift: true,
   });
-  if (!conversation.isProcessing()) {
-    conversation.setTrustContext(trustContext);
-  }
-  return trustContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,10 +153,8 @@ async function handleSurfaceAction({
   }
 
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
-  const requesterTrustContext = await resolveAndBindTrustContext(
-    conversation,
-    actorPrincipalId,
-  );
+  const requesterTrustContext =
+    await resolveRequesterTrustContext(actorPrincipalId);
 
   // Translate dev-bypass → real guardian so the surface turn's principal matches
   // the SSE host-proxy client's registered principal; otherwise CU/app-control

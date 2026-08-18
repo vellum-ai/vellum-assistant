@@ -86,6 +86,7 @@ import type {
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import { isRowVisibleToUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { restingTrust } from "./trust-context-types.js";
 export {
   buildSurfaceShowPair,
   type CurrentTurnSurface,
@@ -1911,7 +1912,7 @@ export async function handleSurfaceAction(
   // whoever occupies the resting slot.
   requesterTrustContext?: TrustContext,
 ): Promise<SurfaceActionResult> {
-  const actionTrustContext = requesterTrustContext ?? ctx.trustContext;
+  const actionTrustContext = requesterTrustContext ?? restingTrust(ctx);
   // ── Standalone surface interception ──────────────────────────────
   // Daemon-driven surfaces (from `requestInteractiveUi`) register a
   // pending entry in `pendingStandaloneSurfaces`. When the user clicks
@@ -2281,6 +2282,12 @@ export async function handleSurfaceAction(
       { surfaceId, actionId, requestId, attachmentCount: attachments.length },
       "Processing surface action immediately (history-restored) with attachments",
     );
+    // Reached only when `enqueueMessage` declined to queue, i.e. the
+    // conversation is idle and this click is starting the turn. Stamp the
+    // committing actor so the run it kicks off hydrates and scopes to them.
+    if (actionTrustContext) {
+      ctx.setTrustContext(actionTrustContext);
+    }
     ctx
       .processMessage({
         content,
@@ -2542,6 +2549,11 @@ export async function handleSurfaceAction(
     },
     "Processing surface action as follow-up with attachments",
   );
+  // Same commitment point as the history-restored branch above: the enqueue
+  // declined, so this click is the turn that is about to run.
+  if (actionTrustContext) {
+    ctx.setTrustContext(actionTrustContext);
+  }
   ctx
     .processMessage({
       content,

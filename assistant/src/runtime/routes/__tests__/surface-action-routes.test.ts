@@ -26,14 +26,15 @@ interface StubConversation {
   handleSurfaceUndoCalled?: boolean;
   handleSurfaceUndoThrows?: Error;
   trustContext?: { trustClass: string; sourceChannel: string };
-  /** Drives `isProcessing()`, the resting-slot write guard. */
+  /** Drives `isProcessing()`; the route must not stamp trust either way. */
   processing?: boolean;
+  /** Trust the route threaded into `handleSurfaceAction`. */
+  lastRequesterTrustContext?: { trustClass: string; sourceChannel: string };
   surfaceActionCalls: Array<{
     surfaceId: string;
     actionId: string;
     data: unknown;
     sourceActorPrincipalId?: string;
-    requesterTrustContext?: { trustClass: string; sourceChannel: string };
   }>;
 }
 
@@ -165,12 +166,12 @@ function makeStub(id: string): StubConversation {
       sourceActorPrincipalId?: string,
       requesterTrustContext?: { trustClass: string; sourceChannel: string },
     ) => {
+      stub.lastRequesterTrustContext = requesterTrustContext;
       stub.surfaceActionCalls.push({
         surfaceId,
         actionId,
         data,
         sourceActorPrincipalId,
-        requesterTrustContext,
       });
       if (stub.handleSurfaceActionThrows) {
         throw stub.handleSurfaceActionThrows;
@@ -493,8 +494,8 @@ describe("triggerSurfaceAction trust context", () => {
       headers: { "x-vellum-actor-principal-id": GUARDIAN_PRINCIPAL },
     });
 
-    expect(live.trustContext?.trustClass).toBe("guardian");
-    expect(live.trustContext?.sourceChannel).toBe("vellum");
+    expect(live.lastRequesterTrustContext?.trustClass).toBe("guardian");
+    expect(live.lastRequesterTrustContext?.sourceChannel).toBe("vellum");
     // First-pass resolve already granted guardian, so the drift helper is skipped.
     expect(reResolveCalls).toEqual([]);
   });
@@ -512,7 +513,7 @@ describe("triggerSurfaceAction trust context", () => {
     });
 
     expect(reResolveCalls).toEqual([VELLUM_PRINCIPAL_OLD]);
-    expect(live.trustContext?.trustClass).toBe("unknown");
+    expect(live.lastRequesterTrustContext?.trustClass).toBe("unknown");
   });
 
   test("reset drift: helper returns guardian → route adopts it", async () => {
@@ -528,7 +529,7 @@ describe("triggerSurfaceAction trust context", () => {
     });
 
     expect(reResolveCalls).toEqual([VELLUM_PRINCIPAL_OLD]);
-    expect(live.trustContext?.trustClass).toBe("guardian");
+    expect(live.lastRequesterTrustContext?.trustClass).toBe("guardian");
   });
 
   test("dev-bypass resolves the real guardian principal from the gateway, helper not called", async () => {
@@ -545,7 +546,7 @@ describe("triggerSurfaceAction trust context", () => {
 
     // The synthetic dev-bypass principal is translated to the real guardian,
     // yielding a guardian trust context without consulting the drift helper.
-    expect(live.trustContext?.trustClass).toBe("guardian");
+    expect(live.lastRequesterTrustContext?.trustClass).toBe("guardian");
     expect(reResolveCalls).toEqual([]);
   });
 
@@ -565,10 +566,10 @@ describe("triggerSurfaceAction trust context", () => {
       headers: { "x-vellum-actor-principal-id": "dev-bypass" },
     });
 
-    expect(live.trustContext?.trustClass).toBe("unknown");
+    expect(live.lastRequesterTrustContext?.trustClass).toBe("unknown");
   });
 
-  test("idle conversation: the requester's trust is bound to the resting slot and passed to the action", async () => {
+  test("idle conversation: the requester is threaded to the action and the slot is left to the dispatch", async () => {
     mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];
     const live = makeStub("conv-idle");
     live.processing = false;
@@ -580,14 +581,14 @@ describe("triggerSurfaceAction trust context", () => {
       headers: { "x-vellum-actor-principal-id": GUARDIAN_PRINCIPAL },
     });
 
-    expect(live.trustContext?.trustClass).toBe("guardian");
-    expect(live.surfaceActionCalls).toHaveLength(1);
-    expect(live.surfaceActionCalls[0]?.requesterTrustContext?.trustClass).toBe(
-      "guardian",
-    );
+    expect(live.lastRequesterTrustContext?.trustClass).toBe("guardian");
+    // The route resolves; `handleSurfaceAction` stamps, and only where it
+    // commits to running the turn. Stamping here would repoint the actor of a
+    // turn that starts between this call and the dispatch.
+    expect(live.trustContext).toBeUndefined();
   });
 
-  test("busy conversation: the running turn's resting actor is left alone, and the click still travels as its own actor", async () => {
+  test("busy conversation: the running turn's actor is left alone and the click still travels as its own actor", async () => {
     mockGuardianList = [guardianDelivery(GUARDIAN_PRINCIPAL)];
     const live = makeStub("conv-busy");
     // A turn is already running under a different actor.
@@ -605,14 +606,9 @@ describe("triggerSurfaceAction trust context", () => {
       headers: { "x-vellum-actor-principal-id": GUARDIAN_PRINCIPAL },
     });
 
-    // The slot is the identical object it was before the request: the
-    // in-flight turn keeps authorizing tools as the actor it started as.
+    // Identical object, so a re-write of an equal value still fails this.
     expect(live.trustContext).toBe(runningTurnActor);
-    // The clicker is not dropped — it rides the call instead of the slot.
-    expect(live.surfaceActionCalls).toHaveLength(1);
-    expect(live.surfaceActionCalls[0]?.requesterTrustContext?.trustClass).toBe(
-      "guardian",
-    );
+    expect(live.lastRequesterTrustContext?.trustClass).toBe("guardian");
   });
 });
 
