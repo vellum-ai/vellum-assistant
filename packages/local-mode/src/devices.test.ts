@@ -123,7 +123,6 @@ describe("runDevicesList", () => {
 
     expect(await pending).toEqual({
       ok: false,
-      status: 500,
       error: "CLI returned unparseable devices output: not json",
     });
   });
@@ -150,7 +149,6 @@ describe("runDevicesList", () => {
 
     expect(await pending).toEqual({
       ok: false,
-      status: 500,
       error: "devices failed",
     });
   });
@@ -161,7 +159,6 @@ describe("runDevicesList", () => {
 
     expect(await pending).toEqual({
       ok: false,
-      status: 500,
       error: "Failed to spawn CLI: ENOENT",
     });
   });
@@ -191,7 +188,6 @@ describe("runDevicesRevoke", () => {
 
     expect(await pending).toEqual({
       ok: false,
-      status: 500,
       error: "revoke failed",
     });
   });
@@ -202,7 +198,6 @@ describe("runDevicesRevoke", () => {
 
     expect(await pending).toEqual({
       ok: false,
-      status: 500,
       error: "Failed to spawn CLI: EACCES",
     });
   });
