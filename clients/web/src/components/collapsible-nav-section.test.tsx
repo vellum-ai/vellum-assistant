@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
 import { Clock } from "lucide-react";
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { CollapsibleNavSection } from "./collapsible-nav-section";
@@ -37,6 +37,35 @@ function renderSingleSection(opts: {
         createElement("div", null, "child-content"),
       ),
     ),
+  );
+}
+
+/** The indicator element, for the slot compositions that decide its markers. */
+function indicatorElement(slots: {
+  trailing?: ReactNode;
+  collapsedIndicator: ReactNode;
+}) {
+  const html = renderToStaticMarkup(
+    createElement(
+      CollapsibleNavSection.Root,
+      { type: "multiple", defaultValue: [] },
+      createElement(
+        CollapsibleNavSection.Section,
+        {
+          value: "pinned",
+          label: "Pinned",
+          icon: Clock,
+          trailing: slots.trailing,
+          collapsedIndicator: slots.collapsedIndicator,
+        },
+        createElement("div", null, "child-content"),
+      ),
+    ),
+  );
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  return container.querySelector(
+    '[data-slot="collapsible-nav-section-indicator"]',
   );
 }
 
@@ -188,10 +217,11 @@ describe("CollapsibleNavSection", () => {
     }
   });
 
-  // The chevron reveals only on hover (or focus-visible, natively via the
-  // button itself), not just because the section is expanded. A quiet
-  // resting row stays quiet even when open.
-  test("the chevron stays hidden at rest even while the section is expanded", () => {
+  /* The chevron is the section's own state, so it shows at rest and rotates
+     to report open/closed. The "…" is a control rather than state, so it
+     stays hidden until hover. The chevron is outermost, so the "…" reveals
+     inside it rather than pushing it around. */
+  test("the chevron is visible at rest and rotates when expanded", () => {
     const html = renderSingleSection({
       value: "recents",
       label: "Recents",
@@ -206,13 +236,70 @@ describe("CollapsibleNavSection", () => {
     expect(item?.getAttribute("data-state")).toBe("open");
 
     const chevron = container.querySelector(".lucide-chevron-down");
-    expect(chevron?.getAttribute("class")).toContain("opacity-0");
-    expect(chevron?.getAttribute("class")).toContain(
-      "group-hover/header:opacity-100",
+    const cls = chevron?.getAttribute("class") ?? "";
+    expect(cls).not.toContain("opacity-0");
+    expect(cls).toContain("group-data-[state=open]/section:rotate-180");
+
+    // The chevron is the outer of the two, so the "…" reveals inside it.
+    const controls = container.querySelector(
+      '[data-slot="collapsible-nav-section-chevron"]',
+    )?.parentElement;
+    const slots = Array.from(controls?.children ?? []).map((el) =>
+      el.getAttribute("data-slot"),
     );
-    expect(chevron?.getAttribute("class")).not.toContain(
-      "group-data-[state=open]/section:opacity-100",
+    expect(slots.at(-1)).toBe("collapsible-nav-section-chevron");
+  });
+
+  /* The reveal conditions live in one rule in the design library's stylesheet,
+     keyed on the hover capability the affordance depends on. What the header
+     owes that rule is the scope: the trailing control is revealed by hovering
+     anywhere on the header, so the header is the hover scope and the control is
+     the affordance inside it. */
+  test("the header scopes the reveal of its trailing control", () => {
+    const html = renderSingleSection({
+      value: "pinned",
+      label: "Pinned",
+      trailing: "4",
+    });
+    const container = document.createElement("div");
+    container.innerHTML = html;
+
+    const header = container.querySelector(
+      '[data-slot="collapsible-nav-section-header"]',
     );
+    expect(header?.hasAttribute("data-reveal-row")).toBe(true);
+
+    const trailing = container.querySelector(
+      '[data-slot="collapsible-nav-section-trailing"]',
+    );
+    expect(trailing?.hasAttribute("data-reveal")).toBe(true);
+    /* Inside the scope, not the scope itself: a marker on the header would
+       reveal the control whenever the header was hovered by its own hover. */
+    expect(trailing?.closest("[data-reveal-row]")).toBe(header);
+  });
+
+  /* The indicator and the trailing control crossfade in one cell, so the
+     indicator has to leave under exactly the conditions that bring the control
+     in. Marking it the yielding occupant is what ties the two to one set of
+     conditions: where the device cannot hover the control is permanently shown,
+     and an indicator that only left on hover would sit underneath it. */
+  test("the collapsed indicator yields the cell to the trailing control", () => {
+    const indicator = indicatorElement({
+      trailing: createElement("button", { type: "button" }, "action"),
+      collapsedIndicator: createElement("span", null, "3"),
+    });
+    expect(indicator?.hasAttribute("data-reveal-yield")).toBe(true);
+  });
+
+  /* The yield exists only to keep two occupants of one cell from painting over
+     each other. A section with no trailing control has the cell to itself, and
+     an unconditional yield would delete its only header status signal on every
+     device that cannot hover. */
+  test("the collapsed indicator keeps the cell when there is no trailing control", () => {
+    const indicator = indicatorElement({
+      collapsedIndicator: createElement("span", null, "3"),
+    });
+    expect(indicator?.hasAttribute("data-reveal-yield")).toBe(false);
   });
 
   test("composes on top of design library Collapsible", () => {

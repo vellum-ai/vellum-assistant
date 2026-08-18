@@ -3,7 +3,10 @@ import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 import { invalidateConfigCache } from "../config/loader.js";
-import { completeCustomProfile } from "../config/profile-materialization.js";
+import {
+  completeCustomProfile,
+  mergePreservingUnknownKeys,
+} from "../config/profile-materialization.js";
 import { LLMConfigBase, ProfileEntry } from "../config/schemas/llm.js";
 import { getLogger } from "../util/logger.js";
 
@@ -111,29 +114,6 @@ export function completedProfileBody(
     entry,
     completeCustomProfile(dflt, parsed.data) as Record<string, unknown>,
   );
-}
-
-/**
- * `{...raw, ...completed}` recursively: completed (schema-known) values win,
- * raw keys the schema stripped survive at every depth. (Duplicated in the
- * write-path normalization in conversation-query-routes.ts — the two land in
- * independent PRs; consolidate when either next changes.)
- */
-function mergePreservingUnknownKeys(
-  raw: Record<string, unknown>,
-  completed: Record<string, unknown>,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...raw, ...completed };
-  for (const [key, value] of Object.entries(completed)) {
-    const rawValue = raw[key];
-    if (readObject(value) !== null && readObject(rawValue) !== null) {
-      out[key] = mergePreservingUnknownKeys(
-        rawValue as Record<string, unknown>,
-        value as Record<string, unknown>,
-      );
-    }
-  }
-  return out;
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {

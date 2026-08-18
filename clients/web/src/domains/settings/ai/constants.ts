@@ -47,6 +47,14 @@ export function isInferenceProvider(
 export const VELLUM_CONNECTION_PROVIDER = "vellum";
 
 /**
+ * `provider` value stored on the canonical ChatGPT-subscription connection
+ * (daemon migration 366 stamps the row identity). Like `vellum`, a routing
+ * sentinel rather than a real LLM provider: the row dispatches OpenAI Codex
+ * models through the subscription endpoint.
+ */
+export const CHATGPT_CONNECTION_PROVIDER = "chatgpt";
+
+/**
  * Providers the single Vellum-managed (`vellum`) connection can serve. Mirrors
  * the daemon's managed-routable set. A managed profile keeps its real provider
  * (e.g. `fireworks`) while binding to the provider-agnostic `vellum`

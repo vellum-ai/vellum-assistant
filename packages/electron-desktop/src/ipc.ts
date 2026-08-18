@@ -5,11 +5,15 @@ import { isAllowedOrigin, type AllowedOrigin } from "./app-origin";
 
 export type AllowedOriginResolver = () => AllowedOrigin;
 export type OriginValidator = typeof isAllowedOrigin;
-
 export type IpcHandle = <Args extends unknown[], Result>(
   channel: string,
   schema: z.ZodType<Args>,
-  handler: (args: Args, event: IpcMainInvokeEvent) => Result,
+  fn: (args: Args, event: IpcMainInvokeEvent) => Result,
+) => void;
+export type IpcOn = <Args extends unknown[]>(
+  channel: string,
+  schema: z.ZodType<Args>,
+  fn: (args: Args, event: IpcMainEvent) => void,
 ) => void;
 
 /**
@@ -44,11 +48,7 @@ export const createIpcRegistrar = (
   };
 
   /** Register a fire-and-forget listener that drops invalid messages. */
-  const on = <Args extends unknown[]>(
-    channel: string,
-    schema: z.ZodType<Args>,
-    fn: (args: Args, event: IpcMainEvent) => void,
-  ): void => {
+  const on: IpcOn = (channel, schema, fn): void => {
     ipcMain.on(channel, (event, ...args: unknown[]) => {
       if (!isAllowedSender(event)) {
         return;
@@ -63,3 +63,5 @@ export const createIpcRegistrar = (
 
   return { handle, handleSync, on };
 };
+
+export type IpcRegistrar = ReturnType<typeof createIpcRegistrar>;

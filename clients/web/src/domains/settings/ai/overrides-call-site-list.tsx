@@ -3,10 +3,12 @@ import {
   isDraftActive,
 } from "@/domains/settings/ai/call-site-helpers";
 import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
+import { useTranslation } from "@/i18n";
 import type { CallSiteDraftMap } from "@/domains/settings/ai/use-override-drafts";
 import type {
   CallSiteOverrideDraft,
   ConfigLlmCallsitesGetResponse,
+  ProviderConnection,
 } from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
@@ -36,6 +38,8 @@ export interface OverridesCallSiteListProps {
   ) => ProfileOption[];
   profileLabelFor: (name: string) => string;
   advisorMatchesSearch: boolean;
+  /** Passed through to each row's model picker; see CallSiteOverrideRowProps. */
+  connections?: ProviderConnection[];
   onDraftChange: (id: string, draft: CallSiteOverrideDraft | null) => void;
   onToggle: (id: string, on: boolean) => void;
 }
@@ -54,9 +58,12 @@ export function OverridesCallSiteList({
   buildProfileOptionsForRow,
   profileLabelFor,
   advisorMatchesSearch,
+  connections,
   onDraftChange,
   onToggle,
 }: OverridesCallSiteListProps) {
+  const { t } = useTranslation("settings");
+
   return (
     <div className="space-y-4">
       {groups.length === 0 ? (
@@ -64,7 +71,7 @@ export function OverridesCallSiteList({
         // search: "no matches" next to a visible match reads as a bug.
         advisorMatchesSearch ? null : (
           <p className="py-8 text-center text-body-medium-lighter text-[var(--content-tertiary)]">
-            No actions match your search.
+            {t("overridesCallSiteList.emptySearch")}
           </p>
         )
       ) : (
@@ -109,6 +116,7 @@ export function OverridesCallSiteList({
                         ? null
                         : profileVal,
                     )}
+                    connections={connections}
                     onDraftChange={onDraftChange}
                     onToggle={onToggle}
                   />

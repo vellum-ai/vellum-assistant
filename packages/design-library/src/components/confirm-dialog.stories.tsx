@@ -13,6 +13,7 @@ const meta: Meta<ConfirmDialogProps> = {
   argTypes: {
     title: { control: "text" },
     message: { control: "text" },
+    error: { control: "text" },
     confirmLabel: { control: "text" },
     cancelLabel: { control: "text" },
     destructive: { control: "boolean" },
@@ -67,6 +68,32 @@ export const Destructive: Story = {
           {...args}
           open={open}
           onConfirm={() => setOpen(false)}
+          onCancel={() => setOpen(false)}
+        />
+      </>
+    );
+  },
+};
+
+export const WithError: Story = {
+  args: {
+    title: "Skip today's credit limit?",
+    message:
+      "Your $25.00 daily limit won't apply for the rest of today. It comes back automatically at 6:00 PM MT.",
+    error: "Could not skip today's limit. Please try again.",
+    confirmLabel: "Skip for today",
+  },
+  render: function WithErrorStory(args) {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <Button onClick={() => setOpen(true)}>Open Failed Confirm</Button>
+        <ConfirmDialog
+          {...args}
+          open={open}
+          // The confirm has already been tried and rejected, so it leaves the
+          // dialog open with the failure showing.
+          onConfirm={() => {}}
           onCancel={() => setOpen(false)}
         />
       </>

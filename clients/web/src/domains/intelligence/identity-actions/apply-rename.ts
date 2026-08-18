@@ -9,6 +9,8 @@
  * rewrites, and scopes the edit to the name alone.
  */
 
+import { t } from "@/i18n";
+
 import { runIdentityRewrite } from "./run-identity-rewrite";
 
 /**
@@ -37,7 +39,7 @@ export async function applyRename(
   return runIdentityRewrite({
     assistantId,
     content: buildRenameMessage(newName),
-    title: "Updating name",
+    title: t("applyRename.conversationTitle", { ns: "intelligence" }),
     context: "identity_overview_rename",
   });
 }

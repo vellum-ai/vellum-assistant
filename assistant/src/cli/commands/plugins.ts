@@ -15,6 +15,7 @@ import { cliIpcCall } from "../../ipc/cli-client.js";
 import { stripAnsiAndControlChars } from "../../util/ansi.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { truncate } from "../../util/truncate.js";
+import { resolveBundledCliModule } from "../bundled-modules.js";
 import { yellow } from "../lib/cli-colors.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
@@ -61,64 +62,112 @@ const loadModule = createRequire(import.meta.url);
 /** Lazy accessors: each getter loads its implementation module on first use. */
 const libs = {
   get catalogCache() {
-    return loadModule(
-      "../lib/plugin-catalog-cache.js",
-    ) as typeof import("../lib/plugin-catalog-cache.js");
+    return resolveBundledCliModule(
+      "pluginCatalogCache",
+      () =>
+        loadModule(
+          "../lib/plugin-catalog-cache.js",
+        ) as typeof import("../lib/plugin-catalog-cache.js"),
+    );
   },
   get catalogLocal() {
-    return loadModule(
-      "../lib/plugin-catalog-local.js",
-    ) as typeof import("../lib/plugin-catalog-local.js");
+    return resolveBundledCliModule(
+      "pluginCatalogLocal",
+      () =>
+        loadModule(
+          "../lib/plugin-catalog-local.js",
+        ) as typeof import("../lib/plugin-catalog-local.js"),
+    );
   },
   get diff() {
-    return loadModule(
-      "../lib/diff-plugin.js",
-    ) as typeof import("../lib/diff-plugin.js");
+    return resolveBundledCliModule(
+      "pluginDiff",
+      () =>
+        loadModule(
+          "../lib/diff-plugin.js",
+        ) as typeof import("../lib/diff-plugin.js"),
+    );
   },
   get inspect() {
-    return loadModule(
-      "../lib/inspect-plugin.js",
-    ) as typeof import("../lib/inspect-plugin.js");
+    return resolveBundledCliModule(
+      "pluginInspect",
+      () =>
+        loadModule(
+          "../lib/inspect-plugin.js",
+        ) as typeof import("../lib/inspect-plugin.js"),
+    );
   },
   get installGitHub() {
-    return loadModule(
-      "../lib/install-from-github.js",
-    ) as typeof import("../lib/install-from-github.js");
+    return resolveBundledCliModule(
+      "pluginInstallGitHub",
+      () =>
+        loadModule(
+          "../lib/install-from-github.js",
+        ) as typeof import("../lib/install-from-github.js"),
+    );
   },
   get installPlatform() {
-    return loadModule(
-      "../lib/install-from-platform.js",
-    ) as typeof import("../lib/install-from-platform.js");
+    return resolveBundledCliModule(
+      "pluginInstallPlatform",
+      () =>
+        loadModule(
+          "../lib/install-from-platform.js",
+        ) as typeof import("../lib/install-from-platform.js"),
+    );
   },
   get installed() {
-    return loadModule(
-      "../lib/list-installed-plugins.js",
-    ) as typeof import("../lib/list-installed-plugins.js");
+    return resolveBundledCliModule(
+      "pluginInstalled",
+      () =>
+        loadModule(
+          "../lib/list-installed-plugins.js",
+        ) as typeof import("../lib/list-installed-plugins.js"),
+    );
   },
   get pinHistory() {
-    return loadModule(
-      "../lib/plugin-pin-history.js",
-    ) as typeof import("../lib/plugin-pin-history.js");
+    return resolveBundledCliModule(
+      "pluginPinHistory",
+      () =>
+        loadModule(
+          "../lib/plugin-pin-history.js",
+        ) as typeof import("../lib/plugin-pin-history.js"),
+    );
   },
   get search() {
-    return loadModule(
-      "../lib/search-plugins.js",
-    ) as typeof import("../lib/search-plugins.js");
+    return resolveBundledCliModule(
+      "pluginSearch",
+      () =>
+        loadModule(
+          "../lib/search-plugins.js",
+        ) as typeof import("../lib/search-plugins.js"),
+    );
   },
   get surfaces() {
-    return loadModule(
-      "../lib/plugin-surfaces.js",
-    ) as typeof import("../lib/plugin-surfaces.js");
+    return resolveBundledCliModule(
+      "pluginSurfaces",
+      () =>
+        loadModule(
+          "../lib/plugin-surfaces.js",
+        ) as typeof import("../lib/plugin-surfaces.js"),
+    );
   },
   get uninstall() {
-    return loadModule(
-      "../lib/uninstall-plugin.js",
-    ) as typeof import("../lib/uninstall-plugin.js");
+    return resolveBundledCliModule(
+      "pluginUninstall",
+      () =>
+        loadModule(
+          "../lib/uninstall-plugin.js",
+        ) as typeof import("../lib/uninstall-plugin.js"),
+    );
   },
   get upgrade() {
-    return loadModule(
-      "../lib/upgrade-plugin.js",
-    ) as typeof import("../lib/upgrade-plugin.js");
+    return resolveBundledCliModule(
+      "pluginUpgrade",
+      () =>
+        loadModule(
+          "../lib/upgrade-plugin.js",
+        ) as typeof import("../lib/upgrade-plugin.js"),
+    );
   },
 };
 

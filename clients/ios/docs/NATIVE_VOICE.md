@@ -22,7 +22,7 @@ exactly four things:
 | --- | --- |
 | `VoiceAudioSessionPlugin` | Owns `AVAudioSession` for the duration of a session (`.playAndRecord` / `.voiceChat`), and reports interruptions |
 | `VoiceLiveActivityPlugin` | Requests, updates, and ends the one ActivityKit activity mirroring the session |
-| `VoiceActivity` widget extension | Renders that activity on the Lock Screen and in the Dynamic Island, plus the Control Center control |
+| `VoiceActivity` widget extension | Renders that activity on the Lock Screen and in the Dynamic Island, plus the Control Center controls (the voice one below, and the non-voice "Open Vellum" app launcher) |
 | App Intents + `AppShortcutsProvider` | Turn a Siri phrase, a Spotlight hit, an Action Button press, or a control tap into a `<scheme>://voice` URL |
 
 Everything native is *additive*. Remove all of it and voice still works — that
@@ -67,7 +67,7 @@ Dynamic Island / Lock Screen tap          →  .widgetURL(VoiceModeDeepLink.resu
 Safari, a test link, another app          →  application(_:open:) / launchOptions[.url]
         │                        all of them produce  <scheme>://voice?mode=…
         ▼
-AppDelegate.deliverVoiceCommand(_:)  →  ApplicationDelegateProxy  →  Capacitor `appUrlOpen`
+AppDelegate.deliverCommandURL(_:)  →  ApplicationDelegateProxy  →  Capacitor `appUrlOpen`
         ▼
 capacitor-deep-links.ts  →  parseStartVoiceDeepLink  →  bus `deeplink.startVoice`
         ▼
@@ -243,6 +243,9 @@ reaches it.
   bounds and sanitizes it — 2000 characters max, control characters rejected —
   because a deep link is reachable from any app or web page that can open a URL.
   A rejected prompt does not reject the link: the session still starts.
+- `src=intent` is the provenance marker, added by `AppDelegate.deliverCommandURL`
+  and stripped from every externally opened URL; see "Delivery paths" below.
+  Producers never set it themselves.
 
 Native producers build the URL through `VoiceModeDeepLink.url(prompt:)`
 ([`App/App/Shared/VoiceModeDeepLink.swift`](../App/App/Shared/VoiceModeDeepLink.swift)),
@@ -266,12 +269,26 @@ otherwise arrive as a `prompt` of `Ben ` plus a stray parameter.
 
 Intents run **in the app process** and never pass through
 `application(_:open:)`, so `VoiceModeDeepLink.route()` hands the URL directly to
-`AppDelegate.deliverVoiceCommand(_:)`. That method stashes the URL and replays it
+`AppDelegate.deliverCommandURL(_:)`. That method stashes the URL and replays it
 through `ApplicationDelegateProxy` — the exact channel a warm open uses — once
 the bridge web view exists, so the URL surfaces to JS as Capacitor's `appUrlOpen`
 and needs no new web code. `AppPlugin` posts that event with
 `retainUntilConsumed: true`, so a command delivered before the SPA registers its
 listener is replayed rather than lost.
+
+That in-process path is also what lets the SPA *trust* an intent's text.
+`deliverCommandURL(_:)` adds a `src=intent` query item, and the two methods
+through which a URL can arrive from outside the process,
+`application(_:open:options:)` and `launchOptions[.url]`, strip it before
+storing or forwarding (`App/App/CommandURLProvenance.swift`). Because intents
+never pass through those methods and nothing else calls `deliverCommandURL`,
+the marker reaches `appUrlOpen` exactly when an App Intent produced the URL. The
+web parser reads it as `provenance: "intent"` (only when told the running shell
+strips it, which is iOS alone), and on that evidence the consumer sends the
+text on the user's behalf instead of staging it (LUM-3281). The Live Activity's
+`widgetURL` and any Safari test link go through `application(_:open:)`, so they
+never carry it, and a link that arrives with a forged marker is stripped and
+logged.
 
 A **terminated** launch is the case that needs care, and the reason is the
 opposite of the obvious one: the launch URL arrives **twice**, not zero times.
@@ -407,7 +424,7 @@ by it: `VoiceModeDeepLink.route()`.
 #if VOICE_ACTIVITY_EXTENSION
 assertionFailure("Voice intents are performed in the app process, not the appex")
 #else
-(UIApplication.shared.delegate as? AppDelegate)?.deliverVoiceCommand(url)
+(UIApplication.shared.delegate as? AppDelegate)?.deliverCommandURL(url)
 #endif
 ```
 
@@ -762,7 +779,7 @@ agree character for character across the portal, the xcconfigs, and
 | `App/App/Shared/StartNewVoiceConversationIntent.swift` | In `Shared/` because the Control Center control needs the type |
 | `App/App/Shared/VoiceSessionControlIntent.swift` | The intent behind every island button; in `Shared/` so the appex can name it |
 | `App/App/Intents/` | The other two intents and `VoiceAppShortcuts` |
-| `App/VoiceActivity/` | Widget extension: bundle, Live Activity, island views, Control Center control |
+| `App/VoiceActivity/` | Widget extension: bundle, Live Activity, island views, Control Center controls |
 | `App/App/Config/Extension*.xcconfig` | Extension build settings; bundle IDs, schemes, profile specifiers |
 | `App/project.yml` | Six targets, `VOICE_ACTIVITY_EXTENSION`, embed relationships |
 

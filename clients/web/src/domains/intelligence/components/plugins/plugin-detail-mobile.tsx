@@ -16,6 +16,7 @@ import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/
 import { usePluginDetail } from "@/domains/intelligence/plugins/use-plugin-detail";
 import { usePluginIconSrc } from "@/domains/intelligence/plugins/use-plugin-icon-src";
 import { usePluginToggle } from "@/domains/intelligence/plugins/use-plugin-toggle";
+import { useTranslation } from "@/i18n";
 import { Button, Card } from "@vellumai/design-library";
 
 interface PluginDetailMobileProps {
@@ -74,6 +75,7 @@ export function PluginDetailMobile({
     isUpgradeError,
     hasLocalEdits,
   } = usePluginDetail(assistantId, name, { onRemoved: onBack });
+  const { t } = useTranslation("intelligence");
   const { toggle, togglingName } = usePluginToggle(assistantId);
 
   // Resolve the full-screen portal target after commit (SSR-safe; the element
@@ -120,7 +122,7 @@ export function PluginDetailMobile({
           variant="ghost"
           iconOnly={<ArrowLeft aria-hidden />}
           expandOnMobile
-          aria-label="Back to plugins"
+          aria-label={t("pluginDetail.backToPluginsAriaLabel")}
           onClick={onBack}
           className="max-md:bg-[var(--surface-active)]"
         />
@@ -227,7 +229,7 @@ export function PluginDetailMobile({
                     className="text-body-medium-lighter"
                     style={{ color: "var(--content-tertiary)" }}
                   >
-                    This plugin doesn&apos;t ship a README.
+                    {t("pluginDetail.noReadme")}
                   </p>
                 )}
               </>

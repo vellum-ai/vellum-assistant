@@ -2,7 +2,11 @@ import { Fragment, type ReactNode } from "react";
 
 import { ChevronRight } from "lucide-react";
 
-import { pluginNameFromSourceKey } from "@/domains/schedules/plugin-source";
+import {
+  disarmReasonLabelKey,
+  pluginNameFromSourceKey,
+} from "@/domains/schedules/plugin-source";
+import { useTranslation } from "@/i18n";
 import {
   formatScheduleCost,
   formatScheduleRunCount,
@@ -135,11 +139,17 @@ export function ScheduleRow({
   /** Omit for read-only rows (past one-shots) — hides the enable/disable toggle. */
   onToggle?: (enabled: boolean) => void;
 }) {
+  const { t } = useTranslation("schedules");
   const cadence = schedule.isOneShot ? "" : schedule.cadenceDescription.trim();
   const runAt = schedule.lastRunAt ?? schedule.nextRunAt;
-  const metaParts = [cadence, runAt ? formatTimestamp(runAt) : ""].filter(
-    Boolean,
-  );
+  // Why the schedule is off leads the meta line: on a row whose toggle is
+  // already visibly off, it is the fact the reader is looking for.
+  const reasonKey = disarmReasonLabelKey(schedule);
+  const metaParts = [
+    reasonKey ? t(reasonKey) : "",
+    cadence,
+    runAt ? formatTimestamp(runAt) : "",
+  ].filter(Boolean);
   const pluginName = pluginNameFromSourceKey(schedule.sourceKey);
 
   return (
@@ -152,7 +162,11 @@ export function ScheduleRow({
       selected={selected}
       onClick={onClick}
       onToggle={onToggle}
-      toggleAriaLabel={onToggle ? `Toggle ${schedule.name}` : undefined}
+      toggleAriaLabel={
+        onToggle
+          ? t("scheduleRow.toggleAria", { name: schedule.name })
+          : undefined
+      }
     />
   );
 }

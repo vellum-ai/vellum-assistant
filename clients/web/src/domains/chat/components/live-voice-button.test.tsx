@@ -11,6 +11,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
+import {
+  MOBILE_CONTROL_CLASS,
+  MOBILE_GLYPH_CLASS,
+} from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
 
 const onStartSpy = mock(() => {});
@@ -41,6 +45,28 @@ describe("LiveVoiceButton", () => {
 
     // THEN the composer-bound start callback fires once
     expect(onStartSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("mobileRow renders the composer row's 40x40 circle with a 20px glyph", () => {
+    // GIVEN the button in the mobile composer row
+    const { getByLabelText } = render(
+      <LiveVoiceButton onStart={onStartSpy} mobileRow />,
+    );
+
+    // THEN it is the design's filled circle, sized here rather than by the
+    // primitive's own mobile growth, so every narrow window gets the same one
+    const button = getByLabelText("Start voice mode");
+    expect(button.className).toContain(MOBILE_CONTROL_CLASS);
+    expect(button.querySelector("span")?.className).toContain(
+      MOBILE_GLYPH_CLASS,
+    );
+
+    // WHILE the default leaves the primitive's sizing alone
+    cleanup();
+    const desktop = render(<LiveVoiceButton onStart={onStartSpy} />);
+    const plain = desktop.getByLabelText("Start voice mode");
+    expect(plain.className).not.toContain(MOBILE_CONTROL_CLASS);
+    expect(plain.className).toContain("touch-mobile:h-10");
   });
 
   test("prevents starting a session when disabled", () => {

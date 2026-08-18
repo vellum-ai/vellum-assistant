@@ -493,6 +493,9 @@ function VoiceSettingsView({
           filterBySource
           value={currentModel}
           onChange={selectModel}
+          // The dialog body is the nearest scrollport, so opening on the
+          // current voice scrolls nothing but this list.
+          autoScrollToSelected
         />
       </Modal.Body>
       {/* Mirrors the intro footer (fine print left, primary right) and is always

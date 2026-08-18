@@ -15,7 +15,15 @@ import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
+import { markAcpConnectCardRaised } from "./acp-connect-card-state.js";
 import { AcpAgentProcess } from "./agent-process.js";
+import {
+  ACP_AUTH_RECOVERY_GUIDANCE,
+  ACP_CLAUDE_AUTH_REQUIRED_CODE,
+  CLAUDE_ACP_COMMAND,
+  isAcpAuthRequired,
+  isClaudeAuthFailureMessage,
+} from "./auth-required.js";
 import { resolveAgentWithAutoInstall } from "./auto-install.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { deriveFailureError } from "./failure-error.js";
@@ -25,6 +33,30 @@ import { claudeResumeHint } from "./resume-hint.js";
 import type { AcpAgentConfig, AcpSessionState } from "./types.js";
 
 const log = getLogger("acp:session-manager");
+
+/**
+ * The `authCode` for a run that failed on its Claude credential, or undefined
+ * for any other failure. Adapter-gated first: the signals are Claude-specific,
+ * and the marker promises a repair only the Connect Claude flow can perform.
+ * Checks both auth-failure shapes (see `auth-required.ts`) against both the
+ * raw rejection and the derived failure message, since `deriveFailureError`
+ * may replace one with the other.
+ */
+function claudeAuthRequiredCode(
+  err: unknown,
+  failureMessage: string,
+  entry: { command: string },
+): string | undefined {
+  if (entry.command !== CLAUDE_ACP_COMMAND) {
+    return undefined;
+  }
+  const rawMessage = err instanceof Error ? err.message : String(err);
+  return isAcpAuthRequired(err) ||
+    isClaudeAuthFailureMessage(rawMessage) ||
+    isClaudeAuthFailureMessage(failureMessage)
+    ? ACP_CLAUDE_AUTH_REQUIRED_CODE
+    : undefined;
+}
 
 /**
  * The manager's "unknown session id" error. Thrown whenever an operation
@@ -1093,6 +1125,11 @@ export class AcpSessionManager {
             err.message,
             current.process.stderrSince(stderrMark),
           );
+          const errorCode = claudeAuthRequiredCode(
+            err,
+            failureMessage,
+            current,
+          );
           if (current.state.status !== "cancelled") {
             current.state.status = "failed";
             current.state.completedAt = Date.now();
@@ -1100,14 +1137,40 @@ export class AcpSessionManager {
           }
           current.currentPrompt = null;
           log.error(
-            { acpSessionId, error: err.message, failureMessage },
+            { acpSessionId, error: err.message, failureMessage, errorCode },
             "ACP prompt failed",
           );
+          // `acp_session_error` keeps its pre-existing shape so older packaged
+          // clients still parse it; the recovery signal rides its own event
+          // below (see `api/events/acp-auth-required.ts`).
           current.sendToVellum({
             type: "acp_session_error",
             acpSessionId,
             error: failureMessage,
           });
+          // The recovery surface (event, model guidance, prompt-dedup marker)
+          // is raised as a unit, and only when a spawning tool call exists to
+          // anchor the card AND the user did not already stop the run. A
+          // cancelled run renders no card (the client guards it), so marking
+          // the never-cleared prompt-dedup registry here would suppress the
+          // secure token prompt against a card that never appears.
+          const recoveryAnchor =
+            errorCode !== undefined && current.state.status !== "cancelled"
+              ? current.parentToolUseId
+              : undefined;
+          if (errorCode !== undefined && recoveryAnchor !== undefined) {
+            current.sendToVellum({
+              type: "acp_auth_required",
+              acpSessionId,
+              authCode: errorCode,
+              agent: current.state.agentId,
+              parentToolUseId: recoveryAnchor,
+            });
+            // Same registry as the missing-token spawn path, so the
+            // credential-prompt route redirects a redundant secure prompt at
+            // the card instead of stacking a second one.
+            markAcpConnectCardRaised(current.parentConversationId);
+          }
 
           // Persist the terminal row before teardown clears the buffer.
           this.persistTerminal(acpSessionId, current);
@@ -1123,7 +1186,10 @@ export class AcpSessionManager {
           if (current.state.status !== "cancelled") {
             this.notifyParent(
               current,
-              `[ACP agent "${current.state.agentId}" failed]\n\n${failureMessage}`,
+              `[ACP agent "${current.state.agentId}" failed]\n\n${failureMessage}` +
+                (recoveryAnchor !== undefined
+                  ? `\n\n${ACP_AUTH_RECOVERY_GUIDANCE}`
+                  : ""),
             );
           }
         }
@@ -1158,9 +1224,14 @@ export class AcpSessionManager {
       );
       return;
     }
+    // The notification turn streams to whoever is watching (the parent's sink is
+    // its client hub), but it is machine-injected with no human asserted to be
+    // present, so it runs non-interactive: a tool that would need approval is
+    // denied rather than left waiting on a prompt nobody may answer.
     const enqueueResult = parentConversation.enqueueMessage({
       content: message,
       metadata: { acpNotification },
+      isInteractive: false,
     });
     if (enqueueResult.queued || enqueueResult.rejected) {
       return;
@@ -1168,7 +1239,9 @@ export class AcpSessionManager {
     parentConversation
       .persistUserMessage({ content: message, metadata: { acpNotification } })
       .then(({ id: messageId }) =>
-        parentConversation.runAgentLoop(message, messageId),
+        parentConversation.runAgentLoop(message, messageId, {
+          isInteractive: false,
+        }),
       )
       .catch((err) => {
         log.error(

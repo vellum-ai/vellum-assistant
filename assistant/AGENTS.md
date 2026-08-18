@@ -41,6 +41,12 @@ Do not coordinate hook behaviour by re-parsing the tool's JSON response to infer
 
 Shared mutable resources written by more than one caller (e.g. `dist/` directories produced by `compileApp()`) must be serialised per-resource so concurrent callers cannot race on `rm -rf` + write sequences.
 
+## Conversation event delivery and turn presence
+
+A `Conversation` has one event sink, fixed at construction and never rebound: top-level conversations are built with the SSE hub (`broadcastMessage`), subagents with the wrapper that re-envelopes their events under the parent. Emit conversation-level events (activity state, confirmation prompts, notifier output, out-of-turn pushes) through `conversation.emit`, which delivers to the sink and then to `addEventObserver` observers. Observers are for policy layered on delivery (the voice bridge auto-resolves approval prompts it has no UI for), never for delivery itself. Do not add a per-subsystem sender slot, a bind/restore step around a turn, or a manual `broadcastMessage` for something the conversation already emits: an emitter that runs outside a live turn (queue drain, ACP or subagent notification, summarize route, call notifiers) reaches every client because the sink is always live.
+
+Presence (whether a human is present to see UI and answer prompts) is per-turn state, never derived from delivery. Every dispatch path declares it: `isInteractive` on `runAgentLoop` / `processMessage` / `enqueueMessage`, or a wake's `clientless` pin of `currentTurnIsNonInteractive`. A caller that omits it gets a non-interactive turn (approval-gated tools are denied rather than left waiting on a prompt nobody may answer). `hasNoClient` is a getter over the in-flight turn's presence with no setter, so a new dispatch path cannot inherit whatever the previous turn left behind; if you are reaching for a way to set it, declare interactivity on the turn instead.
+
 ## Route architecture: shared ROUTES array
 
 Routes in `src/runtime/routes/` are being migrated to a **shared `ROUTES` array** that serves as the single source of truth for both the HTTP server and the IPC server. Each route module exports `ROUTES: RouteDefinition[]` (from `routes/types.ts`), and the aggregator `routes/index.ts` collects them.
@@ -61,7 +67,7 @@ Three response shapes are supported:
 - **Binary**: a JSON envelope with `headers: { "content-length": "<n>" }` followed by one binary frame of exactly `n` bytes.
 - **Chunked streaming**: a JSON envelope with `headers: { "transfer-encoding": "chunked" }` followed by one or more binary frames, terminated by a zero-length frame.
 
-The server auto-detects legacy newline-delimited JSON from old CLI clients and handles it transparently. New code must use length-prefixed framing via `writeMessage()` / `IpcFrameReader` in `src/ipc/ipc-framing.ts`.
+The server auto-detects legacy newline-delimited JSON from old CLI clients and handles it transparently. New code must use length-prefixed framing via `writeMessage()` / `IpcFrameReader` from `@vellumai/ipc-server-utils` (`packages/ipc-server-utils/src/ipc-framing.ts`).
 
 ### CLI ↔ daemon version skew
 
@@ -69,7 +75,7 @@ The CLI and daemon are always shipped and upgraded together — there is no vers
 
 ### IPC-only routes
 
-Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array). These are tool/CLI-specific methods (e.g. `wake_conversation`, `upsert_contact`) that have no HTTP counterpart. They follow the existing pattern: define in `src/ipc/routes/`, register in `src/ipc/routes/index.ts`.
+Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array). These are tool/CLI-specific methods (e.g. `wake_conversation`, `upsert_contact`) that have no HTTP counterpart. They follow the existing pattern: define a `*_IPC_METHODS` map in `src/ipc/routes/` and add it to the list `AssistantIpcServer` iterates in `src/ipc/assistant-server.ts` (there is no index file; each map is imported by hand).
 
 The module-level dependency-injection pattern (`registerFooDeps()`) used by some IPC routes is a known antipattern. New IPC-only routes should avoid it.
 

@@ -3,6 +3,8 @@ import { useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
 
+import { TranscriptColumn } from "@/domains/chat/transcript/transcript-column";
+
 import { SurfaceRouter } from "./surface-router";
 
 const meta: Meta = {
@@ -12,9 +14,9 @@ const meta: Meta = {
   },
   decorators: [
     (Story) => (
-      <div className="max-w-[920px]">
+      <TranscriptColumn>
         <Story />
-      </div>
+      </TranscriptColumn>
     ),
   ],
 };
@@ -235,7 +237,7 @@ const documentDraftSurface = makeWorkResultSurface({
             title: "Beta launch decision memo",
             description: "Saved in the project workspace.",
             tone: "positive",
-            href: "#",
+            href: "/assistant/workspace",
             metadata: [
               { label: "Format", value: "Document" },
               { label: "Status", value: "Draft" },
@@ -566,6 +568,59 @@ const activationFollowThroughSurface: Surface = {
   },
 };
 
+/**
+ * The Level Up card the level-up plugin renders after the assistant edits one
+ * of its own skills: a diff preview plus a History row that deep-links to the
+ * skill page's History tab (an in-app row) beside an external reference (a
+ * new-tab row). Storybook's router has no page behind the in-app path, so
+ * clicking that row changes nothing visible here.
+ */
+const levelUpSurface = makeWorkResultSurface({
+  surfaceId: "level-up-surface",
+  title: "Level Up",
+  data: {
+    eyebrow: "Level up",
+    status: "completed",
+    summary:
+      "Linear skill now retries a 401 with the default viewer call before reporting auth failure.",
+    sections: [
+      {
+        id: "linear",
+        title: "skills/linear/SKILL.md",
+        description: "Default call + 401 diagnosis",
+        type: "diff",
+        diffs: [
+          {
+            before:
+              "- `401 Unauthorized` -> the credential is stale or revoked.",
+            after:
+              "- `401 Unauthorized` -> first assume the request is wrong. Re-run the default viewer call.",
+          },
+        ],
+      },
+      {
+        id: "history",
+        title: "History",
+        type: "items",
+        items: [
+          {
+            id: "history",
+            title: "Full level-up history",
+            description: "Every change to this skill, newest first.",
+            href: "/assistant/skills/linear?tab=history",
+          },
+          {
+            id: "docs",
+            title: "Linear API reference",
+            description: "The endpoint the retry now calls.",
+            href: "https://developers.linear.app/docs",
+          },
+        ],
+      },
+    ],
+  },
+});
+
 export const InboxCleanup: Story = {
   render: () => <WorkResultPreview surface={inboxCleanupSurface} />,
 };
@@ -576,6 +631,10 @@ export const CalendarPlanning: Story = {
 
 export const DocumentDiff: Story = {
   render: () => <WorkResultPreview surface={documentDraftSurface} />,
+};
+
+export const LevelUp: Story = {
+  render: () => <WorkResultPreview surface={levelUpSurface} />,
 };
 
 export const AutomationSetup: Story = {

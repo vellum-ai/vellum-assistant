@@ -319,7 +319,21 @@ export class Conversation {
   /** @internal */ prompter: PermissionPrompter;
   /** @internal */ secretPrompter: SecretPrompter;
   private executor: ToolExecutor;
-  /** @internal */ sendToClient: (msg: AssistantEvent) => void;
+  /**
+   * The conversation's event sink, fixed for its whole life. Top-level
+   * conversations deliver to the SSE hub, so every subscribed client sees
+   * every event without any per-turn wiring; a subagent's sink re-envelopes
+   * its events under the parent conversation. Reached only through
+   * {@link emit}, which also notifies {@link addEventObserver} observers.
+   */
+  private readonly sendToClient: (msg: AssistantEvent) => void;
+  /**
+   * Observers notified after every {@link emit}, in registration order. An
+   * observer sees the event after the sink delivered it, so anything it does
+   * in response (e.g. voice auto-resolving a confirmation) lands on the wire
+   * after the event itself.
+   */
+  private readonly eventObservers = new Set<(msg: AssistantEvent) => void>();
   /** @internal */ workingDir: string;
   /** @internal */ allowedToolNames?: Set<string>;
   /**
@@ -435,7 +449,18 @@ export class Conversation {
    * @internal
    */
   currentCallSite?: LLMCallSite;
-  /** @internal */ hasNoClient = false;
+  /**
+   * Whether no human is present to see UI or answer prompts. Derived from the
+   * in-flight turn's interactivity ({@link currentTurnIsNonInteractive}); a
+   * conversation with no turn in flight has no client. Presence is a property
+   * of the turn, never of where events are delivered, so there is no setter:
+   * dispatch paths declare interactivity per turn (`isInteractive` on
+   * `runAgentLoop`, or a wake's pin), and this reads it.
+   * @internal
+   */
+  get hasNoClient(): boolean {
+    return this.currentTurnIsNonInteractive ?? true;
+  }
   /**
    * For subagent conversations, the id of the parent that spawned this one; set
    * once at construction and never reassigned. `undefined` for top-level
@@ -757,10 +782,10 @@ export class Conversation {
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
     this.graphMemory = new ConversationGraphMemory(conversationId);
-    this.prompter = new PermissionPrompter(sendToClient);
+    // The prompter emits through the conversation so its confirmation_request
+    // reaches the sink and every observer (voice policy) like any other event.
+    this.prompter = new PermissionPrompter((msg) => this.emit(msg));
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
-      // Route through emitConfirmationStateChanged so the event reaches
-      // the client via sendToClient (wired to the SSE hub for HTTP conversations).
       this.emitConfirmationStateChanged({
         conversationId: this.conversationId,
         requestId,
@@ -1489,31 +1514,55 @@ export class Conversation {
     await this.loadFromDb();
   }
 
-  updateClient(
-    sendToClient: (msg: AssistantEvent) => void,
-    hasNoClient = false,
-  ): void {
-    this.sendToClient = sendToClient;
-    this.hasNoClient = hasNoClient;
-    this.prompter.updateSender(sendToClient);
-
-    // Replay last activity state so a reconnecting client sees the current phase
-    // instead of being stuck on the last state it received before disconnection.
-    if (!hasNoClient && this.lastActivityStateMsg) {
+  /**
+   * Deliver an event through the conversation's sink, then to every observer.
+   * The single emission point for conversation-level events (activity state,
+   * confirmation prompts and state, notifier output, out-of-turn pushes); the
+   * agent loop's own stream rides its per-turn `onEvent`, which defaults to
+   * this when the caller passes none.
+   */
+  readonly emit = (msg: AssistantEvent): void => {
+    try {
+      this.sendToClient(msg);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: this.conversationId, type: msg.type },
+        "conversation sink threw",
+      );
+    }
+    for (const observer of this.eventObservers) {
       try {
-        sendToClient(this.lastActivityStateMsg);
+        observer(msg);
       } catch (err) {
         log.warn(
-          { err, conversationId: this.conversationId },
-          "Failed to replay activity state on client reconnection",
+          { err, conversationId: this.conversationId, type: msg.type },
+          "conversation event observer threw",
         );
       }
     }
+  };
+
+  /**
+   * Observe every event this conversation emits, after the sink delivered it.
+   * For policy layered on delivery (voice auto-resolves approval prompts it
+   * has no UI for), not for delivery itself. Returns the disposer.
+   */
+  addEventObserver(observer: (msg: AssistantEvent) => void): () => void {
+    this.eventObservers.add(observer);
+    return () => {
+      this.eventObservers.delete(observer);
+    };
   }
 
-  /** Returns the current sendToClient reference for identity comparison. */
-  getCurrentSender(): (msg: AssistantEvent) => void {
-    return this.sendToClient;
+  /**
+   * Re-emit the last activity state so a client that reconnected mid-phase
+   * sees the current phase instead of the last one it received before
+   * disconnecting. The send route calls this on every interactive send.
+   */
+  replayActivityState(): void {
+    if (this.lastActivityStateMsg) {
+      this.emit(this.lastActivityStateMsg);
+    }
   }
 
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
@@ -1801,7 +1850,7 @@ export class Conversation {
   } {
     return enqueueMessageImpl(this, {
       ...options,
-      onEvent: options.onEvent ?? this.sendToClient,
+      onEvent: options.onEvent ?? this.emit,
     });
   }
 
@@ -1976,14 +2025,7 @@ export class Conversation {
       type: "confirmation_state_changed",
       ...params,
     } as AssistantEvent;
-    try {
-      this.sendToClient(msg);
-    } catch (err) {
-      log.warn(
-        { err, conversationId: this.conversationId },
-        "sendToClient threw in emitConfirmationStateChanged",
-      );
-    }
+    this.emit(msg);
   }
 
   emitActivityState(
@@ -2008,14 +2050,7 @@ export class Conversation {
       ...(statusText ? { statusText } : {}),
     } as AssistantEvent;
     this.lastActivityStateMsg = msg;
-    try {
-      this.sendToClient(msg);
-    } catch (err) {
-      log.warn(
-        { err, conversationId: this.conversationId },
-        "sendToClient threw in emitActivityState",
-      );
-    }
+    this.emit(msg);
   }
 
   /**
@@ -2069,7 +2104,7 @@ export class Conversation {
     onEvent?: (msg: AssistantEvent) => void,
   ): void {
     try {
-      (onEvent ?? this.sendToClient)({
+      (onEvent ?? this.emit)({
         type: "context_window_usage",
         conversationId: this.conversationId,
         tokens,
@@ -2421,11 +2456,11 @@ export class Conversation {
     ) {
       await this.agentLoop.compactionCircuit.recordOutcome(
         result.summaryFailed,
-        this.sendToClient,
+        this.emit,
       );
     }
     if (result.compacted) {
-      await applyCompactionResult(this, result, this.sendToClient, null, {
+      await applyCompactionResult(this, result, this.emit, null, {
         slackContextCompactionWatermarkTs:
           fixedBoundarySlackWatermarkTs ??
           getSlackCompactionWatermarkForPrefix(
@@ -2486,6 +2521,54 @@ export class Conversation {
 
   getAuthContext(): AuthContext | undefined {
     return this.authContext;
+  }
+
+  /**
+   * Trust the in-flight turn is executing under.
+   *
+   * Use this for authorization and for routing a reply to the requester:
+   * cases where substituting the conversation's owner would be wrong rather
+   * than approximate. Provenance is not such a case; see
+   * {@link getTurnOrRestingTrust} and `docs/architecture/turn-actor.md`.
+   *
+   * `undefined` when no turn recorded one, which is a gap in the entry point
+   * rather than an answer. Deliberately does not fall back to the
+   * conversation's trust: a caller that can accept the conversation's owner
+   * instead spells `?? getTrustContext()`, so the substitution is visible
+   * where it happens.
+   */
+  getTurnTrust(): TrustContext | undefined {
+    return this.currentTurnTrustContext;
+  }
+
+  /**
+   * Trust of the actor the conversation belongs to, independent of any turn.
+   *
+   * Use this where there is no turn to speak of: routes reporting on a
+   * conversation, hydration, and persisting conversation-level options. A
+   * caller that wants the conversation's owner *rather than* whoever is
+   * currently acting should be obviously doing so; if it is not obvious,
+   * {@link getTurnTrust} is probably the one meant.
+   */
+  getTrustContext(): TrustContext | undefined {
+    return this.trustContext;
+  }
+
+  /**
+   * Trust of the in-flight turn, or the conversation's owner when the turn
+   * recorded none. The substitution is in the name: callers that can accept
+   * the owner as a stand-in ask this, including provenance stamping, whose
+   * readers treat an absent trust class as more trusted than `"unknown"`.
+   * Callers for which the owner would be wrong rather than approximate call
+   * {@link getTurnTrust} and handle `undefined`.
+   *
+   * The fallback half is load-bearing, not transitional politeness: a
+   * deferred wake fires with no inbound actor, and refusing it an answer
+   * denies every sensitive tool in the resumed turn (LUM-2929). It becomes
+   * removable in one place when every entry point records a turn actor.
+   */
+  getTurnOrRestingTrust(): TrustContext | undefined {
+    return this.currentTurnTrustContext ?? this.trustContext;
   }
 
   /**
@@ -2633,6 +2716,8 @@ export class Conversation {
       titleText?: string;
       /** See {@link runAgentLoopImpl} — hidden machine-signal turn marker. */
       isHiddenPrompt?: boolean;
+      /** See {@link runAgentLoopImpl}: triggering row's daemon-authored kind. */
+      messageKind?: string;
       /**
        * See {@link runAgentLoopImpl}: the row the end-of-turn reply
        * notification treats as the prompt this turn answers.
@@ -2661,6 +2746,12 @@ export class Conversation {
        * forwarded into {@link runAgentLoopImpl} and threaded to `recordUsage`.
        */
       cronRunId?: string | null;
+      /**
+       * See {@link runAgentLoopImpl}: trust this turn runs under. Queue
+       * drains pass the sender's trust captured at enqueue so the run is not
+       * reset to the conversation's most recent actor.
+       */
+      turnTrustContext?: TrustContext;
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};
@@ -2668,7 +2759,7 @@ export class Conversation {
       this,
       content,
       userMessageId,
-      onEvent ?? this.sendToClient,
+      onEvent ?? this.emit,
       rest,
     );
   }
@@ -2694,7 +2785,7 @@ export class Conversation {
     this.cacheWarmAbort = undefined;
     return processMessageImpl(this, {
       ...options,
-      onEvent: options.onEvent ?? this.sendToClient,
+      onEvent: options.onEvent ?? this.emit,
     });
   }
 

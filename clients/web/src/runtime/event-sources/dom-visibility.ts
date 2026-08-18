@@ -1,4 +1,4 @@
-import { publish } from "@/lib/event-bus";
+import { publishLifecycleEdge } from "@/runtime/event-sources/lifecycle-edge";
 
 /**
  * `document.visibilitychange` → `app.resume(signal: "visibility")` on
@@ -6,10 +6,10 @@ import { publish } from "@/lib/event-bus";
  * bus is the consumer; SSE policy (in `assistant/sse-service.ts`)
  * teardowns on hidden and reopens on resume.
  *
- * The Capacitor iOS shell fires `appStateChange` too, which the bus
- * sees through `publishCapacitorAppStateSource` with `signal: "app_state"`.
- * Consumers that want to dedup between the two collapse them on their
- * own — the bus delivers every signal it sees.
+ * The Capacitor iOS shell fires `appStateChange` for the same physical
+ * edge, which the bus sees through `publishCapacitorAppStateSource` with
+ * `signal: "app_state"`. Both go through
+ * `runtime/event-sources/lifecycle-edge.ts`, which publishes the edge once.
  *
  * Browser-only; the caller is responsible for not invoking this in an
  * environment without `document` (SSR / Node). `useEventBusInit` guards
@@ -18,9 +18,9 @@ import { publish } from "@/lib/event-bus";
 export function publishVisibilitySource(): () => void {
   const handler = () => {
     if (document.visibilityState === "hidden") {
-      publish("app.hidden", { signal: "visibility" });
+      publishLifecycleEdge("hidden", "visibility");
     } else {
-      publish("app.resume", { signal: "visibility" });
+      publishLifecycleEdge("resume", "visibility");
     }
   };
   document.addEventListener("visibilitychange", handler);

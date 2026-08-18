@@ -76,6 +76,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { getLocalBool, setLocalBool } from "@/utils/local-settings";
@@ -133,9 +134,13 @@ function sortRows(rows: SuperpowerRow[]): SuperpowerRow[] {
  * the plugin queries stay disabled and the list is skills-only.
  */
 export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
+  const { t } = useTranslation("intelligence");
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  // Owns both halves of the category surface: the rail below renders only while
+  // there is room for it, and the filter control grows a Categories section
+  // whenever it doesn't, so the two can't disagree about who carries it.
   const isMobile = useIsMobile();
   const version = useAssistantIdentityStore.use.version();
   const pluginsSupported = useSupportsPluginsSurface();
@@ -171,7 +176,7 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
     }
     successToastedRef.current = true;
     if (selectedPluginName) {
-      toast.success(`Installed ${selectedPluginName}`);
+      toast.success(t("pluginToast.installed", { name: selectedPluginName }));
     }
     setSearchParams(
       (prev) => {
@@ -181,7 +186,7 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
       },
       { replace: true },
     );
-  }, [successFlag, selectedPluginName, setSearchParams]);
+  }, [successFlag, selectedPluginName, setSearchParams, t]);
 
   // The search input stays in local state for responsive typing; the settled
   // (debounced) value is reflected into `?q=` below and drives the query.
@@ -350,7 +355,9 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
   const installMutation = usePluginsInstallPostMutation({
     onMutate: (variables) => setInstallingName(variables.body.name),
     onSuccess: (_data, variables) =>
-      toast.success(`Installed ${variables.body.name}`),
+      toast.success(
+        t("pluginToast.installed", { name: variables.body.name }),
+      ),
     onError: () => toast.error(PLUGIN_INSTALL_ERROR),
     onSettled: (_data, _error, variables) => {
       setInstallingName(null);
@@ -361,7 +368,7 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
   const removeMutation = usePluginsByNameDeleteMutation({
     onMutate: (variables) => setRemovingName(variables.path.name),
     onSuccess: (_data, variables) =>
-      toast.success(`Removed ${variables.path.name}`),
+      toast.success(t("pluginToast.removed", { name: variables.path.name })),
     onError: () => toast.error(PLUGIN_REMOVE_ERROR),
     onSettled: (_data, _error, variables) => {
       setRemovingName(null);
@@ -374,8 +381,11 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
     onSuccess: (result, variables) =>
       toast.success(
         result.outcome === "already-up-to-date"
-          ? `${variables.path.name} is already up to date`
-          : `Upgraded ${variables.path.name} to ${shortSha(result.toCommit)}`,
+          ? t("pluginToast.alreadyUpToDate", { name: variables.path.name })
+          : t("pluginToast.upgraded", {
+              name: variables.path.name,
+              sha: shortSha(result.toCommit),
+            }),
       ),
     onError: () => toast.error(PLUGIN_UPGRADE_ERROR),
     onSettled: (_data, _error, variables) => {
@@ -664,33 +674,38 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
         totalCount={totalCount}
         showCounts={!hasActiveSearch}
         pluginsSupported={pluginsSupported}
+        showCategories={isMobile}
       />
 
       {!isLoading && !allFailed && skillsFailed ? (
-        <DegradedNotice text="Skills are temporarily unavailable. Plugins are still listed below." />
+        <DegradedNotice text={t("superpowersTab.skillsUnavailableNotice")} />
       ) : null}
       {!isLoading && !allFailed && pluginsFailed ? (
-        <DegradedNotice text="Plugins are temporarily unavailable. Skills are still listed below." />
+        <DegradedNotice text={t("superpowersTab.pluginsUnavailableNotice")} />
       ) : null}
       {pluginsVisible &&
       catalogError &&
       !pluginsListLoading &&
       !pluginsFailed ? (
-        <DegradedNotice text="Plugin catalog browsing is temporarily unavailable. Installed plugins are still listed below." />
+        <DegradedNotice
+          text={t("superpowersTab.catalogBrowsingUnavailableNotice")}
+        />
       ) : null}
 
       <div className="flex min-h-0 flex-1 gap-6">
-        <aside className="hidden w-56 shrink-0 overflow-y-auto sm:block">
-          <CategorySidebar
-            ariaLabel="Superpower categories"
-            selected={category}
-            onSelect={handleCategoryChange}
-            counts={counts}
-            totalCount={totalCount}
-            showCounts={!hasActiveSearch}
-            categories={categories}
-          />
-        </aside>
+        {!isMobile && (
+          <aside className="w-56 shrink-0 overflow-y-auto">
+            <CategorySidebar
+              ariaLabel={t("superpowersTab.categoriesAriaLabel")}
+              selected={category}
+              onSelect={handleCategoryChange}
+              counts={counts}
+              totalCount={totalCount}
+              showCounts={!hasActiveSearch}
+              categories={categories}
+            />
+          </aside>
+        )}
 
         {listColumn}
       </div>
@@ -703,11 +718,11 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
 
       <ConfirmDialog
         open={pendingRemoval !== null}
-        title="Remove plugin"
+        title={t("pluginDetailShared.removePluginTitle")}
         message={
           pendingRemoval ? pluginRemoveConfirmMessage(pendingRemoval.name) : ""
         }
-        confirmLabel="Remove"
+        confirmLabel={t("pluginDetailShared.remove")}
         destructive
         onConfirm={confirmPluginRemove}
         onCancel={() => setPendingRemoval(null)}
@@ -715,7 +730,7 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
 
       <ConfirmDialog
         open={pendingUpgrade !== null}
-        title="Upgrade plugin"
+        title={t("pluginDetailShared.upgradePluginTitle")}
         message={
           pendingUpgrade
             ? pluginRiskyUpgradeConfirmMessage(pendingUpgrade.name)
@@ -874,6 +889,7 @@ function InstalledPluginRow({
 }
 
 function TipBanner({ onDismiss }: { onDismiss: () => void }) {
+  const { t } = useTranslation("intelligence");
   return (
     <div
       className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-body-small-default"
@@ -886,17 +902,14 @@ function TipBanner({ onDismiss }: { onDismiss: () => void }) {
         className="h-4 w-4 shrink-0"
         style={{ color: "var(--primary-base)" }}
       />
-      <p className="flex-1">
-        Create a new custom skill by describing what you want in chat, or
-        install plugins to extend your assistant.
-      </p>
+      <p className="flex-1">{t("superpowersTab.tipBannerText")}</p>
       <Button
         type="button"
         variant="ghost"
         size="compact"
         iconOnly={<X aria-hidden />}
         onClick={onDismiss}
-        aria-label="Dismiss tip"
+        aria-label={t("superpowersTab.dismissTipAriaLabel")}
         tintColor="var(--content-tertiary)"
         expandOnMobile={false}
       />
@@ -935,6 +948,7 @@ function LoadingState() {
 }
 
 function ErrorState() {
+  const { t } = useTranslation("intelligence");
   return (
     <Card.Root>
       <Card.Body className="flex flex-col items-center justify-center py-16 text-center">
@@ -947,13 +961,13 @@ function ErrorState() {
           className="text-title-small"
           style={{ color: "var(--content-default)" }}
         >
-          Failed to load superpowers
+          {t("superpowersTab.errorStateTitle")}
         </h3>
         <p
           className="mt-1 max-w-sm text-body-medium-lighter"
           style={{ color: "var(--content-tertiary)" }}
         >
-          Something went wrong. Try refreshing the page.
+          {t("superpowersTab.errorStateSubtitle")}
         </p>
       </Card.Body>
     </Card.Root>
@@ -967,84 +981,109 @@ function EmptyState({
   filter: SuperpowerFilter;
   category: string | null;
 }) {
-  const { title, subtitle, Icon } = getEmptyStateCopy(filter, category);
+  const { t } = useTranslation("intelligence");
+  const { title, subtitle, Icon } = getEmptyStateCopy(filter, category, t);
   return <SkillsStateCard icon={Icon} title={title} subtitle={subtitle} />;
 }
 
+type TranslateEmptyStateCopy = (
+  key:
+    | "superpowersTab.emptyState.categoryTitle"
+    | "superpowersTab.emptyState.categorySubtitle"
+    | "superpowersTab.emptyState.installedTitle"
+    | "superpowersTab.emptyState.installedSubtitle"
+    | "superpowersTab.emptyState.availableTitle"
+    | "superpowersTab.emptyState.availableSubtitle"
+    | "superpowersTab.emptyState.skillsTitle"
+    | "superpowersTab.emptyState.skillsSubtitle"
+    | "superpowersTab.emptyState.pluginsTitle"
+    | "superpowersTab.emptyState.pluginsSubtitle"
+    | "superpowersTab.emptyState.vellumTitle"
+    | "superpowersTab.emptyState.vellumSubtitle"
+    | "superpowersTab.emptyState.clawhubTitle"
+    | "superpowersTab.emptyState.clawhubSubtitle"
+    | "superpowersTab.emptyState.skillsshTitle"
+    | "superpowersTab.emptyState.skillsshSubtitle"
+    | "superpowersTab.emptyState.customTitle"
+    | "superpowersTab.emptyState.customSubtitle"
+    | "superpowersTab.emptyState.assistantMemoryTitle"
+    | "superpowersTab.emptyState.assistantMemorySubtitle"
+    | "superpowersTab.emptyState.defaultTitle"
+    | "superpowersTab.emptyState.defaultSubtitle",
+) => string;
+
+/** `Vellum`, `Clawhub`, and `skills.sh` in the empty-state copy are brand/product names, never translated. */
 function getEmptyStateCopy(
   filter: SuperpowerFilter,
   category: string | null,
+  t: TranslateEmptyStateCopy,
 ): { title: string; subtitle: string; Icon: typeof Puzzle } {
   if (category) {
     return {
-      title: "Nothing in this category",
-      subtitle: "Try selecting a different category or clearing the filter.",
+      title: t("superpowersTab.emptyState.categoryTitle"),
+      subtitle: t("superpowersTab.emptyState.categorySubtitle"),
       Icon: LayoutGrid,
     };
   }
   switch (filter) {
     case "installed":
       return {
-        title: "No Superpowers Installed",
-        subtitle:
-          "Ask your assistant in chat to search for and install new skills and plugins.",
+        title: t("superpowersTab.emptyState.installedTitle"),
+        subtitle: t("superpowersTab.emptyState.installedSubtitle"),
         Icon: Zap,
       };
     case "available":
       return {
-        title: "Nothing Left to Install",
-        subtitle: "All available skills and plugins are installed.",
+        title: t("superpowersTab.emptyState.availableTitle"),
+        subtitle: t("superpowersTab.emptyState.availableSubtitle"),
         Icon: CheckCircle,
       };
     case "skills":
       return {
-        title: "No Skills Found",
-        subtitle:
-          "Ask your assistant in chat to search for and install new skills.",
+        title: t("superpowersTab.emptyState.skillsTitle"),
+        subtitle: t("superpowersTab.emptyState.skillsSubtitle"),
         Icon: Zap,
       };
     case "plugins":
       return {
-        title: "No Plugins Found",
-        subtitle:
-          "Browse the catalog to install plugins that extend your assistant.",
+        title: t("superpowersTab.emptyState.pluginsTitle"),
+        subtitle: t("superpowersTab.emptyState.pluginsSubtitle"),
         Icon: Puzzle,
       };
     case "vellum":
       return {
-        title: "No Vellum Skills",
-        subtitle: "No bundled Vellum skills found.",
+        title: t("superpowersTab.emptyState.vellumTitle"),
+        subtitle: t("superpowersTab.emptyState.vellumSubtitle"),
         Icon: Zap,
       };
     case "clawhub":
       return {
-        title: "No Clawhub Skills",
-        subtitle: "No Clawhub skills found. Try searching the catalog.",
+        title: t("superpowersTab.emptyState.clawhubTitle"),
+        subtitle: t("superpowersTab.emptyState.clawhubSubtitle"),
         Icon: Zap,
       };
     case "skillssh":
       return {
-        title: "No skills.sh Skills",
-        subtitle: "No skills.sh skills found. Try searching the catalog.",
+        title: t("superpowersTab.emptyState.skillsshTitle"),
+        subtitle: t("superpowersTab.emptyState.skillsshSubtitle"),
         Icon: Zap,
       };
     case "custom":
       return {
-        title: "No Custom Skills",
-        subtitle: "Create a custom skill by describing what you want in chat.",
+        title: t("superpowersTab.emptyState.customTitle"),
+        subtitle: t("superpowersTab.emptyState.customSubtitle"),
         Icon: Zap,
       };
     case "assistant-memory":
       return {
-        title: "No Skills From Memory",
-        subtitle:
-          "Skills your assistant authors from past conversations will appear here.",
+        title: t("superpowersTab.emptyState.assistantMemoryTitle"),
+        subtitle: t("superpowersTab.emptyState.assistantMemorySubtitle"),
         Icon: Zap,
       };
     default:
       return {
-        title: "No Superpowers Available",
-        subtitle: "Check your connection to the Vellum catalog.",
+        title: t("superpowersTab.emptyState.defaultTitle"),
+        subtitle: t("superpowersTab.emptyState.defaultSubtitle"),
         Icon: CloudOff,
       };
   }

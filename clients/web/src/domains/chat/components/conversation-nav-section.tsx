@@ -7,18 +7,24 @@
  *   shell (icon + label + trailing + context menu) wrapping a
  *   `ConversationRowList`. Used by channel sections and custom groups.
  *
- * Nothing paginates: the rows just keep going. What differs is where they
- * scroll. A section caps at {@link SIDEBAR_SECTION_MAX_HEIGHT} and scrolls
- * within itself, since an uncapped busy section would push its neighbours off
- * screen, unless it opts out via `unbounded` (Pinned: expected to stay
- * short, and grows to fit its rows instead). The flat list instead scrolls
- * against the sidebar body it already fills (`scrollParent`), which keeps
- * the rail to a single scrollbar.
+ * A windowed section paginates: `onEndReached` fires at the bottom of the
+ * rows and pages more in (LUM-2444). What differs per section is where the
+ * rows scroll. Only the bottom-most section (`isLast`) grows to fill whatever
+ * space the sidebar has left above the pinned footer, then scrolls within
+ * itself once its rows outgrow that: flex-grow has no notion of "this
+ * section needs the room," so letting every open section claim a share
+ * stretched a two-row group into a mostly-empty box the same size as a busy
+ * one beside it. Every section above the last one caps at a fixed height
+ * and scrolls within itself instead, since an uncapped busy section would
+ * otherwise push its neighbours off screen - unless it opts out via
+ * `unbounded` (Pinned: expected to stay short, and grows to fit its rows
+ * instead). The flat list instead scrolls against the sidebar body it
+ * already fills (`scrollParent`), which keeps the rail to a single
+ * scrollbar.
  *
  * Either way a list past {@link CONVERSATION_LIST_VIRTUALIZE_THRESHOLD} rows
  * windows rather than mounting every one, because an assistant accumulates
- * conversations indefinitely and they all arrive in one query: there is no
- * page to fetch, only rows to render. Shorter lists mount directly and skip
+ * conversations indefinitely. Shorter lists mount directly and skip
  * virtuoso's measuring pass.
  *
  * Row callbacks and state come from {@link useConversationListContext}
@@ -37,7 +43,9 @@ import {
   type CollapsibleNavSectionDrag,
 } from "@/components/collapsible-nav-section";
 import { SIDEBAR_SECTION_MAX_HEIGHT } from "@/components/sidebar-nav-geometry";
+import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
 import { ConversationRow } from "@/domains/chat/components/conversation-row";
+import { LoadMoreSentinel } from "@/domains/chat/components/load-more-sentinel";
 import {
   hasAnyGroupMenuAction,
   renderGroupMenuItems,
@@ -55,13 +63,6 @@ export const CONVERSATION_LIST_VIRTUALIZE_THRESHOLD = 30;
 
 export interface ConversationRowListProps {
   items: Conversation[];
-  /** Drag-reorder section key; omit for non-reorderable lists. */
-  dragSection?: string;
-  /**
-   * Full ordered list for drag math. Defaults to `items` — pass explicitly
-   * only when the visible `items` are a subset.
-   */
-  dragSiblings?: Conversation[];
   /**
    * Scroll against this ancestor rather than bounding the list. Only the flat
    * list passes it: it already fills the sidebar body, so opening a scroller
@@ -69,50 +70,62 @@ export interface ConversationRowListProps {
    */
   scrollParent?: HTMLElement;
   /**
-   * Skips {@link SIDEBAR_SECTION_MAX_HEIGHT} entirely: the list grows to fit
-   * every row instead of capping and scrolling within itself. Pinned is the
-   * one section that wants this, the user's own curation, expected to stay
-   * short - and (unlike Chats or a channel section, which cap and scroll
-   * internally) not something that should ever push its neighbours off
-   * screen.
+   * Skips the sizing below entirely: the list grows to fit every row
+   * instead. Pinned is the one section that wants this, the user's own
+   * curation, expected to stay short - and (unlike Chats or a channel
+   * section) not something that should ever push its neighbours off screen.
    */
   unbounded?: boolean;
+  /**
+   * Whether this is the bottom-most section in the list. It grows to fill
+   * whatever space the sidebar has left, then scrolls within itself past
+   * that. Every other section caps at {@link SIDEBAR_SECTION_MAX_HEIGHT}
+   * instead and scrolls sooner, so it can't stretch past its own content
+   * just because the flex column had room to give it.
+   */
+  isLast?: boolean;
+  /**
+   * Fires when the user scrolls to the bottom of the rows - the load-more
+   * trigger for a windowed list (LUM-2444). Pass only while more rows
+   * exist; the virtualized path wires it to `VirtualList.endReached` and
+   * the direct path renders a {@link LoadMoreSentinel} after the rows.
+   */
+  onEndReached?: () => void;
 }
 
 export function ConversationRowList({
   items,
-  dragSection,
-  dragSiblings,
   scrollParent,
   unbounded,
+  isLast,
+  onEndReached,
 }: ConversationRowListProps) {
   const renderRow = (conversation: Conversation) => (
     <ConversationRow
       key={conversation.conversationId}
       conversation={conversation}
-      dragSection={dragSection}
-      dragSiblings={dragSiblings ?? items}
     />
   );
 
-  const rows = <SideMenu.SubList>{items.map(renderRow)}</SideMenu.SubList>;
+  const rows = (
+    <SideMenu.SubList>
+      {items.map(renderRow)}
+      {onEndReached ? <LoadMoreSentinel onVisible={onEndReached} /> : null}
+    </SideMenu.SubList>
+  );
 
-  // Reorderable sections (Pinned, custom groups) always mount every row: the
-  // drag controller resolves a drop target from the rows themselves, so a
-  // windowed list would have nothing to drop onto past the viewport. They
-  // stay bounded and scrollable either way (unless `unbounded`), and they
-  // are the curated sections, so they are the least likely to run long.
   const windows =
-    !unbounded &&
-    !dragSection &&
-    items.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD;
+    !unbounded && items.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD;
 
   if (!windows) {
     if (unbounded) {
       return rows;
     }
-    return scrollParent ? (
-      rows
+    if (scrollParent) {
+      return rows;
+    }
+    return isLast ? (
+      <div className="min-h-0 flex-1 overflow-y-auto">{rows}</div>
     ) : (
       <div
         className="overflow-y-auto"
@@ -131,15 +144,35 @@ export function ConversationRowList({
       customScrollParent={scrollParent}
       computeItemKey={(_, conversation) => conversation.conversationId}
       itemContent={(_, conversation) => renderRow(conversation)}
+      endReached={onEndReached}
       className={scrollParent ? "bg-transparent" : "h-full bg-transparent"}
     />
   );
 
+  if (scrollParent) {
+    return windowed;
+  }
+
   /* Scrolling against an ancestor means no height of our own. Otherwise
-     virtuoso's scroller sizes to 100%, so the wrapper commits to the full
-     height, which is honest here since the list is past the cap. */
-  return scrollParent ? (
-    windowed
+     virtuoso's scroller sizes to 100%: the last section fills whatever
+     height its own flex-fill sizing (see `CollapsibleNavSection.Section`)
+     gives it, every other section gets a fixed height so a busy non-last
+     section still can't push its neighbours off screen.
+
+     The last section's fill only resolves while every ancestor between the
+     sidebar body and this box forwards the body's height (flex column with
+     flex-1/min-h-0 at each layer). A windowed list renders only what fits
+     its viewport, so unlike the mounted-rows path a broken chain here does
+     not degrade to a tall list, it degrades to an empty one. The min-height
+     floor caps that failure at "a section-sized scrollable box": rows stay
+     reachable even if a layout change above drops the chain. */
+  return isLast ? (
+    <div
+      className="h-full flex-1"
+      style={{ minHeight: SIDEBAR_SECTION_MAX_HEIGHT }}
+    >
+      {windowed}
+    </div>
   ) : (
     <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>{windowed}</div>
   );
@@ -184,10 +217,12 @@ export function ConversationNavSection({
   ...listProps
 }: ConversationNavSectionProps) {
   const hasMenu = groupMenu != null && hasAnyGroupMenuAction(groupMenu);
+  const { overlayCards } = useConversationListContext();
 
   return (
     <CollapsibleNavSection.Section
       value={value}
+      card={overlayCards}
       icon={icon}
       label={label}
       trailing={trailing}
@@ -205,6 +240,8 @@ export function ConversationNavSection({
       collapsedIndicator={collapsedIndicator}
       drag={drag}
       collapsible={collapsible}
+      unbounded={listProps.unbounded}
+      isLast={listProps.isLast}
     >
       {children ?? <ConversationRowList {...listProps} />}
     </CollapsibleNavSection.Section>

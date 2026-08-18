@@ -1,12 +1,6 @@
-import {
-  Calendar,
-  ChevronLeft,
-  Mail,
-  MailOpen,
-  RotateCcw,
-  Trash2,
-} from "lucide-react";
+import { ChevronLeft, Mail, MailOpen, RotateCcw, Trash2 } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
 import {
   formatCompactLocalDate,
   formatFullLocalDate,
@@ -16,7 +10,8 @@ import { Button, Typography } from "@vellumai/design-library";
 
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
-import { getFeedItemScheduleId, resolveFeedItemTitle } from "../utils";
+import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
+import { resolveFeedItemTitle } from "../utils";
 
 /**
  * Layout of the panel's header row. Shared with the notifications list so the
@@ -56,15 +51,20 @@ export interface NotificationsBellDetailProps {
   validConversationIds: Set<string>;
   /** True while any of those lists has yet to resolve. */
   areConversationListsPending: boolean;
-  /** Ids of the schedules that still exist, from the Schedules page's list. */
-  validScheduleIds: Set<string>;
-  /** True while that list has yet to resolve. */
-  isScheduleListPending: boolean;
+  /**
+   * Links to the entities this notification names (its schedule, the skill it
+   * updated), from `useFeedItemEntityLinks`. A link whose list has yet to
+   * resolve is included and flagged by `areEntityLinksPending`.
+   */
+  entityLinks: FeedItemEntityLink[];
+  /** True while a list one of those links depends on has yet to resolve. */
+  areEntityLinksPending: boolean;
   /** True while an action item's conversation is being created. */
   isActionPending: boolean;
   onBack: () => void;
   onGoToConversation: (conversationId: string) => void;
-  onViewSchedule: (scheduleId: string) => void;
+  /** Navigate to an entity link's `to` path, closing the bell. */
+  onNavigate: (to: string) => void;
   onUpdateStatus: (itemId: string, status: FeedItemStatus) => void;
   onDismiss: (itemId: string) => void;
   onTriggerAction: (actionId: string) => void;
@@ -81,43 +81,42 @@ export function NotificationsBellDetail({
   contentMaxHeight,
   validConversationIds,
   areConversationListsPending,
-  validScheduleIds,
-  isScheduleListPending,
+  entityLinks,
+  areEntityLinksPending,
   isActionPending,
   onBack,
   onGoToConversation,
-  onViewSchedule,
+  onNavigate,
   onUpdateStatus,
   onDismiss,
   onTriggerAction,
 }: NotificationsBellDetailProps) {
+  const { t } = useTranslation("home");
   const conversationId = item.conversationId ?? null;
-  const scheduleId = getFeedItemScheduleId(item);
   const isUnread = item.status === "new";
+  const readToggleLabel = isUnread
+    ? t("actions.markAsRead")
+    : t("actions.markAsUnread");
   const isDismissed = item.status === "dismissed";
   const actions = item.actions ?? [];
 
   // Same rule as the Activity page's detail panel, plus a pending case the
   // page doesn't have: the lists start loading when this view opens. Every
   // list a candidate link depends on has to land before any link becomes
-  // reachable, so the two buttons settle together rather than one at a time
-  // and a deleted target is never linked to.
+  // reachable, so the buttons settle together rather than one at a time and a
+  // deleted target is never linked to.
   const isValidationPending =
     (conversationId !== null && areConversationListsPending) ||
-    (scheduleId !== null && isScheduleListPending);
+    areEntityLinksPending;
 
   // A link the lists have yet to vouch for still renders, holding the box it
   // will occupy so the footer keeps its shape once validation resolves. One
-  // whose target turns out to be gone drops out.
+  // whose target turns out to be gone drops out (entity links are dropped by
+  // the resolver itself, the conversation link here).
   const linkedConversationId =
     conversationId !== null &&
     (isValidationPending || validConversationIds.has(conversationId))
       ? conversationId
-      : null;
-  const linkedScheduleId =
-    scheduleId !== null &&
-    (isValidationPending || validScheduleIds.has(scheduleId))
-      ? scheduleId
       : null;
 
   // `visibility: hidden` keeps a pending link's box while taking it out of the
@@ -136,7 +135,7 @@ export function NotificationsBellDetail({
           variant="ghost"
           iconOnly={<ChevronLeft />}
           onClick={onBack}
-          aria-label="Back to notifications"
+          aria-label={t("notificationsBellDetail.back")}
         />
         <Typography
           variant="body-medium-default"
@@ -158,24 +157,24 @@ export function NotificationsBellDetail({
             variant="ghost"
             iconOnly={isUnread ? <MailOpen /> : <Mail />}
             onClick={() => onUpdateStatus(item.id, isUnread ? "seen" : "new")}
-            aria-label={isUnread ? "Mark as read" : "Mark as unread"}
-            tooltip={isUnread ? "Mark as read" : "Mark as unread"}
+            aria-label={readToggleLabel}
+            tooltip={readToggleLabel}
           />
           {isDismissed ? (
             <Button
               variant="ghost"
               iconOnly={<RotateCcw />}
               onClick={() => onUpdateStatus(item.id, "seen")}
-              aria-label="Restore"
-              tooltip="Restore"
+              aria-label={t("actions.restore")}
+              tooltip={t("actions.restore")}
             />
           ) : (
             <Button
               variant="ghost"
               iconOnly={<Trash2 />}
               onClick={() => onDismiss(item.id)}
-              aria-label="Dismiss"
-              tooltip="Dismiss"
+              aria-label={t("actions.dismiss")}
+              tooltip={t("actions.dismiss")}
             />
           )}
         </div>
@@ -253,20 +252,19 @@ export function NotificationsBellDetail({
         {/* `ml-auto` keeps the links against the right edge on the second row
             too, once a narrow sheet has wrapped them off the timestamp's. */}
         <div className="ml-auto flex flex-wrap items-center justify-end gap-[var(--app-spacing-sm)]">
-          {linkedScheduleId ? (
+          {entityLinks.map((link) => (
             <Button
+              key={link.kind}
               variant="outlined"
-              leftIcon={<Calendar className="size-4" />}
+              leftIcon={<link.icon className="size-4" />}
               onClick={
-                isValidationPending
-                  ? undefined
-                  : () => onViewSchedule(linkedScheduleId)
+                isValidationPending ? undefined : () => onNavigate(link.to)
               }
               {...pendingLinkProps}
             >
-              View schedule
+              {t(link.labelKey)}
             </Button>
-          ) : null}
+          ))}
           {linkedConversationId ? (
             <Button
               variant="primary"
@@ -277,7 +275,7 @@ export function NotificationsBellDetail({
               }
               {...pendingLinkProps}
             >
-              Go to Conversation
+              {t("actions.goToConversation")}
             </Button>
           ) : null}
         </div>

@@ -2,12 +2,22 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
-import { isScheduledConversation } from "@/utils/conversation-predicates";
+import { compareByRecency } from "@/utils/conversation-order";
+import {
+  isConversationPinned,
+  isCustomGroupId,
+  isScheduledConversation,
+} from "@/utils/conversation-predicates";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 /**
  * Pure helper for splitting the sidebar's conversation list into system
- * category buckets (`pinned`, `channelSections`, `scheduled`, `background`,
- * `recents`) and optional user-defined custom groups.
+ * category buckets (`pinned`, `channelSections`, `recents`) and optional
+ * user-defined custom groups.
+ *
+ * These buckets are the derived fallback, not the sidebar's contents: each
+ * section fetches its own rows (`useSectionConversations`) and falls back to
+ * what is here while a section's query is gated off, pending, or failed.
+ * Which sections exist is still read from these buckets.
  *
  * Categorization (mirrors backend conventions in `web/src/lib/chat/api.ts`):
  *
@@ -21,18 +31,20 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
  *   produced at all and those conversations go to `recents` instead, at the
  *   same point in the precedence chain, so which bucket a conversation is
  *   visible in changes but whether it is visible does not.
- * - `scheduled` — `conversationType === "scheduled"` OR legacy
- *   `groupId === "system:scheduled"`.
- * - `background` — all background threads
- *   (`conversationType === "background"` or `groupId === "system:background"`),
- *   including auto-analysis (reflections).
  * - `recents` — everything else (foreground, non-pinned), sorted by
- *   `lastMessageAt` descending. Background/scheduled conversations with a
- *   non-null `surfacedAt` (explicitly promoted via the daemon's surface API)
- *   land here instead of their system buckets.
+ *   `lastMessageAt` descending.
  *
- * Archived conversations (`archivedAt != null`) are excluded from every
- * bucket.
+ * Excluded from every bucket, because no section renders them:
+ *
+ * - archived conversations (`archivedAt != null`), which live in their own view
+ * - scheduled threads (`conversationType === "scheduled"` or legacy
+ *   `groupId === "system:scheduled"`)
+ * - background threads (`conversationType === "background"` or legacy
+ *   `groupId === "system:background"`), including auto-analysis reflections
+ *
+ * A scheduled or background conversation with a non-null `surfacedAt` has
+ * been explicitly promoted through the daemon's surface API, and reaches
+ * `recents` like any foreground thread.
  *
  * Kept deliberately in its own file (no React, no icons) so it can be unit
  * tested without a DOM and reused by other surfaces if a compact recent-list
@@ -57,22 +69,9 @@ export interface ChannelSection {
 
 export interface GroupedConversations {
   pinned: Conversation[];
-  scheduled: Conversation[];
-  background: Conversation[];
   channelSections: ChannelSection[];
   recents: Conversation[];
   customGroups: CustomGroup[];
-}
-
-/**
- * True when a conversation is pinned, via either the modern `isPinned`
- * boolean or the legacy `groupId === "system:pinned"` marker. Some
- * conversations (especially older ones) only carry the legacy marker,
- * so checking `isPinned` alone misses them and shows the wrong
- * Pin/Unpin label in the actions menu.
- */
-export function isConversationPinned(c: Conversation): boolean {
-  return c.isPinned === true || c.groupId === "system:pinned";
 }
 
 function isBackground(c: Conversation): boolean {
@@ -95,71 +94,6 @@ function channelSectionBucketId(c: Conversation): string | null {
     return null;
   }
   return c.originChannel ?? null;
-}
-
-/**
- * Read the `lastMessageAt` epoch-ms timestamp for numeric comparison.
- * Missing values fall back to `0` so the caller's sort is stable.
- */
-function parseLastMessageAt(conversation: Conversation): number {
-  return conversation.lastMessageAt ?? 0;
-}
-
-/**
- * Stable fallback order for pinned / custom-group rows that have no
- * server-assigned `displayOrder`, and the tie-breaker when two rows share a
- * `displayOrder`.
- *
- * Keyed on the immutable `createdAt` (newest-created first) — deliberately NOT
- * `lastMessageAt`. Pinning sends no `displayOrder` (the daemon stores it as
- * NULL until the user drag-reorders), so without this every pinned row would
- * sort by recency and jump to the top whenever a new message landed in it.
- * Pinned rows should hold their position regardless of activity, so we sort by
- * creation time, which never changes. `conversationId` is the final
- * tie-breaker so the order stays fully deterministic when `createdAt` is equal
- * or missing.
- */
-function compareByCreatedAt(a: Conversation, b: Conversation): number {
-  const byCreated = (b.createdAt ?? 0) - (a.createdAt ?? 0);
-  if (byCreated !== 0) {
-    return byCreated;
-  }
-  return a.conversationId.localeCompare(b.conversationId);
-}
-
-/**
- * Comparator for buckets where the user can manually drag-reorder rows
- * (pinned, custom groups). Conversations with a server-provided
- * `displayOrder` come first in ascending order; ties and rows without
- * `displayOrder` fall back to a stable creation-time order so pinned rows
- * never reshuffle when activity arrives (see {@link compareByCreatedAt}).
- */
-function compareByDisplayOrder(a: Conversation, b: Conversation): number {
-  const aOrder = a.displayOrder;
-  const bOrder = b.displayOrder;
-  if (aOrder != null && bOrder != null) {
-    if (aOrder !== bOrder) {
-      return aOrder - bOrder;
-    }
-    return compareByCreatedAt(a, b);
-  }
-  if (aOrder != null) {
-    return -1;
-  }
-  if (bOrder != null) {
-    return 1;
-  }
-  return compareByCreatedAt(a, b);
-}
-
-/**
- * True when a `groupId` refers to a non-system (custom) group.
- * System groups use a `"system:"` prefix (e.g. `"system:pinned"`).
- */
-export function isCustomGroupId(
-  groupId: string | undefined,
-): groupId is string {
-  return !!groupId && !groupId.startsWith("system:");
 }
 
 // ---------------------------------------------------------------------------
@@ -207,8 +141,6 @@ export function groupConversations(
 ): GroupedConversations {
   const groupByChannel = options?.groupByChannel ?? true;
   const pinned: Conversation[] = [];
-  const scheduled: Conversation[] = [];
-  const background: Conversation[] = [];
   const channelBuckets = new Map<string, Conversation[]>();
   const recents: Conversation[] = [];
 
@@ -284,13 +216,11 @@ export function groupConversations(
       continue;
     }
 
-    if (isScheduledConversation(c)) {
-      scheduled.push(c);
-      continue;
-    }
-
-    if (isBackground(c)) {
-      background.push(c);
+    /* Excluded rather than bucketed. Scheduled and background rows have no
+       section of their own, so what matters is that they do not fall through
+       into Chats. They reach the sidebar only by being surfaced, which the
+       branch above already promoted. */
+    if (isScheduledConversation(c) || isBackground(c)) {
       continue;
     }
 
@@ -300,31 +230,24 @@ export function groupConversations(
   // Copy before sort so we never mutate the caller's array. Sorting in-place
   // on a shared reference is a subtle source of downstream re-render churn
   // in React.
-  const sortedRecents = recents.slice().sort((a, b) => {
-    return parseLastMessageAt(b) - parseLastMessageAt(a);
-  });
+  const sortedRecents = recents.slice().sort(compareByRecency);
   // One section per channel that has conversations, each recency-sorted,
   // with the sections themselves ordered by channel id for a stable layout.
   const channelSections: ChannelSection[] = [...channelBuckets.entries()]
     .map(([channelId, convs]) => ({
       channelId,
-      conversations: convs
-        .slice()
-        .sort((a, b) => parseLastMessageAt(b) - parseLastMessageAt(a)),
+      conversations: convs.slice().sort(compareByRecency),
     }))
     .sort((a, b) => a.channelId.localeCompare(b.channelId));
-  // Pinned + custom groups honor `displayOrder` (set when the user
-  // drag-reorders). Any global resort by recency at this level would
-  // override the user's custom order — see LUM-1619.
-  const sortedPinned = pinned.slice().sort(compareByDisplayOrder);
+  // Pinned and the custom groups sort by recency like every other section.
+  // `displayOrder` is not consulted anywhere: recency is the one order.
+  const sortedPinned = pinned.slice().sort(compareByRecency);
   for (const bucket of customGroupsList) {
-    bucket.conversations.sort(compareByDisplayOrder);
+    bucket.conversations.sort(compareByRecency);
   }
 
   return {
     pinned: sortedPinned,
-    scheduled,
-    background,
     channelSections,
     recents: sortedRecents,
     customGroups: customGroupsList,

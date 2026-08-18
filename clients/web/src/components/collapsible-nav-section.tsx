@@ -1,7 +1,12 @@
 import { ChevronDown, type LucideIcon } from "lucide-react";
 import { useRef, type DragEvent, type ReactNode, type Ref } from "react";
 
-import { BottomSheet, ContextMenu } from "@vellumai/design-library";
+import {
+  BottomSheet,
+  ContextMenu,
+  CrossfadeStack,
+  SideMenu,
+} from "@vellumai/design-library";
 import {
   Collapsible,
   type CollapsibleItemProps,
@@ -11,7 +16,6 @@ import { cn } from "@vellumai/design-library/utils/cn";
 
 import {
   SIDEBAR_CHIP_GAP,
-  SIDEBAR_CHIP_SIZE,
   SIDEBAR_ROW_PADDING_X,
   SIDEBAR_SECTION_INDENT,
   SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
@@ -185,12 +189,34 @@ export interface CollapsibleNavSectionSectionProps extends Omit<
   contentClassName?: string;
   ref?: Ref<HTMLDivElement>;
   /**
+   * Draw the section as a self-contained card rather than a run of rows on
+   * the panel's own surface. The card owns the horizontal inset, so the
+   * header and the list inside it sit flush and the header shrinks to a bare
+   * label row. The caller supplies the surface and radius through
+   * `className`; this governs the geometry that has to agree with it.
+   */
+  card?: boolean;
+  /**
    * Whether the section can collapse. Defaults to `true`. `false` drops the
    * chevron/icon-swap affordance and the header's toggle behavior entirely,
    * and renders the content outside the Radix accordion machinery so it's
    * always visible regardless of the root's open-section state.
    */
   collapsible?: boolean;
+  /**
+   * Skips the "grow to fill the sidebar's remaining space while open" sizing
+   * below. Pinned wants this: it grows to fit its own rows instead, and
+   * should never stretch to claim space its rows don't use.
+   */
+  unbounded?: boolean;
+  /**
+   * Whether this is the bottom-most section in the list - only it grows to
+   * fill leftover space while open; every section above it (even open, even
+   * busy) sizes to its own content instead, since flex-grow would otherwise
+   * hand every open section a share of the leftover space whether or not it
+   * has enough rows to use it.
+   */
+  isLast?: boolean;
 }
 
 function CollapsibleNavSectionSection({
@@ -207,6 +233,9 @@ function CollapsibleNavSectionSection({
   contentClassName,
   ref,
   collapsible = true,
+  unbounded = false,
+  isLast = false,
+  card = false,
   ...itemProps
 }: CollapsibleNavSectionSectionProps) {
   // The chevron forwards its clicks to the title trigger, keeping one
@@ -219,22 +248,50 @@ function CollapsibleNavSectionSection({
   const iconSlot = Icon ? (
     <span
       data-slot="collapsible-nav-section-icon"
-      className="relative inline-flex h-[14px] shrink-0 items-center justify-center"
-      style={{ width: SIDEBAR_CHIP_SIZE }}
+      /* Hugs the glyph. A chip-width box with the glyph centred in it padded
+         the icon away from both edges, so the header read as indented from
+         the row surfaces below it. Centring is the collapsed rail's need,
+         and the rail draws its own tiles. */
+      className="relative inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center"
     >
       <Icon size={12} aria-hidden className="text-[var(--content-tertiary)]" />
     </span>
   ) : null;
 
+  /* Both header branches are the same row: one is a disclosure trigger and
+     the other is inert, so the geometry and the content are declared once and
+     the branch below chooses only the element. */
+  /* A card supplies the section's own inset, so the header sits flush
+     inside it as a bare 16px row with the smaller of the two title sizes. */
+  const titleClasses = cn(
+    card ? "py-0" : "py-[6px] max-md:py-3",
+    SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
+    card && "text-body-small-default max-md:text-body-small-default",
+  );
+
+  const titleStyle = {
+    paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X,
+    paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
+    gap: SIDEBAR_CHIP_GAP,
+  };
+
+  const titleContent = (
+    <>
+      {iconSlot}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </>
+  );
+
   const headerEl = (
     <div
       data-slot="collapsible-nav-section-header"
+      /* The hover scope for the trailing "…": hovering anywhere on the header
+         reveals it. Attribute-keyed rather than a Tailwind group, so the
+         trigger's own unnamed `group` (the icon/chevron swap) cannot answer to
+         it and this cannot answer to the trigger's. */
+      data-reveal-row=""
       className={cn(
-        // Named group so the trailing "…" can react to hovering anywhere on
-        // the header. The trigger carries its own unnamed `group` for the
-        // icon/chevron swap, and it is a *sibling* of the trailing slot, so
-        // that one can't reach it.
-        "group/header flex items-center justify-between",
+        "flex shrink-0 items-center justify-between",
         // The title trigger's Accordion.Header wrapper must grow to fill
         // the row, so the whole header (minus the trailing cluster) is
         // the click target and long labels still truncate. The primitive
@@ -254,56 +311,74 @@ function CollapsibleNavSectionSection({
         // or collapses the section, while click-and-hold-and-move drags it
         // (native HTML5 drag on the header div, see `drag` below). The
         // chevron in the trailing cluster forwards its clicks here.
-        <Collapsible.Trigger
-          ref={titleTriggerRef}
-          data-slot="collapsible-nav-section-title"
-          className={cn(
-            "h-[30px] max-md:h-auto",
-            "rounded-[6px] py-[6px] max-md:py-3",
-            "text-left",
-            SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
-          )}
-          style={{
-            paddingLeft: SIDEBAR_ROW_PADDING_X,
-            paddingRight: SIDEBAR_ROW_PADDING_X,
-            gap: SIDEBAR_CHIP_GAP,
-          }}
+        <SideMenu.SectionHeader
+          asChild
+          className={titleClasses}
+          style={titleStyle}
         >
-          {iconSlot}
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-          {collapsedIndicator ? (
-            <span className="ml-1 flex shrink-0 items-center group-data-[state=open]/section:hidden">
-              {collapsedIndicator}
-            </span>
-          ) : null}
-        </Collapsible.Trigger>
+          <Collapsible.Trigger
+            ref={titleTriggerRef}
+            data-slot="collapsible-nav-section-title"
+          >
+            {titleContent}
+          </Collapsible.Trigger>
+        </SideMenu.SectionHeader>
       ) : (
         // Non-collapsible: no chevron, no toggle affordance, just the icon
-        // slot (if given) and the label, always at rest.
-        <div
-          className={cn(
-            "flex h-[30px] max-md:h-auto",
-            // Half the usual mobile bottom padding: the gap to the first
-            // row below reads as too large at the full py-3 (matches the
-            // desktop py-[6px] top/bottom, kept as-is above).
-            "rounded-[6px] py-[6px] max-md:pt-3 max-md:pb-1.5",
-            SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
-          )}
-          style={{
-            paddingLeft: SIDEBAR_ROW_PADDING_X,
-            paddingRight: SIDEBAR_ROW_PADDING_X,
-            gap: SIDEBAR_CHIP_GAP,
-          }}
+        // slot (if given) and the label, always at rest. Half the usual
+        // mobile bottom padding: the gap to the first row below reads as too
+        // large at the full py-3.
+        <SideMenu.SectionHeader
+          className={cn(titleClasses, "max-md:pt-3 max-md:pb-1.5")}
+          style={titleStyle}
         >
-          {iconSlot}
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-        </div>
+          {titleContent}
+        </SideMenu.SectionHeader>
       )}
-      {collapsible || trailing ? (
+      {collapsible || trailing || collapsedIndicator ? (
         <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
+          {trailing || collapsedIndicator ? (
+            <CrossfadeStack>
+              {collapsedIndicator ? (
+                /* Only while collapsed: an open section's rows carry the same
+                   state, so a header dot would double it. `pointer-events-none`
+                   because it is painted over the menu button it shares a cell
+                   with. */
+                <span
+                  data-slot="collapsible-nav-section-indicator"
+                  /* Yields the cell on exactly the conditions that bring the
+                     trailing control in, or the two paint over each other. With
+                     no trailing control there is nothing to yield to, and a
+                     section whose only header signal is this dot keeps it
+                     wherever the device cannot hover. */
+                  data-reveal-yield={trailing ? "" : undefined}
+                  className={cn(
+                    "pointer-events-none flex items-center",
+                    "group-data-[state=open]/section:hidden",
+                  )}
+                >
+                  {collapsedIndicator}
+                </span>
+              ) : null}
+              {trailing ? (
+                <span
+                  data-slot="collapsible-nav-section-trailing"
+                  /* `empty:hidden` so a trailing component that renders nothing
+                     doesn't leave a padded box behind. */
+                  data-reveal=""
+                  className="flex items-center shrink-0 empty:hidden"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {trailing}
+                </span>
+              ) : null}
+            </CrossfadeStack>
+          ) : null}
           {collapsible ? (
             // Decorative disclosure indicator with the title trigger's own
-            // hover box, left of the "…". Not a trigger itself: the section
+            // hover box, outermost so the "…" sits inside it and the
+            // header's right edge stays the same glyph whichever is
+            // showing. Not a trigger itself: the section
             // has exactly one accessible toggle (the title), so the chevron
             // stays out of the accessibility tree and forwards pointer
             // clicks to that trigger instead. A second Radix trigger here
@@ -322,39 +397,12 @@ function CollapsibleNavSectionSection({
                 size={12}
                 aria-hidden
                 className={cn(
-                  "shrink-0 transition-[opacity,transform]",
+                  "shrink-0 transition-transform",
                   "text-[var(--content-tertiary)]",
-                  "opacity-0 group-hover/header:opacity-100",
-                  "max-md:opacity-100 max-md:h-[18px] max-md:w-[18px]",
+                  "max-md:h-[18px] max-md:w-[18px]",
                   "group-data-[state=open]/section:rotate-180",
                 )}
               />
-            </span>
-          ) : null}
-          {trailing ? (
-            <span
-              data-slot="collapsible-nav-section-trailing"
-              /* `empty:hidden` so a trailing component that renders nothing
-                 (a menu with no wired actions) doesn't leave a padded box
-                 behind.
-
-                 Revealed on hover so a row of resting section headers stays
-                 quiet. It also stays up while its own menu is open
-                 (`aria-expanded`), or the control would vanish the moment it
-                 was clicked, and while anything inside holds focus, so it is
-                 reachable by keyboard. Touch has no hover, and the header's
-                 long-press sheet is the equivalent affordance there, so
-                 below `md` it simply stays visible. */
-              className={cn(
-                "flex items-center shrink-0 empty:hidden",
-                "opacity-0 transition-opacity",
-                "group-hover/header:opacity-100 focus-within:opacity-100",
-                "has-[[aria-expanded=true]]:opacity-100",
-                "max-md:opacity-100",
-              )}
-              onClick={(event) => event.stopPropagation()}
-            >
-              {trailing}
             </span>
           ) : null}
         </span>
@@ -396,6 +444,18 @@ function CollapsibleNavSectionSection({
         // Trigger, not a descendant) can read this item's own open/closed
         // `data-state` for its rotation.
         "group/section",
+        // While open, only the bottom-most section grows to claim whatever
+        // space the sidebar has left instead of the row list capping at a
+        // fixed height - `min-h-0` is what lets a flex item shrink below its
+        // content's natural size, which flex-1 needs here to actually cap
+        // rather than just growing forever. Every other section (even open,
+        // even unbounded) sizes to its own content: flex-grow has no notion
+        // of "this section needs the room," so giving every open section a
+        // share stretched a two-row group into a mostly-empty box the same
+        // size as a busy one beside it.
+        !unbounded &&
+          isLast &&
+          "data-[state=open]:min-h-0 data-[state=open]:flex-1",
         drag?.dragging && "opacity-50",
         // Insertion line, matching the conversation-row drop indicator.
         drag?.dropEdge === "before" &&
@@ -407,12 +467,26 @@ function CollapsibleNavSectionSection({
       {...itemProps}
     >
       {header}
-      {/* One indent for every section's content, defined here rather than at
-          each call site so no section can nest differently from the rest. */}
+      {/*
+       * The card carries no padding of its own (the header row above is
+       * already a self-contained pill), so the content picks up the same
+       * 12px horizontal inset directly, plus a little vertical breathing
+       * room from the header above it and the card's bottom edge below.
+       * Defined here rather than at each call site so no section can nest
+       * differently from the rest.
+       */}
       {collapsible ? (
         <Collapsible.Content
-          className={contentClassName}
-          style={{ paddingLeft: SIDEBAR_SECTION_INDENT }}
+          className={cn(
+            "sidebar-section-list",
+            card ? "pt-3" : "pt-2 pb-2",
+            !unbounded && isLast && "flex min-h-0 flex-1 flex-col",
+            contentClassName,
+          )}
+          style={{
+            paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
+            paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
+          }}
         >
           {children}
         </Collapsible.Content>
@@ -421,8 +495,11 @@ function CollapsibleNavSectionSection({
         // content can't be collapsed even if this section's `value` isn't
         // in the root's open list.
         <div
-          className={contentClassName}
-          style={{ paddingLeft: SIDEBAR_SECTION_INDENT }}
+          className={cn(card ? "pt-3" : "pt-2 pb-2", contentClassName)}
+          style={{
+            paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
+            paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
+          }}
         >
           {children}
         </div>

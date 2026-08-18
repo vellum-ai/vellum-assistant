@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.2
+  version: 0.11.3
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -4017,8 +4017,8 @@ paths:
       summary: Get available channels
       description:
         Return the channels this assistant can surface to clients, with display metadata (label, icon, verification
-        capability, setup copy). Today this is a fixed base list plus `email` when an inbox is registered; will become
-        plugin/skill-driven in future.
+        capability, setup copy). A fixed base list plus `email` when an inbox is registered, plus the channels installed
+        plugins bring by declaring ingress routes. Each carries a `source` saying which of those it is.
       tags:
         - channels
       responses:
@@ -4036,16 +4036,9 @@ paths:
                       properties:
                         id:
                           type: string
-                          enum:
-                            - telegram
-                            - phone
-                            - vellum
-                            - whatsapp
-                            - slack
-                            - email
-                            - platform
-                            - a2a
-                            - discord
+                        source:
+                          type: string
+                          description: "`default` for a channel the assistant ships, `plugin:<name>` for one an installed plugin brings"
                         label:
                           type: string
                         subtitle:
@@ -4067,13 +4060,16 @@ paths:
                           additionalProperties: false
                       required:
                         - id
+                        - source
                         - label
                         - subtitle
                         - icon
                         - supportsVerification
                         - setupMessages
                       additionalProperties: false
-                    description: Available channels in display order
+                    description:
+                      "Available channels in display order: the ones the assistant ships, then the ones installed plugins bring
+                      by declaring ingress routes. `source` distinguishes them."
                 required:
                   - channels
                 additionalProperties: false
@@ -4358,6 +4354,7 @@ paths:
                             - platform
                             - a2a
                             - discord
+                            - plugin
                         ready:
                           type: boolean
                         setupStatus:
@@ -4448,6 +4445,7 @@ paths:
                     - platform
                     - a2a
                     - discord
+                    - plugin
                 includeRemote:
                   description: Include remote checks (default true)
                   type: boolean
@@ -4478,6 +4476,7 @@ paths:
                             - platform
                             - a2a
                             - discord
+                            - plugin
                         ready:
                           type: boolean
                         setupStatus:
@@ -4827,6 +4826,7 @@ paths:
                     - gemini
                     - fireworks
                     - openrouter
+                    - chatgpt
                     - vellum
                     - together
                     - vercel-ai-gateway
@@ -6582,6 +6582,7 @@ paths:
               - platform
               - a2a
               - discord
+              - plugin
           description:
             Filter by origin channel. When provided, only conversations with this exact origin_channel value are
             returned. Omit to include all channels.
@@ -6593,8 +6594,20 @@ paths:
           description:
             Filter to a single group, so each sidebar section can load independently of the paginated list. Pass
             "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A
-            group-scoped request is ordered by the user's arrangement (display order, then recency) and never has pinned
-            rows appended to it. Omit to span every group.
+            group-scoped request is recency-ordered like every list read (COALESCE(last_message_at, updated_at)
+            descending) and never has pinned rows appended to it. Omit to span every group.
+        - name: needsAttention
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - "true"
+          description:
+            'Pass "true" to return only conversations whose latest assistant message the user has not seen: the same
+            predicate behind the unread count and the section index, so a client that keeps no complete conversation
+            list can ask for exactly the rows its attention surfaces need. Composes with every other filter. Any value
+            other than "true" is rejected. Omit to span every conversation.'
       responses:
         "200":
           description: Successful response
@@ -6718,6 +6731,7 @@ paths:
                                 - platform
                                 - a2a
                                 - discord
+                                - plugin
                             - type: "null"
                         assistantAttention:
                           type: object
@@ -7081,6 +7095,7 @@ paths:
                               - platform
                               - a2a
                               - discord
+                              - plugin
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -8294,6 +8309,7 @@ paths:
                               - platform
                               - a2a
                               - discord
+                              - plugin
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -9293,8 +9309,10 @@ paths:
   /v1/conversations/reorder:
     post:
       operationId: conversations_reorder_post
-      summary: Reorder conversations
-      description: Batch-update display order and pin state for conversations.
+      summary: Move conversations between sections
+      description:
+        Batch-update which group holds each conversation, and its pin state. Lists are ordered by recency, so this
+        sets placement, not order.
       tags:
         - conversations
       requestBody:
@@ -9311,8 +9329,6 @@ paths:
                     properties:
                       conversationId:
                         type: string
-                      displayOrder:
-                        type: number
                       isPinned:
                         type: boolean
                       groupId:
@@ -9378,6 +9394,107 @@ paths:
                 required:
                   - query
                   - results
+                additionalProperties: false
+  /v1/conversations/sections:
+    get:
+      operationId: conversations_sections_get
+      summary: Sidebar section index
+      description:
+        "One row per renderable sidebar section (Pinned, each non-empty custom group, each origin channel with
+        unassigned conversations, Chats) with total and unread counts and no conversation rows. Lets a client know which
+        sections exist, and what their badges say, without fetching any conversation list. Totals follow the standard
+        listing visibility; unread applies the same rules as GET /v1/conversations/unread-count scoped to the section.
+        Chats is always present, even at zero: it is the leftover bucket and renders regardless."
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sections:
+                    type: array
+                    items:
+                      oneOf:
+                        - type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: pinned
+                            total:
+                              type: number
+                            unread:
+                              type: number
+                          required:
+                            - kind
+                            - total
+                            - unread
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: group
+                            groupId:
+                              type: string
+                            name:
+                              type: string
+                            icon:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            sortPosition:
+                              type: number
+                            total:
+                              type: number
+                            unread:
+                              type: number
+                          required:
+                            - kind
+                            - groupId
+                            - name
+                            - icon
+                            - sortPosition
+                            - total
+                            - unread
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: channel
+                            channelId:
+                              type: string
+                            total:
+                              type: number
+                            unread:
+                              type: number
+                          required:
+                            - kind
+                            - channelId
+                            - total
+                            - unread
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: chats
+                            total:
+                              type: number
+                            unread:
+                              type: number
+                          required:
+                            - kind
+                            - total
+                            - unread
+                          additionalProperties: false
+                      type: object
+                required:
+                  - sections
                 additionalProperties: false
   /v1/conversations/seen:
     post:
@@ -14832,7 +14949,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside, vellum"
+            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside, vellum, chatgpt"
       responses:
         "200":
           description: Successful response
@@ -21962,6 +22079,7 @@ paths:
                     - platform
                     - a2a
                     - discord
+                    - plugin
                     - scheduler
                     - watcher
                 sourceContextId:
@@ -22151,6 +22269,11 @@ paths:
                             anyOf:
                               - type: string
                               - type: "null"
+                          acts_as:
+                            type: string
+                            enum:
+                              - user
+                              - assistant
                         required:
                           - provider_key
                           - display_name
@@ -22162,6 +22285,7 @@ paths:
                           - supports_managed_mode
                           - managed_service_is_paid
                           - feature_flag
+                          - acts_as
                         additionalProperties: false
                       - type: "null"
                   apps:
@@ -22679,6 +22803,11 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        acts_as:
+                          type: string
+                          enum:
+                            - user
+                            - assistant
                       required:
                         - provider_key
                         - display_name
@@ -22690,6 +22819,7 @@ paths:
                         - supports_managed_mode
                         - managed_service_is_paid
                         - feature_flag
+                        - acts_as
                       additionalProperties: false
                 required:
                   - providers
@@ -24323,8 +24453,9 @@ paths:
         non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or
         the target (`theirs`), or writing git conflict markers into the file and reporting them in
         `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time
-        baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade <name> [--strategy
-        <s>]`.'
+        baseline cannot be reconstructed returns 409. Pass `marketplaceOnly` to refuse the untrusted direct path
+        outright (409), which is what the unattended auto-update sweep does. Mirrors the CLI''s `assistant plugins
+        upgrade <name> [--strategy <s>]`.'
       tags:
         - plugins
       parameters:
@@ -24354,6 +24485,13 @@ paths:
                     - theirs
                     - overwrite
                     - assistant
+                marketplaceOnly:
+                  description:
+                    Refuse the upgrade (409) when the marketplace does not claim this plugin, instead of advancing it to
+                    whatever its recorded GitHub ref now resolves to. Set by unattended callers such as the automatic
+                    update sweep, for which running code no curator reviewed is never an acceptable outcome. Defaults to
+                    false.
+                  type: boolean
       responses:
         "200":
           description: Successful response
@@ -24453,8 +24591,9 @@ paths:
           description: No copy of the plugin is installed, or its source resolves to nothing.
         "409":
           description:
-            The install has neither a marketplace entry nor a recorded GitHub source to advance to, or a merge strategy
-            was requested whose install-time baseline cannot be reconstructed.
+            The install has neither a marketplace entry nor a recorded GitHub source to advance to, a `marketplaceOnly`
+            upgrade was requested for an install the marketplace does not claim, or a merge strategy was requested whose
+            install-time baseline cannot be reconstructed.
         "503":
           description: The plugin source (GitHub) was temporarily unavailable; the upgrade is retryable.
   /v1/plugins/{name}/versions:
@@ -25651,6 +25790,20 @@ paths:
                           description:
                             User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                             applies. Always null for user-created schedules.
+                        disarmReason:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - user_disabled
+                                - plugin_removed
+                                - plugin_disabled
+                                - declaration_removed
+                                - declaration_disabled
+                            - type: "null"
+                          description:
+                            "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                            the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                            is on, and always null for user-created schedules."
                         isOneShot:
                           type: boolean
                         isDeferred:
@@ -25687,6 +25840,7 @@ paths:
                         - workflowName
                         - sourceKey
                         - userEnabled
+                        - disarmReason
                         - isOneShot
                         - isDeferred
                       additionalProperties: false
@@ -25884,6 +26038,20 @@ paths:
                         description:
                           User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                           applies. Always null for user-created schedules.
+                      disarmReason:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - user_disabled
+                              - plugin_removed
+                              - plugin_disabled
+                              - declaration_removed
+                              - declaration_disabled
+                          - type: "null"
+                        description:
+                          "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                          the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                          is on, and always null for user-created schedules."
                       isOneShot:
                         type: boolean
                       isDeferred:
@@ -25920,6 +26088,7 @@ paths:
                       - workflowName
                       - sourceKey
                       - userEnabled
+                      - disarmReason
                       - isOneShot
                       - isDeferred
                     additionalProperties: false
@@ -26069,6 +26238,20 @@ paths:
                           description:
                             User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                             applies. Always null for user-created schedules.
+                        disarmReason:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - user_disabled
+                                - plugin_removed
+                                - plugin_disabled
+                                - declaration_removed
+                                - declaration_disabled
+                            - type: "null"
+                          description:
+                            "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                            the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                            is on, and always null for user-created schedules."
                         isOneShot:
                           type: boolean
                         isDeferred:
@@ -26105,6 +26288,7 @@ paths:
                         - workflowName
                         - sourceKey
                         - userEnabled
+                        - disarmReason
                         - isOneShot
                         - isDeferred
                       additionalProperties: false
@@ -26251,6 +26435,20 @@ paths:
                         description:
                           User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                           applies. Always null for user-created schedules.
+                      disarmReason:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - user_disabled
+                              - plugin_removed
+                              - plugin_disabled
+                              - declaration_removed
+                              - declaration_disabled
+                          - type: "null"
+                        description:
+                          "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                          the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                          is on, and always null for user-created schedules."
                       isOneShot:
                         type: boolean
                       isDeferred:
@@ -26287,6 +26485,7 @@ paths:
                       - workflowName
                       - sourceKey
                       - userEnabled
+                      - disarmReason
                       - isOneShot
                       - isDeferred
                     additionalProperties: false
@@ -26493,6 +26692,20 @@ paths:
                           description:
                             User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                             applies. Always null for user-created schedules.
+                        disarmReason:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - user_disabled
+                                - plugin_removed
+                                - plugin_disabled
+                                - declaration_removed
+                                - declaration_disabled
+                            - type: "null"
+                          description:
+                            "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                            the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                            is on, and always null for user-created schedules."
                         isOneShot:
                           type: boolean
                         isDeferred:
@@ -26529,6 +26742,7 @@ paths:
                         - workflowName
                         - sourceKey
                         - userEnabled
+                        - disarmReason
                         - isOneShot
                         - isDeferred
                       additionalProperties: false
@@ -26678,6 +26892,20 @@ paths:
                           description:
                             User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                             applies. Always null for user-created schedules.
+                        disarmReason:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - user_disabled
+                                - plugin_removed
+                                - plugin_disabled
+                                - declaration_removed
+                                - declaration_disabled
+                            - type: "null"
+                          description:
+                            "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                            the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                            is on, and always null for user-created schedules."
                         isOneShot:
                           type: boolean
                         isDeferred:
@@ -26714,6 +26942,7 @@ paths:
                         - workflowName
                         - sourceKey
                         - userEnabled
+                        - disarmReason
                         - isOneShot
                         - isDeferred
                       additionalProperties: false
@@ -26865,6 +27094,20 @@ paths:
                           description:
                             User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                             applies. Always null for user-created schedules.
+                        disarmReason:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - user_disabled
+                                - plugin_removed
+                                - plugin_disabled
+                                - declaration_removed
+                                - declaration_disabled
+                            - type: "null"
+                          description:
+                            "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                            the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                            is on, and always null for user-created schedules."
                         isOneShot:
                           type: boolean
                         isDeferred:
@@ -26901,6 +27144,7 @@ paths:
                         - workflowName
                         - sourceKey
                         - userEnabled
+                        - disarmReason
                         - isOneShot
                         - isDeferred
                       additionalProperties: false
@@ -27187,6 +27431,20 @@ paths:
                           description:
                             User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                             applies. Always null for user-created schedules.
+                        disarmReason:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - user_disabled
+                                - plugin_removed
+                                - plugin_disabled
+                                - declaration_removed
+                                - declaration_disabled
+                            - type: "null"
+                          description:
+                            "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                            the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                            is on, and always null for user-created schedules."
                         isOneShot:
                           type: boolean
                         isDeferred:
@@ -27223,6 +27481,7 @@ paths:
                         - workflowName
                         - sourceKey
                         - userEnabled
+                        - disarmReason
                         - isOneShot
                         - isDeferred
                       additionalProperties: false
@@ -33900,23 +34159,7 @@ components:
       additionalProperties: {}
     LLMProvider:
       type: string
-      enum:
-        - anthropic
-        - openai
-        - gemini
-        - ollama
-        - fireworks
-        - openrouter
-        - vercel-ai-gateway
-        - openai-compatible
-        - minimax
-        - atlascloud
-        - together
-        - litellm
-        - baseten
-        - poolside
-        - vellum
-        - chatgpt
+      minLength: 1
     ProfilePatchEntry:
       type: object
       properties:
@@ -34297,6 +34540,7 @@ components:
         - baseten
         - poolside
         - vellum
+        - chatgpt
     Auth:
       oneOf:
         - type: object
@@ -34514,6 +34758,7 @@ components:
                     - gemini
                     - fireworks
                     - openrouter
+                    - chatgpt
                     - vellum
                     - together
                     - vercel-ai-gateway
@@ -34891,6 +35136,7 @@ components:
                 - gemini
                 - fireworks
                 - openrouter
+                - chatgpt
                 - vellum
                 - together
                 - vercel-ai-gateway

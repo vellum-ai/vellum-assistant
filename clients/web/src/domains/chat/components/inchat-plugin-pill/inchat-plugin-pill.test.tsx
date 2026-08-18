@@ -1,13 +1,19 @@
 /**
  * Tests for `InChatPluginPill`. Mounted via `@testing-library/react` (happy-dom).
- * The design-library primitives are real; only the data hook, the mobile check,
- * and the router are mocked.
+ * The design-library primitives are real; only the data hook, the viewport and
+ * pointer signals, and the router are mocked.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { routes } from "@/utils/routes";
+
+const isTouchMobileRef = { value: false };
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => isTouchMobileRef.value,
+  TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
+}));
 
 const isMobileRef = { value: false };
 mock.module("@/hooks/use-is-mobile", () => ({
@@ -62,6 +68,7 @@ function renderPill() {
 }
 
 beforeEach(() => {
+  isTouchMobileRef.value = false;
   isMobileRef.value = false;
   navigateSpy.mockClear();
   effectiveRef.value = {
@@ -148,6 +155,23 @@ describe("InChatPluginPill", () => {
     expect(navigateSpy).toHaveBeenCalledWith(
       `${routes.superpowers}?filter=plugins`,
     );
+  });
+
+  test("narrow window keeps the trigger icon-only, whatever the pointer", () => {
+    // Room, not pointer, decides whether the count fits in the header cluster:
+    // a narrow mouse-driven window gets the compact trigger and still opens the
+    // anchored popover.
+    isMobileRef.value = true;
+    setEffective([{ name: "a", label: "Alpha", selected: true }]);
+    renderPill();
+
+    expect(screen.queryByText("1 plugin")).toBeNull();
+    const trigger = screen.getByRole("button", {
+      name: "Chat plugins, 1 active",
+    });
+
+    fireEvent.click(trigger);
+    expect(screen.getByText("Alpha")).toBeTruthy();
   });
 
   test("empty active set still shows header + Manage + caption, no rows", () => {

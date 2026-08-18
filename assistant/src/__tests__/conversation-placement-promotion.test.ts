@@ -17,7 +17,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  batchSetDisplayOrders,
+  batchSetConversationPlacement,
   createConversation,
 } from "../persistence/conversation-crud.js";
 import { listConversations } from "../persistence/conversation-queries.js";
@@ -58,22 +58,16 @@ describe("pinning a background conversation", () => {
     const conv = seedRoutedBackground("bg-job", "background");
     expect(visibleTitles()).toEqual([]);
 
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: 0, groupId: "system:pinned" },
-    ]);
+    batchSetConversationPlacement([{ id: conv.id, groupId: "system:pinned" }]);
 
     expect(titlesInGroup("system:pinned")).toEqual(["bg-job"]);
   });
 
   test("unpinning lands it in Recents rather than hiding it again", () => {
     const conv = seedRoutedBackground("bg-job", "background");
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: 0, groupId: "system:pinned" },
-    ]);
+    batchSetConversationPlacement([{ id: conv.id, groupId: "system:pinned" }]);
 
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: null, groupId: "system:all" },
-    ]);
+    batchSetConversationPlacement([{ id: conv.id, groupId: "system:all" }]);
 
     expect(titlesInGroup("system:all")).toEqual(["bg-job"]);
   });
@@ -84,9 +78,7 @@ describe("filing a background conversation into a custom group", () => {
     const group = createGroup("Car Chat");
     const conv = seedRoutedBackground("bg-job", "background");
 
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: 0, groupId: group.id },
-    ]);
+    batchSetConversationPlacement([{ id: conv.id, groupId: group.id }]);
 
     expect(titlesInGroup(group.id)).toEqual(["bg-job"]);
   });
@@ -94,13 +86,9 @@ describe("filing a background conversation into a custom group", () => {
   test("removing it from the group lands it in Recents rather than losing it", () => {
     const group = createGroup("Car Chat");
     const conv = seedRoutedBackground("bg-job", "background");
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: 0, groupId: group.id },
-    ]);
+    batchSetConversationPlacement([{ id: conv.id, groupId: group.id }]);
 
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: null, groupId: "system:all" },
-    ]);
+    batchSetConversationPlacement([{ id: conv.id, groupId: "system:all" }]);
 
     expect(titlesInGroup("system:all")).toEqual(["bg-job"]);
     expect(visibleTitles()).toEqual(["bg-job"]);
@@ -110,12 +98,8 @@ describe("filing a background conversation into a custom group", () => {
     const group = createGroup("Morning Briefs");
     const conv = seedRoutedBackground("sched-job", "scheduled");
 
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: 0, groupId: group.id },
-    ]);
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: null, groupId: "system:all" },
-    ]);
+    batchSetConversationPlacement([{ id: conv.id, groupId: group.id }]);
+    batchSetConversationPlacement([{ id: conv.id, groupId: "system:all" }]);
 
     expect(titlesInGroup("system:all")).toEqual(["sched-job"]);
   });
@@ -125,13 +109,11 @@ describe("what promotion must not do", () => {
   test("filing into system:background still demotes", () => {
     const conv = seedRoutedBackground("bg-job", "background");
     // Promote first, so the demotion has something to undo.
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: 0, groupId: "system:pinned" },
-    ]);
+    batchSetConversationPlacement([{ id: conv.id, groupId: "system:pinned" }]);
     expect(titlesInGroup("system:pinned")).toEqual(["bg-job"]);
 
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: null, groupId: "system:background" },
+    batchSetConversationPlacement([
+      { id: conv.id, groupId: "system:background" },
     ]);
 
     expect(visibleTitles()).toEqual([]);
@@ -149,9 +131,7 @@ describe("what promotion must not do", () => {
     // system bucket.
     const conv = seedRoutedBackground("bg-job", "background");
 
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: null, groupId: "system:all" },
-    ]);
+    batchSetConversationPlacement([{ id: conv.id, groupId: "system:all" }]);
 
     expect(visibleTitles()).toEqual([]);
   });
@@ -168,13 +148,9 @@ describe("what promotion must not do", () => {
     // came from, `surfaced_at` records that the user promoted it, and only
     // an explicit demotion clears the latter.
     const conv = seedRoutedBackground("bg-job", "background");
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: 0, groupId: "system:pinned" },
-    ]);
+    batchSetConversationPlacement([{ id: conv.id, groupId: "system:pinned" }]);
 
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: null, isPinned: false },
-    ]);
+    batchSetConversationPlacement([{ id: conv.id, isPinned: false }]);
 
     expect(visibleTitles()).toEqual(["bg-job"]);
     expect(titlesInGroup("system:all")).toEqual(["bg-job"]);
@@ -186,9 +162,7 @@ describe("what promotion must not do", () => {
     const group = createGroup("Car Chat");
     const conv = createConversation("plain-chat");
 
-    batchSetDisplayOrders([
-      { id: conv.id, displayOrder: 0, groupId: group.id },
-    ]);
+    batchSetConversationPlacement([{ id: conv.id, groupId: group.id }]);
 
     const row = getDb()
       .all(`SELECT surfaced_at FROM conversations WHERE id = '${conv.id}'`)

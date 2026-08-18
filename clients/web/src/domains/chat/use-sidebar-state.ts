@@ -1,24 +1,38 @@
 /**
- * Data-shaping hook for the assistant sidebar.
+ * Which sections the sidebar has, and in what order.
  *
- * Owns conversation grouping, collapse/expand state, attention-forced
- * expansion, and the user's section order. Returns a
- * typed object the presentational `AssistantSideMenu` renders without any
- * inline computation, `useEffect`, or derived state.
+ * Owns the section *list*, collapse/expand state, attention-forced expansion,
+ * and the user's section order. It does not own a section's contents: Pinned
+ * and each custom group fetch their own rows where they render, through
+ * {@link useSectionConversations}. What this hook still puts on
+ * {@link SidebarSection.all} is the list derived from the foreground page,
+ * which those sections use only as the fallback they paint while their own
+ * query is pending or gated off.
  *
- * Two views share all of that. In `all` (the default) the sections stop at
- * the curated layer - Pinned and the custom groups - and everything else
- * renders as {@link SidebarState.flatList}, one recency-sorted list the
- * sidebar virtualizes. In `grouped`, Chats and one section per origin channel
- * follow the curated layer, and the flat list goes unused.
+ * That split is the point of LUM-2443. Deriving a section by filtering one
+ * shared list makes a *complete* list a precondition for the sidebar being
+ * right, which is why a windowed conversation list kept getting reverted.
+ * Discovery is what stays here, and it never needed the conversation list:
+ * Pinned and Chats are fixed, and the custom groups come from the groups API.
+ *
+ * Which sections exist is still decided here, from the loaded list. That is
+ * the last client-side derivation of conversation data in the sidebar, and it
+ * survives only because the foreground list still drains in full. See the
+ * comment on `defaultSections` for why it cannot simply move down with the
+ * contents, and for the point at which it has to go.
+ *
+ * Two views share all of that, and they differ only in how many sections come
+ * out. In `all` (the default) they are Pinned, the custom groups, and Chats,
+ * which holds every conversation the others did not claim. In `grouped`, one
+ * section per origin channel joins them and Chats keeps the remainder. Neither
+ * view has a list outside the sections.
  *
  * The headline output is {@link SidebarState.sections}: one flat, ordered
  * list of every renderable section (Pinned, Chats, each channel, each custom
- * group) as a discriminated union. The sidebar walks that list in order -
- * it does not know which section types exist or where they "belong", which
- * is what lets the user reorder them at all. The one constraint is the view
- * switch: Pinned and the custom groups always lead it, Chats and the channel
- * sections always follow, and sections reorder freely within their own tier.
+ * group) as a discriminated union. The sidebar walks that list in order and
+ * does not know which section types exist or where they "belong", which is
+ * what lets the user put any section anywhere. There is no tier: a section's
+ * kind decides what it contains, never where it can sit.
  *
  * Memoizes grouping per `conversations` reference so parent re-renders
  * that don't change the conversation list skip the grouping work.
@@ -40,27 +54,20 @@ import {
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import {
   channelSectionKey,
-  isChannelSectionKey,
   isKnownCategoryKey,
   isKnownPrimaryKey,
 } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import {
-  enforceCuratedLead,
   mergeSectionOrder,
   moveSectionKey,
   nextStoredOrder,
-  type SectionOrderClass,
 } from "@/domains/chat/utils/sidebar-section-order";
 import {
   saveViewMode,
   useViewMode,
   type SidebarViewMode,
 } from "@/domains/chat/utils/sidebar-view-mode";
-import { mergeConversationLists } from "@/utils/conversation-cache";
-import {
-  useBackgroundConversationListQuery,
-  useScheduledConversationListQuery,
-} from "@/hooks/conversation-queries";
+import { useSidebarSectionsQuery } from "@/hooks/conversation-queries";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { getChannelLabel } from "@/utils/channel-presentation";
 import { RECENTS_SECTION_LABEL } from "@/domains/chat/utils/sidebar-section-icon";
@@ -80,18 +87,6 @@ const EMPTY_KEYS: string[] = [];
 // Types
 // ---------------------------------------------------------------------------
 
-/**
- * Which side of the view switch a section sits on. Chats and the channel
- * sections are what the switch changes, so they sit under it; Pinned and the
- * custom groups are untouched by it and lead.
- */
-function classifySectionKey(key: string): SectionOrderClass {
-  if (key === "recents" || isChannelSectionKey(key)) {
-    return "governed";
-  }
-  return "curated";
-}
-
 // ---------------------------------------------------------------------------
 // Sections
 // ---------------------------------------------------------------------------
@@ -106,6 +101,14 @@ interface SidebarSectionBase {
   label: string;
   /** Every conversation in the section. */
   all: Conversation[];
+  /**
+   * Unread members per the daemon's section index, when the index is
+   * driving discovery. `undefined` on the derived path, where the unread
+   * bit is scanned from the rows instead. The collapsed indicator prefers
+   * this over the scan: the index counts the whole section, while the rows
+   * here are only what the client has loaded.
+   */
+  unread?: number;
 }
 
 /**
@@ -115,7 +118,12 @@ interface SidebarSectionBase {
  */
 export type SidebarSection =
   | (SidebarSectionBase & { type: "pinned" })
-  | (SidebarSectionBase & { type: "recents" })
+  /* `holdsChannels` is what the view switch means for this section: with
+     channel grouping off there are no channel sections, so Chats holds those
+     conversations too. Carried on the section rather than read from the view
+     mode where the query is built, so the section states its own contents and
+     its fetch cannot disagree with its derived fallback. */
+  | (SidebarSectionBase & { type: "recents"; holdsChannels: boolean })
   | (SidebarSectionBase & { type: "channel"; channelId: string })
   | (SidebarSectionBase & { type: "group"; group: CustomGroup });
 
@@ -126,26 +134,17 @@ export interface SidebarState {
   onViewModeChange: (next: SidebarViewMode) => void;
 
   /**
-   * The `all` view's list: every conversation that is neither pinned nor in a
-   * custom group, newest first. Windowed at render, so it carries no page
-   * size or reveal state of its own.
-   */
-  flatList: Conversation[];
-
-  /**
-   * Every section in the user's chosen order - the list the sidebar renders
-   * above the flat list. Sections the user has never touched fall back to the
-   * default order (Pinned, custom groups, then - in `grouped` view - Chats
-   * and the channel sections).
+   * Every section in the user's chosen order. Sections the user has never
+   * moved fall back to the default order (Pinned, custom groups, Chats, then
+   * - in `grouped` view - the channel sections), which is a starting
+   * arrangement rather than a constraint.
+   *
+   * The only list this hook publishes. Conversations that belong to no curated
+   * section reach the sidebar as the Chats section's own contents, never as a
+   * second collection beside `sections`: a consumer handed both renders
+   * whichever one it is not told to skip, on top of the section itself.
    */
   sections: SidebarSection[];
-  /**
-   * How many leading entries of {@link SidebarState.sections} are the curated
-   * layer. The view switch renders at that offset, which is the tier boundary
-   * `enforceCuratedLead` guarantees - so the sidebar places it without
-   * re-deriving what "curated" means.
-   */
-  curatedSectionCount: number;
   /**
    * Persist a new section order. Takes the full ordered key list of the
    * sections currently on screen.
@@ -159,8 +158,8 @@ export interface SidebarState {
   onMoveSection: (key: string, delta: -1 | 1) => void;
   /**
    * Whether {@link SidebarState.onMoveSection} would actually move anything -
-   * false at the ends of the list, and for a move that would carry a section
-   * across the view switch into the other tier.
+   * false only at the ends of the list, so the menu never offers a nudge that
+   * does nothing.
    */
   canMoveSection: (key: string, delta: -1 | 1) => boolean;
 
@@ -228,52 +227,21 @@ export function useSidebarState({
     },
     [assistantId],
   );
-  const backgroundActivated = useSidebarLayoutStore.use.backgroundActivated();
-  const scheduledActivated = useSidebarLayoutStore.use.scheduledActivated();
-  const collapseAssistantId = useSidebarLayoutStore.use.assistantId();
-
-  // Background and scheduled jobs each load through their own lazy query,
-  // co-located here with the sections that toggle them. A query is enabled
-  // only once its section is revealed (`backgroundActivated` /
-  // `scheduledActivated`) and the collapse store has synced to the current
-  // assistant — so neither backlog touches the initial-load critical path,
-  // and revealing one section never pulls in the other. The activation flags
-  // briefly hold the previous assistant's values on a switch; gating on the
-  // sync guard stops a stale flag from fetching the new assistant's backlog
-  // on its first render.
-  const collapseSynced = collapseAssistantId === assistantId;
-  const backgroundReady = backgroundActivated && collapseSynced;
-  const scheduledReady = scheduledActivated && collapseSynced;
-  const { conversations: backgroundConversations } =
-    useBackgroundConversationListQuery(
-      assistantId,
-      isAssistantActive && backgroundReady,
-    );
-  const { conversations: scheduledConversations } =
-    useScheduledConversationListQuery(
-      assistantId,
-      isAssistantActive && scheduledReady,
-    );
-
-  const allConversations = useMemo(
-    () =>
-      mergeConversationLists(
-        conversations,
-        backgroundConversations,
-        scheduledConversations,
-      ),
-    [conversations, backgroundConversations, scheduledConversations],
-  );
+  /* The daemon's section index: which sections exist and what their badges
+     say, with no conversation rows. `null` when the assistant predates the
+     endpoint or the read has not resolved, in which case existence keeps
+     deriving from the loaded list below. */
+  const indexSections = useSidebarSectionsQuery(assistantId, isAssistantActive);
 
   // --- Grouping (memoized per conversations reference) ---
 
   const grouped = useMemo(
     () =>
-      groupConversations(allConversations, {
+      groupConversations(conversations, {
         groups: conversationGroups,
         groupByChannel: viewMode === "grouped",
       }),
-    [allConversations, conversationGroups, viewMode],
+    [conversations, conversationGroups, viewMode],
   );
 
   // --- Section order ---
@@ -284,7 +252,101 @@ export function useSidebarState({
   // while channel sections come and go with traffic. In the flat view the
   // sections stop at the curated layer: everything else renders as one list
   // below them.
+  /* This list decides which sections exist, and it is the only thing that
+     does. A section's *contents* come from its own query, but every entry
+     here renders: the move-up/move-down nudges count these entries, so an
+     entry that renders nothing offers a move that swaps with something off
+     screen. One predicate for membership and visibility, or the two drift.
+
+     Membership has two sources and the branch below picks between them: the
+     daemon's section index where it is served, and the loaded list
+     otherwise. The fallback is accurate only while that list drains in full,
+     which a windowed list does not do, so the index is what keeps existence
+     correct there. A section cannot answer this for itself either way:
+     emptiness has to be known before the list is built, and this hook cannot
+     mount N queries for N groups. */
   const defaultSections = useMemo((): SidebarSection[] => {
+    /* Which sections exist has two possible sources, never mixed within one
+       render. When the daemon serves the section index, it is authoritative
+       for existence AND for group metadata: it is one consistent snapshot,
+       where existence-from-index with names-from-the-groups-query could
+       disagree between fetches. The derived buckets stay as each section's
+       `all` fallback rows either way. When the index is `null` (an assistant
+       without the endpoint, or a read that has not resolved), existence
+       derives from the loaded list in the branch below, the one
+       implementation shared with every assistant that never serves the
+       index. */
+    if (indexSections !== null) {
+      const list: SidebarSection[] = [];
+      const bucketByGroupId = new Map(
+        grouped.customGroups.map((g) => [g.id, g]),
+      );
+      const rowsByChannelId = new Map(
+        grouped.channelSections.map((s) => [s.channelId, s.conversations]),
+      );
+      const pinnedRow = indexSections.find((s) => s.kind === "pinned");
+      if (pinnedRow) {
+        list.push({
+          type: "pinned",
+          key: "pinned",
+          label: "Pinned",
+          all: grouped.pinned,
+          unread: pinnedRow.unread,
+        });
+      }
+      const groupRows = indexSections
+        .filter((s) => s.kind === "group")
+        .sort((a, b) => a.sortPosition - b.sortPosition);
+      for (const row of groupRows) {
+        list.push({
+          type: "group",
+          key: row.groupId,
+          label: row.name,
+          all: bucketByGroupId.get(row.groupId)?.conversations ?? [],
+          unread: row.unread,
+          group: {
+            id: row.groupId,
+            name: row.name,
+            icon: row.icon,
+            conversations:
+              bucketByGroupId.get(row.groupId)?.conversations ?? [],
+          },
+        });
+      }
+      /* The index buckets are disjoint, so the flat view's Chats is the
+         native bucket plus every channel bucket, and the grouped view's is
+         the native bucket alone. */
+      const channelRows = indexSections
+        .filter((s) => s.kind === "channel")
+        .sort((a, b) => a.channelId.localeCompare(b.channelId));
+      const chatsUnread =
+        (indexSections.find((s) => s.kind === "chats")?.unread ?? 0) +
+        (viewMode !== "grouped"
+          ? channelRows.reduce((sum, row) => sum + row.unread, 0)
+          : 0);
+      list.push({
+        type: "recents",
+        key: "recents",
+        label: RECENTS_SECTION_LABEL,
+        all: grouped.recents,
+        holdsChannels: viewMode !== "grouped",
+        unread: chatsUnread,
+      });
+      if (viewMode === "grouped") {
+        for (const row of channelRows) {
+          list.push({
+            type: "channel",
+            key: channelSectionKey(row.channelId),
+            label: getChannelLabel(row.channelId),
+            all: rowsByChannelId.get(row.channelId) ?? [],
+            channelId: row.channelId,
+            unread: row.unread,
+          });
+        }
+      }
+      return list;
+    }
+
     const list: SidebarSection[] = [];
     if (grouped.pinned.length > 0) {
       list.push({
@@ -303,13 +365,24 @@ export function useSidebarState({
         group,
       });
     }
+    /* Chats exists in both views. It is the section that holds whatever the
+       curated ones did not claim, and that is true however the rest of the
+       list is arranged - in `all` view `groupConversations` is called with
+       `groupByChannel: false`, so the channel conversations are already in
+       here rather than in sections of their own.
+
+       It used to be pushed only in `grouped` view, leaving `all` view to
+       render the same conversations through a separate headerless path. That
+       one list then had to be given a header and a card by hand every time
+       the others got one, and silently missed both. */
+    list.push({
+      type: "recents",
+      key: "recents",
+      label: RECENTS_SECTION_LABEL,
+      all: grouped.recents,
+      holdsChannels: viewMode !== "grouped",
+    });
     if (viewMode === "grouped") {
-      list.push({
-        type: "recents",
-        key: "recents",
-        label: RECENTS_SECTION_LABEL,
-        all: grouped.recents,
-      });
       for (const section of grouped.channelSections) {
         list.push({
           type: "channel",
@@ -323,6 +396,7 @@ export function useSidebarState({
     return list;
   }, [
     viewMode,
+    indexSections,
     grouped.pinned,
     grouped.customGroups,
     grouped.recents,
@@ -336,33 +410,19 @@ export function useSidebarState({
         ? defaultKeys
         : mergeSectionOrder(defaultKeys, sectionOrder);
     const byKey = new Map(defaultSections.map((s) => [s.key, s]));
-    return enforceCuratedLead(ordered, classifySectionKey).map(
-      (key) => byKey.get(key)!,
-    );
+    return ordered.map((key) => byKey.get(key)!);
   }, [defaultSections, sectionOrder]);
-
-  const curatedSectionCount = useMemo(
-    () =>
-      sections.filter((section) => classifySectionKey(section.key) === "curated")
-        .length,
-    [sections],
-  );
 
   const onReorderSections = useCallback(
     (orderedKeys: string[]) => {
-      setSectionOrder(
-        nextStoredOrder(
-          sectionOrder,
-          enforceCuratedLead(orderedKeys, classifySectionKey),
-        ),
-      );
+      setSectionOrder(nextStoredOrder(sectionOrder, orderedKeys));
     },
     [sectionOrder, setSectionOrder],
   );
 
   // The order `key` would land in after a nudge, or null when the nudge
-  // changes nothing - either end of the list, or a move across the tier
-  // boundary that the curated-lead rule pushes straight back.
+  // changes nothing, which now means only one thing: `key` is already at
+  // that end of the list. Sections reorder freely otherwise.
   const orderAfterMove = useCallback(
     (key: string, delta: -1 | 1): string[] | null => {
       const current = sections.map((s) => s.key);
@@ -370,8 +430,7 @@ export function useSidebarState({
       if (!moved) {
         return null;
       }
-      const settled = enforceCuratedLead(moved, classifySectionKey);
-      return settled.join(" ") === current.join(" ") ? null : settled;
+      return moved.join("\0") === current.join("\0") ? null : moved;
     },
     [sections],
   );
@@ -394,8 +453,7 @@ export function useSidebarState({
   // --- Open/closed state ---
 
   // The three storage buckets exist because they have different defaults
-  // (Pinned/Chats open, the rest closed) and because `setOpenCategories` owns
-  // the lazy-fetch activation side effects. That split is a *storage* concern:
+  // (Pinned/Chats open, the rest closed). That split is a *storage* concern:
   // every section shares one accordion root, so reads merge the buckets into
   // one value array and writes route each key back to its owner.
   const storedOpenSections = useMemo(
@@ -413,9 +471,7 @@ export function useSidebarState({
     }
     const keys = sections
       .filter((section) =>
-        section.all.some((c) =>
-          attentionConversationIds.has(c.conversationId),
-        ),
+        section.all.some((c) => attentionConversationIds.has(c.conversationId)),
       )
       .map((section) => section.key);
     return keys.length > 0 ? keys : EMPTY_KEYS;
@@ -458,9 +514,7 @@ export function useSidebarState({
   return {
     viewMode,
     onViewModeChange: setViewMode,
-    flatList: grouped.recents,
     sections,
-    curatedSectionCount,
     onReorderSections,
     onMoveSection,
     canMoveSection,

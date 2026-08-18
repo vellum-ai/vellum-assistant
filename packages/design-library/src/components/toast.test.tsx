@@ -16,9 +16,15 @@ import { toast as sonnerToast } from "sonner";
 import { toast } from "./toast";
 
 // sonner's dismiss() notifies subscribers via requestAnimationFrame, which
-// this DOM-less environment doesn't provide.
-globalThis.requestAnimationFrame ??= (cb: FrameRequestCallback) =>
-  setTimeout(() => cb(performance.now()), 0) as unknown as number;
+// this DOM-less environment doesn't provide. The handle counts frames rather
+// than wrapping the timer, since a DOM frame handle is a number and nothing
+// here cancels one.
+let frameHandle = 0;
+globalThis.requestAnimationFrame ??= (cb: FrameRequestCallback) => {
+  setTimeout(() => cb(performance.now()), 0);
+  frameHandle += 1;
+  return frameHandle;
+};
 
 function storedToast(id: string | number) {
   return sonnerToast.getHistory().find((t) => t.id === id);

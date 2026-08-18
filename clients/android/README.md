@@ -112,15 +112,38 @@ vellum-assistant-dev://connect?url=https%3A%2F%2Fassistant.example.com&code=devi
 ```
 
 The production and staging builds use their matching auth schemes from the
-Build Variants table. Scanning a connect link switches the native shell to the
-validated server, opens `<server>/assistant/pair`, and keeps an existing server
-path prefix intact. Cold and warm app launches use the same route.
+Build Variants table. An optional `name=<label>` parameter supplies a
+user-facing label; the value is trimmed and a blank label is treated as
+absent. Scanning a connect link switches the native shell to the validated
+server, opens `<server>/assistant/pair`, and keeps an existing server path
+prefix intact. Cold and warm app launches use the same route.
 
-Only the validated server base is saved after the pairing page loads. The
-one-time device code is kept out of app preferences and the generated
-Capacitor configuration. HTTPS is required except for `localhost`, `127.0.0.1`,
-and the Android emulator host alias `10.0.2.2`. Use `adb reverse` when a physical
-development device needs to reach a service through `localhost`.
+Only the validated server base is saved after the pairing page loads; the
+same deferred write appends the server, with its label, to the remembered
+list. The one-time device code is kept out of app preferences and the
+generated Capacitor configuration. HTTPS is required except for `localhost`,
+`127.0.0.1`, and the Android emulator host alias `10.0.2.2`. Use `adb reverse`
+when a physical development device needs to reach a service through
+`localhost`.
+
+Paired servers accumulate in a remembered list, stored as JSON `{name?, url}`
+entries in the same `self_hosted_server` SharedPreferences file as the active
+server. Entries are keyed by the canonical URL the web chooser's
+`normalizeOriginUrl` also computes (scheme-default ports collapse, trailing
+slashes are stripped, and percent-escape casing and interior duplicate
+separators are preserved), so both sides agree on which strings mean the same
+HTTPS server. The cleartext development hosts are the exception: the web
+normalizer rejects every non-HTTPS URL, so an `http://localhost`-style server
+stays in the native list and remains switchable through a connect link, but
+never surfaces as a chooser card.
+
+The web assistant chooser is the management surface. The `SelfHostedServers`
+Capacitor plugin exposes the list to it and handles switch and forget
+(`list`/`add`/`remove`/`switchTo`/`switchToPath`). Switching recreates the
+activity so Capacitor starts on a configuration rebuilt around the new
+`server.url`; that configuration loads `<base>/assistant`, so a hosting path
+prefix survives the ingress redirect that would otherwise drop it. Forgetting
+the active server returns the shell to Vellum Cloud the same way.
 
 If Android terminates the app before the pairing page loads, scan the connect
 link again. The shell intentionally does not save the one-time code for process
@@ -147,25 +170,29 @@ are disabled, and token values are never written to logs or crash metadata.
 The `VoiceAudioSession` plugin requests transient voice-communication audio focus while a live voice session is active. Calls and competing media produce the same interruption payload used by iOS.
 Wired and Bluetooth changes are nonfatal, duckable audio does not end voice, and focus is released when voice ends or the activity closes so interrupted media can resume.
 
-Microphone capture and the voice socket remain in the foreground WebView. No microphone foreground service is used.
-Physical-device background validation has not been completed, so app switching and screen locking are not supported as background voice behavior.
+The same lifecycle starts `VoiceModeService` while the app is visible and the
+microphone permission is active. This microphone foreground service keeps the
+WebView-owned capture, playback, and voice socket running when the screen locks
+or the user switches apps. It stops with audio focus when voice ends, fails, or
+the activity is torn down.
 
 ## Voice Status and Launch Surfaces
 
-`VoiceLiveActivity` mirrors the active web voice session into one stable ongoing
-notification. Connecting, listening, transcribing/thinking, and speaking update
-that notification in place. Ending, failure, app reset, activity teardown, and
-process recovery remove it. Tapping it sends the shared
+`VoiceLiveActivity` mirrors the active web voice session into the foreground
+service's one stable ongoing notification. Connecting, listening,
+transcribing/thinking, and speaking update that notification in place. Ending,
+failure, app reset, activity teardown, and process recovery remove it. Tapping
+it sends the shared
 `<scheme>://voice?mode=resume` command, whose web consumer restores the room for
 the conversation that owns the live session. It never creates a second voice
 session.
 
 On Android 16, the notification requests promoted Live Update treatment only
 when the system reports that promoted notifications are enabled and the built
-notification is eligible. Every supported Android version uses the standard
-ongoing notification as the baseline. Notification permission is never
-requested by the plugin, so voice continues normally when status notifications
-are unavailable.
+notification is eligible. Every supported Android version uses the required
+foreground-service notification as the baseline. Notification permission is
+never requested by the plugin, so voice continues normally when Android hides
+the notification from the notification drawer.
 
 The launcher exposes New chat and Start voice shortcuts. Users may also add the
 Start voice Quick Settings tile. The tile exists only while Android invokes its
@@ -182,7 +209,8 @@ Assistant surfaces are intentionally not advertised.
 
 Physical-device validation is still required for Android 16 promotion,
 notification permission changes, launcher shortcut ingestion, Quick Settings
-tile addition, lock-screen notification taps, and warm/cold voice launches.
+tile addition, background voice, lock-screen notification taps, and warm/cold
+voice launches.
 
 ## Native notifications
 
@@ -210,9 +238,11 @@ clients/
     │       │   ├── NativeLaunchScreenPlugin.java
     │       │   ├── BiometricTokenStore.java
     │       │   ├── SelfHostedServer.java
+    │       │   ├── SelfHostedServersPlugin.java
     │       │   ├── VoiceAudioSessionPlugin.java
     │       │   ├── VoiceDeepLink.java
     │       │   ├── VoiceLiveActivityPlugin.java
+    │       │   ├── VoiceModeService.java
     │       │   ├── VoiceQuickSettingsTileService.java
     │       │   └── WorkOSAuth.java
     │       └── res/              # Vellum icon, splash, colors, file paths
@@ -340,7 +370,7 @@ Complete the following setup before enabling internal-track uploads:
    **Release apps to testing tracks**. Do not grant production publishing.
 6. Configure the repository and environment secrets above.
 7. Complete each Play listing, privacy policy, Data Safety form, content rating,
-   and the declarations required for microphone permissions.
+   and the declarations required for microphone and camera permissions.
 
 Before wider rollout, test the internal-track AAB on a physical device and
 verify its identity, web origin, authentication, keyboard, and file sharing.

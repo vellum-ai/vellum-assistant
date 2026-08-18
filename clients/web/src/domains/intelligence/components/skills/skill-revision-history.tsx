@@ -14,12 +14,11 @@
 import { ChevronRight } from "lucide-react";
 import { useMemo } from "react";
 
+import { DiffRows } from "@/components/diff-rows";
 import { SkillsLoadingState } from "@/domains/intelligence/components/skills/skills-loading-state";
-import {
-  parseUnifiedDiff,
-  type DiffRow,
-} from "@/domains/intelligence/skills/parse-unified-diff";
+import { parseUnifiedDiff } from "@/domains/intelligence/skills/parse-unified-diff";
 import { useSkillHistory, type SkillRevision } from "@/hooks/use-skill-history";
+import { useTranslation } from "@/i18n";
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
 import { Collapsible } from "@vellumai/design-library";
 
@@ -30,6 +29,7 @@ export function SkillRevisionHistory({
   assistantId: string;
   skillId: string;
 }) {
+  const { t } = useTranslation("intelligence");
   const { revisions, truncatedByCompaction, isLoading, isError } =
     useSkillHistory(assistantId, skillId);
 
@@ -38,7 +38,7 @@ export function SkillRevisionHistory({
   }
 
   if (isError) {
-    return <EmptyNote>Couldn&apos;t load revision history.</EmptyNote>;
+    return <EmptyNote>{t("skillRevisionHistory.loadError")}</EmptyNote>;
   }
 
   return (
@@ -63,8 +63,9 @@ export function SkillRevisionList({
   revisions: SkillRevision[];
   truncatedByCompaction: boolean;
 }) {
+  const { t } = useTranslation("intelligence");
   if (revisions.length === 0) {
-    return <EmptyNote>No changes recorded yet.</EmptyNote>;
+    return <EmptyNote>{t("skillRevisionHistory.noChanges")}</EmptyNote>;
   }
 
   return (
@@ -77,8 +78,7 @@ export function SkillRevisionList({
           className="px-1 pt-1 text-body-small-lighter"
           style={{ color: "var(--content-tertiary)" }}
         >
-          Showing recent changes. Older history is periodically compacted, so
-          this may not reach back to when the skill was created.
+          {t("skillRevisionHistory.truncatedNotice")}
         </p>
       )}
     </Collapsible.Root>
@@ -103,6 +103,7 @@ function RevisionRow({
   revision: SkillRevision;
   skillId: string;
 }) {
+  const { t } = useTranslation("intelligence");
   // Parsing walks the whole diff, and the collapsed row needs it only for the
   // +/- counts, so keep it off the render path for a list that may hold 20.
   const parsed = useMemo(
@@ -169,7 +170,7 @@ function RevisionRow({
             className="px-3 pb-3 text-body-small-lighter"
             style={{ color: "var(--content-tertiary)" }}
           >
-            No preview available for this change.
+            {t("skillRevisionHistory.noPreviewForChange")}
           </p>
         ) : (
           parsed.files.map((file) => (
@@ -184,72 +185,13 @@ function RevisionRow({
               >
                 {file.path}
               </p>
-              <div className="overflow-x-auto py-1 font-mono text-body-small-lighter">
-                {file.rows.map((row, index) => (
-                  <DiffLine key={index} row={row} />
-                ))}
+              <div className="py-1">
+                <DiffRows rows={file.rows} />
               </div>
             </div>
           ))
         )}
       </Collapsible.Content>
     </Collapsible.Item>
-  );
-}
-
-/**
- * Mirrors the gutter layout of the chat file-diff view so a diff reads the same
- * wherever it appears. That component computes its diff from two texts and
- * keeps its row renderer private, so there is nothing to import here.
- */
-function DiffLine({ row }: { row: DiffRow }) {
-  if (row.type === "meta") {
-    return (
-      <div
-        className="px-3 py-0.5"
-        style={{ color: "var(--content-faint)" }}
-        aria-hidden
-      >
-        ⋯
-      </div>
-    );
-  }
-
-  const isAdd = row.type === "add";
-  const isDel = row.type === "del";
-
-  return (
-    <div
-      className="flex whitespace-pre"
-      style={{
-        backgroundColor: isAdd
-          ? "var(--system-positive-weak)"
-          : isDel
-            ? "var(--system-negative-weak)"
-            : undefined,
-        color: isAdd
-          ? "var(--system-positive-strong)"
-          : isDel
-            ? "var(--system-negative-strong)"
-            : "var(--content-secondary)",
-      }}
-    >
-      <span
-        className="w-10 shrink-0 pr-2 text-right tabular-nums"
-        style={{ color: "var(--content-faint)" }}
-      >
-        {row.oldNo ?? ""}
-      </span>
-      <span
-        className="w-10 shrink-0 pr-2 text-right tabular-nums"
-        style={{ color: "var(--content-faint)" }}
-      >
-        {row.newNo ?? ""}
-      </span>
-      <span className="w-4 shrink-0 text-center">
-        {isAdd ? "+" : isDel ? "-" : " "}
-      </span>
-      <span className="flex-1 pr-3">{row.text}</span>
-    </div>
   );
 }

@@ -3,6 +3,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 import { noCrossDomainImports } from "./eslint-rules/no-cross-domain-imports.mjs";
+import { noUntranslatedStrings } from "./eslint-rules/no-untranslated-strings.mjs";
 
 // ---------------------------------------------------------------------------
 // no-restricted-syntax rule sets
@@ -180,13 +181,52 @@ const authBoundaryAllowedPaths = [
   "src/lib/api-interceptors.test.ts",
 ];
 
+/**
+ * Paths where user-facing copy must come from a translation catalog.
+ *
+ * Append to this list as each area is converted. Entries are globs relative to
+ * `clients/web/`. Keep them as narrow as the conversion actually was: a
+ * directory glob added before its files are converted turns the ratchet into
+ * noise, which is how these rules die.
+ */
+const i18nEnforcedPaths = [
+  "src/components/not-found.tsx",
+  "src/domains/chat/components/allow-options-menu.tsx",
+  "src/domains/chat/components/chat-composer/add-to-chat-sheet.tsx",
+  "src/domains/chat/components/conversation-actions-menu.tsx",
+  "src/domains/chat/components/conversation-assets-pill.tsx",
+  "src/domains/chat/components/pinned-app-color-swatches.tsx",
+  "src/domains/chat/components/sidebar-conversation-error.tsx",
+  "src/domains/schedules/**/*.{ts,tsx}",
+  "src/domains/settings/billing/checkout-bonus-modal.tsx",
+  "src/domains/account/**/*.{ts,tsx}",
+  "src/domains/channels/**/*.{ts,tsx}",
+  "src/domains/workspace/**/*.{ts,tsx}",
+  "src/domains/terminal/**/*.{ts,tsx}",
+  "src/domains/remote-web/**/*.{ts,tsx}",
+  "src/domains/credential-requests/**/*.{ts,tsx}",
+  "src/domains/logs/**/*.{ts,tsx}",
+  "src/domains/library/**/*.{ts,tsx}",
+  "src/domains/home/**/*.{ts,tsx}",
+  "src/domains/contacts/**/*.{ts,tsx}",
+  "src/domains/onboarding/**/*.{ts,tsx}",
+  "src/domains/intelligence/**/*.{ts,tsx}",
+  "src/domains/settings/ai/**/*.{ts,tsx}",
+  "src/domains/chat/inspector/**/*.{ts,tsx}",
+];
+
 const eslintConfig = defineConfig([
   ...tseslint.configs.recommended,
   reactHooks.configs.flat.recommended,
   globalIgnores(["dist/**", "src/generated/**", "storybook-static/**"]),
   {
     plugins: {
-      local: { rules: { "no-cross-domain-imports": noCrossDomainImports } },
+      local: {
+        rules: {
+          "no-cross-domain-imports": noCrossDomainImports,
+          "no-untranslated-strings": noUntranslatedStrings,
+        },
+      },
     },
     rules: {
       // Require braces on every control-statement body (if/else/for/
@@ -248,6 +288,27 @@ const eslintConfig = defineConfig([
         ...universalAuthRules,
         ...rawApiFetchRules,
       ],
+    },
+  },
+  // -----------------------------------------------------------------------
+  // i18n cutover ratchet
+  //
+  // `local/no-untranslated-strings` is enabled only for the paths below, and
+  // the list grows as areas are converted. Repo-wide it would report thousands
+  // of pre-existing literals in one go, and a rule that noisy gets disabled
+  // rather than obeyed. Scoped, an area that has been converted cannot
+  // regress, and this list is the record of how far the cutover has reached.
+  //
+  // To convert an area: move its copy into the namespace that owns it (see
+  // `src/i18n/namespaces.ts`), read it with `t()`, add the glob here, and run
+  // `bun run lint` until it is quiet. Never add a path with violations still
+  // in it, and never widen a glob to make an error go away.
+  //
+  // See `clients/web/docs/I18N.md`.
+  {
+    files: i18nEnforcedPaths,
+    rules: {
+      "local/no-untranslated-strings": "error",
     },
   },
 ]);

@@ -26,7 +26,19 @@ import type { ChannelCapabilities } from "../../daemon/conversation-runtime-asse
 export function asConversation<TExtra extends object = object>(
   mock: Partial<Conversation> & TExtra,
 ): Conversation & TExtra {
-  return mock as unknown as Conversation & TExtra;
+  // Trust accessors, derived from the double's own fields exactly as the real
+  // class derives them, so a double that sets (or later mutates) the fields
+  // resolves the same values production would. Supplied only when the double
+  // does not bring its own, and reading through `merged` rather than `mock`
+  // so a test that reassigns the fields on the returned object is honoured.
+  const merged: Partial<Conversation> & TExtra = {
+    getTurnTrust: () => merged.currentTurnTrustContext,
+    getTrustContext: () => merged.trustContext,
+    getTurnOrRestingTrust: () =>
+      merged.currentTurnTrustContext ?? merged.trustContext,
+    ...mock,
+  };
+  return merged as unknown as Conversation & TExtra;
 }
 
 /**

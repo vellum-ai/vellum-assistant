@@ -12,10 +12,12 @@ import { useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 
+import { Trans } from "@/i18n";
 import { OnboardingCoin } from "@/domains/onboarding/components/onboarding-coin";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
+import { useTranslation } from "@/i18n";
 
 interface IntegrationStepProps {
   onClaim: () => void;
@@ -37,6 +39,7 @@ export function IntegrationStep({
   onBack,
   onForward,
 }: IntegrationStepProps) {
+  const { t } = useTranslation("onboarding");
   const reduce = useReducedMotion();
   const tone = useOnboardingTone();
   const { h: vh } = useOnboardingStageSize();
@@ -68,8 +71,11 @@ export function IntegrationStep({
           className="text-[2.6rem] leading-[1.1] max-md:max-w-[80vw]"
           style={{ fontFamily: "var(--font-serif)" }}
         >
-          Here are some free credits
-          <br className="max-md:hidden" /> to get started.
+          <Trans
+            i18nKey="integrationStep.title"
+            ns="onboarding"
+            components={{ br: <br className="max-md:hidden" /> }}
+          />
         </h1>
 
         {/* Coin — drops to the eyes, gets bumped up, then falls away (2D flight
@@ -114,7 +120,7 @@ export function IntegrationStep({
               color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
             }}
           >
-            Claim
+            {t("actions.claim")}
             <ArrowRight className="h-4 w-4" />
           </button>
         )}

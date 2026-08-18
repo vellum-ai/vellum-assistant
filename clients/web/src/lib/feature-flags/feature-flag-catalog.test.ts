@@ -68,9 +68,9 @@ describe("feature flag catalog", () => {
     expect("quoteReply" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
   });
 
-  test("exposes web remote ingress as an assistant flag defaulted off", () => {
-    expect(ASSISTANT_FLAG_DEFAULTS.webRemoteIngress).toBe(false);
-    expect("webRemoteIngress" in CLIENT_FLAG_DEFAULTS).toBe(false);
+  test("exposes web remote ingress as a client flag defaulted off", () => {
+    expect(CLIENT_FLAG_DEFAULTS.webRemoteIngress).toBe(false);
+    expect("webRemoteIngress" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
   });
 
   test("exposes the MCP add-server gate without a page-level MCP gate", () => {

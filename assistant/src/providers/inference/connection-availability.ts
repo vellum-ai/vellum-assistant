@@ -23,6 +23,10 @@ import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "../connection-model-compat.js";
+import {
+  connectionProviderKind,
+  resolveEntryConnectionName,
+} from "../connection-resolution.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { resolveManagedProxyContext } from "../platform-proxy/context.js";
 import {
@@ -161,7 +165,12 @@ export async function computeConnectionAvailability(
   if (resolvedConnectionName === VELLUM_MANAGED_CONNECTION_NAME) {
     return vellumConnectionAvailability();
   }
-  if (connection.provider !== provider) {
+  // The ChatGPT-subscription row stores the "chatgpt" identity while its
+  // upstream is openai; the credential switch below is the right check for
+  // it (the subscription token is its credential).
+  const isChatgptRow =
+    connection.provider === "chatgpt" && provider === "openai";
+  if (!isChatgptRow && connection.provider !== provider) {
     return {
       status: "provider_mismatch",
       message: `Connection "${resolvedConnectionName}" is for provider "${connection.provider}", but the requested provider is "${provider}". Pick a connection for "${provider}" ${SETTINGS_HINT}.`,
@@ -326,9 +335,22 @@ export async function computeProfileAvailability(
     }
   }
 
+  // Precedence matches dispatch: an explicit provider_connection wins over
+  // an entry-name provider, and the vendor judged is the entry's
+  // dispatchable kind either way (the same translation dispatch uses).
+  const entryName = resolveEntryConnectionName(provider);
+  const entryKind =
+    entryName !== null
+      ? (connectionProviderKind(entryName, model) ?? provider)
+      : provider;
+
   const pinned = entry.provider_connection;
   if (typeof pinned === "string") {
-    return computeConnectionAvailability(provider, pinned);
+    return computeConnectionAvailability(entryKind, pinned);
+  }
+
+  if (entryName !== null) {
+    return computeConnectionAvailability(entryKind, entryName);
   }
 
   // Mirror the dispatch-time auto-resolve (`resolveConfiguredProvider`): with

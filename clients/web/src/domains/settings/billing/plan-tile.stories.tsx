@@ -220,8 +220,9 @@ export const NextPlanPending: Story = {
  * `RecommendedUpgrade` does. `useDocumentTheme()` reads the `data-theme`
  * attribute the themes addon stamps on the preview document, so toggling the
  * Storybook theme flips the next tile the way the app does. The row stacks
- * below the `lg` breakpoint, so narrow the Storybook canvas to see the mobile
- * treatment.
+ * below the `lg` breakpoint: select `Mobile` in the viewport toolbar to see
+ * that treatment, since the Canvas holds a desktop width regardless of window
+ * size.
  */
 export const SideBySide: Story = {
   parameters: {

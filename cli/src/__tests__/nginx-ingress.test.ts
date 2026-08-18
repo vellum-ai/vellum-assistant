@@ -23,12 +23,10 @@ import {
   test,
 } from "bun:test";
 
-import * as featureFlags from "../lib/feature-flags.js";
 import * as httpClient from "../lib/http-client.js";
 
 const realChildProcess = { ...childProcess };
 const realFs = { ...fsModule };
-const realFeatureFlags = { ...featureFlags };
 const realHttpClient = { ...httpClient };
 
 const execFileSyncMock = mock(childProcess.execFileSync);
@@ -60,26 +58,17 @@ mock.module("../lib/http-client.js", () => ({
   waitForDaemonReady: waitForDaemonReadyMock,
 }));
 
-const isFeatureFlagEnabledMock = mock<
-  typeof featureFlags.isAssistantFeatureFlagEnabled
->(async () => true);
-
-mock.module("../lib/feature-flags.js", () => ({
-  ...featureFlags,
-  isAssistantFeatureFlagEnabled: isFeatureFlagEnabledMock,
-}));
-
 // Restore the real modules once this file finishes so the mocks do not leak
 // into sibling test files in the same `bun test` run.
 afterAll(() => {
   mock.module("node:child_process", () => realChildProcess);
   mock.module("node:fs", () => realFs);
-  mock.module("../lib/feature-flags.js", () => realFeatureFlags);
   mock.module("../lib/http-client.js", () => realHttpClient);
 });
 
 import {
   buildIngressNginxConfig,
+  hasIpv6Loopback,
   buildRemoteWebIndexHtml,
   cloudWebHubUrl,
   ensureTunnelEdge,
@@ -131,8 +120,6 @@ afterEach(() => {
   readFileSyncMock.mockImplementation(realFs.readFileSync);
   waitForDaemonReadyMock.mockReset();
   waitForDaemonReadyMock.mockImplementation(async () => true);
-  isFeatureFlagEnabledMock.mockReset();
-  isFeatureFlagEnabledMock.mockImplementation(async () => true);
   for (const dir of workspaces.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -170,8 +157,23 @@ describe("buildIngressNginxConfig", () => {
     const listens = conf.match(/listen [^;]+;/g) ?? [];
     expect(listens.length).toBeGreaterThan(0);
     for (const directive of listens) {
-      expect(directive).toContain("127.0.0.1");
+      expect(directive).toMatch(/127\.0\.0\.1|\[::1\]/);
     }
+  });
+
+  test("adds the IPv6 loopback listener only where ::1 exists", () => {
+    // A tunnel agent pointed at "localhost" reaches ::1 first on macOS, so an
+    // IPv4-only bind refuses whichever share of a burst resolves that way.
+    // Emitting it unconditionally would make nginx exit on an IPv6-less host.
+    const withIpv6 = buildIngressNginxConfig({
+      gatewayPort: 7830,
+      listenPort: 7840,
+      ipv6Loopback: true,
+    });
+    expect(withIpv6).toContain("listen 127.0.0.1:7840;");
+    expect(withIpv6).toContain("listen [::1]:7840;");
+
+    expect(conf).not.toContain("[::1]");
   });
 
   test("emits relative redirects so a fronting proxy keeps scheme and port", () => {
@@ -361,6 +363,24 @@ describe("buildRemoteWebIndexHtml", () => {
 
     expect(result).not.toContain("</script><script>alert(1)</script>");
     expect(result).toContain("\\u003c/script\\u003e");
+  });
+
+  test("drops modulepreload hints but keeps the entry script and stylesheet", () => {
+    const html = [
+      "<html><head>",
+      '<link rel="modulepreload" crossorigin href="/assistant/assets/a-1.js">',
+      '<link rel="modulepreload" crossorigin href="/assistant/assets/b-2.js">',
+      '<link rel="stylesheet" crossorigin href="/assistant/assets/main-3.css">',
+      '<script type="module" crossorigin src="/assistant/assets/index-4.js"></script>',
+      "</head><body></body></html>",
+    ].join("\n");
+
+    const result = buildRemoteWebIndexHtml(html, { mode: "remote-gateway" });
+
+    expect(result).not.toContain("modulepreload");
+    expect(result).not.toContain("/assistant/assets/a-1.js");
+    expect(result).toContain('href="/assistant/assets/main-3.css"');
+    expect(result).toContain('src="/assistant/assets/index-4.js"');
   });
 });
 
@@ -672,19 +692,23 @@ const PRODUCTION_HUB_URL = "https://www.vellum.ai/assistant";
 
 /**
  * Mirror of the SPA config fingerprint the edge records in its ingress state
- * (sha256 over the injected config JSON). Pins both the injected config
- * shape and the hash format; assumes the production-pinned environment.
+ * (sha256 over the edge template version and the injected config JSON). Pins
+ * both the injected config shape and the hash format; assumes the
+ * production-pinned environment. `template` tracks `EDGE_TEMPLATE_VERSION`.
  */
 function spaConfigHash(assistantName?: string): string {
   return createHash("sha256")
     .update(
       JSON.stringify({
-        mode: "remote-gateway",
-        apiBaseUrl: "/v1",
-        platformDisabled: true,
-        disablePlatform: true,
-        ...(assistantName ? { assistantName } : {}),
-        hubUrl: PRODUCTION_HUB_URL,
+        template: 2,
+        config: {
+          mode: "remote-gateway",
+          apiBaseUrl: "/v1",
+          platformDisabled: true,
+          disablePlatform: true,
+          ...(assistantName ? { assistantName } : {}),
+          hubUrl: PRODUCTION_HUB_URL,
+        },
       }),
     )
     .digest("hex");
@@ -744,7 +768,11 @@ describe("startRemoteWebIngress", () => {
 
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7830,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect(conf).toContain("location = /auth/token { return 404; }");
     expect(conf).toContain("location = /v1/pair { return 404; }");
@@ -784,6 +812,7 @@ describe("startRemoteWebIngress", () => {
       buildIngressNginxConfig({
         gatewayPort: 7830,
         listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
         remoteWebIngress: {
           webDistDir,
           indexHtmlPath: join(ws, "data", "ingress", "assistant-index.html"),
@@ -966,7 +995,11 @@ describe("startRemoteWebIngress", () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7830,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect(conf).toContain("proxy_pass http://127.0.0.1:7830;");
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
@@ -1000,7 +1033,11 @@ describe("startRemoteWebIngress", () => {
     expect(edge.killed()).toBe(true);
     expect(spawnMock).toHaveBeenCalledTimes(1);
     expect(realFs.readFileSync(ingressConfPath(ws), "utf-8")).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7900, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7900,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
       listenPort: 7845,
@@ -1102,6 +1139,51 @@ describe("startRemoteWebIngress", () => {
     });
   });
 
+  test("restarts an SPA edge recorded against an older template version", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    // Same injected config, earlier template: the detached edge serves an
+    // index this build renders differently, so identity must not match.
+    const priorTemplateHash = createHash("sha256")
+      .update(
+        JSON.stringify({
+          template: 1,
+          config: {
+            mode: "remote-gateway",
+            apiBaseUrl: "/v1",
+            platformDisabled: true,
+            disablePlatform: true,
+            hubUrl: PRODUCTION_HUB_URL,
+          },
+        }),
+      )
+      .digest("hex");
+    const pid = mockRunningEdge(ws, {
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: priorTemplateHash,
+    });
+    const edge = mockKillableNginx(pid);
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+    });
+
+    expect(result.status).toBe("started");
+    expect(edge.killed()).toBe(true);
+    expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: spaConfigHash(),
+    });
+  });
+
   test("restarts an SPA edge whose state predates the config fingerprint", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
@@ -1185,7 +1267,11 @@ describe("startRemoteWebIngress", () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7830,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
       listenPort: 7845,
@@ -1225,7 +1311,11 @@ describe("startRemoteWebIngress", () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toBe(
-      buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7845 }),
+      buildIngressNginxConfig({
+        gatewayPort: 7830,
+        listenPort: 7845,
+        ipv6Loopback: hasIpv6Loopback(),
+      }),
     );
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
       listenPort: 7845,
@@ -1513,7 +1603,7 @@ describe("ensureTunnelEdge", () => {
     expect(indexHtml).toContain(`"hubUrl":"${PRODUCTION_HUB_URL}"`);
   });
 
-  test("reuses a running edge that matches the flag-resolved mode", async () => {
+  test("reuses a running edge that already serves the SPA mode", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
@@ -1535,34 +1625,6 @@ describe("ensureTunnelEdge", () => {
       port: 7845,
       started: false,
       includesWebApp: true,
-    });
-    expect(edge.killed()).toBe(false);
-    expect(spawnMock).not.toHaveBeenCalled();
-  });
-
-  test("reuses a running webhooks-only edge and reports the recorded mode", async () => {
-    const ws = makeWorkspace();
-    mockNginxInstalled();
-    mockNginxSpawn();
-    mockWebDistMissing();
-    isFeatureFlagEnabledMock.mockImplementation(async () => false);
-    const pid = mockRunningEdge(ws, {
-      listenPort: 7845,
-      includeWebApp: false,
-      gatewayPort: 7830,
-    });
-    const edge = mockKillableNginx(pid);
-
-    const result = await ensureTunnelEdge({
-      assistantId: ASSISTANT_ID,
-      workspaceDir: ws,
-      gatewayPort: 7830,
-    });
-
-    expect(result).toEqual({
-      port: 7845,
-      started: false,
-      includesWebApp: false,
     });
     expect(edge.killed()).toBe(false);
     expect(spawnMock).not.toHaveBeenCalled();
@@ -1647,9 +1709,8 @@ describe("ensureTunnelEdge", () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
-    mockWebDistMissing();
-    isFeatureFlagEnabledMock.mockImplementation(async () => false);
-    const pid = mockRunningEdge(ws, { listenPort: 7845, includeWebApp: true });
+    mockWebDistPresent();
+    const pid = mockRunningEdge(ws, { listenPort: 7845, includeWebApp: false });
     mockUnkillableNginx(pid);
 
     const promise = ensureTunnelEdge({
@@ -1659,7 +1720,7 @@ describe("ensureTunnelEdge", () => {
     });
 
     await expect(promise).rejects.toThrow(
-      "still running in web app mode and could not be restarted in webhooks-only mode",
+      "still running in webhooks-only mode and could not be restarted in web app mode",
     );
     await expect(promise).rejects.toThrow("vellum nginx-ingress down");
     expect(spawnMock).not.toHaveBeenCalled();
@@ -1669,12 +1730,12 @@ describe("ensureTunnelEdge", () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
-    mockWebDistMissing();
-    isFeatureFlagEnabledMock.mockImplementation(async () => false);
+    mockWebDistPresent();
     const pid = mockRunningEdge(ws, {
       listenPort: 7845,
-      includeWebApp: false,
+      includeWebApp: true,
       gatewayPort: 7900,
+      remoteWebConfigHash: spaConfigHash(),
     });
     mockUnkillableNginx(pid);
 
@@ -1695,12 +1756,12 @@ describe("ensureTunnelEdge", () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
-    mockWebDistMissing();
-    isFeatureFlagEnabledMock.mockImplementation(async () => false);
+    mockWebDistPresent();
     const pid = mockRunningEdge(ws, {
       listenPort: 7845,
-      includeWebApp: false,
+      includeWebApp: true,
       gatewayPort: 7900,
+      remoteWebConfigHash: spaConfigHash(),
     });
     const edge = mockKillableNginx(pid);
 
@@ -1713,25 +1774,19 @@ describe("ensureTunnelEdge", () => {
     expect(result).toEqual({
       port: REQUESTED_PORT,
       started: true,
-      includesWebApp: false,
+      includesWebApp: true,
     });
     expect(edge.killed()).toBe(true);
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
-    expect(conf).toBe(
-      buildIngressNginxConfig({
-        gatewayPort: 7830,
-        listenPort: REQUESTED_PORT,
-      }),
-    );
+    expect(conf).toContain("location ^~ /assistant/ {");
   });
 
-  test("restarts a mode-drifted edge into the flag-resolved mode", async () => {
+  test("restarts a webhooks-only edge into the SPA mode", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
-    mockWebDistMissing();
-    isFeatureFlagEnabledMock.mockImplementation(async () => false);
-    const pid = mockRunningEdge(ws, { listenPort: 7845, includeWebApp: true });
+    mockWebDistPresent();
+    const pid = mockRunningEdge(ws, { listenPort: 7845, includeWebApp: false });
     const edge = mockKillableNginx(pid);
 
     const result = await ensureTunnelEdge({
@@ -1743,19 +1798,14 @@ describe("ensureTunnelEdge", () => {
     expect(result).toEqual({
       port: REQUESTED_PORT,
       started: true,
-      includesWebApp: false,
+      includesWebApp: true,
     });
     expect(edge.killed()).toBe(true);
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
-    expect(conf).toBe(
-      buildIngressNginxConfig({
-        gatewayPort: 7830,
-        listenPort: REQUESTED_PORT,
-      }),
-    );
+    expect(conf).toContain("location ^~ /assistant/ {");
   });
 
-  test("flag enabled starts the SPA edge", async () => {
+  test("starts the SPA edge", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
@@ -1772,11 +1822,6 @@ describe("ensureTunnelEdge", () => {
       started: true,
       includesWebApp: true,
     });
-    expect(isFeatureFlagEnabledMock).toHaveBeenCalledWith(
-      ASSISTANT_ID,
-      featureFlags.WEB_REMOTE_INGRESS_FLAG,
-      { runtimeUrl: "http://127.0.0.1:7830" },
-    );
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toContain("location ^~ /assistant/ {");
     expect(conf).toContain("location ^~ /webhooks/ {");
@@ -1788,40 +1833,11 @@ describe("ensureTunnelEdge", () => {
     });
   });
 
-  test("flag disabled starts the webhooks-only edge", async () => {
-    const ws = makeWorkspace();
-    mockNginxInstalled();
-    mockNginxSpawn();
-    mockWebDistMissing();
-    isFeatureFlagEnabledMock.mockImplementation(async () => false);
-
-    const result = await ensureTunnelEdge({
-      assistantId: ASSISTANT_ID,
-      workspaceDir: ws,
-      gatewayPort: 7830,
-    });
-
-    expect(result).toEqual({
-      port: REQUESTED_PORT,
-      started: true,
-      includesWebApp: false,
-    });
-    const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
-    expect(conf).toContain("location = /v1/pair { return 404; }");
-    expect(conf).not.toContain("location ^~ /assistant/ {");
-    expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
-      listenPort: REQUESTED_PORT,
-      includeWebApp: false,
-      gatewayPort: 7830,
-    });
-  });
-
   test("forwards onStarting so callers can print progress", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
-    mockWebDistMissing();
-    isFeatureFlagEnabledMock.mockImplementation(async () => false);
+    mockWebDistPresent();
     const onStarting = mock(
       (_info: {
         version: string;
@@ -1837,18 +1853,18 @@ describe("ensureTunnelEdge", () => {
       onStarting,
     });
 
-    expect(onStarting).toHaveBeenCalledWith({
-      version: NGINX_VERSION,
-      webDistDir: null,
-      listenPort: REQUESTED_PORT,
-    });
+    expect(onStarting).toHaveBeenCalledTimes(1);
+    const info = onStarting.mock.calls[0][0];
+    expect(info.version).toBe(NGINX_VERSION);
+    expect(info.listenPort).toBe(REQUESTED_PORT);
+    expect(typeof info.webDistDir).toBe("string");
   });
 
-  test("an entry without an assistant id gets the webhooks-only edge", async () => {
+  test("an entry without an assistant id still gets the SPA edge", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
-    mockWebDistMissing();
+    mockWebDistPresent();
 
     const result = await ensureTunnelEdge({
       assistantId: undefined,
@@ -1859,11 +1875,10 @@ describe("ensureTunnelEdge", () => {
     expect(result).toEqual({
       port: REQUESTED_PORT,
       started: true,
-      includesWebApp: false,
+      includesWebApp: true,
     });
-    expect(isFeatureFlagEnabledMock).not.toHaveBeenCalled();
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
-    expect(conf).not.toContain("location ^~ /assistant/ {");
+    expect(conf).toContain("location ^~ /assistant/ {");
   });
 
   test("missing nginx throws with install instructions", async () => {
@@ -1882,97 +1897,7 @@ describe("ensureTunnelEdge", () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
-  test("flag lookup failure throws the wake hint", async () => {
-    const ws = makeWorkspace();
-    mockNginxInstalled();
-    isFeatureFlagEnabledMock.mockImplementation(async () => {
-      throw new Error("connect ECONNREFUSED");
-    });
-
-    const promise = ensureTunnelEdge({
-      assistantId: ASSISTANT_ID,
-      workspaceDir: ws,
-      gatewayPort: 7830,
-    });
-
-    await expect(promise).rejects.toThrow(
-      "Could not verify the `web-remote-ingress` feature flag",
-    );
-    await expect(promise).rejects.toThrow("Try `vellum wake` and retry");
-    await expect(promise).rejects.toThrow("connect ECONNREFUSED");
-    expect(spawnMock).not.toHaveBeenCalled();
-  });
-
-  test("flagRetry retries a thrown flag lookup and then starts the edge", async () => {
-    const ws = makeWorkspace();
-    mockNginxInstalled();
-    mockNginxSpawn();
-    mockWebDistMissing();
-    isFeatureFlagEnabledMock
-      .mockImplementationOnce(async () => {
-        throw new Error('HTTP 503 {"status":"starting"}');
-      })
-      .mockImplementationOnce(async () => {
-        throw new Error('HTTP 503 {"status":"starting"}');
-      })
-      .mockImplementationOnce(async () => false);
-
-    const result = await ensureTunnelEdge({
-      assistantId: ASSISTANT_ID,
-      workspaceDir: ws,
-      gatewayPort: 7830,
-      flagRetry: { attempts: 3, intervalMs: 1 },
-    });
-
-    expect(isFeatureFlagEnabledMock).toHaveBeenCalledTimes(3);
-    expect(result).toEqual({
-      port: REQUESTED_PORT,
-      started: true,
-      includesWebApp: false,
-    });
-  });
-
-  test("flagRetry does not retry a resolved false: it is a real answer", async () => {
-    const ws = makeWorkspace();
-    mockNginxInstalled();
-    mockNginxSpawn();
-    mockWebDistMissing();
-    isFeatureFlagEnabledMock.mockImplementation(async () => false);
-
-    const result = await ensureTunnelEdge({
-      assistantId: ASSISTANT_ID,
-      workspaceDir: ws,
-      gatewayPort: 7830,
-      flagRetry: { attempts: 3, intervalMs: 1 },
-    });
-
-    expect(isFeatureFlagEnabledMock).toHaveBeenCalledTimes(1);
-    expect(result.includesWebApp).toBe(false);
-  });
-
-  test("an exhausted flagRetry throws the wake hint with the last error", async () => {
-    const ws = makeWorkspace();
-    mockNginxInstalled();
-    isFeatureFlagEnabledMock.mockImplementation(async () => {
-      throw new Error("connect ECONNREFUSED");
-    });
-
-    const promise = ensureTunnelEdge({
-      assistantId: ASSISTANT_ID,
-      workspaceDir: ws,
-      gatewayPort: 7830,
-      flagRetry: { attempts: 3, intervalMs: 1 },
-    });
-
-    await expect(promise).rejects.toThrow(
-      "Could not verify the `web-remote-ingress` feature flag",
-    );
-    await expect(promise).rejects.toThrow("connect ECONNREFUSED");
-    expect(isFeatureFlagEnabledMock).toHaveBeenCalledTimes(3);
-    expect(spawnMock).not.toHaveBeenCalled();
-  });
-
-  test("missing web dist with the flag enabled throws build guidance", async () => {
+  test("missing web dist throws build guidance", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockWebDistMissing();
@@ -1990,8 +1915,7 @@ describe("ensureTunnelEdge", () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
-    mockWebDistMissing();
-    isFeatureFlagEnabledMock.mockImplementation(async () => false);
+    mockWebDistPresent();
     waitForDaemonReadyMock.mockImplementation(async () => false);
 
     await expect(
@@ -2007,8 +1931,7 @@ describe("ensureTunnelEdge", () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawnExitsOnStartup();
-    mockWebDistMissing();
-    isFeatureFlagEnabledMock.mockImplementation(async () => false);
+    mockWebDistPresent();
     waitForDaemonReadyMock.mockImplementation(async () => true);
 
     const promise = ensureTunnelEdge({

@@ -3,16 +3,17 @@
  * process side panel that opens AND closes by ANIMATING THE DRAWER WIDTH
  * (0 ⇄ target) instead of reserving the full pane instantly.
  *
- * Why not `ResizablePanel`: that component sizes the left pane to a fixed width
- * and lets the right pane fill the rest (`flex-1`), so the moment it mounts the
- * chat column snaps to its narrow width and the full-size drawer pops in. The
- * result reads as "the layout shifted early and the drawer started too large".
+ * Why not `ResizablePanel`: that component reserves the drawer's full width the
+ * moment it mounts, so the chat column snaps to its narrow width and the
+ * full-size drawer pops in. The result reads as "the layout shifted early and
+ * the drawer started too large".
  *
  * Here the chat is `flex-1` and the drawer is the sized element: as the drawer's
  * width eases 0 → target, the chat reflows in lockstep and the panel content —
  * pinned to the right edge at its final width — is revealed by a left-moving
- * wipe. Drag-to-resize + width persistence are preserved (ported from
- * `ResizablePanel`).
+ * wipe. Drag-to-resize, clamping, and width persistence come from
+ * `useResizablePane`, shared with `ResizablePanel` and the sidebar rail, so
+ * this file contributes only the animation.
  *
  * Open/close is driven by the `open` prop, NOT by mounting/unmounting the
  * component. The drawer stays mounted around the chat so that (a) closing can
@@ -22,43 +23,24 @@
  * through the close animation and torn down only once the width reaches 0.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-} from "react";
+import { useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
+import { PaneResizeHandle, useResizablePane } from "@vellumai/design-library";
 
 import { cn } from "@/utils/misc";
 
-/** Width of the drag-handle column. Matches the `w-2` separator below (8px). */
-const SEPARATOR_WIDTH_PX = 8;
+/** Width of the drag-handle column. Matches the `w-2` handle below (8px). */
+const HANDLE_WIDTH_PX = 8;
 
-/** Read a persisted pixel width from localStorage, validating shape/finiteness. */
-function readStoredWidth(
-  storageKey: string | undefined,
-  minWidth: number,
-): number | null {
-  if (!storageKey || typeof window === "undefined") {
-    return null;
-  }
-  try {
-    const stored = localStorage.getItem(storageKey);
-    if (stored == null) {
-      return null;
-    }
-    const parsed = Number(stored);
-    if (!Number.isFinite(parsed)) {
-      return null;
-    }
-    return Math.max(minWidth, parsed);
-  } catch {
-    return null;
-  }
-}
+/**
+ * The drawer's geometry, owned here so every mount resolves the same numbers.
+ * Default and minimum are equal, so the drawer opens at the same width it
+ * floors at under a drag. That floor is not absolute: a container too narrow
+ * to hold it caps the drawn width below it, see `renderWidth` below.
+ */
+const RIGHT_DRAWER_MIN_WIDTH_PX = 400;
+const RIGHT_DRAWER_DEFAULT_WIDTH_PX = RIGHT_DRAWER_MIN_WIDTH_PX;
+const RIGHT_DRAWER_MIN_LEFT_WIDTH_PX = 300;
 
 export interface AnimatedRightDrawerProps {
   /** Whether the drawer is open. Drives the width animation in both directions. */
@@ -85,18 +67,42 @@ export function AnimatedRightDrawer({
   open,
   left,
   right,
-  defaultWidth = 400,
-  minWidth = 400,
-  minLeftWidth = 300,
+  defaultWidth = RIGHT_DRAWER_DEFAULT_WIDTH_PX,
+  minWidth = RIGHT_DRAWER_MIN_WIDTH_PX,
+  minLeftWidth = RIGHT_DRAWER_MIN_LEFT_WIDTH_PX,
   storageKey,
 }: AnimatedRightDrawerProps) {
   const reduce = useReducedMotion();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState<number>(
-    () => readStoredWidth(storageKey, minWidth) ?? defaultWidth,
-  );
-  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  // No `paneRef`: motion owns the drawer element's width, so the live size has
+  // to come through React state for `animate` to see it.
+  const {
+    size: width,
+    containerSize,
+    containerRef,
+    paneId,
+    handleProps,
+    isResizing,
+  } = useResizablePane({
+    side: "end",
+    defaultSize: defaultWidth,
+    minSize: minWidth,
+    reserveForRest: minLeftWidth + HANDLE_WIDTH_PX,
+    storageKey,
+    label: "Resize side panel",
+  });
+
+  // `useResizablePane` never clamps below `minWidth`, so a container narrower
+  // than `minWidth + handle` (small window, wide sidebar) would let the drawer
+  // overflow its overflow-hidden host and clip the panel's right edge, where
+  // the close button lives. Cap the drawn width to what the container can
+  // actually show and let the chat column collapse; the content layer below
+  // renders at this capped width so the panel reflows instead of clipping.
+  // `containerSize` is 0 until the first measure, so fall back to `width`.
+  const renderWidth =
+    containerSize > 0
+      ? Math.min(width, Math.max(0, containerSize - HANDLE_WIDTH_PX))
+      : width;
+  const isCapped = renderWidth < width;
 
   // Keep the drawer pane (content + drag handle) mounted while open and through
   // the close animation. `mounted` flips on synchronously when opening, and off
@@ -122,78 +128,6 @@ export function AnimatedRightDrawer({
     setRetainedRight(right);
   }
 
-  const clamp = useCallback(
-    (next: number) => {
-      const container = containerRef.current;
-      // Unmeasured container (offsetWidth 0): keep the requested width instead
-      // of collapsing to the minimum on a negative max.
-      if (!container || container.offsetWidth <= 0) {
-        return Math.max(minWidth, next);
-      }
-      const maxWidth = Math.max(
-        minWidth,
-        container.offsetWidth - minLeftWidth - SEPARATOR_WIDTH_PX,
-      );
-      return Math.max(minWidth, Math.min(next, maxWidth));
-    },
-    [minWidth, minLeftWidth],
-  );
-
-  const handlePointerDown = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-      dragRef.current = { startX: e.clientX, startWidth: width };
-      setIsDragging(true);
-    },
-    [width],
-  );
-
-  const handlePointerMove = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      if (!dragRef.current) {
-        return;
-      }
-      // Dragging the handle LEFT (clientX decreases) widens the drawer.
-      const delta = dragRef.current.startX - e.clientX;
-      setWidth(clamp(dragRef.current.startWidth + delta));
-    },
-    [clamp],
-  );
-
-  const handlePointerUp = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      if (!dragRef.current) {
-        return;
-      }
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-      const finalWidth = clamp(
-        dragRef.current.startWidth + (dragRef.current.startX - e.clientX),
-      );
-      dragRef.current = null;
-      setIsDragging(false);
-      setWidth(finalWidth);
-      if (storageKey) {
-        try {
-          localStorage.setItem(storageKey, String(finalWidth));
-        } catch {
-          // Storage quota or security error — ignore.
-        }
-      }
-    },
-    [clamp, storageKey],
-  );
-
-  // Re-clamp on container resize so the drawer never overruns the chat min.
-  useEffect(() => {
-    setWidth((prev) => clamp(prev));
-    function onResize() {
-      setWidth((prev) => clamp(prev));
-    }
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [clamp]);
-
   return (
     <div
       ref={containerRef}
@@ -209,31 +143,26 @@ export function AnimatedRightDrawer({
         {left}
       </div>
 
-      {/* Drag handle (matches ResizablePanel's hidden-divider look). Only
-          present while the drawer is mounted so a closed drawer leaves no
-          stray hit-area or grab handle over the full-width chat. */}
+      {/* Drag handle. Only present while the drawer is mounted so a closed
+          drawer leaves no stray hit-area or grab handle over the full-width
+          chat. */}
       {mounted && (
-        <div
-          role="separator"
-          aria-orientation="vertical"
+        <PaneResizeHandle
+          {...handleProps}
           className={cn(
-            "group relative z-10 flex h-full w-2 shrink-0 cursor-col-resize items-center justify-center",
-            isDragging && "select-none",
+            "group relative z-10 flex h-full w-2 shrink-0 items-center justify-center",
+            isResizing && "select-none",
           )}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
         >
           <div className="h-full w-px bg-transparent" />
           <div
             className={cn(
               "absolute h-8 w-1 rounded-full bg-[var(--content-tertiary)] opacity-0 transition-opacity",
-              "group-hover:opacity-100",
-              isDragging && "opacity-100",
+              "group-hover:opacity-100 group-focus-visible:opacity-100",
+              isResizing && "opacity-100",
             )}
           />
-        </div>
+        </PaneResizeHandle>
       )}
 
       {/* Drawer — its width is the animated dimension, eased 0 ⇄ target by the
@@ -243,11 +172,25 @@ export function AnimatedRightDrawer({
           reflowing the content mid-animation. Reduced motion: snap instead of
           ease. Content unmounts only once a close animation reaches width 0. */}
       <motion.div
+        id={paneId}
         className="relative h-full shrink-0 overflow-hidden"
-        initial={reduce ? false : { width: 0 }}
-        animate={{ width: open ? width : 0 }}
+        // Hard ceiling for the frames between a container resize and the
+        // re-measure landing in state: flex honors max-width over the
+        // motion-driven inline width, so the drawer can never paint past its
+        // host even before `renderWidth` catches up.
+        style={{ maxWidth: `calc(100% - ${HANDLE_WIDTH_PX}px)` }}
+        // Mount at the resting width for whatever `open` says, so the wipe is
+        // driven by `open` changing and not by the component appearing. A
+        // drawer mounted already-open belongs to a panel that is already
+        // there: remounts (the mobile/desktop crossing in `chat-route-content`
+        // swaps this whole subtree) would otherwise replay the entrance over
+        // a panel the user has been looking at.
+        initial={false}
+        animate={{ width: open ? renderWidth : 0 }}
+        // While capped, width changes track a live container resize, so ease
+        // would lag the window edge; snap instead, like a handle drag.
         transition={
-          isDragging || reduce
+          isResizing || isCapped || reduce
             ? { duration: 0 }
             : { duration: 0.34, ease: [0.16, 1, 0.3, 1] }
         }
@@ -258,7 +201,10 @@ export function AnimatedRightDrawer({
         }}
       >
         {mounted && (
-          <div className="absolute right-0 top-0 h-full" style={{ width }}>
+          <div
+            className="absolute right-0 top-0 h-full"
+            style={{ width: renderWidth }}
+          >
             {/* Render live `right` while present so a streaming panel isn't a
                 frame behind; fall back to the retained copy during the close
                 wipe once `right` has gone null. */}

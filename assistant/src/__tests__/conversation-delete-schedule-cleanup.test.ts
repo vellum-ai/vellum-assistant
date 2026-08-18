@@ -10,10 +10,6 @@ mock.module("../config/env.js", () => ({
   hasUngatedHttpAuthDisabled: () => false,
 }));
 
-mock.module("../daemon/conversation-store.js", () => ({
-  destroyActiveConversation: () => {},
-}));
-
 mock.module("../daemon/handlers/conversations.js", () => ({
   cancelGeneration: () => true,
   clearAllConversations: async () => 0,

@@ -46,7 +46,7 @@ import { normalizeConversationType } from "../../daemon/message-types/shared.js"
 import { stripConversationIds } from "../../home/feed-writer.js";
 import {
   archiveConversation,
-  batchSetDisplayOrders,
+  batchSetConversationPlacement,
   countConversationsByScheduleJobId,
   deleteConversation,
   forkConversation as forkConversationInStore,
@@ -308,9 +308,8 @@ async function handleSummarizeConversation({ body = {} }: RouteHandlerArgs) {
         statusText: "Summarizing conversation",
       });
       // The context-window usage push goes out on the same broadcast path as
-      // the result card below: this route resolves its conversation outside
-      // the send path, so the instance may still hold the store's no-op
-      // sender and a `sendToClient` emit would reach nobody.
+      // the result card below, so the two can never be delivered to different
+      // places.
       const result = await conversation.summarizeUpToMessage(
         beforeMessageId,
         broadcastMessage,
@@ -845,7 +844,6 @@ function handleReorderConversations({ body = {}, headers }: RouteHandlerArgs) {
   const updates = body.updates as
     | Array<{
         conversationId: string;
-        displayOrder?: number;
         isPinned?: boolean;
         groupId?: string | null;
       }>
@@ -853,10 +851,9 @@ function handleReorderConversations({ body = {}, headers }: RouteHandlerArgs) {
   if (!Array.isArray(updates)) {
     throw new BadRequestError("Missing updates array");
   }
-  batchSetDisplayOrders(
+  batchSetConversationPlacement(
     updates.map((u) => ({
       id: u.conversationId,
-      displayOrder: u.displayOrder ?? null,
       isPinned: u.isPinned,
       groupId: u.groupId,
     })),
@@ -1304,14 +1301,15 @@ export const ROUTES: RouteDefinition[] = [
       requiredScopes: ["chat.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary: "Reorder conversations",
-    description: "Batch-update display order and pin state for conversations.",
+    summary: "Move conversations between sections",
+    description:
+      "Batch-update which group holds each conversation, and its pin state. " +
+      "Lists are ordered by recency, so this sets placement, not order.",
     tags: ["conversations"],
     requestBody: z.object({
       updates: z.array(
         z.object({
           conversationId: z.string(),
-          displayOrder: z.number().optional(),
           isPinned: z.boolean().optional(),
           groupId: z.string().nullable().optional(),
         }),

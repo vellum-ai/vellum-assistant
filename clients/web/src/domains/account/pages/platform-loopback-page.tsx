@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router";
 
+import { useTranslation } from "@/i18n";
 import { listAssistants } from "@/assistant/api";
 import { syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
 import { registerLocalPlatformSession } from "@/runtime/local-mode-host";
@@ -27,6 +28,7 @@ const LOOPBACK_RETURN_TO_KEY = "vellum:loopback:returnTo";
  *      cookie), checks for existing assistants, and navigates accordingly
  */
 export function PlatformLoopbackPage() {
+  const { t } = useTranslation("account");
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
@@ -42,17 +44,17 @@ export function PlatformLoopbackPage() {
     sessionStorage.removeItem(LOOPBACK_RETURN_TO_KEY);
 
     if (!state || state !== expectedState) {
-      setError("Login failed: state mismatch. Please try again.");
+      setError(t("authErrors.loopbackStateMismatch"));
       return;
     }
 
     if (!sessionToken) {
-      setError("Login failed: no session token received. Please try again.");
+      setError(t("authErrors.loopbackNoToken"));
       return;
     }
 
     if (!/^[a-zA-Z0-9]+$/.test(sessionToken)) {
-      setError("Login failed: invalid session token.");
+      setError(t("authErrors.loopbackInvalidToken"));
       return;
     }
 
@@ -90,7 +92,7 @@ export function PlatformLoopbackPage() {
       }
       void navigate(returnTo, { replace: true });
     })();
-  }, [searchParams, navigate]);
+  }, [searchParams, navigate, t]);
 
   if (error) {
     return (
@@ -102,7 +104,7 @@ export function PlatformLoopbackPage() {
             className="mt-4 rounded-lg border border-[var(--border-disabled)] px-4 py-2 text-sm hover:bg-[var(--surface-lift)]"
             onClick={() => void navigate(routes.welcome)}
           >
-            Back to Welcome
+            {t("platformLoopbackPage.backToWelcome")}
           </button>
         </div>
       </div>
@@ -111,7 +113,9 @@ export function PlatformLoopbackPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[var(--surface-base)] text-[var(--content-default)]">
-      <p className="text-body-medium-default">Completing login...</p>
+      <p className="text-body-medium-default">
+        {t("platformLoopbackPage.completing")}
+      </p>
     </div>
   );
 }

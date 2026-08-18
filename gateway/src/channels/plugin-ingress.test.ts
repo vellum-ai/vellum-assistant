@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import {
   PLUGIN_INGRESS_MANIFEST_RELPATH,
+  PLUGIN_WEBHOOK_PATH_PATTERN,
   PLUGIN_WEBHOOK_PREFIX,
   PluginIngressCache,
   discoverPluginIngress,
@@ -55,6 +56,35 @@ const VALID = JSON.stringify({
   routes: [
     { path: "realtime", kind: "websocket", description: "realtime events" },
   ],
+});
+
+describe("PLUGIN_WEBHOOK_PATH_PATTERN", () => {
+  it("captures plugin and route on the slashless spelling", () => {
+    const match = "/webhooks/plugins/imessage/events-photon".match(
+      PLUGIN_WEBHOOK_PATH_PATTERN,
+    );
+    expect(match?.[1]).toBe("imessage");
+    expect(match?.[2]).toBe("events-photon");
+  });
+
+  it("does not capture an optional trailing slash", () => {
+    // Regex routes are not trailing-slash-normalized in the router.
+    // Managed callbacks canonicalize onto `/`, so the capture has to drop
+    // that slash rather than treat it as part of the declared path.
+    const match = "/webhooks/plugins/imessage/events-photon/".match(
+      PLUGIN_WEBHOOK_PATH_PATTERN,
+    );
+    expect(match?.[1]).toBe("imessage");
+    expect(match?.[2]).toBe("events-photon");
+  });
+
+  it("does not capture a trailing slash on a multi-segment route", () => {
+    const match = "/webhooks/plugins/imessage/a/b/c/".match(
+      PLUGIN_WEBHOOK_PATH_PATTERN,
+    );
+    expect(match?.[1]).toBe("imessage");
+    expect(match?.[2]).toBe("a/b/c");
+  });
 });
 
 describe("pluginWebhookPath", () => {
@@ -214,6 +244,55 @@ describe("parsePluginIngressManifest", () => {
         ],
       }),
     ).toThrow(/only valid for http routes/);
+  });
+
+  it("leaves a route that declares no inbound delivery a plain webhook", () => {
+    // The default. A route receives a callback and the message goes no
+    // further, which is what every declaration written before this meant.
+    const manifest = parsePluginIngressManifest(JSON.parse(VALID));
+    expect(manifest.routes[0]!.inbound).toBeUndefined();
+  });
+
+  it("accepts an empty inbound declaration and fills in the contract's shape", () => {
+    const manifest = parsePluginIngressManifest({
+      routes: [{ path: "hook", kind: "http", description: "d", inbound: {} }],
+    });
+    expect(manifest.routes[0]!.inbound?.identity).toBe("opaque");
+  });
+
+  it("rejects inbound delivery combined with signer vellum", () => {
+    // A `vellum` route is served without a guardian approval. Delivering
+    // messages is how a conversation starts, so a route that both skipped
+    // approval and injected turns would be reach a plugin grants itself.
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [
+          {
+            path: "hook",
+            kind: "http",
+            signer: "vellum",
+            inbound: {},
+            description: "d",
+          },
+        ],
+      }),
+    ).toThrow(/inbound delivery cannot be combined with signer "vellum"/);
+  });
+
+  it("rejects inbound delivery on a websocket route", () => {
+    // A socket upgrade is bridged elsewhere and has no reply to read.
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [
+          {
+            path: "realtime",
+            kind: "websocket",
+            inbound: {},
+            description: "d",
+          },
+        ],
+      }),
+    ).toThrow(/inbound delivery is only valid for http routes/);
   });
 
   it("rejects a verification descriptor the gateway cannot run", () => {

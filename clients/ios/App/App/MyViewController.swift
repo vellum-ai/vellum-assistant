@@ -6,8 +6,8 @@ import WebKit
 ///
 /// 1. Registers `NativeAuthPlugin`, `NativeBiometricPlugin`,
 ///    `VoiceAudioSessionPlugin`, `VoiceLiveActivityPlugin`,
-///    `ApnsEnvironmentPlugin`, and `SelfHostedServersPlugin` as local plugin
-///    instances at bridge init time.
+///    `ApnsEnvironmentPlugin`, `SelfHostedServersPlugin`, and
+///    `RecentChatsPlugin` as local plugin instances at bridge init time.
 ///    These plugins live inside the App target (no SPM module) so the bridge
 ///    won't discover them automatically.
 ///
@@ -168,6 +168,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(VoiceLiveActivityPlugin())
         bridge?.registerPluginInstance(ApnsEnvironmentPlugin())
         bridge?.registerPluginInstance(SelfHostedServersPlugin())
+        bridge?.registerPluginInstance(RecentChatsPlugin())
         installNavigationDelegateProxy()
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
@@ -208,16 +209,16 @@ class MyViewController: CAPBridgeViewController {
     }
 
     /// Apply any deep link that arrived before the web view was ready. A cold
-    /// launch stashes the connect pair-page navigation and any voice command in
+    /// launch stashes the connect pair-page navigation and any command URL in
     /// `AppDelegate`; both are delivered here, once the bridge web view is live
     /// and on screen. Connect goes first: it can swap the origin out from under
-    /// the web view, and the voice command survives that reload because
+    /// the web view, and the command survives that reload because
     /// Capacitor retains `appUrlOpen` until a JS listener consumes it.
     override open func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         let appDelegate = UIApplication.shared.delegate as? AppDelegate
         appDelegate?.deliverPendingConnectNavigation()
-        appDelegate?.deliverPendingVoiceCommand()
+        appDelegate?.deliverPendingCommandURL()
     }
 
     /// Bind foreground change detection to the currently-configured self-hosted
@@ -230,12 +231,14 @@ class MyViewController: CAPBridgeViewController {
     /// Load the effective server URL (the configured self-hosted origin or the
     /// baked default) and re-arm foreground change detection against it. Backs
     /// the `SelfHostedServers` plugin's `switchTo`; must run on the main queue.
-    func applyConfiguredOrigin() {
+    func applyConfiguredOrigin(path: String? = nil) {
         bindServerTrackingToConfiguredOrigin()
         guard let destination = appliedServerURL else {
             return
         }
-        webView?.load(URLRequest(url: Self.appEntryURL(forBase: destination)))
+        let entryURL = Self.appEntryURL(forBase: destination)
+        let destinationURL = path.flatMap { Self.appRouteURL(forEntry: entryURL, path: $0) } ?? entryURL
+        webView?.load(URLRequest(url: destinationURL))
     }
 
     /// The SPA entry point for a server base, `<base>/assistant`. The ingress
@@ -249,6 +252,25 @@ class MyViewController: CAPBridgeViewController {
             return base
         }
         return base.appendingPathComponent("assistant")
+    }
+
+    private static func appRouteURL(forEntry entry: URL, path: String) -> URL? {
+        guard let components = URLComponents(string: path),
+              components.scheme == nil,
+              components.host == nil,
+              !components.path.isEmpty,
+              !components.path.split(separator: "/").contains(".."),
+              components.fragment == nil
+        else {
+            return nil
+        }
+        var route = entry.appendingPathComponent(components.path)
+        guard var routeComponents = URLComponents(url: route, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        routeComponents.percentEncodedQuery = components.percentEncodedQuery
+        route = routeComponents.url ?? route
+        return route
     }
 
     // MARK: - Quote-and-reply edit menu
@@ -405,6 +427,7 @@ extension MyViewController: WKScriptMessageHandler {
                   let hex = body["color"] as? String,
                   let color = UIColor(cssHex: hex)
             else { return }
+            webView?.isOpaque = false
             view.backgroundColor = color
             webView?.backgroundColor = color
             webView?.scrollView.backgroundColor = color

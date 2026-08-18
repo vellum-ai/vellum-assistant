@@ -1,16 +1,13 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
-import type { LiveVoiceFrontModelConfig } from "../../config/schemas/live-voice.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import type { VoiceFrontDecider } from "../front-decision.js";
 import {
   LiveVoiceSession,
   type LiveVoiceTtsStreamer,
@@ -96,8 +93,6 @@ function createSessionHarness(
     createTurnId?: () => string;
     emitMetrics?: boolean;
     streamTtsAudio?: LiveVoiceTtsStreamer;
-    frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
-    frontDecider?: VoiceFrontDecider;
   } = {},
 ) {
   const transcriber =
@@ -119,10 +114,6 @@ function createSessionHarness(
     ...(options.streamTtsAudio
       ? { streamTtsAudio: options.streamTtsAudio }
       : {}),
-    ...(options.frontModelConfig
-      ? { frontModelConfig: options.frontModelConfig }
-      : {}),
-    ...(options.frontDecider ? { frontDecider: options.frontDecider } : {}),
   });
 
   return { frames, session, startVoiceTurn, transcriber };
@@ -468,7 +459,7 @@ describe("LiveVoiceSession assistant turn", () => {
     });
   });
 
-  test("records tool_use_start on the active turn and publishes what it is doing", async () => {
+  test("publishes tool activity while the turn is running", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
       callbacks = options.callbacks;
@@ -488,12 +479,6 @@ describe("LiveVoiceSession assistant turn", () => {
     callbacks?.tool_use_start?.("some_tool");
     await waitForFrameCount(frames, 4);
 
-    const activeTurn = (
-      session as unknown as {
-        activeAssistantTurn: { toolUseStarted: boolean } | null;
-      }
-    ).activeAssistantTurn;
-    expect(activeTurn?.toolUseStarted).toBe(true);
     // One activity frame, so a silent stretch of tool work is visible on the
     // surfaces that show the session. An unrecognized tool still gets a line.
     expect(frames.at(-1)).toMatchObject({
@@ -560,90 +545,6 @@ describe("LiveVoiceSession assistant turn", () => {
   });
 });
 
-describe("LiveVoiceSession tool-use spoken ack", () => {
-  const ACK_TIMEOUT_MS = 40;
-  // Every ack is front-model-phrased; the generated text passes through the
-  // same TTS sanitizer as regular segments. The stub varies its phrasing by
-  // trigger so the two ack kinds stay distinguishable in assertions.
-  const TOOL_ACK = "Let me look that up.";
-  const FIRST_DELTA_ACK = "Sure — one moment.";
-  const EXPECTED_TOOL_ACK = sanitizeForTts(TOOL_ACK).trim();
-  const EXPECTED_FIRST_DELTA_ACK = sanitizeForTts(FIRST_DELTA_ACK).trim();
-
-  const ackDecider: VoiceFrontDecider = {
-    generateAckText: async (input) =>
-      input.toolName ? TOOL_ACK : FIRST_DELTA_ACK,
-    generateProgressText: async () => null,
-  };
-
-  function createAckHarness() {
-    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
-    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
-    const harness = createSessionHarness({
-      startVoiceTurn,
-      streamTtsAudio,
-      frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
-      frontDecider: ackDecider,
-    });
-    return { ...harness, getCallbacks, ttsTexts };
-  }
-
-  test("tool_use_start before any delta speaks an immediate tool ack and cancels the timer", async () => {
-    const { frames, session, getCallbacks, ttsTexts } = createAckHarness();
-
-    await startReleasedTurn(session, getCallbacks);
-    getCallbacks()?.tool_use_start?.("web_search");
-    await waitFor(() => ttsTexts.length === 1);
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK]);
-
-    // The pending first-delta timer was cancelled: letting its budget elapse
-    // speaks no second ack.
-    await new Promise((resolve) => setTimeout(resolve, ACK_TIMEOUT_MS + 40));
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK]);
-
-    // The ack is audio-only — no caption frame carries it.
-    expect(frames.some((frame) => frame.type === "assistant_text_delta")).toBe(
-      false,
-    );
-
-    emitTextDelta(getCallbacks, "Hello there.");
-    emitMessageComplete(getCallbacks);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, "Hello there."]);
-  });
-
-  test("tool_use_start after the first delta speaks no ack", async () => {
-    const { frames, session, getCallbacks, ttsTexts } = createAckHarness();
-
-    await startReleasedTurn(session, getCallbacks);
-    emitTextDelta(getCallbacks, "Hello there.");
-    getCallbacks()?.tool_use_start?.("web_search");
-    emitMessageComplete(getCallbacks);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-    await new Promise((resolve) => setTimeout(resolve, ACK_TIMEOUT_MS + 40));
-
-    expect(ttsTexts).toEqual(["Hello there."]);
-  });
-
-  test("tool_use_start after a first-delta ack already spoke adds no second ack", async () => {
-    const { frames, session, getCallbacks, ttsTexts } = createAckHarness();
-
-    await startReleasedTurn(session, getCallbacks);
-    // Let the slow-first-delta timer speak the turn's one ack first.
-    await waitFor(() => ttsTexts.length === 1);
-    expect(ttsTexts).toEqual([EXPECTED_FIRST_DELTA_ACK]);
-
-    getCallbacks()?.tool_use_start?.("web_search");
-    await flushAsyncCallbacks();
-    expect(ttsTexts).toEqual([EXPECTED_FIRST_DELTA_ACK]);
-
-    emitTextDelta(getCallbacks, "Hello there.");
-    emitMessageComplete(getCallbacks);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-    expect(ttsTexts).toEqual([EXPECTED_FIRST_DELTA_ACK, "Hello there."]);
-  });
-});
-
 describe("LiveVoiceSession room reveal", () => {
   function createMarkerHarness() {
     const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
@@ -651,9 +552,6 @@ describe("LiveVoiceSession room reveal", () => {
     const harness = createSessionHarness({
       startVoiceTurn,
       streamTtsAudio,
-      // Deltas are emitted immediately in these runs; a long ack budget keeps
-      // filler phrases out of the recorded TTS text.
-      frontModelConfig: { ackFirstDeltaTimeoutMs: 10_000 },
     });
     return { ...harness, getCallbacks, ttsTexts };
   }
@@ -689,7 +587,6 @@ describe("LiveVoiceSession room reveal", () => {
     const harness = createSessionHarness({
       startVoiceTurn,
       streamTtsAudio,
-      frontModelConfig: { ackFirstDeltaTimeoutMs: 10_000 },
     });
     return {
       ...harness,

@@ -2,6 +2,7 @@ import { LayoutGrid } from "lucide-react";
 
 import { resolveCategoryIcon } from "@/domains/intelligence/skills/category-icon-map";
 import type { CategoryInfo } from "@/domains/intelligence/skills/use-skill-categories";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library";
 
 interface CategorySidebarProps {
@@ -22,17 +23,21 @@ export function CategorySidebar({
   totalCount,
   showCounts,
   categories,
-  ariaLabel = "Skill categories",
+  ariaLabel,
 }: CategorySidebarProps) {
+  const { t } = useTranslation("intelligence");
   const sortedCategories = [...categories].sort((a, b) =>
     a.label.localeCompare(b.label),
   );
 
   return (
-    <nav className="flex flex-col gap-1" aria-label={ariaLabel}>
+    <nav
+      className="flex flex-col gap-1"
+      aria-label={ariaLabel ?? t("categorySidebar.skillCategoriesAriaLabel")}
+    >
       <CategoryRow
         icon={LayoutGrid}
-        label="All"
+        label={t("categorySidebar.all")}
         count={totalCount}
         isActive={selected === null}
         showCount={showCounts}

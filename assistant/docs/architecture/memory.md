@@ -75,6 +75,17 @@ graph LR
 - `handleRemember` (`graph/tool-handlers.ts`) appends timestamped bullets to
   `memory/buffer.md` + the daily archive whenever memory is enabled. Facts may
   carry `[[slug]]` page hints that consolidation reads first when filing.
+- The buffer entry format itself is owned by `buffer-format.ts` at the plugin
+  root: the writer (`formatRememberEntry`) plus the single matcher every reader
+  uses. A fact may span several lines, so the entry and the line are different
+  units, and the readers below (consolidation's cutoff, the injected `<info>`
+  Buffer cap, the Memory tab's pending nodes) all recognize entries through
+  that one matcher rather than their own. An entry opens with a timestamped
+  bullet at column 0 and its body is indented under it, which is what makes the
+  format round-trip: the delimiter is the column-0 bullet shape, so nesting the
+  body keeps fact content from imitating one. Entries written before that
+  nesting existed still parse, since an unindented body line that is not itself
+  entry-shaped is read as a continuation.
 - **Consolidation** (`substrate/consolidation-job.ts`) is a background
   agent conversation that files buffer entries into concept pages, rewrites
   the aggregate views, and trims the buffer. Scheduling
@@ -160,6 +171,21 @@ Ingested pages carry provenance frontmatter with distinct consumers:
 - **v1 (legacy)**: PKB retrieval over the v1 Qdrant collection. All v1
   machinery (graph extraction, summarization, PKB indexing/filing, PKB
   injection) is suppressed while the substrate is active.
+
+#### Live voice front-door memory
+
+The live voice front door does not await current-turn memory retrieval. Its
+prompt hook skips legacy graph retrieval, and both v3 injectors skip
+orchestration for `voiceFrontDoor`. Frozen cards from prior turns and the static
+substrate context remain available. When the answer depends on a saved personal
+fact that is absent from that context, the front-door rule escalates instead of
+guessing.
+
+The escalated leg runs the ordinary memory pipeline before the quality model.
+V3 retrieval routes on the latest visible caller message, ignoring the hidden
+continuation message used to start that leg. The selector uses low effort to
+keep retrieval latency bounded. This keeps current-turn memory work off the
+front-door TTFT path without maintaining speculative cross-leg state.
 
 ### Boot-time maintenance
 

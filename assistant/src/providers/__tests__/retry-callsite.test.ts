@@ -337,7 +337,7 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.max_tokens).toBe(expected.maxTokens as number);
   });
 
-  test("live-voice front-door call sites reach OpenAI with reasoning off", async () => {
+  test("latency-sensitive live-voice call sites reach OpenAI with reasoning off", async () => {
     // The `latency-optimized` pin's whole value is time-to-first-token, and on
     // an OpenAI upstream that depends entirely on disabled thinking being
     // encoded as `effort: "none"`. OpenAI-compatible APIs reason by default
@@ -351,7 +351,10 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({});
 
     const expected = CODE_DEFAULT_PROFILE_ENTRIES["latency-optimized"];
-    for (const callSite of ["voiceFrontDoor", "voiceFrontDecision"] as const) {
+    for (const callSite of [
+      "voiceFrontDoor",
+      "voiceProgressNarration",
+    ] as const) {
       let seen: SendMessageOptions | undefined;
       const wrapped = new RetryProvider(
         makeProvider("openai", (options) => {
@@ -365,6 +368,26 @@ describe("RetryProvider — callSite resolution", () => {
       expect(config.model).toBe(expected.model as string);
       expect(config.effort).toBe("none");
     }
+  });
+
+  test("memory-v3 selection does not inherit high effort", async () => {
+    setLlmConfig({ defaultProvider: { provider: "anthropic" } });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryV3SelectL2" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.effort).toBe("low");
+    expect(config.thinking).toEqual({ type: "disabled" });
+    expect(config.temperature).toBe(0);
   });
 
   test("propagates resolved effort/speed/temperature; omits server-side fields", async () => {

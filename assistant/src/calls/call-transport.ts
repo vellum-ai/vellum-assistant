@@ -9,6 +9,19 @@
 
 // ── Transport interface ──────────────────────────────────────────────
 
+/** Options for {@link CallTransport.sendTextToken}. */
+export interface SendTextTokenOptions {
+  /**
+   * The token is fixed, known-English system copy (error recovery, silence
+   * checks, duration warnings, deterministic prompts) rather than
+   * model-generated turn text. Transports that synthesize text themselves
+   * must not attach the caller-language hint to these tokens: a provider
+   * that enforces the hint would render the English words as though they
+   * were the caller's language. Model text keeps the hint.
+   */
+  systemCopy?: boolean;
+}
+
 /**
  * Minimal output surface that CallController uses to send speech,
  * audio, and lifecycle signals to the caller.
@@ -18,7 +31,11 @@ export interface CallTransport {
    * Send a text token for TTS playback. When `last` is true the
    * transport should signal end-of-turn to the caller.
    */
-  sendTextToken(token: string, last: boolean): void;
+  sendTextToken(
+    token: string,
+    last: boolean,
+    opts?: SendTextTokenOptions,
+  ): void;
 
   /**
    * Send a pre-synthesized audio URL for playback.

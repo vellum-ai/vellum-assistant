@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 
@@ -13,6 +15,7 @@ interface TwilioCredentialEntryProps {
  * and surfaces a save error. Rendered only while disconnected.
  */
 export function TwilioCredentialEntry({ onSave }: TwilioCredentialEntryProps) {
+  const { t } = useTranslation("channels");
   const [accountSid, setAccountSid] = useState("");
   const [authToken, setAuthToken] = useState("");
   const [saving, setSaving] = useState(false);
@@ -41,20 +44,21 @@ export function TwilioCredentialEntry({ onSave }: TwilioCredentialEntryProps) {
   return (
     <div className="flex flex-col gap-3">
       <Input
-        label="Account SID"
+        label={t("twilioCredentialEntry.accountSid")}
         type="text"
         value={accountSid}
         onChange={(e) => setAccountSid(e.target.value)}
+        // eslint-disable-next-line local/no-untranslated-strings -- Twilio SID format, identical in every language
         placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         disabled={saving}
         fullWidth
       />
       <Input
-        label="Auth Token"
+        label={t("twilioCredentialEntry.authToken")}
         type="password"
         value={authToken}
         onChange={(e) => setAuthToken(e.target.value)}
-        placeholder="Twilio auth token"
+        placeholder={t("twilioCredentialEntry.authTokenPlaceholder")}
         disabled={saving}
         fullWidth
       />
@@ -68,7 +72,9 @@ export function TwilioCredentialEntry({ onSave }: TwilioCredentialEntryProps) {
       ) : null}
       <div>
         <Button type="button" onClick={handleSave} disabled={!canSave}>
-          {saving ? "Saving…" : "Save"}
+          {saving
+            ? t("twilioCredentialEntry.saving")
+            : t("twilioCredentialEntry.save")}
         </Button>
       </div>
     </div>

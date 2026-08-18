@@ -90,7 +90,6 @@ export interface AclEnforcementParams {
   rawSenderId: string | undefined;
   sourceChannel: ChannelId;
   conversationExternalId: string;
-  canonicalAssistantId: string;
   trimmedContent: string;
   sourceMetadata: SourceMetadata | undefined;
   actorDisplayName: string | undefined;
@@ -190,7 +189,6 @@ export async function enforceIngressAcl(
     rawSenderId,
     sourceChannel,
     conversationExternalId,
-    canonicalAssistantId,
     trimmedContent,
     sourceMetadata,
     actorDisplayName,
@@ -426,7 +424,6 @@ export async function enforceIngressAcl(
             // Still notify the guardian about the access attempt
             try {
               await notifyGuardianOfAccessRequest({
-                canonicalAssistantId,
                 sourceChannel,
                 conversationExternalId,
                 actorExternalId: canonicalSenderId ?? rawSenderId,
@@ -509,7 +506,6 @@ export async function enforceIngressAcl(
           if (emailVerifyResult.initiated) {
             try {
               await notifyGuardianOfAccessRequest({
-                canonicalAssistantId,
                 sourceChannel,
                 conversationExternalId,
                 actorExternalId: canonicalSenderId ?? rawSenderId,
@@ -554,14 +550,12 @@ export async function enforceIngressAcl(
         let handshakeInProgress = false;
         if (isCallbackInteraction) {
           handshakeInProgress = await isApprovalHandshakeInProgress({
-            canonicalAssistantId,
             sourceChannel,
             actorExternalId: (canonicalSenderId ?? rawSenderId)!,
           });
         } else {
           try {
             const accessResult = await notifyGuardianOfAccessRequest({
-              canonicalAssistantId,
               sourceChannel,
               conversationExternalId,
               actorExternalId: canonicalSenderId ?? rawSenderId,
@@ -730,7 +724,6 @@ export async function enforceIngressAcl(
             if (slackVerifyResult.initiated) {
               try {
                 await notifyGuardianOfAccessRequest({
-                  canonicalAssistantId,
                   sourceChannel,
                   conversationExternalId,
                   actorExternalId: canonicalSenderId ?? rawSenderId,
@@ -803,14 +796,12 @@ export async function enforceIngressAcl(
           if (!terminallyKeptOut) {
             if (isCallbackInteraction) {
               handshakeInProgress = await isApprovalHandshakeInProgress({
-                canonicalAssistantId,
                 sourceChannel,
                 actorExternalId: (canonicalSenderId ?? rawSenderId)!,
               });
             } else {
               try {
                 const accessResult = await notifyGuardianOfAccessRequest({
-                  canonicalAssistantId,
                   sourceChannel,
                   conversationExternalId,
                   actorExternalId: canonicalSenderId ?? rawSenderId,
@@ -980,7 +971,12 @@ async function initiateVerificationChallenge(params: {
     try {
       [existingChallenge, existingSession] = await Promise.all([
         getPendingSession(sourceChannel),
-        findActiveSession(sourceChannel),
+        // Scoped to this sender. Reading the channel's latest and comparing
+        // its `expectedExternalUserId` misses their session whenever somebody
+        // else started more recently.
+        findActiveSession(sourceChannel, {
+          expectedExternalUserId: senderUserId,
+        }),
       ]);
     } catch (err) {
       log.warn(
@@ -992,8 +988,7 @@ async function initiateVerificationChallenge(params: {
     const senderHasPending =
       (existingChallenge &&
         existingChallenge.expectedExternalUserId === senderUserId) ||
-      (existingSession &&
-        existingSession.expectedExternalUserId === senderUserId);
+      existingSession != null;
     if (senderHasPending) {
       log.debug(
         {

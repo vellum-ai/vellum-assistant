@@ -86,9 +86,8 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   }),
 }));
 
-const { ProfileEditorModal } = await import(
-  "@/domains/settings/ai/profile-editor-modal"
-);
+const { ProfileEditorModal } =
+  await import("@/domains/settings/ai/profile-editor-modal");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -146,8 +145,8 @@ function getSaveBtn(): HTMLButtonElement {
   return btn;
 }
 
-/** All Dropdown triggers (custom comboboxes) in document order. */
-function dropdownTriggers(): HTMLButtonElement[] {
+/** All Select triggers (custom comboboxes) in document order. */
+function selectTriggers(): HTMLButtonElement[] {
   return Array.from(
     document.querySelectorAll<HTMLButtonElement>('button[role="combobox"]'),
   );
@@ -254,7 +253,7 @@ function selectModel(label: string): void {
   // listbox contains the target model label. Probing each candidate keeps the
   // helper robust to the optional Connection dropdown appearing alongside it.
   const provTrigger = providerTrigger();
-  for (const trigger of dropdownTriggers()) {
+  for (const trigger of selectTriggers()) {
     if (trigger === provTrigger) {
       continue;
     }
@@ -402,17 +401,15 @@ beforeEach(async () => {
   // Seed a hydrated pre-gate version: the save path awaits
   // whenAssistantVersionKnown(), and an unhydrated store would stall each
   // save until that helper's timeout. Gate-on tests override per-test.
-  const { useAssistantIdentityStore } = await import(
-    "@/stores/assistant-identity-store"
-  );
+  const { useAssistantIdentityStore } =
+    await import("@/stores/assistant-identity-store");
   useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
 });
 
 afterEach(async () => {
   cleanup();
-  const { useAssistantIdentityStore } = await import(
-    "@/stores/assistant-identity-store"
-  );
+  const { useAssistantIdentityStore } =
+    await import("@/stores/assistant-identity-store");
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
@@ -643,9 +640,8 @@ describe("ProfileEditorModal create mode — provider-first", () => {
   });
 
   test("a new-enough assistant gets the identity payload: provider vellum, no binding", async () => {
-    const { useAssistantIdentityStore } = await import(
-      "@/stores/assistant-identity-store"
-    );
+    const { useAssistantIdentityStore } =
+      await import("@/stores/assistant-identity-store");
     useAssistantIdentityStore
       .getState()
       .setIdentity("test-asst", "0.10.12", ASSISTANT_ID);
@@ -677,9 +673,8 @@ describe("ProfileEditorModal create mode — provider-first", () => {
   });
 
   test("an older assistant keeps the legacy payload byte-identical", async () => {
-    const { useAssistantIdentityStore } = await import(
-      "@/stores/assistant-identity-store"
-    );
+    const { useAssistantIdentityStore } =
+      await import("@/stores/assistant-identity-store");
     useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
     try {
       const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
@@ -989,7 +984,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     // The Model dropdown trigger explains the empty list instead of showing
     // a bare "Select a model" placeholder over zero options...
-    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
     expect(triggerLabels).toContain("No models available");
     expect(triggerLabels).not.toContain("Select a model");
 
@@ -1008,7 +1003,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("Ollama");
 
-    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
     expect(triggerLabels).toContain("Select a model");
     expect(triggerLabels).not.toContain("No models available");
 
@@ -1376,7 +1371,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     // The Model trigger surfaces the bound id (no catalog/connection name
     // available, so it falls back to the raw id) rather than the empty
     // placeholder...
-    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
     expect(triggerLabels).toContain("openrouter/fusion");
     expect(triggerLabels).not.toContain("Select a model");
 
@@ -1423,7 +1418,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
 
     // Open each combobox; the Model dropdown must list the bound id so it can
     // be re-selected manually (the second reported surface of JARVIS-1180).
-    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+    const optionLabels = selectTriggers().flatMap((trigger) => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -1465,15 +1460,15 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     // The incompatible model is auto-cleared: the Model trigger falls back to the
     // placeholder and never surfaces "GPT-5.5 Pro".
     await waitFor(() => {
-      const labels = dropdownTriggers().map((t) => t.textContent?.trim());
+      const labels = selectTriggers().map((t) => t.textContent?.trim());
       expect(labels).toContain("Select a model");
     });
-    expect(dropdownTriggers().map((t) => t.textContent?.trim())).not.toContain(
+    expect(selectTriggers().map((t) => t.textContent?.trim())).not.toContain(
       "GPT-5.5 Pro",
     );
 
     // The dropdown offers the Codex-compatible models but not the filtered one.
-    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+    const optionLabels = selectTriggers().flatMap((trigger) => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -1526,7 +1521,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     // WHEN the user picks the free-text option (the Model dropdown is the only
     // one offering it) and types an id absent from the catalog, then saves
     let pickedCustom = false;
-    for (const trigger of dropdownTriggers()) {
+    for (const trigger of selectTriggers()) {
       fireEvent.click(trigger);
       const customOption = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -1582,7 +1577,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       subscriptionConnection,
     );
 
-    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+    const optionLabels = selectTriggers().flatMap((trigger) => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -1906,5 +1901,312 @@ describe("ProfileEditorModal: explains why Save is blocked", () => {
     renderCreate([makeConnection("anthropic")]);
 
     expect(fieldErrors()).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Entries wire shape (version-gated): daemons at the entry-binding gate store
+// the binding IN the provider value and never receive provider_connection.
+// ---------------------------------------------------------------------------
+
+describe("entries wire shape", () => {
+  const anthropicWork = {
+    ...makeConnection("anthropic-work"),
+    label: "Work key",
+  } as unknown as ProviderConnection;
+  const anthropicPersonal = makeConnection("anthropic-personal");
+
+  async function gateOn() {
+    const { useAssistantIdentityStore } =
+      await import("@/stores/assistant-identity-store");
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.11.4", ASSISTANT_ID);
+    return useAssistantIdentityStore;
+  }
+
+  function collectSaves() {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    return { saveCalls, onSave };
+  }
+
+  test("a multi-key kind expands into labeled entry rows plus a default row", () => {
+    renderCreate([anthropicWork, anthropicPersonal]);
+    fireEvent.click(providerTrigger());
+    expect(optionRows().slice(0, 3)).toEqual([
+      { label: "Anthropic", meta: "Default" },
+      { label: "Work key", meta: "Anthropic" },
+      { label: "anthropic-personal", meta: "Anthropic" },
+    ]);
+  });
+
+  test("a single-key kind stays one bare row", () => {
+    renderCreate([anthropicPersonal]);
+    fireEvent.click(providerTrigger());
+    expect(optionRows()[0]).toEqual({ label: "Anthropic", meta: "" });
+  });
+
+  test("a gated assistant writes the picked entry name as the provider", async () => {
+    const store = await gateOn();
+    try {
+      const { saveCalls, onSave } = collectSaves();
+      renderCreate([anthropicWork, anthropicPersonal], onSave);
+
+      selectProvider("Work key");
+      selectModel("Claude Opus 4.8");
+
+      await waitFor(() => {
+        expect(getSaveBtn().disabled).toBe(false);
+      });
+      fireEvent.click(getSaveBtn());
+
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      expect(saveCalls[0].entry.provider).toBe("anthropic-work");
+      expect(saveCalls[0].entry.model).toBe("claude-opus-4-8");
+      expect(saveCalls[0].entry.provider_connection).toBeUndefined();
+    } finally {
+      store.getState().clearIdentity();
+    }
+  });
+
+  test("an ungated assistant writes the picked entry as the legacy binding", async () => {
+    const { saveCalls, onSave } = collectSaves();
+    renderCreate([anthropicWork, anthropicPersonal], onSave);
+
+    selectProvider("Work key");
+    selectModel("Claude Opus 4.8");
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("anthropic");
+    expect(saveCalls[0].entry.provider_connection).toBe("anthropic-work");
+  });
+
+  test("a gated single-key save writes the bare vendor and no binding", async () => {
+    const store = await gateOn();
+    try {
+      const { saveCalls, onSave } = collectSaves();
+      renderCreate([anthropicPersonal], onSave);
+
+      selectProvider("Anthropic");
+      selectModel("Claude Opus 4.8");
+
+      await waitFor(() => {
+        expect(getSaveBtn().disabled).toBe(false);
+      });
+      fireEvent.click(getSaveBtn());
+
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      // Bare vendor id = the kind's default entry; the auto-resolved
+      // explicit binding is a legacy-shape concern.
+      expect(saveCalls[0].entry.provider).toBe("anthropic");
+      expect(saveCalls[0].entry.provider_connection).toBeUndefined();
+    } finally {
+      store.getState().clearIdentity();
+    }
+  });
+
+  test("a gated endpoint save writes the endpoint name as the provider", async () => {
+    const store = await gateOn();
+    try {
+      const lmStudio = {
+        ...makeConnection("lm-studio", "openai-compatible"),
+        models: [{ id: "model-1", displayName: "Model 1" }],
+      } as unknown as ProviderConnection;
+      const { saveCalls, onSave } = collectSaves();
+      renderCreate([lmStudio], onSave);
+
+      selectProvider("lm-studio");
+      selectModel("Model 1");
+
+      await waitFor(() => {
+        expect(getSaveBtn().disabled).toBe(false);
+      });
+      fireEvent.click(getSaveBtn());
+
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      expect(saveCalls[0].entry.provider).toBe("lm-studio");
+      expect(saveCalls[0].entry.provider_connection).toBeUndefined();
+    } finally {
+      store.getState().clearIdentity();
+    }
+  });
+
+  test("a user row merely named vellum keeps the legacy shape under the gate", async () => {
+    const store = await gateOn();
+    try {
+      const userVellum = {
+        ...makeConnection("vellum"),
+        provider: "anthropic",
+      } as unknown as ProviderConnection;
+      const { saveCalls, onSave } = collectSaves();
+      renderCreate([userVellum], onSave);
+
+      selectProvider("Anthropic");
+      selectModel("Claude Opus 4.8");
+
+      await waitFor(() => {
+        expect(getSaveBtn().disabled).toBe(false);
+      });
+      fireEvent.click(getSaveBtn());
+
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      // "vellum" as a provider value would flip the profile to the managed
+      // identity, so the binding stays in the legacy field.
+      expect(saveCalls[0].entry.provider).toBe("anthropic");
+      expect(saveCalls[0].entry.provider_connection).toBe("vellum");
+    } finally {
+      store.getState().clearIdentity();
+    }
+  });
+
+  test("a vendor id is never read as an entry name, even when a row carries it", async () => {
+    // A row can carry its vendor's own name; opening a plain unbound
+    // profile must not pin it to that row.
+    const selfNamed = makeConnection("anthropic");
+    const { saveCalls, onSave } = collectSaves();
+    renderEdit(
+      {
+        name: "plain",
+        label: "Plain",
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+      },
+      onSave,
+      [selfNamed, anthropicPersonal],
+    );
+
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("anthropic");
+    // Two siblings, so no auto-resolve: the profile stays unbound instead
+    // of quietly adopting the self-named row.
+    expect(saveCalls[0].entry.provider_connection).toBeNull();
+  });
+
+  test("an explicit pin to a self-named row keeps the legacy shape under the gate", async () => {
+    const store = await gateOn();
+    try {
+      // A row named exactly after its vendor cannot be written as an entry
+      // name (the daemon reads the bare id as "the kind's default entry"),
+      // so the explicit pin must stay in the legacy binding field.
+      const selfNamed = makeConnection("anthropic");
+      const { saveCalls, onSave } = collectSaves();
+      renderEdit(
+        {
+          name: "pinned",
+          label: "Pinned",
+          provider: "anthropic",
+          provider_connection: "anthropic",
+          model: "claude-opus-4-8",
+        },
+        onSave,
+        [selfNamed, anthropicPersonal],
+      );
+
+      fireEvent.click(getSaveBtn());
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      expect(saveCalls[0].entry.provider).toBe("anthropic");
+      expect(saveCalls[0].entry.provider_connection).toBe("anthropic");
+    } finally {
+      store.getState().clearIdentity();
+    }
+  });
+
+  test("a cross-kind identity binding shows the identity in the trigger", async () => {
+    const chatgptRow = {
+      ...makeConnection("chatgpt", "chatgpt"),
+      auth: { type: "oauth_subscription", credential: "credential/chatgpt" },
+    } as unknown as ProviderConnection;
+    renderEdit(
+      {
+        name: "codex",
+        label: "Codex",
+        provider: "openai",
+        provider_connection: "chatgpt",
+        model: "gpt-5.6-sol",
+      },
+      undefined,
+      [chatgptRow, makeConnection("openai-work", "openai")],
+    );
+
+    // The profile dispatches through the ChatGPT row, so the trigger names
+    // that route rather than bare OpenAI.
+    await waitFor(() => {
+      expect(providerTrigger().textContent).toContain("ChatGPT");
+    });
+  });
+
+  test("a stale binding among surviving siblings still labels the trigger", async () => {
+    renderEdit(
+      {
+        name: "stale",
+        label: "Stale",
+        provider: "anthropic",
+        provider_connection: "deleted-key",
+        model: "claude-opus-4-8",
+      },
+      undefined,
+      [anthropicWork, anthropicPersonal],
+    );
+
+    // The encoded value matches no option, so the trigger must fall back
+    // to the bare kind rather than the placeholder.
+    await waitFor(() => {
+      expect(providerTrigger().textContent).toContain("Anthropic");
+    });
+  });
+
+  test("a stored entry-name profile opens translated and round-trips", async () => {
+    const store = await gateOn();
+    try {
+      const { saveCalls, onSave } = collectSaves();
+      renderEdit(
+        {
+          name: "work",
+          label: "Work",
+          provider: "anthropic-work",
+          model: "claude-opus-4-8",
+        },
+        onSave,
+        [anthropicWork, anthropicPersonal],
+      );
+
+      // The trigger shows the entry row, not a raw entry name.
+      await waitFor(() => {
+        expect(providerTrigger().textContent).toContain("Work key");
+      });
+
+      fireEvent.click(getSaveBtn());
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      expect(saveCalls[0].entry.provider).toBe("anthropic-work");
+      expect(saveCalls[0].entry.provider_connection).toBeNull();
+    } finally {
+      store.getState().clearIdentity();
+    }
   });
 });

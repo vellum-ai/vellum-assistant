@@ -278,11 +278,28 @@ describe("ensureByokDefaultProfiles", () => {
     ["openrouter", "quality-optimized", "anthropic/claude-opus-4.8"],
     ["gemini", "cost-optimized", "gemini-3.1-flash-lite-preview"],
     ["openai", "cost-optimized", "gpt-5.4-nano"],
+    ["openai", "balanced", "gpt-5.4-mini"],
+    ["openai", "quality-optimized", "gpt-5.4"],
     ["fireworks", "balanced", "accounts/fireworks/models/kimi-k2p5"],
     ["fireworks", "balanced", "accounts/fireworks/models/kimi-k2p6"],
     [
       "fireworks",
+      "balanced",
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
+    ],
+    [
+      "fireworks",
       "quality-optimized",
+      "accounts/fireworks/models/deepseek-v4-flash",
+    ],
+    [
+      "fireworks",
+      "quality-optimized",
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
+    ],
+    [
+      "fireworks",
+      "cost-optimized",
       "accounts/fireworks/models/deepseek-v4-flash",
     ],
   ] as const)(

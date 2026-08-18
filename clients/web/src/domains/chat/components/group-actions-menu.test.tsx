@@ -11,10 +11,10 @@ import { describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 
-let mockIsMobile = false;
-mock.module("@/hooks/use-is-mobile", () => ({
-  useIsMobile: () => mockIsMobile,
-  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+let mockIsTouchMobile = false;
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => mockIsTouchMobile,
+  TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
 }));
 
 import {
@@ -62,7 +62,7 @@ describe("hasAnyGroupMenuAction", () => {
 
 describe("GroupActionsMenu", () => {
   test("desktop branch: the Popover carries the bulk actions, not just Rename/Delete", async () => {
-    mockIsMobile = false;
+    mockIsTouchMobile = false;
     render(createElement(GroupActionsMenu, { label: "Work", ...allActions }));
     try {
       await openMenu("Work actions");
@@ -79,7 +79,7 @@ describe("GroupActionsMenu", () => {
   });
 
   test("mobile branch: renders a BottomSheet with the same item set", async () => {
-    mockIsMobile = true;
+    mockIsTouchMobile = true;
     render(createElement(GroupActionsMenu, { label: "Work", ...allActions }));
     try {
       await openMenu("Work actions");
@@ -87,13 +87,13 @@ describe("GroupActionsMenu", () => {
       expect(document.body.textContent).toContain("Archive All");
       expect(document.body.textContent).toContain("Rename");
     } finally {
-      mockIsMobile = false;
+      mockIsTouchMobile = false;
       cleanup();
     }
   });
 
   test("renders nothing when no action is wired", () => {
-    mockIsMobile = false;
+    mockIsTouchMobile = false;
     const { container } = render(
       createElement(GroupActionsMenu, { label: "Work" }),
     );
@@ -105,7 +105,7 @@ describe("GroupActionsMenu", () => {
   });
 
   test("running an action closes the surface", async () => {
-    mockIsMobile = false;
+    mockIsTouchMobile = false;
     let renamed = 0;
     render(
       createElement(GroupActionsMenu, {

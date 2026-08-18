@@ -371,7 +371,19 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set({ unknownNudgeToolCallIds: next });
   },
 
-  resetAll: () => set(INITIAL_STATE),
+  // Per-conversation interaction state resets on navigation, with one
+  // exemption: the Connect Claude prompt survives. Its card renders only
+  // under the transcript row matching its tool-use anchor, so display is
+  // already conversation-scoped, and the post-spawn auth_required prompt has
+  // no other copy (its spawn tool call succeeded, so message history cannot
+  // rebuild it). Clearing it here would permanently orphan the transcript
+  // guidance that points at the card. The dismissed set still resets, so a
+  // returned-to conversation can re-raise from history.
+  resetAll: () =>
+    set((state) => ({
+      ...INITIAL_STATE,
+      pendingAcpConnect: state.pendingAcpConnect,
+    })),
 }));
 
 export const useInteractionStore = createSelectors(useInteractionStoreBase);

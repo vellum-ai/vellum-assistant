@@ -45,9 +45,16 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     profile: "cost-optimized",
     contextWindow: { maxInputTokens: 1000000 },
   },
+  // Forced-tool selection over a numbered candidate pool: the model picks ids,
+  // it does not reason its way to an answer. `effort` has to be named here
+  // because a call-site tweak only overrides the fields it lists, so leaving it
+  // off inherits `balanced`'s `effort: "high"` (see default-profile-catalog).
+  // Low effort matches `recall`, the sibling site doing the same kind of
+  // bounded judgment, and keeps retrieval latency low on escalated voice turns.
   memoryV3SelectL2: {
     profile: "balanced",
     temperature: 0,
+    effort: "low",
     thinking: { enabled: false, streamThinking: false },
   },
   recall: {
@@ -121,22 +128,21 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
-  // Endpoint decisions gate live-voice turn-end latency, and `cost-optimized`'s
-  // upstream cannot fit any usable decision budget (~1s+ per forced tool call).
+  // Progress narration only helps when it arrives before the next real output.
   // `latency-optimized` is the latency-class profile (see
   // default-profile-catalog.ts): managed installs get the pinned latency model,
   // BYOK installs resolve their own provider's latency model through the intent
   // table rather than a model id they may hold no credential for. The profile
   // is user-facing ("Speed"), so a user edit to it moves this call site too.
-  voiceFrontDecision: {
+  voiceProgressNarration: {
     profile: "latency-optimized",
     effort: "low",
     thinking: { enabled: false },
   },
   // The front-door leg fronts EVERY unified live-voice turn and its leading
   // tokens ARE the endpointing/triage verdict, so both TTFT variance and
-  // judgment quality gate the whole call. Same latency class as the endpoint
-  // decider: live drives showed the cost-optimized upstream with multi-second
+  // judgment quality gate the whole call. Live drives showed the
+  // cost-optimized upstream with multi-second
   // cross-session TTFT tails and over-escalation of small talk under open-task
   // context pressure.
   voiceFrontDoor: {

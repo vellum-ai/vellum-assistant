@@ -195,7 +195,6 @@ export function OnboardingTonedBackdrop({
       {showBottomEyes && (
         <OnboardingPeekingEyes
           bumpNonce={eyesBumpNonce}
-          settleBlink={eyesEntrance}
           entrance={eyesEntrance}
         />
       )}

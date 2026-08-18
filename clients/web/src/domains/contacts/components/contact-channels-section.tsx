@@ -23,6 +23,7 @@ import type {
   ChannelInfo,
   ContactChannelPayload,
 } from "@/domains/contacts/types";
+import { useTranslation } from "@/i18n";
 
 const KNOWN_CHANNEL_IDS: ReadonlySet<string> = new Set<ChannelInfo["id"]>([
   "telegram",
@@ -65,7 +66,7 @@ export function getChannelActionState(
   if (verified) {
     return { kind: "verified" };
   }
-  // Don't offer to verify a blocked channel — verifying flips it to active and clears the ban.
+  // Don't offer to verify a blocked channel: verifying flips it to active and clears the ban.
   if (existing?.status === "blocked") {
     return { kind: "none" };
   }
@@ -103,6 +104,7 @@ export function buildVisibleChannels(
     }
     visibleChannels.push({
       id: ch.type,
+      source: "default",
       label: ch.type.charAt(0).toUpperCase() + ch.type.slice(1),
       subtitle: "",
       icon: "help-circle",
@@ -164,7 +166,7 @@ export function ContactChannelsSection({
   contactChannels,
   availableChannels,
   a2aEnabled,
-  setupLabel = "Invite",
+  setupLabel,
   verifyLoading,
   verifySubject = "self",
   onSetupChannel,
@@ -172,6 +174,7 @@ export function ContactChannelsSection({
   onRevokeChannel,
   onLinkAccount,
 }: ContactChannelsSectionProps) {
+  const { t } = useTranslation("contacts");
   const [verifyPending, setVerifyPending] = useState<ChannelInfo | null>(null);
   const [revokePending, setRevokePending] = useState<{
     channelId: string;
@@ -218,7 +221,9 @@ export function ContactChannelsSection({
               <ChannelRow
                 info={info}
                 existing={existing}
-                setupLabel={setupLabel}
+                setupLabel={
+                  setupLabel ?? t("contactChannelsSection.setupDefault")
+                }
                 verifyLoading={verifyLoading}
                 onSetup={
                   onSetupChannel ? () => onSetupChannel(info.id) : undefined
@@ -251,13 +256,19 @@ export function ContactChannelsSection({
       {verifyPending && (
         <ConfirmDialog
           open={true}
-          title={`Verify ${verifyPending.label}`}
+          title={t("contactChannelsSection.verifyConfirmTitle", {
+            channel: verifyPending.label,
+          })}
           message={
             verifySubject === "contact"
-              ? `This will mark this contact's ${verifyPending.label} channel as verified. Your assistant will recognize them when they reach out from it.`
-              : `This will mark your ${verifyPending.label} channel as verified. Your assistant will recognize you when you reach out from it.`
+              ? t("contactChannelsSection.verifyConfirmMessageContact", {
+                  channel: verifyPending.label,
+                })
+              : t("contactChannelsSection.verifyConfirmMessageGuardian", {
+                  channel: verifyPending.label,
+                })
           }
-          confirmLabel="Verify"
+          confirmLabel={t("actions.verify")}
           onConfirm={handleVerifyConfirm}
           onCancel={() => setVerifyPending(null)}
         />
@@ -266,9 +277,11 @@ export function ContactChannelsSection({
       {revokePending && (
         <ConfirmDialog
           open={true}
-          title={`Revoke ${revokePending.channel.label}`}
-          message="This will disconnect the verified channel. The contact will need to re-verify to use this channel again."
-          confirmLabel="Revoke"
+          title={t("contactChannelsSection.revokeConfirmTitle", {
+            channel: revokePending.channel.label,
+          })}
+          message={t("contactChannelsSection.revokeConfirmMessage")}
+          confirmLabel={t("actions.revoke")}
           destructive
           onConfirm={() => {
             onRevokeChannel?.(
@@ -305,6 +318,7 @@ function ChannelRow({
   onRevoke,
   onLinkAccount,
 }: ChannelRowProps) {
+  const { t } = useTranslation("contacts");
   const actionState = getChannelActionState(info, existing);
 
   return (
@@ -333,11 +347,11 @@ function ChannelRow({
           <>
             <span className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md whitespace-nowrap select-none text-body-small-emphasised leading-none bg-[var(--content-default)] text-[var(--surface-base)]">
               <CheckCircle className="h-3 w-3" />
-              Connected
+              {t("channelStatus.connected")}
             </span>
             {onRevoke ? (
               <Button variant="danger" onClick={onRevoke}>
-                Revoke
+                {t("actions.revoke")}
               </Button>
             ) : null}
           </>
@@ -345,11 +359,11 @@ function ChannelRow({
           <>
             <span className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md whitespace-nowrap select-none text-body-small-emphasised leading-none bg-[var(--content-default)] text-[var(--surface-base)]">
               <CheckCircle className="h-3 w-3" />
-              Verified
+              {t("channelStatus.verified")}
             </span>
             {onRevoke ? (
               <Button variant="danger" onClick={onRevoke}>
-                Revoke
+                {t("actions.revoke")}
               </Button>
             ) : null}
           </>
@@ -359,7 +373,7 @@ function ChannelRow({
             onClick={onVerify}
             disabled={!onVerify || verifyLoading}
           >
-            {verifyLoading ? "Verifying…" : "Verify"}
+            {verifyLoading ? t("actions.verifying") : t("actions.verify")}
           </Button>
         ) : actionState.kind === "setup" ? (
           info.id === "a2a" ? null : (
@@ -367,7 +381,7 @@ function ChannelRow({
               {onLinkAccount ? (
                 <Button onClick={onLinkAccount}>
                   <Link2 className="h-3.5 w-3.5" />
-                  Link account
+                  {t("contactChannelsSection.linkAccount")}
                 </Button>
               ) : null}
               <Button variant="outlined" onClick={onSetup} disabled={!onSetup}>

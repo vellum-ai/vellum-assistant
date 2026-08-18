@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { Button } from "./button";
 import { Modal } from "./modal";
+import { Notice } from "./notice";
 
 /**
  * Pre-composed confirmation dialog built on `Modal`.
@@ -10,6 +11,10 @@ import { Modal } from "./modal";
  * Renders a small modal with a title, message, and Cancel / Confirm
  * buttons. Supports a `destructive` variant that styles the confirm
  * button as danger and shows a warning icon.
+ *
+ * The `error` slot lets a caller keep the dialog open after a failed
+ * confirm, so the user reads why it failed next to the button they can
+ * press again.
  *
  * Focus is auto-directed to the confirm button on open so pressing
  * Enter confirms without requiring Tab. Escape closes only this dialog,
@@ -20,6 +25,8 @@ interface ConfirmDialogProps {
   open: boolean;
   title: string;
   message: ReactNode;
+  /** Inline failure message shown under the message while the dialog stays open. */
+  error?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
@@ -34,6 +41,7 @@ function ConfirmDialog({
   open,
   title,
   message,
+  error,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   destructive = false,
@@ -69,13 +77,16 @@ function ConfirmDialog({
           if (!isPending) onCancel();
         }}
       >
-        <Modal.Header>
-          <Modal.Title icon={destructive ? AlertTriangle : undefined}>
-            {title}
-          </Modal.Title>
+        <Modal.Header icon={destructive ? AlertTriangle : undefined}>
+          <Modal.Title>{title}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Modal.Description>{message}</Modal.Description>
+          {error != null ? (
+            <div className="mt-3">
+              <Notice tone="error">{error}</Notice>
+            </div>
+          ) : null}
         </Modal.Body>
         <Modal.Footer>
           <Button variant="outlined" onClick={onCancel} disabled={isPending}>

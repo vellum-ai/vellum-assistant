@@ -8,12 +8,18 @@ import {
   Loader2,
   Repeat,
   Trash2,
-  X,
 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
-import { pluginNameFromSourceKey } from "@/domains/schedules/plugin-source";
+import { DetailShellHeader } from "@/components/detail-shell";
+import { InsetDetailCard } from "@/components/inset-detail-card";
+import { useTranslation } from "@/i18n";
+import { SCHEDULE_USAGE_WINDOW_DAYS } from "@/utils/usage-window";
+import {
+  disarmReasonLabelKey,
+  pluginNameFromSourceKey,
+} from "@/domains/schedules/plugin-source";
 import {
   deleteSchedule,
   fetchScheduleRuns,
@@ -39,27 +45,22 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
-import { Button, Skeleton, Typography, cn } from "@vellumai/design-library";
+import { Button, Skeleton, cn } from "@vellumai/design-library";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import type { Schedule, ScheduleRun } from "@/domains/settings/types/schedules";
 
-function SectionLabel({ children }: { children: string }) {
-  return (
-    <Typography
-      variant="label-small-default"
-      as="div"
-      className="mb-2 uppercase tracking-wider text-[var(--content-tertiary)]"
-    >
-      {children}
-    </Typography>
-  );
-}
-
+/**
+ * One label/value line in the Details card. `min-h-6` pins the row to 24px
+ * whatever the value slot holds, matching `SystemTaskDetailPanel` so the two
+ * schedules panels share one row rhythm; the enclosing stack owns the gap
+ * between rows.
+ */
 function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-1">
-      <span className="text-body-medium-lighter text-[var(--content-secondary)]">
+    <div className="flex min-h-6 items-center justify-between gap-4">
+      <span className="shrink-0 text-body-medium-lighter text-[var(--content-secondary)]">
         {label}
       </span>
       <span className="min-w-0 text-right text-body-medium-lighter text-[var(--content-default)]">
@@ -90,6 +91,7 @@ function ScheduleModelProfileField({
   assistantId: string;
   isPast: boolean;
 }) {
+  const { t } = useTranslation("schedules");
   const queryClient = useQueryClient();
   const schedulesQueryKey = schedulesGetQueryKey({
     path: { assistant_id: assistantId },
@@ -124,7 +126,7 @@ function ScheduleModelProfileField({
         );
       }
       captureError(error, { context: "schedule_update_inference_profile" });
-      toast.error("Failed to change the model.");
+      toast.error(t("scheduleDetail.modelChangeFailed"));
     },
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: schedulesQueryKey }),
@@ -133,10 +135,12 @@ function ScheduleModelProfileField({
   if (schedule.mode === "workflow") {
     return (
       <>
-        <InfoRow label="Model profile" value="Not used for workflow runs" />
-        <p className="pb-1 text-body-small-default text-[var(--content-tertiary)]">
-          Each step of a workflow picks its own model, so this schedule has no
-          model setting to change.
+        <InfoRow
+          label={t("scheduleDetail.modelProfile")}
+          value={t("scheduleDetail.notUsedForWorkflow")}
+        />
+        <p className="text-body-small-default text-[var(--content-tertiary)]">
+          {t("scheduleDetail.modelProfileWorkflowNote")}
         </p>
       </>
     );
@@ -144,7 +148,7 @@ function ScheduleModelProfileField({
 
   if (isPast) {
     return (
-      <div className="py-1 text-body-medium-lighter text-[var(--content-default)]">
+      <div className="text-body-medium-lighter text-[var(--content-default)]">
         <ModelProfileRow
           assistantId={assistantId}
           pinnedProfile={schedule.inferenceProfile}
@@ -155,7 +159,7 @@ function ScheduleModelProfileField({
 
   return (
     <InfoRow
-      label="Model profile"
+      label={t("scheduleDetail.modelProfile")}
       value={
         <ModelProfileSelect
           assistantId={assistantId}
@@ -171,9 +175,18 @@ function ScheduleModelProfileField({
           includeDefaultOption={false}
           // A pin naming a deleted profile matches no option, so the trigger
           // asks for a choice instead of rendering blank.
-          placeholder="Choose a model"
+          placeholder={t("scheduleDetail.chooseModel")}
           isSaving={profileMutation.isPending}
-          className="min-w-[11rem]"
+          // The row sits among read-only facts, so the trigger stays
+          // borderless until aimed at. The negative margins cancel the
+          // trigger's own padding, so its value lines up with the values
+          // above and below it and its row stays their height.
+          variant="ghost"
+          // The trigger shrink-wraps at the right edge of the row, and its
+          // menu is wider than it is, so the menu hangs from that same edge
+          // rather than growing rightwards into the panel wall.
+          menuAlign="end"
+          className="-my-1 -mr-2"
         />
       }
     />
@@ -207,6 +220,7 @@ function StatCard({
 }
 
 function StatCards({ usage }: { usage: ScheduleRowUsage }) {
+  const { t } = useTranslation("schedules");
   if (usage.status === "loading") {
     return (
       <div className="grid grid-cols-2 gap-3 pt-2">
@@ -224,12 +238,16 @@ function StatCards({ usage }: { usage: ScheduleRowUsage }) {
       <StatCard
         icon={<Coins className="h-4 w-4" />}
         value={formatScheduleCost(usage.summary.totalEstimatedCostUsd)}
-        label="7 Day Cost"
+        label={t("scheduleDetail.costLabel", {
+          days: SCHEDULE_USAGE_WINDOW_DAYS,
+        })}
       />
       <StatCard
         icon={<Repeat className="h-4 w-4" />}
         value={formatScheduleRunCount(usage.summary.runCount)}
-        label="7 Day Runs"
+        label={t("scheduleDetail.runsLabel", {
+          days: SCHEDULE_USAGE_WINDOW_DAYS,
+        })}
       />
     </div>
   );
@@ -258,6 +276,7 @@ function RunRow({
   onOpenConversation: (conversationId: string) => void;
   onToggleDetails: (runId: string) => void;
 }) {
+  const { t } = useTranslation("schedules");
   // Older daemons do not send `conversations`, so the scalar pointer is
   // wrapped in the same shape here. Newer daemons fold that pointer into the
   // array themselves.
@@ -319,7 +338,7 @@ function RunRow({
           {conversations.length > 0 ? (
             <div>
               <div className="mb-1 text-body-small-default text-[var(--content-secondary)]">
-                Conversations
+                {t("scheduleDetail.conversations")}
               </div>
               <div className="space-y-1">
                 {conversations.map((c) =>
@@ -330,15 +349,21 @@ function RunRow({
                       onClick={() => onOpenConversation(c.id)}
                       className="block w-full truncate text-left text-body-small-default text-[var(--content-default)] hover:underline"
                     >
-                      {hasRunText(c.title) ? c.title : "Conversation"}
+                      {hasRunText(c.title)
+                        ? c.title
+                        : t("scheduleDetail.conversation")}
                     </button>
                   ) : (
                     <span
                       key={c.id}
                       className="block truncate text-body-small-default text-[var(--content-tertiary)] italic"
                     >
-                      {hasRunText(c.title) ? c.title : "Conversation"}{" "}
-                      {c.exists ? "(archived)" : "(unavailable)"}
+                      {hasRunText(c.title)
+                        ? c.title
+                        : t("scheduleDetail.conversation")}{" "}
+                      {c.exists
+                        ? t("scheduleDetail.conversationArchived")
+                        : t("scheduleDetail.conversationUnavailable")}
                     </span>
                   ),
                 )}
@@ -348,7 +373,7 @@ function RunRow({
           {hasOutput ? (
             <div>
               <div className="mb-1 text-body-small-default text-[var(--content-secondary)]">
-                Output
+                {t("scheduleDetail.output")}
               </div>
               <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-body-small-default font-mono text-[var(--content-default)]">
                 {run.output}
@@ -358,7 +383,7 @@ function RunRow({
           {hasError ? (
             <div>
               <div className="mb-1 text-body-small-default text-[var(--content-secondary)]">
-                Error
+                {t("scheduleDetail.error")}
               </div>
               <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-body-small-default font-mono text-[var(--system-negative-strong)]">
                 {run.error}
@@ -375,7 +400,9 @@ function RunRow({
         <button
           type="button"
           onClick={() => onOpenConversation(directOpenId)}
-          aria-label={`Open conversation for run at ${formatTimestamp(run.startedAt)}`}
+          aria-label={t("scheduleDetail.openRunConversationAria", {
+            time: formatTimestamp(run.startedAt),
+          })}
           className="flex w-full cursor-pointer items-center gap-3 px-2 py-3 text-left shadow-none transition-colors hover:bg-[var(--surface-hover)] focus:outline-none"
         >
           {body}
@@ -390,7 +417,9 @@ function RunRow({
         <button
           type="button"
           onClick={() => onToggleDetails(run.id)}
-          aria-label={`Toggle details for run at ${formatTimestamp(run.startedAt)}`}
+          aria-label={t("scheduleDetail.toggleRunDetailsAria", {
+            time: formatTimestamp(run.startedAt),
+          })}
           aria-expanded={isExpanded}
           aria-controls={detailsId}
           className="flex w-full cursor-pointer items-center gap-3 px-2 py-3 text-left shadow-none transition-colors hover:bg-[var(--surface-hover)] focus:outline-none"
@@ -416,6 +445,7 @@ function RecentRuns({
   disableDirectOpen: boolean;
   onOpenConversation: (conversationId: string) => void;
 }) {
+  const { t } = useTranslation("schedules");
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
   if (isLoading) {
@@ -428,12 +458,15 @@ function RecentRuns({
   if (!runs || runs.length === 0) {
     return (
       <p className="py-2 text-body-medium-lighter text-[var(--content-tertiary)] italic">
-        No runs yet.
+        {t("scheduleDetail.noRunsYet")}
       </p>
     );
   }
   return (
-    <div className="divide-y divide-[var(--border-base)]">
+    // `-mx-2` cancels the rows' own `px-2` against the enclosing
+    // `InsetDetailCard` padding, so row text lines up with the card's edge
+    // while each row's hover fill still bleeds the full width.
+    <div className="-mx-2 divide-y divide-[var(--border-base)]">
       {runs.map((run, index) => (
         <RunRow
           key={run.id}
@@ -457,7 +490,6 @@ export interface ScheduleDetailPanelProps {
   usage: ScheduleRowUsage;
   /** True for a one-shot that has already fired, which is read-only. */
   isPast?: boolean;
-  isMobile?: boolean;
   onClose: () => void;
   onDeleted: () => void;
 }
@@ -472,10 +504,10 @@ export function ScheduleDetailPanel({
   assistantId,
   usage,
   isPast = false,
-  isMobile,
   onClose,
   onDeleted,
 }: ScheduleDetailPanelProps) {
+  const { t } = useTranslation("schedules");
   const navigate = useNavigate();
   const { data: runs, isLoading } = useQuery({
     queryKey: schedulesByIdRunsGetQueryKey({
@@ -489,6 +521,7 @@ export function ScheduleDetailPanel({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const pluginName = pluginNameFromSourceKey(schedule.sourceKey);
+  const disarmReasonKey = disarmReasonLabelKey(schedule);
   // A plugin-sourced schedule is off either because the user turned it off or
   // because the plugin is disabled. Running it would execute the plugin's
   // script anyway, which the daemon refuses, so the affordance is disabled
@@ -501,7 +534,7 @@ export function ScheduleDetailPanel({
       await runScheduleNow(assistantId, schedule.id);
     } catch (error) {
       captureError(error, { context: "schedule_run_now" });
-      toast.error("Failed to run schedule.");
+      toast.error(t("scheduleDetail.runFailed"));
     } finally {
       setIsRunning(false);
     }
@@ -514,167 +547,169 @@ export function ScheduleDetailPanel({
       onDeleted();
     } catch (error) {
       captureError(error, { context: "schedule_delete" });
-      toast.error("Failed to delete schedule.");
+      toast.error(t("scheduleDetail.deleteFailed"));
       setIsDeleting(false);
       setConfirmingDelete(false);
     }
   };
 
   return (
-    <div
-      className={cn(
-        "flex h-full flex-col bg-[var(--surface-overlay)]",
-        !isMobile &&
-          "rounded-[var(--radius-xl)] border border-[var(--border-base)]",
-      )}
-    >
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] p-[var(--app-spacing-lg)]">
-        <div className="min-w-0 flex-1">
-          <Typography
-            variant="title-small"
-            className="truncate text-[var(--content-default)]"
-          >
-            {schedule.name}
-          </Typography>
-        </div>
-        <Button
-          variant="ghost"
-          iconOnly={<X />}
-          onClick={onClose}
-          aria-label="Close schedule details"
-          tooltip="Close"
-          className="shrink-0"
+    <>
+      {/* Card chrome is the docked pane's, not the full-screen takeover's, so
+          it keys off the same `md:` breakpoint the page docks the pane at. */}
+      <div className="flex h-full flex-col bg-[var(--surface-overlay)] md:rounded-[var(--radius-xl)] md:border md:border-[var(--border-base)]">
+        <DetailShellHeader
+          title={schedule.name}
+          headerActions={
+            pluginName ? undefined : (
+              <Button
+                variant="dangerOutline"
+                iconOnly={<Trash2 />}
+                aria-label={t("scheduleDetail.delete")}
+                tooltip={t("scheduleDetail.delete")}
+                onClick={() => setConfirmingDelete(true)}
+              />
+            )
+          }
+          closeLabel={t("scheduleDetail.closeAria")}
+          closeTooltip={t("scheduleDetail.close")}
+          onClose={onClose}
         />
-      </div>
 
-      {/* Scrollable body */}
-      <div className="flex-1 space-y-6 overflow-y-auto px-[var(--app-spacing-lg)] py-[var(--app-spacing-lg)]">
-        {schedule.description ? (
-          <p className="text-body-medium-lighter text-[var(--content-secondary)]">
-            {schedule.description}
-          </p>
-        ) : null}
+        {/* Scrollable body */}
+        <div className="flex-1 space-y-6 overflow-y-auto px-[var(--app-spacing-lg)] py-[var(--app-spacing-lg)]">
+          {schedule.description ? (
+            <p className="text-body-medium-lighter text-[var(--content-secondary)]">
+              {schedule.description}
+            </p>
+          ) : null}
 
-        <section>
-          <SectionLabel>Details</SectionLabel>
-          <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 py-2">
-            {schedule.cadenceDescription ? (
-              <InfoRow label="Cadence" value={schedule.cadenceDescription} />
-            ) : null}
-            <InfoRow label="Mode" value={schedule.mode} />
-            <ScheduleModelProfileField
-              schedule={schedule}
-              assistantId={assistantId}
-              isPast={isPast}
-            />
-            <InfoRow
-              label="Status"
-              value={schedule.enabled ? "Enabled" : "Disabled"}
-            />
-            <InfoRow
-              label="Next run"
-              value={formatTimestamp(schedule.nextRunAt)}
-            />
-            {schedule.lastRunAt ? (
+          <InsetDetailCard title={t("scheduleDetail.details")}>
+            <div className="space-y-2">
+              {schedule.cadenceDescription ? (
+                <InfoRow
+                  label={t("scheduleDetail.cadence")}
+                  value={schedule.cadenceDescription}
+                />
+              ) : null}
+              <InfoRow label={t("scheduleDetail.mode")} value={schedule.mode} />
+              <ScheduleModelProfileField
+                schedule={schedule}
+                assistantId={assistantId}
+                isPast={isPast}
+              />
               <InfoRow
-                label="Last run"
+                label={t("scheduleDetail.status")}
                 value={
-                  <span className="flex items-center justify-end gap-2">
-                    <StatusDot status={schedule.lastStatus} />
-                    {formatTimestamp(schedule.lastRunAt)}
-                  </span>
+                  schedule.enabled
+                    ? t("scheduleDetail.enabled")
+                    : t("scheduleDetail.disabled")
                 }
               />
-            ) : null}
-          </div>
-        </section>
+              <InfoRow
+                label={t("scheduleDetail.nextRun")}
+                value={formatTimestamp(schedule.nextRunAt)}
+              />
+              {schedule.lastRunAt ? (
+                <InfoRow
+                  label={t("scheduleDetail.lastRun")}
+                  value={
+                    <span className="flex items-center justify-end gap-2">
+                      <StatusDot status={schedule.lastStatus} />
+                      {formatTimestamp(schedule.lastRunAt)}
+                    </span>
+                  }
+                />
+              ) : null}
+            </div>
+          </InsetDetailCard>
 
-        <StatCards usage={usage} />
+          <StatCards usage={usage} />
 
-        <section>
-          <SectionLabel>Recent runs</SectionLabel>
-          <RecentRuns
-            runs={runs?.runs}
-            isLoading={isLoading}
-            disableDirectOpen={schedule.mode === "script"}
-            onOpenConversation={(conversationId) =>
-              navigateToConversation(navigate, conversationId)
-            }
-          />
-        </section>
-      </div>
+          <InsetDetailCard title={t("scheduleDetail.recentRuns")}>
+            <RecentRuns
+              runs={runs?.runs}
+              isLoading={isLoading}
+              disableDirectOpen={schedule.mode === "script"}
+              onOpenConversation={(conversationId) =>
+                navigateToConversation(navigate, conversationId)
+              }
+            />
+          </InsetDetailCard>
+        </div>
 
-      {/* Footer actions */}
-      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--border-base)] p-[var(--app-spacing-lg)]">
-        {pluginName ? (
-          // Plugin-sourced schedules cannot be deleted here; the plugin's
-          // schedule file is the source of truth, so only attribution shows.
-          <span className="text-body-small-default text-[var(--content-tertiary)]">
-            Managed by plugin {pluginName}
-          </span>
-        ) : !confirmingDelete ? (
-          <Button
-            variant="dangerOutline"
-            leftIcon={<Trash2 className="h-3.5 w-3.5" />}
-            onClick={() => setConfirmingDelete(true)}
-          >
-            Delete
-          </Button>
-        ) : (
+        {/* Footer actions */}
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--border-hover)] p-[var(--app-spacing-lg)]">
+          {pluginName ? (
+            // Plugin-sourced schedules cannot be deleted here; the plugin's
+            // schedule file is the source of truth, so only attribution shows.
+            // Delete itself lives in the header, next to Close. An off
+            // schedule says why alongside it, since the user is not
+            // necessarily the one who turned it off.
+            <span className="text-body-small-default text-[var(--content-tertiary)]">
+              {disarmReasonKey
+                ? t("scheduleDetail.managedByPluginPaused", {
+                    plugin: pluginName,
+                    reason: t(disarmReasonKey),
+                  })
+                : t("scheduleDetail.managedByPlugin", { plugin: pluginName })}
+            </span>
+          ) : (
+            <span />
+          )}
           <div className="flex items-center gap-2">
             <Button
-              variant="ghost"
-              onClick={() => setConfirmingDelete(false)}
-              disabled={isDeleting}
+              variant="outlined"
+              leftIcon={<BarChart3 className="h-3.5 w-3.5" />}
+              onClick={() =>
+                navigate(routes.settings.usageForSchedule(schedule.id))
+              }
             >
-              Cancel
+              {t("scheduleDetail.viewUsage")}
             </Button>
-            <Button
-              variant="danger"
-              onClick={() => void handleDelete()}
-              disabled={isDeleting}
-            >
-              {isDeleting ? "Deleting…" : "Yes, delete"}
-            </Button>
+            {schedule.mode === "script" ? (
+              <>
+                {runNowBlocked ? (
+                  // Plain text rather than a tooltip: a tooltip on a disabled
+                  // button never opens, so the reason would be invisible exactly
+                  // when it is needed.
+                  <span className="text-body-small-default text-[var(--content-tertiary)]">
+                    {t("scheduleDetail.turnOnToRun")}
+                  </span>
+                ) : null}
+                <Button
+                  variant="primary"
+                  leftIcon={
+                    isRunning ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : undefined
+                  }
+                  onClick={() => void handleRunNow()}
+                  disabled={isRunning || runNowBlocked}
+                >
+                  {isRunning
+                    ? t("scheduleDetail.running")
+                    : t("scheduleDetail.runNow")}
+                </Button>
+              </>
+            ) : null}
           </div>
-        )}
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outlined"
-            leftIcon={<BarChart3 className="h-3.5 w-3.5" />}
-            onClick={() =>
-              navigate(routes.settings.usageForSchedule(schedule.id))
-            }
-          >
-            View usage
-          </Button>
-          {schedule.mode === "script" ? (
-            <>
-              {runNowBlocked ? (
-                // Plain text rather than a tooltip: a tooltip on a disabled
-                // button never opens, so the reason would be invisible exactly
-                // when it is needed.
-                <span className="text-body-small-default text-[var(--content-tertiary)]">
-                  Turn this schedule on to run it
-                </span>
-              ) : null}
-              <Button
-                variant="primary"
-                leftIcon={
-                  isRunning ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : undefined
-                }
-                onClick={() => void handleRunNow()}
-                disabled={isRunning || runNowBlocked}
-              >
-                {isRunning ? "Running…" : "Run now"}
-              </Button>
-            </>
-          ) : null}
         </div>
       </div>
-    </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title={t("scheduleDetail.delete")}
+        message={t("scheduleDetail.deleteConfirmMessage", {
+          name: schedule.name,
+        })}
+        confirmLabel={t("scheduleDetail.confirmDelete")}
+        cancelLabel={t("scheduleDetail.cancel")}
+        destructive
+        isPending={isDeleting}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setConfirmingDelete(false)}
+      />
+    </>
   );
 }

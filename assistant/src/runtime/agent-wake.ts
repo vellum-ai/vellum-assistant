@@ -360,7 +360,7 @@ export interface WakeOptions {
    * the conversation belongs to. Used by fork-based memory retrospectives to
    * render the SOURCE conversation's persona sections — both for review
    * quality and for byte-parity with the source's cached system-prompt
-   * prefix. May also pin `hasNoClient` for the prompt build (see
+   * prefix. May also pin presence for the prompt build (see
    * {@link SystemPromptPersonaOverride}). Prompt-build selection only; trust
    * class and approval semantics are governed solely by `trustContext`.
    */
@@ -400,14 +400,14 @@ export interface WakeOptions {
    */
   cronRunId?: string;
   /**
-   * Run the woken turn clientless: pin `hasNoClient = true` for the duration of
-   * the agent-loop run (restored after). Wakes bypass the orchestrator's
-   * turn-start interactivity setup, so a wake on a conversation with no client
-   * attached otherwise derives `isInteractive: true` (the default
-   * `hasNoClient = false`). Pinning it makes `conversation-tool-setup` derive
-   * `isInteractive: false`, which `policy-context` maps to `background`
-   * (guardian) / `headless` (unknown) — so a side-effecting tool that would
-   * prompt is denied instead of stalling on a client that isn't there.
+   * Run the woken turn clientless: pin the per-turn presence
+   * (`currentTurnIsNonInteractive = true`, which `hasNoClient` reads) for the
+   * duration of the agent-loop run (restored after). Wakes bypass the
+   * orchestrator's turn-start interactivity setup, so the pin is what makes
+   * `conversation-tool-setup` derive `isInteractive: false`, which
+   * `policy-context` maps to `background` (guardian) / `headless` (unknown),
+   * so a side-effecting tool that would prompt is denied instead of stalling
+   * on a client that isn't there.
    */
   clientless?: boolean;
 }
@@ -718,9 +718,9 @@ export async function wakeAgentForOpportunity(
   return runWakeSingleFlight(conversationId, async () => {
     // Snapshot the conversation's resting trust before the resolver runs, so
     // it can be restored after. The resolver leaves the wake's trust on the
-    // conversation, and a following no-trust wake would otherwise read it via
-    // tool setup's `currentTurnTrustContext ?? trustContext` fallback. Null
-    // when the conversation isn't resident yet (a fresh hydrate or a fork).
+    // conversation, and a following no-trust wake would otherwise pick it up
+    // from the resting trust its consumers fall back to. Null when the
+    // conversation isn't resident yet (a fresh hydrate or a fork).
     let priorPersistentTrust: TrustContext | null = null;
     if (opts.trustContext) {
       const { findConversation } =
@@ -1454,7 +1454,8 @@ export async function wakeAgentForOpportunity(
       const priorCallSite = conversation.currentCallSite;
       const priorTurnOverrideProfile = conversation.currentTurnOverrideProfile;
       const priorTurnCronRunId = conversation.currentTurnCronRunId;
-      const priorHasNoClient = conversation.hasNoClient;
+      const priorTurnIsNonInteractive =
+        conversation.currentTurnIsNonInteractive;
       const priorTurnTrust = conversation.currentTurnTrustContext;
       conversation.currentCallSite = callSite;
       conversation.currentTurnOverrideProfile = overrideProfile;
@@ -1462,7 +1463,9 @@ export async function wakeAgentForOpportunity(
       // delegates work to subagents whose usage must attribute to that firing.
       conversation.currentTurnCronRunId = opts.cronRunId ?? null;
       if (opts.clientless) {
-        conversation.hasNoClient = true;
+        // Presence is per-turn state; a clientless wake declares no human is
+        // present for the duration of its dispatch.
+        conversation.currentTurnIsNonInteractive = true;
       }
       // Per-turn guardian elevation for the wake's tools, set after the pre-run
       // reads so a pre-run failure can't leak it; restored in the finally.
@@ -1550,7 +1553,7 @@ export async function wakeAgentForOpportunity(
         conversation.currentCallSite = priorCallSite;
         conversation.currentTurnOverrideProfile = priorTurnOverrideProfile;
         conversation.currentTurnCronRunId = priorTurnCronRunId;
-        conversation.hasNoClient = priorHasNoClient;
+        conversation.currentTurnIsNonInteractive = priorTurnIsNonInteractive;
         conversation.currentTurnTrustContext = priorTurnTrust;
       }
 

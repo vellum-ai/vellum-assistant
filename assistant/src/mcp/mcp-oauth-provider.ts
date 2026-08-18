@@ -1,23 +1,22 @@
 /**
  * OAuthClientProvider implementation for MCP servers.
  *
- * Uses secure-keys (credential store) for persistent credential storage
- * and either a loopback HTTP server or the gateway callback registry
- * for the browser callback.
+ * Credentials persist through secure-keys (the credential store). The
+ * browser callback arrives on the assistant's shared OAuth callback route,
+ * which the gateway already serves and forwards to
+ * `POST /v1/internal/oauth/callback`; the runtime matches the arriving
+ * OAuth `state` against `security/oauth-callback-registry.ts` and resolves
+ * the waiting flow.
  *
- * Two callback transports:
- *
- * 1. **Loopback** (default) — starts a temporary HTTP server on localhost.
- *    Works when the daemon runs on the user's machine (desktop app).
- *
- * 2. **Gateway** — routes callbacks through the platform's public ingress
- *    URL and the in-memory oauth-callback-registry. Used when the daemon
- *    runs inside Docker/platform where localhost is unreachable from the
- *    user's browser.
+ * The redirect URI comes from `resolveOauthCallbackUrl`, so it is the same
+ * stable URL for every server and every attempt. That stability is what
+ * makes dynamic client registration and Client ID Metadata Documents
+ * usable: both pin `redirect_uris` at registration time, and the
+ * authorization server matches the value exactly on each authorization
+ * request.
  */
 
 import { randomBytes } from "node:crypto";
-import { createServer, type Server } from "node:http";
 
 import type {
   OAuthClientProvider,
@@ -29,6 +28,8 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 
+import { getPlatformAssistantId } from "../config/env.js";
+import { getAssistantName } from "../daemon/identity-helpers.js";
 import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
@@ -36,11 +37,9 @@ import {
 } from "../security/secure-keys.js";
 import { openInHostBrowser } from "../util/browser.js";
 import { getLogger } from "../util/logger.js";
+import { APP_VERSION } from "../version.js";
 
 const log = getLogger("mcp-oauth");
-
-const CALLBACK_PATH = "/oauth/callback";
-const CALLBACK_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
 // Credential store key helpers
 function tokensKey(serverId: string): string {
@@ -52,14 +51,37 @@ function clientInfoKey(serverId: string): string {
 function discoveryKey(serverId: string): string {
   return `mcp:${serverId}:discovery`;
 }
+function clientBindingKey(serverId: string): string {
+  return `mcp:${serverId}:client_binding`;
+}
+
+/**
+ * Logo shown on an authorization server's consent screen.
+ *
+ * Anonymously fetchable, which is the requirement: the server loads it
+ * without credentials. It identifies Vellum rather than the individual
+ * assistant, so every assistant a person runs presents the same mark.
+ */
+const CLIENT_LOGO_URI = "https://www.vellum.ai/favicon.svg";
+
+/**
+ * What a stored client registration was made against.
+ *
+ * A client identifier belongs to the authorization server that issued it and
+ * is registered for one set of redirect URIs, so reusing a registration after
+ * either changes is invalid. Recording both is what lets a registration be
+ * reused when they still hold, which is the difference between registering
+ * once per assistant and registering once per attempt.
+ */
+interface ClientRegistrationBinding {
+  issuer: string | null;
+  redirectUri: string;
+}
 
 export interface McpOAuthCallbackResult {
   /** Resolves with the authorization code when the callback is received. */
   codePromise: Promise<string>;
 }
-
-/** Which callback transport to use for receiving the OAuth redirect. */
-export type McpOAuthCallbackTransport = "loopback" | "gateway";
 
 export interface McpOAuthProviderOptions {
   /**
@@ -75,37 +97,29 @@ export class McpOAuthProvider implements OAuthClientProvider {
   private readonly serverId: string;
   private readonly serverUrl: string;
   private readonly interactive: boolean;
-  private readonly callbackTransport: McpOAuthCallbackTransport;
   private _codeVerifier: string | undefined;
   private _state: string | undefined;
   private _redirectUrl: string | undefined;
   private _codePromise: Promise<string> | null = null;
-  private callbackServer: Server | null = null;
-  private callbackTimeout: ReturnType<typeof setTimeout> | null = null;
-  /** Deferred resolver/rejector for the gateway code promise. */
-  private _gatewayCodeResolve: ((code: string) => void) | undefined;
-  private _gatewayCodeReject: ((err: Error) => void) | undefined;
+  /** Deferred resolver/rejector for the callback code promise. */
+  private _codeResolve: ((code: string) => void) | undefined;
+  private _codeReject: ((err: Error) => void) | undefined;
   private readonly _onAuthorizationUrl: ((url: string) => void) | undefined;
 
   /**
    * @param interactive When true (e.g. `mcp auth` CLI), opens browser for OAuth.
    *                    When false (daemon), logs a message instead.
-   * @param callbackTransport Which transport to use for the OAuth redirect.
-   *   - `"loopback"` (default): localhost HTTP server — for desktop clients.
-   *   - `"gateway"`: platform ingress + callback registry — for Docker/platform.
    * @param options Additional options for the provider.
    */
   constructor(
     serverId: string,
     serverUrl: string,
     interactive = false,
-    callbackTransport: McpOAuthCallbackTransport = "loopback",
     options: McpOAuthProviderOptions = {},
   ) {
     this.serverId = serverId;
     this.serverUrl = serverUrl;
     this.interactive = interactive;
-    this.callbackTransport = callbackTransport;
     this._onAuthorizationUrl = options.onAuthorizationUrl;
   }
 
@@ -117,13 +131,36 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   // --- clientMetadata ---
 
+  /**
+   * Identity presented at dynamic registration, and on the consent screen
+   * the user reads before approving.
+   *
+   * The client is this assistant, not the Vellum product and not the plugin
+   * that declared the server: each assistant registers separately, with its
+   * own redirect URI, so its own name is what makes the consent screen
+   * meaningful when a person runs several. `software_id` carries the
+   * assistant id so a server can correlate an assistant's registrations
+   * across servers without treating every assistant as the same client.
+   *
+   * `logo_uri` is the Vellum mark rather than the assistant's own avatar.
+   * An authorization server fetching a logo is anonymous, and the avatar is
+   * served only behind authentication, so there is no per-assistant URL to
+   * give it. A stable public identity per assistant is what would supply
+   * one, and the same prerequisite would let this move to Client ID
+   * Metadata Documents and drop registration altogether.
+   */
   get clientMetadata(): OAuthClientMetadata {
+    const assistantName = getAssistantName();
+    const assistantId = getPlatformAssistantId().trim();
     return {
-      client_name: "Vellum Assistant",
+      client_name: assistantName ?? "Vellum Assistant",
+      logo_uri: CLIENT_LOGO_URI,
       redirect_uris: this._redirectUrl ? [this._redirectUrl] : [],
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
+      ...(assistantId.length > 0 && { software_id: assistantId }),
+      software_version: APP_VERSION,
     };
   }
 
@@ -214,13 +251,26 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   // --- Client Information ---
 
+  /**
+   * The stored registration, or `undefined` to make the SDK register a new
+   * one.
+   *
+   * Returning the stored value is the normal case: dynamic registration
+   * writes a record on the authorization server, so re-registering per
+   * attempt accumulates records nobody cleans up. It is withheld only when
+   * the registration provably no longer applies, because the redirect URI
+   * it was made for changed or because a different authorization server now
+   * fronts the resource.
+   */
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
     const raw = await getSecureKeyAsync(clientInfoKey(this.serverId));
     if (!raw) {
       return undefined;
     }
+
+    let info: OAuthClientInformationMixed;
     try {
-      return JSON.parse(raw) as OAuthClientInformationMixed;
+      info = JSON.parse(raw) as OAuthClientInformationMixed;
     } catch {
       log.warn(
         { serverId: this.serverId },
@@ -228,6 +278,16 @@ export class McpOAuthProvider implements OAuthClientProvider {
       );
       return undefined;
     }
+
+    const stale = await this.describeStaleBinding();
+    if (stale) {
+      log.info(
+        { serverId: this.serverId, reason: stale },
+        "Stored client registration no longer applies; registering again",
+      );
+      return undefined;
+    }
+    return info;
   }
 
   async saveClientInformation(
@@ -244,7 +304,74 @@ export class McpOAuthProvider implements OAuthClientProvider {
       );
       return;
     }
+
+    // Record what the registration was made against, so a later run can tell
+    // whether reusing it is still valid.
+    if (this._redirectUrl) {
+      const binding: ClientRegistrationBinding = {
+        issuer: await this.currentIssuer(),
+        redirectUri: this._redirectUrl,
+      };
+      const boundOk = await setSecureKeyAsync(
+        clientBindingKey(this.serverId),
+        JSON.stringify(binding),
+      );
+      if (!boundOk) {
+        log.warn(
+          { serverId: this.serverId },
+          "Failed to persist OAuth client binding; the registration will be remade on the next flow",
+        );
+      }
+    }
+
     log.info({ serverId: this.serverId }, "OAuth client information saved");
+  }
+
+  /** Issuer of the authorization server currently in play, when known. */
+  private async currentIssuer(): Promise<string | null> {
+    const state = await this.discoveryState();
+    return (
+      state?.authorizationServerMetadata?.issuer ??
+      state?.authorizationServerUrl ??
+      null
+    );
+  }
+
+  /**
+   * Why the stored registration cannot be reused, or null when it can.
+   *
+   * The redirect URI is only checked while a flow is being prepared:
+   * outside one there is no redirect URI to compare against, and a silent
+   * reconnect must not be turned into a registration.
+   *
+   * The issuer is only checked when discovery has run. An unverifiable
+   * issuer keeps the registration rather than discarding it, since the
+   * redirect check already covers the case this plugin actually changes.
+   */
+  private async describeStaleBinding(): Promise<string | null> {
+    const raw = await getSecureKeyAsync(clientBindingKey(this.serverId));
+    if (!raw) {
+      // Registered before the binding was recorded. Keep it: discarding
+      // every pre-existing registration would remake all of them at once.
+      return null;
+    }
+
+    let binding: ClientRegistrationBinding;
+    try {
+      binding = JSON.parse(raw) as ClientRegistrationBinding;
+    } catch {
+      return "stored binding is unreadable";
+    }
+
+    if (this._redirectUrl && binding.redirectUri !== this._redirectUrl) {
+      return "redirect URI changed";
+    }
+
+    const issuer = await this.currentIssuer();
+    if (issuer && binding.issuer && binding.issuer !== issuer) {
+      return "authorization server changed";
+    }
+    return null;
   }
 
   // --- Code Verifier (in-memory, ephemeral) ---
@@ -312,31 +439,24 @@ export class McpOAuthProvider implements OAuthClientProvider {
   async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
     const url = authorizationUrl.toString();
 
-    // For gateway transport, extract the SDK-generated `state` from the
-    // authorization URL and register it with the callback registry now.
-    if (
-      this.callbackTransport === "gateway" &&
-      this._gatewayCodeResolve &&
-      this._gatewayCodeReject
-    ) {
+    // The callback is demultiplexed by OAuth `state`, and the SDK mints it
+    // while building this URL, so this is the earliest point the pending
+    // callback can be registered.
+    if (this._codeResolve && this._codeReject) {
       const sdkState = authorizationUrl.searchParams.get("state");
       if (sdkState) {
         // Dynamic import to avoid circular deps
         const { registerPendingCallback } =
           await import("../security/oauth-callback-registry.js");
-        registerPendingCallback(
-          sdkState,
-          this._gatewayCodeResolve,
-          this._gatewayCodeReject,
-        );
+        registerPendingCallback(sdkState, this._codeResolve, this._codeReject);
         log.info(
           { serverId: this.serverId, state: sdkState },
-          "MCP OAuth gateway callback registered with SDK state",
+          "MCP OAuth callback registered with SDK state",
         );
       } else {
         log.warn(
           { serverId: this.serverId },
-          "Authorization URL missing state parameter — gateway callback may not resolve",
+          "Authorization URL missing state parameter, callback may not resolve",
         );
       }
     }
@@ -404,6 +524,10 @@ export class McpOAuthProvider implements OAuthClientProvider {
           "OAuth client information key not found in secure storage (already removed)",
         );
       }
+      // The binding describes the registration being dropped, so it goes
+      // with it. Leaving it would let a later registration inherit the
+      // previous one's issuer and redirect URI.
+      await deleteSecureKeyAsync(clientBindingKey(this.serverId));
     }
     if (scope === "all" || scope === "verifier") {
       this._codeVerifier = undefined;
@@ -425,52 +549,29 @@ export class McpOAuthProvider implements OAuthClientProvider {
     }
   }
 
-  // --- Callback Server ---
+  // --- Callback ---
 
   /**
-   * Start listening for the OAuth callback.
+   * Prepare to receive the OAuth callback.
    *
-   * - **Loopback transport**: starts a temporary HTTP server on localhost.
-   * - **Gateway transport**: registers a pending callback with the
-   *   oauth-callback-registry and resolves a public redirect URL via
-   *   the platform callback registration system.
+   * Resolves the shared redirect URI the gateway serves and creates a
+   * deferred code promise. There is no listener to start: the gateway
+   * already accepts `webhooks/oauth/callback` and forwards it to
+   * `POST /v1/internal/oauth/callback`, which resolves the waiting flow
+   * by matching the arriving OAuth `state`.
    *
-   * Returns a promise that resolves with the authorization code promise.
+   * `registerPendingCallback` is deferred to `redirectToAuthorization`,
+   * the first point at which the SDK-generated `state` is known.
    */
-  startCallbackServer(): Promise<McpOAuthCallbackResult> {
-    if (this.callbackTransport === "gateway") {
-      return this.startGatewayCallback();
-    }
-    return this.startLoopbackServer();
-  }
+  async startCallbackServer(): Promise<McpOAuthCallbackResult> {
+    const { resolveOauthCallbackUrl } =
+      await import("../inbound/oauth-callback-url.js");
 
-  /**
-   * Gateway transport: resolve the public redirect URL and create a
-   * deferred code promise.  The actual `registerPendingCallback` call
-   * is deferred until `redirectToAuthorization` where we can extract
-   * the SDK-generated `state` parameter from the authorization URL.
-   */
-  private async startGatewayCallback(): Promise<McpOAuthCallbackResult> {
-    const { resolveCallbackUrl } =
-      await import("../inbound/platform-callback-registration.js");
-    const { getOAuthCallbackUrl } =
-      await import("../inbound/public-ingress-urls.js");
-    const { loadConfig } = await import("../config/loader.js");
+    this._redirectUrl = await resolveOauthCallbackUrl();
 
-    const appConfig = loadConfig();
-    const redirectUrl = await resolveCallbackUrl(
-      () => getOAuthCallbackUrl(appConfig),
-      "webhooks/oauth/callback",
-      "mcp_oauth",
-    );
-
-    this._redirectUrl = redirectUrl;
-
-    // Create a deferred promise — it will be wired to the callback
-    // registry in redirectToAuthorization() once we know the SDK's state.
     const codePromise = new Promise<string>((resolve, reject) => {
-      this._gatewayCodeResolve = resolve;
-      this._gatewayCodeReject = reject;
+      this._codeResolve = resolve;
+      this._codeReject = reject;
     });
     this._codePromise = codePromise;
 
@@ -481,154 +582,32 @@ export class McpOAuthProvider implements OAuthClientProvider {
     void codePromise.catch(() => {});
 
     log.info(
-      { serverId: this.serverId, redirectUrl },
-      "MCP OAuth gateway callback prepared (awaiting state from auth URL)",
+      { serverId: this.serverId, redirectUrl: this._redirectUrl },
+      "MCP OAuth callback prepared (awaiting state from auth URL)",
     );
 
     return { codePromise };
   }
 
-  /**
-   * Loopback transport: start a temporary HTTP server on localhost.
-   */
-  private startLoopbackServer(): Promise<McpOAuthCallbackResult> {
-    return new Promise((resolveSetup, rejectSetup) => {
-      let settled = false;
-      let listening = false;
-      let codeResolve: (code: string) => void;
-      let codeReject: (err: Error) => void;
-
-      const codePromise = new Promise<string>((resolve, reject) => {
-        codeResolve = resolve;
-        codeReject = reject;
-      });
-      this._codePromise = codePromise;
-
-      const server = createServer((req, res) => {
-        if (settled) {
-          res.writeHead(400, { "Content-Type": "text/html" });
-          res.end(renderPage("Authorization already completed", false));
-          return;
-        }
-
-        const url = new URL(req.url ?? "/", "http://127.0.0.1");
-        if (url.pathname !== CALLBACK_PATH) {
-          res.writeHead(404, { "Content-Type": "text/plain" });
-          res.end("Not found");
-          return;
-        }
-
-        const code = url.searchParams.get("code");
-        const error = url.searchParams.get("error");
-
-        settled = true;
-
-        if (error) {
-          const errorDesc = url.searchParams.get("error_description") ?? error;
-          res.writeHead(200, { "Content-Type": "text/html" });
-          res.end(renderPage(`Authorization failed: ${errorDesc}`, false));
-          cleanup();
-          codeReject(new Error(`MCP OAuth authorization denied: ${error}`));
-          return;
-        }
-
-        if (!code) {
-          res.writeHead(400, { "Content-Type": "text/html" });
-          res.end(renderPage("Missing authorization code", false));
-          cleanup();
-          codeReject(
-            new Error("MCP OAuth callback missing authorization code"),
-          );
-          return;
-        }
-
-        res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(
-          renderPage("Authorization successful! You can close this tab.", true),
-        );
-        cleanup();
-        codeResolve(code);
-      });
-
-      this.callbackServer = server;
-
-      const timeout = setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          cleanup();
-          codeReject(new Error("MCP OAuth callback timed out"));
-        }
-      }, CALLBACK_TIMEOUT_MS);
-      if (typeof timeout === "object" && "unref" in timeout) {
-        timeout.unref();
-      }
-      this.callbackTimeout = timeout;
-
-      const cleanup = () => {
-        if (this.callbackTimeout) {
-          clearTimeout(this.callbackTimeout);
-          this.callbackTimeout = null;
-        }
-        if (this.callbackServer) {
-          this.callbackServer.close();
-          this.callbackServer = null;
-        }
-      };
-
-      server.listen(0, "127.0.0.1", () => {
-        const addr = server.address() as { port: number };
-        this._redirectUrl = `http://127.0.0.1:${addr.port}${CALLBACK_PATH}`;
-        listening = true;
-        log.info(
-          { serverId: this.serverId, redirectUrl: this._redirectUrl },
-          "OAuth callback server started",
-        );
-        resolveSetup({ codePromise });
-      });
-
-      server.on("error", (err) => {
-        const message = `MCP OAuth callback server error: ${err.message}`;
-        if (!listening) {
-          settled = true;
-          cleanup();
-          rejectSetup(new Error(message));
-        } else if (!settled) {
-          settled = true;
-          cleanup();
-          codeReject(new Error(message));
-        }
-      });
-    });
-  }
-
-  /** Returns the code promise from the running callback server. */
+  /** Returns the code promise created by {@link startCallbackServer}. */
   waitForCode(): Promise<string> {
     if (!this._codePromise) {
       throw new Error(
-        "Callback server not started — call startCallbackServer() first",
+        "Callback not prepared, call startCallbackServer() first",
       );
     }
     return this._codePromise;
   }
 
-  /** Stop the callback server if it's still running. */
+  /**
+   * Abandon a prepared callback. Rejects the deferred promise so callers
+   * awaiting the code do not hang until the registry's own TTL fires.
+   */
   stopCallbackServer(): void {
-    if (this.callbackTimeout) {
-      clearTimeout(this.callbackTimeout);
-      this.callbackTimeout = null;
-    }
-    if (this.callbackServer) {
-      this.callbackServer.close();
-      this.callbackServer = null;
-    }
-    // Gateway transport cleanup — reject the deferred promise so callers
-    // awaiting codePromise don't hang indefinitely.
-    if (this._gatewayCodeReject) {
-      this._gatewayCodeReject(
-        new Error("MCP OAuth gateway callback cancelled"),
-      );
-      this._gatewayCodeResolve = undefined;
-      this._gatewayCodeReject = undefined;
+    if (this._codeReject) {
+      this._codeReject(new Error("MCP OAuth callback cancelled"));
+      this._codeResolve = undefined;
+      this._codeReject = undefined;
     }
   }
 }
@@ -650,14 +629,17 @@ export async function hasMcpOAuthTokens(serverId: string): Promise<boolean> {
 export async function deleteMcpOAuthCredentials(
   serverId: string,
 ): Promise<{ ok: boolean; failedKeys: string[] }> {
-  const [tokensResult, clientResult, discoveryResult] = await Promise.all([
-    deleteSecureKeyAsync(tokensKey(serverId)),
-    deleteSecureKeyAsync(clientInfoKey(serverId)),
-    deleteSecureKeyAsync(discoveryKey(serverId)),
-  ]);
+  const [tokensResult, clientResult, bindingResult, discoveryResult] =
+    await Promise.all([
+      deleteSecureKeyAsync(tokensKey(serverId)),
+      deleteSecureKeyAsync(clientInfoKey(serverId)),
+      deleteSecureKeyAsync(clientBindingKey(serverId)),
+      deleteSecureKeyAsync(discoveryKey(serverId)),
+    ]);
   const results = [
     { key: "tokens", result: tokensResult },
     { key: "client_info", result: clientResult },
+    { key: "client_binding", result: bindingResult },
     { key: "discovery", result: discoveryResult },
   ];
   const failedKeys = results
@@ -677,21 +659,4 @@ export async function deleteMcpOAuthCredentials(
       : "OAuth credential deletion completed with errors",
   );
   return { ok, failedKeys };
-}
-
-// --- HTML rendering ---
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function renderPage(message: string, success: boolean): string {
-  const title = success ? "Authorization Successful" : "Authorization Failed";
-  const color = success ? "#4CAF50" : "#f44336";
-  return `<!DOCTYPE html><html><head><title>${escapeHtml(title)}</title><style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}div{text-align:center;padding:2rem;background:white;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}h1{color:${color}}</style></head><body><div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></div></body></html>`;
 }

@@ -1,10 +1,12 @@
 import type { CSSProperties } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import {
   EDGE_LEARNED_COLOR,
   EDGE_LINK_COLOR,
   NODE_KIND_COLORS,
-  NODE_KIND_LABELS,
+  nodeKindLabel,
 } from "./constants";
 import type { ConceptNodeKind } from "./types";
 
@@ -47,6 +49,7 @@ export function ConceptGraphLegend({
   linkActive,
   learnedActive,
 }: ConceptGraphLegendProps) {
+  const { t } = useTranslation("intelligence");
   return (
     <div
       data-graph-control
@@ -67,7 +70,7 @@ export function ConceptGraphLegend({
             className="text-[11px]"
             style={{ color: "var(--content-tertiary)" }}
           >
-            {NODE_KIND_LABELS[kind]}
+            {nodeKindLabel(kind)}
           </span>
         </div>
       ))}
@@ -94,7 +97,9 @@ export function ConceptGraphLegend({
                 className="text-[11px]"
                 style={{ color: "var(--content-tertiary)" }}
               >
-                +{themes.length - MAX_THEMES} more
+                {t("conceptGraphLegend.moreThemes", {
+                  count: themes.length - MAX_THEMES,
+                })}
               </span>
             )}
           </>
@@ -103,7 +108,7 @@ export function ConceptGraphLegend({
             className="text-[11px]"
             style={{ color: "var(--content-tertiary)" }}
           >
-            Colored by theme
+            {t("conceptGraphLegend.coloredByTheme")}
           </span>
         ))}
       {(nodeKinds.length > 0 || coloredByTheme) && (hasLinks || hasLearned) && (
@@ -115,7 +120,7 @@ export function ConceptGraphLegend({
       {hasLinks && (
         <EdgeLegendRow
           swatchStyle={{ borderTop: `2px solid ${EDGE_LINK_COLOR}` }}
-          label="Link"
+          label={t("conceptGraphLegend.link")}
           onToggle={onToggleLink}
           active={linkActive}
         />
@@ -123,7 +128,7 @@ export function ConceptGraphLegend({
       {hasLearned && (
         <EdgeLegendRow
           swatchStyle={{ borderTop: `2px dashed ${EDGE_LEARNED_COLOR}` }}
-          label="Learned"
+          label={t("conceptGraphLegend.learned")}
           onToggle={onToggleLearned}
           active={learnedActive}
         />

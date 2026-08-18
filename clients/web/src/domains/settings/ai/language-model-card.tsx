@@ -14,6 +14,7 @@ import {
   inferenceProviderconnectionsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
+import { useTranslation } from "@/i18n";
 
 /**
  * What the Language Model sidepanel is showing. Owned by AiPage (the drawer
@@ -42,6 +43,7 @@ export function LanguageModelCard({
   onOpenPanel,
   onClosePanel,
 }: LanguageModelCardProps) {
+  const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
 
   const { data: config } = useQuery({
@@ -78,8 +80,8 @@ export function LanguageModelCard({
 
   return (
     <ByoServiceCard
-        title="Language Model"
-        subtitle="Profiles choose which model answers. Providers supply access to it"
+        title={t("languageModelCard.title")}
+        subtitle={t("languageModelCard.subtitle")}
       >
         <div className="space-y-2">
           {availability && availability.status !== "ok" && (
@@ -90,7 +92,7 @@ export function LanguageModelCard({
               tone={availability.status === "unknown" ? "warning" : "error"}
             >
               {availability.message ??
-                "Your default provider is not available."}
+                t("languageModelCard.defaultProviderUnavailable")}
             </Notice>
           )}
 
@@ -131,15 +133,14 @@ export function LanguageModelCard({
           )}
 
           <LanguageModelSection
-            title="Overrides"
+            title={t("languageModelCard.overridesTitle")}
             count={overrideCount}
             action={
               <Button
                 variant="outlined"
-                size="compact"
                 onClick={() => onOpenPanel({ kind: "overrides" })}
               >
-                Manage
+                {t("languageModelCard.manage")}
               </Button>
             }
           />

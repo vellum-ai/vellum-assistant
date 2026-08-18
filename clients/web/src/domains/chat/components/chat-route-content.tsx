@@ -90,6 +90,7 @@ import { SuggestionDetailPanel } from "@/domains/chat/components/suggestion-deta
 import type { DetectedSecret } from "@vellumai/service-contracts/secret-detection";
 import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
 import { BottomSheet } from "@vellumai/design-library";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
@@ -215,9 +216,6 @@ export interface ChatMainPanelProps {
   didOnboarding: boolean;
   onboardingConversationId: string | null;
 }
-
-/** @deprecated Use {@link ChatMainPanelProps} — kept as a re-export for migration. */
-export type ChatRouteContentProps = ChatMainPanelProps;
 
 /**
  * Builds the registry-driven row of active background-process overlays.
@@ -670,8 +668,22 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Single balance-status read shared by every proactive billing surface in
   // this component: the transcript's tail card, the empty state's card, and
-  // the low-balance composer banner.
-  const balanceStatus = useBillingBalanceStatus();
+  // the low-balance composer banner. The active conversation is passed so
+  // the BYOK suppression respects a per-conversation managed profile pin. A
+  // client-minted draft has no server row to look up (the lookup would 404
+  // and needlessly fail the gate open); its effective profile lives in the
+  // composer stash, so that is threaded instead.
+  const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
+  const activeDraftId =
+    activeConversationId && draftConversationIds.has(activeConversationId)
+      ? activeConversationId
+      : null;
+  const balanceStatus = useBillingBalanceStatus({
+    conversationId: activeDraftId ? null : activeConversationId,
+    draftProfile: activeDraftId
+      ? (pendingDraftProfiles.get(activeDraftId) ?? null)
+      : null,
+  });
 
   const { sanitizedMessages, transcriptItems } = useTranscriptData({
     messages,
@@ -889,7 +901,6 @@ export function ChatMainPanel({
   // mid-load), its profile lives in the composer stash, not on a server row —
   // feed it in so attachment/vision gating reflects the profile the first
   // message will actually use rather than the global default.
-  const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
   const activeDraftProfile =
     !activeConversation && activeConversationId
       ? (pendingDraftProfiles.get(activeConversationId) ?? undefined)
@@ -1178,6 +1189,9 @@ export function ChatMainPanel({
     // State-driven, so the banner is already up when the user returns to an
     // app whose daily cap was reached by background turns.
     dailyLimitReached: balanceStatus.dailyLimitReached,
+    // A skip clears the banner even when the error that raised it is still the
+    // last thing that happened on this conversation.
+    dailyLimitSnoozed: balanceStatus.dailyLimitSnoozed,
   });
 
   // -------------------------------------------------------------------------
@@ -1218,6 +1232,28 @@ export function ChatMainPanel({
 
   const cmdEnterMode = cmdEnterToSend.useValue();
 
+  // Whether the surface each settings menu owns is open. The mobile composer
+  // floats those two triggers above its card and hides them when focus leaves,
+  // and opening one takes focus out of the composer, so it needs the open state
+  // to hold the row in place underneath the sheet. Each menu reports `false` on
+  // its way out, so a presentation swap that unmounts an open one clears the
+  // flag it set.
+  const [accessSheetOpen, setAccessSheetOpen] = useState(false);
+  const [profileSheetOpen, setProfileSheetOpen] = useState(false);
+  const settingsSheetOpen = accessSheetOpen || profileSheetOpen;
+
+  // The narrow composer is one slim row with no room for a sentence, so it
+  // names the assistant it is addressed to instead. An assistant whose name
+  // has not loaded keeps the wider copy.
+  const { t } = useTranslation("chat");
+  const composerAssistantName = assistantName?.trim();
+  const mobilePlaceholder =
+    isMobile && composerAssistantName
+      ? t("chatComposer.askAssistantPlaceholder", {
+          assistantName: composerAssistantName,
+        })
+      : null;
+
   // Explicit props (no spread bundle): the contract is visible here, and the
   // composer self-sources its own store state, so nothing high-frequency is
   // threaded through. `ChatBody` renders this node as-is.
@@ -1225,9 +1261,10 @@ export function ChatMainPanel({
     <ChatComposer
       cmdEnterMode={cmdEnterMode}
       placeholder={
-        isEmptyConversation
+        mobilePlaceholder ??
+        (isEmptyConversation
           ? emptyStatePlaceholder
-          : "What would you like to do?"
+          : "What would you like to do?")
       }
       onSubmit={handleFormSubmit}
       inputRef={inputRef}
@@ -1256,12 +1293,14 @@ export function ChatMainPanel({
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}
       hasBillingBanner={composerBillingBanner !== null}
+      settingsSheetOpen={settingsSheetOpen}
       thresholdPickerSlot={
         assistantId ? (
           <ComposerSettingsMenu
             assistantId={assistantId}
             conversationId={activeConversation?.conversationId}
             segments="access"
+            onOpenChange={setAccessSheetOpen}
           />
         ) : undefined
       }
@@ -1271,6 +1310,7 @@ export function ChatMainPanel({
             assistantId={assistantId}
             conversationId={activeConversation?.conversationId}
             segments="profile"
+            onOpenChange={setProfileSheetOpen}
           />
         ) : undefined
       }
@@ -1511,6 +1551,3 @@ export function ChatMainPanel({
     </>
   );
 }
-
-/** @deprecated Use {@link ChatMainPanel} — kept for migration. */
-export const ChatRouteContent = ChatMainPanel;

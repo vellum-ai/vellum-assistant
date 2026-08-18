@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCircle2, Download } from "lucide-react";
 import { type ReactNode } from "react";
 
+import { useTranslation } from "@/i18n";
 import { Button, Modal, ProgressBar } from "@vellumai/design-library";
 
 export type ExportPhase = "running" | "done" | "error";
@@ -38,8 +39,23 @@ export function ExportProgressModal({
   onRetry,
   onClose,
 }: ExportProgressModalProps): ReactNode {
+  const { t } = useTranslation("chat");
   const isRunning = phase === "running";
   const fraction = total > 0 ? completed / total : 0;
+
+  const title =
+    phase === "error"
+      ? t("exportProgressModal.titleError")
+      : phase === "done"
+        ? t("exportProgressModal.titleDone")
+        : t("exportProgressModal.titleRunning");
+
+  const description =
+    phase === "error"
+      ? t("exportProgressModal.descriptionError")
+      : phase === "done"
+        ? t("exportProgressModal.descriptionDone")
+        : t("exportProgressModal.descriptionRunning");
 
   // While running, the export shouldn't be dismissed out from under itself —
   // the only exit is the explicit Cancel button.
@@ -67,29 +83,17 @@ export function ExportProgressModal({
           }
         }}
       >
-        <Modal.Header>
-          <Modal.Title
-            icon={
-              phase === "error"
-                ? AlertCircle
-                : phase === "done"
-                  ? CheckCircle2
-                  : Download
-            }
-          >
-            {phase === "error"
-              ? "Export failed"
+        <Modal.Header
+          icon={
+            phase === "error"
+              ? AlertCircle
               : phase === "done"
-                ? "Export complete"
-                : "Exporting inspector data"}
-          </Modal.Title>
-          <Modal.Description>
-            {phase === "error"
-              ? "Something went wrong while collecting the export."
-              : phase === "done"
-                ? "Your download should have started automatically."
-                : "Collecting provider payloads and normalized context. This can take a moment for long conversations."}
-          </Modal.Description>
+                ? CheckCircle2
+                : Download
+          }
+        >
+          <Modal.Title>{title}</Modal.Title>
+          <Modal.Description>{description}</Modal.Description>
         </Modal.Header>
         <Modal.Body>
           {phase === "error" ? (
@@ -98,13 +102,13 @@ export function ExportProgressModal({
               role="alert"
               style={{ color: "var(--system-negative-strong)" }}
             >
-              {error ?? "Failed to export inspector data."}
+              {error ?? t("exportProgressModal.defaultError")}
             </p>
           ) : (
             <div className="flex flex-col gap-2">
               <ProgressBar
                 value={phase === "done" ? 1 : fraction}
-                aria-label="Export progress"
+                aria-label={t("exportProgressModal.progressAriaLabel")}
               />
               <div
                 className="flex items-center justify-between text-label-default"
@@ -112,10 +116,13 @@ export function ExportProgressModal({
               >
                 <span>
                   {phase === "done"
-                    ? "Done"
+                    ? t("exportProgressModal.statusDone")
                     : completed >= total && total > 0
-                      ? "Packaging ZIP…"
-                      : `${completed} of ${total} calls`}
+                      ? t("exportProgressModal.statusPackaging")
+                      : t("exportProgressModal.statusProgress", {
+                          completed,
+                          total,
+                        })}
                 </span>
                 <span>
                   {Math.round((phase === "done" ? 1 : fraction) * 100)}%
@@ -127,20 +134,20 @@ export function ExportProgressModal({
         <Modal.Footer>
           {phase === "running" ? (
             <Button variant="outlined" onClick={onCancel}>
-              Cancel
+              {t("exportProgressModal.cancel")}
             </Button>
           ) : phase === "error" ? (
             <>
               <Button variant="outlined" onClick={onClose}>
-                Close
+                {t("exportProgressModal.close")}
               </Button>
               <Button variant="primary" onClick={onRetry}>
-                Retry
+                {t("exportProgressModal.retry")}
               </Button>
             </>
           ) : (
             <Button variant="primary" onClick={onClose}>
-              Done
+              {t("exportProgressModal.done")}
             </Button>
           )}
         </Modal.Footer>

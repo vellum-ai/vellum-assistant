@@ -1,4 +1,14 @@
-import { and, count, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  getTableColumns,
+  isNull,
+  lt,
+  sql,
+} from "drizzle-orm";
+import type { SQLiteSelect } from "drizzle-orm/sqlite-core";
 
 import {
   parseExternalContentEnvelope,
@@ -16,6 +26,7 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
 import {
   type ConversationType,
+  NATIVE_ORIGIN_CHANNEL,
   PINNED_GROUP_ID,
   UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
@@ -25,11 +36,14 @@ import {
   parseContentRef,
   resolveMessageContentBlocks,
 } from "./message-content-file.js";
+import {
+  countMessagesByRoleForConversations,
+  latestUserMessageRawContent,
+} from "./message-reads.js";
 import { rawAll } from "./raw-query.js";
 import {
   conversationAssistantAttentionState,
   conversations,
-  messages,
 } from "./schema/index.js";
 
 const log = getLogger("conversation-store");
@@ -259,6 +273,15 @@ export interface ConversationListFilter {
    * section, and a UUID one custom group. Omit to span every group.
    */
   groupId?: string;
+  /**
+   * Restrict to conversations whose latest assistant message the user has
+   * not seen: the same "unseen" predicate the unread count and the section
+   * index apply ({@link unseenAttentionStateConditions}), so every reader
+   * of "needs attention" agrees. Only `true` narrows; omit to span every
+   * conversation. A client that keeps no complete list can ask for exactly
+   * the rows its attention surfaces need instead of scanning for them.
+   */
+  needsAttention?: true;
 }
 
 export interface ConversationListQuery extends ConversationListFilter {
@@ -299,25 +322,40 @@ function groupIdClause(groupId: string) {
 }
 
 /**
- * Order a group's rows the way the user arranged them: by explicit
- * `display_order` first, then by recency. Only meaningful for a real group;
- * the ungrouped bucket is pure recency, since a row that was dragged inside a
- * group and later removed keeps a stale `display_order` that must not
- * resurface as a sort key.
+ * SQL predicate for {@link ConversationListFilter.originChannel}.
+ *
+ * `'vellum'` additionally matches NULL. `origin_channel` is left NULL at
+ * insert precisely so an inbound message can still claim the conversation for
+ * its channel (`setConversationOriginChannelIfUnset` is guarded on `isNull`),
+ * and migration 288 settles whatever was never claimed to `'vellum'` at daemon
+ * startup. NULL is therefore "not yet attributed", and it is what the
+ * overwhelming majority of rows carry between one boot and the next.
+ *
+ * A strict equality would put those rows in no section at all: not native, not
+ * any channel. Reading NULL as native is the self-correcting error of the two,
+ * since the only rows it can misplace are ones whose inbound message has not
+ * arrived yet, and that message moves them the moment it does.
+ *
+ * Every other channel matches exactly. A row is claimed for a channel only by
+ * that channel, so there is no ambiguity to be tolerant about.
  */
-function isUserOrderedGroup(groupId: string | undefined): boolean {
-  if (groupId === undefined) {
-    return false;
+function originChannelClause(originChannel: string) {
+  if (originChannel === NATIVE_ORIGIN_CHANNEL) {
+    return sql`(origin_channel IS NULL OR origin_channel = ${NATIVE_ORIGIN_CHANNEL})`;
   }
-  // Pinned and custom groups are the only drag-reorderable sections, so they
-  // are the only ones whose `display_order` means anything. Every other
-  // system bucket sorts by recency: `batchSetDisplayOrders` writes
-  // `display_order` alongside `group_id` when a row moves into
-  // `system:background` / `system:scheduled`, and that value persists through
-  // later moves, so honouring it would order the same section differently
-  // depending on whether it was fetched by `conversationType` or `groupId`.
-  return groupId === PINNED_GROUP_ID || !groupId.startsWith("system:");
+  return eq(conversations.originChannel, originChannel);
 }
+
+/**
+ * The join between a conversation and its attention projection, one row per
+ * conversation in `conversation_assistant_attention_state`. Every reader of
+ * "unseen" joins on this: the list and count filters, the unread count, and
+ * the section index.
+ */
+const attentionJoin = eq(
+  conversationAssistantAttentionState.conversationId,
+  conversations.id,
+);
 
 function conversationListWhere(filter: ConversationListFilter) {
   const {
@@ -325,13 +363,36 @@ function conversationListWhere(filter: ConversationListFilter) {
     archiveStatus = "active",
     originChannel,
     groupId,
+    needsAttention,
   } = filter;
   return and(
     conversationTypeClause(conversationType),
     archiveStatusClause(archiveStatus) ?? undefined,
-    originChannel ? eq(conversations.originChannel, originChannel) : undefined,
+    originChannel ? originChannelClause(originChannel) : undefined,
     groupId ? groupIdClause(groupId) : undefined,
+    ...(needsAttention ? unseenAttentionStateConditions() : []),
   );
+}
+
+/**
+ * The joins {@link conversationListWhere}'s predicates need, applied to a
+ * list or count query over `conversations`. The attention predicate lives on
+ * `conversation_assistant_attention_state`, so `needsAttention` joins it.
+ * Inner, not left: a conversation with no
+ * attention row has no unseen message by definition. Joined only when the
+ * filter asks, so a query without the filter runs without the join and
+ * lists every conversation the predicates admit. One place for both
+ * {@link listConversations} and {@link countConversations}, so a page and
+ * its total always describe the same set.
+ */
+function withListFilterJoins<T extends SQLiteSelect>(
+  query: T,
+  filter: ConversationListFilter,
+) {
+  if (!filter.needsAttention) {
+    return query;
+  }
+  return query.innerJoin(conversationAssistantAttentionState, attentionJoin);
 }
 
 export function listConversations(
@@ -354,14 +415,15 @@ export function listConversations(
   // distinguish a total order from a lucky one. The guarantee becomes
   // observable, and gets its test, with the keyset pagination work.
   const tiebreak = desc(conversations.id);
-  const orderBy = isUserOrderedGroup(filter.groupId)
-    ? [sql`COALESCE(display_order, 999999) ASC`, recency, tiebreak]
-    : [recency, tiebreak];
-  return db
-    .select()
-    .from(conversations)
+  // Selecting the conversation columns explicitly keeps the row shape
+  // `parseConversation` maps identical whether or not the attention join is
+  // present.
+  return withListFilterJoins(
+    db.select(getTableColumns(conversations)).from(conversations).$dynamic(),
+    filter,
+  )
     .where(conversationListWhere(filter))
-    .orderBy(...orderBy)
+    .orderBy(recency, tiebreak)
     .limit(limit ?? 100)
     .offset(offset)
     .all()
@@ -436,31 +498,7 @@ export function getMessageRoleStatsByConversation(
   conversationIds: string[],
   role: string = "assistant",
 ): Map<string, { count: number; lastAt: number }> {
-  if (conversationIds.length === 0) {
-    return new Map();
-  }
-  const db = getDb();
-  const rows = db
-    .select({
-      conversationId: messages.conversationId,
-      count: sql<number>`COUNT(*)`.as("count"),
-      lastAt: sql<number>`MAX(${messages.createdAt})`.as("last_at"),
-    })
-    .from(messages)
-    .where(
-      and(
-        inArray(messages.conversationId, conversationIds),
-        eq(messages.role, role),
-      ),
-    )
-    .groupBy(messages.conversationId)
-    .all();
-  return new Map(
-    rows.map((r) => [
-      r.conversationId,
-      { count: Number(r.count), lastAt: Number(r.lastAt) },
-    ]),
-  );
+  return countMessagesByRoleForConversations(conversationIds, role);
 }
 
 export function listPinnedConversations(
@@ -487,7 +525,6 @@ export function listPinnedConversations(
       ),
     )
     .orderBy(
-      sql`COALESCE(display_order, 999999) ASC`,
       desc(
         sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
       ),
@@ -534,6 +571,8 @@ export function listConversationsByTitlePrefix(
   const rows = rawAll<Row>(
     "conversation:listByTitlePrefix",
     `SELECT c.id, c.title,
+            -- Any-state count (streaming rows included): a list-surface size
+            -- hint where a transient +1 during a live turn is immaterial.
             (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count,
             c.created_at
      FROM conversations c
@@ -560,9 +599,10 @@ export function countConversations(
 ): number {
   ensureGroupMigration();
   const db = getDb();
-  const [{ total }] = db
-    .select({ total: count() })
-    .from(conversations)
+  const [{ total }] = withListFilterJoins(
+    db.select({ total: count() }).from(conversations).$dynamic(),
+    filter,
+  )
     .where(conversationListWhere(filter))
     .all();
   return total;
@@ -600,10 +640,7 @@ export function countUnreadConversations(): number {
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
-    .innerJoin(
-      conversationAssistantAttentionState,
-      eq(conversationAssistantAttentionState.conversationId, conversations.id),
-    )
+    .innerJoin(conversationAssistantAttentionState, attentionJoin)
     .where(
       and(
         conversationTypeClause("standard"),
@@ -616,32 +653,109 @@ export function countUnreadConversations(): number {
   return total;
 }
 
+/** Totals for one sidebar section: every member, and the unread among them. */
+export interface ConversationSectionCount {
+  total: number;
+  unread: number;
+}
+
+/**
+ * Row counts for every non-empty sidebar section, with no rows fetched.
+ *
+ * Two axes, disjoint by construction because `group_id` is single-valued:
+ *
+ * - `groups`: rows filed somewhere, bucketed by `group_id`. Contains
+ *   `'system:pinned'` and custom-group ids; the background/scheduled system
+ *   buckets are excluded because no section renders them.
+ * - `channels`: rows filed nowhere, bucketed by effective origin channel,
+ *   where NULL reads as {@link NATIVE_ORIGIN_CHANNEL} exactly as
+ *   {@link originChannelClause} reads it. The native bucket is the Chats
+ *   section; each other bucket is that channel's section.
+ *
+ * Only buckets with at least one row appear: GROUP BY cannot emit an empty
+ * bucket, and an empty section renders no card.
+ *
+ * `total` follows the standard-listing visibility
+ * ({@link conversationTypeClause}), active rows only, so it counts exactly
+ * the rows `GET /v1/conversations` would return for that section's filter.
+ * `unread` applies the same rules as {@link countUnreadConversations} on top
+ * (not an unsurfaced background/scheduled row, unseen per the attention
+ * projection), composed from the same predicates rather than restated, so
+ * the per-section numbers always sum against the global count.
+ */
+export interface ConversationSectionCounts {
+  groups: Array<{ groupId: string } & ConversationSectionCount>;
+  channels: Array<{ channel: string } & ConversationSectionCount>;
+}
+
+export function countConversationSections(): ConversationSectionCounts {
+  ensureGroupMigration();
+  const db = getDb();
+
+  /* `countUnreadConversations` gets the same effect with an INNER JOIN and
+     the unseen conditions in its WHERE; here every row must be counted and
+     only unread rows summed, so the join is LEFT and the conditions move
+     into the CASE. A row with no attention projection has NULL columns,
+     fails the conditions, and sums 0: identical membership. */
+  const unread = sql<number>`SUM(CASE WHEN ${and(
+    sql.raw(notBackgroundVisibilitySql()),
+    ...unseenAttentionStateConditions(),
+  )} THEN 1 ELSE 0 END)`;
+
+  const groups = db
+    .select({
+      groupId: sql<string>`group_id`,
+      total: count(),
+      unread,
+    })
+    .from(conversations)
+    .leftJoin(conversationAssistantAttentionState, attentionJoin)
+    .where(
+      and(
+        conversationTypeClause("standard"),
+        isNull(conversations.archivedAt),
+        sql`(group_id = ${PINNED_GROUP_ID} OR (group_id IS NOT NULL AND group_id NOT LIKE 'system:%'))`,
+      ),
+    )
+    .groupBy(sql`group_id`)
+    .all();
+
+  const effectiveChannel = sql<string>`COALESCE(${conversations.originChannel}, ${NATIVE_ORIGIN_CHANNEL})`;
+  const channels = db
+    .select({
+      channel: effectiveChannel,
+      total: count(),
+      unread,
+    })
+    .from(conversations)
+    .leftJoin(conversationAssistantAttentionState, attentionJoin)
+    .where(
+      and(
+        conversationTypeClause("standard"),
+        isNull(conversations.archivedAt),
+        groupIdClause(UNGROUPED_GROUP_ID),
+      ),
+    )
+    .groupBy(effectiveChannel)
+    .all();
+
+  return { groups, channels };
+}
+
 /**
  * Check whether the last user message in a conversation is a tool_result-only
  * message (i.e., not a real user-typed message). This is used by undo() to
  * determine if additional exchanges need to be deleted from the DB.
  */
 export function isLastUserMessageToolResult(conversationId: string): boolean {
-  const db = getDb();
-  const lastUserMsg = db
-    .select({ content: messages.content })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        eq(messages.role, "user"),
-      ),
-    )
-    .orderBy(sql`rowid DESC`)
-    .limit(1)
-    .get();
+  const lastUserContent = latestUserMessageRawContent(conversationId);
 
-  if (!lastUserMsg) {
+  if (lastUserContent === null) {
     return false;
   }
 
   try {
-    const parsed = JSON.parse(lastUserMsg.content);
+    const parsed = JSON.parse(lastUserContent);
     if (
       Array.isArray(parsed) &&
       parsed.length > 0 &&
@@ -815,6 +929,10 @@ export async function searchConversations(
       if (!opts?.includeArchived) {
         whereClauses.push(`c.archived_at IS NULL`);
       }
+      // No completeness predicate: candidate ids come from the lexical
+      // index, which filters finalized = 1 at index time, so an unfinalized
+      // row cannot be a candidate. Do not copy this shape for id sets with
+      // different provenance.
       const visibleRows = rawAll<CandidateRow>(
         "conversation:searchConversations:visibleCandidates",
         `

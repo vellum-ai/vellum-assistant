@@ -1,14 +1,53 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { cleanup, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
-// Replace one surface renderer with a component that always throws so we can
-// assert the boundary contains the failure. Declared before importing
+const CARD_SURFACE_MODULE = "@/domains/chat/components/surfaces/card-surface";
+
+/**
+ * Whether the stubbed card surface throws on render.
+ *
+ * `mock.module` patches a module registry that a bun run shares across every
+ * test file, and there is no way to undo it: re-registering the real module
+ * afterwards does not restore it. So the stub stays installed for the rest of
+ * the run and has to be transparent by default, delegating to the real
+ * component. Only the boundary tests below flip this on. An unconditional
+ * `throw` here fails every card-surface test that runs after this file.
+ */
+let cardSurfaceThrows = false;
+
+// The component value, read out of the namespace before the mock replaces it.
+// Holding the namespace object instead would recurse: `mock.module` patches
+// that same object, so the stub would resolve `CardSurface` to itself.
+const { CardSurface: RealCardSurface } = await import(CARD_SURFACE_MODULE);
+
+// Replace one surface renderer with a component that throws on demand so we
+// can assert the boundary contains the failure. Declared before importing
 // `SurfaceRouter` so the mock is in place when the router resolves its imports.
-mock.module("@/domains/chat/components/surfaces/card-surface", () => ({
-  CardSurface: () => {
-    throw new Error("boom");
+mock.module(CARD_SURFACE_MODULE, () => ({
+  CardSurface: (props: Record<string, unknown>) => {
+    if (cardSurfaceThrows) {
+      throw new Error("boom");
+    }
+    return <RealCardSurface {...props} />;
   },
+}));
+
+// Stands in for the real picker, which would pull the daemon config, TTS
+// provider, and managed-voice queries into a routing test. What matters here is
+// which component the router picks.
+mock.module("@/domains/chat/components/surfaces/voice-picker-surface", () => ({
+  VoicePickerSurface: ({ assistantId }: { assistantId: string | null }) => (
+    <div data-testid="voice-picker-surface">{assistantId ?? "no-assistant"}</div>
+  ),
 }));
 
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
@@ -16,6 +55,10 @@ import type { Surface } from "@/domains/chat/types/types";
 
 afterEach(() => {
   cleanup();
+});
+
+afterAll(() => {
+  cardSurfaceThrows = false;
 });
 
 function makeSurface(overrides: Partial<Surface> = {}): Surface {
@@ -30,6 +73,14 @@ function makeSurface(overrides: Partial<Surface> = {}): Surface {
 }
 
 describe("SurfaceRouter error boundary", () => {
+  beforeEach(() => {
+    cardSurfaceThrows = true;
+  });
+
+  afterEach(() => {
+    cardSurfaceThrows = false;
+  });
+
   test("contains a surface render failure behind an inline fallback", () => {
     const { getByRole } = render(
       <SurfaceRouter surface={makeSurface()} onAction={() => {}} />,
@@ -62,6 +113,27 @@ describe("SurfaceRouter error boundary", () => {
   });
 });
 
+describe("SurfaceRouter: voice picker", () => {
+  test("routes surfaceType \"voice_picker\" to the inline picker", () => {
+    const { getByTestId, container } = render(
+      <SurfaceRouter
+        surface={makeSurface({
+          surfaceId: "surface-voice",
+          surfaceType: "voice_picker",
+          title: "Pick a voice",
+        })}
+        onAction={() => {}}
+        assistantId="asst_1"
+      />,
+    );
+
+    // The acceptance criterion for registering the type: not the fallback card.
+    expect(container.textContent).not.toContain("Unsupported surface type");
+    // The owning assistant is threaded through, not read from global state.
+    expect(getByTestId("voice-picker-surface").textContent).toBe("asst_1");
+  });
+});
+
 describe("SurfaceRouter — visual surfaces", () => {
   test("routes surfaceType \"visual\" to the sandboxed widget iframe", () => {
     const { container } = render(
@@ -81,9 +153,7 @@ describe("SurfaceRouter — visual surfaces", () => {
 
     const iframe = container.querySelector("iframe");
     expect(iframe).toBeTruthy();
-    expect(iframe?.getAttribute("sandbox")).toBe(
-      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
-    );
+    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
     expect(iframe?.getAttribute("title")).toBe("Star schema");
     expect(iframe?.getAttribute("srcdoc")).toContain("<div>widget</div>");
     // Falls through to the generic unsupported-surface card only for unknown types.

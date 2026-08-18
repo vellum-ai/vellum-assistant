@@ -59,7 +59,7 @@ Native auth uses [`ASWebAuthenticationSession`](https://developer.apple.com/docu
 - **Protected (app) routes**: route protection middleware (see [`CONVENTIONS.md` § Route protection via middleware](./CONVENTIONS.md#route-protection-via-middleware)) redirects unauthenticated users to `/account/login?returnTo=…`. Individual pages should **not** render inline sign-in gates. Return `null` when `!isLoggedIn` and let the middleware handle the redirect. The branded login page (`/account/login`) renders a native login form (inside [`NativeSplash`](../src/components/native-splash.tsx)) on Capacitor iOS and a web login form on web.
 - **iOS login — single AuthKit button**: the iOS login form must use a single "Sign in" button that hands off to WorkOS AuthKit. Do NOT add individual provider buttons (Google/Apple/etc.) or otherwise pin the flow to a specific provider — see [Apple App Store Review Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Guideline 4.8 — Sign in with Apple](https://developer.apple.com/app-store/review/guidelines/#login-services). AuthKit hosts the provider selection, so the app never names a provider itself.
 - **Pre-fill identity-derived inputs from the auth claim**: when the platform / IdP returns identity claims on signup (Apple SIWA `given_name`/`family_name`, Google `given_name`/`family_name`, etc.), pre-fill any user-facing input that asks for that identity (e.g. "Your name") from the claim instead of forcing the user to retype it — [Apple Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Apple HIG: Sign in with Apple](https://developer.apple.com/design/human-interface-guidelines/sign-in-with-apple) treat asking again as a violation. The field stays editable so users can pick a preferred nickname.
-- **Auth failures carry a cause, never just "try again"**: a rejected auth flow reaches JS as a Capacitor error whose `code` is `AUTH_ERROR` and whose `data.authError` names why the platform refused the sign-in (`signup_closed`, `provider_signup`, `login_incomplete`, or allauth's own code on a 400). Both native shells classify the non-200 statuses the headless schema documents for `/_allauth/app/v1/auth/provider/token` — the exchange that runs *after* the auth sheet closes, and therefore the failure users report as "it errored the moment I signed in". Map codes to copy only in [`src/domains/account/native-auth-error.ts`](../src/domains/account/native-auth-error.ts), and route every auth-entry catch through its `nativeAuthErrorMessage()` / `isUserCancelledAuthError()` helpers plus a `captureError()` tagged with `nativeAuthErrorDetail()`. Adding a new refusal means a code in both `WorkOSAuth.sessionExchangeErrorCode` implementations (Swift and Java) and an entry in that map — an unmapped code degrades to the generic message rather than breaking.
+- **Auth failures carry a cause, never just "try again"**: a rejected auth flow reaches JS as a Capacitor error whose `code` is `AUTH_ERROR` and whose `data.authError` names why the platform refused the sign-in (`signup_closed`, `provider_signup`, `login_incomplete`, or allauth's own code on a 400). Both native shells classify the non-200 statuses the headless schema documents for `/_allauth/app/v1/auth/provider/token` (the exchange that runs *after* the auth sheet closes, and therefore the failure users report as "it errored the moment I signed in"). Map codes to catalog keys only in [`src/domains/account/native-auth-error.ts`](../src/domains/account/native-auth-error.ts), and route every auth-entry catch through its `nativeAuthErrorKey()` / `isUserCancelledAuthError()` helpers plus a `captureError()` tagged with `nativeAuthErrorDetail()`. Adding a new refusal means a code in both `WorkOSAuth.sessionExchangeErrorCode` implementations (Swift and Java) and an entry in that map; an unmapped code degrades to the generic message rather than breaking.
 - **Sign-in actions outside the app shell**: wrap sign-in links in a shared component that renders a native `startAuthFlow()` button on Capacitor iOS and a router `<Link>` on web — never a plain `<a href="/account/login">`, which on iOS would navigate the WKWebView away from the running SPA.
 - **Platform detection in JSX**: prefer the hook form (`useIsNativePlatform()`, `useIsNativeIOS()`) over the bare `isNativePlatform()` / `isNativeIOS()` functions. Capacitor injects `native-bridge.js` as a `WKUserScript` at `.atDocumentStart`, so the value is already correct on the first render and constant thereafter; there is no first-paint flicker to settle. The hook exists for render-safety, for consistency across the platform hooks, and so call sites stay correct if an SSR or prerender path is ever added. Inside effects and event handlers the bare function is fine. `useIsNativePlatform()` lives in [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts); the rest live in [`src/runtime/platform-detection.ts`](../src/runtime/platform-detection.ts), which is where new ones belong.
 
@@ -80,7 +80,11 @@ Apple's [HIG — Requesting permission](https://developer.apple.com/design/human
 
 ### Keyboard-only affordances on touch devices
 
-When the *only* way to act on a UI element is a hardware-keyboard gesture (e.g. `Tab` to accept an inline suggestion, `Cmd+Enter` to submit), gate its rendering on `!isPointerCoarse()` from [`@/utils/pointer`](../src/utils/pointer.ts). Touch soft keyboards on iOS and Android do not expose `Tab` or most modifier-key combinations, so the affordance is non-actionable on coarse-pointer devices and may also overflow narrow viewports if its layout depends on a paired keypress. To support touch as well, add a tap-equivalent (button, gesture) instead of suppressing.
+Which signal to reach for (viewport size vs pointer capability vs native platform) and where the branch belongs is covered in [`PLATFORM_ADAPTATION.md`](./PLATFORM_ADAPTATION.md).
+
+When the *only* way to act on a UI element is a hardware-keyboard gesture (e.g. `Tab` to accept an inline suggestion, `Cmd+Enter` to submit), gate its rendering on the coarse-pointer signal from [`@/utils/pointer`](../src/utils/pointer.ts). Touch soft keyboards on iOS and Android do not expose `Tab` or most modifier-key combinations, so the affordance is non-actionable on coarse-pointer devices and may also overflow narrow viewports if its layout depends on a paired keypress. To support touch as well, add a tap-equivalent (button, gesture) instead of suppressing.
+
+Which of the two forms depends on whether the answer has to survive the pointer changing. **A gate on rendering wants `!usePointerCoarse()`**, the subscribed hook: the affordance is on screen while a convertible's keyboard comes off or a tablet is docked into one, and a one-shot read would leave it advertising a chord the device can no longer press (or hiding one it now can). Reserve the imperative `isPointerCoarse()` for a decision taken at a moment rather than held on screen: inside an event handler, or seeding state that deliberately should not move mid-session.
 
 Reference: [MDN: `(pointer)` media feature](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer).
 
@@ -97,6 +101,25 @@ This matters for any library that defers touch-initiated logic to a `click` even
 References:
 - Apple — [Handling Events in Safari on iOS](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/HandlingEvents/HandlingEvents.html)
 - Radix — [`DismissableLayer` source (`usePointerDownOutside`)](https://github.com/radix-ui/primitives/blob/main/packages/react/dismissable-layer/src/dismissable-layer.tsx)
+
+---
+
+## Cancelling `pointerdown` also cancels the tap's `click` on iOS
+
+A tap on iOS Safari/WKWebView produces `pointerdown`, `touchstart`, `pointerup`, `touchend`, then the compatibility `mousedown`, `mouseup`, and `click`. Calling `preventDefault()` on `pointerdown` suppresses **the entire remainder of that sequence, `click` included**. The Pointer Events spec says `click` should still be dispatched, and Chromium does dispatch it, so this is a WebKit-only divergence that a desktop or Android check will not catch.
+
+The practical case is holding focus on an input while a button is pressed, which needs the focus transfer suppressed without losing the activation. The focus transfer rides on the compatibility `mousedown`, so cancel that one:
+
+```tsx
+// Keeps the textarea focused; the button's click still fires.
+<button onMouseDown={(event) => event.preventDefault()} />
+```
+
+Cancelling `touchstart` has the same fatal effect as cancelling `pointerdown`. Reach for `pointerdown` only when you actually want to swallow the whole gesture, and remember that Radix menus (`DropdownMenu`, `Select`, `ContextMenu`) open **on `pointerdown`**, so cancelling it there makes the trigger inert; Radix `Dialog` and `BottomSheet` triggers open on `click` and are the ones this section is about.
+
+References:
+- W3C: [Pointer Events, compatibility mouse events](https://www.w3.org/TR/pointerevents/#compatibility-mapping-with-mouse-events)
+- MDN: [`preventDefault()` on pointer events](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events)
 
 ---
 
@@ -144,18 +167,19 @@ References:
 
 ## Native voice bridge
 
-Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives entirely under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus and an ongoing status notification.
+Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus, a microphone foreground service, and an ongoing status notification. The voice-room camera is the capture exception: native mobile shells use `@capacitor-community/camera-preview`, while browsers and older shells use a web `MediaStream` fallback.
 
-The shell registers **six** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose):
+The shell registers **seven app-local** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose). `CameraPreview` is an external SPM/Gradle dependency that Capacitor discovers automatically, so it is not registered in that method.
 
 | Plugin | Web module | What it does |
 | --- | --- | --- |
 | `NativeAuth` | [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts) | `ASWebAuthenticationSession` OIDC flow |
 | `NativeBiometric` | [`src/runtime/native-biometric.ts`](../src/runtime/native-biometric.ts) | Face ID / Touch ID Keychain |
-| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | iOS interruption events and Android foreground audio focus. See the background-audio contract below |
+| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | iOS interruption events and Android audio-focus and microphone-service lifecycle. See the background-audio contract below |
 | `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | One ActivityKit activity on iOS or ongoing notification on Android |
 | `ApnsEnvironment` | [`src/runtime/apns-environment.ts`](../src/runtime/apns-environment.ts) | The build's real APNs entitlement environment (`development` / `production` / `unknown`), read from the embedded provisioning profile |
-| `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads in place. See the section below |
+| `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads without leaving the app. See the section below |
+| `RecentChats` | [`src/runtime/recent-chats.ts`](../src/runtime/recent-chats.ts) | Mirrors the sidebar conversation list (ids + titles) into a UserDefaults cache that backs the Shortcuts app's chat picker (`ChatEntityQuery`); synced from `ChatLayout` once the list query has resolved |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
 
@@ -175,9 +199,21 @@ Three things follow from the rule:
 
 **No capability probes.** Neither voice plugin exposes an `isAvailable`, and neither web module wants one: `startVoiceLiveActivity()` resolving `false` already covers every reason there is no native side: outside a native mobile shell, an older shell, or a disabled platform status surface. A probe that can itself be absent just moves the problem, and it is the only answer a caller could act on anyway.
 
+### Native voice-room camera
+
+[`native-voice-camera.ts`](../src/runtime/native-voice-camera.ts) is the only web module that calls `CameraPreview`. The mobile preview is a native camera layer behind the Capacitor web view, not an HTML media element. Opening it makes the web canvas transparent and keeps the voice-room controls visible in front; closing it restores the active theme through the iOS `--surface-overlay` bridge. The dependency is patched so its cleanup does not force an opaque or white web view over the app's own theme.
+
+The camera call has one hard audio rule: `disableAudio: true` is mandatory. Live voice already owns microphone capture, and the viewfinder must not add an audio input or reconfigure the session underneath it. `enableHighResolution: true` requests the iOS high-resolution photo path, `toBack: true` keeps the HTML controls above the preview, and `storeToFile: false` returns captured JPEG bytes directly to the existing attachment pipeline.
+
+Camera permission is declared in both shells: `NSCameraUsageDescription` on iOS and `android.permission.CAMERA` on Android. Android marks camera hardware optional so devices without a camera remain installable and fail through the existing no-device path.
+
+The skew rule applies to every camera call through `callNativeVoice`. `startNativeVoiceCamera()` resolving `false` is the availability result. Do not add a separate probe. When the plugin is missing from an older installed shell, `voice-camera.ts` falls through to video-only `getUserMedia` with ideal 1920 by 1080 constraints and logs the negotiated non-identifying track settings. Desktop web and Electron use that same fallback. The native path renders no `<video>`, so it has no browser playback state or media-element play affordance.
+
+The iOS Simulator does not provide a real camera feed. A native build verifies linking and compilation, but preview sharpness, camera switching, tap focus, audio continuity, and the permission path require a physical handset.
+
 ### The background-audio contract
 
-**Read § "Full-duplex TTS must render through a MediaStream track" before you touch the iOS implementation.** That section warns against reconfiguring the shared `AVAudioSession` around microphone capture. The iOS `activate` method has no production caller by the decision recorded below. Android's `useNativeAudioSessionLifecycle` caller uses the same bridge method only to request audio focus, without reconfiguring WebView capture.
+**Read § "Full-duplex TTS must render through a MediaStream track" before you touch the iOS implementation.** That section warns against reconfiguring the shared `AVAudioSession` around microphone capture. The iOS `activate` method has no production caller by the decision recorded below. Android's `useNativeAudioSessionLifecycle` caller uses the same bridge method to request audio focus and start a microphone foreground service, without reconfiguring WebView capture.
 
 That history is the reason this is device-only territory. A change here that looks obviously correct and passes in the Simulator is precisely the failure mode that has now shipped twice.
 
@@ -185,7 +221,14 @@ That history is the reason this is device-only territory. A change here that loo
 
 **The iOS rule: the web layer does not activate an audio session.** Settled the hard way, because the pattern broke live voice on a handset twice. First as #39331 (no capture at all, reverted in #39345), then again when it returned in #39306, where a session died roughly 60ms after its WebSocket opened while the Simulator sustained one normally against the same backend. The second failure went unattributed for a day because every #39306 upload was rejected by App Store Connect until #39556, so the plugin had never actually run on a device. `useNativeAudioSessionLifecycle` subscribes to iOS interruptions but never calls iOS `activate`. Do not reintroduce iOS activation without a device test, and note that a green Simulator run is not one.
 
-Android's `useNativeAudioSessionLifecycle` calls `activateVoiceAudioSession()` to request transient audio focus for the foreground WebView. It does not move capture into native code or claim screen-lock or app-switching support.
+Android's `useNativeAudioSessionLifecycle` calls `activateVoiceAudioSession()`
+after WebView microphone capture succeeds. The native plugin requests transient
+audio focus and starts a microphone foreground service while the app is still
+visible. Capture, playback, and the voice socket stay in the WebView, while the
+service keeps that process active across screen locks and app switches. The
+service stays active through voice reconnects, stops with audio focus when the
+session ends, and is released before a new top-level page load replaces the web
+session.
 
 The iOS `VoiceAudioSession` plugin stays in the shell: its interruption reporting listens to `AVAudioSession.sharedInstance()`, so it still hears a phone call or Siri taking the input from WebKit's session, which is unrelated to owning a session ourselves.
 
@@ -216,13 +259,18 @@ References:
 
 The assistant chooser offers every origin this device knows about. On a native
 mobile shell those origins live natively, not in web storage, because the shell
-is the only thing that can point its `WKWebView` somewhere else without leaving
-the app, and because the same list is written by the native Settings pane and
-the `<scheme>://connect` deep link. The web side is
+is the only thing that can point its web view somewhere else without leaving
+the app, and because the same list is written by the `<scheme>://connect` deep
+link (and, on iOS, the native Settings pane). The web side is
 [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts);
 the native side is
 [`SelfHostedServersPlugin.swift`](../../../clients/ios/App/App/SelfHostedServersPlugin.swift)
-over [`SelfHostedServer.swift`](../../../clients/ios/App/App/SelfHostedServer.swift).
+over [`SelfHostedServer.swift`](../../../clients/ios/App/App/SelfHostedServer.swift)
+on iOS, and
+[`SelfHostedServersPlugin.java`](../../../clients/android/app/src/main/java/ai/vellum/assistant/SelfHostedServersPlugin.java)
+over
+[`SelfHostedServer.java`](../../../clients/android/app/src/main/java/ai/vellum/assistant/SelfHostedServer.java)
+on Android.
 
 The bridge contract:
 
@@ -231,17 +279,22 @@ The bridge contract:
 | `list()` | `{ servers: [{name?, url}], activeUrl, bakedUrl }` | `activeUrl` is the configured self-hosted slot (`null` means the shell serves its baked origin); `bakedUrl` is the Vellum Cloud origin the build ships with |
 | `add({url, name?})` | `{ ok }` | Deduped by canonical url. A nameless re-add keeps the stored label |
 | `remove({url})` | `{ ok }` | Forgetting the active url also clears the active slot, so the shell returns to the baked origin |
-| `switchTo({url?})` | `{ ok }` | Swaps the active slot and reloads in place. An absent or empty `url` returns to the baked origin |
+| `switchTo({url?})` | `{ ok }` | Swaps the active slot and reloads the shell onto it (see the per-surface list below). An absent or empty `url` returns to the baked origin |
+| `switchToPath({url?, path})` | `{ ok }` | `switchTo` plus an initial in-app route loaded relative to the destination's app entry URL. A malformed `path` (empty, absolute, containing `://`, or carrying a fragment) rejects up front; a path that passes those checks but fails route building still switches and falls back to the app entry URL |
 
-Only genuinely invalid caller input rejects (an `add` or `switchTo` url that
-fails `SelfHostedServer.validate`). Empty state resolves with an empty list and
-nulls, so there is no "not configured" error branch to write.
+Only genuinely invalid caller input rejects (an `add`/`switchTo`/`switchToPath`
+url that fails `SelfHostedServer.validate`, or a malformed `switchToPath`
+path). Empty state resolves with an empty list and nulls, so there is no "not
+configured" error branch to write.
 
 Urls cross the bridge in one canonical form: `SelfHostedServer.canonicalize` and
 the store's `normalizeOriginUrl` implement the same rules (lowercase scheme and
 host, userinfo dropped, trailing slashes stripped, query and fragment dropped,
 path and port preserved), so both sides agree on which strings mean the same
-server. Changing one means changing the other.
+HTTPS server. Changing one means changing the others. The one divergence is
+deliberate: the Android shell also accepts cleartext development hosts
+(`http://localhost` and friends) that `normalizeOriginUrl` rejects, so those
+entries live in the native list but never surface as chooser cards.
 
 **Switching is per surface, and every surface has a working answer.**
 
@@ -253,8 +306,10 @@ server. Changing one means changing the other.
   ([`main-window.ts`](../../macos/src/main/main-window.ts)) sends any
   cross-origin https target to the system browser, so the origin opens there.
 - Native mobile with the plugin: `nativeSwitchToOrigin` hands the url to the
-  shell, which reloads the web view in place. The user never leaves the app,
-  and a "Vellum Cloud" card sourced from `list().bakedUrl` is the way back.
+  shell. iOS reloads the `WKWebView` in place; Android recreates the activity
+  onto a rebuilt Capacitor config, so a brief relaunch flash is expected.
+  Either way the user never leaves the app, and a "Vellum Cloud" card sourced
+  from `list().bakedUrl` is the way back.
 - Native mobile without the plugin: the same navigation the browser takes. That
   leaves the app for the system browser, which is degraded but is exactly what
   the pair-page path already does there.
@@ -312,7 +367,7 @@ References:
 
 `WKWebView` on Capacitor iOS can hold a streaming `fetch` open at the network layer with no bytes flowing and no error surfaced to JavaScript, so the for-await loop blocks indefinitely and any reconnect/reconcile path gated on a fetch error never runs. Server heartbeats alone are not a liveness signal unless the client checks them.
 
-**Pair every long-lived stream (SSE, chunked fetch, WebSocket-equivalents) with a timer that resets on every received byte — including SSE comment frames, which most SDKs expose through `onSseEvent` even when they don't yield through the iterator — and force-reconnects after a bounded window of silence.** See `subscribeChatEvents` in the chat domain for the canonical pattern.
+**Pair every long-lived stream (SSE, chunked fetch, WebSocket-equivalents) with a timer that resets on every received byte (including SSE comment frames, which most SDKs expose through `onSseEvent` even when they don't yield through the iterator) and force-reconnects after a bounded window of silence.** The canonical pattern is [`src/lib/streaming/stream-watchdog.ts`](../src/lib/streaming/stream-watchdog.ts), armed per frame (comment frames included) by [`src/lib/streaming/stream-transport.ts`](../src/lib/streaming/stream-transport.ts).
 
 References:
 - MDN — [Using server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
@@ -331,8 +386,9 @@ session around microphone capture. Changing the active session underneath
 WebKit can leave its live capture unit detached from the microphone.
 
 The iOS `VoiceAudioSession` plugin can perform that reconfiguration, but its
-`activate` method has no production caller. Android only requests audio focus;
-it does not change the WebView audio mode or capture path.
+`activate` method has no production caller. Android requests audio focus and
+starts its microphone foreground service, but it does not change the WebView
+audio mode or capture path.
 
 Direct `AudioContext.destination` playback is not supplied to WebKit's capture
 unit as far-end audio for acoustic echo cancellation. On Capacitor iOS, route

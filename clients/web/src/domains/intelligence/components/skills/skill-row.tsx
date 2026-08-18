@@ -1,12 +1,13 @@
 import { ArrowDownToLine, Loader2, Trash2 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
-import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
+import { SkillIcon } from "@/components/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
   isAvailableSkill,
   type SkillInfo,
 } from "@/domains/intelligence/skills/types";
+import { useTranslation } from "@/i18n";
 import { isRemovableSkill } from "@/utils/skills";
 import { Button, Card } from "@vellumai/design-library";
 
@@ -27,6 +28,7 @@ export function SkillRow({
   isInstalling = false,
   isRemoving = false,
 }: SkillRowProps) {
+  const { t } = useTranslation("intelligence");
   const available = isAvailableSkill(skill);
   const removable = isRemovableSkill(skill);
 
@@ -73,7 +75,7 @@ export function SkillRow({
               type="button"
               iconOnly={<Loader2 className="animate-spin" aria-hidden />}
               disabled
-              aria-label="Installing"
+              aria-label={t("skillRow.installingAriaLabel")}
               expandOnMobile={false}
             />
           ) : (
@@ -85,7 +87,7 @@ export function SkillRow({
                 onInstall?.();
               }}
               disabled={!onInstall}
-              aria-label="Install skill"
+              aria-label={t("skillRow.installSkillAriaLabel")}
               expandOnMobile={false}
             />
           )
@@ -106,9 +108,13 @@ export function SkillRow({
             }}
             disabled={!removable || isRemoving || !onRemove}
             aria-label={
-              removable ? "Remove skill" : "Bundled skill cannot be removed"
+              removable
+                ? t("skillRow.removeSkillAriaLabel")
+                : t("skillRow.bundledSkillCannotBeRemovedAriaLabel")
             }
-            title={removable ? undefined : "Bundled skills cannot be removed"}
+            title={
+              removable ? undefined : t("skillRow.bundledSkillsCannotBeRemoved")
+            }
             expandOnMobile={false}
           />
         )}

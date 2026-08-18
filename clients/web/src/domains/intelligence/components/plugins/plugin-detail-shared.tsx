@@ -20,6 +20,7 @@ import {
 import { shortSha } from "@/domains/intelligence/plugins/utils";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
+import { useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
 import { Button, ConfirmDialog, Toggle } from "@vellumai/design-library";
 
@@ -56,7 +57,11 @@ export function PluginDetailMetadata({
   surfaces = null,
   className,
 }: PluginDetailMetadataProps) {
-  const repo = plugin.source?.kind === "github" ? plugin.source.repo : "Local";
+  const { t } = useTranslation("intelligence");
+  const repo =
+    plugin.source?.kind === "github"
+      ? plugin.source.repo
+      : t("pluginDetailShared.localSource");
   const repoHref =
     plugin.source?.kind === "github"
       ? `https://github.com/${plugin.source.repo}`
@@ -64,33 +69,45 @@ export function PluginDetailMetadata({
 
   const rows: { label: string; value: string; href?: string }[] = [
     {
-      label: "Source",
+      label: t("pluginDetailShared.sourceLabel"),
       value: repo,
       href: repoHref ?? undefined,
     },
   ];
   if (plugin.homepage) {
     rows.push({
-      label: "Homepage",
+      label: t("pluginDetailShared.homepageLabel"),
       value: plugin.homepage,
       href: plugin.homepage,
     });
   }
   if (plugin.license) {
-    rows.push({ label: "License", value: plugin.license });
+    rows.push({
+      label: t("pluginDetailShared.licenseLabel"),
+      value: plugin.license,
+    });
   }
   // Surfaces are only present for an installed copy; list the non-empty
   // contributions (skills / hooks / tools) so the panel shows what the
   // plugin actually adds.
   if (surfaces) {
     if (surfaces.skills.length > 0) {
-      rows.push({ label: "Skills", value: String(surfaces.skills.length) });
+      rows.push({
+        label: t("pluginDetailShared.skillsLabel"),
+        value: String(surfaces.skills.length),
+      });
     }
     if (surfaces.hooks.length > 0) {
-      rows.push({ label: "Hooks", value: String(surfaces.hooks.length) });
+      rows.push({
+        label: t("pluginDetailShared.hooksLabel"),
+        value: String(surfaces.hooks.length),
+      });
     }
     if (surfaces.tools.length > 0) {
-      rows.push({ label: "Tools", value: String(surfaces.tools.length) });
+      rows.push({
+        label: t("pluginDetailShared.toolsLabel"),
+        value: String(surfaces.tools.length),
+      });
     }
   }
 
@@ -180,6 +197,7 @@ export function PluginDetailActions({
   onToggle,
   isToggling,
 }: PluginDetailActionsProps) {
+  const { t } = useTranslation("intelligence");
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [confirmingUpgrade, setConfirmingUpgrade] = useState(false);
 
@@ -187,9 +205,10 @@ export function PluginDetailActions({
   const artifact = plugin.artifact ?? null;
   const updateAvailable = drift?.status === "update-available";
   const upgradeTitle = updateAvailable
-    ? `Upgrade ${shortSha(drift?.local?.commit ?? null)} → ${shortSha(
-        drift?.remote?.commit ?? null,
-      )}`
+    ? t("pluginDetailShared.upgradeTitle", {
+        fromSha: shortSha(drift?.local?.commit ?? null),
+        toSha: shortSha(drift?.remote?.commit ?? null),
+      })
     : undefined;
 
   const confirmRemove = () => {
@@ -223,7 +242,7 @@ export function PluginDetailActions({
               with no list row to source it from. Optimistic, no confirm. */}
           {enabled !== undefined && onToggle ? (
             <Toggle
-              label="Auto-include in chat"
+              label={t("pluginDetailShared.autoIncludeInChat")}
               checked={enabled}
               onChange={() => onToggle()}
               disabled={isToggling}
@@ -232,7 +251,7 @@ export function PluginDetailActions({
           {artifact ? (
             <Button asChild leftIcon={<Download aria-hidden />}>
               <a href={artifact.url} download>
-                {artifact.label ?? "Download"}
+                {artifact.label ?? t("pluginDetailShared.download")}
               </a>
             </Button>
           ) : null}
@@ -250,7 +269,7 @@ export function PluginDetailActions({
                 )
               }
             >
-              Upgrade
+              {t("pluginDetailShared.upgrade")}
             </Button>
           ) : null}
           <Button
@@ -266,7 +285,7 @@ export function PluginDetailActions({
               )
             }
           >
-            Remove
+            {t("pluginDetailShared.remove")}
           </Button>
         </div>
       ) : (
@@ -282,15 +301,15 @@ export function PluginDetailActions({
             )
           }
         >
-          Install
+          {t("pluginDetailShared.install")}
         </Button>
       )}
 
       <ConfirmDialog
         open={confirmingRemove}
-        title="Remove plugin"
+        title={t("pluginDetailShared.removePluginTitle")}
         message={pluginRemoveConfirmMessage(plugin.name)}
-        confirmLabel="Remove"
+        confirmLabel={t("pluginDetailShared.remove")}
         destructive
         onConfirm={confirmRemove}
         onCancel={() => setConfirmingRemove(false)}
@@ -298,7 +317,7 @@ export function PluginDetailActions({
 
       <ConfirmDialog
         open={confirmingUpgrade}
-        title="Upgrade plugin"
+        title={t("pluginDetailShared.upgradePluginTitle")}
         message={pluginRiskyUpgradeConfirmMessage(plugin.name)}
         confirmLabel={pluginRiskyUpgradeConfirmLabel}
         destructive
@@ -321,6 +340,7 @@ export function PluginDetailLoading() {
 }
 
 export function PluginDetailError() {
+  const { t } = useTranslation("intelligence");
   return (
     <div
       className="flex flex-col items-center justify-center gap-2 py-12 text-center"
@@ -328,10 +348,10 @@ export function PluginDetailError() {
     >
       <TriangleAlert className="h-6 w-6" aria-hidden />
       <p className="text-body-medium-default">
-        We couldn&apos;t load this plugin.
+        {t("pluginDetailShared.loadErrorTitle")}
       </p>
       <p className="text-body-small-default">
-        It may not exist, or your assistant may be on an older build.
+        {t("pluginDetailShared.loadErrorDetail")}
       </p>
     </div>
   );

@@ -25,7 +25,7 @@ import { createConversation } from "../../../persistence/conversation-crud.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { createGroup } from "../../../persistence/group-crud.js";
-import { rawRun } from "../../../persistence/raw-query.js";
+import { rawExec, rawRun } from "../../../persistence/raw-query.js";
 import {
   conversationAssistantAttentionState,
   conversationAttentionEvents,
@@ -329,19 +329,34 @@ describe("GET /v1/conversations with groupId", () => {
     ]);
   });
 
-  test("a group-scoped page is ordered by the user's arrangement", async () => {
-    // Pinned and custom groups are drag-reorderable, so display order wins
-    // over recency inside a group.
-    seedPinned("third", 2);
-    seedPinned("first", 0);
-    seedPinned("second", 1);
+  test("a group-scoped page is ordered by recency, not by display_order", async () => {
+    /* `display_order` still holds values for anyone who arranged rows by hand
+       before that affordance was removed, so the column is set here to the
+       REVERSE of the expected result: a read that consults it again fails
+       rather than passing by coincidence. Seeded oldest-first so insertion
+       order cannot be mistaken for the assertion either. */
+    const oldest = seedPinned("oldest", 0);
+    const middle = seedPinned("middle", 1);
+    const newest = seedPinned("newest", 2);
+    for (const [id, at] of [
+      [oldest, 1_000],
+      [middle, 5_000],
+      [newest, 9_000],
+    ] as const) {
+      rawRun(
+        "test:setLastMessageAt",
+        "UPDATE conversations SET last_message_at = ? WHERE id = ?",
+        at,
+        id,
+      );
+    }
 
     const result = (await invoke({ groupId: "system:pinned" })) as ListResponse;
 
     expect(result.conversations.map((c) => c.title)).toEqual([
-      "first",
-      "second",
-      "third",
+      "newest",
+      "middle",
+      "oldest",
     ]);
   });
 
@@ -434,10 +449,9 @@ describe("GET /v1/conversations with groupId", () => {
     expect(custom.conversations.map((c) => c.title)).toEqual(["car-1"]);
   });
 
-  test("system buckets other than Pinned sort by recency, not stale display order", async () => {
-    // `display_order` persists through moves, so honouring it for
-    // system:background would order that section differently depending on
-    // whether it was fetched by conversationType or by groupId.
+  test("a surfaced background row sorts by recency, not stale display order", async () => {
+    // `display_order` persists through moves, so a row that carries one from
+    // an earlier group must not have it resurface as a sort key here.
     const older = createConversation({
       title: "older",
       conversationType: "background",
@@ -497,6 +511,139 @@ describe("GET /v1/conversations with groupId", () => {
       "pinned-1",
       "ungrouped-1",
     ]);
+  });
+});
+
+describe("GET /v1/conversations with needsAttention", () => {
+  function seedUnseen(conversationId: string): void {
+    projectAssistantMessage({
+      conversationId,
+      messageId: `msg-${conversationId}`,
+      messageAt: Date.now(),
+    });
+  }
+
+  function markSeen(conversationId: string): void {
+    recordConversationSeenSignal({
+      conversationId,
+      sourceChannel: "vellum",
+      signalType: "macos_conversation_opened",
+      confidence: "explicit",
+      source: "test",
+    });
+  }
+
+  beforeEach(() => {
+    getDb().delete(conversationAttentionEvents).run();
+    getDb().delete(conversationAssistantAttentionState).run();
+    clearConversations();
+  });
+
+  test("returns only conversations with an unseen latest assistant message", async () => {
+    const unseen = createConversation("needs-attention");
+    seedUnseen(unseen.id);
+    const seen = createConversation("already-seen");
+    seedUnseen(seen.id);
+    markSeen(seen.id);
+    // No attention projection at all: not unseen, so not returned. The
+    // filter's inner join is what excludes it; a left join would leak it.
+    createConversation("never-projected");
+
+    const result = await invoke({ needsAttention: "true" });
+
+    expect(result.conversations.map((c) => c.title)).toEqual([
+      "needs-attention",
+    ]);
+  });
+
+  test("omitting the filter leaves every list unchanged, join and all", async () => {
+    /* The sensitivity check for the conditional join: with the filter off,
+       rows with no attention row must still be listed. If the join were
+       applied unconditionally, "never-projected" would vanish from the
+       plain list, which is every list the app has today. */
+    const unseen = createConversation("has-attention-row");
+    seedUnseen(unseen.id);
+    createConversation("never-projected");
+
+    const result = await invoke();
+
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "has-attention-row",
+      "never-projected",
+    ]);
+  });
+
+  test("hasMore and the total describe the filtered set, not the whole table", async () => {
+    /* countConversations reads through the same where AND the same join;
+       a page and its total have to agree or the client's hasMore lies. */
+    for (let i = 0; i < 3; i++) {
+      const c = createConversation(`unseen-${i}`);
+      seedUnseen(c.id);
+    }
+    for (let i = 0; i < 5; i++) {
+      createConversation(`quiet-${i}`);
+    }
+
+    const page = await invoke({ needsAttention: "true", limit: "2" });
+
+    expect(page.conversations).toHaveLength(2);
+    expect(page.hasMore).toBe(true);
+    const rest = await invoke({
+      needsAttention: "true",
+      limit: "2",
+      offset: "2",
+    });
+    expect(rest.conversations).toHaveLength(1);
+    expect(rest.hasMore).toBe(false);
+  });
+
+  test("an attention-scoped first page has no pinned rows appended to it", async () => {
+    /* Same rule as the group-scoped page: the pinned injection exists for
+       a client reading Pinned out of the unfiltered list, and a caller
+       that asked for the unseen subset is not that client. A seen pinned
+       row appended here would be a row outside the filter, on a page whose
+       hasMore was computed from the filtered count. */
+    const unseen = createConversation("unseen-only");
+    seedUnseen(unseen.id);
+    const pinnedSeen = createConversation("pinned-and-seen");
+    rawRun(
+      "test:pinConversation",
+      "UPDATE conversations SET is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
+      pinnedSeen.id,
+    );
+
+    const result = await invoke({ needsAttention: "true" });
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["unseen-only"]);
+  });
+
+  test("composes with the other filters", async () => {
+    const group = createGroup("Work");
+    const inGroupUnseen = createConversation("in-group-unseen");
+    seedUnseen(inGroupUnseen.id);
+    rawRun(
+      "test:fileInGroup",
+      "UPDATE conversations SET group_id = ? WHERE id = ?",
+      group.id,
+      inGroupUnseen.id,
+    );
+    const outOfGroupUnseen = createConversation("out-of-group-unseen");
+    seedUnseen(outOfGroupUnseen.id);
+
+    const result = await invoke({ needsAttention: "true", groupId: group.id });
+
+    expect(result.conversations.map((c) => c.title)).toEqual([
+      "in-group-unseen",
+    ]);
+  });
+
+  test('any value other than "true" is rejected with a 400', () => {
+    /* Same posture as conversationType: silently reading a typo or a newer
+       client's value as "no filter" would hand back the full list where a
+       subset was asked for, and that skew is invisible to the client. */
+    for (const bad of ["false", "1", "yes", "TRUE"]) {
+      expect(() => invoke({ needsAttention: bad })).toThrow(BadRequestError);
+    }
   });
 });
 
@@ -766,5 +913,223 @@ describe("GET /v1/conversations/unread-count", () => {
     );
 
     expect(invokeUnreadCount()).toEqual({ count: 1 });
+  });
+});
+
+describe("GET /v1/conversations/sections", () => {
+  const sectionsHandler = findHandler(
+    CONVERSATION_LIST_ROUTES,
+    "getConversationSections",
+  );
+
+  interface SectionRow {
+    kind: "pinned" | "group" | "channel" | "chats";
+    groupId?: string;
+    name?: string;
+    icon?: string | null;
+    sortPosition?: number;
+    channelId?: string;
+    total: number;
+    unread: number;
+  }
+
+  function invokeSections(): SectionRow[] {
+    return (sectionsHandler({}) as { sections: SectionRow[] }).sections;
+  }
+
+  function fileIntoGroup(conversationId: string, groupId: string): void {
+    rawRun(
+      "test:fileIntoGroup",
+      "UPDATE conversations SET group_id = ? WHERE id = ?",
+      groupId,
+      conversationId,
+    );
+  }
+
+  function stampChannel(conversationId: string, channel: string): void {
+    rawRun(
+      "test:stampChannel",
+      "UPDATE conversations SET origin_channel = ? WHERE id = ?",
+      channel,
+      conversationId,
+    );
+  }
+
+  function pin(conversationId: string): void {
+    rawRun(
+      "test:pinConversation",
+      "UPDATE conversations SET is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
+      conversationId,
+    );
+  }
+
+  function seedUnseen(conversationId: string): void {
+    projectAssistantMessage({
+      conversationId,
+      messageId: `msg-${conversationId}`,
+      messageAt: Date.now(),
+    });
+  }
+
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  test("an empty conversation table yields Chats alone, at zero", () => {
+    // Chats is the leftover bucket and renders regardless, so its counts
+    // are part of the contract even when nothing exists.
+    expect(invokeSections()).toEqual([{ kind: "chats", total: 0, unread: 0 }]);
+  });
+
+  test("every section kind appears with its own totals", () => {
+    const pinned = createConversation({ title: "pinned-1" });
+    pin(pinned.id);
+    const group = createGroup("Sections Spread Group");
+    fileIntoGroup(createConversation({ title: "g-1" }).id, group.id);
+    fileIntoGroup(createConversation({ title: "g-2" }).id, group.id);
+    stampChannel(createConversation({ title: "slack-1" }).id, "slack");
+    createConversation({ title: "native-unstamped" });
+    stampChannel(createConversation({ title: "native-stamped" }).id, "vellum");
+
+    const sections = invokeSections();
+
+    expect(sections).toContainEqual({ kind: "pinned", total: 1, unread: 0 });
+    expect(sections).toContainEqual({
+      kind: "group",
+      groupId: group.id,
+      name: "Sections Spread Group",
+      icon: null,
+      sortPosition: group.sortPosition,
+      total: 2,
+      unread: 0,
+    });
+    expect(sections).toContainEqual({
+      kind: "channel",
+      channelId: "slack",
+      total: 1,
+      unread: 0,
+    });
+    // NULL origin_channel reads as native, exactly as the list filter reads
+    // it, so the stamped and unstamped native rows share the Chats bucket.
+    expect(sections).toContainEqual({ kind: "chats", total: 2, unread: 0 });
+  });
+
+  test("unread counts follow the seen state per section", () => {
+    const pinned = createConversation({ title: "pinned-seen" });
+    pin(pinned.id);
+    seedUnseen(pinned.id);
+    recordConversationSeenSignal({
+      conversationId: pinned.id,
+      sourceChannel: "vellum",
+      signalType: "macos_conversation_opened",
+      confidence: "explicit",
+      source: "test",
+    });
+
+    const group = createGroup("Sections Unread Group");
+    const unreadInGroup = createConversation({ title: "g-unread" });
+    fileIntoGroup(unreadInGroup.id, group.id);
+    seedUnseen(unreadInGroup.id);
+    // A member with no attention projection at all reads as seen.
+    fileIntoGroup(createConversation({ title: "g-quiet" }).id, group.id);
+
+    const chatsUnread = createConversation({ title: "chat-unread" });
+    seedUnseen(chatsUnread.id);
+
+    const sections = invokeSections();
+
+    expect(sections).toContainEqual({ kind: "pinned", total: 1, unread: 0 });
+    expect(sections).toContainEqual({
+      kind: "group",
+      groupId: group.id,
+      name: "Sections Unread Group",
+      icon: null,
+      sortPosition: group.sortPosition,
+      total: 2,
+      unread: 1,
+    });
+    expect(sections).toContainEqual({ kind: "chats", total: 1, unread: 1 });
+  });
+
+  test("a background row filed into a group counts toward total but never unread", () => {
+    // Mirrors the unread-count contract: the custom-group visibility arm
+    // admits the row into the section, and the not-background unread rule
+    // keeps it out of the badge.
+    const group = createGroup("Sections Background Group");
+    const bg = createConversation({
+      title: "bg-in-group",
+      conversationType: "background",
+    });
+    fileIntoGroup(bg.id, group.id);
+    seedUnseen(bg.id);
+
+    const sections = invokeSections();
+
+    expect(sections).toContainEqual({
+      kind: "group",
+      groupId: group.id,
+      name: "Sections Background Group",
+      icon: null,
+      sortPosition: group.sortPosition,
+      total: 1,
+      unread: 0,
+    });
+  });
+
+  test("an empty custom group gets no section", () => {
+    const group = createGroup("Sections Empty Group");
+
+    const sections = invokeSections();
+
+    expect(sections.some((s) => s.groupId === group.id)).toBe(false);
+  });
+
+  test("archived rows count toward no section", () => {
+    const group = createGroup("Sections Archived Group");
+    fileIntoGroup(seedArchived("archived-in-group"), group.id);
+
+    const sections = invokeSections();
+
+    expect(sections.some((s) => s.groupId === group.id)).toBe(false);
+  });
+
+  test("a dangling group id is skipped, not surfaced", () => {
+    /* Live write paths cannot create this state: group_id carries a foreign
+       key, and the placement write sanitizes unknown groups precisely to
+       avoid violating it. A restored snapshot can, though: in-place restore
+       swaps the SQLite file without running migrations in-process (the same
+       window that lets legacy private rows exist transiently), so the
+       fixture creates the state the way reality does, with enforcement off. */
+    rawExec("PRAGMA foreign_keys = OFF");
+    try {
+      fileIntoGroup(
+        createConversation({ title: "dangling" }).id,
+        "00000000-0000-4000-8000-00000000dead",
+      );
+    } finally {
+      rawExec("PRAGMA foreign_keys = ON");
+    }
+
+    const sections = invokeSections();
+
+    expect(sections.some((s) => s.kind === "group")).toBe(false);
+    // Grouped, so it does not leak into the ungrouped Chats bucket either.
+    expect(sections).toContainEqual({ kind: "chats", total: 0, unread: 0 });
+  });
+
+  test("an unsurfaced background row pinned by raw column writes stays invisible", () => {
+    // Standard-listing visibility admits a pinned background row only when
+    // it is surfaced (the pinned group fails the custom-group arm on its
+    // system: prefix), so it appears in neither the Pinned list nor the
+    // Pinned count.
+    const bg = createConversation({
+      title: "bg-pinned",
+      conversationType: "background",
+    });
+    pin(bg.id);
+
+    const sections = invokeSections();
+
+    expect(sections.some((s) => s.kind === "pinned")).toBe(false);
   });
 });

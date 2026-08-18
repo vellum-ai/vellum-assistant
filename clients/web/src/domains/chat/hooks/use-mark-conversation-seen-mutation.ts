@@ -31,10 +31,12 @@ import {
   type ConversationCacheSnapshot,
 } from "@/utils/conversation-cache";
 import {
+  adjustSectionUnreadCache,
   adjustUnreadCountCache,
   markConversationSeenLocal,
 } from "@/utils/conversation-cache-mutations";
 import { contributesToUnreadCount } from "@/utils/conversation-predicates";
+import type { Conversation } from "@/types/conversation-types";
 
 export interface MarkConversationSeenVars {
   assistantId: string;
@@ -45,6 +47,12 @@ interface MarkSeenContext {
   snapshot: ConversationCacheSnapshot;
   /** `-1` when the row was counted toward the unread badge, else `0`. */
   unreadCountDelta: number;
+  /**
+   * The row as it read when the deltas were applied, kept so `onError` can
+   * reverse the per-section adjustment against the same bucket it hit, even
+   * if a concurrent move has re-filed the live row since.
+   */
+  unreadRow?: Conversation;
 }
 
 export function useMarkConversationSeenMutation() {
@@ -65,14 +73,21 @@ export function useMarkConversationSeenMutation() {
       // Read the row before the patch flips its seen state: only a row that
       // was contributing to the badge should decrement it.
       const row = findConversation(queryClient, assistantId, conversationId);
-      const unreadCountDelta =
-        row !== undefined && contributesToUnreadCount(row) ? -1 : 0;
-      if (unreadCountDelta !== 0) {
+      const unreadRow =
+        row !== undefined && contributesToUnreadCount(row) ? row : undefined;
+      const unreadCountDelta = unreadRow ? -1 : 0;
+      if (unreadRow) {
         adjustUnreadCountCache(queryClient, assistantId, unreadCountDelta);
+        adjustSectionUnreadCache(
+          queryClient,
+          assistantId,
+          unreadRow,
+          unreadCountDelta,
+        );
       }
 
       markConversationSeenLocal(queryClient, assistantId, conversationId);
-      return { snapshot, unreadCountDelta };
+      return { snapshot, unreadCountDelta, unreadRow };
     },
     onError: (err, { assistantId }, context) => {
       if (context?.snapshot) {
@@ -84,6 +99,14 @@ export function useMarkConversationSeenMutation() {
           assistantId,
           -context.unreadCountDelta,
         );
+        if (context.unreadRow) {
+          adjustSectionUnreadCache(
+            queryClient,
+            assistantId,
+            context.unreadRow,
+            -context.unreadCountDelta,
+          );
+        }
       }
       captureError(err, { context: "markConversationRead" });
     },

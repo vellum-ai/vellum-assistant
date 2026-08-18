@@ -5,7 +5,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { DetailCard } from "@/components/detail-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useSupportsRemoteWebPairing } from "@/lib/backwards-compat/remote-web-pairing-gate";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 import { resolvePairDeviceTarget } from "./pair-device-client";
 import { PairDeviceReady } from "./pair-device-ready";
@@ -20,27 +20,20 @@ import { usePairDevice } from "./use-pair-device";
  *
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
- * pairing routes ({@link useSupportsRemoteWebPairing}); a remote or platform
- * session, or an older assistant, sees nothing. Generating also requires the
- * `web-remote-ingress` flag — checked before minting, like the CLI, so a
- * rendered QR always represents a scannable pairing.
+ * pairing routes ({@link useSupportsRemoteWebPairing}). The client-scoped
+ * `web-remote-ingress` flag decides only whether this card renders; it gates
+ * no pairing functionality.
  */
 export function PairDeviceCard() {
   const target = resolvePairDeviceTarget();
   const supported = useSupportsRemoteWebPairing();
-  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
-  const webRemoteIngressOn =
-    useAssistantFeatureFlagStore.use.webRemoteIngress();
-  const pair = usePairDevice(
-    target?.base ?? null,
-    webRemoteIngressOn,
-    target?.ingressUrl ?? null,
-  );
+  const webRemoteIngressOn = useClientFeatureFlagStore.use.webRemoteIngress();
+  const pair = usePairDevice(target?.base ?? null, target?.ingressUrl ?? null);
   const { copy, copied } = useCopyToClipboard({
     errorMessage: "Could not copy the pairing address.",
   });
 
-  if (!target || !supported) {
+  if (!target || !supported || !webRemoteIngressOn) {
     return null;
   }
 
@@ -52,25 +45,11 @@ export function PairDeviceCard() {
   // empty. Advanced users can still type an address into the field below.
   const showNoTunnelGuidance =
     pair.prefillSource === "none" && pair.publicBaseUrl.trim() === "";
-  // Until the feature-flag store hydrates, webRemoteIngressOn is the registry
-  // default (false), not this assistant's real value, so the mint precheck
-  // can't be trusted until hasHydrated is true.
-  const buttonLabel = !flagsHydrated
-    ? "Loading…"
-    : isMinting
-      ? "Generating…"
-      : isReady
-        ? "Generate new code"
-        : "Generate pairing QR";
-
-  // Both the button and the Enter key mint through here, so the flag precheck
-  // is never evaluated against the pre-hydration default.
-  const handleGenerate = () => {
-    if (!flagsHydrated) {
-      return;
-    }
-    pair.generate();
-  };
+  const buttonLabel = isMinting
+    ? "Generating…"
+    : isReady
+      ? "Generate new code"
+      : "Generate pairing QR";
 
   return (
     <DetailCard
@@ -104,17 +83,15 @@ export function PairDeviceCard() {
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                handleGenerate();
+                pair.generate();
               }
             }}
           />
           <Button
             variant="primary"
             className="self-start"
-            disabled={
-              !flagsHydrated || isMinting || pair.publicBaseUrl.trim() === ""
-            }
-            onClick={handleGenerate}
+            disabled={isMinting || pair.publicBaseUrl.trim() === ""}
+            onClick={pair.generate}
           >
             {buttonLabel}
           </Button>

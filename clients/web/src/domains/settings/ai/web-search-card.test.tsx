@@ -9,7 +9,7 @@
  *   4. Legacy managed-mode daemon configs render as Vellum — except
  *      Provider Native, which stays itself (mirrors migration 132).
  *
- * The design-library Dropdown is real, driven via its combobox trigger like
+ * The design-library Select is real, driven via its combobox trigger like
  * `speech-to-text-card.test.tsx`.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";

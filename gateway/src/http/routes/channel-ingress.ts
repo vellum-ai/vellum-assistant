@@ -62,6 +62,11 @@ const ApproveBodySchema = ApproveChannelIngressRequestSchema;
  * route is served out of a pending declaration, so approval state alone does
  * not say whether a route is live, and a listing that reimplemented the
  * exception could come to disagree with the surface it describes.
+ *
+ * `deliversInbound` is the difference between a route that receives a callback
+ * and one that starts conversations. They are not the same grant and a guardian
+ * deciding about the second should be told so, so it is reported rather than
+ * left to be inferred from a `description` the plugin wrote.
  */
 function routeView(
   resolution: PluginIngressResolution,
@@ -78,6 +83,7 @@ function routeView(
     served:
       findServableRoute(resolution, plugin, route.path, route.kind) !==
       undefined,
+    deliversInbound: route.inbound !== undefined,
     credential: route.verification
       ? credentialKey(plugin, route.verification.secret.field)
       : credentialKey(

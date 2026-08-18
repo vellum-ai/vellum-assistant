@@ -1,6 +1,11 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  hashKey,
+  QueryClient,
+  QueryClientProvider,
+  QueryObserver,
+} from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
@@ -81,6 +86,44 @@ function emit(event: AssistantEvent): void {
     emittedAt: new Date().toISOString(),
     message: event,
   } as AssistantEventEnvelope);
+}
+
+/** Mirrors RECONNECT_SWEEP_DEBOUNCE_MS in use-assistant-resource-sync.ts. */
+const SWEEP_DEBOUNCE_MS = 500;
+
+/**
+ * The reconnect sweep runs on a trailing debounce, so assertions have to let
+ * the window elapse first. bun:test provides no fake timers, so this is a real
+ * sleep, matching the idiom in use-conversation-sync.test.tsx.
+ */
+async function flushReconnectSweep(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, SWEEP_DEBOUNCE_MS + 150));
+}
+
+/** Stable identity for a query key, so predicate-only calls compare as absent. */
+function keyId(queryKey: readonly unknown[] | undefined): string | undefined {
+  return queryKey === undefined ? undefined : hashKey(queryKey);
+}
+
+type InvalidateCall = {
+  queryKey?: readonly unknown[];
+  refetchType?: string;
+};
+
+/** Stand-in for `queryClient.invalidateQueries` that records every call. */
+function recordInvalidations(sink: InvalidateCall[]) {
+  return (arg: unknown) => {
+    sink.push(arg as InvalidateCall);
+    return Promise.resolve();
+  };
+}
+
+/** The recorded invalidations that targeted one exact query key. */
+function sweepsFor(
+  calls: InvalidateCall[],
+  queryKey: readonly unknown[],
+): InvalidateCall[] {
+  return calls.filter((call) => keyId(call.queryKey) === keyId(queryKey));
 }
 
 beforeEach(() => {
@@ -233,61 +276,7 @@ describe("useAssistantResourceSync", () => {
       wrapper: createWrapper(queryClient),
     });
     publish("sse.opened", { assistantId: "asst-1", cause: "error" });
-    await waitFor(() => {
-      const queryKeys = calls.map(
-        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
-      );
-      expect(queryKeys).toEqual(
-        expect.arrayContaining([
-          memoryGraphOptions("asst-1").queryKey,
-          memoryStatsOptions("asst-1").queryKey,
-        ]) as never,
-      );
-    });
-  });
-
-  // Memory availability is derived from config, so the config tag has to reach
-  // the two memory reads as well. They use hand-rolled query keys, so the
-  // generated config invalidation never touches them on its own.
-  test("invalidates memory graph / stats queries on the config sync tag", async () => {
-    const queryClient = freshQueryClient();
-    const calls: unknown[][] = [];
-    queryClient.invalidateQueries = ((arg: unknown) => {
-      calls.push([arg]);
-      return Promise.resolve();
-    }) as never;
-    renderHook(() => useAssistantResourceSync("asst-1", true), {
-      wrapper: createWrapper(queryClient),
-    });
-    emit(syncEvent([SYNC_TAGS.assistantConfig]) as unknown as AssistantEvent);
-    await waitFor(() => {
-      const queryKeys = calls.map(
-        ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey,
-      );
-      expect(queryKeys).toEqual(
-        expect.arrayContaining([
-          memoryGraphOptions("asst-1").queryKey,
-          memoryStatsOptions("asst-1").queryKey,
-        ]) as never,
-      );
-    });
-  });
-
-  // The reconnect catch-up exists because `sync_changed` events are missed
-  // while the transport is down. A resource covered by a tag but not by the
-  // reconnect sweep silently keeps serving pre-gap data for its whole
-  // staleTime, which for the memory reads is five minutes.
-  test("reconciles memory graph / stats queries on non-fresh sse.opened reconnect", async () => {
-    const queryClient = freshQueryClient();
-    const calls: unknown[] = [];
-    queryClient.invalidateQueries = ((arg: unknown) => {
-      calls.push(arg);
-      return Promise.resolve();
-    }) as never;
-    renderHook(() => useAssistantResourceSync("asst-1", true), {
-      wrapper: createWrapper(queryClient),
-    });
-    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await flushReconnectSweep();
     await waitFor(() => {
       const queryKeys = calls.map(
         (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
@@ -416,6 +405,7 @@ describe("useAssistantResourceSync", () => {
       wrapper: createWrapper(queryClient),
     });
     publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await flushReconnectSweep();
     await waitFor(() => {
       const queryKeys = calls.map(
         (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
@@ -438,7 +428,7 @@ describe("useAssistantResourceSync", () => {
     });
   });
 
-  test("does not reconcile on fresh sse.opened", () => {
+  test("does not reconcile on fresh sse.opened", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
     queryClient.invalidateQueries = spy as never;
@@ -446,7 +436,291 @@ describe("useAssistantResourceSync", () => {
       wrapper: createWrapper(queryClient),
     });
     publish("sse.opened", { assistantId: "asst-1", cause: "fresh" });
+    await flushReconnectSweep();
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  // The sweep is the only thing that reconciles a view that was already open
+  // when the stream dropped: it missed every `sync_changed` in the gap, and
+  // nothing else will tell it to read again while it stays mounted and fresh.
+  test("reconnect sweep refetches mounted observers across every swept family", async () => {
+    const queryClient = freshQueryClient();
+    const pathOpts = { path: { assistant_id: "asst-1" } };
+    let configFetches = 0;
+    let soundsFetches = 0;
+    const configObserver = new QueryObserver(queryClient, {
+      queryKey: configGetQueryKey(pathOpts),
+      queryFn: () => {
+        configFetches += 1;
+        return Promise.resolve({ ok: true });
+      },
+      staleTime: Infinity,
+    });
+    const soundsObserver = new QueryObserver(queryClient, {
+      queryKey: soundsConfigGetQueryKey(pathOpts),
+      queryFn: () => {
+        soundsFetches += 1;
+        return Promise.resolve({ ok: true });
+      },
+      staleTime: Infinity,
+    });
+    const unsubConfig = configObserver.subscribe(() => {});
+    const unsubSounds = soundsObserver.subscribe(() => {});
+    try {
+      await waitFor(() => {
+        expect(configFetches).toBe(1);
+        expect(soundsFetches).toBe(1);
+      });
+      renderHook(() => useAssistantResourceSync("asst-1", true), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+      await flushReconnectSweep();
+
+      await waitFor(() => {
+        expect(configFetches).toBe(2);
+        expect(soundsFetches).toBe(2);
+      });
+    } finally {
+      unsubConfig();
+      unsubSounds();
+    }
+  });
+
+  // The other half of that bargain: a view nobody has open costs no request.
+  // TanStack's default `refetchType` only refetches observed queries, so an
+  // unobserved family is marked stale and reads through on its next mount.
+  test("reconnect sweep stales an unobserved query without fetching it", async () => {
+    const queryClient = freshQueryClient();
+    const soundsKey = soundsConfigGetQueryKey({
+      path: { assistant_id: "asst-1" },
+    });
+    let fetches = 0;
+    const queryFn = () => {
+      fetches += 1;
+      return Promise.resolve({ ok: true });
+    };
+    const observer = new QueryObserver(queryClient, {
+      queryKey: soundsKey,
+      queryFn,
+      staleTime: Infinity,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    await waitFor(() => {
+      expect(fetches).toBe(1);
+    });
+    unsubscribe();
+
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await flushReconnectSweep();
+
+    expect(fetches).toBe(1);
+    expect(queryClient.getQueryState(soundsKey)?.isInvalidated).toBe(true);
+
+    // Stale, not forgotten: the next observer mount reads through.
+    const remounted = new QueryObserver(queryClient, {
+      queryKey: soundsKey,
+      queryFn,
+      staleTime: Infinity,
+    });
+    const unsubRemount = remounted.subscribe(() => {});
+    try {
+      await waitFor(() => {
+        expect(fetches).toBe(2);
+      });
+    } finally {
+      unsubRemount();
+    }
+  });
+
+  test("collapses a reconnect flap into a single sweep", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await flushReconnectSweep();
+
+    const avatarSweeps = calls.filter(
+      (arg) =>
+        keyId((arg as { queryKey?: readonly unknown[] }).queryKey) ===
+        keyId(avatarQueryKey("asst-1")),
+    );
+    expect(avatarSweeps.length).toBe(1);
+  });
+
+  // The debounce window is the only place a scheduled catch-up could go
+  // missing: leaving inside it used to cancel the timer outright, and the
+  // return trip attaches fresh, which this hook ignores. Cleanup flushes
+  // instead, so the gap is always reconciled for the assistant it was
+  // scheduled for.
+  test("unmount flushes the pending reconnect sweep as stale-marking", async () => {
+    const queryClient = freshQueryClient();
+    const calls: InvalidateCall[] = [];
+    queryClient.invalidateQueries = recordInvalidations(calls) as never;
+    const { unmount } = renderHook(
+      () => useAssistantResourceSync("asst-1", true),
+      { wrapper: createWrapper(queryClient) },
+    );
+
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    unmount();
+
+    const avatarSweeps = sweepsFor(calls, avatarQueryKey("asst-1"));
+    expect(avatarSweeps.length).toBe(1);
+    expect(avatarSweeps[0]?.refetchType).toBe("none");
+
+    // The flush consumed the pending timer, so the debounce never fires again.
+    await flushReconnectSweep();
+    expect(sweepsFor(calls, avatarQueryKey("asst-1")).length).toBe(1);
+  });
+
+  // A queued sweep closes over the assistant that was active when it was
+  // scheduled, so switching assistants flushes it for that assistant rather
+  // than letting it run against the one the user just switched to.
+  test("switching assistants flushes the pending sweep for the assistant left behind", async () => {
+    const queryClient = freshQueryClient();
+    const calls: InvalidateCall[] = [];
+    queryClient.invalidateQueries = recordInvalidations(calls) as never;
+    const { rerender } = renderHook(
+      ({ id }: { id: string }) => useAssistantResourceSync(id, true),
+      {
+        wrapper: createWrapper(queryClient),
+        initialProps: { id: "asst-1" },
+      },
+    );
+
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    rerender({ id: "asst-2" });
+
+    const avatarSweeps = sweepsFor(calls, avatarQueryKey("asst-1"));
+    expect(avatarSweeps.length).toBe(1);
+    expect(avatarSweeps[0]?.refetchType).toBe("none");
+    expect(sweepsFor(calls, avatarQueryKey("asst-2")).length).toBe(0);
+
+    await flushReconnectSweep();
+    expect(sweepsFor(calls, avatarQueryKey("asst-1")).length).toBe(1);
+  });
+
+  // The departing flush is the whole point of the invariant: the long
+  // staleTime families (memory reads at five minutes) would otherwise serve
+  // pre-gap data on the next visit, well past the 10s global staleTime that
+  // rescues everything else.
+  test("switching assistants stales the departing assistant's memory reads without fetching", async () => {
+    const queryClient = freshQueryClient();
+    const oldKey = memoryGraphOptions("asst-1").queryKey;
+    const newKey = memoryGraphOptions("asst-2").queryKey;
+    let oldFetches = 0;
+    let newFetches = 0;
+    const oldObserver = new QueryObserver(queryClient, {
+      queryKey: oldKey,
+      queryFn: () => {
+        oldFetches += 1;
+        return Promise.resolve({ ok: true });
+      },
+      staleTime: Infinity,
+    });
+    const newObserver = new QueryObserver(queryClient, {
+      queryKey: newKey,
+      queryFn: () => {
+        newFetches += 1;
+        return Promise.resolve({ ok: true });
+      },
+      staleTime: Infinity,
+    });
+    const unsubOld = oldObserver.subscribe(() => {});
+    const unsubNew = newObserver.subscribe(() => {});
+    try {
+      await waitFor(() => {
+        expect(oldFetches).toBe(1);
+        expect(newFetches).toBe(1);
+      });
+      const { rerender } = renderHook(
+        ({ id }: { id: string }) => useAssistantResourceSync(id, true),
+        {
+          wrapper: createWrapper(queryClient),
+          initialProps: { id: "asst-1" },
+        },
+      );
+
+      publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+      rerender({ id: "asst-2" });
+      await flushReconnectSweep();
+
+      expect(queryClient.getQueryState(oldKey)?.isInvalidated).toBe(true);
+      expect(oldFetches).toBe(1);
+      expect(queryClient.getQueryState(newKey)?.isInvalidated).toBe(false);
+      expect(newFetches).toBe(1);
+    } finally {
+      unsubOld();
+      unsubNew();
+    }
+  });
+
+  test("unmount stales the assistant's memory reads without fetching", async () => {
+    const queryClient = freshQueryClient();
+    const memoryKey = memoryGraphOptions("asst-1").queryKey;
+    let fetches = 0;
+    const observer = new QueryObserver(queryClient, {
+      queryKey: memoryKey,
+      queryFn: () => {
+        fetches += 1;
+        return Promise.resolve({ ok: true });
+      },
+      staleTime: Infinity,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      await waitFor(() => {
+        expect(fetches).toBe(1);
+      });
+      const { unmount } = renderHook(
+        () => useAssistantResourceSync("asst-1", true),
+        { wrapper: createWrapper(queryClient) },
+      );
+
+      publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+      unmount();
+      await flushReconnectSweep();
+
+      expect(queryClient.getQueryState(memoryKey)?.isInvalidated).toBe(true);
+      expect(fetches).toBe(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  // Cleanup only flushes what is still pending, so a sweep that already ran on
+  // its own timer is not run a second time when the hook later tears down.
+  test("cleanup after the debounce has fired does not sweep twice", async () => {
+    const queryClient = freshQueryClient();
+    const calls: InvalidateCall[] = [];
+    queryClient.invalidateQueries = recordInvalidations(calls) as never;
+    const { unmount } = renderHook(
+      () => useAssistantResourceSync("asst-1", true),
+      { wrapper: createWrapper(queryClient) },
+    );
+
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await flushReconnectSweep();
+    expect(sweepsFor(calls, avatarQueryKey("asst-1")).length).toBe(1);
+
+    unmount();
+    await flushReconnectSweep();
+
+    expect(sweepsFor(calls, avatarQueryKey("asst-1")).length).toBe(1);
   });
 
   test("invalidates home-feed query on home_feed_updated", async () => {

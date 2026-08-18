@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useViewerStore } from "@/stores/viewer-store";
 
@@ -28,6 +29,7 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { haptic } from "@/utils/haptics";
+import { revealConversationView } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { useNavigate } from "react-router";
 
@@ -215,7 +217,7 @@ export function useConversationLoader({
       conversationListError instanceof ApiError &&
       conversationListError.status === 401
     ) {
-      toast.error("Failed to authenticate user.");
+      toast.error(t("chat:useConversationLoader.authFailed"));
     }
   }, [conversationListError]);
 
@@ -445,8 +447,8 @@ export function useConversationLoader({
       useSubagentStore.getState().reset();
       useWorkflowStore.getState().reset();
       useViewerStore.getState().clearTranscriptPanelPayloads();
-      useViewerStore.getState().setMainView("chat");
       const draftConversationId = createDraftConversationId();
+      revealConversationView(draftConversationId);
       useConversationStore
         .getState()
         .setActiveConversationId(draftConversationId);

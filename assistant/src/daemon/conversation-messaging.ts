@@ -68,6 +68,7 @@ import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { restingTrust } from "./trust-context-types.js";
 
 const log = getLogger("conversation-messaging");
 
@@ -565,6 +566,12 @@ export interface EnqueueMessageOptions {
   sourceActorPrincipalId?: string;
   /** Auth context snapshot captured for queued turn-scoped authorization. */
   authContext?: AuthContext;
+  /**
+   * Sender's trust, for the drain to run this message under. Defaults to the
+   * conversation's trust at enqueue time, which the sending route has just
+   * set to this sender.
+   */
+  trustContext?: TrustContext;
 }
 
 // ── enqueueMessage ───────────────────────────────────────────────────
@@ -593,6 +600,9 @@ export function enqueueMessage(
     options.sourceActorPrincipalId ??
     ctx.currentTurnSourceActorPrincipalId ??
     queuedAuthContext?.actorPrincipalId;
+  // Deliberately not falling back to `currentTurnTrustContext`: that is the
+  // in-flight turn's actor, which is precisely who this message is not from.
+  const queuedTrustContext = options.trustContext ?? ctx.trustContext;
 
   if (!ctx.isProcessing()) {
     return { queued: false, requestId };
@@ -619,6 +629,7 @@ export function enqueueMessage(
     isInteractive,
     sourceActorPrincipalId,
     authContext: queuedAuthContext,
+    trustContext: queuedTrustContext,
     transport,
     displayContent,
     sentAt: Date.now(),
@@ -668,6 +679,14 @@ export interface PersistMessageOptions {
   metadata?: Record<string, unknown>;
   displayContent?: string;
   clientMessageId?: string;
+  /**
+   * Trust to attribute the stored row to. Queue drains pass the sender's
+   * captured trust so persisted provenance names the same actor the turn
+   * executes as; the conversation slot may by then hold someone else.
+   * Defaults to the conversation's trust, which is correct for callers
+   * persisting a message the current actor just sent.
+   */
+  trustContext?: TrustContext;
   /**
    * Persist the row without indexing it (no memory segments, embeddings, or
    * lexical-index entry). For machine-authored prompts that must not enter
@@ -844,7 +863,12 @@ export async function persistQueuedMessageBody(
       extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
     const turnIfCtx =
       extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
-    const provenance = provenanceFromTrustContext(ctx.trustContext);
+    const provenance = provenanceFromTrustContext(
+      // Callers that own a turn pass the sender's trust; the fallback serves
+      // ingress paths that persist before any per-turn stamp exists, where
+      // the slot their own resolution just wrote is the right actor.
+      options.trustContext ?? restingTrust(ctx),
+    );
     const imageSourcePaths = extractImageSourcePaths(attachments);
 
     // Strip the transient `slackInbound` carrier key from the persisted

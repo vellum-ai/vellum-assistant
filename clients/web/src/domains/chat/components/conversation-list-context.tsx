@@ -3,21 +3,26 @@
  *
  * Every conversation row (in Pinned, Recents, a channel section, a custom
  * group, or the collapsed-rail flyout) needs the same ~12 action callbacks
- * plus the active/processing/attention state and the drag-reorder
- * controller. Providing them through context lets {@link ConversationRow}
- * read what it needs directly, so the row, list, and section components
- * don't each take a dozen props.
+ * plus the active/processing/attention state. Providing them through context
+ * lets {@link ConversationRow} read what it needs directly, so the row, list,
+ * and section components don't each take a dozen props.
  */
 
 import { createContext, useContext } from "react";
 
-import type { UseDragReorderResult } from "@/domains/chat/hooks/use-drag-reorder";
 import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
 
 export interface ConversationListContextValue {
+  /**
+   * True inside the mobile overlay drawer, where sections are drawn as
+   * self-contained cards rather than runs of rows on the panel surface.
+   * Carried here because the components that need it sit several levels
+   * below the menu that knows which variant is mounted.
+   */
+  overlayCards?: boolean;
   activeConversationId?: string;
   /** Whether the *active* conversation is mid-turn (its row shows a spinner). */
   activeConversationProcessing?: boolean;
@@ -47,11 +52,6 @@ export interface ConversationListContextValue {
   onCreateGroupInto?: (conversation: Conversation) => void;
   /** Remove a conversation from its current custom group (back to Recents). */
   onRemoveFromGroup?: (conversation: Conversation) => void;
-
-  /** Drag-reorder controller; rows derive their own drag props from it. */
-  dragReorder: UseDragReorderResult<Conversation>;
-  /** True when reordering is wired (an `onReorder` handler exists). */
-  canReorder: boolean;
 }
 
 const ConversationListContext =

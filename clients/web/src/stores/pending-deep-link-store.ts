@@ -26,7 +26,12 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 
 export interface PendingDeepLinkState {
-  /** Latest pending `deeplink.send` message text, or `null` if none. */
+  /**
+   * Latest pending composer pre-fill text, or `null` if none. Written for a
+   * `deeplink.send` message and for a `deeplink.startVoice` prompt (Siri's
+   * "Ask …" intent). Pre-fill only, by design: deep-link text is untrusted,
+   * so the user is the one who sends it.
+   */
   pendingComposerMessage: string | null;
   /**
    * When a `deeplink.startVoice` was parked waiting for a live-voice session
@@ -39,6 +44,25 @@ export interface PendingDeepLinkState {
    * (see `consumePendingVoiceStart`).
    */
   pendingVoiceStartAt: number | null;
+  /**
+   * A message that a *proven* App Intent asked to send into a specific
+   * conversation (`deeplink.sendToThread` with `provenance: "intent"`), or
+   * `null` if none. Unlike `pendingComposerMessage` this is a request to
+   * send, not to pre-fill, so it stays parked until the chat domain has
+   * confirmed the target thread exists (`useDeepLinkThreadSend`); relaying
+   * before that could let a stale id mint a new conversation. `parkedAt`
+   * lets the consumer bound how long a park that never drains stays a
+   * *send* (it demotes to a pre-fill past the bound), as with the voice
+   * start's age check.
+   */
+  pendingThreadSend: PendingThreadSend | null;
+}
+
+/** A proven send-into-thread request; see `pendingThreadSend`. */
+export interface PendingThreadSend {
+  threadId: string;
+  message: string;
+  parkedAt: number;
 }
 
 export interface PendingDeepLinkActions {
@@ -60,10 +84,23 @@ export interface PendingDeepLinkActions {
    * was parked, and when the parked one is older than `maxAgeMs` — a park that
    * was never drained (its navigation bounced off a route guard, say) must not
    * open a full-screen voice session minutes later. Either way the park is
-   * cleared. Used by `drainPendingVoiceStartDeepLink` in the live-voice domain,
+   * cleared. Used by `drainPendingVoiceStart` in the live-voice domain,
    * which owns the age bound.
    */
   consumePendingVoiceStart: (maxAgeMs: number) => boolean;
+  /**
+   * Park a proven send-into-thread request. A newer request replaces an
+   * older one: the most recent intent wins, same as the composer message.
+   */
+  setPendingThreadSend: (threadId: string, message: string) => void;
+  /**
+   * Read and clear the parked send request, `parkedAt` included. Returns
+   * `null` when none is parked. Unlike `consumePendingVoiceStart` the age
+   * bound is not applied here: the consumer (`useDeepLinkThreadSend`) owns
+   * it, because an expired request is demoted to a composer pre-fill rather
+   * than dropped, and only the consumer can do that demotion.
+   */
+  consumePendingThreadSend: () => PendingThreadSend | null;
 }
 
 export type PendingDeepLinkStore = PendingDeepLinkState &
@@ -73,6 +110,7 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
   (set, get) => ({
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
+    pendingThreadSend: null,
     setPendingComposerMessage: (message) =>
       set({ pendingComposerMessage: message }),
     consumePendingComposerMessage: () => {
@@ -91,6 +129,15 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
       set({ pendingVoiceStartAt: null });
       return Date.now() - parkedAt <= maxAgeMs;
     },
+    setPendingThreadSend: (threadId, message) =>
+      set({ pendingThreadSend: { threadId, message, parkedAt: Date.now() } }),
+    consumePendingThreadSend: () => {
+      const parked = get().pendingThreadSend;
+      if (parked !== null) {
+        set({ pendingThreadSend: null });
+      }
+      return parked;
+    },
   }),
 );
 
@@ -105,5 +152,6 @@ export function __resetPendingDeepLinkForTesting(): void {
   usePendingDeepLinkStoreBase.setState({
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
+    pendingThreadSend: null,
   });
 }

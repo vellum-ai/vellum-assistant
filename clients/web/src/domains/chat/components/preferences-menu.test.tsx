@@ -11,16 +11,24 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+
+import { SideMenu } from "@vellumai/design-library";
 
 import type { AuthUser } from "@/stores/auth-store";
 
-const isMobileRef = { value: false };
+const isTouchMobileRef = { value: false };
 const nativeAndroidRef = { value: false };
 
-mock.module("@/hooks/use-is-mobile", () => ({
-  useIsMobile: () => isMobileRef.value,
-  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+mock.module("@/hooks/use-touch-mobile", () => ({
+  useTouchMobile: () => isTouchMobileRef.value,
+  TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
 }));
 
 mock.module("@/runtime/platform-detection", () => ({
@@ -34,6 +42,14 @@ mock.module("@/hooks/use-platform-gate", () => ({
 
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => true,
+}));
+
+// The BYOK gate pulls the daemon generated client (and its real
+// `queryOptions` import) into the graph; this suite's partial
+// `@tanstack/react-query` mock cannot host that, and the menu only reads
+// `enabled`/`balance`, which the gate never touches.
+mock.module("@/hooks/use-byok-credit-banner-gate", () => ({
+  useSuppressCreditBannersForByok: () => false,
 }));
 
 const authRef: {
@@ -120,12 +136,11 @@ mock.module("@/domains/chat/components/credits-card", () => ({
     ),
 }));
 
-const { PreferencesMenu } = await import(
-  "@/domains/chat/components/preferences-menu"
-);
+const { PreferencesMenu } =
+  await import("@/domains/chat/components/preferences-menu");
 
 beforeEach(() => {
-  isMobileRef.value = false;
+  isTouchMobileRef.value = false;
   nativeAndroidRef.value = false;
   authRef.isAuthenticated = true;
   authRef.user = {
@@ -188,20 +203,84 @@ describe("PreferencesMenu", () => {
   });
 
   test("desktop renders trigger (Popover surface)", () => {
-    isMobileRef.value = false;
+    isTouchMobileRef.value = false;
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
     expect(html).toContain("Preferences");
   });
 
   test("mobile renders trigger (BottomSheet surface)", () => {
-    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
     expect(html).toContain("Preferences");
   });
 
+  /* The collapsed rail fits one tile and a pill is sized by its content, so a
+     labelled trigger rendered there is clipped mid-word. The tile is not that
+     pill with `display:none` on its label: it is a fixed square centring its
+     glyph, the same affordance the pinned apps and section tiles reduce to.
+
+     The collapsed `SideMenu` is the whole input: the trigger reads the rail's
+     state from that context and takes no prop for it, so this renders the
+     component the way the sidebar does and cannot pass a value the menu
+     disagrees with. Outside a rail it is an ordinary row, so a bare render
+     would assert nothing. */
+  function collapsedRailMarkup(): string {
+    return renderToStaticMarkup(
+      <SideMenu ariaLabel="Assistant navigation" variant="rail" collapsed>
+        <SideMenu.Footer>
+          <PreferencesMenu />
+        </SideMenu.Footer>
+      </SideMenu>,
+    );
+  }
+
+  /** Text a sighted user would read, with every tag and attribute stripped. */
+  function visibleText(html: string): string {
+    return html.replace(/<[^>]*>/g, "").trim();
+  }
+
+  test("collapsed rail drops the label and centers the glyph in a fixed tile", () => {
+    const html = collapsedRailMarkup();
+
+    // Fixed square, centered in the rail column, fully rounded - not a
+    // content-width capsule that the rail then crops.
+    expect(html).toContain("size-[var(--side-menu-tile-size)]");
+    expect(html).toContain("mx-auto");
+    // Nothing to clip: the label is not rendered at all.
+    expect(visibleText(html)).toBe("");
+    // …and the control is still named, for assistive tech and the tooltip.
+    expect(html).toContain('aria-label="Preferences"');
+  });
+
+  test("collapsed trigger stays a keyboard-reachable menu control", () => {
+    const html = collapsedRailMarkup();
+
+    // A real tab stop that announces what it opens. The rail's own
+    // `aria-current` is for destinations; this opens a menu over the rail.
+    expect(html).toContain('aria-haspopup="dialog"');
+    expect(html).not.toContain('aria-current="page"');
+    expect(html).not.toContain('tabindex="-1"');
+  });
+
+  test("expanded rail keeps the labeled pill", () => {
+    const html = renderToStaticMarkup(
+      <SideMenu ariaLabel="Assistant navigation" variant="rail">
+        <SideMenu.Footer>
+          <PreferencesMenu />
+        </SideMenu.Footer>
+      </SideMenu>,
+    );
+
+    // The label is visible text here, not just an accessible name, and the
+    // trigger is the content-sized pill it shares with the pinned apps.
+    expect(visibleText(html)).toContain("Preferences");
+    expect(html).toContain("w-fit");
+    expect(html).not.toContain("size-[var(--side-menu-tile-size)]");
+  });
+
   test("native Android shows the balance without an add-credits action", async () => {
     nativeAndroidRef.value = true;
-    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
     billingRef.data = { effective_balance: "60" };
     render(<PreferencesMenu />);
 

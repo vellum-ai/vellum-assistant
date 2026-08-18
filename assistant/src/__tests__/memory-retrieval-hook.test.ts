@@ -64,15 +64,21 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: broadcastMessageMock,
 }));
 
-import type { UserPromptSubmitContext } from "@vellumai/plugin-api";
+import {
+  type UserPromptSubmitContext,
+  VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
+} from "@vellumai/plugin-api";
 
 import type { AssistantEvent } from "../api/index.js";
+import { ESCALATION_CONTINUATION_CONTENT } from "../calls/voice-triage-escalate.js";
 import type { AssistantConfig } from "../config/schema.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { QdrantSparseVector } from "../persistence/embeddings/qdrant-client.js";
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory/hooks/user-prompt-submit.js";
 import type { Message } from "../providers/types.js";
+import { asConversation } from "./helpers/mock-conversation.js";
+import { setConfig } from "./helpers/set-config.js";
 
 /** Canonical metrics payload the graph retriever attaches to a real hit. */
 function makeMetrics() {
@@ -172,15 +178,16 @@ function installConversation(
   graphMemory: ConversationGraphMemory,
   opts?: {
     trusted?: boolean;
-    signal?: AbortSignal;
+    abortController?: AbortController;
   },
-): void {
+): Conversation {
   currentTrustClass = opts?.trusted === false ? "unknown" : "guardian";
-  currentConversation = {
+  currentConversation = asConversation({
     graphMemory,
     trustContext: undefined,
-    abortController: { signal: opts?.signal ?? new AbortController().signal },
-  } as unknown as Conversation;
+    abortController: opts?.abortController ?? new AbortController(),
+  });
+  return currentConversation;
 }
 
 beforeEach(() => {
@@ -191,9 +198,95 @@ beforeEach(() => {
   broadcastMessageMock.mockReset();
   currentConversation = undefined;
   currentTrustClass = "guardian";
+  setConfig("memory", { enabled: true, v3: { live: false } });
 });
 
 describe("user-prompt-submit hook (memory retrieval)", () => {
+  test("voice front door skips serial legacy retrieval", async () => {
+    const { memory, prepareMemoryMock, recordPkbQueryVectorsMock } =
+      makeFakeGraphMemory();
+    const conversation = installConversation(memory, { trusted: true });
+    conversation.currentCallSite = "voiceFrontDoor";
+    const ctx = makeHookCtx({ conversationId: "conv-voice" });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    expect(prepareMemoryMock).not.toHaveBeenCalled();
+    expect(recordPkbQueryVectorsMock).toHaveBeenCalledWith(
+      undefined,
+      undefined,
+    );
+    expect(applyRuntimeInjectionsMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("voice escalation continuation routes legacy retrieval on the preceding user message", async () => {
+    const { memory, prepareMemoryMock } = makeFakeGraphMemory();
+    installConversation(memory, { trusted: true });
+    const latestMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<info>\ncarried context\n</info>" },
+          {
+            type: "text",
+            text: "<turn_context>\nturn context\n</turn_context>",
+          },
+          { type: "text", text: "What is my preferred editor?" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Let me check that." }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Continue the answer." }],
+      },
+    ];
+    const ctx = makeHookCtx({
+      latestMessages,
+      isHiddenPrompt: true,
+      prompt: ESCALATION_CONTINUATION_CONTENT,
+      messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
+    });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    expect(prepareMemoryMock).toHaveBeenCalledTimes(1);
+    expect(prepareMemoryMock.mock.calls[0]?.[0]).toBe(latestMessages);
+    expect(prepareMemoryMock.mock.calls[0]?.[4]).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "What is my preferred editor?" }],
+      },
+    ]);
+  });
+
+  test("generic hidden prompts route legacy retrieval on their own content", async () => {
+    const { memory, prepareMemoryMock } = makeFakeGraphMemory();
+    installConversation(memory, { trusted: true });
+    const latestMessages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Visible caller message" }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Hidden prompt content" }],
+      },
+    ];
+    const ctx = makeHookCtx({
+      latestMessages,
+      isHiddenPrompt: true,
+      prompt: "Hidden prompt content",
+    });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    expect(prepareMemoryMock).toHaveBeenCalledTimes(1);
+    expect(prepareMemoryMock.mock.calls[0]?.[4]).toBe(latestMessages);
+  });
+
   test("adopts the injected run messages when the actor is trusted", async () => {
     const injected: Message[] = [
       { role: "user", content: [{ type: "text", text: "injected" }] },
@@ -492,7 +585,7 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
     const controller = new AbortController();
     installConversation(graphMemory, {
       trusted: true,
-      signal: controller.signal,
+      abortController: controller,
     });
     const ctx = makeHookCtx();
 

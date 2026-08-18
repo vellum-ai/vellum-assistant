@@ -3,3 +3,7 @@ out/
 dist/
 build/
 resources/web-dist
+resources/native-helper/
+resources/dotnet-sdk/
+native/**/bin/
+native/**/obj/

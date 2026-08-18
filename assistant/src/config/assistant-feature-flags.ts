@@ -59,6 +59,12 @@ function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
     // Works in Docker / packaged builds where the repo-root `meta/` dir
     // is not available.
     join(thisDir, REGISTRY_FILENAME),
+    ...(process.platform === "win32"
+      ? [
+          // Packaged Windows CLI runtime: assets live beside the executable.
+          join(dirname(process.execPath), REGISTRY_FILENAME),
+        ]
+      : []),
     // Packaged macOS app layout: the daemon binary lives at
     // <App>.app/Contents/MacOS/vellum-daemon and the registry is copied
     // to <App>.app/Contents/Resources/ by build.sh. In bun --compile

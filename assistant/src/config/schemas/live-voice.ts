@@ -42,6 +42,31 @@ export const LiveVoiceVadConfigSchema = z
       .describe(
         "Sustained speech (ms) required before speech during assistant playback interrupts it — the default 'interrupt sensitivity' (higher = harder to interrupt). 0 disables the guard. Clients may override it per-session via the start frame. Raised from 60 so brief TTS bleed through imperfect echo cancellation no longer self-interrupts the assistant.",
       ),
+    echoBargeInMargin: z
+      .number({ error: "liveVoice.vad.echoBargeInMargin must be a number" })
+      .gt(1, "liveVoice.vad.echoBargeInMargin must be greater than 1")
+      .default(1.5)
+      .describe(
+        "Multiplier over the learned playback echo level that microphone input must exceed to count as speech during playback. Higher values reduce false interruptions but require louder barge-in speech.",
+      ),
+    echoEmaHalfLifeMs: z
+      .number({ error: "liveVoice.vad.echoEmaHalfLifeMs must be a number" })
+      .int("liveVoice.vad.echoEmaHalfLifeMs must be an integer")
+      .positive("liveVoice.vad.echoEmaHalfLifeMs must be a positive integer")
+      .default(400)
+      .describe(
+        "Half-life (ms) of the learned playback echo level. Smaller values adapt faster to changing speaker volume; larger values are steadier against transients.",
+      ),
+    echoDrainSlackMs: z
+      .number({ error: "liveVoice.vad.echoDrainSlackMs must be a number" })
+      .int("liveVoice.vad.echoDrainSlackMs must be an integer")
+      .nonnegative(
+        "liveVoice.vad.echoDrainSlackMs must be a nonnegative integer",
+      )
+      .default(300)
+      .describe(
+        "Time (ms) after the estimated client playback tail during which microphone input can still be classified as playback echo.",
+      ),
   })
   .describe(
     "Voice-activity-detection tuning for live voice sessions (open-mic turn segmentation)",
@@ -182,34 +207,64 @@ export const LiveVoiceFrontModelConfigSchema = z
       )
       .default(2)
       .describe("Cap on consecutive 'hold' extensions per utterance"),
-    ackFirstDeltaTimeoutMs: z
-      .number({
-        error: "liveVoice.frontModel.ackFirstDeltaTimeoutMs must be a number",
-      })
-      .int("liveVoice.frontModel.ackFirstDeltaTimeoutMs must be an integer")
-      .positive(
-        "liveVoice.frontModel.ackFirstDeltaTimeoutMs must be a positive integer",
-      )
-      .default(2500)
-      .describe(
-        "Keyword-delay budget (ms): a spoken ack fires if no first assistant delta has arrived by then",
-      ),
-    ackGenerationTimeoutMs: z
-      .number({
-        error: "liveVoice.frontModel.ackGenerationTimeoutMs must be a number",
-      })
-      .int("liveVoice.frontModel.ackGenerationTimeoutMs must be an integer")
-      .positive(
-        "liveVoice.frontModel.ackGenerationTimeoutMs must be a positive integer",
-      )
-      .default(600)
-      .describe("Budget (ms) for LLM-generated ack text"),
     progress: LiveVoiceProgressConfigSchema.default(
       LiveVoiceProgressConfigSchema.parse({}),
     ),
   })
   .describe(
-    "Front-model presence layer tuning for live voice sessions (semantic endpointing + spoken acks + progress narration)",
+    "Voice front-door endpointing and long-turn progress narration tuning",
+  );
+
+const LiveVoiceFluxTurnEndConfigSchema = z
+  .object({
+    enabled: z
+      .boolean({ error: "liveVoice.flux.turnEnd.enabled must be a boolean" })
+      .default(false)
+      .describe(
+        "Commit the live-voice turn on Flux's EndOfTurn instead of the front-door [0] hold verdict. Requires services.stt.provider to be deepgram-flux; ignored otherwise.",
+      ),
+  })
+  .describe(
+    "Which signal commits a live voice turn when Deepgram Flux is the STT provider",
+  );
+
+export const LiveVoiceFluxConfigSchema = z
+  .object({
+    turnEnd: LiveVoiceFluxTurnEndConfigSchema.default(
+      LiveVoiceFluxTurnEndConfigSchema.parse({}),
+    ),
+    model: z
+      .string({ error: "liveVoice.flux.model must be a string" })
+      .default("flux-general-en")
+      .describe("Deepgram Flux model requested when opening the STT stream"),
+    eotThreshold: z
+      .number({ error: "liveVoice.flux.eotThreshold must be a number" })
+      .min(0.5, "liveVoice.flux.eotThreshold must be >= 0.5")
+      .max(0.9, "liveVoice.flux.eotThreshold must be <= 0.9")
+      .default(0.7)
+      .describe(
+        "End-of-turn confidence Flux must reach before it emits EndOfTurn. Lower values commit sooner and cut speakers off more often; higher values wait longer and add end-of-turn latency.",
+      ),
+    eagerEotThreshold: z
+      .number({ error: "liveVoice.flux.eagerEotThreshold must be a number" })
+      .min(0.3, "liveVoice.flux.eagerEotThreshold must be >= 0.3")
+      .max(0.9, "liveVoice.flux.eagerEotThreshold must be <= 0.9")
+      .optional()
+      .describe(
+        "Confidence at which Flux starts speculating that the turn has ended. Leaving it unset disables Deepgram's EagerEndOfTurn / TurnResumed events; enabling it raises LLM calls 50-70% because speculative turns that resume are thrown away.",
+      ),
+    eotTimeoutMs: z
+      .number({ error: "liveVoice.flux.eotTimeoutMs must be a number" })
+      .int("liveVoice.flux.eotTimeoutMs must be an integer")
+      .min(500, "liveVoice.flux.eotTimeoutMs must be >= 500")
+      .max(60_000, "liveVoice.flux.eotTimeoutMs must be <= 60000")
+      .default(5_000)
+      .describe(
+        "Silence (ms) after which Flux force-ends the turn even though its end-of-turn confidence never reached eotThreshold",
+      ),
+  })
+  .describe(
+    "Deepgram Flux turn-detection tuning for live voice sessions (model-integrated end-of-turn)",
   );
 
 export const LiveVoiceConfigSchema = z
@@ -225,6 +280,9 @@ export const LiveVoiceConfigSchema = z
     vad: LiveVoiceVadConfigSchema.default(LiveVoiceVadConfigSchema.parse({})),
     frontModel: LiveVoiceFrontModelConfigSchema.default(
       LiveVoiceFrontModelConfigSchema.parse({}),
+    ),
+    flux: LiveVoiceFluxConfigSchema.default(
+      LiveVoiceFluxConfigSchema.parse({}),
     ),
     maxSessionDurationSeconds: z
       .number({
@@ -255,3 +313,4 @@ export type LiveVoiceFrontModelConfig = z.infer<
 export type LiveVoiceProgressConfig = z.infer<
   typeof LiveVoiceProgressConfigSchema
 >;
+export type LiveVoiceFluxConfig = z.infer<typeof LiveVoiceFluxConfigSchema>;

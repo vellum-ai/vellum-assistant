@@ -20,7 +20,9 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
-  CompanionAnchor,
+  CompanionCharacter,
+  CompanionGrowth,
+  CompanionContext,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -65,7 +67,8 @@ export type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
-  CompanionAnchor,
+  CompanionGrowth,
+  CompanionContext,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -97,12 +100,6 @@ export type {
   VoiceActivityStart,
   VoiceActivityState,
 };
-
-// Legacy aliases — existing consumers import these `Electron`-prefixed names.
-// They are structurally identical to the contract types.
-export type ElectronShowNotificationPayload = ShowNotificationPayload;
-export type ElectronTextInsertionResult = TextInsertionResult;
-export type ElectronNotificationActionEvent = NotificationActionEvent;
 
 // ─── Window augmentation ────────────────────────────────────────────────
 // The renderer's `window.vellum` declaration intentionally marks many
@@ -190,6 +187,7 @@ declare global {
       };
       icon?: {
         setAvatar(png: Uint8Array | null): void;
+        setCharacter?(character: CompanionCharacter | null): void;
       };
       dock: {
         setBadge(count: number): void;
@@ -320,21 +318,19 @@ declare global {
         start(state: VoiceActivityStart): void;
         update(content: VoiceActivityContent): void;
         end(): void;
-        getState(): Promise<VoiceActivityState | null>;
-        onState(
-          callback: (state: VoiceActivityState | null) => void,
-        ): () => void;
         control(control: VoiceActivityControl): void;
         onControl(callback: (control: VoiceActivityControl) => void): () => void;
-        activate?(): void;
-        dismiss?(): void;
-        setCollapsed?(collapsed: boolean): void;
       };
       companion?: {
         getState(): Promise<CompanionSurfaceState | null>;
         onState(callback: (state: CompanionSurfaceState) => void): () => void;
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
+        startVoice?(): void;
+        activate?(): void;
+        setComposing?(composing: boolean): void;
+        submit?(message: string, startsConversation: boolean): void;
+        setContext?(context: CompanionContext): void;
       };
     };
   }

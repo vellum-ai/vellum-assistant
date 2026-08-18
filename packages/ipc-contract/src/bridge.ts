@@ -18,6 +18,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionCharacter,
+  CompanionContext,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -45,7 +47,6 @@ import type {
   VoiceActivityContent,
   VoiceActivityControl,
   VoiceActivityStart,
-  VoiceActivityState,
 } from "./types";
 
 /**
@@ -168,6 +169,12 @@ export interface VellumBridge {
   };
   icon: {
     setAvatar(png: Uint8Array | null): void;
+    /**
+     * Publish the traits the assistant's character is composed from, so
+     * surfaces that can render it live do, rather than showing the still that
+     * `setAvatar` ships. `null` when the avatar is a custom image or absent.
+     */
+    setCharacter(character: CompanionCharacter | null): void;
   };
   dock: {
     setBadge(count: number): void;
@@ -293,31 +300,24 @@ export interface VellumBridge {
     setInteractive(interactive: boolean): void;
   };
   /**
-   * The floating live-voice session surface (macOS). Two renderers use
-   * different halves: the main window drives `start`/`update`/`end` and
-   * listens for `onControl`; the panel's own route reads `getState`/`onState`
-   * and sends `control`.
+   * The running live-voice session, as the desktop shows it. Two renderers use
+   * different halves: the window holding the session drives `start`/`update`/
+   * `end` and listens for `onControl`; the companion surface's own route reads
+   * the session off `companion.onState` and presses `control`.
    */
   voiceActivity: {
     start(state: VoiceActivityStart): void;
     update(content: VoiceActivityContent): void;
     end(): void;
-    getState(): Promise<VoiceActivityState | null>;
-    onState(callback: (state: VoiceActivityState | null) => void): () => void;
     control(control: VoiceActivityControl): void;
     onControl(callback: (control: VoiceActivityControl) => void): () => void;
-    /** Bring the app forward, the panel's way back to the conversation. */
-    activate(): void;
-    /** Hide the window. The session keeps running. */
-    dismiss(): void;
-    /** Shrink to the chip, or restore. */
-    setCollapsed(collapsed: boolean): void;
   };
   /**
-   * The always-present companion surface (macOS). Only the surface's own route
-   * uses it: it reads the anchor main computed from the window's position, and
-   * reports whether the pointer is over the pill so main can make the window
-   * clickable without the transparent canvas swallowing clicks meant for
+   * The always-present companion surface (macOS), which is also where a running
+   * session is shown. Only the surface's own route uses it: it reads the anchor
+   * main computed from the window's position and the session main is holding,
+   * and reports whether the pointer is over the pill so main can make the
+   * window clickable without the transparent canvas swallowing clicks meant for
    * whatever is behind it.
    */
   companion: {
@@ -326,6 +326,45 @@ export interface VellumBridge {
     setInteractive(interactive: boolean): void;
     /** Nudge the window, for dragging the surface around the desktop. */
     moveBy(dx: number, dy: number): void;
+    /**
+     * Ask for a live-voice session, which is what Talk does.
+     *
+     * The surface is its own renderer and holds no session, so the press is
+     * handed to main and dispatched to the window that does. What comes back is
+     * the session itself, on `onState`.
+     */
+    startVoice(): void;
+    /**
+     * Bring Vellum forward on the conversation the user was last in, which is
+     * what pressing the avatar asks for.
+     */
+    activate(): void;
+    /**
+     * Whether the surface's composer is open, and with it whether the window
+     * may take key status.
+     *
+     * The counterpart to `setInteractive`: mouse events are granted only while
+     * the pointer is on the pill, and keystrokes only while there is a field to
+     * put them in. A floating panel that held the keyboard after its field
+     * closed would swallow what the user typed next into the app they are
+     * actually working in.
+     */
+    setComposing(composing: boolean): void;
+    /**
+     * Send what the user typed. See the `companionSubmit` command: the first
+     * message of a composer's life starts a conversation, the rest continue it,
+     * and none of them raise the app.
+     */
+    submit(message: string, startsConversation: boolean): void;
+    /**
+     * Publish the assistant's name and the tail of the open conversation.
+     *
+     * The one call here the surface's own route does *not* make: it comes from
+     * the window holding the conversation, the way `voiceActivity.update` comes
+     * from the window holding the session. Main holds what arrives and pushes
+     * it back down as part of `onState`.
+     */
+    setContext(context: CompanionContext): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

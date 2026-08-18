@@ -72,10 +72,16 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
+import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../../plugin-api/constants.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
-import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
+import {
+  CALL_OPENING_MARKER,
+  ESCALATE_VERDICT_TOKEN,
+  HOLD_VERDICT_TOKEN,
+} from "../voice-control-protocol.js";
 import {
   cutFrontDoorContentAtVerdict,
+  preSpeechLanguageRuleFragment,
   startVoiceTurn,
   TOOL_RESULT_PREVIEW_MAX_CHARS,
   type VoiceTurnOptions,
@@ -120,7 +126,7 @@ interface FakeConversation {
     metadata?: Record<string, unknown>;
   }) => Promise<{ id: string }>;
   workingDir: string;
-  updateClient: (cb: unknown, reset?: boolean) => void;
+  addEventObserver: (observer: unknown) => () => void;
   handleConfirmationResponse: (
     requestId: string,
     decision: string,
@@ -186,13 +192,15 @@ function makeFakeConversation(opts: {
       opts.onPersist?.(persistCount);
       return { id: `msg-${persistCount}` };
     },
-    // The install (reset falsy) / reset (reset true) pair marks a turn
-    // taking ownership of the conversation vs a turn's cleanup releasing it.
-    updateClient: (cb, reset) => {
-      opts.events?.push(reset ? "client:reset" : "client:install");
-      if (reset !== true) {
-        clientCallback = cb as (msg: unknown) => Promise<void>;
-      }
+    // The install / reset pair marks a turn taking ownership of the
+    // conversation (observer registered) vs a turn's cleanup releasing it
+    // (the returned disposer invoked).
+    addEventObserver: (observer) => {
+      opts.events?.push("client:install");
+      clientCallback = observer as (msg: unknown) => Promise<void>;
+      return () => {
+        opts.events?.push("client:reset");
+      };
     },
     handleConfirmationResponse: (requestId, decision) => {
       confirmationDecisions.push({ requestId, decision });
@@ -208,7 +216,7 @@ function makeFakeConversation(opts: {
     conversation,
     waitForIdleCalls,
     confirmationDecisions,
-    /** Deliver an event the way the conversation would, to the installed handler. */
+    /** Deliver an event the way the conversation would, to the installed observer. */
     emitToClient: async (msg: unknown) => {
       await clientCallback?.(msg);
     },
@@ -355,6 +363,10 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     // not merely echo-suppressed live.
     const fake = makeFakeConversation({ processing: false });
     fakeConversation = fake.conversation;
+    let runOptions: Record<string, unknown> | undefined;
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      runOptions = args[2] as Record<string, unknown>;
+    };
 
     await startVoiceTurn({
       ...makeTurnOptions(),
@@ -367,7 +379,11 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     expect(fake.lastPersistOpts()?.metadata).toEqual({
       voiceSessionTurn: true,
       hidden: true,
+      messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
     });
+    expect(runOptions?.messageKind).toBe(
+      VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
+    );
   });
 
   test("the opener prompt is persisted un-hidden (unchanged)", async () => {
@@ -498,24 +514,24 @@ describe("startVoiceTurn hiddenSyntheticPrompt", () => {
   });
 });
 
+// The turn installs its resolved control prompt, then cleanup resets it to
+// null, so capture every applied value and read the installed (non-null) one.
+function captureInstalledPrompt(): () => string | undefined {
+  const fake = makeFakeConversation({ processing: false });
+  fakeConversation = fake.conversation;
+  const applied: Array<string | null> = [];
+  fake.conversation.setVoiceCallControlPrompt = (prompt) => {
+    applied.push(prompt);
+  };
+  return () => applied.find((p): p is string => typeof p === "string");
+}
+
 describe("startVoiceTurn triage-and-escalate control prompt", () => {
   // Live-voice supplies its own voiceControlPrompt, bypassing
   // buildVoiceCallControlPrompt where the routing-leg rule is normally injected.
   // The rule must still be appended, or the front-door model never learns the
   // verdict protocol and can't hold or hand off.
   const LIVE_VOICE_PROMPT = "You are speaking in a local live voice session.";
-
-  // The turn installs its resolved control prompt, then cleanup resets it to
-  // null — so capture every applied value and read the installed (non-null) one.
-  function captureInstalledPrompt(): () => string | undefined {
-    const fake = makeFakeConversation({ processing: false });
-    fakeConversation = fake.conversation;
-    const applied: Array<string | null> = [];
-    fake.conversation.setVoiceCallControlPrompt = (prompt) => {
-      applied.push(prompt);
-    };
-    return () => applied.find((p): p is string => typeof p === "string");
-  }
 
   test("appends the front-door decision rule to a caller-supplied prompt", async () => {
     const installed = captureInstalledPrompt();
@@ -557,6 +573,74 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
       voiceControlPrompt: LIVE_VOICE_PROMPT,
     });
     expect(installed()).toBe(LIVE_VOICE_PROMPT);
+  });
+});
+
+describe("default call protocol numbered rules", () => {
+  // With no caller-supplied voiceControlPrompt the bridge builds the numbered
+  // CALL PROTOCOL RULES itself. Pin the speak-the-caller's-language rule and
+  // keep the numbering gapless so no rule silently shadows another.
+  test("teaches speaking the caller's language as its own numbered rule", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn(makeTurnOptions());
+    expect(installed()).toContain(
+      "12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, use the language the Task context implies, if any; otherwise default to English.",
+    );
+  });
+
+  test("the language rule excludes synthetic turns and covers pre-speech turns", async () => {
+    // Outbound calls open with the English "(call connected ...)" sentinel as
+    // the latest user-role turn, and the verification-complete sentinel does
+    // the same mid-call. Neither is caller speech, so neither may pull a
+    // Spanish or Japanese Task into an English opener.
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn(makeTurnOptions());
+    const prompt = installed()!;
+    expect(prompt).toContain("most recent actual speech");
+    expect(prompt).toContain("not caller speech and never set the language");
+    expect(prompt).toContain(
+      "use the language the Task context implies, if any; otherwise default to English",
+    );
+  });
+
+  test("a monolingual listening language becomes the pre-speech fallback", () => {
+    // An assistant pinned to services.stt.language = "es" on a provider that
+    // honors the pin (deepgram, vellum) is already transcribing Spanish, so
+    // the opener must not default to English. The default test config runs
+    // the auto-detect branch ("multi"), so the pinned branch is covered at
+    // the fragment level.
+    expect(preSpeechLanguageRuleFragment("es", "deepgram")).toContain(
+      'configured listening language ("es")',
+    );
+    expect(preSpeechLanguageRuleFragment("es", "vellum")).toContain(
+      "default to English only when neither gives a language",
+    );
+    for (const autoDetect of ["multi", "", "  ", undefined]) {
+      expect(preSpeechLanguageRuleFragment(autoDetect, "deepgram")).toBe(
+        "use the language the Task context implies, if any; otherwise default to English",
+      );
+    }
+  });
+
+  test("a language pin on an auto-detecting provider keeps the English fallback", () => {
+    // google-gemini and openai-whisper ignore services.stt.language entirely
+    // (languageSelection: "auto"), so a persisted "es" pin must not force a
+    // Spanish greeting the transcriber will not honor.
+    for (const provider of ["google-gemini", "openai-whisper", undefined]) {
+      expect(preSpeechLanguageRuleFragment("es", provider)).toBe(
+        "use the language the Task context implies, if any; otherwise default to English",
+      );
+    }
+  });
+
+  test("rule numbers stay sequential from 0, including the routing rule", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "escalated" });
+    const numbers = [...installed()!.matchAll(/^(\d+)\. /gm)].map((match) =>
+      Number(match[1]),
+    );
+    expect(numbers.length).toBeGreaterThan(12);
+    expect(numbers).toEqual(numbers.map((_, index) => index));
   });
 });
 
@@ -894,7 +978,7 @@ describe("startVoiceTurn prior-turn teardown barrier", () => {
     expect(events).toEqual(["persist", "client:install"]);
 
     // Turn 2 arrives during the teardown window: it must not persist or
-    // install its client callback until turn 1's cleanup has run.
+    // install its event observer until turn 1's cleanup has run.
     const turn2 = startVoiceTurn(
       makeTurnOptions(undefined, "conv-teardown-order"),
     );
@@ -1629,6 +1713,174 @@ describe("cutFrontDoorContentAtVerdict", () => {
       { type: "text", text: "It is Tuesday  indeed." },
     ]);
     expect(cut?.spokenText).toBe("It is Tuesday  indeed.");
+  });
+});
+
+/**
+ * The front-door leg's raw stream is a control plane: its leading tokens are
+ * the routing verdict, not speech. The hub broadcast (web / passive devices)
+ * must never carry those tokens, and must still carry every word of real
+ * assistant content: an over-broad filter would leave the shared transcript
+ * silent or truncated, which is worse than the leak it fixes.
+ */
+describe("front-door hub stream gate", () => {
+  beforeEach(resetCrudLog);
+
+  /**
+   * Conversation whose scripted agent loop announces a reserved row, streams
+   * `deltas` in order, then ends the leg with `finalEvent`.
+   */
+  function makeStreamingConversation(
+    deltas: string[],
+    finalEvent:
+      | "message_complete"
+      | "generation_cancelled" = "message_complete",
+  ): void {
+    const fake = makeFakeConversation({ processing: false });
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      const { onEvent } = args[2] as { onEvent: (msg: unknown) => void };
+      onEvent({
+        type: "assistant_turn_start",
+        messageId: "assistant-row-1",
+        conversationId: "conv-voice-bridge-test",
+      });
+      for (const text of deltas) {
+        onEvent({
+          type: "assistant_text_delta",
+          text,
+          messageId: "assistant-row-1",
+          conversationId: "conv-voice-bridge-test",
+        });
+      }
+      onEvent({
+        type: finalEvent,
+        ...(finalEvent === "message_complete"
+          ? { messageId: "assistant-row-1" }
+          : {}),
+        conversationId: "conv-voice-bridge-test",
+      });
+    };
+    fakeConversation = fake.conversation;
+  }
+
+  /** The text of every `assistant_text_delta` `turn` publishes to the hub. */
+  async function collectBroadcastText(
+    turn: () => Promise<unknown>,
+  ): Promise<string[]> {
+    const texts: string[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      filter: { conversationId: "conv-voice-bridge-test" },
+      callback: (event) => {
+        const msg = event.message as { type: string; text?: string };
+        if (msg.type === "assistant_text_delta") {
+          texts.push(msg.text ?? "");
+        }
+      },
+    });
+    try {
+      await turn();
+      // The hub publishes off a promise chain, so every broadcast costs a
+      // few microtask hops before it reaches a subscriber.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await flushMicrotasks();
+    } finally {
+      subscription.dispose();
+    }
+    return texts;
+  }
+
+  test("an escalating leg broadcasts only the capped bridge, never the verdict token", async () => {
+    makeStreamingConversation([
+      "[1]",
+      " Let me check your calendar.",
+      " weak answer past the cap",
+    ]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+    );
+
+    expect(texts).toEqual(["Let me check your calendar."]);
+    expect(texts.join("")).not.toContain(ESCALATE_VERDICT_TOKEN);
+  });
+
+  test("a front-door answer reaches the hub in full", async () => {
+    makeStreamingConversation(["It is ", "Tuesday", ", and it is sunny."]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+    );
+
+    expect(texts.join("")).toBe("It is Tuesday, and it is sunny.");
+  });
+
+  test("an answer that merely opens with a bracket is released in full", async () => {
+    // "[" alone could still become the escalate token, so the gate holds it;
+    // the next delta disproves the token and the whole prefix must come out.
+    makeStreamingConversation(["[", "A] is the option to pick."]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+    );
+
+    expect(texts.join("")).toBe("[A] is the option to pick.");
+  });
+
+  test("a hold verdict broadcasts nothing", async () => {
+    makeStreamingConversation([HOLD_VERDICT_TOKEN]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({
+        ...makeTurnOptions(),
+        routingLeg: "front-door",
+        unifiedVerdict: true,
+      }),
+    );
+
+    expect(texts).toEqual([]);
+  });
+
+  test("a leg that completes mid-bridge broadcasts what it handed off with", async () => {
+    makeStreamingConversation(["[1] Let me check"]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+    );
+
+    expect(texts).toEqual(["Let me check"]);
+  });
+
+  test("a leg cancelled mid-bridge never hands off, so it broadcasts nothing", async () => {
+    makeStreamingConversation(["[1] Let me check"], "generation_cancelled");
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+    );
+
+    expect(texts).toEqual([]);
+  });
+
+  test("the escalated continuation streams to the hub untouched", async () => {
+    // The leg that produces the real answer is never gated: its deltas are
+    // assistant speech from the first token.
+    makeStreamingConversation(["Your next meeting ", "is at four."]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn({ ...makeTurnOptions(), routingLeg: "escalated" }),
+    );
+
+    expect(texts).toEqual(["Your next meeting ", "is at four."]);
+  });
+
+  test("an un-routed voice leg streams to the hub untouched", async () => {
+    makeStreamingConversation(["[1] not a verdict here"]);
+
+    const texts = await collectBroadcastText(() =>
+      startVoiceTurn(makeTurnOptions()),
+    );
+
+    expect(texts).toEqual(["[1] not a verdict here"]);
   });
 });
 

@@ -79,10 +79,12 @@ mock.module("../persistence/conversation-crud.js", () => ({
   setConversationOriginInterfaceIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
-  provenanceFromTrustContext: () => ({
-    source: "user",
-    trustContext: undefined,
-  }),
+  // Mirrors the real mapping so provenance assertions observe what production
+  // would stamp, rather than a placeholder.
+  provenanceFromTrustContext: (ctx?: { trustClass?: string }) =>
+    ctx
+      ? { provenanceTrustClass: ctx.trustClass }
+      : { provenanceTrustClass: "unknown" },
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: () => [],
@@ -553,6 +555,223 @@ describe("Conversation message queue", () => {
 
     // Complete the second run
     await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("enqueueMessage captures the sender's trust, immune to a later slot change", async () => {
+    // Trust must ride with the queued message. The conversation-level slot is
+    // rewritten by whoever sends next, so a message that reads it at drain time
+    // would run as the wrong actor. Capturing at enqueue is what makes the
+    // drain's identity independent of who sent afterwards.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({ content: "msg-2", requestId: "req-2" });
+
+    // A different actor sends while the message waits, moving the slot.
+    conversation.setTrustContext({
+      trustClass: "guardian",
+      sourceChannel: "vellum",
+      requesterExternalUserId: "guardian-principal",
+    });
+
+    const queued = conversation.queue.peek(0);
+    expect(queued?.requestId).toBe("req-2");
+    expect(queued?.trustContext?.trustClass).toBe("trusted_contact");
+    expect(queued?.trustContext?.requesterExternalUserId).toBe("U-contact");
+
+    await resolveRun(0);
+    await p1;
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a drained slash exchange is stamped with its sender's provenance, not the slot's", async () => {
+    // Provenance gates memory extraction and untrusted-content wrapping, so
+    // the stamped class must be the actor whose message this is. The unknown-
+    // slash drain branch persists an exchange for the queued sender; if the
+    // guardian wrote the conversation slot while that message waited, the
+    // rows must still carry the sender's class.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "/definitely-not-a-command",
+      requestId: "req-slash",
+    });
+
+    // The guardian moves the slot while the contact's message waits.
+    conversation.setTrustContext({
+      trustClass: "guardian",
+      sourceChannel: "vellum",
+      requesterExternalUserId: "guardian-principal",
+    });
+
+    capturedAddMessages.length = 0;
+    await resolveRun(0);
+    await p1;
+    await new Promise((r) => setTimeout(r, 20));
+
+    const exchange = capturedAddMessages.filter((m) =>
+      m.content.includes("definitely-not-a-command"),
+    );
+    expect(exchange.length).toBeGreaterThan(0);
+    for (const row of exchange) {
+      expect(row.metadata?.provenanceTrustClass).toBe("trusted_contact");
+    }
+  });
+
+  test("a drained turn keeps its sender's trust once the agent loop is running", async () => {
+    // Exercises the real drain -> runAgentLoop ordering against a live
+    // Conversation. The loop re-initializes the per-turn trust snapshot on
+    // entry, so a drain that only stamped the field before calling it would
+    // have that stamp silently undone and the turn would execute as whoever
+    // sent most recently. Asserting inside the run is the point: checking
+    // before the loop starts passes either way.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({ content: "msg-2", requestId: "req-2" });
+
+    // The guardian sends while the contact's message waits, moving the slot.
+    conversation.setTrustContext({
+      trustClass: "guardian",
+      sourceChannel: "vellum",
+      requesterExternalUserId: "guardian-principal",
+    });
+
+    // Finish the first turn so the queue drains into a second run.
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Read while run 2 is in flight: this is what tool setup and the
+    // guardian-request producers resolve against.
+    expect(conversation.currentTurnTrustContext?.trustClass).toBe(
+      "trusted_contact",
+    );
+    expect(conversation.currentTurnTrustContext?.requesterExternalUserId).toBe(
+      "U-contact",
+    );
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a processMessage turn keeps its turn-start trust when the slot moves before the loop opens", async () => {
+    // processMessage is the third turn entry point, and the one a web turn
+    // takes on an idle conversation (the route only enqueues while
+    // isProcessing). It captures trust at turn start, then awaits several
+    // times before the agent loop opens. The conversation slot is writable
+    // throughout that window by paths that do not own this turn: live-voice
+    // hydration stamp-and-restore, pointer elevation, the voice bridge.
+    //
+    // Driving a real Conversation with only AgentLoop.run mocked is what makes
+    // this observable. A double that stubs runAgentLoop itself would skip the
+    // re-read entirely and pass either way.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    // Land another actor's slot write inside the window, after the turn-start
+    // capture and before the loop opens. persistUserMessage is awaited there.
+    const originalPersist = conversation.persistUserMessage.bind(conversation);
+    let slotMoved = false;
+    (
+      conversation as unknown as {
+        persistUserMessage: typeof conversation.persistUserMessage;
+      }
+    ).persistUserMessage = async (opts) => {
+      const result = await originalPersist(opts);
+      conversation.setTrustContext({
+        trustClass: "guardian",
+        sourceChannel: "vellum",
+        requesterExternalUserId: "guardian-principal",
+      });
+      // Also move the per-turn field, which is writable out-of-band: a wake
+      // that settles inside this window restores its prior value there
+      // (agent-wake stamps at :1470 and restores in a `finally` at :1554).
+      // Covers both writers, so a fix that reads either one back at the agent
+      // loop call still fails this test.
+      conversation.currentTurnTrustContext = {
+        trustClass: "guardian",
+        sourceChannel: "vellum",
+        requesterExternalUserId: "guardian-principal",
+      };
+      slotMoved = true;
+      return result;
+    };
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // Guard the test itself: if the injection stopped running, the assertions
+    // below would pass for the wrong reason.
+    expect(slotMoved).toBe(true);
+    expect(conversation.trustContext?.trustClass).toBe("guardian");
+
+    // Read mid-run: this is what tool setup and the guardian-request producers
+    // resolve against while the turn executes.
+    expect(conversation.currentTurnTrustContext?.trustClass).toBe(
+      "trusted_contact",
+    );
+    expect(conversation.currentTurnTrustContext?.requesterExternalUserId).toBe(
+      "U-contact",
+    );
+
+    await resolveRun(0);
+    await p1;
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -2769,6 +2988,9 @@ describe("Conversation host attachment directives", () => {
         attachments: [],
         onEvent: (e) => events.push(e),
         requestId: "req-1",
+        // A host attachment read prompts only when a human is present to
+        // answer; presence is declared per turn.
+        isInteractive: true,
       });
       await waitForPendingRun(1);
 
@@ -2839,6 +3061,9 @@ describe("Conversation host attachment directives", () => {
         attachments: [],
         onEvent: (e) => events.push(e),
         requestId: "req-1",
+        // A host attachment read prompts only when a human is present to
+        // answer; presence is declared per turn.
+        isInteractive: true,
       });
       await waitForPendingRun(1);
 
@@ -3699,6 +3924,99 @@ describe("subagent notification user_message_echo suppression", () => {
     expect(pendingRuns.length).toBe(2);
     // ...but no user_message_echo, so the client never renders a live bubble.
     expect(eventsNotif.some((e) => e.type === "user_message_echo")).toBe(false);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+});
+
+describe("drained turns deliver through the conversation sink", () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test("a confirmation prompt raised in a drained interactive turn reaches the sink", async () => {
+    // The sink is fixed for the conversation's life, so an interactive turn
+    // drained from the queue delivers exactly like a live one: no per-turn
+    // rebinding, nothing for the previous turn's cleanup to clobber. This is
+    // the invariant behind the acp_spawn permission-prompt timeouts (a queued
+    // interactive turn's confirmation_request used to be emitted into a
+    // reset no-op sender and hang until the permission timeout).
+    const sink: AssistantEvent[] = [];
+    const conversation = makeConversation((msg) => sink.push(msg));
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      requestId: "req-2",
+      onEvent: () => {},
+      isInteractive: true,
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // The drained turn is in flight and interactive: presence reads a human.
+    expect(conversation.hasNoClient).toBe(false);
+
+    // A prompt raised now, mid-drained-turn, must land on the sink.
+    void conversation.prompter.prompt(
+      "acp_spawn",
+      { agent: "claude", task: "t" },
+      "high",
+      [],
+      [],
+      undefined,
+      conversation.conversationId,
+      "host",
+      false,
+      undefined,
+      "tool-use-1",
+    );
+    const prompt = sink.find((e) => e.type === "confirmation_request");
+    expect(prompt).toBeDefined();
+    expect((prompt as { toolName: string }).toolName).toBe("acp_spawn");
+    // Settle it so the prompt's timer does not outlive the test.
+    conversation.prompter.denyAllPending();
+
+    await resolveRun(1);
+    // Turn over: nothing is in flight, so no human is asserted present.
+    await waitForCondition(() => conversation.hasNoClient);
+  });
+
+  test("a drained non-interactive turn asserts no human present", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      requestId: "req-2",
+      onEvent: () => {},
+      isInteractive: false,
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(conversation.hasNoClient).toBe(true);
 
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));

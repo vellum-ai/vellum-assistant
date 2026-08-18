@@ -2,11 +2,10 @@
  * A pinned provider this assistant cannot select must still be shown as the
  * pin, not swapped for a selectable one.
  *
- * Displaying a fallback while storing something else is wrong on its own, but
- * it used to be self-repairing by accident: the deprecated `Dropdown` fired
- * `onChange` for every click, so re-picking the shown provider rewrote the
- * draft to match. Radix `Select` suppresses a change to the value it already
- * holds, which turned the cosmetic lie into a save of the wrong provider.
+ * Displaying a fallback while storing something else would be wrong on its
+ * own, and `Select` gives it teeth: it reports changes rather than clicks, so
+ * re-picking the shown provider is a no-op and the mismatch survives into a
+ * save of the wrong provider.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -20,13 +19,15 @@ mock.module("@/hooks/use-platform-gate", () => ({
   useActiveAssistantIsSelfHosted: () => selfHosted,
 }));
 
-const { CallSiteOverrideRow } = await import(
-  "@/domains/settings/ai/call-site-overrides-row"
-);
+const { CallSiteOverrideRow } =
+  await import("@/domains/settings/ai/call-site-overrides-row");
 
 const drafts: unknown[] = [];
 
-function renderRow(draft: Record<string, unknown> | null) {
+function renderRow(
+  draft: Record<string, unknown> | null,
+  connections?: Record<string, unknown>[],
+) {
   return render(
     <CallSiteOverrideRow
       id="workflowLeaf"
@@ -34,6 +35,7 @@ function renderRow(draft: Record<string, unknown> | null) {
       defaultProfileLabel="Balanced"
       draft={draft as never}
       profileOptions={[{ value: "balanced", label: "Balanced" }] as never}
+      connections={connections as never}
       onDraftChange={(_id, next) => {
         drafts.push(next);
       }}
@@ -129,5 +131,173 @@ describe("CallSiteOverrideRow provider picker", () => {
 
     expect(optionLabels().some((l) => l.includes("(unavailable)"))).toBe(false);
     expect(optionLabels().some((l) => l.includes("Ollama"))).toBe(true);
+  });
+});
+
+/** The row renders three pickers in order: profile, provider, model. */
+function modelTrigger(): HTMLElement {
+  const triggers = document.querySelectorAll<HTMLElement>(
+    'button[role="combobox"]',
+  );
+  const el = triggers[2];
+  if (!el) {
+    throw new Error(
+      `expected a model trigger, saw ${triggers.length} comboboxes`,
+    );
+  }
+  return el;
+}
+
+const SUBSCRIPTION_CONNECTION = {
+  name: "chatgpt-subscription",
+  provider: "openai",
+  auth: { type: "oauth_subscription", credential: "credential/chatgpt" },
+};
+
+const API_KEY_CONNECTION = {
+  name: "openai-personal",
+  provider: "openai",
+  auth: { type: "api_key", credential: "credential/openai" },
+};
+
+// The row identity daemon migration 366 stamps on the subscription row.
+const SUBSCRIPTION_CONNECTION_366 = {
+  name: "chatgpt-subscription",
+  provider: "chatgpt",
+  auth: { type: "oauth_subscription", credential: "credential/chatgpt" },
+};
+
+const VELLUM_CONNECTION = {
+  name: "vellum",
+  provider: "vellum",
+  auth: { type: "platform" },
+};
+
+describe("CallSiteOverrideRow model picker under a ChatGPT subscription", () => {
+  test("only Codex-servable models are offered when every openai connection is a subscription", () => {
+    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
+      SUBSCRIPTION_CONNECTION,
+    ]);
+
+    fireEvent.click(modelTrigger());
+
+    const labels = optionLabels();
+    expect(labels.some((l) => l.includes("GPT-5.6 Luna"))).toBe(true);
+    // The Codex endpoint rejects gpt-5.4-nano; offering it saves a pin that
+    // fails on every request.
+    expect(labels.some((l) => l.includes("Nano"))).toBe(false);
+  });
+
+  test("a migrated subscription row (provider chatgpt) does not gate the openai picker", () => {
+    // Post-366 semantics: dispatch matches connections by exact provider, so
+    // the subscription cannot serve an openai override. The subscription is
+    // offered as its own ChatGPT provider entry instead.
+    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
+      SUBSCRIPTION_CONNECTION_366,
+    ]);
+
+    fireEvent.click(modelTrigger());
+
+    expect(optionLabels().some((l) => l.includes("Nano"))).toBe(true);
+  });
+
+  test("the subscription row adds ChatGPT to the provider picker", () => {
+    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
+      SUBSCRIPTION_CONNECTION_366,
+    ]);
+
+    fireEvent.click(providerTrigger());
+
+    expect(optionLabels().some((l) => l.includes("ChatGPT Subscription"))).toBe(
+      true,
+    );
+  });
+
+  test("without the subscription row ChatGPT is not offered", () => {
+    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
+      API_KEY_CONNECTION,
+    ]);
+
+    fireEvent.click(providerTrigger());
+
+    expect(optionLabels().some((l) => l.includes("ChatGPT Subscription"))).toBe(
+      false,
+    );
+  });
+
+  test("a chatgpt draft renders as itself with the Codex model list", () => {
+    renderRow({ provider: "chatgpt", model: "gpt-5.6-terra" }, [
+      SUBSCRIPTION_CONNECTION_366,
+    ]);
+
+    expect(
+      triggerLabels().some((l) => l.includes("ChatGPT Subscription")),
+    ).toBe(true);
+
+    fireEvent.click(modelTrigger());
+    const labels = optionLabels();
+    expect(labels.some((l) => l.includes("GPT-5.6 Terra"))).toBe(true);
+    expect(labels.some((l) => l.includes("Nano"))).toBe(false);
+  });
+
+  test("a chatgpt draft without the subscription renders as an unavailable pin", () => {
+    renderRow({ provider: "chatgpt", model: "gpt-5.6-terra" }, [
+      API_KEY_CONNECTION,
+    ]);
+
+    fireEvent.click(providerTrigger());
+
+    expect(
+      optionLabels().some((l) =>
+        l.includes("ChatGPT Subscription (unavailable)"),
+      ),
+    ).toBe(true);
+  });
+
+  test("a vellum-managed connection lifts the restriction (openai routes through the managed proxy)", () => {
+    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
+      SUBSCRIPTION_CONNECTION_366,
+      VELLUM_CONNECTION,
+    ]);
+
+    fireEvent.click(modelTrigger());
+
+    expect(optionLabels().some((l) => l.includes("Nano"))).toBe(true);
+  });
+
+  test("an api-key connection restores the full catalog", () => {
+    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
+      SUBSCRIPTION_CONNECTION,
+      API_KEY_CONNECTION,
+    ]);
+
+    fireEvent.click(modelTrigger());
+
+    expect(optionLabels().some((l) => l.includes("Nano"))).toBe(true);
+  });
+
+  test("absent connection data leaves the catalog unfiltered", () => {
+    renderRow({ provider: "openai", model: "gpt-5.6-luna" });
+
+    fireEvent.click(modelTrigger());
+
+    expect(optionLabels().some((l) => l.includes("Nano"))).toBe(true);
+  });
+
+  test("a stored pin outside the filtered set stays visible as unavailable", () => {
+    renderRow({ provider: "openai", model: "gpt-5.4-nano" }, [
+      SUBSCRIPTION_CONNECTION,
+    ]);
+
+    // The trigger shows the stored pin instead of rendering blank while the
+    // incompatible value is still saved.
+    expect(
+      triggerLabels().some((l) => l.includes("GPT-5.4 Nano (unavailable)")),
+    ).toBe(true);
+
+    fireEvent.click(modelTrigger());
+    expect(
+      optionLabels().some((l) => l.includes("GPT-5.4 Nano (unavailable)")),
+    ).toBe(true);
   });
 });

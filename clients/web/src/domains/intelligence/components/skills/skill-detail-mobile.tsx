@@ -22,10 +22,11 @@ import {
   useSkillDetailFiles,
   type SkillFileEntry,
 } from "@/hooks/use-skill-detail-files";
+import { useTranslation } from "@/i18n";
 import { isRemovableSkill } from "@/utils/skills";
 import { Button, Card, Menu, SegmentControl } from "@vellumai/design-library";
+import { SkillIcon } from "@/components/skill-icon";
 import { SkillFileContent } from "./skill-file-content";
-import { SkillIcon } from "./skill-icon";
 import { SkillOriginBadge } from "./skill-origin-badge";
 
 interface SkillDetailMobileProps {
@@ -79,6 +80,7 @@ export function SkillDetailMobile({
   swipeContainerRef,
   sourceConversationId,
 }: SkillDetailMobileProps) {
+  const { t } = useTranslation("intelligence");
   const available = isAvailableSkill(skill);
   const removable = isRemovableSkill(skill);
 
@@ -134,7 +136,7 @@ export function SkillDetailMobile({
           variant="ghost"
           iconOnly={<ArrowLeft aria-hidden />}
           expandOnMobile
-          aria-label="Back to skills"
+          aria-label={t("skillDetail.backToSkillsAriaLabel")}
           onClick={onBack}
           className="max-md:bg-[var(--surface-active)]"
         />
@@ -200,19 +202,19 @@ export function SkillDetailMobile({
             />
             <SegmentControl<"preview" | "raw">
               iconOnly
-              ariaLabel="File view mode"
+              ariaLabel={t("skillDetail.fileViewModeAriaLabel")}
               value={effectiveViewMode}
               onChange={setViewMode}
               items={[
                 {
                   value: "preview",
-                  label: "Preview",
+                  label: t("skillDetail.preview"),
                   icon: <Eye aria-hidden />,
                   disabled: !activeIsMarkdown,
                 },
                 {
                   value: "raw",
-                  label: "Source",
+                  label: t("skillDetail.source"),
                   icon: <Code aria-hidden />,
                 },
               ]}
@@ -239,7 +241,7 @@ export function SkillDetailMobile({
                 className="flex h-full items-center justify-center text-body-medium-lighter"
                 style={{ color: "var(--content-tertiary)" }}
               >
-                Select a file to view its contents.
+                {t("skillDetail.selectFilePrompt")}
               </p>
             )}
           </div>
@@ -266,6 +268,7 @@ function RightAction({
   onInstall?: () => void;
   onRemove?: () => void;
 }) {
+  const { t } = useTranslation("intelligence");
   if (isInstalling || isRemoving) {
     return (
       <Button
@@ -273,7 +276,7 @@ function RightAction({
         iconOnly={<Loader2 className="animate-spin" aria-hidden />}
         expandOnMobile
         disabled
-        aria-label="Pending"
+        aria-label={t("skillDetail.pendingAriaLabel")}
         className="max-md:bg-[var(--surface-active)]"
       />
     );
@@ -285,7 +288,7 @@ function RightAction({
         variant="ghost"
         iconOnly={<ArrowDownToLine aria-hidden />}
         expandOnMobile
-        aria-label="Install skill"
+        aria-label={t("skillRow.installSkillAriaLabel")}
         onClick={onInstall}
         disabled={!onInstall}
         className="max-md:bg-[var(--surface-active)]"
@@ -299,7 +302,7 @@ function RightAction({
         variant="dangerGhost"
         iconOnly={<Trash2 aria-hidden />}
         expandOnMobile
-        aria-label="Remove skill"
+        aria-label={t("skillRow.removeSkillAriaLabel")}
         onClick={onRemove}
         disabled={!onRemove}
         className="max-md:rounded-full max-md:bg-[var(--system-negative-weak)]"
@@ -314,8 +317,8 @@ function RightAction({
       iconOnly={<Trash2 aria-hidden />}
       expandOnMobile
       disabled
-      title="Bundled skills cannot be removed"
-      aria-label="Bundled skill cannot be removed"
+      title={t("skillRow.bundledSkillsCannotBeRemoved")}
+      aria-label={t("skillRow.bundledSkillCannotBeRemovedAriaLabel")}
       className="max-md:rounded-full max-md:bg-[var(--system-negative-weak)]"
     />
   );
@@ -336,7 +339,8 @@ function FileDropdown({
   activeName: string | null;
   onSelect: (path: string) => void;
 }) {
-  const label = activeName ?? "Select a file";
+  const { t } = useTranslation("intelligence");
+  const label = activeName ?? t("skillDetail.selectAFile");
 
   if (fileEntries.length === 0) {
     return (

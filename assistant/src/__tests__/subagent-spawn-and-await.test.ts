@@ -207,6 +207,7 @@ import {
   setConversation,
 } from "../daemon/conversation-registry.js";
 import { SubagentAbortedError, SubagentManager } from "../subagent/manager.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 function makeConfig(overrides: Record<string, unknown> = {}) {
   return {
@@ -229,16 +230,19 @@ function registerFakeParent(parentConversationId: string): {
   enqueuedCount: () => number;
 } {
   let enqueued = 0;
-  setConversation(parentConversationId, {
-    // Accessors read by setUpSubagent when copying trust/auth context.
-    trustContext: undefined,
-    getAuthContext: () => undefined,
-    assistantId: undefined,
-    enqueueMessage: () => {
-      enqueued += 1;
-      return { rejected: false, queued: true };
-    },
-  } as never);
+  setConversation(
+    parentConversationId,
+    asConversation({
+      // Accessors read by setUpSubagent when copying trust/auth context.
+      trustContext: undefined,
+      getAuthContext: () => undefined,
+      assistantId: undefined,
+      enqueueMessage: () => {
+        enqueued += 1;
+        return { rejected: false, queued: true, requestId: "req-fake" };
+      },
+    }),
+  );
   return { enqueuedCount: () => enqueued };
 }
 
@@ -585,20 +589,17 @@ describe("SubagentManager — first user message framing", () => {
     await manager.spawnAndAwait(
       makeConfig({
         objective: "Please advise.",
-        fork: true,
         role: "advisor",
+        spawnMode: "advisor_consult",
         // The advisor always supplies its own framing; setUpSubagent uses it
-        // verbatim and never falls back to parentSystemPrompt.
+        // in place of a built subagent preamble.
         systemPromptOverride: "You are a senior advisor.",
-        parentMessages: [
-          { role: "user", content: [{ type: "text", text: "prior turn" }] },
-        ],
       }),
       () => {},
     );
 
-    // The advisor's user turn is the bare advice request — the generic fork
-    // directive would fight the advisor system prompt.
+    // The consult is a regular blocking spawn, so its user turn is the brief
+    // itself: the fork directive would fight the advisor system prompt.
     expect(lastPersistedUserMessage).toBe("Please advise.");
     expect(lastPersistedUserMessage).not.toContain("FORK TASK");
   });

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useSuppressCreditBannersForByok } from "@/hooks/use-byok-credit-banner-gate";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
   useActiveAssistantIsPlatformHosted,
@@ -23,6 +24,17 @@ export interface BillingBalanceStatus {
    * proactively, without waiting for a send to fail.
    */
   dailyLimitReached: boolean;
+  /**
+   * Server-computed: the daily limit has been skipped for the current UTC day,
+   * so it is configured but not being enforced. Mutually exclusive with
+   * {@link BillingBalanceStatus.dailyLimitReached} by construction: the
+   * platform derives `daily_limit_reached` as false while a skip is active.
+   */
+  dailyLimitSnoozed: boolean;
+  /** The configured daily limit as a decimal string, or null when unset. */
+  dailyLimit: string | null;
+  /** Today's (UTC) credit spend as a decimal string, or null when unknown. */
+  dailySpend: string | null;
   /** Effective balance as a decimal string, or null when unknown. */
   balance: string | null;
   /** Whether the billing summary query is allowed to run at all. */
@@ -33,6 +45,9 @@ const INERT_STATUS: Omit<BillingBalanceStatus, "enabled"> = {
   isExhausted: false,
   isLowBalance: false,
   dailyLimitReached: false,
+  dailyLimitSnoozed: false,
+  dailyLimit: null,
+  dailySpend: null,
   balance: null,
 };
 
@@ -64,20 +79,43 @@ export function useBillingBalanceQueryEnabled(): boolean {
  * too, because `lib/query-focus-manager` feeds TanStack Query's focusManager
  * from the event bus's `app.resume` signal, so a user coming back to an
  * already-open app sees the daily-limit banner without a reload.
+ *
+ * The balance flags additionally stay down when the effective chat route is
+ * provably BYOK and no managed credits were burned in the last day (see
+ * {@link useSuppressCreditBannersForByok}): chat turns that dispatch on the
+ * user's own key never fail on the managed wallet, so the credit wall would
+ * be a false alarm. Chat surfaces pass their active `conversationId` so a
+ * managed per-conversation profile pin keeps the banners up over a BYOK
+ * global default; client-minted drafts (no server row) pass the
+ * composer-stashed `draftProfile` instead. `dailyLimitReached` is exempt, since it can only be true
+ * with managed spend today, which is exactly the burn that re-arms the
+ * others.
  */
-export function useBillingBalanceStatus(): BillingBalanceStatus {
+export function useBillingBalanceStatus(
+  opts: { conversationId?: string | null; draftProfile?: string | null } = {},
+): BillingBalanceStatus {
   const enabled = useBillingBalanceQueryEnabled();
   const { data: summary } = useQuery({
     ...organizationsBillingSummaryRetrieveOptions(),
     enabled,
   });
+  const isExhausted = !!summary && Number(summary.effective_balance) <= 0;
+  const isLowBalance = !!summary && summary.low_balance_warning === true;
+  const suppressed = useSuppressCreditBannersForByok(
+    enabled && (isExhausted || isLowBalance),
+    opts.conversationId,
+    opts.draftProfile,
+  );
   if (!enabled || !summary) {
     return { ...INERT_STATUS, enabled };
   }
   return {
-    isExhausted: Number(summary.effective_balance) <= 0,
-    isLowBalance: summary.low_balance_warning === true,
+    isExhausted: isExhausted && !suppressed,
+    isLowBalance: isLowBalance && !suppressed,
     dailyLimitReached: summary.daily_limit_reached === true,
+    dailyLimitSnoozed: summary.daily_limit_snoozed === true,
+    dailyLimit: summary.daily_credit_limit_usd ?? null,
+    dailySpend: summary.daily_spend_usd ?? null,
     balance: summary.effective_balance,
     enabled,
   };

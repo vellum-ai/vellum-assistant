@@ -15,7 +15,6 @@
  */
 
 import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
 
 import type { Command } from "commander";
 
@@ -27,8 +26,6 @@ import { integrityCheckStep } from "./repair-step-integrity.js";
 import type { RepairReport, RepairStep, StepResult } from "./repair-steps.js";
 import { formatDurationMs, runRepairSteps } from "./repair-steps.js";
 
-const loadModule = createRequire(import.meta.url);
-
 // ---------------------------------------------------------------------------
 // Step sequence
 // ---------------------------------------------------------------------------
@@ -38,10 +35,9 @@ const loadModule = createRequire(import.meta.url);
  * structural damage surfaces early. Resolved lazily because the backfill
  * step pulls the DB graph.
  */
-function repairSteps(): RepairStep[] {
-  const { conversationBackfillStep } = loadModule(
-    "./repair-step-conversation-backfill.js",
-  ) as typeof import("./repair-step-conversation-backfill.js");
+async function repairSteps(): Promise<RepairStep[]> {
+  const { conversationBackfillStep } =
+    await import("./repair-step-conversation-backfill.js");
   return [integrityCheckStep, conversationBackfillStep];
 }
 
@@ -128,7 +124,7 @@ export function registerDbRepair(parent: Command): void {
 
     const report = await runRepairSteps(
       { dbPath },
-      repairSteps(),
+      await repairSteps(),
       isJson
         ? {}
         : {

@@ -13,6 +13,7 @@ export function LoginBackground() {
       <div className="pointer-events-none absolute top-[120px] left-1/2 z-0 -translate-x-1/2">
         <img
           src={publicAsset("/vellum-logo-white.svg")}
+          // eslint-disable-next-line local/no-untranslated-strings -- brand name
           alt="Vellum"
           width={92}
           height={28}

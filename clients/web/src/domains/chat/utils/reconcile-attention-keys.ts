@@ -1,27 +1,5 @@
-import type { QueryClient } from "@tanstack/react-query";
-
 import { useConversationStore } from "@/stores/conversation-store";
-import { getConversations } from "@/utils/conversation-cache";
 import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions";
-import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
-
-/**
- * Reveal lazy sidebar sections (Background / Scheduled) when a pending
- * interaction belongs to a conversation not yet loaded.
- */
-function revealLazySectionsIfPendingUnloaded(
-  pendingKeys: ReadonlySet<string>,
-  loadedConversationIds: ReadonlySet<string>,
-): void {
-  for (const key of pendingKeys) {
-    if (!loadedConversationIds.has(key)) {
-      const store = useSidebarLayoutStore.getState();
-      store.activateBackground();
-      store.activateScheduled();
-      return;
-    }
-  }
-}
 
 /**
  * Reconcile attention and processing keys against the daemon's pending
@@ -37,7 +15,6 @@ function revealLazySectionsIfPendingUnloaded(
  */
 export async function reconcileAttentionKeys(
   assistantId: string,
-  queryClient: QueryClient,
   opts: { pruneStale: boolean } = { pruneStale: false },
 ): Promise<void> {
   let pendingKeys: Set<string>;
@@ -46,11 +23,6 @@ export async function reconcileAttentionKeys(
   } catch {
     return; // Best-effort — SSE events will catch subsequent transitions.
   }
-
-  const currentConversations = getConversations(queryClient, assistantId);
-  const loadedIds = new Set(currentConversations.map((c) => c.conversationId));
-
-  revealLazySectionsIfPendingUnloaded(pendingKeys, loadedIds);
 
   // Read activeConversationId AFTER the await so we use the current
   // value, not one captured before the network call.

@@ -262,7 +262,9 @@ export const routeTree = [
     HydrateFallback: RootHydrateFallback,
     lazy: {
       Component: () =>
-        import("@/pages/BundleConfirmPage").then((m) => m.BundleConfirmPage),
+        import("@/components/bundle-confirm-page").then(
+          (m) => m.BundleConfirmPage,
+        ),
     },
   },
 
@@ -338,23 +340,6 @@ export const routeTree = [
       Component: () =>
         import("@/components/command-palette/command-palette-window-page").then(
           (m) => m.CommandPaletteWindowPage,
-        ),
-    },
-  },
-
-  // Voice activity panel: the floating live-voice session surface rendered
-  // inside the Electron window that shows for the length of a session (the
-  // desktop counterpart to the iOS Dynamic Island).
-  // Standalone like the dictation overlay: outside auth middleware and
-  // RootLayout so it paints as soon as the window opens.
-  {
-    path: "/assistant/floating/voice-activity",
-    ErrorBoundary: RouteErrorBoundary,
-    HydrateFallback: RootHydrateFallback,
-    lazy: {
-      Component: () =>
-        import("@/components/voice-activity-panel-page").then(
-          (m) => m.VoiceActivityPanelPage,
         ),
     },
   },
@@ -1022,6 +1007,19 @@ export const routeTree = [
                           },
                           {
                             path: "channels",
+                            lazy: {
+                              Component: () =>
+                                import("@/channels-page-route").then(
+                                  (m) => m.ChannelsPageRoute,
+                                ),
+                            },
+                          },
+                          {
+                            // Same page, with the selected channel in the URL
+                            // so a row is linkable and survives a reload.
+                            // `/channels` alone still resolves, landing on the
+                            // first row.
+                            path: "channels/:channelId",
                             lazy: {
                               Component: () =>
                                 import("@/channels-page-route").then(

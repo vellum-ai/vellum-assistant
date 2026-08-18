@@ -26,12 +26,6 @@ mock.module("../util/logger.js", () => createMockLoggerModule());
 
 // Stub the transitive imports so the module graph under test stops at
 // tool-side-effects.ts and never reaches the real sync publisher.
-mock.module("../channels/gateway-verification-sessions.js", () => ({
-  findActiveSession: mock(() => Promise.resolve(null)),
-}));
-mock.module("../runtime/verification-outbound-actions.js", () => ({
-  deliverVerificationSlack: mock(() => {}),
-}));
 mock.module("../media/app-icon-generator.js", () => ({
   generateAppIcon: mock(() => Promise.resolve()),
 }));

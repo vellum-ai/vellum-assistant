@@ -3,6 +3,7 @@
  *
  * GET    /v1/conversations              — paginated conversation list
  * GET    /v1/conversations/unread-count - count of unseen foreground conversations
+ * GET    /v1/conversations/sections     - per-section totals for the sidebar index
  * POST   /v1/conversations/seen         — record a seen signal (single)
  * POST   /v1/conversations/seen/bulk    — record seen signals (batch)
  * POST   /v1/conversations/unread       — mark a conversation unread
@@ -29,6 +30,7 @@ import { resolveConversationId } from "../../persistence/conversation-key-store.
 import {
   type ConversationListFilter,
   countConversations,
+  countConversationSections,
   countUnreadConversations,
   listConversations,
   listPinnedConversations,
@@ -155,6 +157,42 @@ const unreadConversationCountResponseSchema = z.object({
   count: z.number(),
 });
 
+const sectionCountFields = {
+  total: z.number(),
+  unread: z.number(),
+};
+
+/**
+ * One renderable sidebar section. Discriminated by `kind` so clients get a
+ * typed union: group sections carry their metadata inline (one consistent
+ * snapshot, no join against `GET /v1/groups` that could disagree with it),
+ * channel sections carry only the id (labels are client-side i18n), and
+ * `chats` is the ungrouped-native bucket. In a view without channel sections
+ * the Chats card holds every ungrouped row: the buckets are disjoint, so
+ * that reading is `chats` plus the sum of `channel` entries.
+ */
+const conversationSectionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("pinned"), ...sectionCountFields }),
+  z.object({
+    kind: z.literal("group"),
+    groupId: z.string(),
+    name: z.string(),
+    icon: z.string().nullable(),
+    sortPosition: z.number(),
+    ...sectionCountFields,
+  }),
+  z.object({
+    kind: z.literal("channel"),
+    channelId: z.string(),
+    ...sectionCountFields,
+  }),
+  z.object({ kind: z.literal("chats"), ...sectionCountFields }),
+]);
+
+const conversationSectionsResponseSchema = z.object({
+  sections: z.array(conversationSectionSchema),
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -171,28 +209,41 @@ function resolveOrThrow(rawId: string): string {
 // Handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * Read a query parameter that admits a closed set of values. Absent or empty
+ * reads as `undefined`; anything outside `accepted` is a 400. The strictness
+ * is the point: silently coercing a typo or a newer client's value to "no
+ * filter" would hand back the full list where a subset was asked for, and
+ * that skew is invisible to the client (it masks version skew too).
+ */
+function parseEnumQueryParam<const T extends readonly string[]>(
+  queryParams: Record<string, string | undefined>,
+  name: string,
+  accepted: T,
+): T[number] | undefined {
+  const raw = queryParams[name];
+  if (raw === undefined || raw === "") {
+    return undefined;
+  }
+  if ((accepted as readonly string[]).includes(raw)) {
+    return raw as T[number];
+  }
+  throw new BadRequestError(
+    `Unknown ${name} "${raw}"; expected ${accepted.map((v) => `"${v}"`).join(" or ")}.`,
+  );
+}
+
 function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   const limit = Number(queryParams.limit ?? 50);
   const offset = Number(queryParams.offset ?? 0);
   // "background" is the back-compat umbrella (background + scheduled); newer
   // clients can pass "scheduled" to load only the Scheduled section. Absent
-  // defaults to the standard foreground list. Any other value is rejected so
-  // an unrecognized type surfaces as a 400 rather than being silently coerced
-  // to the foreground list (which would mask client/daemon version skew).
-  const rawConversationType = queryParams.conversationType;
-  let conversationType: ConversationType = "standard";
-  if (rawConversationType !== undefined && rawConversationType !== "") {
-    if (
-      rawConversationType === "background" ||
-      rawConversationType === "scheduled"
-    ) {
-      conversationType = rawConversationType;
-    } else {
-      throw new BadRequestError(
-        `Unknown conversationType "${rawConversationType}"; expected "background" or "scheduled".`,
-      );
-    }
-  }
+  // defaults to the standard foreground list.
+  const conversationType: ConversationType =
+    parseEnumQueryParam(queryParams, "conversationType", [
+      "background",
+      "scheduled",
+    ]) ?? "standard";
   // Defaults to `active` so sidebar restores no longer pull archived rows.
   // The Archive page opts into `archived` to render only archived rows
   // without dragging the entire live history through pagination first.
@@ -213,11 +264,17 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
       ? queryParams.groupId
       : undefined;
 
+  const needsAttention =
+    parseEnumQueryParam(queryParams, "needsAttention", ["true"]) === "true"
+      ? true
+      : undefined;
+
   const filter: ConversationListFilter = {
     conversationType,
     archiveStatus,
     originChannel,
     groupId,
+    needsAttention,
   };
   let rows = listConversations({ ...filter, limit, offset });
   const totalCount = countConversations(filter);
@@ -232,15 +289,19 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   // Skipped for group-scoped queries for the same reason: a caller asking
   // for one group gets that group, and a client that fetches the Pinned
   // section via `groupId=system:pinned` has no use for rows appended to
-  // some other group's page. This is the compatibility shim for clients
-  // that still read Pinned out of the unfiltered list; it goes away once
-  // every section fetches its own group.
+  // some other group's page. Skipped for attention-scoped queries too: the
+  // caller asked for the unseen subset, and a seen pinned row appended to
+  // it would put a row outside the filter in the page while `hasMore` is
+  // computed from the filtered count. This is the compatibility shim for
+  // clients that still read Pinned out of the unfiltered list; it goes
+  // away once every section fetches its own group.
   if (
     offset === 0 &&
     conversationType === "standard" &&
     archiveStatus === "active" &&
     originChannel === undefined &&
-    groupId === undefined
+    groupId === undefined &&
+    needsAttention === undefined
   ) {
     const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));
@@ -290,6 +351,64 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
 
 function handleGetUnreadConversationCount() {
   return { count: countUnreadConversations() };
+}
+
+/**
+ * One row per non-empty sidebar section, no conversation rows. What this
+ * exists to answer without a list drain: which sections render at all,
+ * and what their rail badges say.
+ *
+ * A count row whose `group_id` names no existing non-system group is
+ * skipped rather than surfaced: those rows are unreachable as a section
+ * (the sidebar builds group sections from the groups table), and a
+ * dangling id is a transient state around group deletion, not a section.
+ */
+function handleGetConversationSections() {
+  const counts = countConversationSections();
+  const groupsById = new Map(listGroups().map((g) => [g.id, g]));
+  const sections: Array<z.infer<typeof conversationSectionSchema>> = [];
+
+  for (const row of counts.groups) {
+    if (row.groupId === "system:pinned") {
+      sections.push({ kind: "pinned", total: row.total, unread: row.unread });
+      continue;
+    }
+    const meta = groupsById.get(row.groupId);
+    if (!meta || meta.isSystemGroup) {
+      continue;
+    }
+    sections.push({
+      kind: "group",
+      groupId: row.groupId,
+      name: meta.name,
+      icon: meta.icon,
+      sortPosition: meta.sortPosition,
+      total: row.total,
+      unread: row.unread,
+    });
+  }
+
+  for (const row of counts.channels) {
+    if (row.channel === "vellum") {
+      sections.push({ kind: "chats", total: row.total, unread: row.unread });
+      continue;
+    }
+    sections.push({
+      kind: "channel",
+      channelId: row.channel,
+      total: row.total,
+      unread: row.unread,
+    });
+  }
+
+  /* Every other section exists only when it has rows; Chats is the leftover
+     bucket and renders regardless, so its counts are part of the contract
+     even at zero. */
+  if (!sections.some((s) => s.kind === "chats")) {
+    sections.push({ kind: "chats", total: 0, unread: 0 });
+  }
+
+  return { sections };
 }
 
 function handleRecordSeen({ body = {}, headers }: RouteHandlerArgs) {
@@ -482,7 +601,15 @@ export const ROUTES: RouteDefinition[] = [
         type: "string",
         required: false,
         description:
-          'Filter to a single group, so each sidebar section can load independently of the paginated list. Pass "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A group-scoped request is ordered by the user\'s arrangement (display order, then recency) and never has pinned rows appended to it. Omit to span every group.',
+          'Filter to a single group, so each sidebar section can load independently of the paginated list. Pass "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A group-scoped request is recency-ordered like every list read (COALESCE(last_message_at, updated_at) descending) and never has pinned rows appended to it. Omit to span every group.',
+      },
+      {
+        name: "needsAttention",
+        type: "string",
+        required: false,
+        description:
+          'Pass "true" to return only conversations whose latest assistant message the user has not seen: the same predicate behind the unread count and the section index, so a client that keeps no complete conversation list can ask for exactly the rows its attention surfaces need. Composes with every other filter. Any value other than "true" is rejected. Omit to span every conversation.',
+        schema: { type: "string", enum: ["true"] },
       },
     ],
     responseBody: listConversationsResponseSchema,
@@ -502,6 +629,21 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["conversations"],
     responseBody: unreadConversationCountResponseSchema,
     handler: handleGetUnreadConversationCount,
+  },
+  {
+    operationId: "getConversationSections",
+    endpoint: "conversations/sections",
+    method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Sidebar section index",
+    description:
+      "One row per renderable sidebar section (Pinned, each non-empty custom group, each origin channel with unassigned conversations, Chats) with total and unread counts and no conversation rows. Lets a client know which sections exist, and what their badges say, without fetching any conversation list. Totals follow the standard listing visibility; unread applies the same rules as GET /v1/conversations/unread-count scoped to the section. Chats is always present, even at zero: it is the leftover bucket and renders regardless.",
+    tags: ["conversations"],
+    responseBody: conversationSectionsResponseSchema,
+    handler: handleGetConversationSections,
   },
   {
     operationId: "recordConversationSeen",

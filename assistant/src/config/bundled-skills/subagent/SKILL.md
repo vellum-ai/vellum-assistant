@@ -12,7 +12,7 @@ metadata:
       - "Delegate a self-contained research or implementation task off the main thread"
       - "Multiple agents at once, or a context-inheriting fork"
     avoid-when:
-      - "Task is small enough to do inline (single tool call, quick lookup)"
+      - "Task is small enough to do inline (a handful of tool calls, quick lookups or reads)"
       - "User wants Claude Code or Codex — use the acp skill instead"
 ---
 
@@ -37,7 +37,7 @@ There are three subagent types. Pick one with two questions: **does it need to c
 |---|---|---|---|---|
 | `researcher` | No | No | `web_search`, `web_fetch`, `file_read`, `file_list`, `code_search`, `recall`, `skill_execute`, `notify_parent` | Web research, codebase exploration, reading documentation, root-cause investigation, reviewing an approach against the code |
 | `builder` | Yes | No | Your whole tool surface, unrestricted: shell, file writes and edits, and every connector, MCP, and browser tool you can reach | Code changes, file output, build/test runs, anything that must run a command or act on an outside system |
-| `advisor` | No | Yes | Read-only fact checking in the workspace: `file_read`, `file_list`, `code_search` | Read-only senior-advisor consult. Runs on a stronger model, inherits full parent context, and BLOCKS until it returns guidance |
+| `advisor` | No | Yes | Read-only fact checking in the workspace: `file_read`, `file_list`, `code_search` | Read-only senior-advisor consult. Reads the brief you write in `objective`, runs on a stronger model, and BLOCKS until it returns guidance |
 
 Both background types can call `notify_parent` for mid-run communication with the parent.
 
@@ -65,17 +65,23 @@ The other contracts: `output_contract: "artifact"` tells a `builder` that the de
 
 ## Consulting the Advisor
 
-The `advisor` is the one type you spawn on your own judgment, unprompted: you do NOT wait for the user to ask for a subagent. The background types (`researcher`, `builder`) stay delegation-driven: reach for them to offload work, typically when the user's request calls for it. The advisor is different: proactively consult it whenever the conditions below are met.
+The `advisor` is the one type you may spawn on your own judgment, unprompted: you do not wait for the user to ask for a subagent. The background types (`researcher`, `builder`) stay delegation-driven: reach for them to offload work, typically when the user's request calls for it.
 
-Orient yourself first (read the relevant files, understand the task), then consult the advisor:
+A consult is expensive (a stronger model reviews your brief and answers), so reserve it for moments where a second perspective can genuinely change the outcome. Most tasks need no consult at all: a routine task with an obvious approach does not require sign-off, before you start or after you finish. Orient yourself first (read the relevant files, understand the task), then consult the advisor:
 
-- **Before you commit to an approach and start building** — to shape a plan when you don't have one, or to pressure-test and sharpen a plan you've already drafted.
+- **Before you commit to an approach on a consequential or ambiguous task**: the design space is wide, a wrong approach would be costly to unwind, or requirements pull against each other.
 - **When you get stuck or are weighing a change in direction.**
-- **Once before you declare the task done.**
 
-The consult is synchronous and read-only: spawning an `advisor` subagent BLOCKS until it returns guidance. It runs on a stronger model and inherits your full context, so it sees the task, your tool calls, and their results without you re-explaining. It also receives a snapshot of your environment (the tools available to you this turn, the full skill catalog, and your workspace) so its guidance can point you at existing platform capabilities by name. Give its guidance serious weight; only override it when primary-source evidence contradicts a specific claim, and say so when you do.
+The consult is synchronous and read-only: spawning an `advisor` subagent BLOCKS until it returns guidance. It runs on a stronger model, and it sees ONLY the brief you write in `objective` plus a snapshot of your environment (the tools available to you this turn, the full skill catalog, and your workspace). It cannot read this conversation, so the quality of its guidance tracks the quality of your brief. Write a substantive one:
 
-The advisor has read-only workspace tools (`file_read`, `file_list`, `code_search`) so it can open a file or search the code when a decisive fact would change its advice. It uses them sparingly, for verification rather than exploration, and it cannot change anything or persist output. It has no memory search and cannot see other conversations or external systems, and every lookup it has to make delays your answer, so surface the evidence you already have (a file's contents, a command's output, results gathered elsewhere) in the conversation or the spawn objective before consulting.
+- The task or goal, stated in full.
+- Your plan, or the options you are weighing against each other.
+- The key evidence you already have: file paths, command output, results, decisions already made.
+- The specific question you want answered.
+
+The environment snapshot is what lets its guidance point you at existing platform capabilities by name. Give its guidance serious weight; only override it when primary-source evidence contradicts a specific claim, and say so when you do.
+
+The advisor has read-only workspace tools (`file_read`, `file_list`, `code_search`) so it can open a file or search the code when a decisive fact would change its advice. It uses them sparingly, for verification rather than exploration, and it cannot change anything or persist output. It has no memory search and cannot see other conversations or external systems, and every lookup it has to make delays your answer, so put the evidence you already have (a file's contents, a command's output, results gathered elsewhere) into the objective rather than making it go find them.
 
 Spawn the advisor **alone** — do NOT batch the consult in the same turn as other tool calls (especially file edits, shell commands, or anything destructive or expensive). Tool calls you issue in the same turn run concurrently with the consult, so they would execute before you see its guidance. Consult the advisor by itself, read its guidance, then act.
 
@@ -151,7 +157,6 @@ Rule of thumb: "Does this task need to know what we've been talking about?" If y
 - Use `notify_parent` for interim findings instead of waiting for completion. This lets the parent act on partial results early.
 - Use `subagent_message` to send follow-up instructions to a running subagent.
 - Use `subagent_abort` to cancel a subagent that is no longer needed.
-- Default to spawning subagents for any task that involves web research, multi-file exploration, or independent coding work. Serial execution should be the exception, not the rule.
-- Delegate root-cause investigations ("why is X happening?", debugging, log forensics) to a `researcher` instead of grepping inline. A long investigation done inline floods your own context with file slices and grep output, crowding out the conversation; the researcher does the digging in its own context and returns a compact root-cause report.
-- When a user request has both an information-gathering component and an action component, spawn a researcher immediately rather than doing the research inline yourself.
-- Prefer spawning 2-3 focused subagents over one broad one. Smaller scopes finish faster and fail more gracefully.
+- Spawn a subagent when the work is extensive: a sweep across a large codebase, deep research across many sources, or an investigation whose raw output (file slices, grep output, logs) would flood your context. Do quick work inline -- a few file reads or searches, an ordinary web lookup -- since a spawn pays for a whole fresh context and is slower than just doing the work.
+- Delegate long root-cause investigations (log forensics, multi-file "why is X happening?" digs) to a `researcher`: it does the digging in its own context and returns a compact root-cause report, instead of crowding your conversation with intermediate output.
+- Scale the fan-out to the task. Most tasks need zero or one subagent. Split work across multiple subagents only when the parts are genuinely independent and each is substantial on its own.

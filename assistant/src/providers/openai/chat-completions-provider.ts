@@ -5,6 +5,7 @@ import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
+import { partialTagSuffix as sharedPartialTagSuffix } from "../../util/think-tag-stream.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import {
   base64Source,
@@ -84,7 +85,17 @@ export function detectOpenAICompatibleContextOverflow(
     /context.?length.?exceeded|context.?window.?exceeded|prompt.?is.?too.?long|prompt_too_long|input.?too.?long|too.?many.?(?:input.?)?tokens|maximum.?context/i.test(
       message,
     );
-  if (!codeMatches && !messageMatches) {
+  // string_above_max_length is OpenAI's generic oversized-string validation
+  // code, so only treat it as overflow when the error points at a message
+  // content part (e.g. "Invalid 'input[191].content[1].text': string too
+  // long" — OpenAI's per-part 10 MiB cap). The overflow ladder can shrink
+  // message content (media stubbing collapses a file's extracted_text to a
+  // preview) but cannot fix other oversized fields like tool definitions.
+  const oversizedContentPart =
+    /string.?too.?long|string_above_max_length/i.test(
+      `${code ?? ""} ${message}`,
+    ) && /\b(?:input|messages)\[\d+\]\.content/i.test(message);
+  if (!codeMatches && !messageMatches && !oversizedContentPart) {
     return null;
   }
   // OpenAI-compatible providers rarely report usable token counts; best-effort extract.
@@ -293,13 +304,11 @@ const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
   "image/webp",
 ]);
 
+// Think-tag scanning primitives are shared with the TTS reasoning filter
+// (util/think-tag-stream.ts) so the two stream parsers cannot drift. This
+// provider keeps its exact historical behavior: case-sensitive, <think> only.
 function partialTagSuffix(text: string, tag: string): number {
-  for (let len = Math.min(text.length, tag.length - 1); len > 0; len--) {
-    if (text.endsWith(tag.substring(0, len))) {
-      return len;
-    }
-  }
-  return 0;
+  return sharedPartialTagSuffix(text, [tag], false);
 }
 
 /**

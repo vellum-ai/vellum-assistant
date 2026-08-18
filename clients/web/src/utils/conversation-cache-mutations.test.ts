@@ -11,15 +11,21 @@ import {
   backgroundConversationsQueryKey,
   scheduledConversationsQueryKey,
   archivedConversationsQueryKey,
+  sidebarSectionsQueryKey,
+  type ConversationListPage,
+  type SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
+import { listPage } from "@/utils/conversation-list.test-helper";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
+import { mergeListFirstPage } from "@/utils/conversation-order";
 import {
+  adjustSectionUnreadCache,
+  applySurfacedConversation,
   markConversationSeenLocal,
-  mergeListFirstPage,
   prependConversation,
   removeConversation,
-  shouldSurfaceConversationOnUserSend,
+  shouldSurfaceConversation,
   surfaceConversationInCaches,
   resolveDraftKey,
   appendGroup,
@@ -57,19 +63,28 @@ function makeGroup(
 }
 
 function seedForeground(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(conversationsQueryKey(ASSISTANT_ID), conversations);
+  qc.setQueryData(conversationsQueryKey(ASSISTANT_ID), listPage(conversations));
 }
 
 function seedBackground(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(backgroundConversationsQueryKey(ASSISTANT_ID), conversations);
+  qc.setQueryData(
+    backgroundConversationsQueryKey(ASSISTANT_ID),
+    listPage(conversations),
+  );
 }
 
 function seedScheduled(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(scheduledConversationsQueryKey(ASSISTANT_ID), conversations);
+  qc.setQueryData(
+    scheduledConversationsQueryKey(ASSISTANT_ID),
+    listPage(conversations),
+  );
 }
 
 function seedArchived(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), conversations);
+  qc.setQueryData(
+    archivedConversationsQueryKey(ASSISTANT_ID),
+    listPage(conversations),
+  );
 }
 
 function seedGroups(qc: QueryClient, groups: ConversationGroup[]) {
@@ -81,31 +96,32 @@ function seedGroups(qc: QueryClient, groups: ConversationGroup[]) {
 
 function getForeground(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)) ?? []
+    qc.getQueryData<ConversationListPage>(conversationsQueryKey(ASSISTANT_ID))
+      ?.conversations ?? []
   );
 }
 
 function getBackground(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(
+    qc.getQueryData<ConversationListPage>(
       backgroundConversationsQueryKey(ASSISTANT_ID),
-    ) ?? []
+    )?.conversations ?? []
   );
 }
 
 function getScheduled(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(
+    qc.getQueryData<ConversationListPage>(
       scheduledConversationsQueryKey(ASSISTANT_ID),
-    ) ?? []
+    )?.conversations ?? []
   );
 }
 
 function getArchived(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<Conversation[]>(
+    qc.getQueryData<ConversationListPage>(
       archivedConversationsQueryKey(ASSISTANT_ID),
-    ) ?? []
+    )?.conversations ?? []
   );
 }
 
@@ -309,10 +325,24 @@ describe("removeConversation", () => {
 // surfaceConversationInCaches
 // ---------------------------------------------------------------------------
 
-describe("shouldSurfaceConversationOnUserSend", () => {
+describe("shouldSurfaceConversation", () => {
+  test("a subagent-sourced run is never surfaceable", () => {
+    // The daemon's surfaced visibility arm excludes subagent runs; a
+    // surface POST could never make one listable.
+    expect(
+      shouldSurfaceConversation(
+        makeConversation({
+          conversationId: "sub1",
+          conversationType: "background",
+          source: "subagent",
+        }),
+      ),
+    ).toBe(false);
+  });
+
   test("allows unsurfaced scheduled and background conversations", () => {
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "scheduled-1",
           conversationType: "scheduled",
@@ -320,7 +350,7 @@ describe("shouldSurfaceConversationOnUserSend", () => {
       ),
     ).toBe(true);
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "background-1",
           conversationType: "background",
@@ -328,7 +358,7 @@ describe("shouldSurfaceConversationOnUserSend", () => {
       ),
     ).toBe(true);
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "legacy-scheduled-1",
           groupId: "system:scheduled",
@@ -339,12 +369,12 @@ describe("shouldSurfaceConversationOnUserSend", () => {
 
   test("skips conversations already displayed outside run buckets", () => {
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({ conversationId: "standard-1" }),
       ),
     ).toBe(false);
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "surfaced-1",
           conversationType: "scheduled",
@@ -353,7 +383,7 @@ describe("shouldSurfaceConversationOnUserSend", () => {
       ),
     ).toBe(false);
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "pinned-1",
           conversationType: "background",
@@ -362,7 +392,7 @@ describe("shouldSurfaceConversationOnUserSend", () => {
       ),
     ).toBe(false);
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "custom-1",
           conversationType: "scheduled",
@@ -371,7 +401,7 @@ describe("shouldSurfaceConversationOnUserSend", () => {
       ),
     ).toBe(false);
     expect(
-      shouldSurfaceConversationOnUserSend(
+      shouldSurfaceConversation(
         makeConversation({
           conversationId: "archived-1",
           conversationType: "background",
@@ -691,7 +721,9 @@ describe("mergeListFirstPage", () => {
       hasMore: false,
     };
 
-    expect(mergeListFirstPage(prev, page)).toBe(page.conversations);
+    expect(
+      mergeListFirstPage(listPage(prev), page, { pinnedInjected: true }),
+    ).toBe(page);
   });
 
   test("drops cached rows inside the window that vanished from the page, keeps older rows", () => {
@@ -709,20 +741,22 @@ describe("mergeListFirstPage", () => {
       makeConversation({ conversationId: "c-created", lastMessageAt: 4900 }),
     ];
 
-    const merged = mergeListFirstPage(prev, {
-      conversations: fresh,
-      hasMore: true,
-    });
+    const merged = mergeListFirstPage(
+      listPage(prev),
+      { conversations: fresh, hasMore: true },
+      { pinnedInjected: true },
+    );
 
-    expect(merged.map((c) => c.conversationId)).toEqual([
+    expect(merged.conversations.map((c) => c.conversationId)).toEqual([
       "c-new",
       "c-created",
       "c-old",
     ]);
-    expect(merged[0].title).toBe("Renamed");
+    expect(merged.conversations[0].title).toBe("Renamed");
+    expect(merged.hasMore).toBe(true);
   });
 
-  test("excludes pinned rows from the window cutoff", () => {
+  test("excludes injected pinned rows from the window cutoff", () => {
     // The daemon appends every pinned conversation to page 1 regardless of
     // age. An ancient pinned row must not collapse the cutoff and drop
     // live cached rows.
@@ -738,12 +772,13 @@ describe("mergeListFirstPage", () => {
       }),
     ];
 
-    const merged = mergeListFirstPage(prev, {
-      conversations: fresh,
-      hasMore: true,
-    });
+    const merged = mergeListFirstPage(
+      listPage(prev),
+      { conversations: fresh, hasMore: true },
+      { pinnedInjected: true },
+    );
 
-    expect(merged.map((c) => c.conversationId)).toEqual([
+    expect(merged.conversations.map((c) => c.conversationId)).toEqual([
       "c-top",
       "c-pinned",
       "c-live",
@@ -762,15 +797,19 @@ describe("mergeListFirstPage", () => {
       makeConversation({ conversationId: "c-top", lastMessageAt: 5000 }),
     ];
 
-    const merged = mergeListFirstPage(prev, {
-      conversations: fresh,
-      hasMore: true,
-    });
+    const merged = mergeListFirstPage(
+      listPage(prev),
+      { conversations: fresh, hasMore: true },
+      { pinnedInjected: true },
+    );
 
-    expect(merged.map((c) => c.conversationId)).toEqual(["c-top", "c-draft"]);
+    expect(merged.conversations.map((c) => c.conversationId)).toEqual([
+      "c-top",
+      "c-draft",
+    ]);
   });
 
-  test("returns the cache unchanged when every fresh row is pinned", () => {
+  test("returns the cache unchanged when every injected fresh row is pinned", () => {
     const prev = [
       makeConversation({ conversationId: "c1", lastMessageAt: 4000 }),
     ];
@@ -782,8 +821,290 @@ describe("mergeListFirstPage", () => {
       }),
     ];
 
+    const prevPage = listPage(prev, true);
     expect(
-      mergeListFirstPage(prev, { conversations: fresh, hasMore: true }),
-    ).toBe(prev);
+      mergeListFirstPage(
+        prevPage,
+        { conversations: fresh, hasMore: true },
+        { pinnedInjected: true },
+      ),
+    ).toBe(prevPage);
+  });
+
+  test("a section page counts its pinned rows toward the cutoff", () => {
+    /* A section page has no injection, so its pinned rows are genuine
+       window members. In the Pinned section every row is pinned; excluding
+       them under the injection rule would leave no window at all, and the
+       refresh would silently do nothing. */
+    const prev = [
+      makeConversation({ conversationId: "c-stale", lastMessageAt: 4000 }),
+      makeConversation({ conversationId: "c-older", lastMessageAt: 100 }),
+    ];
+    const fresh = [
+      makeConversation({
+        conversationId: "c-pin-a",
+        lastMessageAt: 5000,
+        isPinned: true,
+      }),
+      makeConversation({
+        conversationId: "c-pin-b",
+        lastMessageAt: 3000,
+        isPinned: true,
+      }),
+    ];
+
+    const merged = mergeListFirstPage(
+      listPage(prev),
+      { conversations: fresh, hasMore: true },
+      { pinnedInjected: false },
+    );
+
+    // c-stale sits inside the window (>= 3000) but vanished from the page,
+    // so it is dropped; c-older sorts below the window and survives.
+    expect(merged.conversations.map((c) => c.conversationId)).toEqual([
+      "c-pin-a",
+      "c-pin-b",
+      "c-older",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// adjustSectionUnreadCache
+// ---------------------------------------------------------------------------
+
+describe("adjustSectionUnreadCache", () => {
+  const INDEX_KEY = sidebarSectionsQueryKey(ASSISTANT_ID);
+
+  function seedIndex(client: QueryClient): SidebarIndexSection[] {
+    const index: SidebarIndexSection[] = [
+      { kind: "pinned", total: 2, unread: 1 },
+      {
+        kind: "group",
+        groupId: "grp-1",
+        name: "G",
+        icon: null,
+        sortPosition: 0,
+        total: 3,
+        unread: 2,
+      },
+      { kind: "channel", channelId: "slack", total: 4, unread: 1 },
+      { kind: "chats", total: 5, unread: 3 },
+    ];
+    client.setQueryData<SidebarIndexSection[] | null>(INDEX_KEY, index);
+    return index;
+  }
+
+  function unreadOf(
+    client: QueryClient,
+    match: (s: SidebarIndexSection) => boolean,
+  ): number | undefined {
+    return client.getQueryData<SidebarIndexSection[]>(INDEX_KEY)?.find(match)
+      ?.unread;
+  }
+
+  test("a pinned row adjusts the Pinned bucket", () => {
+    const client = new QueryClient();
+    seedIndex(client);
+
+    const applied = adjustSectionUnreadCache(
+      client,
+      ASSISTANT_ID,
+      makeConversation({
+        conversationId: "c1",
+        isPinned: true,
+        groupId: "system:pinned",
+        // Bucket precedence: pinned wins even for a row that also carries a
+        // channel, mirroring the daemon's group-axis-first aggregation.
+        originChannel: "slack",
+      }),
+      -1,
+    );
+
+    expect(applied).toBe(true);
+    expect(unreadOf(client, (s) => s.kind === "pinned")).toBe(0);
+    expect(unreadOf(client, (s) => s.kind === "channel")).toBe(1);
+  });
+
+  test("a grouped row adjusts its group's bucket", () => {
+    const client = new QueryClient();
+    seedIndex(client);
+
+    adjustSectionUnreadCache(
+      client,
+      ASSISTANT_ID,
+      makeConversation({ conversationId: "c1", groupId: "grp-1" }),
+      -1,
+    );
+
+    expect(unreadOf(client, (s) => s.kind === "group")).toBe(1);
+  });
+
+  test("unattributed and vellum rows adjust the Chats bucket", () => {
+    const client = new QueryClient();
+    seedIndex(client);
+
+    adjustSectionUnreadCache(
+      client,
+      ASSISTANT_ID,
+      makeConversation({ conversationId: "c1" }),
+      -1,
+    );
+    adjustSectionUnreadCache(
+      client,
+      ASSISTANT_ID,
+      makeConversation({ conversationId: "c2", originChannel: "vellum" }),
+      -1,
+    );
+
+    expect(unreadOf(client, (s) => s.kind === "chats")).toBe(1);
+  });
+
+  test("a channel row adjusts its channel's bucket", () => {
+    const client = new QueryClient();
+    seedIndex(client);
+
+    adjustSectionUnreadCache(
+      client,
+      ASSISTANT_ID,
+      makeConversation({ conversationId: "c1", originChannel: "slack" }),
+      1,
+    );
+
+    expect(unreadOf(client, (s) => s.kind === "channel")).toBe(2);
+  });
+
+  test("a null index (assistant without the endpoint) is a no-op", () => {
+    const client = new QueryClient();
+    client.setQueryData<SidebarIndexSection[] | null>(INDEX_KEY, null);
+
+    expect(
+      adjustSectionUnreadCache(
+        client,
+        ASSISTANT_ID,
+        makeConversation({ conversationId: "c1" }),
+        -1,
+      ),
+    ).toBe(false);
+    expect(client.getQueryData(INDEX_KEY)).toBeNull();
+  });
+
+  test("a bucket the index does not carry is left to the settle refetch", () => {
+    const client = new QueryClient();
+    client.setQueryData<SidebarIndexSection[] | null>(INDEX_KEY, [
+      { kind: "chats", total: 5, unread: 3 },
+    ]);
+
+    expect(
+      adjustSectionUnreadCache(
+        client,
+        ASSISTANT_ID,
+        makeConversation({ conversationId: "c1", groupId: "grp-none" }),
+        -1,
+      ),
+    ).toBe(false);
+  });
+
+  test("a delta and its inverse restore the original counts exactly", () => {
+    const client = new QueryClient();
+    seedIndex(client);
+    const row = makeConversation({ conversationId: "c1", groupId: "grp-1" });
+
+    adjustSectionUnreadCache(client, ASSISTANT_ID, row, -1);
+    adjustSectionUnreadCache(client, ASSISTANT_ID, row, 1);
+
+    expect(unreadOf(client, (s) => s.kind === "group")).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applySurfacedConversation
+// ---------------------------------------------------------------------------
+
+describe("applySurfacedConversation", () => {
+  test("a background-cache row reaches the foreground at its recency position", () => {
+    const bg = makeConversation({
+      conversationId: "bg1",
+      conversationType: "background",
+      lastMessageAt: 3000,
+    });
+    seedBackground(qc, [bg]);
+    seedForeground(qc, [
+      makeConversation({ conversationId: "newer", lastMessageAt: 5000 }),
+      makeConversation({ conversationId: "older", lastMessageAt: 1000 }),
+    ]);
+
+    applySurfacedConversation(qc, ASSISTANT_ID, bg, 4242);
+
+    // Recency position, not the top: the server writes only surfaced_at on
+    // a bare surface, so nothing about the row's ordering moves.
+    expect(getForeground(qc).map((c) => c.conversationId)).toEqual([
+      "newer",
+      "bg1",
+      "older",
+    ]);
+    expect(getBackground(qc)[0].surfacedAt).toBe(4242);
+    expect(getForeground(qc)[1].surfacedAt).toBe(4242);
+  });
+
+  test("a row already in the foreground is not duplicated", () => {
+    const row = makeConversation({
+      conversationId: "c1",
+      conversationType: "scheduled",
+    });
+    seedForeground(qc, [row]);
+
+    applySurfacedConversation(qc, ASSISTANT_ID, row, 4242);
+
+    expect(getForeground(qc)).toHaveLength(1);
+    expect(getForeground(qc)[0].surfacedAt).toBe(4242);
+  });
+
+  test("a write landing mid-request is not replayed backwards by the snapshot", () => {
+    /* Mark-seen-on-open fires from the same render as the surface, so the
+       seen patch lands while the POST is out. The captured snapshot still
+       says unseen; applying it verbatim would resurrect the flag. */
+    const stale = makeConversation({
+      conversationId: "bg1",
+      conversationType: "background",
+      hasUnseenLatestAssistantMessage: true,
+    });
+    seedBackground(qc, [stale]);
+    // The mark-seen patch lands before the surface response.
+    seedBackground(qc, [{ ...stale, hasUnseenLatestAssistantMessage: false }]);
+    seedForeground(qc, []);
+
+    applySurfacedConversation(qc, ASSISTANT_ID, stale, 4242);
+
+    expect(getForeground(qc)[0]).toMatchObject({
+      conversationId: "bg1",
+      hasUnseenLatestAssistantMessage: false,
+      surfacedAt: 4242,
+    });
+  });
+
+  test("the surfaced row joins its section cache through the membership pass", () => {
+    const bg = makeConversation({
+      conversationId: "bg1",
+      conversationType: "background",
+    });
+    seedBackground(qc, [bg]);
+    // Chats section contents cache: {groupId: system:all, no channel}.
+    const chatsKey = [
+      "conversation-list",
+      ASSISTANT_ID,
+      "section",
+      "system:all",
+      "vellum",
+    ] as const;
+    qc.setQueryData(chatsKey, listPage([]));
+
+    applySurfacedConversation(qc, ASSISTANT_ID, bg, 4242);
+
+    expect(
+      qc
+        .getQueryData<ConversationListPage>(chatsKey)
+        ?.conversations.map((c) => c.conversationId),
+    ).toEqual(["bg1"]);
   });
 });

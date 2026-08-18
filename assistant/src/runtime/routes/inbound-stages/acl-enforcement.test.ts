@@ -98,7 +98,6 @@ function makeParams(
     rawSenderId: "sender-1",
     sourceChannel: "telegram",
     conversationExternalId: "chat-1",
-    canonicalAssistantId: "assistant-1",
     trimmedContent: "hello",
     sourceMetadata: undefined,
     actorDisplayName: "Sender One",

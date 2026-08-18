@@ -1,16 +1,19 @@
 import { Slot } from "@radix-ui/react-slot";
 import type { LucideIcon } from "lucide-react";
 import {
-  type AnchorHTMLAttributes,
+  type ComponentProps,
   type CSSProperties,
   type HTMLAttributes,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactElement,
   type ReactNode,
   type Ref,
 } from "react";
 
 import { cn } from "../../utils/cn";
+import { reportUnmergeableSlotChild } from "../../utils/slot-child";
+import { CrossfadeStack } from "../crossfade-stack";
 
 import { MarqueeText } from "./marquee-text";
 
@@ -35,11 +38,12 @@ import { MarqueeText } from "./marquee-text";
  *
  * Label typography uses the `body-medium-lighter` token (14/400/18).
  *
- * Renders `<a href>` when `href` is provided, `<div role="button">` when
- * `onSelect` is provided (the row container hosts interactive children in
- * `leadingSlot` / `trailingAction`, which HTML forbids inside a native
- * `<button>`), or a non-interactive `<div>` when neither is supplied
- * (useful for pure readout rows).
+ * Renders `<div role="button">` when `onSelect` is provided (the row container
+ * hosts interactive children in `leadingSlot` / `trailingAction`, which HTML
+ * forbids inside a native `<button>`), or a non-interactive `<div>` when it is
+ * not (useful for pure readout rows). A row that navigates supplies its own
+ * anchor through `asChild`, so the link's target and routing stay with the
+ * router the app uses.
  *
  * ### `asChild` (composition pattern)
  *
@@ -47,16 +51,19 @@ import { MarqueeText } from "./marquee-text";
  * `<NavLink>`) while merging PanelItem's visual classes and aria attributes
  * onto it via Radix `Slot`. The consumer provides all children; PanelItem
  * provides the interactive state layer (hover, active, focus-ring,
- * aria-current, `group` modifier).
+ * aria-current, `group` modifier). It is the state layer alone, so the props
+ * that describe a row's contents (`icon`, `label`, `badge`, `trailingAction`,
+ * `onSelect`) belong to the child and are rejected here.
  *
  * ### `shape`
  *
  * - `"row"` (default): a full-width 6px-radius row, for lists and nav trees.
- * - `"pill"`: a capsule that hugs its content and carries a resting
- *   `--surface-lift` surface, for navigation chips that sit inline rather
- *   than filling a column. Everything else (hover, active, badge, trailing
- *   action, link/button semantics) is unchanged, which is the point: a pill
- *   is a differently-shaped row, not a different component.
+ * - `"pill"`: a capsule that hugs its content, stands at the panel's pill
+ *   height, and carries a resting `--surface-lift` surface, for navigation
+ *   chips that sit inline rather than filling a column. Everything else
+ *   (hover, active, badge, trailing action, link/button semantics) is
+ *   unchanged, which is the point: a pill is a differently-shaped row, not a
+ *   different component.
  *
  * ### `activeVariant`
  *
@@ -71,7 +78,36 @@ import { MarqueeText } from "./marquee-text";
 // Props
 // ---------------------------------------------------------------------------
 
-interface PanelItemProps {
+/** Shape, state, and styling: true of a row however its content is supplied. */
+interface PanelItemFrameProps {
+  /**
+   * Row geometry.
+   * - `"row"` fills its container at a 6px radius.
+   * - `"pill"` hugs its content as a capsule on `--surface-lift`.
+   * @default "row"
+   */
+  shape?: "row" | "pill";
+  /** Selected state. Sets `aria-current="page"` automatically. */
+  active?: boolean;
+  /**
+   * Active-state color treatment.
+   * - `"default"` — neutral `--surface-active` bg, `--content-emphasised` text.
+   * - `"branded"` — primary-tinted bg, `--primary-base` text, bolder weight.
+   * @default "default"
+   */
+  activeVariant?: "default" | "branded";
+  className?: string;
+  /** Optional accessible label override (defaults to `label` when it's a string). */
+  "aria-label"?: string;
+}
+
+/** PanelItem renders the row's contents from these props. */
+interface PanelItemContentProps
+  extends PanelItemFrameProps,
+    Omit<ComponentProps<"div">, "children" | "className" | "aria-label"> {
+  asChild?: false;
+  /** Ignored: this variant builds its own children from the props below. */
+  children?: never;
   /** Leading icon. Omit for label-only rows (e.g. indented sub-items). */
   icon?: LucideIcon;
   /**
@@ -104,67 +140,87 @@ interface PanelItemProps {
    * default; revealed on hover or focus-within, while a child menu is open
    * (`aria-expanded="true"` on the trigger), and always when `active`.
    *
-   * On touch (coarse-pointer) devices the trailing action stays visible by
-   * default, since there's no hover to reveal it. If the row already has
-   * its own touch affordance (long-press → bottom sheet, swipe-to-reveal,
+   * Where the device cannot hover the trailing action stays visible, since
+   * there is nothing to reveal it. If the row already has its own touch
+   * affordance (long-press to bottom sheet, swipe-to-reveal,
    * etc.), pass `undefined` here on touch rather than rendering a redundant
    * ellipsis: an always-visible-but-inert trailing element still reserves
    * layout space next to `badge`, which reads as broken.
    */
   trailingAction?: ReactNode;
   /**
-   * Row geometry.
-   * - `"row"` fills its container at a 6px radius.
-   * - `"pill"` hugs its content as a capsule on `--surface-lift`.
-   * @default "row"
-   */
-  shape?: "row" | "pill";
-  /** Selected state. Sets `aria-current="page"` automatically. */
-  active?: boolean;
-  /**
-   * Active-state color treatment.
-   * - `"default"` — neutral `--surface-active` bg, `--content-emphasised` text.
-   * - `"branded"` — primary-tinted bg, `--primary-base` text, bolder weight.
-   * @default "default"
-   */
-  activeVariant?: "default" | "branded";
-  /**
    * Disabled state for the `onSelect` variant. Blocks click and Enter/Space
    * activation, removes the row from the tab order, and sets `aria-disabled`.
-   * No effect on the anchor (`href`) / `asChild` / non-interactive variants.
+   * No effect on the `asChild` / non-interactive variants.
    */
   disabled?: boolean;
   /** Click handler for the row itself (not `trailingAction`). */
   onSelect?: () => void;
-  /** Render as `<a href>` for navigation rows. */
-  href?: string;
   /**
    * When true, wrap the label in `MarqueeText` so an overflowing single-line
    * label scrolls horizontally on row hover and snaps back to the start when
    * the pointer leaves. Honors `prefers-reduced-motion`. Off by default.
    */
   marqueeOnHover?: boolean;
-  className?: string;
-  /** Optional accessible label override (defaults to `label` when it's a string). */
-  "aria-label"?: string;
   /**
-   * Render as a caller-provided child element (e.g. React Router `<NavLink>`)
-   * while merging PanelItem's styling and aria attributes onto it. Uses
-   * Radix `Slot`. When true, pass exactly one child element; PanelItem's own
-   * `href` and `onSelect` props are ignored.
+   * This row is a control whose activation a parent owns - a popover or
+   * bottom-sheet trigger cloning it via `asChild`. Renders the same
+   * interactive shell `onSelect` does (role, tab stop, focus ring, pointer)
+   * without taking a handler, because the parent supplies `onClick` and
+   * `onKeyDown` itself. Without it the row renders as an inert `<div>`: the
+   * parent's handlers still land, so it works by mouse, and silently loses
+   * keyboard and screen-reader access.
    */
-  asChild?: boolean;
-  /** Children. Required when `asChild` is true; ignored otherwise. */
-  children?: ReactNode;
-  ref?: Ref<HTMLAnchorElement | HTMLDivElement | HTMLElement>;
+  trigger?: boolean;
 }
+
+/**
+ * The caller supplies the whole element (e.g. a React Router `<NavLink>` or a
+ * `Collapsible.Trigger`) and PanelItem merges its styling and aria attributes
+ * onto it through Radix `Slot`.
+ *
+ * The content and behaviour props are typed out rather than left unused: the
+ * child owns its own children, link target, and handlers, so a row that passes
+ * both a child and an `icon` is asking for two different things at once. The
+ * `never`s make that a type error at the call site instead of a prop that is
+ * silently dropped at runtime.
+ */
+interface PanelItemSlotProps
+  extends PanelItemFrameProps,
+    Omit<HTMLAttributes<HTMLElement>, "children" | "className" | "aria-label"> {
+  asChild: true;
+  /**
+   * The one element that becomes the rendered row, and the one this row's ref
+   * points at. A fragment type-checks and cannot work: see
+   * {@link reportUnmergeableSlotChild}.
+   */
+  children: ReactElement;
+  ref?: Ref<HTMLElement>;
+  icon?: never;
+  leadingSlot?: never;
+  label?: never;
+  expandChevron?: never;
+  badge?: never;
+  badgeBare?: never;
+  trailingAction?: never;
+  marqueeOnHover?: never;
+  disabled?: never;
+  onSelect?: never;
+  trigger?: never;
+}
+
+type PanelItemProps = PanelItemContentProps | PanelItemSlotProps;
 
 // ---------------------------------------------------------------------------
 // Class composition
 // ---------------------------------------------------------------------------
 
 const ROW_BASE_CLASSES = [
-  "group relative",
+  /* Named as well as bare: slot content targets this row with
+     `group-hover/panel-item:`, which an unnamed group does not match, and
+     existing callers still rely on plain `group-hover:`. Both markers, so
+     neither form silently stops working. */
+  "group/panel-item group relative",
   "flex h-8 max-md:h-auto w-full items-center justify-between",
   "rounded-[6px] p-[8px] max-md:py-3 gap-[4px]",
   "text-left text-body-medium-lighter max-md:text-body-large-default",
@@ -175,29 +231,80 @@ const ROW_BASE_CLASSES = [
 ].join(" ");
 
 const INTERACTIVE_CLASSES = [
-  "[@media(hover:hover)]:hover:bg-[var(--surface-hover)]",
   "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
   "cursor-pointer select-none",
 ].join(" ");
 
 /**
+ * The hover surface, which differs by shape because the shapes rest on
+ * different things. A row rests transparent, where `--surface-hover` - a 6%
+ * translucent overlay - is exactly what it was built for. A pill rests on
+ * `--surface-lift`, where that same overlay composites *darker* than the
+ * resting surface and the pill reads as having no hover at all;
+ * `--surface-active` is the step up from lifted.
+ *
+ * Both stay overridable through `--panel-item-hover`, so a tinted pill still
+ * supplies its own lightened hue and never reaches either fallback.
+ */
+const ROW_HOVER_CLASS =
+  "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]";
+const PILL_HOVER_CLASS =
+  "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-active))]";
+
+/**
  * {@link PanelItemProps.shape} `"pill"`: a capsule that sizes to its content
  * and carries a resting surface, so it reads as a chip sitting in a column
- * rather than a row filling one. Radius, width, and surface only, so hover,
+ * rather than a row filling one. Radius, width, height, and surface, so hover,
  * active, and every slot behave exactly as they do on a row.
  *
  * `w-fit` rather than `w-auto`: the root is a block-level flex container, and
  * `width: auto` on one fills its containing block, so a pill would stretch to
  * row width in every ordinary layout. `width: fit-content` shrink-wraps while
  * leaving `display: flex` alone, which the row's internal layout depends on.
+ *
+ * A pill is taller than a row, and how much taller is the panel's decision
+ * rather than each caller's: `SideMenu` publishes `--side-menu-tile-size`, the
+ * height its collapsed tiles are drawn at, and a pill mounted in one takes it,
+ * so a pill and the circle it collapses into cannot end up at two heights. The
+ * fallback is the same measurement for a pill mounted anywhere else.
+ *
+ * On a touch viewport it applies as a floor rather than a height. The row's
+ * `max-md:h-auto` still governs, so a pill grows to its content as it always
+ * has; the floor only stops it sitting below the height the panel publishes.
+ * Without it the pill ignores that value entirely and lands on whatever its
+ * padding and line-height happen to sum to, which is how a panel that stands
+ * its rows taller for touch ends up unable to say so.
+ */
+/**
+ * A pill reads three optional custom properties, each falling back to the
+ * untinted surface, so a caller can tint one without this component taking a
+ * colour prop or a caller reaching in with `style` overrides:
+ *
+ * - `--panel-item-bg` — resting surface
+ * - `--panel-item-hover` — hover surface
+ * - `--panel-item-fg` — foreground paired with the above for contrast
+ *
+ * Follows the recipe the identity page already uses for avatar-tinted
+ * surfaces (`--card-bg` / `--card-hover` / `--card-flood-fg`): declare the
+ * colours on an ancestor, consume them here through a fallback, and the
+ * whole treatment collapses to the default when nothing declares them.
  */
 const PILL_SHAPE_CLASSES = [
   "w-fit rounded-full",
-  "bg-[var(--surface-lift)]",
+  "h-[var(--side-menu-tile-size,36px)]",
+  "max-md:min-h-[var(--side-menu-tile-size,36px)]",
+  "bg-[var(--panel-item-bg,var(--surface-lift))]",
+  "text-[color:var(--panel-item-fg,inherit)]",
 ].join(" ");
 
+/* The active surface reads the same tint properties the resting one does, so
+   a tinted pill stays tinted while active. Without that, this rule and the
+   resting `--panel-item-bg` are different variants - tailwind-merge keeps
+   both, and the aria one wins whenever it applies, dropping the tint at
+   exactly the moment the row is the current page. Untinted callers reach
+   `--surface-active` as before. */
 const ACTIVE_DEFAULT_CLASSES = [
-  "aria-[current=page]:bg-[var(--surface-active)]",
+  "aria-[current=page]:bg-[var(--panel-item-active,var(--panel-item-bg,var(--surface-active)))]",
   "aria-[current=page]:text-[var(--content-emphasised)]",
 ].join(" ");
 
@@ -208,12 +315,26 @@ const ACTIVE_BRANDED_CLASSES = [
   "aria-[current=page]:font-medium",
 ].join(" ");
 
-const LEFT_CLUSTER_CLASSES = "flex min-w-0 flex-1 items-center gap-[8px]";
+/**
+ * `--panel-item-gap` opens the leading-icon-to-label gap to callers whose
+ * leading slot is larger than an icon (a chip, an avatar), where 8px reads as
+ * cramped. Same recipe as the `--panel-item-*` colour properties above:
+ * declare it on an ancestor, fall back to the default, and a row that never
+ * declares it is unchanged.
+ */
+const LEFT_CLUSTER_CLASSES =
+  "flex min-w-0 flex-1 items-center gap-[var(--panel-item-gap,8px)]";
 
+/**
+ * `--panel-item-icon-fg` lets a caller recolor just the leading icon (e.g. the
+ * New Chat row's plus, tinted to the assistant's own accent) without touching
+ * every other icon on the surface: it falls back to the usual tertiary gray,
+ * so a row that never declares it looks exactly as before.
+ */
 const LEADING_ICON_BASE_CLASSES = [
   "shrink-0",
-  "text-[var(--content-tertiary)]",
-  "[@media(hover:hover)]:group-hover:text-[var(--content-secondary)]",
+  "text-[color:var(--panel-item-icon-fg,var(--content-tertiary))]",
+  "[@media(hover:hover)]:group-hover:text-[color:var(--panel-item-icon-fg,var(--content-secondary))]",
 ].join(" ");
 
 const ICON_ACTIVE_DEFAULT =
@@ -250,28 +371,92 @@ const BADGE_BARE_CLASSES = "inline-flex items-center justify-center shrink-0";
  */
 const BADGE_BARE_ALONE_CLASSES = "mr-2";
 
-const TRAILING_ACTION_CLASSES = [
-  "flex items-center shrink-0",
-  "opacity-0 transition-opacity",
-  "[@media(hover:hover)]:group-hover:opacity-100",
-  // Keyboard path: reveal when the row or the action itself has focus, and
-  // keep it visible while its menu is open (focus moves into the portal'd
-  // menu content, so focus-within alone would let it fade mid-interaction).
-  "group-focus-within:opacity-100",
-  "has-[[aria-expanded=true]]:opacity-100",
-  "group-aria-[current=page]:opacity-100",
-].join(" ");
+/**
+ * The trailing action carries `data-reveal`, so the row keeps it out of the way
+ * until it is wanted; a row the nav marks as the current page carries
+ * `data-reveal-hold` and keeps it visible, being the row the user is in. The
+ * conditions live in the design library's stylesheet.
+ */
+const TRAILING_ACTION_CLASSES = "flex items-center shrink-0";
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-type SharedAnchorProps = Omit<
-  AnchorHTMLAttributes<HTMLAnchorElement>,
-  "href" | "children"
->;
+/** The row shell: geometry, active treatment, and whether it answers a pointer. */
+function rowClasses({
+  shape,
+  active,
+  activeVariant,
+  interactive,
+  className,
+}: {
+  shape: "row" | "pill";
+  active: boolean;
+  activeVariant: "default" | "branded";
+  interactive: boolean;
+  className: string | undefined;
+}): string {
+  return cn(
+    ROW_BASE_CLASSES,
+    interactive && INTERACTIVE_CLASSES,
+    interactive && (shape === "pill" ? PILL_HOVER_CLASS : ROW_HOVER_CLASS),
+    activeVariant === "branded"
+      ? ACTIVE_BRANDED_CLASSES
+      : ACTIVE_DEFAULT_CLASSES,
+    shape === "pill" && PILL_SHAPE_CLASSES,
+    className,
+  );
+}
 
-function PanelItem({
+/**
+ * Dispatches on where the row's content comes from, which is the same question
+ * as what element it renders. Each branch takes one variant's props, so the
+ * attributes it spreads and the element its ref points at agree by
+ * construction rather than by assertion.
+ */
+function PanelItem(props: PanelItemProps) {
+  if (props.asChild === true) {
+    return <PanelItemSlotRow {...props} />;
+  }
+  return <PanelItemContentRow {...props} />;
+}
+
+function PanelItemSlotRow({
+  asChild: _asChild,
+  shape = "row",
+  active = false,
+  activeVariant = "default",
+  className,
+  "aria-label": ariaLabel,
+  children,
+  ref,
+  ...rest
+}: PanelItemSlotProps) {
+  reportUnmergeableSlotChild("PanelItem", children);
+  return (
+    <Slot
+      data-slot="panel-item"
+      ref={ref}
+      className={rowClasses({
+        shape,
+        active,
+        activeVariant,
+        interactive: true,
+        className,
+      })}
+      aria-current={active ? "page" : undefined}
+      aria-label={ariaLabel}
+      {...rest}
+    >
+      {children}
+    </Slot>
+  );
+}
+
+function PanelItemContentRow({
+  asChild: _asChild,
+  children: _children,
   icon: Icon,
   leadingSlot,
   label,
@@ -284,15 +469,15 @@ function PanelItem({
   activeVariant = "default",
   disabled = false,
   onSelect,
-  href,
   marqueeOnHover = false,
   className,
   "aria-label": ariaLabel,
-  asChild = false,
-  children,
+  trigger = false,
   ref,
+  onClick,
+  onKeyDown,
   ...rest
-}: PanelItemProps & SharedAnchorProps & HTMLAttributes<HTMLDivElement>) {
+}: PanelItemContentProps) {
   const ariaCurrent = active ? ("page" as const) : undefined;
   const resolvedAriaLabel =
     ariaLabel ?? (typeof label === "string" ? label : undefined);
@@ -325,6 +510,8 @@ function PanelItem({
     <ExpandChevron size={12} aria-hidden className={EXPAND_CHEVRON_CLASSES} />
   ) : null;
 
+  const crossfadeBadgeAndTrailing = badge != null && trailingAction != null;
+
   const badgeNode =
     badge != null ? (
       <span
@@ -332,6 +519,9 @@ function PanelItem({
           badgeBare ? BADGE_BARE_CLASSES : BADGE_BASE_CLASSES,
           badgeBare && !trailingAction && BADGE_BARE_ALONE_CLASSES,
         )}
+        /* A row with both parts crossfades them in one slot, so the badge
+           yields wherever the trailing action is shown. */
+        data-reveal-yield={crossfadeBadgeAndTrailing ? "" : undefined}
       >
         {badge}
       </span>
@@ -339,7 +529,8 @@ function PanelItem({
 
   const trailingNode = trailingAction ? (
     <span
-      className={cn(TRAILING_ACTION_CLASSES, "pointer-coarse:opacity-100")}
+      className={TRAILING_ACTION_CLASSES}
+      data-reveal=""
       onClick={(event: MouseEvent<HTMLSpanElement>) => {
         event.stopPropagation();
         event.preventDefault();
@@ -357,106 +548,65 @@ function PanelItem({
         {expandChevronNode}
       </span>
       <span className={RIGHT_CLUSTER_CLASSES}>
-        {badgeNode}
-        {trailingNode}
+        {crossfadeBadgeAndTrailing ? (
+          <CrossfadeStack>
+            {badgeNode}
+            {trailingNode}
+          </CrossfadeStack>
+        ) : (
+          <>
+            {badgeNode}
+            {trailingNode}
+          </>
+        )}
       </span>
     </>
   );
 
-  const activeClasses =
-    activeVariant === "branded"
-      ? ACTIVE_BRANDED_CLASSES
-      : ACTIVE_DEFAULT_CLASSES;
-  const isInteractive = asChild || !!href || !!onSelect;
-  const rowClasses = cn(
-    ROW_BASE_CLASSES,
-    isInteractive && INTERACTIVE_CLASSES,
-    activeClasses,
-    shape === "pill" && PILL_SHAPE_CLASSES,
+  const interactive = onSelect != null || trigger;
+  const classes = rowClasses({
+    shape,
+    active,
+    activeVariant,
+    interactive,
     className,
-  );
+  });
 
-  // ── asChild variant ──────────────────────────────────────────────────
-  if (asChild) {
-    if (import.meta.env.DEV) {
-      if (Icon || leadingSlot || badge || trailingAction || ExpandChevron) {
-        console.warn(
-          "PanelItem: icon, leadingSlot, badge, trailingAction, and expandChevron " +
-            "are ignored when asChild is true — the consumer owns all children.",
-        );
-      }
-    }
-    return (
-      <Slot
-        data-slot="panel-item"
-        ref={ref as Ref<HTMLElement>}
-        className={rowClasses}
-        aria-current={ariaCurrent}
-        aria-label={resolvedAriaLabel}
-        {...(rest as HTMLAttributes<HTMLElement>)}
-      >
-        {children}
-      </Slot>
-    );
-  }
-
-  // ── Anchor variant ─────────────────────────────────────────────────
-  if (href) {
-    const { onClick: anchorOnClick, ...anchorProps } =
-      rest as SharedAnchorProps;
-    return (
-      <a
-        {...anchorProps}
-        data-slot="panel-item"
-        ref={ref as Ref<HTMLAnchorElement>}
-        href={href}
-        className={rowClasses}
-        aria-current={ariaCurrent}
-        aria-label={resolvedAriaLabel}
-        onClick={(event) => {
-          anchorOnClick?.(event);
-          if (!event.defaultPrevented) {
-            onSelect?.();
-          }
-        }}
-      >
-        {innerMarkup}
-      </a>
-    );
-  }
-
-  // ── Button variant ─────────────────────────────────────────────────
   // Rendered as `<div role="button">` rather than `<button>` because rows
-  // commonly host interactive children (pin toggles, ellipsis menus) in
-  // their `leadingSlot` / `trailingAction` slots. HTML forbids nesting
-  // interactive elements inside `<button>`, which React 19 flags as a
-  // hydration error. The same `Enter`/`Space` activation, tab focus, and
-  // screen-reader semantics are preserved via `role="button"` + `tabIndex`.
-  // `disabled` is honored via `aria-disabled` + skipped activation +
-  // `tabIndex={-1}`, matching native `<button disabled>` behavior.
-  if (onSelect) {
-    const {
-      onClick: rowOnClick,
-      onKeyDown: rowOnKeyDown,
-      ...divProps
-    } = rest as HTMLAttributes<HTMLDivElement>;
-
+  // commonly host interactive children (pin toggles, ellipsis menus) in their
+  // `leadingSlot` / `trailingAction` slots. HTML forbids nesting interactive
+  // elements inside `<button>`, which React 19 flags as a hydration error. The
+  // same `Enter`/`Space` activation, tab focus, and screen-reader semantics are
+  // preserved via `role="button"` + `tabIndex`. `disabled` is honored via
+  // `aria-disabled` + skipped activation + `tabIndex={-1}`, matching native
+  // `<button disabled>` behavior.
+  if (interactive) {
     const composedOnClick = (event: MouseEvent<HTMLDivElement>) => {
       if (disabled) {
         event.preventDefault();
         return;
       }
-      rowOnClick?.(event);
+      onClick?.(event);
       if (!event.defaultPrevented) {
-        onSelect();
+        onSelect?.();
       }
     };
 
     const composedOnKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-      if (disabled) return;
-      rowOnKeyDown?.(event);
-      if (event.defaultPrevented) return;
+      if (disabled) {
+        return;
+      }
+      onKeyDown?.(event);
+      if (event.defaultPrevented) {
+        return;
+      }
       if (event.key === "Enter" || event.key === " ") {
+        /* A trigger has no handler of its own; the parent's `onKeyDown` above
+           has already run and is what opens it. Preventing default here would
+           swallow the space key for it. */
+        if (!onSelect) {
+          return;
+        }
         event.preventDefault();
         onSelect();
       }
@@ -464,13 +614,15 @@ function PanelItem({
 
     return (
       <div
-        {...divProps}
+        {...rest}
         data-slot="panel-item"
-        ref={ref as Ref<HTMLDivElement>}
+        ref={ref}
         role="button"
         tabIndex={disabled ? -1 : 0}
         aria-disabled={disabled || undefined}
-        className={rowClasses}
+        className={classes}
+        data-reveal-row=""
+        data-reveal-hold={active ? "" : undefined}
         aria-current={ariaCurrent}
         aria-label={resolvedAriaLabel}
         onClick={composedOnClick}
@@ -481,16 +633,18 @@ function PanelItem({
     );
   }
 
-  // ── Non-interactive fallback ────────────────────────────────────────
-  const divProps = rest as HTMLAttributes<HTMLDivElement>;
   return (
     <div
       data-slot="panel-item"
-      ref={ref as Ref<HTMLDivElement>}
-      className={rowClasses}
+      ref={ref}
+      className={classes}
+      data-reveal-row=""
+      data-reveal-hold={active ? "" : undefined}
       aria-current={ariaCurrent}
       aria-label={resolvedAriaLabel}
-      {...divProps}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      {...rest}
     >
       {innerMarkup}
     </div>

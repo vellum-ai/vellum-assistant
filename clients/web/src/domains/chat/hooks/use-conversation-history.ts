@@ -30,7 +30,10 @@ import { useCallback, useEffect, useRef } from "react";
 
 import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 
-import { organizationsBillingSummaryRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import {
+  organizationsBillingSummaryRetrieveQueryKey,
+  organizationsBillingUsageTotalsRetrieveQueryKey,
+} from "@/generated/api/@tanstack/react-query.gen";
 import { useBillingBalanceQueryEnabled } from "@/hooks/use-billing-balance-status";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useResumeGrace } from "@/hooks/use-resume-grace";
@@ -480,6 +483,17 @@ export function useConversationHistory({
       void queryClient.invalidateQueries({
         queryKey: organizationsBillingSummaryRetrieveQueryKey(),
       });
+      // The BYOK banner gate's recent-spend probe
+      // (`useSuppressCreditBannersForByok`) must see a managed burn from this
+      // turn too, or a cached zero keeps suppressing the banners in an open
+      // tab. Its key carries a from/to window, so match on the key's base
+      // fields (derived from the generated key builder, minus the window)
+      // to hit every cached window.
+      const [totalsKey] = organizationsBillingUsageTotalsRetrieveQueryKey({
+        query: { from: "", to: "" },
+      });
+      const { query: _window, ...totalsKeyBase } = totalsKey;
+      void queryClient.invalidateQueries({ queryKey: [totalsKeyBase] });
     }
   }, [billingSummaryEnabled, queryClient]);
 

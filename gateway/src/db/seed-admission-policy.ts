@@ -15,7 +15,10 @@ import {
   type AdmissionPolicy,
 } from "@vellumai/gateway-client";
 import { CHANNEL_IDS, type ChannelId } from "../channels/types.js";
-import { AdmissionPolicyStore, isExemptChannelType } from "./admission-policy-store.js";
+import {
+  AdmissionPolicyStore,
+  isExemptChannelType,
+} from "./admission-policy-store.js";
 
 /**
  * Per-channel default floors. Channels absent from this map default to
@@ -28,9 +31,19 @@ import { AdmissionPolicyStore, isExemptChannelType } from "./admission-policy-st
  * `phone` is intentionally absent — it now seeds with the universal
  * `ADMISSION_POLICY_DEFAULT` (`trusted_contacts`), default-denying unknown /
  * unverified inbound callers.
+ *
+ * `plugin` defaults to `guardian_only`, a floor above every other inbound
+ * channel. A plugin channel reaches the assistant through code the guardian
+ * installed rather than through an integration this codebase implements, and
+ * the single row covers every installed plugin at once, so the default admits
+ * the narrowest set that still leaves the channel usable and makes widening it
+ * an explicit choice in the Channel Trust Floors UI.
  */
-export const CHANNEL_ADMISSION_DEFAULTS: Partial<Record<ChannelId, AdmissionPolicy>> = {
+export const CHANNEL_ADMISSION_DEFAULTS: Partial<
+  Record<ChannelId, AdmissionPolicy>
+> = {
   vellum: "guardian_only",
+  plugin: "guardian_only",
 };
 
 /**

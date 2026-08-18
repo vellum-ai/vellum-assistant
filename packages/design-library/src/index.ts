@@ -13,12 +13,23 @@ export {
   CardFooter,
   type CardRootProps,
 } from "./components/card";
+export { CrossfadeStack } from "./components/crossfade-stack";
 export { Notice, type NoticeProps, type NoticeTone } from "./components/notice";
 export { ProgressBar, type ProgressBarProps } from "./components/progress-bar";
 export {
   ResizablePanel,
   type ResizablePanelProps,
 } from "./components/resizable-panel";
+export {
+  PaneResizeHandle,
+  type PaneResizeHandleProps,
+} from "./components/pane-resize-handle";
+export {
+  useResizablePane,
+  type UseResizablePaneOptions,
+  type UseResizablePaneResult,
+  type ResizablePaneHandleProps,
+} from "./hooks/use-resizable-pane";
 export {
   ScrollShadow,
   type ScrollShadowProps,
@@ -106,6 +117,7 @@ export {
   type ModalSize,
   type ModalContentProps,
   type ModalTitleProps,
+  type ModalHeaderProps,
 } from "./components/modal";
 export {
   BottomSheet,
@@ -123,6 +135,18 @@ export {
   ConfirmDialog,
   type ConfirmDialogProps,
 } from "./components/confirm-dialog";
+export {
+  ActionMenu,
+  type ActionMenuPresentation,
+  type ActionMenuRootProps,
+  type ActionMenuTriggerProps,
+  type ActionMenuContentProps,
+  type ActionMenuItemProps,
+} from "./components/action-menu";
+export {
+  TOUCH_SURFACE_MEDIA_QUERY,
+  useTouchSurface,
+} from "./utils/touch-surface";
 export {
   Menu,
   type MenuContentProps,
@@ -155,16 +179,8 @@ export {
   type SelectProps,
   type SelectMenuAlign,
   type SelectSize,
+  type SelectVariant,
 } from "./components/select";
-/** @deprecated Use `Select`. */
-export {
-  Dropdown,
-  resolveDropdownMenuPosition,
-  type DropdownOption,
-  type DropdownProps,
-  type DropdownMenuPosition,
-  type DropdownMenuAlign,
-} from "./components/dropdown";
 export {
   PanelItem,
   ROW_BASE_CLASSES as panelItemRowBaseClasses,
@@ -198,15 +214,22 @@ export {
   SideMenuHeader,
   SideMenuItem,
   SideMenuSection,
+  SideMenuSectionHeader,
   SideMenuSeparator,
   SideMenuSubList,
+  useSideMenuCollapsed,
   SIDE_MENU_DEFAULT_WIDTH,
+  SIDE_MENU_BORDER_WIDTH,
   SIDE_MENU_COLLAPSED_WIDTH,
+  SIDE_MENU_COLLAPSED_INSET,
+  SIDE_MENU_TILE_SIZE,
+  SIDE_MENU_OVERLAY_TILE_SIZE,
   SIDE_MENU_MIN_WIDTH,
   SIDE_MENU_MAX_WIDTH,
   type SideMenuProps,
   type SideMenuVariant,
   type SideMenuSectionProps,
+  type SideMenuSectionHeaderProps,
   type SideMenuItemProps,
 } from "./components/side-menu/side-menu";
 export {
@@ -232,6 +255,13 @@ export {
   type CollapsibleContentProps,
 } from "./components/collapsible";
 export {
+  Combobox,
+  type ComboboxRootProps,
+  type ComboboxListProps,
+  type ComboboxGroupProps,
+  type ComboboxOptionProps,
+} from "./components/combobox";
+export {
   StatSquare,
   type StatSquareProps,
   type StatSquareTone,
@@ -243,7 +273,13 @@ export {
   type ShortcutKeysProps,
 } from "./components/shortcut-keys";
 export { cn } from "./utils/cn";
+export type { CustomPropertyStyle } from "./utils/custom-property-style";
 export { initInputModality } from "./utils/input-modality";
+export {
+  PANEL_ITEM_WASH,
+  panelItemWashStyle,
+  type PanelItemWash,
+} from "./utils/panel-item-tint";
 export {
   PortalContainerProvider,
   usePortalContainer,

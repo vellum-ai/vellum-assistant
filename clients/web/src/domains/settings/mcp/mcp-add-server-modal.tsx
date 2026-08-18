@@ -144,8 +144,8 @@ export function McpAddServerModal({
       }}
     >
       <Modal.Content size="md">
-        <Modal.Header>
-          <Modal.Title icon={Cable}>Add MCP Server</Modal.Title>
+        <Modal.Header icon={Cable}>
+          <Modal.Title>Add MCP Server</Modal.Title>
           <Modal.Description>
             Connect to a Model Context Protocol server to extend available
             tools.

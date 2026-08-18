@@ -9,8 +9,10 @@
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { QueryClient } from "@tanstack/react-query";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { listPage } from "@/utils/conversation-list.test-helper";
 import { getDiagnosticsEvents, type DiagnosticsEvent } from "@/lib/diagnostics";
 import { ApiError } from "@/utils/api-errors";
 import type { RawConversationSummary } from "@/utils/conversation-transforms";
@@ -34,20 +36,24 @@ const {
   listBackgroundConversationsFirstPage,
   listConversations,
   listConversationsFirstPage,
-  listOriginChannelConversations,
+  drainSectionConversations,
+  listSectionConversationsFirstPage,
+  listSectionConversationsPage,
+  sectionConversationListOptions,
+  sectionConversationsQueryKey,
   listScheduledConversations,
   listScheduledConversationsFirstPage,
 } = await import("@/utils/conversation-list-fetchers");
 
 const ASSISTANT_ID = "assistant-1";
 
-function makeRaw(id: string): RawConversationSummary {
+function makeRaw(id: string, lastMessageAt = 0): RawConversationSummary {
   return {
     id,
     title: "",
     createdAt: 0,
     updatedAt: 0,
-    lastMessageAt: 0,
+    lastMessageAt,
     conversationType: "standard",
     source: "vellum",
     groupId: "",
@@ -56,7 +62,8 @@ function makeRaw(id: string): RawConversationSummary {
 }
 
 type PageFixture = {
-  ids: string[];
+  /** Row ids, or `[id, lastMessageAt]` where a test's logic needs recency. */
+  ids: Array<string | [string, number]>;
   hasMore: boolean;
   status?: number;
   contentLength?: string;
@@ -66,12 +73,17 @@ type PageFixture = {
  * Stub the daemon transport so each list GET resolves the next fixture in
  * order. Returns the captured offsets so tests can assert the walk.
  */
-function stubPages(fixtures: PageFixture[]): { offsets: number[] } {
+function stubPages(fixtures: PageFixture[]): {
+  offsets: number[];
+  queries: Record<string, unknown>[];
+} {
   const offsets: number[] = [];
+  const queries: Record<string, unknown>[] = [];
   daemonClient.get = mock(
     async (options: { query?: Record<string, unknown> }) => {
       const index = offsets.length;
       offsets.push(Number(options.query?.offset ?? 0));
+      queries.push({ ...(options.query ?? {}) });
       const fixture = fixtures[index];
       if (!fixture) {
         throw new Error(`test setup has no fixture for request ${index}`);
@@ -79,7 +91,9 @@ function stubPages(fixtures: PageFixture[]): { offsets: number[] } {
       const status = fixture.status ?? 200;
       const ok = status < 400;
       const body = {
-        conversations: fixture.ids.map(makeRaw),
+        conversations: fixture.ids.map((entry) =>
+          typeof entry === "string" ? makeRaw(entry) : makeRaw(...entry),
+        ),
         hasMore: fixture.hasMore,
       };
       return {
@@ -95,7 +109,7 @@ function stubPages(fixtures: PageFixture[]): { offsets: number[] } {
       };
     },
   ) as typeof daemonClient.get;
-  return { offsets };
+  return { offsets, queries };
 }
 
 /**
@@ -301,7 +315,7 @@ describe("conversation list drain diagnostics", () => {
 
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
     const channel = await diagnosticsDuring(() =>
-      listOriginChannelConversations(ASSISTANT_ID, "slack"),
+      drainSectionConversations(ASSISTANT_ID, { originChannel: "slack" }),
     );
 
     expect(channel.events[0]?.details).toMatchObject({
@@ -519,7 +533,7 @@ describe("conversation list drain telemetry", () => {
   test("an origin-channel drain is labeled origin_channel, not foreground", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
 
-    await listOriginChannelConversations(ASSISTANT_ID, "slack");
+    await drainSectionConversations(ASSISTANT_ID, { originChannel: "slack" });
 
     const emits = drainEmits();
     expect(emits).toHaveLength(1);
@@ -593,6 +607,163 @@ describe("conversation list drain telemetry", () => {
       pages: 1,
       rows: 1,
       list_kind: "foreground",
+    });
+  });
+});
+
+/*
+ * The section filter is what the whole per-section arrangement rests on: if a
+ * filter is dropped on the way to the wire the request still succeeds, it just
+ * answers with a superset, and the section renders rows that are not its own.
+ * That failure is silent, so it gets assertions on the query itself rather than
+ * on the returned rows.
+ */
+describe("section list filters", () => {
+  test("forwards groupId to the daemon on every page of the drain", async () => {
+    const { queries } = stubPages([
+      { ids: ["c-0"], hasMore: true },
+      { ids: ["c-1"], hasMore: false },
+    ]);
+
+    await drainSectionConversations(ASSISTANT_ID, {
+      groupId: "system:pinned",
+    });
+
+    expect(queries).toHaveLength(2);
+    for (const query of queries) {
+      expect(query.groupId).toBe("system:pinned");
+    }
+  });
+
+  test("sends both filters for a channel inside the ungrouped remainder", async () => {
+    // `origin_channel` is a separate column from `group_id`, so a channel card
+    // constrains on both: without the group filter a conversation filed into a
+    // custom group would render in that group AND in its channel.
+    const { queries } = stubPages([{ ids: ["c-0"], hasMore: false }]);
+
+    await drainSectionConversations(ASSISTANT_ID, {
+      groupId: "system:all",
+      originChannel: "slack",
+    });
+
+    expect(queries[0]).toMatchObject({
+      groupId: "system:all",
+      originChannel: "slack",
+    });
+  });
+
+  test("omits the filters it was not given rather than sending empties", async () => {
+    const { queries } = stubPages([{ ids: ["c-0"], hasMore: false }]);
+
+    await drainSectionConversations(ASSISTANT_ID, { groupId: "grp-a" });
+
+    expect(queries[0]).not.toHaveProperty("originChannel");
+  });
+
+  test("the first-page fetch carries the filter at offset 0", async () => {
+    // One request, carrying the section's filter, or the section renders a
+    // superset.
+    const { queries } = stubPages([{ ids: ["c-0"], hasMore: true }]);
+
+    const page = await listSectionConversationsFirstPage(ASSISTANT_ID, {
+      groupId: "system:all",
+      originChannel: "slack",
+    });
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toMatchObject({
+      offset: 0,
+      groupId: "system:all",
+      originChannel: "slack",
+    });
+    expect(page.hasMore).toBe(true);
+  });
+
+  test("a plain refetch keeps the scrolled-in window", async () => {
+    /* The queryFn merges the fresh first page over the cached window. A
+       bare page-one return here would mean every focus refetch and every
+       settle invalidation truncated a scrolled window back to 50 rows
+       under the user's scrollbar. */
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const filter = { groupId: "grp-a" };
+    client.setQueryData(
+      sectionConversationsQueryKey(ASSISTANT_ID, filter),
+      listPage(
+        [
+          {
+            conversationId: "c-top",
+            title: "",
+            createdAt: 0,
+            lastMessageAt: 5000,
+          },
+          {
+            conversationId: "c-scrolled-in",
+            title: "",
+            createdAt: 0,
+            lastMessageAt: 100,
+          },
+        ],
+        true,
+      ),
+    );
+    // The fresh page holds only the window top; the scrolled-in row sorts
+    // below the page's cutoff, so the merge must keep it.
+    stubPages([{ ids: [["c-top", 5000]], hasMore: true }]);
+
+    // staleTime 0: the seeded cache is seconds old, and fetchQuery serves
+    // fresh data without running the queryFn, which would pass this test
+    // without exercising the merge at all.
+    const result = await client.fetchQuery({
+      ...sectionConversationListOptions(ASSISTANT_ID, filter),
+      staleTime: 0,
+    });
+
+    expect(result.conversations.map((c) => c.conversationId)).toEqual([
+      "c-top",
+      "c-scrolled-in",
+    ]);
+    expect(result.hasMore).toBe(true);
+  });
+
+  test("a load-more page carries the filter and its offset", async () => {
+    const { queries } = stubPages([{ ids: ["c-50"], hasMore: false }]);
+
+    const page = await listSectionConversationsPage(
+      ASSISTANT_ID,
+      { groupId: "grp-a" },
+      50,
+    );
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toMatchObject({ offset: 50, groupId: "grp-a" });
+    expect(page.hasMore).toBe(false);
+  });
+
+  test("labels a group-only drain 'section', keeping it distinct from a channel", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
+    const group = await diagnosticsDuring(() =>
+      drainSectionConversations(ASSISTANT_ID, { groupId: "system:pinned" }),
+    );
+
+    expect(group.events[0]?.details).toMatchObject({
+      listKind: "section",
+      source: "drain",
+    });
+
+    // A channel section carries a groupId too, and still labels as the channel
+    // so the bounded per-channel budget stays readable.
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
+    const channel = await diagnosticsDuring(() =>
+      drainSectionConversations(ASSISTANT_ID, {
+        groupId: "system:all",
+        originChannel: "slack",
+      }),
+    );
+
+    expect(channel.events[0]?.details).toMatchObject({
+      listKind: "origin_channel",
     });
   });
 });

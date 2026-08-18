@@ -11,7 +11,6 @@ import {
 let gatewayPath: string | undefined = "/assistant/__gateway/20100";
 let supportsPairingRoutes = true;
 let webRemoteIngressOn = true;
-let flagsHydrated = true;
 let selectedAssistant: {
   assistantId: string;
   cloud: string;
@@ -28,11 +27,10 @@ mock.module("@/lib/backwards-compat/remote-web-pairing-gate", () => ({
   useSupportsRemoteWebPairing: () => supportsPairingRoutes,
 }));
 
-mock.module("@/stores/assistant-feature-flag-store", () => ({
-  useAssistantFeatureFlagStore: {
+mock.module("@/stores/client-feature-flag-store", () => ({
+  useClientFeatureFlagStore: {
     use: {
       webRemoteIngress: () => webRemoteIngressOn,
-      hasHydrated: () => flagsHydrated,
     },
   },
 }));
@@ -109,7 +107,6 @@ beforeEach(() => {
   gatewayPath = "/assistant/__gateway/20100";
   supportsPairingRoutes = true;
   webRemoteIngressOn = true;
-  flagsHydrated = true;
   selectedAssistant = { assistantId: "self", cloud: "local" };
   requests = [];
   localStorage.clear();
@@ -144,52 +141,12 @@ describe("PairDeviceCard", () => {
     expect(screen.queryByText("Pair a device")).toBeNull();
   });
 
-  test("holds the action in a loading state until feature flags hydrate", () => {
-    // Before hydration the store still reports registry defaults
-    // (webRemoteIngress false), so the precheck must not run against it yet.
-    flagsHydrated = false;
+  test("renders nothing when web-remote-ingress is off", () => {
+    // The client flag only controls the card's visibility.
     webRemoteIngressOn = false;
-    const fetchMock = installFetch(() => jsonResponse(challengeBody()));
-    render(<PairDeviceCard />);
-    typeUrl(PUBLIC_URL);
-
-    const button = screen.getByRole("button", {
-      name: "Loading…",
-    }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-
-    // Enter is a second mint path the disabled button doesn't cover, so it must
-    // also no-op until hydration — otherwise the default flag reaches the
-    // precheck and shows a spurious "disabled" error.
-    fireEvent.keyDown(screen.getByLabelText("Public URL"), { key: "Enter" });
-
-    expect(
-      screen.queryByText(
-        "Remote web access is disabled on this assistant, so a scanned code couldn't connect.",
-      ),
-    ).toBeNull();
-    expect(fetchMock).toHaveBeenCalledTimes(0);
-  });
-
-  test("reports the enable guidance without minting when web-remote-ingress is off", async () => {
-    webRemoteIngressOn = false;
-    const fetchMock = installFetch(() => jsonResponse(challengeBody()));
-    render(<PairDeviceCard />);
-    typeUrl(PUBLIC_URL);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Generate pairing QR" }),
-    );
-
-    await waitFor(() =>
-      expect(
-        screen.getByText(
-          "Remote web access is disabled on this assistant, so a scanned code couldn't connect.",
-        ),
-      ).toBeTruthy(),
-    );
-    expect(screen.getByText(/web-remote-ingress/)).toBeTruthy();
-    // Mirrors the CLI: the flag is checked before minting, so no network call.
-    expect(fetchMock).toHaveBeenCalledTimes(0);
+    const { container } = render(<PairDeviceCard />);
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText("Pair a device")).toBeNull();
   });
 
   test("mints + approves, then shows the QR and pair URL", async () => {
@@ -216,7 +173,7 @@ describe("PairDeviceCard", () => {
     expect(requests[1]?.body).toEqual({ userCode: "WXYZ-1234" });
   });
 
-  test("surfaces the server's rejection message with a flag hint", async () => {
+  test("surfaces the server's rejection message with a connectivity hint", async () => {
     installFetch(() =>
       jsonResponse(
         { error: { code: "LOOPBACK_REQUIRED", message: "loopback required" } },
@@ -232,7 +189,7 @@ describe("PairDeviceCard", () => {
     await waitFor(() =>
       expect(screen.getByText("loopback required")).toBeTruthy(),
     );
-    expect(screen.getByText(/web-remote-ingress/)).toBeTruthy();
+    expect(screen.getByText(/vellum tunnel/)).toBeTruthy();
   });
 
   test("blocks a loopback URL client-side without a network call", () => {

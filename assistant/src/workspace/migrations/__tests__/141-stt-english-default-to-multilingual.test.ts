@@ -10,7 +10,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { sttEnglishDefaultToMultilingualMigration as MIG } from "../141-stt-english-default-to-multilingual.js";
-import { WORKSPACE_MIGRATIONS } from "../registry.js";
 
 let workspaceDir: string;
 let configPath: string;
@@ -37,15 +36,6 @@ afterEach(() => {
 });
 
 describe("141-stt-english-default-to-multilingual", () => {
-  test("is registered last, so it defines the registry ceiling", () => {
-    // getLastWorkspaceMigrationId() reads the final entry, and the runner
-    // executes the array in order, so a new migration belongs at the end.
-    expect(MIG.id).toBe("141-stt-english-default-to-multilingual");
-    expect(WORKSPACE_MIGRATIONS[WORKSPACE_MIGRATIONS.length - 1]?.id).toBe(
-      MIG.id,
-    );
-  });
-
   test("moves an accepted English default to multilingual on deepgram", () => {
     write({ provider: "deepgram", language: "en" });
     MIG.run(workspaceDir);

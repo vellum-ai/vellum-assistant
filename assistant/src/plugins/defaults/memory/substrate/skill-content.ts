@@ -23,6 +23,13 @@ export interface SkillCapabilityInput {
 export const ALWAYS_CANDIDATE_CARD_CHARS = 900;
 
 /**
+ * Character budget for an ordinary skill's capability statement. A statement
+ * that overruns is hard-truncated, dropping its trailing activation hints and
+ * its entire avoid-when list from what the selector sees.
+ */
+export const DEFAULT_CARD_CHARS = 500;
+
+/**
  * Render the prose-style capability statement embedded into the unified
  * `memory_v2_concept_pages` Qdrant collection (under the `skills/<id>` slug
  * prefix) and rendered in `### Skills You Can Use` / the memory-v3 selector
@@ -32,7 +39,7 @@ export const ALWAYS_CANDIDATE_CARD_CHARS = 900;
  */
 export function buildSkillContent(
   input: SkillCapabilityInput,
-  maxChars = 500,
+  maxChars: number = DEFAULT_CARD_CHARS,
 ): string {
   const list = maxChars > 500;
   let content = `The "${input.displayName}" skill (${input.id}) is available. ${input.description}.`;

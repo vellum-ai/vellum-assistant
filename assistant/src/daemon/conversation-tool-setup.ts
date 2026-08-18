@@ -245,9 +245,7 @@ export function createToolExecutor(
   toolUseId?: string,
 ) => Promise<ToolExecutionResult> {
   // Register the conversation's sendToClient for browser screencast surface messages
-  registerConversationSender(ctx.conversationId, (msg) =>
-    ctx.sendToClient(msg),
-  );
+  registerConversationSender(ctx.conversationId, (msg) => ctx.emit(msg));
 
   // Execution-layer allowlist gate (`subagentToolGateMode === "execution"`,
   // see {@link SubagentToolGateMode}): rejects non-allowlisted calls BEFORE
@@ -389,8 +387,7 @@ export function createToolExecutor(
     // Per-turn trust snapshot: prefer the snapshot captured at turn start so
     // a concurrent owner meta command (/status, /clean) that mutates the live
     // trustContext cannot elevate the in-flight turn to guardian.
-    const turnTrust =
-      ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
+    const turnTrust = ctx.getTurnOrRestingTrust() ?? FALLBACK_TURN_TRUST;
 
     const toolContext: ToolContext = {
       workingDir: ctx.workingDir,
@@ -441,7 +438,7 @@ export function createToolExecutor(
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
         // signature, but at runtime these are always AssistantEvent instances.
-        ctx.sendToClient(msg as AssistantEvent);
+        ctx.emit(msg as AssistantEvent);
         if (msg.type === "ui_surface_show") {
           // The tool-context sendToClient signature is loose, so the show
           // message's fields are untyped here; map them through the same

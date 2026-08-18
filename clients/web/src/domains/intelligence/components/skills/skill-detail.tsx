@@ -18,7 +18,7 @@ import {
 } from "@/components/file-editor";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { SkillLineageLink } from "@/components/skill-lineage-link";
-import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
+import { SkillIcon } from "@/components/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import { SkillRevisionHistory } from "@/domains/intelligence/components/skills/skill-revision-history";
 import {
@@ -31,14 +31,33 @@ import {
   shouldShowHistoryTab,
   useSkillHistory,
 } from "@/hooks/use-skill-history";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { invalidateSkillsList, isRemovableSkill } from "@/utils/skills";
 import { Button, Card, Tabs } from "@vellumai/design-library";
 
+export type SkillDetailTab = "files" | "history";
+
+/**
+ * Narrow an arbitrary tab value (a `?tab=` param, a Radix `onValueChange`
+ * string) to a tab the page renders; anything else is Files.
+ */
+export function parseSkillDetailTab(value: string | null): SkillDetailTab {
+  return value === "history" ? "history" : "files";
+}
+
 interface SkillDetailProps {
   assistantId: string;
   skill: SkillInfo;
+  /**
+   * Which tab is selected. The route page owns it (it rides `?tab=` so a
+   * link can open the page straight onto History, as the in-chat Level Up
+   * card does); this component only pins it to Files while History is
+   * hidden.
+   */
+  tab: SkillDetailTab;
+  onTabChange: (tab: SkillDetailTab) => void;
   onBack: () => void;
   onInstall?: () => void;
   onRemove?: () => void;
@@ -54,6 +73,8 @@ interface SkillDetailProps {
 export function SkillDetail({
   assistantId,
   skill,
+  tab,
+  onTabChange,
   onBack,
   onInstall,
   onRemove,
@@ -61,6 +82,7 @@ export function SkillDetail({
   isRemoving = false,
   sourceConversationId,
 }: SkillDetailProps) {
+  const { t } = useTranslation("intelligence");
   const available = isAvailableSkill(skill);
   const removable = isRemovableSkill(skill);
 
@@ -88,10 +110,10 @@ export function SkillDetail({
     revisionCount: revisions.length,
   });
 
-  const [selectedTab, setSelectedTab] = useState("files");
   // Pin to Files whenever the strip is hidden, so the page never rests on an
-  // unrendered panel.
-  const activeTab = showHistory ? selectedTab : "files";
+  // unrendered panel. A History deep link therefore shows Files while the
+  // history query is in flight and switches once revisions arrive.
+  const activeTab: SkillDetailTab = showHistory ? tab : "files";
 
   const header = (
     <div className="mb-4 flex items-start gap-3">
@@ -99,7 +121,7 @@ export function SkillDetail({
         type="button"
         variant="ghost"
         iconOnly={<ArrowLeft aria-hidden />}
-        aria-label="Back to skills"
+        aria-label={t("skillDetail.backToSkillsAriaLabel")}
         onClick={onBack}
       />
       <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
@@ -142,7 +164,7 @@ export function SkillDetail({
               disabled={!onInstall}
               leftIcon={<ArrowDownToLine aria-hidden />}
             >
-              Install
+              {t("skillDetail.install")}
             </Button>
           )
         ) : (
@@ -159,7 +181,7 @@ export function SkillDetail({
               )
             }
           >
-            Remove
+            {t("skillDetail.remove")}
           </Button>
         )}
       </div>
@@ -190,7 +212,7 @@ export function SkillDetail({
               className="px-3 py-4 text-center text-body-medium-lighter"
               style={{ color: "var(--content-tertiary)" }}
             >
-              No files available.
+              {t("skillDetail.noFilesAvailable")}
             </p>
           ) : (
             fileEntries.map((entry) => {
@@ -253,7 +275,7 @@ export function SkillDetail({
               className="flex h-full items-center justify-center text-body-medium-lighter"
               style={{ color: "var(--content-tertiary)" }}
             >
-              Select a file to view its contents.
+              {t("skillDetail.selectFilePrompt")}
             </p>
           )}
         </div>
@@ -273,13 +295,17 @@ export function SkillDetail({
       */}
       <Tabs.Root
         value={activeTab}
-        onValueChange={setSelectedTab}
+        onValueChange={(value) => onTabChange(parseSkillDetailTab(value))}
         className="flex min-h-0 flex-1 flex-col"
       >
         {showHistory && (
           <Tabs.List className="mb-3">
-            <Tabs.Trigger value="files">Files</Tabs.Trigger>
-            <Tabs.Trigger value="history">History</Tabs.Trigger>
+            <Tabs.Trigger value="files">
+              {t("skillDetail.filesTab")}
+            </Tabs.Trigger>
+            <Tabs.Trigger value="history">
+              {t("skillDetail.historyTab")}
+            </Tabs.Trigger>
           </Tabs.List>
         )}
         <Tabs.Panel
@@ -324,6 +350,7 @@ function SkillFileContent({
   isBinary: boolean;
   editable: boolean;
 }) {
+  const { t } = useTranslation("intelligence");
   const queryClient = useQueryClient();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -389,7 +416,7 @@ function SkillFileContent({
         className="flex h-full items-center justify-center text-body-medium-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
-        Binary file — no preview available.
+        {t("skillFileContent.binaryFile")}
       </p>
     );
   }
@@ -400,7 +427,7 @@ function SkillFileContent({
         className="flex h-full items-center justify-center text-body-medium-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
-        No preview available for {fileName}.
+        {t("skillFileContent.noPreviewAvailable", { fileName })}
       </p>
     );
   }
@@ -411,7 +438,7 @@ function SkillFileContent({
       size="regular"
       iconOnly={<ExternalLink aria-hidden />}
       onClick={() => void openWorkspaceFile(workspacePath)}
-      aria-label="Open in Workspace"
+      aria-label={t("skillDetail.openInWorkspaceAriaLabel")}
       className="hover:bg-[var(--surface-base)]"
     />
   ) : undefined;
@@ -466,7 +493,7 @@ function SkillFileContent({
         <EditFooter
           isDirty={isDirty}
           isSaving={saveMutation.isPending}
-          error={saveMutation.isError ? "Save failed" : null}
+          error={saveMutation.isError ? t("skillDetail.saveFailed") : null}
           onSave={handleSave}
           onDiscard={stopEditing}
         />

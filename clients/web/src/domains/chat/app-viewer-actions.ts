@@ -10,9 +10,11 @@
  *   repeatedly. No-op for `"active"` when no conversation is open.
  *
  * - `open_conversation` ({ conversationId }) — navigates to an existing
- *   conversation by ID without sending a message. Used by plugins that
- *   manage their own background conversations (e.g. battleship) to let the
- *   user view the conversation from within the app UI.
+ *   conversation by ID without sending a message. On a wide viewport the
+ *   app stays open in the side-by-side layout so the conversation is
+ *   visible. Used by plugins that manage their own background conversations
+ *   (e.g. battleship) to let the user view the conversation from within the
+ *   app UI.
  *
  * - `set_view` ({ view }) — moves the app panel: `"split"` (side by side with
  *   chat), `"full"` (full-width), or `"chat"` (close the app). Side-by-side has
@@ -26,6 +28,7 @@
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { keepOpenAppBesideConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
 export interface AppViewerActionContext {
@@ -70,6 +73,7 @@ function openConversation(
     return;
   }
   useConversationStore.getState().setActiveConversationId(conversationId);
+  keepOpenAppBesideConversation(conversationId);
   ctx.navigate(routes.conversation(conversationId));
 }
 
@@ -96,8 +100,7 @@ function setView(
       if (!conversationId) {
         return;
       }
-      useConversationStore.getState().setEditingConversationId(conversationId);
-      viewer.enterAppEditing();
+      keepOpenAppBesideConversation(conversationId);
       return;
     }
     default:

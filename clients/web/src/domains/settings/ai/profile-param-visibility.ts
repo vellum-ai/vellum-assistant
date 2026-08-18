@@ -215,7 +215,11 @@ export function resolveProfileParamVisibility(
     return VISIBILITY_NONE;
   }
 
-  const providerId = provider.toLowerCase();
+  // The chatgpt identity dispatches through the OpenAI Responses adapter
+  // (Codex subscription transport), so its parameter capabilities are
+  // openai's.
+  const rawProviderId = provider.toLowerCase();
+  const providerId = rawProviderId === "chatgpt" ? "openai" : rawProviderId;
   const modelId = model.toLowerCase();
   const usesAnthropicWire =
     providerId === "anthropic" ||

@@ -7,10 +7,9 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useSearchParams } from "react-router";
 
-import {
-  MobileSidebarDrawer,
-  MobileSidebarTrigger,
-} from "@/components/mobile-sidebar-drawer";
+import { SideListDrawer, SideListTrigger } from "@/components/side-list-drawer";
+import { useSideListRoom } from "@/hooks/use-side-list-room";
+import { useTranslation } from "@/i18n";
 import { WorkspaceFileViewer } from "@/domains/workspace/components/workspace-file-viewer";
 import {
   WorkspaceTree,
@@ -34,6 +33,7 @@ function getAncestorPaths(filePath: string): Set<string> {
 }
 
 export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
+  const { t } = useTranslation("workspace");
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
@@ -97,12 +97,20 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
     });
   }, []);
 
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const { paneRef, hasRoomForList, drawerOpen, openDrawer, closeDrawer } =
+    useSideListRoom();
+  // Above the inline/drawer branch below, which remounts whichever tree
+  // surface it swaps to. Sits with the expansion and selection state already
+  // lifted here for the same reason.
+  const [treeSearch, setTreeSearch] = useState("");
 
-  const handleSelectPath = useCallback((path: string) => {
-    setSelectedPath(path);
-    setDrawerOpen(false);
-  }, []);
+  const handleSelectPath = useCallback(
+    (path: string) => {
+      setSelectedPath(path);
+      closeDrawer();
+    },
+    [closeDrawer],
+  );
 
   const [lastDelete, setLastDelete] = useState<{ path: string } | null>(null);
 
@@ -157,32 +165,44 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
     onChangeSortMode: setSortMode,
     onPathDeleted: handlePathDeleted,
     onPathRenamed: handlePathRenamed,
+    search: treeSearch,
+    onSearchChange: setTreeSearch,
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="flex items-center sm:hidden">
-        <MobileSidebarTrigger onClick={() => setDrawerOpen(true)} />
-      </div>
+    <div ref={paneRef} className="flex h-full min-h-0 flex-col gap-4">
+      {!hasRoomForList ? (
+        <>
+          <div className="flex items-center">
+            <SideListTrigger onClick={openDrawer} />
+          </div>
 
-      <MobileSidebarDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        title="Files"
+          <SideListDrawer
+            open={drawerOpen}
+            onClose={closeDrawer}
+            title={t("workspaceBrowser.drawerTitle")}
+          >
+            <WorkspaceTree {...treeProps} />
+          </SideListDrawer>
+        </>
+      ) : null}
+
+      <div
+        className={`grid min-h-0 flex-1 gap-4 ${
+          hasRoomForList ? "grid-cols-[320px_1fr]" : "grid-cols-1"
+        }`}
       >
-        <WorkspaceTree {...treeProps} />
-      </MobileSidebarDrawer>
-
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 sm:grid-cols-[320px_1fr]">
-        <div
-          className="hidden min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border sm:flex"
-          style={{
-            backgroundColor: "var(--surface-overlay)",
-            borderColor: "var(--border-base)",
-          }}
-        >
-          <WorkspaceTree {...treeProps} />
-        </div>
+        {hasRoomForList ? (
+          <div
+            className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border"
+            style={{
+              backgroundColor: "var(--surface-overlay)",
+              borderColor: "var(--border-base)",
+            }}
+          >
+            <WorkspaceTree {...treeProps} />
+          </div>
+        ) : null}
         <div
           className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border"
           style={{
@@ -196,7 +216,7 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
             showHidden={showHidden}
             viewMode={viewMode}
             onChangeViewMode={setViewMode}
-            onBrowse={() => setDrawerOpen(true)}
+            onBrowse={hasRoomForList ? undefined : openDrawer}
             pathRename={lastRename}
             pathDelete={lastDelete}
           />

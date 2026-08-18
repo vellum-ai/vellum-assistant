@@ -48,7 +48,7 @@ export function VoicePickerField({
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        {/* Mirrors the design-library Dropdown trigger exactly so the Voice
+        {/* Mirrors the design-library Select trigger exactly so the Voice
             field reads as a sibling of the Provider dropdown above it. */}
         <SelectTriggerRow
           aria-label="Voice"
@@ -69,6 +69,9 @@ export function VoicePickerField({
           onChange={onChange}
           onSelect={() => setOpen(false)}
           showSource
+          // The popover is the nearest scrollport, so opening on the current
+          // voice scrolls nothing but this list.
+          autoScrollToSelected
         />
       </Popover.Content>
     </Popover.Root>

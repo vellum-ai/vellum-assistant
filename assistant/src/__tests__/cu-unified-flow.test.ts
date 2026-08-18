@@ -97,6 +97,7 @@ function buildMockContext(
           } as Conversation["currentTurnAuthContext"])
         : undefined,
     sendToClient: () => {},
+    emit: () => {},
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
     surfaceState: new Map(),

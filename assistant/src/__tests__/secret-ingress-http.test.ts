@@ -155,7 +155,7 @@ const runAgentLoopMock = mock(async () => undefined);
 function makeSendMessageDeps() {
   const session = {
     setTrustContext: () => {},
-    updateClient: () => {},
+    replayActivityState: () => {},
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},
     setTurnChannelContext: () => {},

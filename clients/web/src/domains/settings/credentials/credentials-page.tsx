@@ -423,8 +423,8 @@ function CredentialsPageInner() {
         }}
       >
         <Modal.Content size="sm">
-          <Modal.Header>
-            <Modal.Title icon={Link2}>One-time credential link</Modal.Title>
+          <Modal.Header icon={Link2}>
+            <Modal.Title>One-time credential link</Modal.Title>
             <Modal.Description>
               {generatedLink
                 ? `Send this link to whoever should provide ${generatedLink.name}. It works exactly once${

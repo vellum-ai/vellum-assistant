@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 
 import {
   assistantsOauthConnectionsListOptions,
@@ -11,10 +11,15 @@ import {
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import {
+  SegmentControl,
+  type SegmentControlItem,
+} from "@vellumai/design-library/components/segment-control";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { useOAuthConnect } from "@/hooks/use-oauth-connect";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
 import { useActiveAssistantIsPlatformHosted } from "@/hooks/use-platform-gate";
@@ -25,6 +30,11 @@ import { YourOwnTab } from "@/domains/settings/components/your-own-oauth-tab";
 import { getConnectPresets } from "@/domains/settings/oauth-scope-presets";
 
 type ModalTab = "managed" | "your-own";
+
+const MODE_SEGMENTS: SegmentControlItem<ModalTab>[] = [
+  { value: "managed", label: "Managed" },
+  { value: "your-own", label: "Your Own" },
+];
 
 interface IntegrationDetailModalProps {
   assistantId: string;
@@ -124,7 +134,9 @@ export function IntegrationDetailModal({
       },
     });
 
-  // Modal: Escape key + body scroll lock
+  useBodyScrollLock();
+
+  // Modal: Escape key
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.defaultPrevented) {
@@ -133,11 +145,8 @@ export function IntegrationDetailModal({
       }
     };
     document.addEventListener("keydown", handleKey);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", handleKey);
-      document.body.style.overflow = previousOverflow;
     };
   }, [onClose]);
 
@@ -200,24 +209,12 @@ export function IntegrationDetailModal({
 
         <div className="space-y-4 px-5 py-4">
           {platformGate !== "gated" && yourOwnAvailable && (
-            <div
-              role="tablist"
-              aria-label="OAuth mode"
-              className="flex w-full rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] p-0.5 dark:border-[var(--border-base)] dark:bg-[var(--surface-base)]/40"
-            >
-              <TabButton
-                active={activeTab === "managed"}
-                onClick={() => setActiveTab("managed")}
-              >
-                Managed
-              </TabButton>
-              <TabButton
-                active={activeTab === "your-own"}
-                onClick={() => setActiveTab("your-own")}
-              >
-                Your Own
-              </TabButton>
-            </div>
+            <SegmentControl
+              ariaLabel="OAuth mode"
+              items={MODE_SEGMENTS}
+              value={activeTab}
+              onChange={setActiveTab}
+            />
           )}
 
           {activeTab === "managed" && platformGate !== "gated" ? (
@@ -272,31 +269,5 @@ export function IntegrationDetailModal({
         onCancel={() => setConnectionPendingDisconnect(null)}
       />
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={`flex-1 cursor-pointer rounded-[5px] px-3 py-1.5 text-body-medium-default transition-colors ${
-        active
-          ? "bg-white text-[var(--content-default)] shadow-sm dark:bg-[var(--surface-lift)] dark:text-[var(--content-default)]"
-          : "text-[var(--content-secondary)] hover:text-[var(--content-default)] dark:text-[var(--content-disabled)] dark:hover:text-[var(--content-default)]"
-      }`}
-    >
-      {children}
-    </button>
   );
 }

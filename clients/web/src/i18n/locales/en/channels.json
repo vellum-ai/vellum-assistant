@@ -1,0 +1,112 @@
+{
+  "assistantChannelsList": {
+    "drawerTitle": "Channels",
+    "disconnectTitle": "Disconnect {channel}?",
+    "disconnectConfirm": "Disconnect",
+    "confirmFallback": "Confirm"
+  },
+  "channelAdapterList": {
+    "pluginChannelAria": "{channel}, from a plugin"
+  },
+  "connectionCard": {
+    "connected": "Connected",
+    "disconnecting": "Disconnecting…",
+    "disconnect": "Disconnect"
+  },
+  "slackChannelCard": {
+    "setupHeading": "Slack setup"
+  },
+  "channelPanel": {
+    "incompleteTitle": "{channel} isn't working yet",
+    "disconnectedTitle": "{channel} isn't connected",
+    "incompleteDescription": "{channel} is set up but not delivering messages yet. Your assistant can pick up where setup left off and tell you what is wrong.",
+    "opening": "Opening…",
+    "finishSetup": "Finish setup with your assistant",
+    "setUp": "Set up",
+    "connectManually": "or connect manually"
+  },
+  "pluginChannelPanel": {
+    "openPluginPage": "Open plugin page",
+    "ingressLoading": "Checking who can reach {channel}…",
+    "ingressUnsupported": "This assistant's gateway does not report ingress approvals, so there is nothing to decide here.",
+    "ingressForbidden": "Only this assistant's guardian can see or change ingress approvals.",
+    "ingressUnreadable": "Could not read the ingress approval for {channel}.",
+    "ingressNone": "The gateway sees no ingress declaration for {channel}, so there is nothing to approve yet.",
+    "ingressApprovedTag": "Ingress approved",
+    "ingressPendingTag": "Ingress awaiting approval",
+    "approvedAddresses": "{channel} receives messages at these addresses:",
+    "pendingAddresses": "{channel} asks to receive messages at these addresses. Until you approve, deliveries to them are refused:",
+    "ungovernedAddresses": "These addresses are open whatever you decide, because only Vellum can reach them:",
+    "deliversInbound": "What arrives here becomes a message to your assistant, not just a callback {channel} receives. Who gets through is still decided by who you allow to message it.",
+    "revokeIngress": "Revoke ingress",
+    "approveIngress": "Approve ingress"
+  },
+  "channelTrustFloor": {
+    "heading": "Who can message {assistant}",
+    "loading": "Loading…",
+    "loadFailed": "Couldn’t load this setting. Try reopening this page.",
+    "selectAria": "Who can message {assistant}",
+    "trustedContactsNotice": "People you haven’t verified yet (even teammates in the same channel) can’t get through: {assistant} lets them know they need to be verified and notifies you. You can verify people ahead of time in Contacts."
+  },
+  "slackChannelTypeDefaults": {
+    "heading": "Default access",
+    "subtitle": "How much {assistant} does on its own, by conversation type. Individual channels can override this below, and <trustRules>Trust Rules</trustRules> fine-tune when it asks.",
+    "bucketAria": "Default Assistant Access for {bucket}"
+  },
+  "tierPicker": {
+    "defaultSuffix": "default",
+    "defaultPlaceholder": "Default"
+  },
+  "slackChannelTierLegend": {
+    "defaultMarker": "· default"
+  },
+  "slackChannelSection": {
+    "overridesLoadFailed": "Couldn’t load access settings. These controls stay disabled until they load. Try reopening this page.",
+    "perChannelOverrides": "Per-channel overrides"
+  },
+  "slackThreadBehavior": {
+    "heading": "Thread Behavior",
+    "selectAria": "Slack thread behavior",
+    "mentionsOnly": "Mentions only",
+    "mentionsOnlyHelp": "Bot only responds when @mentioned.",
+    "followThreads": "Follow threads after first mention",
+    "followThreadsHelp": "After an @mention in a thread, bot listens to the rest of that thread."
+  },
+  "slackChannelList": {
+    "presenceHint": "Add with <invite>/invite {handle}</invite> or remove with <remove>/remove {handle}</remove> in that Slack channel. Only channels {assistant} is in appear here.",
+    "loading": "Loading…",
+    "loadFailed": "Couldn’t load channels. Try reopening this page.",
+    "emptyTitle": "No channels yet",
+    "searchPlaceholder": "Search channels",
+    "searchAria": "Search channels",
+    "filterGroupAria": "Filter channels by type",
+    "noMatches": "No channels match.",
+    "accessAria": "Assistant Access in {channel}",
+    "filterAll": "{count, plural, one {All (#)} other {All (#)}}",
+    "filterPublic": "{count, plural, one {Public (#)} other {Public (#)}}",
+    "filterPrivate": "{count, plural, one {Private (#)} other {Private (#)}}"
+  },
+  "twilioCredentialEntry": {
+    "accountSid": "Account SID",
+    "authToken": "Auth Token",
+    "authTokenPlaceholder": "Twilio auth token",
+    "saving": "Saving…",
+    "save": "Save"
+  },
+  "channelMeta": {
+    "slack": {
+      "label": "Slack",
+      "disconnectMessage": "This clears the stored Slack bot and app tokens for this assistant. You can reconnect later."
+    },
+    "telegram": {
+      "label": "Telegram",
+      "disconnectMessage": "This clears the stored Telegram bot token for this assistant. You can reconnect later.",
+      "disconnectedPitch": "Connect a Telegram bot so {assistant} can send and receive messages on Telegram."
+    },
+    "phone": {
+      "label": "Phone Calling",
+      "disconnectMessage": "This clears the stored Twilio credentials for this assistant. You can reconnect later.",
+      "disconnectedPitch": "Connect your Twilio account so {assistant} can make and answer phone calls."
+    }
+  }
+}

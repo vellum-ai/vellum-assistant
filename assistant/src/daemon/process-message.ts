@@ -34,7 +34,6 @@ import { updateMetaFile } from "../persistence/conversation-disk-view.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
-import { getSubagentManager } from "../subagent/index.js";
 import {
   readTurnFailure,
   type TurnFailure,
@@ -71,6 +70,7 @@ import {
   shouldAttachHostProxyForCapability,
 } from "./host-proxy-preactivation.js";
 import type { SubagentToolGateMode } from "./tool-setup-types.js";
+import { restingTrust } from "./trust-context-types.js";
 
 const log = getLogger("process-message");
 
@@ -455,7 +455,10 @@ export async function processMessage(
   if (slashResult.kind === "unknown") {
     const serverTurnCtx = conversation.getTurnChannelContext();
     const serverProvenance = provenanceFromTrustContext(
-      conversation.trustContext,
+      // Ingress persists before any per-turn stamp; the slot was just written
+      // by this message's own resolution, and the per-turn field may still
+      // hold the previous turn's actor.
+      restingTrust(conversation),
     );
     const imageSourcePaths: Record<string, string> = {};
     for (let i = 0; i < attachments.length; i++) {
@@ -557,7 +560,10 @@ export async function processMessage(
   if (slashResult.kind === "compact") {
     const serverTurnCtx = conversation.getTurnChannelContext();
     const serverProvenance = provenanceFromTrustContext(
-      conversation.trustContext,
+      // Ingress persists before any per-turn stamp; the slot was just written
+      // by this message's own resolution, and the per-turn field may still
+      // hold the previous turn's actor.
+      restingTrust(conversation),
     );
     const compactChannelMeta = {
       ...serverProvenance,
@@ -612,7 +618,10 @@ export async function processMessage(
   if (slashResult.kind === "clean") {
     const serverTurnCtx = conversation.getTurnChannelContext();
     const serverProvenance = provenanceFromTrustContext(
-      conversation.trustContext,
+      // Ingress persists before any per-turn stamp; the slot was just written
+      // by this message's own resolution, and the per-turn field may still
+      // hold the previous turn's actor.
+      restingTrust(conversation),
     );
     const cleanChannelMeta = {
       ...serverProvenance,
@@ -699,11 +708,6 @@ export async function processMessage(
     };
   }
 
-  if (options?.isInteractive === true) {
-    conversation.updateClient(broadcastMessage, false);
-    getSubagentManager().updateParentSender(conversationId, broadcastMessage);
-  }
-
   const restoreToolScope = applyTurnToolAllowlist(conversation, options);
   try {
     await conversation.runAgentLoop(resolvedContent, messageId, {
@@ -721,12 +725,6 @@ export async function processMessage(
     });
   } finally {
     restoreToolScope();
-    if (
-      options?.isInteractive === true &&
-      conversation.getCurrentSender() === broadcastMessage
-    ) {
-      conversation.updateClient(() => {}, true);
-    }
   }
 
   // Read the just-finished turn's outcome from the stamp `runAgentLoop`'s
@@ -785,11 +783,6 @@ export async function processMessageInBackground(
     return { messageId };
   }
 
-  if (options?.isInteractive === true) {
-    conversation.updateClient(broadcastMessage, false);
-    getSubagentManager().updateParentSender(conversationId, broadcastMessage);
-  }
-
   const restoreToolScope = applyTurnToolAllowlist(conversation, options);
   conversation
     .runAgentLoop(content, messageId, {
@@ -804,12 +797,6 @@ export async function processMessageInBackground(
     })
     .finally(() => {
       restoreToolScope();
-      if (
-        options?.isInteractive === true &&
-        conversation.getCurrentSender() === broadcastMessage
-      ) {
-        conversation.updateClient(() => {}, true);
-      }
     })
     .catch((err) => {
       log.error({ err, conversationId }, "Background agent loop failed");

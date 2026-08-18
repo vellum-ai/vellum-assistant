@@ -1,4 +1,7 @@
-import type { McpConfig, McpServerConfig } from "../config/schemas/mcp.js";
+import type {
+  ResolvedMcpConfig,
+  ResolvedMcpServerConfig,
+} from "../config/schemas/mcp.js";
 import { getLogger } from "../util/logger.js";
 import { McpClient, type McpToolInfo } from "./client.js";
 
@@ -6,15 +9,15 @@ const log = getLogger("mcp-manager");
 
 export interface McpServerToolInfo {
   serverId: string;
-  serverConfig: McpServerConfig;
+  serverConfig: ResolvedMcpServerConfig;
   tools: McpToolInfo[];
 }
 
 export class McpServerManager {
   private clients = new Map<string, McpClient>();
-  private serverConfigs = new Map<string, McpServerConfig>();
+  private serverConfigs = new Map<string, ResolvedMcpServerConfig>();
 
-  async start(config: McpConfig): Promise<McpServerToolInfo[]> {
+  async start(config: ResolvedMcpConfig): Promise<McpServerToolInfo[]> {
     const results: McpServerToolInfo[] = [];
 
     console.log(
@@ -40,7 +43,9 @@ export class McpServerManager {
             "HTTP transport — OAuth provider will be available if server requires authentication",
           );
         }
-        const client = new McpClient(serverId);
+        // The server's own origin decides whether it may resolve
+        // `mcp:<serverId>:*` from the credential store.
+        const client = new McpClient(serverId, serverConfig.source);
         await client.connect(serverConfig.transport);
 
         if (!client.isConnected) {
@@ -142,7 +147,7 @@ export class McpServerManager {
 
   private filterTools(
     tools: McpToolInfo[],
-    config: McpServerConfig,
+    config: ResolvedMcpServerConfig,
   ): McpToolInfo[] {
     let filtered = tools;
 

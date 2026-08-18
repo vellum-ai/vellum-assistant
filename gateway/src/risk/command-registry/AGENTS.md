@@ -57,6 +57,4 @@ After registry changes, run scoped checks from `gateway/`:
 1. `bun test src/risk/command-registry.test.ts src/risk/bash-risk-classifier.test.ts src/risk/risk-classifier-parity.test.ts src/__tests__/bash-risk-classifier.test.ts`
 2. `bunx tsc --noEmit`
 
-When `commands/assistant.ts` changes, also run from `assistant/`:
-
-1. `bun test src/__tests__/cli-command-risk-guard.test.ts`
+`src/risk/command-registry.test.ts` covers `commands/assistant.ts` too, so a change there needs no extra run.

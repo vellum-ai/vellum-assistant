@@ -20,12 +20,16 @@ import {
 } from "@/lib/auth/remote-gateway-session";
 import {
   getRemoteGatewayAssistantName,
+  getRemoteGatewayHubUrl,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { isAndroidBrowser, isIOSBrowser } from "@/runtime/platform-detection";
+import { nativeSwitchToOriginPath } from "@/runtime/self-hosted-servers";
 import { sanitizeReturnTo } from "@/utils/return-to";
 import { routes } from "@/utils/routes";
+
+import { useTranslation } from "@/i18n";
 
 type PairingDetails = {
   deviceCode: string;
@@ -183,6 +187,25 @@ function buildAppHandoffUrl(
 }
 
 /**
+ * The hub's chooser on its own origin, or `null` when the served config names
+ * no hub. Abandoning a pairing has to leave this origin: the chooser sits
+ * behind `requireRemoteGatewayPairing`, which bounces an unauthenticated visit
+ * straight back here and mints a fresh code. `noAutoSkip` keeps the hub on the
+ * chooser instead of skipping through a lone assistant.
+ */
+function hubChooserUrl(): string | null {
+  const hubUrl = getRemoteGatewayHubUrl();
+  if (!hubUrl) {
+    return null;
+  }
+  try {
+    return `${new URL(hubUrl).origin}${routes.selectAssistant}?noAutoSkip=1`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Pre-exchange choice shown to a mobile browser that arrived with a device
  * code. The primary action is a plain anchor so the browser performs the
  * custom-scheme navigation natively; tapping it does not burn the code, so
@@ -197,6 +220,7 @@ function PairingHandoffActions({
   platform: AppHandoffPlatform;
   onContinueInBrowser: () => void;
 }) {
+  const { t } = useTranslation("remote-web");
   const appLink = useMemo(
     () => buildAppHandoffUrl(deviceCode, platform),
     [deviceCode, platform],
@@ -205,16 +229,17 @@ function PairingHandoffActions({
   return (
     <div className="mt-6 flex flex-col gap-3">
       <Button variant="primary" fullWidth asChild>
-        <a href={appLink}>Open in the Vellum app</a>
+        <a href={appLink}>{t("pairingPage.openInApp")}</a>
       </Button>
       <Button variant="outlined" fullWidth onClick={onContinueInBrowser}>
-        Continue in this browser
+        {t("pairingPage.continueInBrowser")}
       </Button>
     </div>
   );
 }
 
 export function RemoteWebPairingPage() {
+  const { t } = useTranslation("remote-web");
   const location = useLocation();
   const navigate = useNavigate();
   const enabled = isRemoteGatewayMode();
@@ -391,6 +416,17 @@ export function RemoteWebPairingPage() {
     setState({ kind: "verifying" });
   }, []);
 
+  const cancelUrl = useMemo(() => hubChooserUrl(), []);
+  const handleCancel = useCallback(() => {
+    void nativeSwitchToOriginPath(null, `select-assistant?noAutoSkip=1`).then(
+      (switched) => {
+        if (!switched && cancelUrl) {
+          window.location.assign(cancelUrl);
+        }
+      },
+    );
+  }, [cancelUrl]);
+
   if (!enabled) {
     return <NotFound />;
   }
@@ -410,7 +446,7 @@ export function RemoteWebPairingPage() {
         {state.kind === "polling" && pairing?.userCode ? (
           <div className="mb-5 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-4 text-center">
             <div className="text-label-small-default uppercase tracking-wide text-[var(--content-tertiary)]">
-              Pairing code
+              {t("pairingPage.pairingCode")}
             </div>
             <div className="mt-2 font-mono text-3xl font-semibold tracking-[0.18em] text-[var(--content-emphasised)]">
               {pairing.userCode}
@@ -432,8 +468,21 @@ export function RemoteWebPairingPage() {
 
         {state.kind === "polling" && state.expiresAt ? (
           <p className="text-body-small-lighter mt-4 text-[var(--content-tertiary)]">
-            Expires {new Date(state.expiresAt).toLocaleTimeString()}.
+            {t("pairingPage.expiresAt", {
+              time: new Date(state.expiresAt).toLocaleTimeString(),
+            })}
           </p>
+        ) : null}
+
+        {state.kind === "polling" && cancelUrl ? (
+          <Button
+            variant="outlined"
+            fullWidth
+            className="mt-6"
+            onClick={handleCancel}
+          >
+            {t("pairingPage.cancel")}
+          </Button>
         ) : null}
       </section>
     </main>
