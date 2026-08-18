@@ -404,7 +404,6 @@ const { SelectAssistantScreen } = await import(
 
 const PAIRED_ID = "paired-1";
 const PLATFORM_ID = "platform-1";
-/** Local ids are friendly generated instance names, not UUIDs. */
 const LOCAL_ID = "vellum-deep-hare-ww1iw1";
 
 function makePairedAssistant(
@@ -1745,6 +1744,30 @@ describe("SelectAssistantScreen assistant labels", () => {
     expect(screen.getByText(LOCAL_ID)).toBeTruthy();
     expect(screen.getByText(SECOND_LOCAL_ID)).toBeTruthy();
     expect(screen.queryByText("Local Assistant")).toBeNull();
+  });
+
+  test("an unnamed hub local registration keeps the generic fallback, not its UUID", () => {
+    // API-sourced hub row: no lockfile entry behind it, so no `cloud`, and
+    // its id is the platform assistant record's UUID.
+    const HUB_LOCAL_UUID = "3f8a1c2e-9b4d-4e6f-8a70-1d2c3b4a5e6f";
+    assistantsValue = [
+      makeLocalAssistant({ name: undefined }),
+      {
+        id: HUB_LOCAL_UUID,
+        name: undefined,
+        isLocal: true,
+        isPlatformHosted: false,
+        isPaired: false,
+        ingressUrl: "https://mac.example.com",
+      },
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByText("Local Assistant")).toBeTruthy();
+    expect(screen.queryByText(HUB_LOCAL_UUID)).toBeNull();
+    // The lockfile-sourced entry still shows its friendly instance id.
+    expect(screen.getByText(LOCAL_ID)).toBeTruthy();
   });
 
   test("an unnamed cloud entry keeps the generic Cloud Assistant fallback", () => {
