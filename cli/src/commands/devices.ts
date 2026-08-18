@@ -45,7 +45,7 @@ ARGUMENTS:
 
 OPTIONS:
     --yes              Skip the interactive confirmation prompt when revoking (for automation)
-    --json             Print machine-readable JSON on stdout
+    --json             Print machine-readable JSON on stdout (revoke requires --yes)
 
 Lists the devices paired to a local (host-side) assistant, or revokes one by its
 hashed id. Runs on the machine that hosts the assistant — paired connections
@@ -167,13 +167,20 @@ async function revokeDevice(
 ): Promise<void> {
   const displayName = getAssistantDisplayName(entry);
 
-  if (!jsonOutput) {
-    // Print the resolved identity before acting (cli/AGENTS.md).
-    console.log("Device to revoke:");
-    console.log(`  Assistant: ${formatAssistantReference(entry)}`);
-    console.log(`  Device:    ${hashedDeviceId}`);
-    console.log("");
+  if (jsonOutput && !yes) {
+    console.error(
+      "Error: --json requires --yes; the revoke confirmation prompt would corrupt JSON stdout.",
+    );
+    process.exit(1);
   }
+
+  // Print the resolved identity before acting (cli/AGENTS.md). In --json mode
+  // it goes to stderr so stdout stays a single JSON document.
+  const printIdentity = jsonOutput ? console.error : console.log;
+  printIdentity("Device to revoke:");
+  printIdentity(`  Assistant: ${formatAssistantReference(entry)}`);
+  printIdentity(`  Device:    ${hashedDeviceId}`);
+  printIdentity("");
 
   if (!yes) {
     if (!canPromptForConfirmation()) {
@@ -219,7 +226,13 @@ async function revokeDevice(
   }
 
   if (jsonOutput) {
-    console.log(JSON.stringify({ ok: true, hashedDeviceId }));
+    console.log(
+      JSON.stringify({
+        ok: true,
+        hashedDeviceId,
+        assistantId: entry.assistantId,
+      }),
+    );
     return;
   }
 
