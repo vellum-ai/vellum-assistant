@@ -22,7 +22,10 @@ import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboardin
 import { pickOverlayColors } from "@/domains/onboarding/onboarding-avatar-colors";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { ONBOARDING_DARK_SURFACE } from "@/domains/onboarding/onboarding-step-layout";
-import { usePublishPageSurface } from "@/stores/page-surface-store";
+import {
+  cssTransitionFor,
+  usePublishPageSurface,
+} from "@/stores/page-surface-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 /**
@@ -117,13 +120,12 @@ const PEEKERS: {
 ];
 
 /**
- * The canvas crossfade, in the two forms it has to be stated in: motion's for
- * the backdrop itself, CSS's for the safe-area strips the app shell paints (see
- * `page-surface-store`). Keep them equal, or the strips will arrive on a
- * different beat than the canvas. Motion's `easeInOut` is CSS `ease-in-out`.
+ * The canvas crossfade. Stated once for the backdrop itself and derived for the
+ * safe-area strips the app shell paints, so the two cannot drift apart. See
+ * `page-surface-store`.
  */
 const CANVAS_FADE = { duration: 1, ease: "easeInOut" } as const;
-const CANVAS_FADE_CSS = "1s ease-in-out";
+const CANVAS_FADE_CSS = cssTransitionFor(CANVAS_FADE);
 
 /** The team that peeks in from the top, persisting once it forms. */
 const TOP_TEAM = [

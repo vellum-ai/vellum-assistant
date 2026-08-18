@@ -18,7 +18,7 @@
  * unmount, the same convention as the header slots in `chat-layout-slots-store`.
  */
 
-import { useLayoutEffect, useRef } from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
@@ -29,6 +29,14 @@ interface PageSurfaceState {
    * back to the shell's neutral canvas.
    */
   surface: string | null;
+  /**
+   * Which publisher {@link surface} belongs to, so an outgoing one can tell
+   * whether it is still the owner before clearing. Identity rather than color:
+   * two screens overlapping on the same color are indistinguishable by value,
+   * and the outgoing one would clear a surface the incoming one is still
+   * showing. Not read by the shell.
+   */
+  owner: string | null;
   /**
    * How the strips should get to {@link surface}: the tail of a CSS
    * `transition` shorthand (duration, easing, and optional delay), or null to
@@ -47,18 +55,25 @@ interface PageSurfaceState {
 }
 
 interface PageSurfaceActions {
-  setSurface: (surface: string | null, transition?: string | null) => void;
+  setSurface: (
+    surface: string | null,
+    transition?: string | null,
+    owner?: string | null,
+  ) => void;
 }
 
 const usePageSurfaceStoreBase = create<PageSurfaceState & PageSurfaceActions>(
   (set) => ({
     surface: null,
     transition: null,
-    setSurface: (surface, transition = null) =>
+    owner: null,
+    setSurface: (surface, transition = null, owner = null) =>
       set((state) =>
-        state.surface === surface && state.transition === transition
+        state.surface === surface &&
+        state.transition === transition &&
+        state.owner === owner
           ? state
-          : { surface, transition },
+          : { surface, transition, owner },
       ),
   }),
 );
@@ -98,6 +113,47 @@ export function resolveShellTransition(
 }
 
 /**
+ * Motion's named easings, in the CSS spelling of the same curves. Motion's
+ * `easeInOut` is `cubic-bezier(0.42, 0, 0.58, 1)` and CSS's `ease-in-out` is
+ * the same, and so on down the list, so a fade stated in one form runs on the
+ * identical curve in the other.
+ */
+const CSS_EASING = {
+  linear: "linear",
+  easeIn: "ease-in",
+  easeOut: "ease-out",
+  easeInOut: "ease-in-out",
+} as const;
+
+/**
+ * A page's own fade, in the subset of Motion's transition that has a CSS
+ * equivalent. Omitting `ease` means Motion's default for a tween, `easeOut`.
+ */
+export interface PageSurfaceFade {
+  duration: number;
+  delay?: number;
+  ease?: keyof typeof CSS_EASING;
+}
+
+/**
+ * The CSS form of a page's Motion fade, for {@link usePublishPageSurface}.
+ *
+ * The strips are painted by the shell and the canvas by the page, so the same
+ * fade has to be expressed twice, once for each engine. Deriving the second
+ * from the first is what keeps them equal: stated separately they are two
+ * literals whose agreement nothing enforces, and the seam this whole mechanism
+ * exists to remove comes back the moment one is edited alone.
+ */
+export function cssTransitionFor({
+  duration,
+  delay = 0,
+  ease = "easeOut",
+}: PageSurfaceFade): string {
+  const timing = `${duration}s ${CSS_EASING[ease]}`;
+  return delay > 0 ? `${timing} ${delay}s` : timing;
+}
+
+/**
  * Publish `surface` as the shell canvas for as long as the caller is mounted,
  * reaching it over `transition` when the page's own canvas animates there.
  *
@@ -113,13 +169,14 @@ export function resolveShellTransition(
  * Pass `null` to opt out (a screen whose color is owned by a child layer). The
  * cleanup only clears a surface this caller still owns, so a screen that mounts
  * before the outgoing one unmounts keeps its color instead of flashing the
- * neutral canvas.
+ * neutral canvas, whether or not the two happen to share a color.
  */
 export function usePublishPageSurface(
   surface: string | null,
   transition: string | null = null,
 ): void {
   const setSurface = usePageSurfaceStore.use.setSurface();
+  const owner = useId();
   const published = useRef<string | null>(null);
 
   useLayoutEffect(() => {
@@ -134,8 +191,8 @@ export function usePublishPageSurface(
     const changing =
       published.current !== null && published.current !== surface;
     published.current = surface;
-    setSurface(surface, changing ? transition : null);
-  }, [surface, transition, setSurface]);
+    setSurface(surface, changing ? transition : null, owner);
+  }, [surface, transition, owner, setSurface]);
 
   // Releasing is its own effect so that publishing a new color is one store
   // write rather than a clear followed by a set. The pair lands in a single
@@ -143,10 +200,10 @@ export function usePublishPageSurface(
   // the moment anything moved them apart.
   useLayoutEffect(
     () => () => {
-      if (usePageSurfaceStore.getState().surface === published.current) {
+      if (usePageSurfaceStore.getState().owner === owner) {
         setSurface(null);
       }
     },
-    [setSurface],
+    [owner, setSurface],
   );
 }

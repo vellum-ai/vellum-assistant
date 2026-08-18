@@ -27,6 +27,7 @@ import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top
 import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
+import { cssTransitionFor } from "@/stores/page-surface-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 interface IntroductionScreenProps {
@@ -92,14 +93,12 @@ function IntroductionBodyGrow({
 }
 
 /**
- * The tint layer's fade-in, in the two forms it has to be stated in: motion's
- * for the layer itself, CSS's for the safe-area strips the app shell paints
- * (see `page-surface-store`). Keep them equal, or the strips will arrive on a
- * different beat than the canvas. Motion's default tween ease is CSS
- * `ease-out`.
+ * The tint layer's fade-in. Stated once for the layer itself and derived for
+ * the safe-area strips the app shell paints, so the two cannot drift apart.
+ * See `page-surface-store`.
  */
-const TINT_FADE = { duration: 0.6, delay: 0.35 };
-const TINT_FADE_CSS = "0.6s ease-out 0.35s";
+const TINT_FADE = { duration: 0.6, delay: 0.35 } as const;
+const TINT_FADE_CSS = cssTransitionFor(TINT_FADE);
 
 export function IntroductionScreen({
   firstName,

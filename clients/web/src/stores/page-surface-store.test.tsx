@@ -2,6 +2,7 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "bun:test";
 
 import {
+  cssTransitionFor,
   DEFAULT_SHELL_BACKGROUND,
   resolveShellBackground,
   resolveShellTransition,
@@ -12,6 +13,27 @@ import {
 afterEach(() => {
   cleanup();
   usePageSurfaceStore.getState().setSurface(null);
+});
+
+describe("cssTransitionFor", () => {
+  it("spells Motion's easing the CSS way", () => {
+    expect(cssTransitionFor({ duration: 1, ease: "easeInOut" })).toBe(
+      "1s ease-in-out",
+    );
+  });
+
+  it("defaults to Motion's own default tween easing", () => {
+    // Omitting `ease` means `easeOut` in Motion, so it has to here as well or
+    // the strips would run a different curve than the canvas.
+    expect(cssTransitionFor({ duration: 0.6 })).toBe("0.6s ease-out");
+  });
+
+  it("carries a delay when there is one, and omits it when there is not", () => {
+    expect(cssTransitionFor({ duration: 0.6, delay: 0.35 })).toBe(
+      "0.6s ease-out 0.35s",
+    );
+    expect(cssTransitionFor({ duration: 0.6, delay: 0 })).toBe("0.6s ease-out");
+  });
 });
 
 describe("resolveShellTransition", () => {
@@ -149,5 +171,17 @@ describe("usePublishPageSurface", () => {
     unmount();
 
     expect(usePageSurfaceStore.getState().surface).toBe("#17191C");
+  });
+
+  it("does the same when the two screens share a color", () => {
+    // Ownership is identity, not color: by value these two publishers are
+    // indistinguishable, and the outgoing one would clear a surface the
+    // incoming one is still showing.
+    const { unmount } = render(<Publisher surface="#E5C100" />);
+    render(<Publisher surface="#E5C100" />);
+
+    unmount();
+
+    expect(usePageSurfaceStore.getState().surface).toBe("#E5C100");
   });
 });
