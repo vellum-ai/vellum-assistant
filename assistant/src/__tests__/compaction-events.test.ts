@@ -157,7 +157,7 @@ let mockCompactResult: ContextWindowResult = {
 // before delegating to the manager.
 const updateConfigCalls: Array<{ maxInputTokens?: number }> = [];
 
-// Options the manager's `maybeCompact` received — the compaction pipeline
+// Options the manager's `maybeCompact` received: the compaction pipeline
 // forwards the caller's billing origin through them onto the summary call.
 const managerCompactOptions: Array<{ usageOriginSnapshot?: unknown }> = [];
 
@@ -194,7 +194,7 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   getSummaryFromContextMessage: () => null,
 }));
 
-// Ledger rows written for the compaction summary call — the cron run id on
+// Ledger rows written for the compaction summary call: the cron run id on
 // them is what attributes a scheduled wake's compaction to its firing.
 const recordedUsageEvents: Array<{
   actor: string;

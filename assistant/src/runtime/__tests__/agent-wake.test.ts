@@ -124,7 +124,7 @@ interface WakeConversationProbe {
   maybeCompactSizings: unknown[];
   /**
    * The billing-origin snapshot passed to each `conversation.maybeCompact()`
-   * call — the gate's summary call bills against the wake's own origin, not a
+   * call: the gate's summary call bills against the wake's own origin, not a
    * classification derived from the conversation row.
    */
   maybeCompactSnapshots: unknown[];
