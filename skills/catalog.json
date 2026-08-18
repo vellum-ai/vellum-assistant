@@ -60,7 +60,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-18T16:11:30.000Z"
+      "updatedAt": "2026-08-18T17:13:09.000Z"
     },
     {
       "id": "chat-complex-documents",
@@ -626,7 +626,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-18T16:11:30.000Z"
+      "updatedAt": "2026-08-18T17:13:09.000Z"
     },
     {
       "id": "notifications",
@@ -1112,7 +1112,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-18T16:53:41.000Z"
+      "updatedAt": "2026-08-18T17:38:12.000Z"
     },
     {
       "id": "vellum-memory-v3-migration",
