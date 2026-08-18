@@ -25300,6 +25300,74 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/resource-pressure/status:
+    get:
+      operationId: resourcepressure_status_get
+      summary: Get resource pressure status
+      description:
+        Return the current resource pressure status snapshot. Off-platform the guard does not run, so a disabled
+        status is returned.
+      tags:
+        - resource-pressure
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - disabled
+                          - ok
+                          - elevated
+                          - unknown
+                      cpuPercent:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      memoryPercent:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      cpuElevated:
+                        type: boolean
+                      memoryElevated:
+                        type: boolean
+                      cpuThresholdPercent:
+                        type: number
+                      memoryThresholdPercent:
+                        type: number
+                      lastCheckedAt:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      error:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - enabled
+                      - state
+                      - cpuPercent
+                      - memoryPercent
+                      - cpuElevated
+                      - memoryElevated
+                      - cpuThresholdPercent
+                      - memoryThresholdPercent
+                      - lastCheckedAt
+                      - error
+                    additionalProperties: false
+                required:
+                  - status
+                additionalProperties: false
   /v1/retrospective/config:
     get:
       operationId: retrospective_config_get
