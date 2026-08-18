@@ -114,7 +114,7 @@ export function PairDeviceCard() {
           />
         )}
 
-        <PairedDevicesSection enabled />
+        <PairedDevicesSection />
       </div>
     </DetailCard>
   );

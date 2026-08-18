@@ -20,22 +20,17 @@ function formatDeviceDate(epochMs: number | null): string {
   return epochMs === null ? "unknown" : new Date(epochMs).toLocaleDateString();
 }
 
-export interface PairedDevicesSectionProps {
-  /** Mirrors the card's visibility gates so the hook only fetches when the card shows. */
-  enabled: boolean;
-}
-
 /**
  * Accordion listing the devices paired to the local assistant, with a
  * destructive per-device Revoke behind a confirm dialog. Renders nothing
  * unless the host reports one or more devices, so older app shells, host
  * failures, and empty lists leave the Pair a device card exactly as it is.
  */
-export function PairedDevicesSection({ enabled }: PairedDevicesSectionProps) {
-  const controller = usePairedDevices(enabled);
-  const { phase, confirmTarget } = controller;
+export function PairedDevicesSection() {
+  const controller = usePairedDevices();
+  const { devices, confirmTarget } = controller;
 
-  if (phase.kind !== "ready" || phase.devices.length === 0) {
+  if (devices === null || devices.length === 0) {
     return null;
   }
 
@@ -45,13 +40,13 @@ export function PairedDevicesSection({ enabled }: PairedDevicesSectionProps) {
         <Collapsible.Item value="paired-devices">
           <Collapsible.Trigger className="group flex w-full items-center justify-between gap-3">
             <span className="text-body-medium-default text-[var(--content-secondary)]">
-              {`Paired devices (${phase.devices.length})`}
+              {`Paired devices (${devices.length})`}
             </span>
             <ChevronDown className="h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-180" />
           </Collapsible.Trigger>
           <Collapsible.Content>
             <div className="mt-3 flex flex-col gap-3">
-              {phase.devices.map((device) => (
+              {devices.map((device) => (
                 <div
                   key={device.hashedDeviceId}
                   className="flex items-center justify-between gap-3"
