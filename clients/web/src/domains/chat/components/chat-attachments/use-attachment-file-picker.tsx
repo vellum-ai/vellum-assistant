@@ -8,7 +8,13 @@ import {
   useState,
 } from "react";
 
-import { requestComposerFocus } from "@/domains/chat/composer-focus";
+import {
+  isTextEntryFocused,
+  requestComposerFocus,
+} from "@/domains/chat/composer-focus";
+import { hideNativeKeyboard } from "@/runtime/native-keyboard";
+import { isNativeIOS } from "@/runtime/platform-detection";
+import { isPointerCoarse } from "@/utils/pointer";
 
 interface UseAttachmentFilePickerOptions {
   /** Receives the picked files. Not called when the picker closes empty. */
@@ -19,6 +25,14 @@ interface UseAttachmentFilePickerOptions {
   accept?: string;
   /** `capture` attribute, e.g. `"environment"` for the rear camera. */
   capture?: boolean | "user" | "environment";
+  /**
+   * Restore the composer's focus on close whatever held it when the picker
+   * opened. For a caller that takes focus itself on the way to the picker: the
+   * add-to-chat sheet traps focus, so the open-time sample would always read
+   * "nothing to put back" and the sheet would stop returning a keyboard it
+   * returns today.
+   */
+  alwaysRestoreFocus?: boolean;
 }
 
 interface UseAttachmentFilePickerResult {
@@ -41,35 +55,41 @@ interface UseAttachmentFilePickerResult {
  * `openPicker()` from their own trigger.
  *
  * On iOS (Capacitor WKWebView), clicking the hidden `<input type="file">`
- * presents the native document/photo picker, which resigns the web view's
- * first responder, dismissing the soft keyboard and collapsing the
- * keyboard-aware layout (`root-layout.tsx` sizes the shell from
- * `visualViewport`). The native picker and the keyboard are mutually
- * exclusive first responders, so the keyboard cannot stay up *during* the
- * picker. Instead we re-focus the composer the moment the picker closes,
- * keyed off the file input's own events so the signal is tied to the picker
- * (not to app foregrounding, which also fires when the app is backgrounded
- * and returned to while the picker is still open):
+ * presents the native document/photo picker, and WebKit resigns the web
+ * view's first responder to do it: `WKFileUploadPanel.mm` resigns in the
+ * completion handlers of both the file menu's display animation and the
+ * picker's presentation. The keyboard therefore cannot stay up during the
+ * picker, and no input attribute, plugin call or config reaches that decision.
+ * `hideNativeKeyboard()` only brings the dismissal forward to the tap, so it
+ * reads as part of pressing the button rather than as the picker taking
+ * something a beat later.
+ *
+ * The way back is a DOM focus: `Keyboard.show()` is Android only, while the
+ * Capacitor shell disables `keyboardShouldRequireUserInteraction`, so
+ * focusing the textarea raises the keyboard with no gesture. Which is also why
+ * that focus is gated. It restores a keyboard the picker took; it must not
+ * conjure one for a composer that was resting when the plus was pressed, so
+ * `openPicker` samples who held focus before the click and the close paths
+ * honour the answer. See `alwaysRestoreFocus` for the caller that has to
+ * override it.
+ *
+ * Close signals, in order of precision:
  *
  * - `change`: a file was selected.
  * - `cancel`: the picker was dismissed without a selection (WebKit / Safari
  *   16.4+). Precise: tied to the picker dismissal itself.
- * - one-shot `window` `focus`: fallback for iOS 15 through 16.3 WKWebViews
- *   (the app's deployment target is iOS 15) that predate the `cancel` event.
- *   Armed on picker open and removed after firing once, so a later real
- *   `cancel` on newer engines still works and the fallback can't linger.
- *   `focus` fires when the web view regains first responder as the picker
- *   closes.
- *
- * `requestComposerFocus()` is idempotent and a no-op on desktop (the textarea
- * is already focused there and the OS file dialog doesn't steal focus), so
- * running it from more than one of these paths is harmless.
+ * - one-shot `window` `focus`: for engines predating `cancel`, and armed off
+ *   the native iOS shell only. That shell builds against iOS 17 and WKWebView
+ *   tracks the OS, so `cancel` is always there; arming this too would add a
+ *   close signal that also fires on plain app foregrounding, ending the
+ *   session while the picker is still on screen.
  */
 export function useAttachmentFilePicker({
   onFiles,
   multiple = false,
   accept,
   capture,
+  alwaysRestoreFocus = false,
 }: UseAttachmentFilePickerOptions): UseAttachmentFilePickerResult {
   const inputRef = useRef<HTMLInputElement | null>(null);
   // The picker's own lifetime, which outlives the composer's focus: presenting
@@ -88,13 +108,20 @@ export function useAttachmentFilePicker({
   // Held in a ref so every picker-close path (change, cancel, unmount) can
   // disarm it, not just a window focus event.
   const disarmFocusFallbackRef = useRef<(() => void) | null>(null);
+  // Whether the close paths owe the composer a keyboard, answered when the
+  // picker opens. Restoring focus is only restoring when something had it:
+  // a plus pressed on a resting composer never had a keyboard, and focusing
+  // the textarea on the way out summons one nobody asked for.
+  const shouldRestoreFocusRef = useRef(true);
 
   const refocusComposer = useCallback(() => {
     // Any picker-close path lands here: disarm the pending focus fallback so it
     // can't fire on a later unrelated window focus, then restore the keyboard.
     disarmFocusFallbackRef.current?.();
     disarmFocusFallbackRef.current = null;
-    requestComposerFocus();
+    if (shouldRestoreFocusRef.current) {
+      requestComposerFocus();
+    }
     setPickerOpen(false);
   }, []);
 
@@ -105,13 +132,32 @@ export function useAttachmentFilePicker({
     // `cancel`/`change` paths fire first and disarm this via refocusComposer,
     // so it never lingers past the picker session.
     disarmFocusFallbackRef.current?.();
-    const onFocus = () => refocusComposer();
-    window.addEventListener("focus", onFocus, { once: true });
-    disarmFocusFallbackRef.current = () =>
-      window.removeEventListener("focus", onFocus);
+    // Sampled before the click, since presenting the picker is what takes the
+    // focus being asked about. A pointing device focuses the control it
+    // presses, so a desktop picker reads as unfocused and is always owed its
+    // caret back.
+    shouldRestoreFocusRef.current =
+      alwaysRestoreFocus || !isPointerCoarse() || isTextEntryFocused();
+    if (!isNativeIOS()) {
+      // Only where the `cancel` event cannot be counted on. The native shell
+      // is built against iOS 17, and WKWebView tracks the OS, so `cancel`
+      // (Safari 16.4) always arrives there; arming this as well would add a
+      // second close signal that also fires on plain app foregrounding, which
+      // ends the session with the picker still on screen.
+      const onFocus = () => refocusComposer();
+      window.addEventListener("focus", onFocus, { once: true });
+      disarmFocusFallbackRef.current = () =>
+        window.removeEventListener("focus", onFocus);
+    }
     setPickerOpen(true);
+    // Ahead of the click: WebKit resigns the web view's first responder in the
+    // completion handler of the presentation animation, so left alone the
+    // keyboard drops a beat after the picker is already up. Asking first makes
+    // the dismissal part of the tap. `hide()` is iOS-supported; `show()` is
+    // not, which is why the way back is a DOM focus.
+    void hideNativeKeyboard();
     inputRef.current?.click();
-  }, [refocusComposer]);
+  }, [alwaysRestoreFocus, refocusComposer]);
 
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {

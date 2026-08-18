@@ -13,8 +13,33 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 // Mock the focus seam so we can assert the request without mounting the whole
 // composer/keyboard machinery.
 const requestComposerFocusMock = mock(() => {});
+// Whether a text entry held focus when the picker opened, which is what says
+// there is a keyboard to put back. Stubbed rather than driven through real
+// focus so each case states its own answer.
+let textEntryFocused = false;
 mock.module("@/domains/chat/composer-focus", () => ({
   requestComposerFocus: requestComposerFocusMock,
+  isTextEntryFocused: () => textEntryFocused,
+}));
+
+// The dismissal WebKit is going to perform anyway, brought forward to the tap.
+const hideNativeKeyboardMock = mock(async () => {});
+mock.module("@/runtime/native-keyboard", () => ({
+  hideNativeKeyboard: hideNativeKeyboardMock,
+}));
+
+// The native shell, where `cancel` is guaranteed and the window-focus fallback
+// is not armed. Defaults to the browser, so the existing cases keep it.
+let nativeIOS = false;
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeIOS: () => nativeIOS,
+}));
+
+// A phone versus a pointing device. Defaults to a mouse, which is always owed
+// its caret back, so the cases predating the focus gate stay as they were.
+let pointerCoarse = false;
+mock.module("@/utils/pointer", () => ({
+  isPointerCoarse: () => pointerCoarse,
 }));
 
 import { selectFiles } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
@@ -28,10 +53,15 @@ afterEach(() => {
 });
 beforeEach(() => {
   requestComposerFocusMock.mockClear();
+  hideNativeKeyboardMock.mockClear();
+  textEntryFocused = false;
+  nativeIOS = false;
+  pointerCoarse = false;
 });
 
 function PickerProbe(props: {
   onFiles: (files: FileList) => void;
+  alwaysRestoreFocus?: boolean;
   multiple?: boolean;
   accept?: string;
   capture?: boolean | "user" | "environment";
@@ -155,6 +185,98 @@ describe("useAttachmentFilePicker", () => {
 
     // THEN the flag follows that path out as well
     expect(openState()).toBe("false");
+  });
+
+  test("a phone picker opened from a resting composer restores nothing", () => {
+    // GIVEN a phone whose composer was not focused when the plus was pressed,
+    // so no keyboard was taken and none is owed
+    pointerCoarse = true;
+    textEntryFocused = false;
+    const { input, open } = renderPicker({ onFiles: () => {} });
+    open();
+
+    // WHEN the picker is dismissed
+    fireEvent(input, new Event("cancel"));
+
+    // THEN the composer is left alone. Focusing it here would summon a
+    // keyboard the user never asked for, which the shell allows without a
+    // gesture.
+    expect(requestComposerFocusMock).not.toHaveBeenCalled();
+  });
+
+  test("a phone picker opened from a focused composer restores it", () => {
+    // GIVEN a phone whose composer held the keyboard when the plus was pressed
+    pointerCoarse = true;
+    textEntryFocused = true;
+    const { input, open } = renderPicker({ onFiles: () => {} });
+    open();
+
+    // WHEN the picker is dismissed
+    fireEvent(input, new Event("cancel"));
+
+    // THEN the keyboard the picker took comes back
+    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a pointing device is always owed its caret back", () => {
+    // GIVEN a desktop picker, where the button itself takes the focus on the
+    // way in so nothing reads as focused
+    pointerCoarse = false;
+    textEntryFocused = false;
+    const { input, open } = renderPicker({ onFiles: () => {} });
+    open();
+
+    // WHEN a file is picked
+    selectFile(input);
+
+    // THEN the caret returns to the composer, as it always has
+    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("alwaysRestoreFocus overrides the sample for a caller that traps focus", () => {
+    // GIVEN the add-to-chat sheet's case: a phone, and a sheet holding focus
+    // by the time its row launches the picker
+    pointerCoarse = true;
+    textEntryFocused = false;
+    const { input, open } = renderPicker({
+      onFiles: () => {},
+      alwaysRestoreFocus: true,
+    });
+    open();
+
+    // WHEN the picker closes
+    fireEvent(input, new Event("cancel"));
+
+    // THEN the keyboard still returns, the way it does today
+    expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("the native shell leaves the window-focus fallback unarmed", () => {
+    // GIVEN the iOS shell, which builds against an OS whose WKWebView always
+    // fires `cancel`
+    nativeIOS = true;
+    pointerCoarse = true;
+    textEntryFocused = true;
+    const { open } = renderPicker({ onFiles: () => {} });
+    open();
+
+    // WHEN the app is merely foregrounded, with the picker still on screen
+    fireEvent(window, new Event("focus"));
+
+    // THEN nothing treats that as the picker closing
+    expect(requestComposerFocusMock).not.toHaveBeenCalled();
+  });
+
+  test("the picker asks the keyboard to go before it opens", () => {
+    // GIVEN any picker
+    const { open } = renderPicker({ onFiles: () => {} });
+
+    // WHEN it opens
+    open();
+
+    // THEN the dismissal starts with the tap rather than landing a beat later
+    // out of the picker's own presentation animation
+    expect(hideNativeKeyboardMock).toHaveBeenCalledTimes(1);
   });
 
   test("mirrors accept, capture, and multiple onto the input", () => {

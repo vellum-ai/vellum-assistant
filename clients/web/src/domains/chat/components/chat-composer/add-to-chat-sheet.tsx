@@ -33,6 +33,14 @@ function AddToChatRow({ icon: Icon, label, onSelect }: AddToChatRowProps) {
   );
 }
 
+/**
+ * The sheet traps focus, so by the time a row launches a picker the composer
+ * has already lost it and the picker's own open-time sample would read "no
+ * keyboard owed". The rows opt out of that sample to keep returning the
+ * keyboard they have always returned.
+ */
+const RESTORE_FOCUS = { alwaysRestoreFocus: true } as const;
+
 interface AddToChatSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -62,15 +70,18 @@ export function AddToChatSheet({
     onFiles: onAttachFiles,
     accept: "image/*",
     capture: "environment",
+    ...RESTORE_FOCUS,
   });
   const gallery = useAttachmentFilePicker({
     onFiles: onAttachFiles,
     accept: "image/*,video/*",
     multiple: true,
+    ...RESTORE_FOCUS,
   });
   const files = useAttachmentFilePicker({
     onFiles: onAttachFiles,
     multiple: true,
+    ...RESTORE_FOCUS,
   });
 
   const closeThenPick = (openPicker: () => void) => () => {

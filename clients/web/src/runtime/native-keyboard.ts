@@ -28,6 +28,31 @@ export async function initNativeKeyboard(): Promise<void> {
 }
 
 /**
+ * Start the keyboard's dismissal now, ahead of a native modal that is going to
+ * cause it anyway.
+ *
+ * WebKit resigns the web view's first responder to present a file picker, and
+ * it does so in the completion handler of the presentation animation
+ * (`WKFileUploadPanel.mm`), so the keyboard drops a beat after the picker is
+ * already on screen. Asking first turns that ambush into part of the tap.
+ *
+ * `hide()` is one of the few keyboard calls iOS supports; `show()` is Android
+ * only, which is why nothing here tries to put the keyboard back. Restoring it
+ * is a DOM `focus()`, which the Capacitor shell allows without a gesture.
+ */
+export async function hideNativeKeyboard(): Promise<void> {
+  if (!isNativeIOS()) {
+    return;
+  }
+  try {
+    const { Keyboard } = await import("@capacitor/keyboard");
+    await Keyboard.hide();
+  } catch {
+    // Plugin absent from this native build; WebKit dismisses it regardless.
+  }
+}
+
+/**
  * Coerce a reported keyboard height into a value layout can use.
  *
  * The bridge payload is untyped at runtime, so anything that is not a finite,
