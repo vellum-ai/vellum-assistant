@@ -355,6 +355,24 @@ describe("useConversationLoader cold-boot landing", () => {
     expect(requests).toHaveLength(2);
   });
 
+  test("does not resume a stored private legacy row", async () => {
+    /* The standard listing excludes private rows, so the list scan never
+       resumed one; the by-id read returns them and must not either. */
+    saveLastViewedConversationId(ASSISTANT_ID, "private-row");
+    byIdRow = {
+      id: "private-row",
+      /* A legacy value the daemon's listing predicates exclude and the
+         current wire enum no longer names; the client type is a string. */
+      conversationType:
+        "private" as unknown as RawConversationFixture["conversationType"],
+    };
+    listRows = [{ id: "newest" }];
+
+    renderColdBoot(new QueryClient());
+
+    expect(await landedOn()).toContain("newest");
+  });
+
   test("does not resume a stored conversation that has since been archived", async () => {
     saveLastViewedConversationId(ASSISTANT_ID, "archived-chat");
     byIdRow = { id: "archived-chat", archivedAt: 1704067200000 };

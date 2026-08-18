@@ -1,6 +1,7 @@
 import { useConversationStore } from "@/stores/conversation-store";
 import type { Conversation } from "@/types/conversation-types";
 import { isBackgroundConversation } from "@/utils/conversation-predicates";
+import { isSidebarVisible } from "@/utils/section-membership";
 
 /** The selections the client already holds, needing no server answer. */
 interface PreselectedConversationIdArgs {
@@ -36,6 +37,7 @@ export type SelectableConversation = Pick<
   | "groupId"
   | "surfacedAt"
   | "archivedAt"
+  | "source"
 >;
 
 /**
@@ -88,16 +90,17 @@ export function shouldMintNewChatDraft({
 
 /**
  * Whether a conversation may be landed on implicitly on a cold load, as the
- * resumed last-viewed conversation or as the newest one. Archived
- * conversations may not: the sidebar does not show them. Background and
- * scheduled runs may not either: they live behind a collapsed-by-default
- * section and are selected only by explicit URL.
+ * resumed last-viewed conversation or as the newest one: it must be visible
+ * in the sidebar at all (not archived, not a private legacy row, and in some
+ * section: {@link isSidebarVisible}, the client's twin of the daemon's
+ * standard listing) and not a background or scheduled run, which live behind
+ * a collapsed-by-default section and are selected only by explicit URL.
  */
 export function isStoredConversationSelectable(
   conversation: SelectableConversation,
 ): boolean {
   return (
-    conversation.archivedAt == null && !isBackgroundConversation(conversation)
+    isSidebarVisible(conversation) && !isBackgroundConversation(conversation)
   );
 }
 

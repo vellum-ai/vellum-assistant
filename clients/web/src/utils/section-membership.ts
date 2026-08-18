@@ -91,7 +91,12 @@ export function patchAffectsMembership(patch: Partial<Conversation>): boolean {
  * surfaced and custom-group arms only, matching the SQL exactly: the
  * foreground arm does not test `source`.
  */
-function isSidebarVisible(conversation: Conversation): boolean {
+export function isSidebarVisible(
+  conversation: Pick<
+    Conversation,
+    "archivedAt" | "conversationType" | "groupId" | "surfacedAt" | "source"
+  >,
+): boolean {
   if (conversation.archivedAt != null) {
     return false;
   }
