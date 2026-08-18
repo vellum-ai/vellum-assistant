@@ -251,12 +251,13 @@ await initializeDb();
 let eventIdCounter = 0;
 
 // The reporter consumes `UnreportedUsageEvent` (UsageEvent + the
-// JOIN-computed fields `conversationType`, `turnIndex`,
-// `parentConversationId`, and `parentTurnIndex`). Build that shape
-// directly so the mock matches `queryUnreportedUsageEvents`' return type
-// exactly.
+// conversation-level fields `conversationType`, `conversationSource`,
+// `turnIndex`, `parentConversationId`, and `parentTurnIndex`). Build that
+// shape directly so the mock matches `queryUnreportedUsageEvents`' return
+// type exactly.
 type UnreportedUsageEventFixture = UsageEvent & {
   conversationType: string | null;
+  conversationSource: string | null;
   turnIndex: number | null;
   parentConversationId: string | null;
   parentTurnIndex: number | null;
@@ -289,6 +290,7 @@ function makeUsageEvent(
     pricingStatus: "priced",
     assistantVersion: "test-app-version",
     conversationType: "standard",
+    conversationSource: "user",
     turnIndex: 1,
     parentConversationId: null,
     parentTurnIndex: null,
