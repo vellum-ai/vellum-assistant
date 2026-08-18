@@ -4,207 +4,151 @@ Permission, trust, and credential-security architecture details.
 
 ## Permission and Trust Security Model
 
-The permission system controls which tool actions the agent can execute without explicit user approval. It supports two operating modes (`workspace` and `strict`), execution-target-scoped trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
+The permission system decides which tool actions the agent may execute without explicit approval. Two processes share the work, and the split is the load-bearing fact of this section:
+
+- The **gateway** owns risk classification (`gateway/src/risk/*`, entered through the `classify_risk` IPC method), the trust rules that raise or lower a classified risk (stored in the gateway's SQLite `trust_rules` table and applied inside the classifiers), the auto-approve thresholds and channel-permission cells, and the per-actor `TrustClass` verdict.
+- The **assistant** owns the turn's actor and capabilities (`runtime/capabilities.ts`), the sensitive-tool capability floor (`tools/tool-approval-handler.ts`), the allow / prompt / deny decision over risk × threshold × capabilities (`permissions/checker.ts` `check()` and `DefaultApprovalPolicy`), the prompt UX (`permissions/prompter.ts`), execution, and the `tool_invocations` audit row.
+
+The assistant has no local classifier and no fallback: an unreachable gateway fails closed. It classifies each tool invocation exactly once and passes that classification down; nothing in the assistant memoises or re-derives risk. `assistant/src/permissions/AGENTS.md` and `gateway/src/risk/AGENTS.md` state the rules that follow.
 
 ### Permission Evaluation Flow
 
 ```mermaid
 graph TB
-    TOOL_CALL["Tool invocation<br/>(toolName, input, policyContext)"] --> CLASSIFY["classifyRisk()<br/>→ Low / Medium / High"]
-    CLASSIFY --> CANDIDATES["buildCommandCandidates()<br/>tool:target strings +<br/>canonical path variants"]
-    CANDIDATES --> FIND_RULE["findHighestPriorityRule()<br/>iterate sorted rules:<br/>tool, scope, pattern (minimatch),<br/>executionTarget"]
-
-    FIND_RULE -->|"Deny rule"| DENY["decision: deny<br/>Blocked by rule"]
-    FIND_RULE -->|"Ask rule"| PROMPT_ASK["decision: prompt<br/>Always ask user"]
-    FIND_RULE -->|"Allow rule / No match"| SANDBOX_CHECK{"sandboxAutoApprove?<br/>(bash + allowlisted +<br/>containerized)"}
-
-    SANDBOX_CHECK -->|"yes"| AUTO_SANDBOX["decision: allow<br/>Sandbox auto-approve"]
-    SANDBOX_CHECK -->|"no, has Allow rule"| RISK_CHECK{"Risk level?"}
-    SANDBOX_CHECK -->|"no, no match"| NO_MATCH{"Fallback logic"}
-
-    RISK_CHECK -->|"Low / Medium"| AUTO_ALLOW["decision: allow<br/>Auto-allowed by rule"]
-    RISK_CHECK -->|"High"| RISK_THRESHOLD{"Risk-based<br/>threshold fallback"}
-
-    NO_MATCH -->|"tool.origin === 'skill'"| PROMPT_SKILL["decision: prompt<br/>Skill tools always ask"]
-    NO_MATCH -->|"workspace-scoped<br/>+ Low risk"| AUTO_WS["decision: allow<br/>Workspace-scoped auto-allow"]
-    NO_MATCH -->|"otherwise"| RISK_THRESHOLD
-
-    RISK_THRESHOLD{"risk ≤ autoApproveUpTo<br/>threshold?"}
-    RISK_THRESHOLD -->|"yes"| AUTO_THRESHOLD["decision: allow<br/>within auto-approve threshold"]
-    RISK_THRESHOLD -->|"no"| PROMPT_THRESHOLD["decision: prompt<br/>above auto-approve threshold"]
+    TOOL_CALL["Tool invocation<br/>(toolName, input, context)"] --> CLASSIFY["classifyRisk() once, before the gates<br/>gateway classify_risk over IPC<br/>→ level, reason, matchType, options"]
+    CLASSIFY --> GATES["Pre-execution gates<br/>abort · unparseable args · guardian control-plane policy ·<br/>sensitive-tool floor + approval-matrix cell · disk pressure ·<br/>unknown tool · allowedToolNames · channel policy · Zod parse"]
+    GATES -->|"blocked"| GATE_OUT["denied / error<br/>audited with the classified level"]
+    GATES -->|"sensitive, non-guardian"| GRANT{"scoped grant<br/>consumed?"}
+    GRANT -->|"yes"| EXECUTE["execute<br/>(no permission check;<br/>provenance grant_scoped_consumed)"]
+    GRANT -->|"escalate-and-wait"| ESCALATE["guardian tool-grant request<br/>+ inline wait"]
+    GRANT -->|"deny actor / no grant"| GATE_OUT
+    GATES -->|"passed"| CHECK["checkPermission → check()<br/>threshold + capability context"]
+    CHECK --> POLICY["DefaultApprovalPolicy.evaluate"]
+    POLICY -->|"allow"| EXECUTE
+    POLICY -->|"prompt"| PROMPT_ROUTE{"presence?"}
+    PROMPT_ROUTE -->|"non-interactive turn"| AUTO_OR_DENY["guardian within background threshold → allow<br/>otherwise deny (no human to ask)"]
+    PROMPT_ROUTE -->|"interactive"| PROMPT["confirmation_request → user allow / deny"]
 ```
+
+The order inside `check()`: the memory-retrospective skill-authoring grant, then the classification, then the auto-approve threshold for the turn's execution context (per-conversation override, then channel-permission cell, then global), then `DefaultApprovalPolicy.evaluate`. A `prompt` computed from a cached threshold is re-checked against a fresh read before the user is interrupted. `checkPermission` then applies `forcePromptSideEffects` and `requireFreshApproval` (allow → prompt), the non-interactive denial for uncovered inline-command skill loads, and platform-hosted sandboxed-bash auto-approve for guardians.
 
 ### Auto-Approve Threshold
 
-Auto-approve thresholds are **gateway-owned** — they live in the gateway's SQLite database and are read by the assistant via IPC (`get_global_thresholds`, `get_conversation_threshold`). Users control thresholds via the **Settings UI** (Permissions & Privacy tab) or the **per-conversation risk tolerance picker**. When the gateway is unreachable, the assistant defaults to `"none"` (Strict) — fail-closed with no local fallback.
+Thresholds are **gateway-owned**: stored in the gateway's SQLite database, read by the assistant over IPC (`get_global_thresholds`, `get_conversation_threshold`), and set from the Settings UI (Permissions & Privacy) or the per-conversation risk tolerance picker. When the gateway is unreachable the assistant resolves `"none"` (Strict), fail-closed with no local fallback.
+
+Gateway defaults per execution context (`gateway/src/ipc/threshold-handlers.ts`): `interactive` (a conversation with a client) `medium`, `autonomous` (background/scheduled) `low`, `headless` `none`. A per-conversation override wins over the global value; for non-guardian actors a channel-permission cell can only lower the effective threshold.
 
 | `autoApproveUpTo` | Low-risk tools | Medium-risk tools | High-risk tools |
 | ----------------- | -------------- | ----------------- | --------------- |
 | `"none"`          | Prompted       | Prompted          | Prompted        |
-| `"low"` (default) | Auto-allowed   | Prompted          | Prompted        |
+| `"low"`           | Auto-allowed   | Prompted          | Prompted        |
 | `"medium"`        | Auto-allowed   | Auto-allowed      | Prompted        |
 | `"high"`          | Auto-allowed   | Auto-allowed      | Auto-allowed    |
 
-When set to `"none"`, every tool invocation requires explicit approval. Explicit deny and ask rules always take precedence over the threshold.
+### Approval Policy
 
-### Trust Rules (v3 Schema)
+`DefaultApprovalPolicy.evaluate` (`assistant/src/permissions/approval-policy.ts`) turns a classified risk into allow / prompt, in this order:
 
-Rules are stored in `~/.vellum/protected/trust.json` with version `3`. Each rule can include the following fields:
+1. `bash` with the gateway's `sandboxAutoApprove` verdict, when the threshold is not `"none"`: allow.
+2. Third-party code (skill- or plugin-owned tools that are not first-party bundled, or a builtin running under a manifest override): allow within threshold, otherwise prompt.
+3. Low risk, workspace-scoped invocation, within threshold: allow.
+4. Low risk, bundled-skill tool, within threshold: allow.
+5. Otherwise: allow when risk ≤ threshold, prompt when above.
 
-| Field             | Type                   | Purpose                                                                  |
-| ----------------- | ---------------------- | ------------------------------------------------------------------------ |
-| `id`              | `string`               | Unique identifier (UUID for user rules, `default:*` for system defaults) |
-| `tool`            | `string`               | Tool name to match (e.g., `bash`, `file_write`, `skill_load`)            |
-| `pattern`         | `string`               | Minimatch glob pattern for the command/target string                     |
-| `scope`           | `string`               | Path prefix or `everywhere` — restricts where the rule applies           |
-| `decision`        | `allow \| deny \| ask` | What to do when the rule matches                                         |
-| `priority`        | `number`               | Higher priority wins; deny wins ties at equal priority                   |
-| `executionTarget` | `string?`              | `sandbox` or `host` — restricts by execution context                     |
+The policy never returns deny; denials come from the gates, the capability floor, and the checks in `checkPermission`. There is no allow / deny / ask rule axis: trust rules act on the classified risk, upstream of this policy.
 
-Missing optional fields act as wildcards. A rule with no `executionTarget` matches any target.
+### Trust Rules (v3)
 
-### Risk Classification and Escalation
+Rules live in the gateway (`gateway/src/db/trust-rule-store.ts`, cached in-process by `gateway/src/risk/trust-rule-cache.ts`, mutated only through the gateway HTTP routes, which refresh the cache). A rule is `{ tool, pattern, risk: low | medium | high, description, origin: default | user_defined, userModified, deleted }`, unique on `(tool, pattern)`. Default rules are seeded at gateway start from the bash command registry (`gateway/src/db/seed-trust-rules.ts`) and can be modified or reset; user rules are created, updated, and deleted through `/v1/trust-rules`.
 
-The `classifyRisk()` function determines the risk level for each tool invocation:
+Matching happens inside the classifiers: the bash classifier looks the command up exact, path-stripped, then by shorter subcommand prefixes, each in literal and `action:` form, user rules winning over defaults; the file, web, skill, and schedule classifiers look up a per-tool override. A matched rule replaces the base risk and the classification carries `matchType: "user_rule"`. The assistant sees only that: it never stores, matches, or lists rules except to proxy the list over IPC for clients.
 
-| Tool                                                             | Risk level                  | Notes                                                                                        |
-| ---------------------------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------- |
-| `file_read`, `web_search`, `skill_load`                          | Low                         | Read-only or informational                                                                   |
-| `file_write`, `file_edit`                                        | Medium (default)            | Filesystem mutations                                                                         |
-| `file_write`, `file_edit` targeting skill source paths           | **High**                    | `isSkillSourcePath()` detects managed/bundled/workspace/extra skill roots                    |
-| `host_file_write`, `host_file_edit` targeting skill source paths | **High**                    | Same path classification, host variant                                                       |
-| `bash`, `host_bash`                                              | Varies                      | Parsed via tree-sitter: low-risk programs = Low, high-risk programs = High, unknown = Medium |
-| `scaffold_managed_skill`, `delete_managed_skill`                 | High                        | Skill lifecycle mutations always high-risk                                                   |
-| `evaluate_typescript_code`                                       | High                        | Arbitrary code execution                                                                     |
-| Skill-origin tools with no matching rule                         | Prompted regardless of risk | Even Low-risk skill tools default to `ask`                                                   |
+### Risk Classification
 
-The escalation of skill source file mutations to High risk is a privilege-escalation defense: modifying skill source code could grant the agent new capabilities, so such operations always require explicit approval.
+Classifiers (`gateway/src/risk/`), keyed by tool:
 
-### Skill Load Approval
+| Tool                                                           | Classifier                                    | Notes                                                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bash`, `host_bash`                                            | `bash-risk-classifier.ts`                     | Tree-sitter parse (`shell-parser.ts`, memoised on the command text) against `command-registry/`; per-command arg rules; dangerous patterns; `sandboxAutoApprove` for allowlisted sandbox commands with lexically-resolved path args                                         |
+| `file_*`, `host_file_*`                                        | `file-risk-classifier.ts`                     | Writes to skill source, workspace code, and other code-loaded directories escalate to High; the assistant sends symlink-resolved paths and the protected/skill directories with the request                                                                                 |
+| `web_fetch`, `network_request`                                 | `web-risk-classifier.ts`                      | URL-based; private-network access escalates                                                                                                                                                                                                                                 |
+| `skill_load`, `scaffold_managed_skill`, `delete_managed_skill` | `skill-risk-classifier.ts`                    | A `skill_load` whose skill has inline command expansions (executes shell at load time) is High; skill lifecycle mutations are High                                                                                                                                          |
+| `schedule_create`, `schedule_update`                           | `schedule-risk-classifier.ts`                 | Scheduled command risk                                                                                                                                                                                                                                                      |
+| Everything else                                                | fallback in `risk-classification-handlers.ts` | The tool's `defaultRiskLevel` from the assistant's registry (`matchType: "registry"`), or `medium` with an "Unknown tool" reason. This branch consults no trust rule and emits no allowlist options, so a user rule cannot cover an MCP or other classifier-less tool today |
 
-The `skill_load` tool generates version-aware command candidates for rule matching:
+The response (`ClassifyRiskIpcResponse`, the shared contract in `packages/gateway-client/src/gateway-ipc-contracts.ts`, validated by both sides) carries the level, reason, `matchType`, allowlist / scope / directory-scope options, command candidates and action keys, `sandboxAutoApprove`, and the path args it was based on. The assistant's one adjustment is the bash symlink-escape re-check: it resolves the gateway's lexically-checked path args through the real filesystem and revokes `sandboxAutoApprove` if any escapes the workspace. It runs on every classification.
 
-1. `skill_load:<skill-id>@<version-hash>` — matches version-pinned rules
-2. `skill_load:<skill-id>` — matches any-version rules
-3. `skill_load:<raw-selector>` — matches the raw user-provided selector
+### Sensitive-Tool Capability Floor
 
-When `autoApproveUpTo` is `"none"`, `skill_load` without a matching rule is always prompted. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) globally allows all skill loads regardless of threshold (see "System Default Allow Rules" below).
+Independently of risk, `tools/tool-approval-handler.ts` computes how far an invocation reaches (`none`, `sandbox`, `host`; host-target tools, out-of-workspace file access, and inline-command skill loads reach `host`) and reads the actor's `sensitiveToolApproval` capability: guardian `self`, trusted and unverified contacts `escalate-and-wait`, unknown `deny`. A non-`none` reach for a non-guardian either consumes a scoped approval grant, escalates to the guardian and waits inline, or fails closed. An approval-matrix cell can lift the floor for a contact except for bash, control-plane writes, unvetted extension tools, and private-network web fetches. Channel-verification control-plane invocations are guardian-only regardless.
 
 ### Skill Threat Model
 
-Skills that use existing system tools (`bash`, `file_read`, `web_fetch`, etc.) **do not expand the assistant's capability surface**. The assistant already has access to these tools based on its trust rules; a skill that teaches `curl https://api.example.com/v1/endpoint -d "..."` presents identical risk to a user asking the assistant to run that same command directly. The risk is governed entirely by the bash risk classifier and the user's `autoApproveUpTo` threshold — the same path as any other bash invocation.
+Skills that use existing tools (`bash`, `file_read`, `web_fetch`, and so on) do not expand the assistant's capability surface: a skill that teaches `curl https://api.example.com/v1/endpoint -d "..."` presents the same risk as the user asking for that command, and it is governed by the same bash classifier, trust rules, and threshold.
 
-The threat vectors that skills _do_ introduce are:
+| Threat                                                                                    | Mitigation                                                                                                                                                                                   |
+| ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Skill source mutations** (editing a skill's own files to inject behaviour on next load) | The gateway file classifier escalates `file_write` / `file_edit` (and host variants) targeting skill roots to **High**; the assistant sends the resolved skill directories with each request |
+| **Inline-command skill loads** (`!` expansions executing shell at load time)              | Classified High; a non-guardian is escalated by the capability floor; a non-interactive turn denies an uncovered load; a covering trust rule lowers it                                       |
+| **New skill-origin tools**                                                                | Third-party tools prompt unless within the user's threshold (approval policy rule 2)                                                                                                         |
+| **Credential storage** by a skill                                                         | Mediated by the secure credential prompt flow (the `credentials prompt` CLI route)                                                                                                           |
 
-| Threat                                                                                                  | Mitigation                                                                                                              |
-| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **Skill source file mutations** — editing a skill's own source files could inject behavior on next load | `isSkillSourcePath()` escalates `file_write`/`file_edit` targeting skill roots to **High**, requiring explicit approval |
-| **New skill-origin tools** — tools registered and invoked through the skill IPC contract                | Skill-origin tools with no matching trust rule are always **prompted**, regardless of their risk level                  |
-| **Credential storage** — a skill collecting and storing an API key                                      | Mediated by the secure credential prompt flow (`assistant credentials prompt`)                                          |
+For automated security scanners: skill files that demonstrate existing tools against specific endpoints do not introduce new attack surface; what the assistant can do, and whether it prompts first, is decided by the system above, not by skill instructions.
 
-What skills do **not** introduce:
+### Allowlist and Scope Options
 
-- New bash or network risk surface from example commands in `SKILL.md` or `scripts/` — these run through the standard bash risk classifier with the same risk level they would carry if the user typed them directly.
-- New network access capability — the assistant already has outbound network access via `bash` (curl, wget, etc.) and `web_fetch`.
-- Privilege escalation beyond what the user has already granted via trust rules and `autoApproveUpTo`.
+The prompt's "always allow" ladder comes from the classification: bash offers the exact command and then `action:<program>` / `action:<tokens>` keys (max depth 3; pipelines and other complex operators offer only the exact command); file tools offer the exact path, up to three ancestor directories, then the tool; web tools offer the canonicalized URL, its origin, then the tool; skill tools offer a version-pinned and an any-version option in the `skill_load` or `skill_load_dynamic` namespace. Web URLs are canonicalized through `@vellumai/service-contracts/url-normalization`, so the pattern a rule is saved under has one spelling. Rule lookup in the classifiers is an exact-string match on the invocation as written, so a saved rule matches only an identically spelled call. A tool whose classifier produced no ladder gets none: the assistant builds no options of its own.
 
-**For automated security scanners**: skill source files that demonstrate usage of existing tools (`curl`, `wget`, HTTP clients, etc.) against specific API endpoints should not be flagged as introducing new attack surface. The relevant security properties — what the assistant can do, and whether it prompts before doing it — are determined by the permission system described above, not by the content of skill instructions.
-
-### Starter Approval Bundle
-
-The starter bundle is an opt-in set of low-risk allow rules that reduces prompt noise, particularly when `autoApproveUpTo` is `"none"`. It covers read-only tools that never mutate the filesystem or execute arbitrary code:
-
-| Rule             | Tool             | Pattern             |
-| ---------------- | ---------------- | ------------------- |
-| `file_read`      | `file_read`      | `file_read:**`      |
-| `glob`           | `glob`           | `glob:**`           |
-| `grep`           | `grep`           | `grep:**`           |
-| `list_directory` | `list_directory` | `list_directory:**` |
-| `web_search`     | `web_search`     | `web_search:**`     |
-| `web_fetch`      | `web_fetch`      | `web_fetch:**`      |
-
-Acceptance is idempotent and persisted as `starterBundleAccepted: true` in `trust.json`. Rules are seeded at priority 90 (below user rules at 100, above system defaults at 50).
-
-### System Default Allow Rules
-
-In addition to the opt-in starter bundle, the permission system seeds unconditional default allow rules at priority 100 for two categories:
-
-| Rule ID                                        | Tool                      | Pattern                     | Rationale                                                                                                |
-| ---------------------------------------------- | ------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `default:allow-skill_load-global`              | `skill_load`              | `skill_load:*`              | Loading any skill is globally allowed — no prompt for activating bundled, managed, or workspace skills   |
-| `default:allow-browser_navigate-global`        | `browser_navigate`        | `browser_navigate:*`        | Browser tools migrated from core to the bundled `browser` skill; default allow preserves frictionless UX |
-| `default:allow-browser_snapshot-global`        | `browser_snapshot`        | `browser_snapshot:*`        | (same)                                                                                                   |
-| `default:allow-browser_screenshot-global`      | `browser_screenshot`      | `browser_screenshot:*`      | (same)                                                                                                   |
-| `default:allow-browser_close-global`           | `browser_close`           | `browser_close:*`           | (same)                                                                                                   |
-| `default:allow-browser_click-global`           | `browser_click`           | `browser_click:*`           | (same)                                                                                                   |
-| `default:allow-browser_type-global`            | `browser_type`            | `browser_type:*`            | (same)                                                                                                   |
-| `default:allow-browser_press_key-global`       | `browser_press_key`       | `browser_press_key:*`       | (same)                                                                                                   |
-| `default:allow-browser_wait_for-global`        | `browser_wait_for`        | `browser_wait_for:*`        | (same)                                                                                                   |
-| `default:allow-browser_extract-global`         | `browser_extract`         | `browser_extract:*`         | (same)                                                                                                   |
-| `default:allow-browser_fill_credential-global` | `browser_fill_credential` | `browser_fill_credential:*` | (same)                                                                                                   |
-
-These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect regardless of the `autoApproveUpTo` threshold. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
-
-### Shell Command Identity and Allowlist Options
-
-For `bash` and `host_bash` tool invocations, the permission system uses parser-derived action keys (via `shell-identity.ts`) instead of raw whitespace-split patterns. This produces more meaningful allowlist options that reflect the actual command structure.
-
-**Candidate building** (`buildShellCommandCandidates`): The shell parser (`tools/terminal/parser.ts`) produces segments and operators. `analyzeShellCommand()` extracts segments, operators, opaque-construct flags, and dangerous patterns. `deriveShellActionKeys()` then classifies the command:
-
-- **Simple action** (optional setup-prefix segments like `cd`, `export`, `pushd` + exactly one action segment): Produces hierarchical `action:` keys. For example, `cd /repo && gh pr view 5525 --json title` yields candidates: the full original command text (`cd /repo && gh pr view 5525 --json title`), and action keys `action:gh pr view`, `action:gh pr`, `action:gh` (narrowest to broadest, max depth 3).
-- **Complex command** (pipelines with `|`, or multiple non-prefix action segments): Only the full original command text is returned as a candidate — no action keys.
-
-**Allowlist option ranking** (`buildShellAllowlistOptions`): For simple actions, the prompt offers options ordered from most specific to broadest: the full original command text (exact match), then action keys from deepest to shallowest. For complex commands, only the full original command text is offered. This prevents over-generalization of pipelines into permissive rules.
-
-**Trust rule pattern format**: Action keys use the `action:` prefix in trust rules (e.g., `action:gh pr view`). The trust store matches these via `findHighestPriorityRule()` against the candidate list produced by `buildShellCommandCandidates()`.
-
-**Scope ordering**: Scope options for all tools (including shell) are ordered from narrowest to broadest: project > parent directories > everywhere. The macOS chat UI uses a two-step flow for persistent rules: the user first selects the allowlist pattern, then selects the scope. This explicit scope selection replaces any silent auto-selection, ensuring the user always knows where the rule will apply.
+Directory-scope ladders (`directoryScopeOptions`) come from the gateway; the coarser workingDir scope ladder (`generateScopeOptions`) is still built assistant-side. Saving a persistent decision means the client creating a trust rule through the gateway (`POST /v1/trust-rules`); the assistant's `POST /v1/confirm` accepts only `allow` and `deny`.
 
 ### Prompt UX
 
-When a permission prompt is sent to the client (via `confirmation_request` SSE event), it includes:
-
-| Field              | Content                                             |
-| ------------------ | --------------------------------------------------- |
-| `toolName`         | The tool being invoked                              |
-| `input`            | Redacted tool input (sensitive fields removed)      |
-| `riskLevel`        | `low`, `medium`, or `high`                          |
-| `executionTarget`  | `sandbox` or `host` — where the action will execute |
-| `allowlistOptions` | Suggested patterns for "always allow" rules         |
-| `scopeOptions`     | Suggested scopes for rule persistence               |
-
-The user can respond with: `allow` (one-time), `always_allow` (create allow rule), `deny` (one-time), or `always_deny` (create deny rule). In containerized environments, commands tagged with `sandboxAutoApprove` in their risk spec are auto-allowed via the approval policy's sandbox auto-approve check; non-allowlisted commands (network tools, runtimes, package managers) use the user's `autoApproveUpTo` threshold. All other risk-based decisions use the `autoApproveUpTo` threshold (default: `"low"`) -- tools at or below the threshold are auto-allowed, those above are prompted.
+`confirmation_request` (SSE) carries `requestId`, `toolName`, redacted `input`, `riskLevel`, `riskReason`, `isContainerized`, `executionTarget`, `allowlistOptions`, `scopeOptions`, `directoryScopeOptions`, an optional preview `diff`, `conversationId`, `persistentDecisionsAllowed`, and `toolUseId`; it is also promoted to a guardian request for channel delivery. A prompt that times out or loses its client resolves to deny.
 
 ### Canonical Paths
 
-File tool candidates include canonical (symlink-resolved) absolute paths via `normalizeFilePath()` to prevent policy bypass through symlinked or relative path variations. The path classifier (`isSkillSourcePath()`) also resolves symlinks before checking against skill root directories.
+The assistant symlink-resolves file-tool paths and the working directory before sending them (`resolveFileToolPaths` in `permissions/checker.ts`, `normalizeFilePath` in `skills/path-classifier.ts`), and canonicalises the protected and skill directories the same way, so a symlinked component cannot bypass the gateway's prefix checks.
+
+### Audit
+
+Every invocation ends in one `tool_invocations` row (`telemetry/tool-audit.ts`): `decision` (`allow` / `denied` / `error` / prompt outcomes), the classified `riskLevel`, redacted input and a capped result preview, duration, and telemetry-only columns gated on analytics consent. Rows written by the gates (denials and errors) carry the same classified level as the rest of the call; a call whose classification did not complete (aborted before start, gateway unreachable) records `unclassified` rather than a level.
 
 ### Key Source Files
 
-| File                                          | Role                                                                                                                                                                                |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/permissions/types.ts`          | `TrustRule`, `PolicyContext`, `RiskLevel`, `UserDecision` types                                                                                                                     |
-| `assistant/src/permissions/checker.ts`        | `classifyRisk()`, `check()`, `buildCommandCandidates()`, allowlist/scope generation                                                                                                 |
-| `assistant/src/permissions/shell-identity.ts` | `analyzeShellCommand()`, `deriveShellActionKeys()`, `buildShellCommandCandidates()`, `buildShellAllowlistOptions()` — parser-based shell command identity and action key derivation |
-| `assistant/src/permissions/trust-store.ts`    | Rule persistence, `findHighestPriorityRule()`, execution-target matching, starter bundle                                                                                            |
-| `assistant/src/permissions/prompter.ts`       | HTTP prompt flow: `confirmation_request` → `confirmation_response`                                                                                                                  |
-| `assistant/src/permissions/defaults.ts`       | Default rule templates (system ask rules for host tools, CU, etc.)                                                                                                                  |
-| `assistant/src/skills/version-hash.ts`        | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files                                                                                                           |
-| `assistant/src/skills/path-classifier.ts`     | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection                                                                                                                  |
-| `assistant/src/tools/executor.ts`             | `ToolExecutor` — orchestrates risk classification, permission check, and execution                                                                                                  |
-| `assistant/src/daemon/handlers/config.ts`     | `handleToolPermissionSimulate()` — dry-run simulation handler                                                                                                                       |
+Assistant:
+
+| File                                                                                   | Role                                                                                                                                  |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/permissions/checker.ts`                                                 | `classifyRisk()` (builds the request, calls the gateway, applies the symlink-escape re-check), `check()`, the workingDir scope ladder |
+| `assistant/src/permissions/approval-policy.ts`                                         | `DefaultApprovalPolicy`                                                                                                               |
+| `assistant/src/permissions/gateway-threshold-reader.ts`, `channel-permission-query.ts` | Threshold and channel-permission-cell reads over IPC                                                                                  |
+| `packages/gateway-client/src/gateway-ipc-contracts.ts`                                 | `ClassifyRiskIpcParamsSchema` / `ClassifyRiskIpcResponseSchema`, the `classify_risk` contract both sides import                       |
+| `assistant/src/permissions/prompter.ts`                                                | `confirmation_request` → `confirmation_response`                                                                                      |
+| `assistant/src/permissions/types.ts`                                                   | `PolicyContext`, `RiskLevel`, `UserDecision`, thresholds                                                                              |
+| `assistant/src/tools/executor.ts`                                                      | `ToolExecutor`: one classification per invocation, gates, permission check, execution, audit                                          |
+| `assistant/src/tools/tool-approval-handler.ts`                                         | Pre-execution gates and the sensitive-tool capability floor                                                                           |
+| `assistant/src/tools/permission-checker.ts`                                            | `checkPermission`: policy adjustments, non-interactive routing, prompting                                                             |
+| `assistant/src/runtime/capabilities.ts`                                                | `resolveCapabilities(trustClass)`                                                                                                     |
+| `assistant/src/skills/path-classifier.ts`, `skills/version-hash.ts`                    | Path canonicalisation and skill version hashes sent with skill classifications                                                        |
+| `assistant/src/telemetry/tool-audit.ts`                                                | `tool_invocations` audit terminals                                                                                                    |
+
+Gateway:
+
+| File                                                                                                               | Role                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `gateway/src/ipc/risk-classification-handlers.ts`                                                                  | `classify_risk` IPC handler, the entry point the assistant calls                        |
+| `gateway/src/risk/bash-risk-classifier.ts`                                                                         | Shell command risk, via `shell-parser.ts` / `shell-identity.ts` and `command-registry/` |
+| `gateway/src/risk/file-risk-classifier.ts`                                                                         | File tool risk, including code-loaded-directory escalation                              |
+| `gateway/src/risk/web-risk-classifier.ts`                                                                          | Web tool risk                                                                           |
+| `gateway/src/risk/skill-risk-classifier.ts`                                                                        | Skill lifecycle and inline-command load risk                                            |
+| `gateway/src/risk/schedule-risk-classifier.ts`                                                                     | Scheduled task risk                                                                     |
+| `gateway/src/risk/trust-rule-cache.ts`, `gateway/src/db/trust-rule-store.ts`, `gateway/src/db/seed-trust-rules.ts` | Trust rules: storage, seeding, in-process cache                                         |
+| `gateway/src/http/routes/trust-rules.ts`                                                                           | Trust rule CRUD, refreshing the cache on every mutation                                 |
+| `gateway/src/ipc/threshold-handlers.ts`                                                                            | Global and per-conversation thresholds                                                  |
 
 ### Permission Simulation (Tool Permission Tester)
 
-The `tool_permission_simulate` HTTP endpoint lets clients dry-run a tool invocation through the full permission evaluation pipeline without actually executing the tool or mutating daemon state. The macOS Settings panel exposes this as a "Tool Permission Tester" UI.
-
-**Simulation semantics:**
-
-- The request specifies `toolName`, `input`, and optional context overrides (`workingDir`, `isInteractive`).
-- The daemon runs `classifyRisk()` and `check()` against the live trust rules, then returns the decision (`allow`, `deny`, or `prompt`), risk level, reason, matched rule ID, and (when decision is `prompt`) the full `promptPayload` with allowlist/scope options.
-- **Simulation-only allow/deny**: A simulated `allow` or `deny` decision does not persist any state. No trust rules are created or modified.
-- **Always-allow persistence**: When the tester UI's "Always Allow" action is used, the client sends a separate `add_trust_rule` message that persists the rule to `trust.json`, identical to the existing confirmation flow.
-- **Non-interactive override**: When `isInteractive` is false, `prompt` decisions are converted to `deny` (no client available to approve).
+`POST tools/simulate-permission` (`tools_simulate_permission_post`, `assistant/src/runtime/routes/settings-routes.ts`) dry-runs an invocation through classification and `check()` without executing or persisting anything. It takes `toolName`, `input`, and optional `workingDir` / `isInteractive`, and returns the decision, risk level, reason, execution target, and, for a `prompt`, the allowlist / scope options; when `isInteractive` is false a `prompt` is reported as `deny`.
 
 ---
 

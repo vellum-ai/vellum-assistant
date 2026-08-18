@@ -280,6 +280,9 @@ export async function runConversationTurn(
     await import("../persistence/conversation-crud.js");
   const { publishConversationListAndMetadataChanged } =
     await import("../runtime/sync/resource-sync-events.js");
+  const { parseInterfaceId } = await import("../channels/types.js");
+  const { resolveChannelCapabilities } =
+    await import("../daemon/conversation-runtime-assembly.js");
 
   // Plugin-driven turns run as the guardian: plugins are installed by the
   // guardian, so their conversations inherit guardian trust. This lets the
@@ -351,6 +354,28 @@ export async function runConversationTurn(
         assistantMessageChannel: options.channel.sourceChannel,
       }
     : null;
+  // The interface the message arrived on. `plugin` is in both the channel
+  // and interface unions, matching gateway inbound. Tool gating reads this
+  // as `transportInterface`; unset, the loop falls back to `web`.
+  const turnInterfaceContext = options.channel
+    ? (() => {
+        const iface = parseInterfaceId(options.channel.sourceChannel);
+        return iface
+          ? {
+              userMessageInterface: iface,
+              assistantMessageInterface: iface,
+            }
+          : null;
+      })()
+    : null;
+  if (options.channel) {
+    conversation.setChannelCapabilities(
+      resolveChannelCapabilities(
+        options.channel.sourceChannel,
+        turnInterfaceContext?.userMessageInterface,
+      ),
+    );
+  }
   // Carried on the metadata as well, because a queued turn is drained after
   // this call returns and reads its channel from there. Without it the drain
   // inherits whichever turn was in flight, which on a shared conversation is
@@ -358,6 +383,7 @@ export async function runConversationTurn(
   const metadata = {
     ...PLUGIN_TURN_MESSAGE_METADATA,
     ...(turnChannelContext ?? {}),
+    ...(turnInterfaceContext ?? {}),
   };
 
   // Build the event emitter: fan out to SSE/event-hub subscribers via
@@ -398,6 +424,7 @@ export async function runConversationTurn(
   }
 
   conversation.setTurnChannelContext(turnChannelContext);
+  conversation.setTurnInterfaceContext(turnInterfaceContext);
 
   const userMessageId = await conversation.processMessage({
     content: text,

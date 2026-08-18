@@ -6,14 +6,14 @@
  *  - the workspace around it: top-level context, a bounded directory tree of
  *    its working dir, NOW.md, and open documents.
  *
- * The advisor already receives the agent's transcript and system prompt; this
- * adds the situational context that lives *outside* the prompt (tools and
- * skills are passed to the model as a separate catalog, not inlined). Without
- * it the advisor cannot reference platform capabilities: it would advise an
- * agent whose toolbox it has never seen. Memory surfaces owned by the memory
- * plugin (PKB, recall search) are deliberately absent: host code must not
- * import plugin internals, and the inherited transcript already carries the
- * memory the parent turn was injected with.
+ * The advisor receives the agent's written brief; this adds the situational
+ * context the brief cannot state for itself (tools and skills are passed to a
+ * model as a separate catalog, not as prose). Without it the advisor cannot
+ * reference platform capabilities: it would advise an agent whose toolbox it
+ * has never seen. Memory surfaces owned by the memory plugin (PKB, recall
+ * search) are deliberately absent because host code must not import plugin
+ * internals; anything from memory that bears on the advice has to reach the
+ * advisor through the brief.
  *
  * NOW.md is a personal-memory surface, gated to the same policy the main
  * agent's memory injectors apply: `isPersonalMemoryAllowed` plus the
@@ -26,8 +26,8 @@
  * memory-side modules are pulled in via dynamic `import()` so this module,
  * reached from a tool executor (`tools/subagent/spawn.ts`), never forms a
  * static import cycle back through the tool registry or plugin bootstrap. The
- * result is a single string appended to the advisor's system prompt (see
- * `buildAdvisorSystem`), or `null` when nothing could be gathered.
+ * result is a single string carried in the advisor's request turn (see
+ * `advisorRequestText`), or `null` when nothing could be gathered.
  */
 
 import { readdir } from "node:fs/promises";
@@ -372,7 +372,7 @@ const SECTION_TIMEOUT_MS = 2_000;
 /**
  * Aggregate ceiling for the assembled pack. The skill catalog scales with the
  * installation, so without a total bound a skill-heavy install could crowd the
- * inherited conversation out of the provider context window.
+ * agent's own brief out of the provider context window.
  */
 const TOTAL_CONTEXT_MAX_CHARS = 24_000;
 

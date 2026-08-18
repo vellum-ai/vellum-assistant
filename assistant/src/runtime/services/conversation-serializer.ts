@@ -244,13 +244,18 @@ export function serializeConversationSummary(params: {
 
 /**
  * Build a full conversation detail response from a conversation ID.
- * Returns null if the conversation doesn't exist.
+ * Returns null if the conversation doesn't exist, or if it is a legacy
+ * `private` row: every listing hides those by type (see
+ * `standardListingVisibilitySql`) and migration cleanup deletes them, and the
+ * wire type collapses the value to `standard`, so serving one by id would let
+ * a client that only holds a stale id (a persisted last-viewed conversation)
+ * resurrect a row it can never see listed.
  */
 export function buildConversationDetailResponse(
   conversationId: string,
 ): { conversation: ReturnType<typeof serializeConversationSummary> } | null {
   const conversation = getConversation(conversationId);
-  if (!conversation) {
+  if (!conversation || conversation.conversationType === "private") {
     return null;
   }
 

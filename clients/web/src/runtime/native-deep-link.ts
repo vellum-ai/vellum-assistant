@@ -120,6 +120,16 @@ export function parseBillingCheckoutCompleteDeepLink(
  */
 const COMMAND_URL_PROVENANCE_PARAM = "src";
 const COMMAND_URL_PROVENANCE_INTENT = "intent";
+/**
+ * The marker as one raw query item, byte-for-byte what
+ * `CommandURLProvenance.marked` serializes. It is matched against the raw
+ * `&`-split query, never through `URLSearchParams`: that view percent-decodes
+ * item names, so it would read `s%72c=intent` as the marker, and the shell
+ * (Foundation, a different parser) has to strip every spelling this side
+ * honors. The raw item is the one thing both parsers see identically, so it
+ * is the whole predicate here; the shell strips it and its decoded spellings.
+ */
+const COMMAND_URL_PROVENANCE_ITEM = `${COMMAND_URL_PROVENANCE_PARAM}=${COMMAND_URL_PROVENANCE_INTENT}`;
 
 /**
  * Where a command URL came from, as far as the shell can prove.
@@ -149,8 +159,8 @@ function readProvenance(
   if (options?.acceptProvenance !== true) {
     return null;
   }
-  return url.searchParams.get(COMMAND_URL_PROVENANCE_PARAM) ===
-    COMMAND_URL_PROVENANCE_INTENT
+  // `url.search` is "" or "?…"; slicing the "?" off "" leaves no items.
+  return url.search.slice(1).split("&").includes(COMMAND_URL_PROVENANCE_ITEM)
     ? "intent"
     : null;
 }

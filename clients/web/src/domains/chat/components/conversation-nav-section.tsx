@@ -52,6 +52,7 @@ import {
   renderGroupMenuItemsAsPanelItems,
   type GroupMenuItemsProps,
 } from "@/domains/chat/components/group-actions-menu";
+import { useTranslation } from "@/i18n";
 import type { Conversation } from "@/types/conversation-types";
 
 /**
@@ -218,6 +219,7 @@ export function ConversationNavSection({
 }: ConversationNavSectionProps) {
   const hasMenu = groupMenu != null && hasAnyGroupMenuAction(groupMenu);
   const { overlayCards } = useConversationListContext();
+  const { t } = useTranslation("chat");
 
   return (
     <CollapsibleNavSection.Section
@@ -228,13 +230,17 @@ export function ConversationNavSection({
       trailing={trailing}
       contextMenuContent={
         hasMenu
-          ? renderGroupMenuItems({ Primitive: ContextMenu, ...groupMenu })
+          ? renderGroupMenuItems({ Primitive: ContextMenu, ...groupMenu, t })
           : undefined
       }
       touchMenuContent={
         hasMenu
           ? (close) =>
-              renderGroupMenuItemsAsPanelItems({ ...groupMenu, onClose: close })
+              renderGroupMenuItemsAsPanelItems({
+                ...groupMenu,
+                onClose: close,
+                t,
+              })
           : undefined
       }
       collapsedIndicator={collapsedIndicator}

@@ -199,7 +199,8 @@ function surfacedVisibilitySql(alias = "conversations"): string {
  * explicitly surfaced. {@link standardListingVisibilitySql} already admits
  * such rows through its surfaced and custom-group arms, so a caller that
  * must distinguish "visible in the listing" from "user-facing foreground"
- * (unread counting) applies this on top.
+ * (unread counting, the section index, a `foregroundOnly` list read) applies
+ * this on top.
  *
  * The SQL twin of `isBackgroundConversation` in the web client's
  * `utils/conversation-predicates.ts`.
@@ -282,6 +283,16 @@ export interface ConversationListFilter {
    * the rows its attention surfaces need instead of scanning for them.
    */
   needsAttention?: true;
+  /**
+   * Restrict to user-facing foreground conversations: drop the automated
+   * background/scheduled rows the standard listing admits through its
+   * custom-group arm ({@link notBackgroundVisibilitySql}, the same predicate
+   * the unread count and the section index apply on top of visibility).
+   * Only `true` narrows; omit to keep every visible row. A client that
+   * needs the newest conversation a user can open can ask for it in one
+   * row instead of paging past runs it would skip.
+   */
+  foregroundOnly?: true;
 }
 
 export interface ConversationListQuery extends ConversationListFilter {
@@ -364,6 +375,7 @@ function conversationListWhere(filter: ConversationListFilter) {
     originChannel,
     groupId,
     needsAttention,
+    foregroundOnly,
   } = filter;
   return and(
     conversationTypeClause(conversationType),
@@ -371,6 +383,7 @@ function conversationListWhere(filter: ConversationListFilter) {
     originChannel ? originChannelClause(originChannel) : undefined,
     groupId ? groupIdClause(groupId) : undefined,
     ...(needsAttention ? unseenAttentionStateConditions() : []),
+    foregroundOnly ? sql.raw(notBackgroundVisibilitySql()) : undefined,
   );
 }
 

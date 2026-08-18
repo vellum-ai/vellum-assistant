@@ -519,10 +519,11 @@ export class SubagentManager {
 
     // ── Resolve spawn mode ───────────────────────────────────────────
     // The spawning call site is the only layer that can tell an advisor
-    // consult or a live-voice continuation apart from a plain fork, so it
-    // declares its mode. The fallback is mechanical rather than NULL: a
-    // future call site that forgets still records honest context-inheritance
-    // shape instead of dropping out of the telemetry breakdown entirely.
+    // consult apart from a plain spawn, or a live-voice continuation apart
+    // from a plain fork, so it declares its mode. The fallback is mechanical
+    // rather than NULL: a future call site that forgets still records honest
+    // context-inheritance shape instead of dropping out of the telemetry
+    // breakdown entirely.
     const spawnMode: SubagentSpawnMode =
       config.spawnMode ?? (isFork ? "fork" : "regular");
 
@@ -572,10 +573,9 @@ export class SubagentManager {
 
     let systemPrompt: string;
     if (isFork) {
-      // Forks default to the parent's system prompt verbatim — no subagent
-      // preamble — so the KV cache stays aligned with the parent. An explicit
-      // `systemPromptOverride` opts out of that alignment and takes precedence
-      // (e.g. the advisor role framing the inherited context as advice).
+      // Forks default to the parent's system prompt verbatim (no subagent
+      // preamble) so the KV cache stays aligned with the parent. An explicit
+      // `systemPromptOverride` opts out of that alignment and takes precedence.
       const resolved =
         config.systemPromptOverride ??
         config.parentSystemPrompt ??
@@ -955,22 +955,14 @@ export class SubagentManager {
       // For forks, wrap the objective in directive framing so it overrides
       // conversational momentum from the inherited context. Without this,
       // the fork tends to continue the parent conversation instead of
-      // pivoting to the task — the inherited context is louder than a bare
+      // pivoting to the task: the inherited context is louder than a bare
       // objective buried after 100k+ tokens of chat history.
-      //
-      // The advisor consult is the exception: it is a fork, but its
-      // `systemPromptOverride` already frames the inherited context as advice
-      // ("you are a senior advisor … do not write its final deliverable"), so
-      // the generic "complete this task and return your findings" wrapper would
-      // fight that framing. The advisor's objective is already the bare advice
-      // request (`advisorRequestText()`), so it is sent uncontested.
       //
       // A fork's persona and output contract ride in this framing rather than
       // the system prompt: the prompt is the parent's, inherited verbatim to
       // keep the KV cache aligned, so the task message is the only place a
       // fork-specific instruction can land.
-      const useForkFraming =
-        managed.state.isFork && managed.state.config.role !== "advisor";
+      const useForkFraming = managed.state.isFork;
       const forkPersona = managed.state.config.persona;
       const forkContract = subagentOutputContractText(
         managed.state.config.outputContract,

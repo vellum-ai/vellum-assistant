@@ -215,6 +215,10 @@ declare global {
           assistant: Record<string, unknown>,
           activeAssistant?: string,
         ): Promise<LockfileWriteResult>;
+        renameLockfileAssistant?(
+          assistantId: string,
+          name: string,
+        ): Promise<LockfileWriteResult>;
         replacePlatformAssistants(
           platformAssistants: Array<Record<string, unknown>>,
           organizationId?: string,

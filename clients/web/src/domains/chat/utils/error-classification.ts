@@ -114,6 +114,13 @@ export type ComposerBillingBanner =
  * send. Like the error-driven daily-limit banner it is not dismissible, since
  * the cap blocks every send until it is raised or the UTC day rolls over.
  *
+ * `dailyLimitSnoozed` overrides both daily-limit legs, including the
+ * error-driven one that otherwise wins outright. While a skip is active the
+ * platform reports the limit as not reached, so a daily-limit decision left
+ * over from an earlier failed send no longer describes reality: the cap exists
+ * but nothing is enforcing it. Every other leg is unaffected, because a skipped
+ * daily limit says nothing about the provider account or the credit balance.
+ *
  * The low-balance warning is last, and renders only when neither leg above
  * applies, the server reports `low_balance_warning` (`isLowBalance`), and the
  * user has not dismissed the banner this session. The exhausted-credits
@@ -130,8 +137,14 @@ export function resolveComposerBillingBanner(args: {
    * is not read (gated-off queries, callers that only classify an error).
    */
   dailyLimitReached?: boolean;
+  /**
+   * The billing summary's `daily_limit_snoozed`. Absent wherever the summary
+   * is not read (gated-off queries, callers that only classify an error).
+   */
+  dailyLimitSnoozed?: boolean;
 }): ComposerBillingBanner | null {
-  if (args.billingBannerDecision === "daily_limit") {
+  const dailyLimitEnforced = args.dailyLimitSnoozed !== true;
+  if (args.billingBannerDecision === "daily_limit" && dailyLimitEnforced) {
     return "daily_limit";
   }
   if (args.billingBannerDecision === "provider_billing") {
@@ -140,7 +153,7 @@ export function resolveComposerBillingBanner(args: {
   if (args.billingBannerDecision === "managed_credits") {
     return null;
   }
-  if (args.dailyLimitReached === true) {
+  if (args.dailyLimitReached === true && dailyLimitEnforced) {
     return "daily_limit";
   }
   return args.isLowBalance && !args.dismissed ? "low_balance" : null;

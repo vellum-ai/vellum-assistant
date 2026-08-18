@@ -39,6 +39,7 @@ mock.module("../util/logger.js", () => ({
 
 import {
   installIpcMock,
+  lastIpcParams,
   mockIpcResponse,
 } from "./helpers/gateway-classify-mock.js";
 installIpcMock();
@@ -53,7 +54,8 @@ function mockRisk(
   mockIpcResponse("classify_risk", {
     risk,
     reason: "test fixture",
-    matchType: "shell",
+    matchType: "registry",
+    scopeOptions: [],
     ...extras,
   });
 }
@@ -82,8 +84,6 @@ import * as envRegistry from "../config/env-registry.js";
 import {
   check,
   classifyRisk,
-  clearRiskCache,
-  generateAllowlistOptions,
   generateScopeOptions,
   SCOPE_AWARE_TOOLS,
 } from "../permissions/checker.js";
@@ -180,8 +180,6 @@ describe("Permission Checker", () => {
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     // Clear the gateway threshold cache so each test gets a fresh threshold read
     _clearGlobalCacheForTesting();
-    // Reset trust-store state and risk classification cache between tests
-    clearRiskCache();
     // Reset guardian persona mock so each test opts in explicitly
     mockGuardianPersonaPath = null;
     loggerWarnCalls.length = 0;
@@ -444,268 +442,6 @@ describe("Permission Checker", () => {
       mockGuardianPersonaPath = guardianPath;
       const result = await check("file_write", { path: guardianPath }, "/tmp");
       expect(result.decision).toBe("allow");
-    });
-  });
-
-  // ── generateAllowlistOptions ───────────────────────────────────
-
-  describe("generateAllowlistOptions", () => {
-    test("file_write: generates prefixed file, ancestor directory wildcards, and tool wildcard", async () => {
-      const options = await generateAllowlistOptions("file_write", {
-        path: "/home/user/project/file.ts",
-      });
-      expect(options).toHaveLength(5);
-      // Patterns are prefixed with tool name to match check()'s "tool:path" format
-      expect(options[0].pattern).toBe("file_write:/home/user/project/file.ts");
-      expect(options[1].pattern).toBe("file_write:/home/user/project/**");
-      expect(options[2].pattern).toBe("file_write:/home/user/**");
-      expect(options[3].pattern).toBe("file_write:/home/**");
-      expect(options[4].pattern).toBe("file_write:*");
-      // Labels stay user-friendly
-      expect(options[0].label).toBe("/home/user/project/file.ts");
-      expect(options[1].label).toBe("/home/user/project/**");
-    });
-
-    test("file_read: generates prefixed file, directory, and tool wildcard", async () => {
-      const options = await generateAllowlistOptions("file_read", {
-        path: "/tmp/data.json",
-      });
-      expect(options).toHaveLength(3);
-      expect(options[0].pattern).toBe("file_read:/tmp/data.json");
-      expect(options[1].pattern).toBe("file_read:/tmp/**");
-      expect(options[2].pattern).toBe("file_read:*");
-    });
-
-    test("host_file_read: generates prefixed file, directory, and tool wildcard", async () => {
-      const options = await generateAllowlistOptions("host_file_read", {
-        path: "/etc/hosts",
-      });
-      expect(options).toHaveLength(3);
-      expect(options[0].pattern).toBe("host_file_read:/etc/hosts");
-      expect(options[1].pattern).toBe("host_file_read:/etc/**");
-      expect(options[2].pattern).toBe("host_file_read:*");
-    });
-
-    test("host_file_write with file_path key", async () => {
-      const options = await generateAllowlistOptions("host_file_write", {
-        file_path: "/tmp/out.txt",
-      });
-      expect(options[0].pattern).toBe("host_file_write:/tmp/out.txt");
-      expect(options[1].pattern).toBe("host_file_write:/tmp/**");
-      expect(options[2].pattern).toBe("host_file_write:*");
-    });
-
-    test("file_write with file_path key", async () => {
-      const options = await generateAllowlistOptions("file_write", {
-        file_path: "/tmp/out.txt",
-      });
-      expect(options[0].pattern).toBe("file_write:/tmp/out.txt");
-    });
-
-    test("unknown tool returns wildcard", async () => {
-      const options = await generateAllowlistOptions("other_tool", {
-        foo: "bar",
-      });
-      expect(options).toHaveLength(1);
-      expect(options[0].pattern).toBe("*");
-    });
-
-    test("web_fetch: generates exact url, origin wildcard, and tool wildcard", async () => {
-      const options = await generateAllowlistOptions("web_fetch", {
-        url: "https://example.com/docs/page",
-      });
-      expect(options).toHaveLength(3);
-      expect(options[0].pattern).toBe(
-        "web_fetch:https://example.com/docs/page",
-      );
-      expect(options[1].pattern).toBe("web_fetch:https://example.com/*");
-      expect(options[2].pattern).toBe("**");
-    });
-
-    test("web_fetch: strips fragments when generating allowlist options", async () => {
-      const options = await generateAllowlistOptions("web_fetch", {
-        url: "https://example.com/docs/page#section-1",
-      });
-      expect(options).toHaveLength(3);
-      expect(options[0].pattern).toBe(
-        "web_fetch:https://example.com/docs/page",
-      );
-      expect(options[1].pattern).toBe("web_fetch:https://example.com/*");
-      expect(options[2].pattern).toBe("**");
-    });
-
-    test("web_fetch: strips trailing-dot hostnames when generating allowlist options", async () => {
-      const options = await generateAllowlistOptions("web_fetch", {
-        url: "https://example.com./docs/page",
-      });
-      expect(options).toHaveLength(3);
-      expect(options[0].pattern).toBe(
-        "web_fetch:https://example.com/docs/page",
-      );
-      expect(options[1].pattern).toBe("web_fetch:https://example.com/*");
-      expect(options[2].pattern).toBe("**");
-    });
-
-    test("web_fetch: strips userinfo when generating allowlist options", async () => {
-      const username = "demo";
-      const credential = ["c", "r", "e", "d", "1", "2", "3"].join("");
-      const credentialedUrl = new URL("https://example.com/docs/page");
-      credentialedUrl.username = username;
-      credentialedUrl.password = credential;
-      const options = await generateAllowlistOptions("web_fetch", {
-        url: credentialedUrl.href,
-      });
-      expect(options).toHaveLength(3);
-      expect(options[0].pattern).toBe(
-        "web_fetch:https://example.com/docs/page",
-      );
-      expect(options[1].pattern).toBe("web_fetch:https://example.com/*");
-      expect(options[2].pattern).toBe("**");
-      expect(options[0].pattern).not.toContain("demo:cred123@");
-    });
-
-    test("web_fetch: normalizes scheme-less host:port for allowlist options", async () => {
-      const options = await generateAllowlistOptions("web_fetch", {
-        url: "example.com:8443/docs/page",
-      });
-      expect(options).toHaveLength(3);
-      expect(options[0].pattern).toBe(
-        "web_fetch:https://example.com:8443/docs/page",
-      );
-      expect(options[1].pattern).toBe("web_fetch:https://example.com:8443/*");
-      expect(options[2].pattern).toBe("**");
-    });
-
-    test("web_fetch: does not coerce path-only urls to https hostnames in allowlist options", async () => {
-      const options = await generateAllowlistOptions("web_fetch", {
-        url: "/docs/getting-started",
-      });
-      expect(options).toHaveLength(2);
-      expect(options[0].pattern).toBe("web_fetch:/docs/getting-started");
-      expect(options[1].pattern).toBe("**");
-    });
-
-    test("scaffold_managed_skill: generates per-skill and wildcard options", async () => {
-      const options = await generateAllowlistOptions("scaffold_managed_skill", {
-        skill_id: "my-tool",
-      });
-      expect(options).toHaveLength(2);
-      expect(options[0].label).toBe("my-tool");
-      expect(options[0].pattern).toBe("scaffold_managed_skill:my-tool");
-      expect(options[0].description).toBe("This skill only");
-      expect(options[1].label).toBe("scaffold_managed_skill:*");
-      expect(options[1].pattern).toBe("scaffold_managed_skill:*");
-      expect(options[1].description).toBe("All managed skill scaffolds");
-    });
-
-    test("delete_managed_skill: generates per-skill and wildcard options", async () => {
-      const options = await generateAllowlistOptions("delete_managed_skill", {
-        skill_id: "doomed",
-      });
-      expect(options).toHaveLength(2);
-      expect(options[0].pattern).toBe("delete_managed_skill:doomed");
-      expect(options[1].pattern).toBe("delete_managed_skill:*");
-      expect(options[1].description).toBe("All managed skill deletes");
-    });
-
-    test("scaffold_managed_skill with empty skill_id: only wildcard option", async () => {
-      const options = await generateAllowlistOptions("scaffold_managed_skill", {
-        skill_id: "",
-      });
-      expect(options).toHaveLength(1);
-      expect(options[0].pattern).toBe("scaffold_managed_skill:*");
-    });
-
-    test("web_fetch: escapes minimatch metacharacters in generated exact and origin patterns", async () => {
-      const options = await generateAllowlistOptions("web_fetch", {
-        url: "https://[2001:db8::1]/search?q=test",
-      });
-      expect(options).toHaveLength(3);
-      expect(options[0].label).toBe("https://[2001:db8::1]/search?q=test");
-      expect(options[0].pattern).toBe(
-        "web_fetch:https://\\[2001:db8::1\\]/search\\?q=test",
-      );
-      expect(options[1].pattern).toBe("web_fetch:https://\\[2001:db8::1\\]/*");
-      expect(options[2].pattern).toBe("**");
-    });
-
-    // ── network_request allowlist options ─────────────────────────
-
-    test("network_request: generates exact url, origin wildcard, and tool wildcard", async () => {
-      const options = await generateAllowlistOptions("network_request", {
-        url: "https://api.example.com/v1/data",
-      });
-      expect(options).toHaveLength(3);
-      expect(options[0].pattern).toBe(
-        "network_request:https://api.example.com/v1/data",
-      );
-      expect(options[1].pattern).toBe(
-        "network_request:https://api.example.com/*",
-      );
-      expect(options[2].pattern).toBe("**");
-      expect(options[2].label).toBe("network_request:*");
-      expect(options[2].description).toBe("All network requests");
-    });
-
-    test("network_request: origin wildcard uses friendly hostname", async () => {
-      const options = await generateAllowlistOptions("network_request", {
-        url: "https://www.example.com/path",
-      });
-      expect(options[1].description).toBe("Any page on example.com");
-    });
-
-    test("network_request: normalizes scheme-less host:port input", async () => {
-      const options = await generateAllowlistOptions("network_request", {
-        url: "api.example.com:8443/v1/data",
-      });
-      expect(options).toHaveLength(3);
-      expect(options[0].pattern).toBe(
-        "network_request:https://api.example.com:8443/v1/data",
-      );
-      expect(options[1].pattern).toBe(
-        "network_request:https://api.example.com:8443/*",
-      );
-      expect(options[2].pattern).toBe("**");
-    });
-
-    test("network_request: strips fragments and userinfo", async () => {
-      const username = "demo";
-      const credential = ["c", "r", "e", "d", "1", "2", "3"].join("");
-      const credentialedUrl = new URL(
-        "https://api.example.com/v1/data#section",
-      );
-      credentialedUrl.username = username;
-      credentialedUrl.password = credential;
-      const options = await generateAllowlistOptions("network_request", {
-        url: credentialedUrl.href,
-      });
-      expect(options).toHaveLength(3);
-      expect(options[0].pattern).toBe(
-        "network_request:https://api.example.com/v1/data",
-      );
-      expect(options[0].pattern).not.toContain("demo:cred123@");
-      expect(options[0].pattern).not.toContain("#section");
-    });
-
-    test("network_request: escapes minimatch metacharacters", async () => {
-      const options = await generateAllowlistOptions("network_request", {
-        url: "https://[2001:db8::1]/api?key=val",
-      });
-      expect(options).toHaveLength(3);
-      expect(options[0].pattern).toBe(
-        "network_request:https://\\[2001:db8::1\\]/api\\?key=val",
-      );
-      expect(options[1].pattern).toBe(
-        "network_request:https://\\[2001:db8::1\\]/*",
-      );
-    });
-
-    test("network_request: empty url produces only tool wildcard", async () => {
-      const options = await generateAllowlistOptions("network_request", {
-        url: "",
-      });
-      expect(options).toHaveLength(1);
-      expect(options[0].pattern).toBe("**");
     });
   });
 
@@ -1287,65 +1023,39 @@ describe("Permission Checker", () => {
   // pattern (skillId@hash) and an any-version pattern (bare skillId).
   // Input-supplied version_hash is always ignored to prevent spoofing.
 
-  describe("hash-aware skill_load permission candidates (PR 33)", () => {
+  describe("skill metadata sent to the gateway", () => {
     function ensureSkillsDir(): void {
       mkdirSync(join(checkerTestDir, "skills"), { recursive: true });
     }
 
-    test("allowlist options only include version-specific option when hash is available", async () => {
-      ensureSkillsDir();
-      writeSkill("test-opts-skill", "Test Options Skill");
-
-      const options = await generateAllowlistOptions("skill_load", {
-        skill: "test-opts-skill",
-      });
-
-      // Should have only the version-specific option
-      expect(options).toHaveLength(1);
-      expect(options[0].pattern).toMatch(/^skill_load:test-opts-skill@v1:/);
-      expect(options[0].description).toBe("This exact version");
-    });
-
-    test("allowlist options ignore input version_hash and use disk-computed hash (regression)", async () => {
+    test("the version hash comes from disk, never from the model's input", async () => {
+      // The gateway builds the version-pinned trust-rule option from the hash
+      // the daemon sends; taking it from the invocation would let a caller pin
+      // a rule to a version that was never on disk.
       ensureSkillsDir();
       writeSkill("test-opts-explicit", "Test Opts Explicit");
 
-      // Even when a version_hash is supplied in the input, allowlist
-      // options must use the disk-computed hash, not the input value.
-      const options = await generateAllowlistOptions("skill_load", {
+      await classifyRisk("skill_load", {
         skill: "test-opts-explicit",
         version_hash: "v1:customhash123",
       });
 
-      expect(options).toHaveLength(1);
-      // Should be the disk-computed hash, NOT the input hash
-      expect(options[0].pattern).toMatch(/^skill_load:test-opts-explicit@v1:/);
-      expect(options[0].pattern).not.toBe(
-        "skill_load:test-opts-explicit@v1:customhash123",
-      );
-      expect(options[0].description).toBe("This exact version");
+      const metadata = lastIpcParams("classify_risk")?.skillMetadata as
+        | { skillId: string; versionHash: string }
+        | undefined;
+      expect(metadata?.skillId).toBe("test-opts-explicit");
+      expect(metadata?.versionHash).toMatch(/^v1:/);
+      expect(metadata?.versionHash).not.toBe("v1:customhash123");
     });
 
-    test("allowlist options for unresolvable skill fall back to raw selector", async () => {
+    test("an unresolvable selector is sent with no metadata", async () => {
       ensureSkillsDir();
 
-      const options = await generateAllowlistOptions("skill_load", {
-        skill: "no-such-skill",
-      });
+      await classifyRisk("skill_load", { skill: "no-such-skill" });
 
-      // Should have only the raw selector
-      expect(options).toHaveLength(1);
-      expect(options[0].pattern).toBe("skill_load:no-such-skill");
-      expect(options[0].description).toBe("This skill");
-    });
-
-    test("allowlist options for empty skill selector only has wildcard", async () => {
-      const options = await generateAllowlistOptions("skill_load", {
-        skill: "",
-      });
-
-      expect(options).toHaveLength(1);
-      expect(options[0].pattern).toBe("skill_load:*");
+      const params = lastIpcParams("classify_risk");
+      expect(params?.skill).toBe("no-such-skill");
+      expect(params?.skillMetadata).toBeUndefined();
     });
   });
 
@@ -1514,7 +1224,6 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
     mockRisk("low");
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     _clearGlobalCacheForTesting();
-    clearRiskCache();
   });
 
   test("proxied bash follows risk-based policy (medium risk → prompt outside container)", async () => {
@@ -1562,7 +1271,6 @@ describe("credentialed proxied bash — high risk escalation", () => {
     mockRisk("low");
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     _clearGlobalCacheForTesting();
-    clearRiskCache();
   });
 
   test("proxied bash with credential_ids sends credentialRefCount in IPC params", async () => {
@@ -1652,7 +1360,6 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     mockRisk("low");
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     _clearGlobalCacheForTesting();
-    clearRiskCache();
     try {
       rmSync(join(checkerTestDir, "protected", "trust.json"));
     } catch {
@@ -1796,7 +1503,6 @@ describe("integration regressions (PR 11)", () => {
     mockRisk("low");
     mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
     _clearGlobalCacheForTesting();
-    clearRiskCache();
     // Delete the trust file to prevent stale default rules from prior tests
     try {
       rmSync(join(checkerTestDir, "protected", "trust.json"));

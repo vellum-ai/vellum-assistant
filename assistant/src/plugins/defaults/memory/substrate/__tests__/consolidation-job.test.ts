@@ -615,6 +615,32 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     }
   });
 
+  test("threads page-index dangling links into the prompt's repair step", async () => {
+    const conceptsDir = join(tmpWorkspace, "memory", "concepts");
+    const sourcePath = join(conceptsDir, "atl-1290.md");
+    // A `links:` entry naming a page that does not exist (the LUM-3316 shape).
+    writeFileSync(
+      sourcePath,
+      "---\nlinks:\n  - atl-1291\n---\n# ATL-1290\n\nSee [[atl-1291]].\n",
+    );
+    invalidatePageIndex();
+    try {
+      const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+      expect(result.kind).toBe("invoked");
+      const prompt = runnerLastArgs?.prompt as string;
+      expect(prompt).toContain("resolve dangling links");
+      expect(prompt).toContain(
+        "- `memory/concepts/atl-1290.md` → `atl-1291` (frontmatter `links:` entry)",
+      );
+      expect(prompt).toContain(
+        "- `memory/concepts/atl-1290.md` → `atl-1291` (inline `[[wikilink]]` in the body)",
+      );
+    } finally {
+      rmSync(sourcePath, { force: true });
+      invalidatePageIndex();
+    }
+  });
+
   test("dispatches with skipPromptIndexing so the kickoff prompt is not indexed", async () => {
     // The prompt is a static instruction manual — indexing it would write
     // near-identical memory segments, embeddings, and a lexical entry on
@@ -878,6 +904,94 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
     expect(result.noProgress).toBe(true);
     expect(result.followUpJobIds).toEqual([]);
     expect(enqueuedJobs).toHaveLength(0);
+  });
+
+  test("a run that leaves dangling links reports the count and still enqueues follow-ups", async () => {
+    const conceptsDir = join(tmpWorkspace, "memory", "concepts");
+    runnerImpl = async () => {
+      // The agent files the buffer into a page whose links: names a page it
+      // never spawned. Writing through the file tools would invalidate the
+      // index via the tool hook; the stub does so by hand.
+      writeFileSync(
+        join(conceptsDir, "atl-1290.md"),
+        "---\nlinks:\n  - atl-1291\n---\n# ATL-1290\n",
+      );
+      writeFileSync(bufferPath(), "");
+      invalidatePageIndex();
+      return { conversationId: "conv-1", ok: true };
+    };
+    try {
+      const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+      expect(result.kind).toBe("invoked");
+      if (result.kind !== "invoked") {
+        throw new Error("unreachable");
+      }
+      expect(result.noProgress).toBe(false);
+      expect(result.danglingLinks).toBe(1);
+      // Surfaced, not gating: the page that was written still gets indexed.
+      expect(result.followUpJobIds).toEqual(["job-1"]);
+      expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
+    } finally {
+      rmSync(join(conceptsDir, "atl-1290.md"), { force: true });
+      invalidatePageIndex();
+    }
+  });
+
+  test("a run that spawns the missing target clears the pre-run dangling link", async () => {
+    const conceptsDir = join(tmpWorkspace, "memory", "concepts");
+    writeFileSync(
+      join(conceptsDir, "atl-1290.md"),
+      "---\nlinks:\n  - atl-1291\n---\n# ATL-1290\n",
+    );
+    invalidatePageIndex();
+    runnerImpl = async () => {
+      writeFileSync(join(conceptsDir, "atl-1291.md"), "# ATL-1291\n");
+      writeFileSync(bufferPath(), "");
+      invalidatePageIndex();
+      return { conversationId: "conv-1", ok: true };
+    };
+    try {
+      const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+      expect(result.kind).toBe("invoked");
+      if (result.kind !== "invoked") {
+        throw new Error("unreachable");
+      }
+      // The pre-run index fed the repair step...
+      expect(runnerLastArgs?.prompt as string).toContain(
+        "resolve dangling links",
+      );
+      // ...and the post-run count reflects the repair.
+      expect(result.danglingLinks).toBe(0);
+    } finally {
+      rmSync(join(conceptsDir, "atl-1290.md"), { force: true });
+      rmSync(join(conceptsDir, "atl-1291.md"), { force: true });
+      invalidatePageIndex();
+    }
+  });
+
+  test("a no-progress run still reports its dangling-link count", async () => {
+    const conceptsDir = join(tmpWorkspace, "memory", "concepts");
+    writeFileSync(
+      join(conceptsDir, "atl-1290.md"),
+      "---\nlinks:\n  - atl-1291\n---\n# ATL-1290\n",
+    );
+    invalidatePageIndex();
+    runnerImpl = async () => ({ conversationId: "conv-1", ok: true });
+    try {
+      const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+      expect(result.kind).toBe("invoked");
+      if (result.kind !== "invoked") {
+        throw new Error("unreachable");
+      }
+      expect(result.noProgress).toBe(true);
+      expect(result.danglingLinks).toBe(1);
+    } finally {
+      rmSync(join(conceptsDir, "atl-1290.md"), { force: true });
+      invalidatePageIndex();
+    }
   });
 
   test("a pending reembed suppresses its duplicate; v3 maintain still enqueues", async () => {

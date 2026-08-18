@@ -15,7 +15,6 @@ mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => false,
   check: checkSpy,
   classifyRisk: () => Promise.resolve({ level: "low" }),
-  generateAllowlistOptions: () => Promise.resolve([]),
   generateScopeOptions: () => [],
 }));
 

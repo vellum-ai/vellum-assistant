@@ -19,6 +19,7 @@ import type {
   RiskClassifier,
 } from "./risk-types.js";
 import { getTrustRuleCache } from "./trust-rule-cache.js";
+import { applyUserRuleOverride } from "./user-rule-override.js";
 
 // -- Input type ---------------------------------------------------------------
 
@@ -257,12 +258,7 @@ export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierIn
           override &&
           (override.userModified || override.origin === "user_defined")
         ) {
-          return {
-            riskLevel: override.risk,
-            reason: override.description,
-            scopeOptions: [],
-            matchType: "user_rule",
-          };
+          return applyUserRuleOverride(assessment!, override);
         }
       }
     } catch {

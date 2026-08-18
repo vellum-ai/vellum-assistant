@@ -1,5 +1,6 @@
 import { type MutableRefObject, useCallback, useRef } from "react";
 import {
+  hashKey,
   useMutation,
   useQueryClient,
   type QueryClient,
@@ -18,10 +19,11 @@ import {
   adjustSectionUnreadCache,
   adjustUnreadCountCache,
 } from "@/utils/conversation-cache-mutations";
+import { sidebarSectionsQueryKey } from "@/utils/conversation-list-fetchers";
 import {
-  sectionListPrefix,
-  sidebarSectionsQueryKey,
-} from "@/utils/conversation-list-fetchers";
+  conversationListQueryFilter,
+  isSectionFilter,
+} from "@/utils/conversation-list-keys";
 import { contributesToUnreadCount } from "@/utils/conversation-predicates";
 import { executeBulkWithFallback } from "@/utils/bulk-with-fallback";
 import {
@@ -148,15 +150,18 @@ function reconcilePlacement(
   if (!sectionKeys?.length) {
     return Promise.all([
       refreshIndex,
-      queryClient.invalidateQueries({
-        queryKey: sectionListPrefix(assistantId),
-      }),
+      queryClient.invalidateQueries(
+        conversationListQueryFilter(assistantId, isSectionFilter),
+      ),
     ]);
   }
+  /* Exact: a section key used as a partial filter would also match every
+     section whose filter extends it (Chats matches each channel card), and
+     that would refetch caches the move never touched. */
   return Promise.all([
     refreshIndex,
     ...sectionKeys.map((queryKey) =>
-      queryClient.invalidateQueries({ queryKey }),
+      queryClient.invalidateQueries({ queryKey, exact: true }),
     ),
   ]);
 }
@@ -410,7 +415,7 @@ export function useConversationActions({
         placementsRef.current.get(conversationId)?.sectionKeys ??
         new Map<string, readonly unknown[]>();
       for (const queryKey of sectionKeys) {
-        inherited.set(JSON.stringify(queryKey), queryKey);
+        inherited.set(hashKey(queryKey), queryKey);
       }
       placementsRef.current.set(conversationId, {
         token,

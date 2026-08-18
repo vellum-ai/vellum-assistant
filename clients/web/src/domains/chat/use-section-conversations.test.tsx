@@ -16,6 +16,10 @@ import type * as ListFetchers from "@/utils/conversation-list-fetchers";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import type { Conversation } from "@/types/conversation-types";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import {
+  type ConversationListFilter,
+  conversationListQueryKey,
+} from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 
 /** What the section query answers with, per test. */
@@ -31,7 +35,7 @@ let serverHasData = true;
 /** Whether the query reports rows past the window (LUM-2444). */
 let serverHasMore = false;
 /** Filters the hook actually sent, so tests can assert the query is scoped. */
-let sentFilters: Array<{ groupId?: string; originChannel?: string }> = [];
+let sentFilters: Array<ConversationListFilter | null> = [];
 /** Whether the query was enabled, so a closed gate is distinguishable. */
 let lastEnabled = false;
 /** Filters the bulk-path drain was asked for, and what it answers. */
@@ -54,8 +58,10 @@ mock.module(
         isLoading: serverPending,
         isPending: serverPending,
         isError: serverErrored,
+        error: serverErrored ? new Error("section query failed") : null,
         hasData: enabled && serverHasData && !serverPending,
         hasMore: enabled && serverHasData ? serverHasMore : false,
+        refetch: () => {},
       };
     },
   }),
@@ -64,7 +70,7 @@ mock.module(
 const actualFetchers = await import("@/utils/conversation-list-fetchers");
 mock.module("@/utils/conversation-list-fetchers", (): typeof ListFetchers => ({
   ...actualFetchers,
-  drainSectionConversations: async (_assistantId, filter) => {
+  drainConversationList: async (_assistantId, filter = {}) => {
     drainCalls.push(filter);
     return drainRows;
   },
@@ -366,6 +372,8 @@ describe("useSectionConversations", () => {
     expect(result.current.conversations.map((c) => c.conversationId)).toEqual([
       "derived-1",
     ]);
+    /* No filter means no query: nothing to key on, so nothing observed. */
+    expect(sentFilters.at(-1)).toBeNull();
     expect(lastEnabled).toBe(false);
   });
 
@@ -406,9 +414,7 @@ describe("useSectionConversations", () => {
 
     const { result } = renderSection(pinnedSection());
     queryClient.setQueryData(
-      actualFetchers.sectionConversationsQueryKey("asst-1", {
-        groupId: "system:pinned",
-      }),
+      conversationListQueryKey("asst-1", { groupId: "system:pinned" }),
       listPage(FROM_SERVER),
     );
 
@@ -427,9 +433,7 @@ describe("useSectionConversations", () => {
 
     const { result } = renderSection(pinnedSection());
     queryClient.setQueryData(
-      actualFetchers.sectionConversationsQueryKey("asst-1", {
-        groupId: "system:pinned",
-      }),
+      conversationListQueryKey("asst-1", { groupId: "system:pinned" }),
       listPage(FROM_SERVER, true),
     );
 

@@ -9,12 +9,16 @@
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { QueryClient } from "@tanstack/react-query";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
-import { listPage } from "@/utils/conversation-list.test-helper";
 import { getDiagnosticsEvents, type DiagnosticsEvent } from "@/lib/diagnostics";
 import { ApiError } from "@/utils/api-errors";
+import {
+  ARCHIVED_BACKGROUND_FILTER,
+  ARCHIVED_FILTER,
+  BACKGROUND_FILTER,
+  SCHEDULED_FILTER,
+} from "@/utils/conversation-list-keys";
 import type { RawConversationSummary } from "@/utils/conversation-transforms";
 
 const emitClientPerfEventMock = mock(
@@ -30,20 +34,19 @@ mock.module("@/lib/telemetry/client-perf", () => ({
 }));
 
 const {
+  drainConversationList,
   hasAnyActiveConversation,
-  listArchivedConversations,
-  listBackgroundConversations,
-  listBackgroundConversationsFirstPage,
-  listConversations,
   listConversationsFirstPage,
-  drainSectionConversations,
-  listSectionConversationsFirstPage,
-  listSectionConversationsPage,
-  sectionConversationListOptions,
-  sectionConversationsQueryKey,
-  listScheduledConversations,
-  listScheduledConversationsFirstPage,
+  listConversationsPage,
 } = await import("@/utils/conversation-list-fetchers");
+
+/** The archive view's two drains, as its hook issues them. */
+function drainArchived(): Promise<unknown> {
+  return Promise.all([
+    drainConversationList(ASSISTANT_ID, ARCHIVED_FILTER),
+    drainConversationList(ASSISTANT_ID, ARCHIVED_BACKGROUND_FILTER),
+  ]);
+}
 
 const ASSISTANT_ID = "assistant-1";
 
@@ -151,7 +154,7 @@ describe("conversation list drain diagnostics", () => {
     ]);
 
     const { result: conversations, events } = await diagnosticsDuring(() =>
-      listConversations(ASSISTANT_ID),
+      drainConversationList(ASSISTANT_ID),
     );
 
     expect(offsets).toEqual([0, 50, 100]);
@@ -194,7 +197,7 @@ describe("conversation list drain diagnostics", () => {
 
     let thrown: unknown;
     const { events } = await diagnosticsDuring(() =>
-      listConversations(ASSISTANT_ID).catch((error: unknown) => {
+      drainConversationList(ASSISTANT_ID).catch((error: unknown) => {
         thrown = error;
       }),
     );
@@ -233,7 +236,7 @@ describe("conversation list drain diagnostics", () => {
     stubPages([{ ids: [], hasMore: false, status: 500, contentLength: "77" }]);
 
     const { events } = await diagnosticsDuring(() =>
-      listConversations(ASSISTANT_ID).catch(() => undefined),
+      drainConversationList(ASSISTANT_ID).catch(() => undefined),
     );
 
     const errorEntry = events.find(
@@ -246,7 +249,9 @@ describe("conversation list drain diagnostics", () => {
     stubPages([{ ids: [], hasMore: false, status: 500 }]);
 
     const { events } = await diagnosticsDuring(() =>
-      listBackgroundConversations(ASSISTANT_ID).catch(() => undefined),
+      drainConversationList(ASSISTANT_ID, BACKGROUND_FILTER).catch(
+        () => undefined,
+      ),
     );
 
     const errorEntry = events.find(
@@ -280,16 +285,14 @@ describe("conversation list drain diagnostics", () => {
   });
 
   test("both archive-page drain summaries are labeled archived", async () => {
-    // The archive page drains the foreground and background buckets, so one
-    // call produces two summaries, and both are archive-page cost.
+    // The archive view reads two lists (archived, archived background), so
+    // it produces two summaries, and both are archive-page cost.
     stubPages([
       { ids: ["c-0"], hasMore: false, contentLength: "10" },
       { ids: ["c-1"], hasMore: false, contentLength: "20" },
     ]);
 
-    const { events } = await diagnosticsDuring(() =>
-      listArchivedConversations(ASSISTANT_ID),
-    );
+    const { events } = await diagnosticsDuring(() => drainArchived());
     const summaries = events.filter(
       (event) => event.kind === "conversation_list_drain",
     );
@@ -304,7 +307,7 @@ describe("conversation list drain diagnostics", () => {
   test("page-0 entries carry the drain's list kind and a drain source", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
     const background = await diagnosticsDuring(() =>
-      listBackgroundConversations(ASSISTANT_ID),
+      drainConversationList(ASSISTANT_ID, BACKGROUND_FILTER),
     );
 
     expect(background.events[0]?.details).toMatchObject({
@@ -315,7 +318,7 @@ describe("conversation list drain diagnostics", () => {
 
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
     const channel = await diagnosticsDuring(() =>
-      drainSectionConversations(ASSISTANT_ID, { originChannel: "slack" }),
+      drainConversationList(ASSISTANT_ID, { originChannel: "slack" }),
     );
 
     expect(channel.events[0]?.details).toMatchObject({
@@ -324,15 +327,13 @@ describe("conversation list drain diagnostics", () => {
       source: "drain",
     });
 
-    // The archive page drains the foreground and background buckets, so both
-    // of its page-0 entries are archive-page cost.
+    // The archive view reads two lists (archived, archived background), so
+    // both of its page-0 entries are archive-page cost.
     stubPages([
       { ids: ["c-0"], hasMore: false, contentLength: "10" },
       { ids: ["c-1"], hasMore: false, contentLength: "20" },
     ]);
-    const archived = await diagnosticsDuring(() =>
-      listArchivedConversations(ASSISTANT_ID),
-    );
+    const archived = await diagnosticsDuring(() => drainArchived());
     const pageEntries = archived.events.filter(
       (event) => event.kind === "conversation_list_page_fetch",
     );
@@ -349,7 +350,7 @@ describe("conversation list drain diagnostics", () => {
   test("bytes is null when content-length is absent and numeric when present", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false }]);
     const withoutHeader = await diagnosticsDuring(() =>
-      listConversations(ASSISTANT_ID),
+      drainConversationList(ASSISTANT_ID),
     );
 
     expect(withoutHeader.events[0]?.details.bytes).toBeNull();
@@ -357,7 +358,7 @@ describe("conversation list drain diagnostics", () => {
 
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "4096" }]);
     const withHeader = await diagnosticsDuring(() =>
-      listConversations(ASSISTANT_ID),
+      drainConversationList(ASSISTANT_ID),
     );
 
     expect(withHeader.events[0]?.details.bytes).toBe(4096);
@@ -369,7 +370,7 @@ describe("conversation list drain diagnostics", () => {
       { ids: ["c-0"], hasMore: false, contentLength: "not-a-number" },
     ]);
     const malformed = await diagnosticsDuring(() =>
-      listConversations(ASSISTANT_ID),
+      drainConversationList(ASSISTANT_ID),
     );
 
     expect(malformed.events[0]?.details.bytes).toBeNull();
@@ -377,7 +378,7 @@ describe("conversation list drain diagnostics", () => {
 
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "" }]);
     const blank = await diagnosticsDuring(() =>
-      listConversations(ASSISTANT_ID),
+      drainConversationList(ASSISTANT_ID),
     );
 
     expect(blank.events[0]?.details.bytes).toBeNull();
@@ -388,7 +389,7 @@ describe("conversation list drain diagnostics", () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
 
     const { events } = await diagnosticsDuring(() =>
-      listConversations(ASSISTANT_ID),
+      drainConversationList(ASSISTANT_ID),
     );
 
     expect(events).toHaveLength(2);
@@ -435,7 +436,7 @@ describe("first-page fetch diagnostics", () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "12" }]);
 
     const { events } = await diagnosticsDuring(() =>
-      listBackgroundConversationsFirstPage(ASSISTANT_ID),
+      listConversationsFirstPage(ASSISTANT_ID, BACKGROUND_FILTER),
     );
 
     expect(events[0]?.details).toMatchObject({
@@ -451,7 +452,7 @@ describe("first-page fetch diagnostics", () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "12" }]);
 
     const { events } = await diagnosticsDuring(() =>
-      listScheduledConversationsFirstPage(ASSISTANT_ID),
+      listConversationsFirstPage(ASSISTANT_ID, SCHEDULED_FILTER),
     );
 
     expect(events[0]?.details).toMatchObject({
@@ -490,7 +491,7 @@ describe("conversation list drain telemetry", () => {
       { ids: ["c-2"], hasMore: false, contentLength: "50" },
     ]);
 
-    await listConversations(ASSISTANT_ID);
+    await drainConversationList(ASSISTANT_ID);
 
     expect(emitClientPerfEventMock.mock.calls).toHaveLength(1);
     const emits = drainEmits();
@@ -509,7 +510,7 @@ describe("conversation list drain telemetry", () => {
   test("a background drain reports its own list_kind", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
 
-    await listBackgroundConversations(ASSISTANT_ID);
+    await drainConversationList(ASSISTANT_ID, BACKGROUND_FILTER);
 
     const emits = drainEmits();
     expect(emits).toHaveLength(1);
@@ -523,7 +524,7 @@ describe("conversation list drain telemetry", () => {
   test("a scheduled drain reports its own list_kind", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
 
-    await listScheduledConversations(ASSISTANT_ID);
+    await drainConversationList(ASSISTANT_ID, SCHEDULED_FILTER);
 
     const emits = drainEmits();
     expect(emits).toHaveLength(1);
@@ -533,7 +534,7 @@ describe("conversation list drain telemetry", () => {
   test("an origin-channel drain is labeled origin_channel, not foreground", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
 
-    await drainSectionConversations(ASSISTANT_ID, { originChannel: "slack" });
+    await drainConversationList(ASSISTANT_ID, { originChannel: "slack" });
 
     const emits = drainEmits();
     expect(emits).toHaveLength(1);
@@ -545,14 +546,14 @@ describe("conversation list drain telemetry", () => {
   });
 
   test("both archive-page drains are labeled archived, not foreground or background", async () => {
-    // The archive page drains the foreground and background buckets in
-    // parallel, so one call produces two emits.
+    // The archive view reads two lists (archived, archived background) in
+    // parallel, so it produces two emits.
     stubPages([
       { ids: ["c-0"], hasMore: false, contentLength: "10" },
       { ids: ["c-1"], hasMore: false, contentLength: "20" },
     ]);
 
-    await listArchivedConversations(ASSISTANT_ID);
+    await drainArchived();
 
     const emits = drainEmits();
     expect(emits).toHaveLength(2);
@@ -565,7 +566,7 @@ describe("conversation list drain telemetry", () => {
   test("the detail bag carries no assistant id, and null bytes when content-length is absent", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false }]);
 
-    await listConversations(ASSISTANT_ID);
+    await drainConversationList(ASSISTANT_ID);
 
     const emits = drainEmits();
     expect(emits).toHaveLength(1);
@@ -580,7 +581,7 @@ describe("conversation list drain telemetry", () => {
   test("the numeric detail fields ride as raw numbers, not strings", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "64" }]);
 
-    await listConversations(ASSISTANT_ID);
+    await drainConversationList(ASSISTANT_ID);
 
     const detail = drainEmits()[0]!.detail;
     for (const key of ["pages", "rows", "max_page_ms", "total_bytes"]) {
@@ -595,7 +596,7 @@ describe("conversation list drain telemetry", () => {
     ]);
 
     let thrown: unknown;
-    await listConversations(ASSISTANT_ID).catch((error: unknown) => {
+    await drainConversationList(ASSISTANT_ID).catch((error: unknown) => {
       thrown = error;
     });
 
@@ -625,7 +626,7 @@ describe("section list filters", () => {
       { ids: ["c-1"], hasMore: false },
     ]);
 
-    await drainSectionConversations(ASSISTANT_ID, {
+    await drainConversationList(ASSISTANT_ID, {
       groupId: "system:pinned",
     });
 
@@ -641,7 +642,7 @@ describe("section list filters", () => {
     // custom group would render in that group AND in its channel.
     const { queries } = stubPages([{ ids: ["c-0"], hasMore: false }]);
 
-    await drainSectionConversations(ASSISTANT_ID, {
+    await drainConversationList(ASSISTANT_ID, {
       groupId: "system:all",
       originChannel: "slack",
     });
@@ -655,7 +656,7 @@ describe("section list filters", () => {
   test("omits the filters it was not given rather than sending empties", async () => {
     const { queries } = stubPages([{ ids: ["c-0"], hasMore: false }]);
 
-    await drainSectionConversations(ASSISTANT_ID, { groupId: "grp-a" });
+    await drainConversationList(ASSISTANT_ID, { groupId: "grp-a" });
 
     expect(queries[0]).not.toHaveProperty("originChannel");
   });
@@ -665,7 +666,7 @@ describe("section list filters", () => {
     // superset.
     const { queries } = stubPages([{ ids: ["c-0"], hasMore: true }]);
 
-    const page = await listSectionConversationsFirstPage(ASSISTANT_ID, {
+    const page = await listConversationsFirstPage(ASSISTANT_ID, {
       groupId: "system:all",
       originChannel: "slack",
     });
@@ -679,58 +680,10 @@ describe("section list filters", () => {
     expect(page.hasMore).toBe(true);
   });
 
-  test("a plain refetch keeps the scrolled-in window", async () => {
-    /* The queryFn merges the fresh first page over the cached window. A
-       bare page-one return here would mean every focus refetch and every
-       settle invalidation truncated a scrolled window back to 50 rows
-       under the user's scrollbar. */
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    const filter = { groupId: "grp-a" };
-    client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, filter),
-      listPage(
-        [
-          {
-            conversationId: "c-top",
-            title: "",
-            createdAt: 0,
-            lastMessageAt: 5000,
-          },
-          {
-            conversationId: "c-scrolled-in",
-            title: "",
-            createdAt: 0,
-            lastMessageAt: 100,
-          },
-        ],
-        true,
-      ),
-    );
-    // The fresh page holds only the window top; the scrolled-in row sorts
-    // below the page's cutoff, so the merge must keep it.
-    stubPages([{ ids: [["c-top", 5000]], hasMore: true }]);
-
-    // staleTime 0: the seeded cache is seconds old, and fetchQuery serves
-    // fresh data without running the queryFn, which would pass this test
-    // without exercising the merge at all.
-    const result = await client.fetchQuery({
-      ...sectionConversationListOptions(ASSISTANT_ID, filter),
-      staleTime: 0,
-    });
-
-    expect(result.conversations.map((c) => c.conversationId)).toEqual([
-      "c-top",
-      "c-scrolled-in",
-    ]);
-    expect(result.hasMore).toBe(true);
-  });
-
   test("a load-more page carries the filter and its offset", async () => {
     const { queries } = stubPages([{ ids: ["c-50"], hasMore: false }]);
 
-    const page = await listSectionConversationsPage(
+    const page = await listConversationsPage(
       ASSISTANT_ID,
       { groupId: "grp-a" },
       50,
@@ -744,7 +697,7 @@ describe("section list filters", () => {
   test("labels a group-only drain 'section', keeping it distinct from a channel", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
     const group = await diagnosticsDuring(() =>
-      drainSectionConversations(ASSISTANT_ID, { groupId: "system:pinned" }),
+      drainConversationList(ASSISTANT_ID, { groupId: "system:pinned" }),
     );
 
     expect(group.events[0]?.details).toMatchObject({
@@ -756,7 +709,7 @@ describe("section list filters", () => {
     // so the bounded per-channel budget stays readable.
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
     const channel = await diagnosticsDuring(() =>
-      drainSectionConversations(ASSISTANT_ID, {
+      drainConversationList(ASSISTANT_ID, {
         groupId: "system:all",
         originChannel: "slack",
       }),

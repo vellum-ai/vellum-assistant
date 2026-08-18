@@ -7,35 +7,23 @@
  * the drawer has not parsed.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
 import { PreviewError } from "@/domains/chat/components/local-file/preview/preview-error";
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
+import { useTruncatedBlobText } from "@/domains/chat/components/local-file/preview/use-truncated-blob-text";
 
 /**
- * Characters laid out at once. A log file runs to whatever length the process
- * that wrote it decided, and past a couple of megabytes the browser spends
- * longer laying the text out than the reader spends looking at the tail of it.
+ * Bytes decoded and laid out at once. A log file runs to whatever length the
+ * process that wrote it decided, and past a couple of megabytes the browser
+ * spends longer laying the text out than the reader spends looking at the tail
+ * of it.
  */
-const MAX_DISPLAYED_CHARS = 2 * 1024 * 1024;
+const MAX_DISPLAYED_BYTES = 2 * 1024 * 1024;
 
 const TRUNCATION_NOTICE = "Showing the first 2 MB";
-
-/**
- * The slice of `text` the preview lays out, and whether anything was left off.
- * Pure and exported so the boundary can be tested without a DOM.
- */
-export function truncateForDisplay(text: string): {
-  text: string;
-  truncated: boolean;
-} {
-  if (text.length <= MAX_DISPLAYED_CHARS) {
-    return { text, truncated: false };
-  }
-  return { text: text.slice(0, MAX_DISPLAYED_CHARS), truncated: true };
-}
 
 interface TextPreviewProps {
   blob: Blob;
@@ -43,50 +31,24 @@ interface TextPreviewProps {
 }
 
 export function TextPreview({ blob, filename }: TextPreviewProps): ReactNode {
-  const [text, setText] = useState<string | null>(null);
-  const [decodeFailed, setDecodeFailed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setText(null);
-    setDecodeFailed(false);
-    // `Blob.text()` decodes as UTF-8, which is what the daemon writes and what
-    // every other text surface in the app assumes.
-    blob.text().then(
-      (decoded) => {
-        if (!cancelled) {
-          setText(decoded);
-        }
-      },
-      () => {
-        if (!cancelled) {
-          setDecodeFailed(true);
-        }
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [blob]);
-
-  const shown = useMemo(
-    () => (text === null ? null : truncateForDisplay(text)),
-    [text],
+  const { text, truncated, decodeFailed } = useTruncatedBlobText(
+    blob,
+    MAX_DISPLAYED_BYTES,
   );
 
   if (decodeFailed) {
     return <PreviewError filename={filename} />;
   }
-  if (shown === null) {
+  if (text === null) {
     return <PreviewSkeleton />;
   }
 
   return (
     <div className="flex min-h-0 flex-col gap-2">
       <pre className="whitespace-pre-wrap break-words font-mono text-body-small-default text-[var(--content-default)]">
-        {shown.text}
+        {text}
       </pre>
-      {shown.truncated && (
+      {truncated && (
         <Typography
           as="p"
           variant="label-small-default"

@@ -306,6 +306,7 @@
         "@vellumai/environments": "workspace:*",
         "@vellumai/ipc-contract": "workspace:*",
         "@vellumai/local-mode": "workspace:*",
+        "@vellumai/native-sidecar": "workspace:*",
         "electron-log": "5.4.4",
         "electron-store": "11.0.2",
         "zod": "4.3.6",

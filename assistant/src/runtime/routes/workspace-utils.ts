@@ -6,7 +6,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, relative, resolve, sep } from "node:path";
+import { dirname, resolve, sep } from "node:path";
 
 import { getWorkspaceDir } from "../../util/platform.js";
 import { BadRequestError, ConflictError } from "./errors.js";
@@ -86,21 +86,11 @@ export function resolveWorkspacePath(
 }
 
 /**
- * Normalise a workspace path to the canonical relative form used as a stable
- * key for the file — forward slashes, no `.`/`..` segments, no leading slash.
- * `absolutePath` must already have passed {@link resolveWorkspacePath}.
- */
-export function toWorkspaceRelativePath(absolutePath: string): string {
-  return relative(getWorkspaceDir(), absolutePath).split(sep).join("/");
-}
-
-/**
  * Write bytes to a workspace-relative path, enforcing the workspace boundary.
  *
  * This is the one write primitive behind every daemon-side workspace file
- * write: the workspace write route and the document store's write-through for
- * file-backed documents both go through it, so the traversal and
- * directory-conflict rules cannot drift apart.
+ * write, so the traversal and directory-conflict rules cannot drift apart
+ * between callers.
  *
  * Returns the number of bytes written. Throws {@link BadRequestError} when the
  * path escapes the workspace and {@link ConflictError} when it names a

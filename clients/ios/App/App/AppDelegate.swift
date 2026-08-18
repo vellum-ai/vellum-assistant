@@ -13,9 +13,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // the `open:` call lands, `instanceDescriptor()` may already have run.
         // A launch URL came from outside the process, so it may not carry the
         // in-process provenance marker; strip before storing so the dedupe
-        // below compares like with like. See `CommandURLProvenance`.
-        if let rawURL = launchOptions?[.url] as? URL {
-            let url = CommandURLProvenance.stripped(rawURL)
+        // below compares like with like, and drop a URL that cannot be
+        // stripped. See `CommandURLProvenance`.
+        if let rawURL = launchOptions?[.url] as? URL,
+           let url = CommandURLProvenance.stripped(rawURL) {
             if !handleConnectDeepLink(url) {
                 // Every *other* custom-scheme launch URL (a `voice` or `thread`
                 // link from the Live Activity or Safari; App Intents never
@@ -51,8 +52,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ app: UIApplication, open rawURL: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
         // This and `launchOptions[.url]` are the only two ways a custom-scheme
         // URL enters from outside the process, so this is where an external
-        // open loses any claim to intent provenance. See `CommandURLProvenance`.
-        let url = CommandURLProvenance.stripped(rawURL)
+        // open loses any claim to intent provenance, and where one that cannot
+        // be stripped is refused rather than forwarded. See
+        // `CommandURLProvenance`.
+        guard let url = CommandURLProvenance.stripped(rawURL) else {
+            return false
+        }
         if handleConnectDeepLink(url) {
             return true
         }

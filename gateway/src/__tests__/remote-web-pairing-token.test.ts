@@ -7,6 +7,11 @@ import { eq } from "drizzle-orm";
 
 import { initSigningKey } from "../auth/token-service.js";
 
+import {
+  PUBLIC_BASE_URL,
+  TEST_REQUESTER,
+} from "./helpers/remote-web-pairing-fixtures.js";
+
 initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
 const mockQuery = mock();
@@ -47,7 +52,6 @@ const {
 } = await import("../guardian-integrity-reporter.js");
 
 const GUARDIAN_ID = "guardian-001";
-const PUBLIC_BASE_URL = "https://paired.example.com";
 
 let testRoot: string;
 
@@ -203,7 +207,10 @@ afterEach(() => {
 describe("remote web pairing token exchange", () => {
   test("returns pending before the user approves the code", async () => {
     setRemoteWebPairingChallengeNowForTests(() => 1_000);
-    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
 
     const res = await handleRemoteWebPairingToken(
       makeTokenRequest({ deviceCode: challenge.deviceCode }),
@@ -220,7 +227,10 @@ describe("remote web pairing token exchange", () => {
   });
 
   test("approved device code mints access token and HttpOnly refresh cookies once", async () => {
-    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
     expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
       "approved",
     );
@@ -268,7 +278,10 @@ describe("remote web pairing token exchange", () => {
   });
 
   test("browser refresh rotates using only the HttpOnly refresh cookie", async () => {
-    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
     expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
       "approved",
     );
@@ -317,7 +330,10 @@ describe("remote web pairing token exchange", () => {
   });
 
   test("browser refresh rejects non-same-origin fetch metadata", async () => {
-    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
     expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
       "approved",
     );
@@ -355,7 +371,10 @@ describe("remote web pairing token exchange", () => {
   });
 
   test("browser refresh falls back to same-origin request headers when fetch metadata is missing", async () => {
-    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
     expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
       "approved",
     );
@@ -381,7 +400,10 @@ describe("remote web pairing token exchange", () => {
       cookieValue(setCookies(originRefresh), "vellum_web_refresh"),
     ).not.toBe(originRefreshToken);
 
-    const refererChallenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    const refererChallenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
     expect(
       approveRemoteWebPairingChallenge(refererChallenge.userCode).status,
     ).toBe("approved");
@@ -407,7 +429,10 @@ describe("remote web pairing token exchange", () => {
   });
 
   test("browser refresh rejects missing fetch metadata without a same-origin fallback", async () => {
-    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
     expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
       "approved",
     );
@@ -476,7 +501,10 @@ describe("remote web pairing token exchange", () => {
   test("path-prefixed public base URLs keep refresh cookies on the public refresh path", async () => {
     const publicBaseUrl = `${PUBLIC_BASE_URL}/assistant-123`;
     const expectedCookiePath = "/assistant-123/v1/guardian/refresh";
-    const challenge = createRemoteWebPairingChallenge(publicBaseUrl);
+    const challenge = createRemoteWebPairingChallenge(
+      publicBaseUrl,
+      TEST_REQUESTER,
+    );
     expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
       "approved",
     );
@@ -529,7 +557,10 @@ describe("remote web pairing token exchange", () => {
   });
 
   test("assistant mirror failure does not fail the gateway-committed binding", async () => {
-    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
     expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
       "approved",
     );
@@ -561,7 +592,10 @@ describe("remote web pairing token exchange", () => {
   });
 
   test("gateway binding write failure fails the mint and leaves the code retryable", async () => {
-    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
     expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
       "approved",
     );
@@ -612,13 +646,16 @@ describe("remote web pairing token exchange", () => {
   });
 
   test("guardian mint refusal fails closed with 503 and releases the approved code", async () => {
-    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
     expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
       "approved",
     );
 
     // Guardian rows lost, but a residual non-guardian contact is evidence of
-    // prior onboarding — the fallback mint must refuse rather than diverge.
+    // prior onboarding: the fallback mint must refuse rather than diverge.
     clearGatewayGuardian();
     const now = Date.now();
     getGatewayDb()
@@ -650,7 +687,7 @@ describe("remote web pairing token exchange", () => {
         error: {
           code: "GUARDIAN_REPAIR_REQUIRED",
           message:
-            "gateway guardian binding is missing over evidence of prior onboarding — repair via guardian init, then retry pairing",
+            "gateway guardian binding is missing over evidence of prior onboarding; repair via guardian init, then retry pairing",
         },
       });
       expect(setCookies(res)).toHaveLength(0);
@@ -684,7 +721,10 @@ describe("remote web pairing token exchange", () => {
 
   test("expired device code does not mint credentials", async () => {
     setRemoteWebPairingChallengeNowForTests(() => 1_000);
-    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
     expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
       "approved",
     );

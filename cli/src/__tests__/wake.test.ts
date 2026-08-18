@@ -645,5 +645,4 @@ describe("vellum wake — tunnel edge restore", () => {
       workspaceDirOf(tempDir),
     );
   });
-
 });

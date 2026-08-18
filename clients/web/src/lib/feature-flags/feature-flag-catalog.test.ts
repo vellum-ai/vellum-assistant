@@ -42,9 +42,9 @@ describe("feature flag catalog", () => {
     );
   });
 
-  test("exposes the billing CTA experiment as a client string flag", () => {
-    expect(CLIENT_STRING_FLAG_DEFAULTS.experimentBillingCta20260723).toBe(
-      "control",
+  test("does not expose the GA billing CTA experiment as a feature flag", () => {
+    expect("experimentBillingCta20260723" in CLIENT_STRING_FLAG_DEFAULTS).toBe(
+      false,
     );
     expect("experimentBillingCta20260723" in CLIENT_FLAG_DEFAULTS).toBe(false);
     expect("experimentBillingCta20260723" in ASSISTANT_FLAG_DEFAULTS).toBe(

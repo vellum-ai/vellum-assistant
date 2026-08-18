@@ -182,7 +182,7 @@ describe("SubagentManager fork — prompt source and role decoupling", () => {
   }
 
   test("fork with systemPromptOverride uses that prompt and does not set hasSystemPromptOverride", async () => {
-    const overridePrompt = "You are an advisor. Frame the context as advice.";
+    const overridePrompt = "You are a reviewer. Frame the context as review.";
     const created = await spawnFork({ systemPromptOverride: overridePrompt });
 
     expect(created.systemPrompt).toBe(overridePrompt);

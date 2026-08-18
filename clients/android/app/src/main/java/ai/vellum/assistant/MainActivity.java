@@ -32,6 +32,7 @@ public class MainActivity extends BridgeActivity {
     private static final long LAUNCH_SCREEN_LOAD_FALLBACK_MS = 2_000;
     private static final long LAUNCH_SCREEN_TIMEOUT_MS = 15_000;
     private static ConnectDeepLink recreationConnect;
+    private static String recreationRoutePath;
 
     private final Handler launchScreenHandler = new Handler(Looper.getMainLooper());
     private AlertDialog unreachableDialog;
@@ -104,6 +105,7 @@ public class MainActivity extends BridgeActivity {
         NativeFailureGuard.run("Unable to deliver the Android app link", this::deliverPendingAppLink);
         NativeFailureGuard.run("Unable to deliver the Android connect launch", this::deliverPendingConnect);
         NativeFailureGuard.run("Unable to deliver the Android new chat launch", this::deliverPendingNewChat);
+        NativeFailureGuard.run("Unable to deliver the Android route launch", this::deliverPendingRoute);
     }
 
     @Override
@@ -126,6 +128,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AndroidPushRegistrationPlugin.class);
         registerPlugin(VoiceAudioSessionPlugin.class);
         registerPlugin(VoiceLiveActivityPlugin.class);
+        registerPlugin(SelfHostedServersPlugin.class);
         registerPlugin(SafePushNotificationsPlugin.class);
         super.load();
     }
@@ -216,6 +219,8 @@ public class MainActivity extends BridgeActivity {
 
         if (effectiveServer == null || !effectiveServer.equals(connect.server())) {
             setRecreationConnect(connect);
+            // A stale switch route must not load over the pair page.
+            setRecreationRoutePath(null);
             setIntent(withoutData(intent));
             recreate();
             return;
@@ -331,7 +336,7 @@ public class MainActivity extends BridgeActivity {
         ) {
             return;
         }
-        SelfHostedServer.store(this, pendingConnect.server());
+        SelfHostedServer.activate(this, pendingConnect.server(), pendingConnect.name());
         pendingConnect = null;
     }
 
@@ -361,18 +366,36 @@ public class MainActivity extends BridgeActivity {
             return;
         }
         String destination = pendingConnect == null
-            ? effectiveServer.toASCIIString()
+            ? SelfHostedServer.appEntryUrl(effectiveServer).toASCIIString()
             : pendingConnect.pairPage().toASCIIString();
         bridge.getWebView().loadUrl(destination);
     }
 
     private void useVellumCloud() {
-        VoiceLiveActivityPlugin.clearStatus(this);
         SelfHostedServer.clear(this);
+        effectiveServer = null;
+        recreateForServerChange(null);
+    }
+
+    /**
+     * Recreate onto whatever server slot {@link SelfHostedServer} now holds,
+     * plus an optional initial in-app route to load once the new origin is up.
+     * The caller has already written the slot; onCreate re-reads everything,
+     * so no field needs resetting beyond the pending launch state.
+     */
+    void recreateForServerChange(String routePath) {
+        // A connect deep link may have planted a recreation while this call's
+        // runnable sat queued (recreate() flips neither isFinishing nor
+        // isDestroyed); the pairing navigation wins, so never discard it.
+        if (hasRecreationConnect()) {
+            return;
+        }
+        // A live voice session does not survive an origin swap.
+        VoiceLiveActivityPlugin.clearStatus(this);
         pendingConnect = null;
         pendingNewChat = false;
         setRecreationConnect(null);
-        effectiveServer = null;
+        setRecreationRoutePath(routePath);
         setIntent(withoutData(getIntent()));
         recreate();
     }
@@ -414,6 +437,33 @@ public class MainActivity extends BridgeActivity {
         bridge.getWebView().loadUrl(bridge.getServerUrl());
     }
 
+    /**
+     * Load a route stashed by {@link #recreateForServerChange(String)}.
+     * bridge.getServerUrl() is already the app entry URL (override or baked);
+     * an unusable route silently falls back to the default entry load.
+     */
+    private void deliverPendingRoute() {
+        String path = takeRecreationRoutePath();
+        // Pair-page navigation wins over a stashed route.
+        if (path == null || pendingConnect != null || bridge == null || bridge.getServerUrl() == null) {
+            return;
+        }
+        String route = SelfHostedServer.appRoute(bridge.getServerUrl(), path);
+        if (route != null) {
+            bridge.getWebView().loadUrl(route);
+        }
+    }
+
+    private static synchronized String takeRecreationRoutePath() {
+        String path = recreationRoutePath;
+        recreationRoutePath = null;
+        return path;
+    }
+
+    private static synchronized void setRecreationRoutePath(String path) {
+        recreationRoutePath = path;
+    }
+
     private static synchronized ConnectDeepLink takeRecreationConnect() {
         ConnectDeepLink connect = recreationConnect;
         recreationConnect = null;
@@ -422,6 +472,10 @@ public class MainActivity extends BridgeActivity {
 
     private static synchronized void setRecreationConnect(ConnectDeepLink connect) {
         recreationConnect = connect;
+    }
+
+    private static synchronized boolean hasRecreationConnect() {
+        return recreationConnect != null;
     }
 
     private static final class SelfHostedWebViewClient extends BridgeWebViewClient {
