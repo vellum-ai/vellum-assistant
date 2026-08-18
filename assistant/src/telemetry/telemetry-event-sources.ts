@@ -15,6 +15,7 @@ import {
   getCachedShareDiagnosticsVersion,
 } from "../platform/consent-cache.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
+import { classifyWorkOrigin } from "../usage/work-origin.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
 import {
@@ -265,6 +266,25 @@ export function orphanOutboxDrainSource(): TelemetryEventSource {
 // Sources
 // ---------------------------------------------------------------------------
 
+/**
+ * Bound a conversation source to the `llm_usage` wire contract (trimmed,
+ * 1 to 64 characters). The persisted column is unconstrained: `import:` and
+ * plugin-supplied sources are free-form, and one out-of-contract value would
+ * fail wire validation for the whole event, which the ingest silently skips
+ * while the watermark advances past the row. An out-of-contract source is
+ * emitted as null; `work_origin` is classified from the raw value.
+ */
+function boundConversationSourceForWire(source: string | null): string | null {
+  if (source === null) {
+    return null;
+  }
+  const trimmed = source.trim();
+  if (trimmed.length === 0 || trimmed.length > 64) {
+    return null;
+  }
+  return trimmed;
+}
+
 const usageSource = simpleSource(
   "usage",
   (afterCreatedAt, afterId, limit) =>
@@ -281,6 +301,20 @@ const usageSource = simpleSource(
     turn_index: e.turnIndex,
     parent_conversation_id: e.parentConversationId,
     parent_turn_index: e.parentTurnIndex,
+    // `conversation_source` is the raw record-time source; `work_origin` is
+    // the coarse bucket derived from it plus the type, call site, and parent
+    // linkage. Source is null for calls with no conversation; work_origin is
+    // still classified from the call site, falling back to `unknown` and
+    // never null. The source is bounded to the wire contract, while the
+    // classifier sees the raw value.
+    conversation_source: boundConversationSourceForWire(e.conversationSource),
+    work_origin: classifyWorkOrigin({
+      conversationType: e.conversationType,
+      conversationSource: e.conversationSource,
+      callSite: e.callSite,
+      parentConversationId: e.parentConversationId,
+      cronRunId: e.cronRunId,
+    }),
     // Delegated-work decomposition. Every subagent variety shares
     // `llm_call_site = "subagentSpawn"`; these two orthogonal dimensions are
     // what make advisor consults, forks, and regular spawns separable. Null

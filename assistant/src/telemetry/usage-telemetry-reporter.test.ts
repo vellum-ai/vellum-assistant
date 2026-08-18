@@ -198,13 +198,13 @@ import {
 import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { recordLifecycleEvent } from "../persistence/lifecycle-events-store.js";
+import type { UnreportedUsageEvent } from "../persistence/llm-usage-store.js";
 import {
   conversations,
   telemetryEvents,
   toolInvocations,
 } from "../persistence/schema/index.js";
 import { recordAuthFallbackCounts } from "../security/auth-fallback-events-store.js";
-import type { UsageEvent } from "../usage/types.js";
 import {
   ACTIVATION_FUNNEL_VERSION,
   buildActivationDaemonEventId,
@@ -250,24 +250,12 @@ await initializeDb();
 
 let eventIdCounter = 0;
 
-// The reporter consumes `UnreportedUsageEvent` (UsageEvent + the
-// conversation-level fields `conversationType`, `conversationSource`,
-// `turnIndex`, `parentConversationId`, and `parentTurnIndex`). Build that
-// shape directly so the mock matches `queryUnreportedUsageEvents`' return
-// type exactly.
-type UnreportedUsageEventFixture = UsageEvent & {
-  conversationType: string | null;
-  conversationSource: string | null;
-  turnIndex: number | null;
-  parentConversationId: string | null;
-  parentTurnIndex: number | null;
-  subagentRole: string | null;
-  subagentSpawnMode: string | null;
-};
-
+// The reporter consumes `UnreportedUsageEvent`, so the fixture is built as
+// that exact type and the mock matches `queryUnreportedUsageEvents`' return
+// type by construction.
 function makeUsageEvent(
-  overrides: Partial<UnreportedUsageEventFixture> = {},
-): UnreportedUsageEventFixture {
+  overrides: Partial<UnreportedUsageEvent> = {},
+): UnreportedUsageEvent {
   eventIdCounter += 1;
   return {
     id: `evt-${eventIdCounter}`,
@@ -1669,9 +1657,10 @@ describe("UsageTelemetryReporter", () => {
     expect("failure_code" in body.events[0]).toBe(false);
   });
 
-  test("llm_usage events carry conversation_id, conversation_type, turn_index, and parent linkage", async () => {
-    // Three LLM calls across the spectrum of the new fields:
+  test("llm_usage events carry conversation_id, conversation_type, turn_index, parent linkage, source, and work origin", async () => {
+    // Four LLM calls across the spectrum of the conversation-level fields:
     //  - tied to a conversation, mid-turn (typical foreground)
+    //  - tied to a standard conversation opened from a notification thread
     //  - tied to a background conversation spawned by a parent turn
     //    (subagent: parent linkage populated)
     //  - untied (memory consolidation: no conversation, no turn)
@@ -1680,12 +1669,21 @@ describe("UsageTelemetryReporter", () => {
         id: "evt-fg-call",
         conversationId: "conv-fg",
         conversationType: "standard",
+        conversationSource: "user",
         turnIndex: 4,
+      }),
+      makeUsageEvent({
+        id: "evt-notification-call",
+        conversationId: "conv-notification",
+        conversationType: "standard",
+        conversationSource: "notification",
+        turnIndex: 2,
       }),
       makeUsageEvent({
         id: "evt-bg-call",
         conversationId: "conv-bg",
         conversationType: "background",
+        conversationSource: "subagent",
         turnIndex: 1,
         parentConversationId: "conv-fg",
         parentTurnIndex: 4,
@@ -1694,11 +1692,12 @@ describe("UsageTelemetryReporter", () => {
         id: "evt-untied-call",
         conversationId: null,
         conversationType: null,
+        conversationSource: null,
         turnIndex: null,
       }),
     ]);
     mockFetch.mockImplementation(() =>
-      Promise.resolve(new Response('{"accepted":3}', { status: 200 })),
+      Promise.resolve(new Response('{"accepted":4}', { status: 200 })),
     );
 
     const reporter = makeReporter();
@@ -1715,6 +1714,8 @@ describe("UsageTelemetryReporter", () => {
         type: string;
         conversation_id: string | null;
         conversation_type: string | null;
+        conversation_source: string | null;
+        work_origin: string;
         turn_index: number | null;
         parent_conversation_id: string | null;
         parent_turn_index: number | null;
@@ -1725,6 +1726,8 @@ describe("UsageTelemetryReporter", () => {
       daemon_event_id: string;
       conversation_id: string | null;
       conversation_type: string | null;
+      conversation_source: string | null;
+      work_origin: string;
       turn_index: number | null;
       parent_conversation_id: string | null;
       parent_turn_index: number | null;
@@ -1736,29 +1739,172 @@ describe("UsageTelemetryReporter", () => {
       type: "llm_usage",
       conversation_id: "conv-fg",
       conversation_type: "standard",
+      conversation_source: "user",
+      // Standard user conversation, no parent, so the bucket is interactive.
+      work_origin: "user_interactive",
       turn_index: 4,
       parent_conversation_id: null,
       parent_turn_index: null,
+    });
+    // A standard conversation keeps its `notification` source when the user
+    // replies in it, so its turns are interactive spend.
+    expect(byId["evt-notification-call"]).toMatchObject({
+      type: "llm_usage",
+      conversation_type: "standard",
+      conversation_source: "notification",
+      work_origin: "user_interactive",
     });
     expect(byId["evt-bg-call"]).toMatchObject({
       type: "llm_usage",
       conversation_id: "conv-bg",
       conversation_type: "background",
+      conversation_source: "subagent",
+      // Parent linkage present, so the bucket is the delegated child whatever
+      // the type and source say.
+      work_origin: "delegated_child",
       turn_index: 1,
       parent_conversation_id: "conv-fg",
       parent_turn_index: 4,
     });
     // LLM calls without a parent conversation flush through with all
-    // conversation-level fields null — the serializer accepts
-    // allow_null and downstream SQL filters can `WHERE conversation_id
-    // IS NOT NULL` to scope to foreground analytics.
+    // conversation-level fields null (the serializer accepts allow_null and
+    // downstream SQL filters can `WHERE conversation_id IS NOT NULL` to scope
+    // to foreground analytics). `conversation_source` is null too, but
+    // `work_origin` is still classified (here there is no call site either,
+    // so `unknown`) and is never null on the wire.
     expect(byId["evt-untied-call"]).toMatchObject({
       type: "llm_usage",
       conversation_id: null,
       conversation_type: null,
+      conversation_source: null,
+      work_origin: "unknown",
       turn_index: null,
       parent_conversation_id: null,
       parent_turn_index: null,
+    });
+  });
+
+  test("llm_usage work_origin is classified from the call site when there is no joined conversation", async () => {
+    // A memory-consolidation call has no conversation (legacy rows and
+    // detached maintenance work): conversation_source is null, but the call
+    // site still classifies work_origin. Rows with neither survive as
+    // `unknown`, never a null work_origin.
+    mockQueryUnreportedUsageEvents.mockReturnValue([
+      makeUsageEvent({
+        id: "evt-consolidation",
+        conversationId: null,
+        conversationType: null,
+        conversationSource: null,
+        callSite: "memoryConsolidation",
+        turnIndex: null,
+      }),
+      makeUsageEvent({
+        id: "evt-legacy-untied",
+        conversationId: null,
+        conversationType: null,
+        conversationSource: null,
+        callSite: null,
+        turnIndex: null,
+      }),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    const byId: Record<
+      string,
+      { conversation_source: string | null; work_origin: string }
+    > = {};
+    for (const e of body.events as Array<{
+      daemon_event_id: string;
+      conversation_source: string | null;
+      work_origin: string;
+    }>) {
+      byId[e.daemon_event_id] = e;
+    }
+    expect(byId["evt-consolidation"]).toMatchObject({
+      conversation_source: null,
+      work_origin: "memory_maintenance",
+    });
+    expect(byId["evt-legacy-untied"]).toMatchObject({
+      conversation_source: null,
+      work_origin: "unknown",
+    });
+  });
+
+  test("llm_usage classifies a wake-schedule firing by its cron run id", async () => {
+    // A wake or defer schedule can fire inside a conversation whose persisted
+    // type and source stay standard/user; the cron run id on the row is the
+    // only schedule signal.
+    mockQueryUnreportedUsageEvents.mockReturnValue([
+      makeUsageEvent({
+        id: "evt-wake-cron",
+        conversationId: "conv-waked",
+        conversationType: "standard",
+        conversationSource: "user",
+        cronRunId: "cron-run-123",
+        turnIndex: 2,
+      }),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    const event = (
+      body.events as Array<{ daemon_event_id: string; work_origin: string }>
+    ).find((e) => e.daemon_event_id === "evt-wake-cron");
+    expect(event?.work_origin).toBe("user_created_schedule");
+  });
+
+  test("llm_usage bounds an out-of-contract conversation_source to null while classifying from the raw value", async () => {
+    // The persisted source column is unconstrained (import: and
+    // plugin-supplied sources are free-form) but the wire contract caps the
+    // field at 64 characters, and one out-of-contract value would fail wire
+    // validation for the whole event, losing the row when the watermark
+    // advances. The emitter nulls the field and still classifies work_origin
+    // from the raw value.
+    const longImportSource = `import:${"p".repeat(70)}`;
+    mockQueryUnreportedUsageEvents.mockReturnValue([
+      makeUsageEvent({
+        id: "evt-long-source",
+        conversationId: "conv-import",
+        conversationType: "standard",
+        conversationSource: longImportSource,
+        turnIndex: 1,
+      }),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    const event = (
+      body.events as Array<{
+        daemon_event_id: string;
+        conversation_source: string | null;
+        work_origin: string;
+      }>
+    ).find((e) => e.daemon_event_id === "evt-long-source");
+    expect(event).toMatchObject({
+      conversation_source: null,
+      work_origin: "user_interactive",
     });
   });
 
