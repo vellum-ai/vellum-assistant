@@ -290,6 +290,17 @@ text on the user's behalf instead of staging it (LUM-3281). The Live Activity's
 never carry it, and a link that arrives with a forged marker is stripped and
 logged.
 
+The strip (Foundation) and the read (WHATWG `URL`) are different parsers over
+the same string, and they disagree about percent-decoding: `URLSearchParams`
+decodes item names, `percentEncodedQueryItems` does not, so a strip keyed on
+the decoded name and a read keyed on the raw one (or vice versa) leaves a
+spelling such as `s%72c=intent` that one side keeps and the other honors
+(ATL-1293). Both sides therefore work on the raw `&`-split query: the web
+parser honors only an item byte-equal to `src=intent`, and the shell drops
+every item whose raw *or* percent-decoded name is `src`, a strict superset. A
+URL the shell cannot take apart at all is refused at the entry point rather
+than forwarded unstripped.
+
 A **terminated** launch is the case that needs care, and the reason is the
 opposite of the obvious one: the launch URL arrives **twice**, not zero times.
 

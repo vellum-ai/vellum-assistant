@@ -9,6 +9,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 import { resolvePairDeviceTarget } from "./pair-device-client";
 import { PairDeviceReady } from "./pair-device-ready";
+import { PendingPairingRequests } from "./pending-pairing-requests";
 import { usePairDevice } from "./use-pair-device";
 
 /**
@@ -16,7 +17,9 @@ import { usePairDevice } from "./use-pair-device";
  * commands —
  * the UI equivalent of `vellum pair --qr`. It mints and auto-approves a
  * device-code challenge against the host's loopback gateway and renders the
- * https pair URL as a QR with a copyable link and expiry countdown.
+ * https pair URL as a QR with a copyable link and expiry countdown. It also
+ * hosts the approval list for pairing requests minted elsewhere
+ * ({@link PendingPairingRequests}).
  *
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
@@ -112,6 +115,8 @@ export function PairDeviceCard() {
             onCopy={copy}
           />
         )}
+
+        <PendingPairingRequests base={target.base} />
       </div>
     </DetailCard>
   );

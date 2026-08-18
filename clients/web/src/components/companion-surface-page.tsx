@@ -62,6 +62,10 @@ export function CompanionSurfacePage() {
   // Empty until the app's window publishes one, which the surface covers with
   // the component's own fallback wording rather than drawing a blank name.
   const [assistantName, setAssistantName] = useState("");
+  // Whether a turn is in flight, from the window that owns it. What the surface
+  // draws as its working ring, so the assistant being busy is legible without
+  // opening the card or reading a word of it.
+  const [working, setWorking] = useState(false);
   const [hovered, setHovered] = useState(false);
   // Whether the composer is open. Local to this page rather than pushed from
   // main, because nothing outside this window opens or closes it: main is told
@@ -100,6 +104,7 @@ export function CompanionSurfacePage() {
       setCall(state.call);
       setTurns(state.turns);
       setAssistantName(state.assistantName);
+      setWorking(state.working);
     };
     const unsubscribe = subscribeCompanionState(apply);
     // The route chunk loads lazily after the window is created, so a state
@@ -177,6 +182,28 @@ export function CompanionSurfacePage() {
    * the moment it finished growing.
    */
   const onMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+    // **A drag whose release this window never saw ends here.**
+    //
+    // The drag is ended by `mouseup` or by the pointer leaving the canvas, and
+    // both are events this window has to receive. Neither arrives when the
+    // button comes up over another app: the canvas is a bounded rectangle, a
+    // fast drag outruns a window that is moved a message at a time, and the
+    // release then lands somewhere this page is not.
+    //
+    // Left alone that press never ends. Every later move is read as a drag
+    // frame, so the surface follows a pointer with no button held and the first
+    // move after the pointer returns carries the whole distance travelled in
+    // between, flinging it across the desktop. Hit-testing never resumes
+    // either, so the window stays clickable across a canvas many times the size
+    // of the pill, swallowing presses meant for whatever is behind it. That is
+    // the state that reads as the surface being dead until the app is
+    // relaunched.
+    //
+    // No button held means the press is over, whatever this window saw of it,
+    // so the drag is dropped and this move goes on to hit-test normally.
+    if (dragRef.current !== null && event.buttons === 0) {
+      dragRef.current = null;
+    }
     // A drag owns the pointer until it is released. Hit-testing through it
     // would collapse the surface the moment the cursor left the pill, which is
     // most of any drag worth making.
@@ -274,6 +301,11 @@ export function CompanionSurfacePage() {
         // before the app's window has published one.
         assistantName={assistantName === "" ? undefined : assistantName}
         call={call ?? undefined}
+        // Unlike the turns, this is drawn whether or not the exchange on the
+        // card is this surface's own: the question it answers is whether the
+        // assistant is busy, and it is busy on someone else's conversation just
+        // as much as on this one.
+        working={working}
         rootRef={pillRef}
         onSurfaceMouseDown={(event) => {
           dragRef.current = { x: event.screenX, y: event.screenY };

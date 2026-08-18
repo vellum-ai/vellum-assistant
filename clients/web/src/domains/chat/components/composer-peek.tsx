@@ -21,6 +21,12 @@
  *   and the card. In the browser the top dude retreats up off screen as
  *   it rises.
  *
+ * On phone-sized windows the focus peek gives way to any banner docked
+ * over the input's top edge (billing, setup, a draft notice): the banner
+ * owns that strip, and an avatar rising into it would surface behind the
+ * banner with its eyes cut off. The composer's mobile settings row stands
+ * down on the same signal, which it publishes on the shell.
+ *
  * The composer card is located by its `data-slot="chat-composer"` anchor
  * and its rect tracked per-frame, so the overlays stay glued through
  * reflows and composer remounts. Focus, though, is judged against the
@@ -36,6 +42,7 @@ import { createPortal } from "react-dom";
 import { motion, useReducedMotion } from "motion/react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { recordUpdate } from "@/lib/commit-pressure";
 import { useIsNativeMobile } from "@/runtime/platform-detection";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
@@ -55,6 +62,8 @@ interface TargetRect {
    *  clears the settings pills floating there. Zero whenever no row is up, or
    *  whenever the row hangs clear of the avatar's own column. */
   pillsClearance: number;
+  /** True while a banner is docked over the card's top edge. */
+  bannerAbove: boolean;
 }
 
 /** The composer card itself, which the overlays are measured against. */
@@ -66,6 +75,11 @@ const COMPOSER_SHELL_SELECTOR = '[data-slot="chat-composer-shell"]';
  *  the `hidden` attribute is what separates the two. */
 const COMPOSER_PILLS_SELECTOR =
   '[data-slot="composer-settings-pills"]:not([hidden])';
+/** Marks a shell whose card currently has a banner standing over it.
+ *  `ChatComposer` watches that stack for its own settings row and publishes
+ *  the answer here, so this overlay reads one flag instead of keeping a
+ *  second read of the same boxes on a different clock. */
+const BANNER_ABOVE_ATTRIBUTE = "data-banner-above";
 
 /**
  * Whether a focus target belongs to the composer. The shell is the
@@ -173,6 +187,10 @@ export function ComposerPeek({
   // Native shells can place the system status area over the top perch.
   // Browsers keep it; native mobile gets the bottom-edge hello instead.
   const nativeMobile = useIsNativeMobile();
+  // The window-size axis, for the banner rule below: it is a question of the
+  // room left over the card, and the settings row that competes for the same
+  // strip is gated the same way. See `docs/PLATFORM_ADAPTATION.md`.
+  const isMobile = useIsMobile();
   const [rect, setRect] = useState<TargetRect | null>(null);
   const [mode, setMode] = useState<Mode>("rest");
   const [introRisen, setIntroRisen] = useState(false);
@@ -250,9 +268,8 @@ export function ComposerPeek({
       // The row hangs its pills off the card's right edge while this avatar
       // rises on the left, so a short row leaves the rim clear and the peek
       // stays on it, rather than floating a body height above nothing.
-      const pills = element
-        .closest(COMPOSER_SHELL_SELECTOR)
-        ?.querySelector<HTMLElement>(COMPOSER_PILLS_SELECTOR);
+      const shell = element.closest<HTMLElement>(COMPOSER_SHELL_SELECTOR);
+      const pills = shell?.querySelector<HTMLElement>(COMPOSER_PILLS_SELECTOR);
       // Height comes from layout, not from a rect: the row rises into place on
       // a transform, and a rect's top would move with it and put a `setRect` in
       // every frame of that animation. The same animation is translateY-only,
@@ -282,6 +299,7 @@ export function ComposerPeek({
         height: r.height,
         radius,
         pillsClearance,
+        bannerAbove: shell?.hasAttribute(BANNER_ABOVE_ATTRIBUTE) ?? false,
       };
     };
     const enter = () => {
@@ -337,7 +355,8 @@ export function ComposerPeek({
           next.width !== last.width ||
           next.height !== last.height ||
           next.radius !== last.radius ||
-          next.pillsClearance !== last.pillsClearance)
+          next.pillsClearance !== last.pillsClearance ||
+          next.bannerAbove !== last.bannerAbove)
       ) {
         last = next;
         recordUpdate("composer-peek");
@@ -398,6 +417,12 @@ export function ComposerPeek({
   }
 
   const focused = mode === "focus";
+  // A banner docks to the card's top edge and takes the strip this peek rises
+  // into, so the avatar would surface behind it with its eyes cut off. Held
+  // down rather than unmounted, so a banner that arrives mid-focus sends it
+  // back the way a blur does. Phone-sized windows only, which is the shape
+  // this was reported on and the one the settings row is already gated to.
+  const peekRisen = focused && !(isMobile && rect.bannerAbove);
   // The hello owns the avatar until it has ducked away, so the focus peek
   // stays out of the way rather than putting a second one on screen.
   const introActive = nativeMobile && !introDone;
@@ -554,9 +579,9 @@ export function ComposerPeek({
               top: clipHeight - peekExposedPx,
             }}
             initial={{ y: risePx }}
-            animate={focused ? { y: 0 } : { y: risePx }}
+            animate={peekRisen ? { y: 0 } : { y: risePx }}
             transition={
-              focused
+              peekRisen
                 ? {
                     type: "spring",
                     stiffness: 280,
@@ -589,7 +614,7 @@ export function ComposerPeek({
           boxShadow: PEEK_SHADOW,
         }}
         initial={{ opacity: 0 }}
-        animate={{ opacity: (introActive ? introRisen : focused) ? 1 : 0 }}
+        animate={{ opacity: (introActive ? introRisen : peekRisen) ? 1 : 0 }}
         transition={{ duration: 0.2 }}
       />
     </div>,

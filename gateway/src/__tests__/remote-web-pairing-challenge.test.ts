@@ -3,46 +3,26 @@ import { beforeEach, describe, expect, test } from "bun:test";
 const { handleCreateRemoteWebPairingChallenge } =
   await import("../http/routes/remote-web-pairing-challenge.js");
 const {
+  approveRemoteWebPairingChallengeById,
+  claimRemoteWebPairingChallengeExchange,
+  completeRemoteWebPairingChallengeExchange,
+  createRemoteWebPairingChallenge,
+  denyRemoteWebPairingChallengeById,
   getRemoteWebPairingChallengeForTests,
+  listPendingRemoteWebPairingChallenges,
   resetRemoteWebPairingChallengesForTests,
   setRemoteWebPairingChallengeNowForTests,
 } = await import("../remote-web/pairing-challenge-store.js");
 const { resetRemoteWebPairingChallengeRateLimiterForTests } =
   await import("../remote-web/pairing-challenge-rate-limit-store.js");
 
-const LOOPBACK_IP = "127.0.0.1";
-const REMOTE_IP = "203.0.113.10";
-const PUBLIC_BASE_URL = "https://paired.example.com";
-
-function makeRequest(
-  overrides: {
-    publicBaseUrl?: string;
-    edgeForwarded?: boolean;
-    host?: string;
-    body?: BodyInit;
-    contentLength?: number;
-  } = {},
-): Request {
-  const headers: Record<string, string> = {
-    host: overrides.host ?? "localhost:7830",
-    "content-type": "application/json",
-  };
-  if (overrides.edgeForwarded) {
-    headers["x-vellum-edge-forwarded"] = "1";
-  }
-  if (overrides.contentLength != null) {
-    headers["content-length"] = String(overrides.contentLength);
-  }
-  return new Request("http://localhost:7830/v1/remote-web/pairing-challenge", {
-    method: "POST",
-    headers,
-    body:
-      overrides.body ??
-      JSON.stringify({
-        publicBaseUrl: overrides.publicBaseUrl ?? PUBLIC_BASE_URL,
-      }),
-  });
-}
+import {
+  LOOPBACK_IP,
+  makePairingChallengeRequest as makeRequest,
+  PUBLIC_BASE_URL,
+  REMOTE_IP,
+  TEST_REQUESTER,
+} from "./helpers/remote-web-pairing-fixtures.js";
 
 beforeEach(() => {
   resetRemoteWebPairingChallengesForTests();
@@ -254,6 +234,65 @@ describe("remote web pairing challenge", () => {
     });
   });
 
+  test("records requester metadata from the mint request", async () => {
+    const req = makeRequest();
+    req.headers.set("user-agent", "PairBrowser/1.0");
+    const res = await handleCreateRemoteWebPairingChallenge(req, LOOPBACK_IP);
+    const body = (await res.json()) as { userCode: string };
+
+    const record = getRemoteWebPairingChallengeForTests(body.userCode);
+    expect(record?.requesterIp).toBe(LOOPBACK_IP);
+    expect(record?.requesterUserAgent).toBe("PairBrowser/1.0");
+    expect(record?.viaEdgeProxy).toBe(false);
+    expect(record?.userCode).toBe(body.userCode);
+    expect(record?.id).toBeTruthy();
+  });
+
+  test("records the edge-stamped client ip for tunneled mints", async () => {
+    const res = await handleCreateRemoteWebPairingChallenge(
+      makeRequest({
+        edgeForwarded: true,
+        edgeClientIp: REMOTE_IP,
+        host: "paired.example.com",
+      }),
+      LOOPBACK_IP,
+      LOOPBACK_IP,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { userCode: string };
+
+    const record = getRemoteWebPairingChallengeForTests(body.userCode);
+    expect(record?.requesterIp).toBe(REMOTE_IP);
+    expect(record?.viaEdgeProxy).toBe(true);
+  });
+
+  test("falls back to the peer ip when the edge stamps no client ip", async () => {
+    const res = await handleCreateRemoteWebPairingChallenge(
+      makeRequest({ edgeForwarded: true, host: "paired.example.com" }),
+      LOOPBACK_IP,
+      LOOPBACK_IP,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { userCode: string };
+
+    const record = getRemoteWebPairingChallengeForTests(body.userCode);
+    expect(record?.requesterIp).toBe(LOOPBACK_IP);
+    expect(record?.viaEdgeProxy).toBe(true);
+  });
+
+  test("ignores a forged client-ip header on direct loopback mints", async () => {
+    const res = await handleCreateRemoteWebPairingChallenge(
+      makeRequest({ edgeClientIp: "198.51.100.99" }),
+      LOOPBACK_IP,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { userCode: string };
+
+    const record = getRemoteWebPairingChallengeForTests(body.userCode);
+    expect(record?.requesterIp).toBe(LOOPBACK_IP);
+    expect(record?.viaEdgeProxy).toBe(false);
+  });
+
   test("rejects oversized challenge request bodies", async () => {
     const body = JSON.stringify({ publicBaseUrl: "A".repeat(1024) });
     const res = await handleCreateRemoteWebPairingChallenge(
@@ -267,5 +306,198 @@ describe("remote web pairing challenge", () => {
     );
 
     expect(res.status).toBe(413);
+  });
+});
+
+describe("remote web pairing request list/approve/deny", () => {
+  test("lists only pending, non-expired challenges newest first with requester metadata", () => {
+    let now = 1_000;
+    setRemoteWebPairingChallengeNowForTests(() => now);
+
+    const first = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    now = 2_000;
+    const second = createRemoteWebPairingChallenge(PUBLIC_BASE_URL, {
+      ip: "198.51.100.7",
+      userAgent: null,
+      viaEdgeProxy: false,
+    });
+    now = 3_000;
+    const approved = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    const approvedRecord = getRemoteWebPairingChallengeForTests(
+      approved.userCode,
+    );
+    expect(
+      approveRemoteWebPairingChallengeById(approvedRecord!.id).status,
+    ).toBe("approved");
+
+    const requests = listPendingRemoteWebPairingChallenges();
+
+    expect(requests.map((r) => r.userCode)).toEqual([
+      second.userCode,
+      first.userCode,
+    ]);
+    expect(requests[0]).toEqual({
+      requestId: getRemoteWebPairingChallengeForTests(second.userCode)!.id,
+      userCode: second.userCode,
+      publicBaseUrl: PUBLIC_BASE_URL,
+      requestedAt: new Date(2_000).toISOString(),
+      expiresAt: new Date(2_000 + 600_000).toISOString(),
+      requesterIp: "198.51.100.7",
+      requesterUserAgent: null,
+      viaEdgeProxy: false,
+    });
+    expect(requests[1]?.requesterIp).toBe(REMOTE_IP);
+    expect(requests[1]?.requesterUserAgent).toBe("PairBrowser/1.0");
+    expect(requests[1]?.viaEdgeProxy).toBe(true);
+
+    now = 1_000 + 600_000;
+    expect(
+      listPendingRemoteWebPairingChallenges().map((r) => r.userCode),
+    ).toEqual([second.userCode]);
+  });
+
+  test("approve-by-id transitions pending to approved and the exchange succeeds", () => {
+    setRemoteWebPairingChallengeNowForTests(() => 1_000);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    const record = getRemoteWebPairingChallengeForTests(challenge.userCode);
+
+    const result = approveRemoteWebPairingChallengeById(record!.id);
+
+    expect(result).toEqual({
+      status: "approved",
+      verificationUri: `${PUBLIC_BASE_URL}/assistant/pair`,
+      expiresAt: new Date(1_000 + 600_000).toISOString(),
+    });
+    expect(
+      claimRemoteWebPairingChallengeExchange(challenge.deviceCode).status,
+    ).toBe("approved");
+  });
+
+  test("approve-by-id returns invalid for unknown ids", () => {
+    expect(approveRemoteWebPairingChallengeById("missing-id")).toEqual({
+      status: "invalid",
+    });
+  });
+
+  test("approve-by-id on an expired challenge returns expired and evicts it", () => {
+    let now = 1_000;
+    setRemoteWebPairingChallengeNowForTests(() => now);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    const record = getRemoteWebPairingChallengeForTests(challenge.userCode);
+
+    now = 1_000 + 600_000;
+    expect(approveRemoteWebPairingChallengeById(record!.id)).toEqual({
+      status: "expired",
+    });
+    expect(
+      getRemoteWebPairingChallengeForTests(challenge.userCode),
+    ).toBeUndefined();
+    expect(
+      claimRemoteWebPairingChallengeExchange(challenge.deviceCode).status,
+    ).toBe("invalid");
+  });
+
+  test("approve-by-id on exchanging and consumed challenges returns invalid", () => {
+    setRemoteWebPairingChallengeNowForTests(() => 1_000);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    const record = getRemoteWebPairingChallengeForTests(challenge.userCode);
+
+    expect(approveRemoteWebPairingChallengeById(record!.id).status).toBe(
+      "approved",
+    );
+    expect(
+      claimRemoteWebPairingChallengeExchange(challenge.deviceCode).status,
+    ).toBe("approved");
+    expect(approveRemoteWebPairingChallengeById(record!.id)).toEqual({
+      status: "invalid",
+    });
+
+    completeRemoteWebPairingChallengeExchange(challenge.deviceCode);
+    expect(approveRemoteWebPairingChallengeById(record!.id)).toEqual({
+      status: "invalid",
+    });
+  });
+
+  test("deny removes the challenge from both lookup maps", () => {
+    setRemoteWebPairingChallengeNowForTests(() => 1_000);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    const record = getRemoteWebPairingChallengeForTests(challenge.userCode);
+
+    expect(denyRemoteWebPairingChallengeById(record!.id)).toEqual({
+      status: "denied",
+    });
+    expect(
+      getRemoteWebPairingChallengeForTests(challenge.userCode),
+    ).toBeUndefined();
+    expect(
+      claimRemoteWebPairingChallengeExchange(challenge.deviceCode).status,
+    ).toBe("invalid");
+    expect(listPendingRemoteWebPairingChallenges()).toEqual([]);
+  });
+
+  test("deny of an approved challenge reports already_approved and keeps it", () => {
+    setRemoteWebPairingChallengeNowForTests(() => 1_000);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    const record = getRemoteWebPairingChallengeForTests(challenge.userCode);
+    expect(approveRemoteWebPairingChallengeById(record!.id).status).toBe(
+      "approved",
+    );
+
+    expect(denyRemoteWebPairingChallengeById(record!.id)).toEqual({
+      status: "already_approved",
+    });
+    expect(
+      claimRemoteWebPairingChallengeExchange(challenge.deviceCode).status,
+    ).toBe("approved");
+  });
+
+  test("deny of exchanging and consumed challenges reports already_approved", () => {
+    setRemoteWebPairingChallengeNowForTests(() => 1_000);
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    const record = getRemoteWebPairingChallengeForTests(challenge.userCode);
+    expect(approveRemoteWebPairingChallengeById(record!.id).status).toBe(
+      "approved",
+    );
+    expect(
+      claimRemoteWebPairingChallengeExchange(challenge.deviceCode).status,
+    ).toBe("approved");
+    expect(denyRemoteWebPairingChallengeById(record!.id)).toEqual({
+      status: "already_approved",
+    });
+
+    completeRemoteWebPairingChallengeExchange(challenge.deviceCode);
+    expect(denyRemoteWebPairingChallengeById(record!.id)).toEqual({
+      status: "already_approved",
+    });
+  });
+
+  test("deny of an unknown id returns invalid", () => {
+    expect(denyRemoteWebPairingChallengeById("missing-id")).toEqual({
+      status: "invalid",
+    });
   });
 });

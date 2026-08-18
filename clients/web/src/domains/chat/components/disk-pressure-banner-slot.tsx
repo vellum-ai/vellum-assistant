@@ -111,22 +111,27 @@ export function DiskPressureBannerSlot({
     return null;
   }
 
+  // The spacer lives with the banner, not around the slot: a wrapper on the
+  // caller's side outlives every `return null` above and leaves an empty
+  // element in the composer's banner stack, which reads there as a banner.
   return (
-    <DiskPressureBanner
-      status={diskPressure.status}
-      mode={mode}
-      isAcknowledging={diskPressure.isAcknowledging}
-      acknowledgeError={diskPressure.acknowledgeError?.message ?? null}
-      onAcknowledge={() => void diskPressure.acknowledge()}
-      onDismissWarning={dismissWarning}
-      onReviewWorkspaceData={() =>
-        void navigate(`${routes.workspace}?sort=size`)
-      }
-      onUpgradeStorage={
-        assistantStateKind === "active" && !isNativeAndroid
-          ? () => void navigate(routes.plans)
-          : null
-      }
-    />
+    <div className="mb-2">
+      <DiskPressureBanner
+        status={diskPressure.status}
+        mode={mode}
+        isAcknowledging={diskPressure.isAcknowledging}
+        acknowledgeError={diskPressure.acknowledgeError?.message ?? null}
+        onAcknowledge={() => void diskPressure.acknowledge()}
+        onDismissWarning={dismissWarning}
+        onReviewWorkspaceData={() =>
+          void navigate(`${routes.workspace}?sort=size`)
+        }
+        onUpgradeStorage={
+          assistantStateKind === "active" && !isNativeAndroid
+            ? () => void navigate(routes.plans)
+            : null
+        }
+      />
+    </div>
   );
 }

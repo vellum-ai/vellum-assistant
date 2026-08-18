@@ -1,6 +1,6 @@
 import { ChevronLeft, Loader2 } from "lucide-react";
 
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { OnboardingLayout } from "@/components/onboarding-layout";
 import { useGoogleCalendarConnect } from "@/domains/onboarding/hooks/use-google-calendar-connect";
 import { isElectron } from "@/runtime/is-electron";
 import { publicAsset } from "@/utils/public-asset";

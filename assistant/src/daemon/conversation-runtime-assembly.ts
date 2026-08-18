@@ -44,6 +44,7 @@ import {
   type RenderedSlackTranscriptMessage,
   renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
+import { isGuardianCardRow } from "../notifications/approval-card-data.js";
 import {
   getMessages as defaultGetMessages,
   type MessageRow,
@@ -520,7 +521,7 @@ function injectActiveSurfaceContext(
       "RULES FOR WORKSPACE MODIFICATION:",
       `1. Use \`file_edit\` to make surgical changes to app files. The file path is \`${getAppDirPath(ctx.appId)}/<path>\`.`,
       "2. Use `file_write` to create new files or rewrite files.",
-      "3. Use `file_read` to read any file with line numbers before editing.",
+      "3. Use `file_read` to read any file before editing, and `code_search` when you need a line reference.",
       "4. Use `bash ls` to see all files in the app directory.",
       `5. Call \`app_refresh\` with app_id "${ctx.appId}" ONCE after all changes are complete.`,
       "6. NEVER respond with only text — the user expects a visual update.",
@@ -1513,10 +1514,16 @@ export function loadSlackChronologicalContext(
     allRows,
     options.trustClass,
   );
+  // Applied after the compaction boundary, never before it: that filter
+  // indexes into the row list when no watermark is set, so dropping rows
+  // earlier would shift what it cuts. Same rule and same ordering constraint
+  // as `Conversation.loadFromDb` -- Slack builds the provider history from
+  // rows rather than `this.messages`, so a rule applied only there would
+  // exempt this channel entirely.
   const rows = filterRowsAfterSlackCompactionBoundary(
     messageRowsToSlackTranscriptRows(scopedRows),
     options,
-  );
+  ).filter((row) => !isGuardianCardRow(row.content));
   return assembleSlackChronologicalContext(rows, capabilities, {
     contextSummary: resolveCapabilities(options.trustClass).canAccessMemory
       ? options.contextSummary
