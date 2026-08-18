@@ -119,7 +119,7 @@ export const READ_SLICE_BYTES = 4 * 1024 * 1024;
 
 /** A file read in full, with the length it actually turned out to be. */
 interface FileParts {
-  parts: BlobPart[];
+  parts: Blob[];
   bytes: number;
 }
 
@@ -138,13 +138,21 @@ interface FileParts {
  * than a number that may be wrong, and naming what refused them. A file that
  * outgrows what it is allowed is abandoned rather than truncated, which keeps
  * this to one slice of overhead even for a source that never ends.
+ *
+ * Each slice is handed straight to blob storage rather than collected as
+ * arrays for the `File` to copy at the end. Holding the arrays would put the
+ * whole file in script memory and then put it there a second time when the
+ * `File` snapshotted them, so a large image cost twice its size on top of
+ * whatever the resize path then decodes. Blobs cost one slice of script
+ * memory at a time, and the assembled file lives where a file input's bytes
+ * already live.
  */
 async function readFileParts(
   path: string,
   limit: (bytesRead: number) => PickSkipReason | null,
 ): Promise<FileParts | { refused: PickSkipReason }> {
   const { Filesystem } = await import("@capacitor/filesystem");
-  const parts: BlobPart[] = [];
+  const parts: Blob[] = [];
   let bytes = 0;
   for (let offset = 0; ; offset += READ_SLICE_BYTES) {
     const { data } = await Filesystem.readFile({
@@ -162,7 +170,7 @@ async function readFileParts(
       return { refused };
     }
     if (length > 0) {
-      parts.push(slice);
+      parts.push(slice instanceof Blob ? slice : new Blob([slice]));
     }
     if (length !== READ_SLICE_BYTES) {
       return { parts, bytes };

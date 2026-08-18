@@ -649,6 +649,34 @@ describe("native pickers: aggregate budget", () => {
   });
 });
 
+describe("native pickers: what holds the assembled bytes", () => {
+  test("hands each slice to blob storage rather than keeping arrays", async () => {
+    // Collecting arrays and letting the `File` snapshot them at the end put
+    // the whole file in script memory twice over, which on a large image is
+    // what a phone web view dies of. The bytes have to survive the transfer
+    // intact either way, so the join is asserted rather than the mechanism.
+    reset();
+    const tail = "boundary";
+    mockContent = () => "a".repeat(READ_SLICE_BYTES) + tail;
+    mockFiles = [
+      {
+        path: "/tmp/two-slices.bin",
+        name: "two-slices.bin",
+        mimeType: "application/octet-stream",
+        size: READ_SLICE_BYTES + tail.length,
+      },
+    ];
+
+    const sink = collector();
+    await pickFilesNative(sink.onFile);
+    const file = sink.files[0] as File;
+
+    expect(readPaths).toHaveLength(2);
+    expect(file.size).toBe(READ_SLICE_BYTES + tail.length);
+    expect((await file.text()).endsWith(tail)).toBe(true);
+  });
+});
+
 describe("native pickers: files the composer turns away", () => {
   test("leaves the allowance untouched for a file that is not kept", async () => {
     // The composer drops images outright when the model cannot see them, and
