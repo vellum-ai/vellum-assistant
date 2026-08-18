@@ -511,9 +511,6 @@
     "searchPlaceholder": "Buscar acciones…",
     "title": "Anulaciones de acciones"
   },
-  "packageSwitchConfirmModal": {
-    "cancel": "Cancelar"
-  },
   "pendingPairingRequests": {
     "approveButton": "Aprobar",
     "denyButton": "Denegar",
@@ -521,49 +518,6 @@
     "requestedMeta": "Solicitado {when} desde {ip}",
     "requestedMetaHost": "Solicitado {when} desde este equipo",
     "title": "Solicitudes de vinculación"
-  },
-  "planColumnCard": {
-    "currentPlan": "Plan actual",
-    "includes": "Incluye:",
-    "recommended": "Recomendado"
-  },
-  "plansPage": {
-    "alreadyOnPlanToast": "Ya estás en este plan.",
-    "back": "Atrás",
-    "billedMonthlyCaption": "Facturación mensual",
-    "cancelAnytimeFooter": "Puedes cancelar o cambiar tu plan cuando quieras. Para obtener más información, <docsLink>Lee nuestra documentación.</docsLink>",
-    "checkoutFailedToast": "No se pudo iniciar el pago de mejora. Inténtalo de nuevo.",
-    "downgradeTo": "Bajar a {name}",
-    "featureComputer": "Ordenador {machine}",
-    "featureCreditsIncluded": "{amount} en créditos incluidos",
-    "featureStorage": "{gib} GB de almacenamiento",
-    "foreverCaption": "Para siempre",
-    "freeFeaturePayAsYouGo": "Créditos de pago por uso",
-    "freeFeatureSmallComputer": "Ordenador pequeño",
-    "freeFeatureStorage": "{gib} GB de almacenamiento",
-    "freePriceLabel": "Gratis",
-    "heading": "Dale más potencia a tu asistente",
-    "loadingPlansAriaLabel": "Cargando planes",
-    "planUpdatedToast": "Plan actualizado.",
-    "startFreeCta": "Empezar gratis",
-    "subheading": "Elige el nivel que se ajuste a cuánto quieres que se encargue."
-  },
-  "privacyPage": {
-    "llmLogRetentionDescription": "Cuánto tiempo conservar los registros de solicitudes y respuestas LLM en este dispositivo. Estos registros documentan las solicitudes y completaciones enviadas a los proveedores de modelos y se usan para depuración. Una retención más corta mejora la privacidad; una retención más larga ayuda a solucionar problemas.",
-    "llmLogRetentionLabel": "Retención de registros de solicitudes LLM",
-    "retentionDontRetain": "No conservar",
-    "retentionKeepForever": "Conservar para siempre",
-    "retentionNinetyDays": "90 días",
-    "retentionOneDay": "1 día",
-    "retentionOneHour": "1 hora",
-    "retentionSevenDays": "7 días",
-    "retentionThirtyDays": "30 días",
-    "shareAnalyticsHelper": "Enviar datos agregados de uso del producto",
-    "shareAnalyticsLabel": "Compartir analíticas",
-    "shareDiagnosticsHelper": "Enviar informes de fallos, trazas de conversación y datos de reproducción de sesión",
-    "shareDiagnosticsLabel": "Compartir diagnósticos",
-    "subtitleWithPolicy": "Consulta detalles sobre qué datos recopilamos y cómo se usan en nuestra <policyLink>política de privacidad</policyLink>.",
-    "title": "Privacidad"
   },
   "profileAdvancedParams": {
     "contextWindowLabel": "Ventana de contexto",

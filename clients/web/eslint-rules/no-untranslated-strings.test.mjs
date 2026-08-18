@@ -113,6 +113,28 @@ ruleTester.run("no-untranslated-strings", noUntranslatedStrings, {
       code: `const C = () => <span title={\`\${label}: \${cost}\`} />;`,
     },
     {
+      name: "an identifier built from pieces is not copy",
+      filename: COMPONENT,
+      // Nothing here is word separated: the fragments are a file extension
+      // and an id segment, which no translator should receive.
+      code: `const C = () => <span title={\`\${app.name}.vellum\`} id={\`\${id}-opt\`} />;`,
+    },
+    {
+      name: "a toast options bag holding no copy of its own",
+      filename: COMPONENT,
+      code: `toast.success(t("app.exported"), { id: "export-status", description: filename, duration: 5000 });`,
+    },
+    {
+      name: "an identifier built with + is not copy",
+      filename: COMPONENT,
+      code: `const C = () => <span title={id + "-list"} />;`,
+    },
+    {
+      name: "toast machinery is not copy",
+      filename: COMPONENT,
+      code: `toast.success(t("done"), { id: "export", duration: 5000, tone: "strong" });`,
+    },
+    {
       name: "toast copy read through t()",
       filename: COMPONENT,
       code: `toast.error(t("save.failed"));`,
@@ -170,6 +192,48 @@ ruleTester.run("no-untranslated-strings", noUntranslatedStrings, {
       // The words sit in the one place the static halves are not.
       code: `const C = () => <span title={\`\${live ? "Live" : "Draft"} · \${host}\`} />;`,
       errors: [{ messageId: "prop" }, { messageId: "prop" }],
+    },
+    {
+      name: "a sentence assembled with +",
+      filename: COMPONENT,
+      // The same untranslatable shape as the template form, and the one
+      // `I18N.md` calls the most common of all.
+      code: `const C = () => <button aria-label={"Delete " + name} />;`,
+      errors: [{ messageId: "prop" }],
+    },
+    {
+      name: "copy in a toast options bag",
+      filename: COMPONENT,
+      // The message is translated and the copy hides in the second argument,
+      // which is why every argument is read rather than the first.
+      code: `toast.error(t("save.failed"), { description: "Try again later", action: { label: "Retry" } });`,
+      errors: [{ messageId: "toast" }, { messageId: "toast" }],
+    },
+    {
+      name: "a name concatenated with + and a lowercase word",
+      filename: COMPONENT,
+      // The mirror of the template case: an assembled string is judged by
+      // whether it holds words, not by whether one fragment looks like copy
+      // standing alone.
+      code: `const C = () => <button aria-label={name + " imported"} />;`,
+      errors: [{ messageId: "prop" }],
+    },
+    {
+      name: "copy separated from an interpolation by punctuation",
+      filename: COMPONENT,
+      // "-day" is glued to the count and comes off, but "trial" is a word of
+      // its own and keeps the sentence visible.
+      code: `const C = () => <span aria-label={\`\${count}-day trial\`} />;`,
+      errors: [{ messageId: "prop" }],
+    },
+    {
+      name: "a lowercase toast description",
+      filename: COMPONENT,
+      // A toast renders `description` whatever it looks like, so it is not
+      // judged by the prop-value test that treats a lone lowercase word as an
+      // enum.
+      code: `toast.success(t("done"), { description: "saved" });`,
+      errors: [{ messageId: "toast" }],
     },
     {
       name: "a sentence assembled by template literal as a JSX child",

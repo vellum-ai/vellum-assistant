@@ -9,7 +9,10 @@ import {
   configureTrayModel,
   installTray,
 } from "@vellumai/electron-desktop/tray-model";
-import type { VellumCommand } from "@vellumai/ipc-contract";
+import {
+  DEFAULT_COMPANION_SIZE,
+  type VellumCommand,
+} from "@vellumai/ipc-contract";
 
 import { current, ensureVisible, toggleVisibility } from "./main-window";
 
@@ -47,8 +50,13 @@ export const installWindowsTray = (
   configureStatusIconFallback(icon.isEmpty() ? null : icon);
   configureTrayModel({
     accelerator: () => ({}),
+    // Windows has no companion surface, so every companion field here is the
+    // inert answer rather than an implementation. The size still has to be a
+    // real one: the tray model reads it to mark a radio item, and the menu it
+    // would appear in is gated off by `companionEnabled` anyway.
     companionEnabled: () => false,
     companionHidden: () => true,
+    companionSize: () => DEFAULT_COMPANION_SIZE,
     dispatch,
     featureEnabled,
     getLockfile: getWatchedLockfile,
@@ -58,6 +66,7 @@ export const installWindowsTray = (
       void shell.openExternal("http://localhost:6007");
     },
     removePairedLabel: "Remove from this PC\u2026",
+    setCompanionSize: () => undefined,
     setCompanionVisible: () => undefined,
   });
   installTray({

@@ -12,7 +12,10 @@ import {
   type RiskClassificationWithMeta,
 } from "../permissions/checker.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
-import { runInPluginContext } from "../plugins/plugin-execution-context.js";
+import {
+  runInPluginContext,
+  runOutsidePluginContext,
+} from "../plugins/plugin-execution-context.js";
 import { TokenExpiredError } from "../security/token-manager.js";
 import {
   recordToolError,
@@ -267,15 +270,18 @@ export class ToolExecutor {
       const execContext = context;
 
       // Mark the owning plugin as in context (via AsyncLocalStorage) so host
-      // APIs the tool reaches — e.g. resolveCredential — can scope to it. The
+      // APIs the tool reaches, e.g. resolveCredential, can scope to it. The
       // context must be established around the `execute()` call itself so the
-      // returned promise carries the binding across its awaits. Non-plugin
-      // tools (default/skill/mcp/workspace) establish no context.
+      // returned promise carries the binding across its awaits. A non-plugin
+      // tool (default/skill/mcp/workspace) runs with the context explicitly
+      // cleared rather than merely unset: the turn may have been started by a
+      // plugin (a route handler calling `runConversationTurn`), and this tool
+      // is host code that must not inherit that plugin's identity.
       const owner = getToolOwner(name);
       const execPromise =
         owner?.kind === "plugin"
           ? runInPluginContext(owner.id, () => tool.execute(input, execContext))
-          : tool.execute(input, execContext);
+          : runOutsidePluginContext(() => tool.execute(input, execContext));
 
       let execResult: ToolExecutionResult = await executeWithTimeout(
         execPromise,
