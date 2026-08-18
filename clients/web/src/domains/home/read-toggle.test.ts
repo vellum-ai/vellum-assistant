@@ -1,11 +1,9 @@
 /**
  * Tests for `buildReadToggle`.
  *
- * The glyph names the item's current state, so these assert the pairing that
- * was inverted (LUM-3336): an unread notification showed an opened envelope
- * beside its unread dot, and a read one showed a sealed envelope. Comparing
- * against the icon components themselves rather than rendering them keeps the
- * check on the mapping, which is the thing that flipped.
+ * The glyph names the item's current state: a sealed envelope for unread, an
+ * opened one for read. Comparing against the icon components themselves rather
+ * than rendering them keeps the check on that mapping.
  */
 
 import { describe, expect, test } from "bun:test";

@@ -15,8 +15,7 @@ export interface FeedItemStatusActionsProps {
 /**
  * The status controls a notification's detail header carries: the read/unread
  * toggle, then dismiss (or restore, for an item already dismissed). Rendered
- * by the Activity page's detail panel and by the notification bell's detail,
- * which drew the same pair of buttons from two copies of this markup.
+ * by the Activity page's detail panel and by the notification bell's detail.
  *
  * A fragment rather than a row: the two headers seat the pair differently
  * (the bell holds its width opposite a back control, the panel pushes it to
