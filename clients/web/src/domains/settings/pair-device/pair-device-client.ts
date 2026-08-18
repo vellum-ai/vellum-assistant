@@ -32,6 +32,7 @@ import type {
 } from "@vellumai/service-contracts/remote-web-pairing";
 
 import { getLocalGatewayUrl, getSelectedAssistant } from "@/lib/local-mode";
+import { captureError } from "@/lib/sentry/capture-error";
 
 import { buildRemoteWebPairingUrl } from "./pair-device-url";
 
@@ -54,14 +55,33 @@ export class PairDeviceError extends Error {
   readonly hint?: string;
   /** HTTP status of the rejecting response; unset for network failures. */
   readonly status?: number;
+  /** Machine-readable error code from the response body, when present. */
+  readonly code?: string;
 
-  constructor(message: string, hint?: string, status?: number) {
+  constructor(
+    message: string,
+    options: { hint?: string; status?: number; code?: string } = {},
+  ) {
     super(message);
     this.name = "PairDeviceError";
-    this.hint = hint;
-    this.status = status;
+    this.hint = options.hint;
+    this.status = options.status;
+    this.code = options.code;
   }
 }
+
+/** Error code the deny route returns when the request was approved first. */
+export const ALREADY_APPROVED_ERROR_CODE = "ALREADY_APPROVED";
+
+/**
+ * A pending request row as this branch reads it. `viaEdgeProxy` (`true` when
+ * the challenge was minted through the public tunnel edge, `false` when it was
+ * minted from the host itself) lands with the gateway contracts change;
+ * optional here so older gateways that omit it stay compatible.
+ */
+export type PendingPairingRequestSummary = RemoteWebPairingRequestSummary & {
+  viaEdgeProxy?: boolean;
+};
 
 export interface DevicePairing {
   /** The scannable https pair URL (verification URI + `#device_code=…`). */
@@ -113,6 +133,11 @@ function serverErrorMessage(payload: unknown): string | null {
   return typeof message === "string" && message.trim() ? message : null;
 }
 
+function serverErrorCode(payload: unknown): string | undefined {
+  const code = (payload as { error?: { code?: unknown } } | null)?.error?.code;
+  return typeof code === "string" && code ? code : undefined;
+}
+
 async function pairingRouteRequest<T>(
   url: string,
   init: RequestInit,
@@ -139,8 +164,11 @@ async function pairingRouteRequest<T>(
     throw new PairDeviceError(
       serverErrorMessage(payload) ??
         `Pairing failed (HTTP ${response.status}).`,
-      rejectionHint,
-      response.status,
+      {
+        hint: rejectionHint,
+        status: response.status,
+        code: serverErrorCode(payload),
+      },
     );
   }
 
@@ -188,19 +216,55 @@ export async function mintDevicePairing(args: {
     PAIRING_CONNECTIVITY_HINT,
   );
 
-  await postPairingRoute(
-    `${base}${PAIRING_VERIFICATION_PATH}`,
-    {
-      userCode: challenge.userCode,
-    } satisfies RemoteWebPairingVerificationRequest,
-    signal,
-    PAIRING_CONNECTIVITY_HINT,
-  );
+  try {
+    await postPairingRoute(
+      `${base}${PAIRING_VERIFICATION_PATH}`,
+      {
+        userCode: challenge.userCode,
+      } satisfies RemoteWebPairingVerificationRequest,
+      signal,
+      PAIRING_CONNECTIVITY_HINT,
+    );
+  } catch (err) {
+    // The minted challenge would otherwise stay pending for its TTL and show
+    // up in the sibling approval list as a foreign request.
+    if (!(err instanceof DOMException && err.name === "AbortError")) {
+      await denyOrphanedChallenge(base, challenge.userCode, signal);
+    }
+    throw err;
+  }
 
   return {
     pairUrl: buildRemoteWebPairingUrl(challenge),
     expiresAt: challenge.expiresAt,
   };
+}
+
+/**
+ * Best-effort removal of a freshly minted challenge whose verification step
+ * failed. Swallows every cleanup error (the mint failure is what the caller
+ * must see); the challenge's TTL bounds the damage when cleanup also fails.
+ */
+async function denyOrphanedChallenge(
+  base: string,
+  userCode: string,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  try {
+    const pending = await listPendingPairingRequests({ base, signal });
+    const orphan = pending.find((request) => request.userCode === userCode);
+    if (orphan) {
+      await denyPairingRequest({ base, requestId: orphan.requestId, signal });
+    }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return;
+    }
+    captureError(err, {
+      context: "pair-device-orphan-cleanup",
+      bestEffort: true,
+    });
+  }
 }
 
 /**
@@ -211,7 +275,7 @@ export async function mintDevicePairing(args: {
 export async function listPendingPairingRequests(args: {
   base: string;
   signal?: AbortSignal;
-}): Promise<RemoteWebPairingRequestSummary[]> {
+}): Promise<PendingPairingRequestSummary[]> {
   const payload =
     await pairingRouteRequest<RemoteWebPairingRequestListResponse>(
       `${args.base}${PAIRING_REQUESTS_PATH}`,

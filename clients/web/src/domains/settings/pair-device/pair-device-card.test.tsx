@@ -41,22 +41,22 @@ mock.module("@/lib/sentry/capture-error", () => ({
 }));
 
 const { PairDeviceCard } = await import("./pair-device-card");
+const {
+  createTimerHarness,
+  fetchLog,
+  installFetch: installRecordingFetch,
+  jsonResponse,
+  pendingRequest,
+  requestBody,
+  resetFetchLog,
+  restoreFetch,
+} = await import("./pair-device-test-helpers");
 
 const PUBLIC_URL = "https://foo.ts.net";
 const PAIR_URL = "https://foo.ts.net/assistant/pair#device_code=DEV-123";
 
-const originalFetch = globalThis.fetch;
-let requests: Array<{ url: string; body: unknown }> = [];
-
 function futureIso(): string {
   return new Date(Date.now() + 10 * 60_000).toISOString();
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
 }
 
 function challengeBody() {
@@ -70,16 +70,17 @@ function challengeBody() {
   };
 }
 
-function pendingRequestBody() {
-  return {
-    requestId: "req-1",
+function pendingRequestBody(
+  overrides: Parameters<typeof pendingRequest>[0] = {},
+) {
+  return pendingRequest({
     userCode: "QRST-7890",
     publicBaseUrl: PUBLIC_URL,
     requestedAt: new Date(Date.now() - 2 * 60_000).toISOString(),
     expiresAt: futureIso(),
-    requesterIp: "203.0.113.7",
     requesterUserAgent: "Mozilla/5.0 (iPhone; like Mac OS X)",
-  };
+    ...overrides,
+  });
 }
 
 interface FetchHandlers {
@@ -106,12 +107,7 @@ function installFetch(
     onRequestAction = () => jsonResponse({ status: "done" }),
   }: FetchHandlers = {},
 ) {
-  const fetchMock = mock(async (input: string | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input.toString();
-    requests.push({
-      url,
-      body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
-    });
+  return installRecordingFetch((url) => {
     if (url.endsWith("/v1/remote-web/pairing-challenge")) {
       return onChallenge();
     }
@@ -129,19 +125,17 @@ function installFetch(
     }
     throw new Error(`unexpected fetch: ${url}`);
   });
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
-  return fetchMock;
 }
 
 function actionCalls(action: "approve" | "deny") {
-  return requests.filter((request) =>
+  return fetchLog.filter((request) =>
     request.url.endsWith(`/v1/remote-web/pairing-requests/${action}`),
   );
 }
 
 /** The mint-flow calls (challenge + verification), without the section's list polls. */
 function mintCalls() {
-  return requests.filter(
+  return fetchLog.filter(
     (request) => !request.url.endsWith("/v1/remote-web/pairing-requests"),
   );
 }
@@ -157,7 +151,7 @@ beforeEach(() => {
   supportsPairingRoutes = true;
   webRemoteIngressOn = true;
   selectedAssistant = { assistantId: "self", cloud: "local" };
-  requests = [];
+  resetFetchLog();
   localStorage.clear();
   // A rendered card polls the pending-request list on mount, so every test
   // needs the route answered; minting stays unexpected unless overridden.
@@ -166,7 +160,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  globalThis.fetch = originalFetch;
+  restoreFetch();
 });
 
 describe("PairDeviceCard", () => {
@@ -218,11 +212,11 @@ describe("PairDeviceCard", () => {
     expect(mintCalls()[0]?.url).toContain(
       "/assistant/__gateway/20100/v1/remote-web/pairing-challenge",
     );
-    expect(mintCalls()[0]?.body).toEqual({ publicBaseUrl: PUBLIC_URL });
+    expect(requestBody(mintCalls()[0])).toEqual({ publicBaseUrl: PUBLIC_URL });
     expect(mintCalls()[1]?.url).toContain(
       "/assistant/__gateway/20100/v1/remote-web/pairing-verification",
     );
-    expect(mintCalls()[1]?.body).toEqual({ userCode: "WXYZ-1234" });
+    expect(requestBody(mintCalls()[1])).toEqual({ userCode: "WXYZ-1234" });
   });
 
   test("surfaces the server's rejection message with a connectivity hint", async () => {
@@ -346,7 +340,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
     // The list was polled and came back empty.
     await waitFor(() =>
       expect(
-        requests.some((r) => r.url.endsWith("/v1/remote-web/pairing-requests")),
+        fetchLog.some((r) => r.url.endsWith("/v1/remote-web/pairing-requests")),
       ).toBe(true),
     );
     expect(screen.queryByText("Pairing requests")).toBeNull();
@@ -393,18 +387,11 @@ describe("PairDeviceCard: pending pairing requests", () => {
 
   test("the relative request age advances while the request stays pending", async () => {
     installPendingFetch();
-    // Bun has no fake timers: capture armed intervals by hand and drive the
-    // 30s age tick directly. `waitFor` needs real timers, so this test stubs
-    // per-test, flushes with `act`, and restores in `finally`.
-    const realSetInterval = globalThis.setInterval;
-    const realClearInterval = globalThis.clearInterval;
+    // Timer harness instead of fake timers (bun has none): `waitFor` needs
+    // real timers, so this test flushes with `act` and restores in `finally`.
+    const timerHarness = createTimerHarness();
     const realDateNow = Date.now;
-    const timers: Array<{ handler: () => void; delay: number }> = [];
-    globalThis.setInterval = ((handler: () => void, delay: number) => {
-      timers.push({ handler, delay });
-      return timers.length as unknown as ReturnType<typeof setInterval>;
-    }) as typeof globalThis.setInterval;
-    globalThis.clearInterval = (() => {}) as typeof globalThis.clearInterval;
+    timerHarness.install();
     try {
       await act(async () => {
         render(<PairDeviceCard />);
@@ -414,14 +401,15 @@ describe("PairDeviceCard: pending pairing requests", () => {
       // Advance the clock 3 minutes and fire the age-refresh tick.
       const now = realDateNow();
       Date.now = () => now + 3 * 60_000;
-      const ageTick = timers.find((timer) => timer.delay === 30_000);
+      const ageTick = timerHarness.timers.find(
+        (timer) => timer.delay === 30_000,
+      );
       expect(ageTick).toBeTruthy();
       act(() => ageTick?.handler());
 
       expect(screen.getByText(/Requested 5 minutes ago/)).toBeTruthy();
     } finally {
-      globalThis.setInterval = realSetInterval;
-      globalThis.clearInterval = realClearInterval;
+      timerHarness.restore();
       Date.now = realDateNow;
     }
   });
@@ -434,7 +422,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
     await waitFor(() => expect(actionCalls("approve")).toHaveLength(1));
-    expect(actionCalls("approve")[0]?.body).toEqual({ requestId: "req-1" });
+    expect(requestBody(actionCalls("approve")[0])).toEqual({ requestId: "req-1" });
     await waitFor(() => expect(screen.queryByText("QRST-7890")).toBeNull());
     expect(actionCalls("deny")).toHaveLength(0);
   });
@@ -447,12 +435,12 @@ describe("PairDeviceCard: pending pairing requests", () => {
     fireEvent.click(screen.getByRole("button", { name: "Deny" }));
 
     await waitFor(() => expect(actionCalls("deny")).toHaveLength(1));
-    expect(actionCalls("deny")[0]?.body).toEqual({ requestId: "req-1" });
+    expect(requestBody(actionCalls("deny")[0])).toEqual({ requestId: "req-1" });
     await waitFor(() => expect(screen.queryByText("QRST-7890")).toBeNull());
     expect(actionCalls("approve")).toHaveLength(0);
   });
 
-  test("action buttons disable while an action is in flight", async () => {
+  test("action buttons disable and the acted button shows busy while an action is in flight", async () => {
     // An approve that never resolves keeps the action in flight.
     installPendingFetch({
       onRequestAction: () => new Promise<Response>(() => {}),
@@ -472,6 +460,45 @@ describe("PairDeviceCard: pending pairing requests", () => {
       (screen.getByRole("button", { name: "Deny" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+
+    // Only the acted button carries the busy state.
+    const approveButton = screen.getByRole("button", { name: "Approve" });
+    expect(approveButton.getAttribute("aria-busy")).toBe("true");
+    expect(approveButton.querySelector(".animate-spin")).toBeTruthy();
+    const denyButton = screen.getByRole("button", { name: "Deny" });
+    expect(denyButton.getAttribute("aria-busy")).toBeNull();
+    expect(denyButton.querySelector(".animate-spin")).toBeNull();
+  });
+
+  test("a host-originated request says 'from this computer' instead of a loopback IP", async () => {
+    installPendingFetch({
+      onPendingRequests: () =>
+        jsonResponse({
+          requests: [
+            pendingRequestBody({ requesterIp: "127.0.0.1", viaEdgeProxy: false }),
+          ],
+        }),
+    });
+    render(<PairDeviceCard />);
+
+    await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
+    expect(
+      screen.getByText(/Requested 2 minutes ago from this computer/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/127\.0\.0\.1/)).toBeNull();
+  });
+
+  test("a tunnel-edge request keeps showing the requester IP", async () => {
+    installPendingFetch({
+      onPendingRequests: () =>
+        jsonResponse({ requests: [pendingRequestBody({ viaEdgeProxy: true })] }),
+    });
+    render(<PairDeviceCard />);
+
+    await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
+    expect(
+      screen.getByText(/Requested 2 minutes ago from 203\.0\.113\.7/),
+    ).toBeTruthy();
   });
 
   test("stays hidden with the card when there is no local gateway", () => {
@@ -482,7 +509,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
     expect(container.firstChild).toBeNull();
     expect(screen.queryByText("Pairing requests")).toBeNull();
     // The gate keeps the poll from ever firing.
-    expect(requests).toHaveLength(0);
+    expect(fetchLog).toHaveLength(0);
   });
 
   test("stays hidden with the card when web-remote-ingress is off", () => {
@@ -492,6 +519,6 @@ describe("PairDeviceCard: pending pairing requests", () => {
 
     expect(container.firstChild).toBeNull();
     expect(screen.queryByText("Pairing requests")).toBeNull();
-    expect(requests).toHaveLength(0);
+    expect(fetchLog).toHaveLength(0);
   });
 });

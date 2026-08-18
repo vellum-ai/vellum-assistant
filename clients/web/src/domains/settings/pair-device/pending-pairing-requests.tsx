@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Loader2 } from "lucide-react";
 
 import { currentLocale, useTranslation } from "@/i18n";
+import { formatRelativeTime } from "@/lib/relative-time";
 
 import { usePendingPairingRequests } from "./use-pending-pairing-requests";
 
@@ -15,30 +17,16 @@ interface PendingPairingRequestsProps {
 /** How often visible relative ages re-render; 30s suits minute phrasing. */
 const AGE_REFRESH_INTERVAL_MS = 30_000;
 
-const RELATIVE_UNITS: Array<{ unit: Intl.RelativeTimeFormatUnit; ms: number }> =
-  [
-    { unit: "day", ms: 86_400_000 },
-    { unit: "hour", ms: 3_600_000 },
-    { unit: "minute", ms: 60_000 },
-  ];
-
 /**
  * Relative label for a request's timestamp in the active i18n locale.
- * Pending requests are short-lived, so minutes/hours/days cover the range;
+ * Pending requests are short-lived, so minute granularity is enough;
  * anything under a minute reads as "now".
  */
 function formatRequestedAt(iso: string): string {
-  const formatter = new Intl.RelativeTimeFormat(currentLocale(), {
-    numeric: "auto",
+  return formatRelativeTime(new Date(iso).getTime(), {
+    locale: currentLocale(),
+    minimumUnit: "minute",
   });
-  const diffMs = new Date(iso).getTime() - Date.now();
-  const absMs = Math.abs(diffMs);
-  for (const { unit, ms } of RELATIVE_UNITS) {
-    if (absMs >= ms) {
-      return formatter.format(Math.trunc(diffMs / ms), unit);
-    }
-  }
-  return formatter.format(0, "second");
 }
 
 /**
@@ -89,50 +77,72 @@ export function PendingPairingRequests({ base }: PendingPairingRequestsProps) {
       {error && <Notice tone="error" title={error} />}
       {requests.length > 0 && (
         <ul className="flex flex-col gap-2">
-          {requests.map((request) => (
-            <li
-              key={request.requestId}
-              className="flex flex-col gap-2 rounded-lg border border-[var(--border-element)] p-3"
-            >
-              <code className="w-fit rounded-md bg-[var(--surface-active)] px-2.5 py-1.5 text-title-medium tracking-wide text-[var(--content-emphasised)]">
-                {request.userCode}
-              </code>
-              <div className="flex flex-col gap-0.5">
-                <p className="text-body-small-default text-[var(--content-tertiary)]">
-                  {t("pendingPairingRequests.requestedMeta", {
-                    when: formatRequestedAt(request.requestedAt),
-                    ip: request.requesterIp,
-                  })}
-                </p>
-                {request.requesterUserAgent && (
-                  <p
-                    className="truncate text-body-small-default text-[var(--content-tertiary)]"
-                    title={request.requesterUserAgent}
-                  >
-                    {request.requesterUserAgent}
+          {requests.map((request) => {
+            const rowAction =
+              actingOn !== null && actingOn.requestId === request.requestId
+                ? actingOn.action
+                : null;
+            const approving = rowAction === "approve";
+            const denying = rowAction === "deny";
+            return (
+              <li
+                key={request.requestId}
+                className="flex flex-col gap-2 rounded-lg border border-[var(--border-element)] p-3"
+              >
+                <code className="w-fit rounded-md bg-[var(--surface-active)] px-2.5 py-1.5 text-title-medium tracking-wide text-[var(--content-emphasised)]">
+                  {request.userCode}
+                </code>
+                <div className="flex flex-col gap-0.5">
+                  <p className="text-body-small-default text-[var(--content-tertiary)]">
+                    {request.viaEdgeProxy === false
+                      ? // Host-originated mint: the requester IP is a loopback
+                        // address, so naming this computer is the honest label.
+                        t("pendingPairingRequests.requestedMetaHost", {
+                          when: formatRequestedAt(request.requestedAt),
+                        })
+                      : t("pendingPairingRequests.requestedMeta", {
+                          when: formatRequestedAt(request.requestedAt),
+                          ip: request.requesterIp,
+                        })}
                   </p>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="primary"
-                  size="compact"
-                  disabled={actingOn !== null}
-                  onClick={() => void approve(request.requestId)}
-                >
-                  {t("pendingPairingRequests.approveButton")}
-                </Button>
-                <Button
-                  variant="dangerOutline"
-                  size="compact"
-                  disabled={actingOn !== null}
-                  onClick={() => void deny(request.requestId)}
-                >
-                  {t("pendingPairingRequests.denyButton")}
-                </Button>
-              </div>
-            </li>
-          ))}
+                  {request.requesterUserAgent && (
+                    <p
+                      className="truncate text-body-small-default text-[var(--content-tertiary)]"
+                      title={request.requesterUserAgent}
+                    >
+                      {request.requesterUserAgent}
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="primary"
+                    size="compact"
+                    disabled={actingOn !== null}
+                    aria-busy={approving || undefined}
+                    leftIcon={
+                      approving ? <Loader2 className="animate-spin" /> : undefined
+                    }
+                    onClick={() => void approve(request.requestId)}
+                  >
+                    {t("pendingPairingRequests.approveButton")}
+                  </Button>
+                  <Button
+                    variant="dangerOutline"
+                    size="compact"
+                    disabled={actingOn !== null}
+                    aria-busy={denying || undefined}
+                    leftIcon={
+                      denying ? <Loader2 className="animate-spin" /> : undefined
+                    }
+                    onClick={() => void deny(request.requestId)}
+                  >
+                    {t("pendingPairingRequests.denyButton")}
+                  </Button>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
