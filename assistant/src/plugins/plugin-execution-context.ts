@@ -5,10 +5,12 @@
  * know *which* plugin is calling them so they can scope their behavior to that
  * plugin (e.g. {@link ../plugin-api/resolve-credential.resolveCredential} limits
  * a plugin to its own credentials). A plugin's manifest name is not threaded
- * through every host call, so the pipeline that invokes a plugin's hook — and
- * the tool executor that runs a plugin's tool — mark the plugin as "in context"
- * for the duration of that invocation via an {@link AsyncLocalStorage}. Host
- * APIs read {@link getCurrentPluginName} to recover it.
+ * through every host call, so every seam that enters a plugin's code — the
+ * pipeline that invokes its hook, the executor that runs its tool, and the
+ * dispatcher that serves its `/x/plugins/<name>/` routes — marks the plugin as
+ * "in context" for the duration of that invocation via an
+ * {@link AsyncLocalStorage}. Host APIs read {@link getCurrentPluginName} to
+ * recover it.
  *
  * The store propagates across `await` boundaries, so a plugin that awaits a
  * host API deep inside its hook/tool body is still seen as in context. When no
@@ -19,7 +21,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 export interface PluginExecutionContext {
-  /** Manifest name of the plugin whose hook or tool is currently executing. */
+  /**
+   * Manifest name of the plugin whose hook, tool, or route is currently
+   * executing.
+   */
   pluginName: string;
 }
 
@@ -36,8 +41,8 @@ export function runInPluginContext<T>(pluginName: string, fn: () => T): T {
 }
 
 /**
- * Name of the plugin whose hook or tool is currently executing, or `undefined`
- * when no plugin is in context.
+ * Name of the plugin whose hook, tool, or route is currently executing, or
+ * `undefined` when no plugin is in context.
  */
 export function getCurrentPluginName(): string | undefined {
   return storage.getStore()?.pluginName;

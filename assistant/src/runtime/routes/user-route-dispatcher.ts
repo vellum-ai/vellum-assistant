@@ -37,6 +37,7 @@
 
 import { statSync } from "node:fs";
 
+import { runInPluginContext } from "../../plugins/plugin-execution-context.js";
 import { isRouteHostEnabled } from "../../routes/control.js";
 import {
   RouteHostClient,
@@ -55,6 +56,7 @@ import {
   routeSourceRoot,
 } from "./user-route-import.js";
 import {
+  pluginNameForRoutePath,
   resolveHandlerFile,
   resolveRouteLocation,
 } from "./user-route-resolution.js";
@@ -150,8 +152,14 @@ export class UserRouteDispatcher {
       );
     }
 
+    // A plugin's own routes execute as that plugin, so the host APIs a handler
+    // reaches scope to it exactly as they do inside its hooks and tools. Both
+    // execution paths carry it: in-thread through `executeHandler`, and the
+    // route host through the invoke params it marks its own execution with.
+    const pluginName = pluginNameForRoutePath(routePath);
+
     if (isRouteHostEnabled()) {
-      return this.dispatchViaHost(filePath, routePath, request);
+      return this.dispatchViaHost(filePath, routePath, request, pluginName);
     }
 
     const mod = await this.loadModule(filePath, location.routesDir);
@@ -166,7 +174,7 @@ export class UserRouteDispatcher {
       });
     }
 
-    return this.executeHandler(handler, request, routePath);
+    return this.executeHandler(handler, request, routePath, pluginName);
   }
 
   /**
@@ -180,6 +188,7 @@ export class UserRouteDispatcher {
     filePath: string,
     routePath: string,
     request: Request,
+    pluginName: string | undefined,
   ): Promise<Response> {
     const mtimeMs = statSync(filePath).mtimeMs;
 
@@ -201,6 +210,7 @@ export class UserRouteDispatcher {
           method: request.method,
           url: request.url,
           headers,
+          pluginName,
         },
         body,
       );
@@ -303,11 +313,14 @@ export class UserRouteDispatcher {
     handler: RouteHandler,
     request: Request,
     routePath: string,
+    pluginName: string | undefined,
   ): Promise<Response> {
+    const invoke = () =>
+      handler(request, buildDeprecatedRouteContext(routePath));
     try {
       const result = await Promise.race([
         Promise.resolve(
-          handler(request, buildDeprecatedRouteContext(routePath)),
+          pluginName ? runInPluginContext(pluginName, invoke) : invoke(),
         ),
         new Promise<never>((_, reject) =>
           setTimeout(

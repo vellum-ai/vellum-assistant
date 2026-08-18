@@ -9,7 +9,8 @@
  *
  * ## Plugin scoping
  *
- * When a plugin is in context — its hook or tool is executing, tracked by
+ * When a plugin is in context — its hook, tool, or one of its own
+ * `/x/plugins/<name>/` routes is executing, tracked by
  * {@link ../plugins/plugin-execution-context.getCurrentPluginName} — resolution
  * is restricted: the plugin may only resolve credentials whose `field` equals
  * the plugin's own manifest name. A plugin named `acme` can therefore read
