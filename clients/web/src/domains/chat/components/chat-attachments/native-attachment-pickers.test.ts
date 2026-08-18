@@ -3,11 +3,11 @@
  *
  * Two things matter here. The bytes arrive as base64 rather than being read
  * from a URL, because a cross-origin read of the file scheme cannot work under
- * the cloud shells' pathful `server.url`. And they are only read once the size
- * has been checked: the plugin warns that reading a large file can crash the
- * app, and both pickers default to an unlimited selection, so asking for the
- * data up front would encode a whole video before anything knew whether it
- * could be attached.
+ * the cloud shells' pathful `server.url`. And they arrive a bounded slice at a
+ * time, only once the size has been checked: the plugin warns that reading a
+ * large file can crash the app, and a document pick takes an unlimited
+ * selection, so asking for the data up front would encode a whole video before
+ * anything knew whether it could be attached.
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -16,7 +16,25 @@ let lastPickMediaOptions: unknown = "unset";
 let lastPickFilesOptions: unknown = "unset";
 let mockFiles: unknown[] = [];
 const readPaths: string[] = [];
-let mockRead: (path: string) => string = () => "";
+/** The plain bytes a path holds; the mock below serves ranges out of it. */
+let mockContent: (path: string) => string = () => "";
+let mockReadError: (path: string) => Error | null = () => null;
+let mockPlatform = "web";
+
+// Spread rather than replaced: other modules in this import graph pull
+// `registerPlugin` out of the same package, and a mock standing in for the
+// whole of it would leave them without one.
+const capacitorCore = await import("@capacitor/core");
+
+mock.module("@capacitor/core", () => ({
+  ...capacitorCore,
+  Capacitor: {
+    ...capacitorCore.Capacitor,
+    getPlatform: () => mockPlatform,
+    isNativePlatform: () => mockPlatform !== "web",
+    isPluginAvailable: () => true,
+  },
+}));
 
 mock.module("@capawesome/capacitor-file-picker", () => ({
   FilePicker: {
@@ -37,9 +55,25 @@ let mockStat: (path: string) => number | Error = () => 0;
 
 mock.module("@capacitor/filesystem", () => ({
   Filesystem: {
-    readFile: ({ path }: { path: string }) => {
+    readFile: ({
+      path,
+      offset = 0,
+      length = -1,
+    }: {
+      path: string;
+      offset?: number;
+      length?: number;
+    }) => {
       readPaths.push(path);
-      return Promise.resolve({ data: mockRead(path) });
+      const failure = mockReadError(path);
+      if (failure) {
+        return Promise.reject(failure);
+      }
+      // One character stands in for one byte, which holds for the ASCII these
+      // tests use and keeps the slicing arithmetic the same as the real one's.
+      const whole = mockContent(path);
+      const end = length < 0 ? whole.length : offset + length;
+      return Promise.resolve({ data: btoa(whole.slice(offset, end)) });
     },
     deleteFile: ({ path }: { path: string }) => {
       deletedPaths.push(path);
@@ -55,7 +89,12 @@ mock.module("@capacitor/filesystem", () => ({
   },
 }));
 
-const { isPickerDismissal, pickFilesNative, pickMediaNative } =
+const {
+  READ_SLICE_BYTES,
+  isPickerDismissal,
+  pickFilesNative,
+  pickMediaNative,
+} =
   await import("@/domains/chat/components/chat-attachments/native-attachment-pickers");
 
 const MB = 1024 * 1024;
@@ -71,7 +110,9 @@ function reset() {
   statPaths.length = 0;
   deletedPaths.length = 0;
   mockStat = () => 0;
-  mockRead = () => "";
+  mockContent = () => "";
+  mockReadError = () => null;
+  mockPlatform = "web";
   lastPickMediaOptions = "unset";
   lastPickFilesOptions = "unset";
 }
@@ -90,7 +131,7 @@ describe("native pickers: reading", () => {
 
   test("rebuilds a file from the base64 it reads", async () => {
     reset();
-    mockRead = () => btoa("hello bytes");
+    mockContent = () => "hello bytes";
     mockFiles = [
       {
         path: "/tmp/shot.jpg",
@@ -111,11 +152,10 @@ describe("native pickers: reading", () => {
     expect(files[0]?.type).toBe("image/jpeg");
   });
 
-  test("keeps a zero-byte file, whose payload is an empty string", async () => {
-    // Empty is a valid payload, not a missing one: the file input this
-    // replaces produces a zero-byte File for the same pick.
+  test("keeps a zero-byte file, which needs no read at all", async () => {
+    // Empty is a valid payload, not a missing one, and a file input produces a
+    // zero-byte File for the same pick.
     reset();
-    mockRead = () => "";
     mockFiles = [
       {
         path: "/tmp/empty.txt",
@@ -129,6 +169,7 @@ describe("native pickers: reading", () => {
     await pickFilesNative(sink.onFile);
     const files = sink.files;
 
+    expect(readPaths).toEqual([]);
     expect(files).toHaveLength(1);
     expect(files[0]?.name).toBe("empty.txt");
     expect(files[0]?.size).toBe(0);
@@ -151,6 +192,94 @@ describe("native pickers: reading", () => {
 
     expect(readPaths).toEqual([]);
     expect(await files[0]?.text()).toBe("from blob");
+  });
+});
+
+describe("native pickers: slicing the read", () => {
+  test("reassembles a file that spans more than one slice", async () => {
+    // A whole-file read costs several times the file in transient memory at
+    // once, which is what a phone web view dies of. The join is the risk this
+    // covers: parts arriving out of order or a boundary landing mid-byte would
+    // corrupt an upload silently.
+    reset();
+    const tail = "boundary";
+    mockContent = () => "a".repeat(READ_SLICE_BYTES) + tail;
+    mockFiles = [
+      {
+        path: "/tmp/long.bin",
+        name: "long.bin",
+        mimeType: "application/octet-stream",
+        size: READ_SLICE_BYTES + tail.length,
+      },
+    ];
+
+    const sink = collector();
+    const { skipped } = await pickFilesNative(sink.onFile);
+    const file = sink.files[0];
+
+    expect(skipped).toEqual([]);
+    expect(readPaths).toEqual(["/tmp/long.bin", "/tmp/long.bin"]);
+    expect(file?.size).toBe(READ_SLICE_BYTES + tail.length);
+    expect((await (file as File).text()).endsWith(tail)).toBe(true);
+  });
+
+  test("stops at the first short answer rather than the declared size", async () => {
+    // A provider that overstates a size would otherwise keep asking past the
+    // end of the file for every slice the number claims is left.
+    reset();
+    mockContent = () => "short";
+    mockFiles = [
+      {
+        path: "/tmp/overstated.bin",
+        name: "overstated.bin",
+        mimeType: "application/octet-stream",
+        size: 30 * MB,
+      },
+    ];
+
+    const sink = collector();
+    await pickFilesNative(sink.onFile);
+
+    expect(readPaths).toEqual(["/tmp/overstated.bin"]);
+    expect(sink.files[0]?.size).toBe(5);
+  });
+});
+
+describe("native pickers: selection limit", () => {
+  test("bounds what an iOS media pick may copy before it resolves", async () => {
+    // iOS copies every selected representation into Caches before resolving,
+    // so nothing here can refuse a byte until the whole selection is on disk.
+    reset();
+    mockPlatform = "ios";
+    mockFiles = [];
+
+    await pickMediaNative(() => {});
+
+    expect(lastPickMediaOptions).toEqual({ limit: 10 });
+  });
+
+  test("leaves an Android media pick unbounded", async () => {
+    // Android reads any non-zero limit as single-select, and hands back
+    // provider URIs rather than copies, so there is nothing to bound.
+    reset();
+    mockPlatform = "android";
+    mockFiles = [];
+
+    await pickMediaNative(() => {});
+
+    expect(lastPickMediaOptions).toBeUndefined();
+  });
+
+  test("leaves a document pick unbounded on iOS too", async () => {
+    // `allowsMultipleSelection` is `limit == 0` there, so any bound at all
+    // would cost multi-select outright.
+    reset();
+    mockPlatform = "ios";
+    mockFiles = [];
+
+    await pickFilesNative(() => {});
+
+    expect(lastPickFilesOptions).toBeUndefined();
   });
 });
 
@@ -180,7 +309,7 @@ describe("native pickers: size limit", () => {
     // `composer-store` accepts a larger source for an image it will downscale,
     // so refusing it here would be stricter than the composer itself.
     reset();
-    mockRead = () => btoa("jpeg bytes");
+    mockContent = () => "jpeg bytes";
     mockFiles = [
       {
         path: "/tmp/big.jpg",
@@ -200,7 +329,7 @@ describe("native pickers: size limit", () => {
 
   test("reads the rest of a selection when one entry is refused", async () => {
     reset();
-    mockRead = () => btoa("ok");
+    mockContent = () => "ok";
     mockFiles = [
       {
         path: "/tmp/huge.mov",
@@ -247,16 +376,15 @@ describe("native pickers: bounding what is held at once", () => {
     // web view exactly as one huge file would. The order here is the point:
     // each read is followed by its delivery, not by the next read.
     reset();
-    mockRead = () => btoa("x");
     mockFiles = [
       { path: "/a.txt", name: "a.txt", mimeType: "text/plain", size: 1 },
       { path: "/b.txt", name: "b.txt", mimeType: "text/plain", size: 1 },
     ];
 
     const events: string[] = [];
-    mockRead = (path: string) => {
+    mockContent = (path: string) => {
       events.push(`read ${path}`);
-      return btoa("x");
+      return "x";
     };
 
     await pickFilesNative((file) => events.push(`deliver ${file.name}`));
@@ -298,7 +426,6 @@ describe("native pickers: unknown sizes", () => {
   test("still attaches a file that is genuinely empty", async () => {
     reset();
     mockStat = () => 0;
-    mockRead = () => "";
     mockFiles = [
       {
         path: "/empty.txt",
@@ -344,7 +471,7 @@ describe("native pickers: aggregate budget", () => {
     // not bound a multi-select, because the composer holds each one it has
     // been handed while its upload runs.
     reset();
-    mockRead = () => btoa("x");
+    mockContent = () => "x";
     mockFiles = [
       {
         path: "/1.bin",
@@ -381,7 +508,7 @@ describe("native pickers: missing metadata", () => {
     // Android leaves this null when the provider does not publish one, and the
     // resize check reads it as a string.
     reset();
-    mockRead = () => btoa("bytes");
+    mockContent = () => "bytes";
     mockFiles = [
       { path: "/nomime.jpg", name: "nomime.jpg", mimeType: null, size: 10 },
     ];
@@ -396,9 +523,9 @@ describe("native pickers: missing metadata", () => {
 
   test("still lets a large image through on its extension alone", async () => {
     // Past the flat cap and with no mime type to go on, so only the filename
-    // can identify it as resizable. The input path this replaces accepts it.
+    // can identify it as resizable, which is what a file input goes on too.
     reset();
-    mockRead = () => btoa("bytes");
+    mockContent = () => "bytes";
     mockFiles = [
       { path: "/big.jpg", name: "big.jpg", mimeType: null, size: 80 * MB },
     ];
@@ -417,7 +544,7 @@ describe("native pickers: temporary copies", () => {
     // clears it up, so a path handed back there is ours to remove once the
     // bytes are in memory.
     reset();
-    mockRead = () => btoa("bytes");
+    mockContent = () => "bytes";
     mockFiles = [
       {
         path: "/Caches/abc/photo.jpg",
@@ -454,11 +581,43 @@ describe("native pickers: temporary copies", () => {
     expect(deletedPaths).toEqual(["/Caches/def/huge.mov"]);
   });
 
+  test("drops the copies it never reached when a read fails", async () => {
+    // The picker had already copied the whole selection before any of this
+    // ran, so an entry the loop never visits still has a copy to its name.
+    reset();
+    mockContent = () => "bytes";
+    mockReadError = (path: string) =>
+      path === "/Caches/ghi/first.jpg" ? new Error("read failed") : null;
+    mockFiles = [
+      {
+        path: "/Caches/ghi/first.jpg",
+        name: "first.jpg",
+        mimeType: "image/jpeg",
+        size: 10,
+      },
+      {
+        path: "/Caches/ghi/second.jpg",
+        name: "second.jpg",
+        mimeType: "image/jpeg",
+        size: 10,
+      },
+    ];
+
+    const sink = collector();
+    await expect(pickMediaNative(sink.onFile)).rejects.toThrow("read failed");
+
+    expect(sink.files).toEqual([]);
+    expect(deletedPaths).toEqual([
+      "/Caches/ghi/first.jpg",
+      "/Caches/ghi/second.jpg",
+    ]);
+  });
+
   test("leaves an Android content URI alone", async () => {
     // That names the provider's own document rather than a copy, so deleting
     // it would delete the user's file.
     reset();
-    mockRead = () => btoa("bytes");
+    mockContent = () => "bytes";
     mockFiles = [
       {
         path: "content://downloads/42",
