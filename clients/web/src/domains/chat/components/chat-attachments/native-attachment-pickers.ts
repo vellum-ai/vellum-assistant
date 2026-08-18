@@ -217,10 +217,17 @@ const MAX_PICK_TOTAL_BYTES = IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES;
  * The most one media pick may hand back.
  *
  * iOS copies every selected representation into the app's Caches before it
- * resolves, so an unlimited selection lets the picker write an unbounded
- * amount to disk before any check here can refuse a byte of it. This ceiling
- * is a plain choice rather than something derived from another limit: it sits
- * well above what a pick normally holds and far below what fills a sandbox.
+ * resolves, so an unlimited selection lets the picker write to disk without
+ * any check here refusing a byte of it. This ceiling is a plain choice rather
+ * than something derived from another limit: it sits well above what a pick
+ * normally holds and far below what fills a sandbox.
+ *
+ * It bounds the count and not the bytes, which is as far as this layer
+ * reaches. The plugin takes a selection limit and nothing about size, and it
+ * loads each selection to a temporary file and copies that into a directory
+ * of its own before resolving, so a handful of large videos still land twice
+ * over in full before any limit below sees them. Bounding that would take a
+ * budget in the copy itself, which is the plugin's to offer.
  *
  * iOS media only. `PHPickerConfiguration.selectionLimit` takes the number as
  * given, while the document picker and both Android pickers read any non-zero
