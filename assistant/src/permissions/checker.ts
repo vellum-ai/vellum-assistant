@@ -430,10 +430,8 @@ interface FileToolResolution {
 
 /**
  * Resolve the security-sensitive path(s) of a file tool invocation, including
- * symlink canonicalization. Shared by the IPC param builder and the risk cache
- * key so both observe the same filesystem state — file risk now depends on
- * symlink targets, so the cache must key on the canonicalized path, not just
- * the raw tool input.
+ * symlink canonicalization, for the IPC params: file risk depends on the
+ * symlink target, not the raw tool input.
  */
 function resolveFileToolPaths(
   toolName: string,
@@ -641,11 +639,9 @@ function riskStringToLevel(risk: string): RiskLevel {
  * with symlink resolution. The gateway's lexical check cannot follow
  * symlinks (no filesystem access), so the daemon resolves each path arg
  * through {@link isPathWithinWorkspaceRoot} (which uses realpathSync) and
- * revokes auto-approve if any escapes the workspace boundary.
- *
- * Called both on fresh gateway results and on cache hits, because symlink
- * targets can change between invocations — a path that was safe on the
- * first call may escape on the second if the symlink was retargeted.
+ * revokes auto-approve if any escapes the workspace boundary. Runs on every
+ * classification, so a symlink retargeted between two invocations of the
+ * same command is caught on the second.
  */
 function applyBashSymlinkEscapeCheck(
   result: RiskClassificationWithMeta,
