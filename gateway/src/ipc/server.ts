@@ -93,9 +93,8 @@ export type IpcRoute = {
  * a cast or a second `schema.parse()` of data the server just validated. This
  * helper does that narrowing once, where the guarantee is made.
  *
- * New schema-validated routes should use this. The routes that still parse
- * their params a second time inside the handler are migrating to it
- * (LUM-3335).
+ * New schema-validated routes use this. Older routes still parse their params
+ * a second time inside the handler, which is redundant but harmless.
  */
 export function ipcRoute<S extends z.ZodType>(route: {
   method: string;

@@ -53,9 +53,9 @@ function friendlyHostname(url: URL): string {
  *
  * The URL is normalized through the shared canonicalizer
  * (`@vellumai/service-contracts/url-normalization`), so the saved pattern has
- * one spelling rather than whichever the model wrote; lookup does not
- * normalize yet, so a saved rule matches only an invocation already in
- * canonical form. Reconciling the two is LUM-3337.
+ * one spelling rather than whichever the model wrote. Lookup does not
+ * normalize, so a saved rule matches only an invocation already written in
+ * canonical form.
  */
 function buildWebAllowlistOptions(
   toolName: string,
