@@ -78,22 +78,6 @@ describe("resolveBootstrappedConversationId", () => {
     ).toBe("old-visible");
   });
 
-  test("does not implicitly resume a stored private legacy row", () => {
-    expect(
-      resolveBootstrappedConversationId({
-        queryParamKey: null,
-        currentConversationId: null,
-        currentAssistantId: null,
-        nextAssistantId: "asst-1",
-        storedConversation: {
-          conversationId: "private-row",
-          conversationType: "private",
-        },
-        defaultConversationId: "new-latest",
-      }),
-    ).toBe("new-latest");
-  });
-
   test("does not implicitly resume a stored background conversation", () => {
     expect(
       resolveBootstrappedConversationId({

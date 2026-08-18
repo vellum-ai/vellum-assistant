@@ -714,7 +714,8 @@ export const ROUTES: RouteDefinition[] = [
     },
     pathParams: [{ name: "id", type: "uuid" }],
     summary: "Get conversation detail",
-    description: "Retrieve a single conversation with full metadata.",
+    description:
+      "Retrieve a single conversation with full metadata. Rows the listing hides by type (legacy private rows) are not found here either.",
     tags: ["conversations"],
     responseBody: conversationDetailResponseSchema,
     handler: handleGetConversation,

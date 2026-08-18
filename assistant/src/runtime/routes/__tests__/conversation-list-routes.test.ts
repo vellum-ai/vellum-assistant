@@ -32,7 +32,7 @@ import {
   conversations,
 } from "../../../persistence/schema/index.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../conversation-list-routes.js";
-import { BadRequestError } from "../errors.js";
+import { BadRequestError, NotFoundError } from "../errors.js";
 import type { RouteDefinition } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -242,6 +242,42 @@ describe("GET /v1/conversations — conversationType", () => {
     // silently falling back to the foreground list
     expect(() => invoke({ conversationType: "private" })).toThrow(
       BadRequestError,
+    );
+  });
+});
+
+describe("GET /v1/conversations/:id", () => {
+  const getHandler = findHandler(CONVERSATION_LIST_ROUTES, "getConversation");
+
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  test("serves a listed conversation", () => {
+    const conv = createConversation({ title: "listed" });
+
+    const detail = getHandler({ pathParams: { id: conv.id } }) as {
+      conversation: { id: string; conversationType: string };
+    };
+
+    expect(detail.conversation.id).toBe(conv.id);
+    expect(detail.conversation.conversationType).toBe("standard");
+  });
+
+  test("does not serve a legacy private row the listing hides", () => {
+    // "private" is not a creatable type (legacy rows only); every listing
+    // hides it by type and the wire type collapses it to "standard", so a
+    // client holding only a stale id must get the same answer the listing
+    // gives: not there.
+    const conv = createConversation({ title: "hidden" });
+    rawRun(
+      "test:makePrivate",
+      "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
+      conv.id,
+    );
+
+    expect(() => getHandler({ pathParams: { id: conv.id } })).toThrow(
+      NotFoundError,
     );
   });
 });

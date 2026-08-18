@@ -227,6 +227,9 @@ describe("useConversationLoader cold-boot landing", () => {
   });
 
   test("lands on the newest foreground conversation when the stored one is gone", async () => {
+    /* "Gone" is the daemon's answer for a deleted row and for a legacy
+       private row the listing hides (the by-id route declines those; the
+       wire type could not carry "private" anyway). */
     saveLastViewedConversationId(ASSISTANT_ID, "deleted");
     byIdRow = null;
     listRows = [{ id: "newest" }, { id: "older" }];
@@ -353,24 +356,6 @@ describe("useConversationLoader cold-boot landing", () => {
 
     expect(await landedOn()).toContain("old-visible");
     expect(requests).toHaveLength(2);
-  });
-
-  test("does not resume a stored private legacy row", async () => {
-    /* The standard listing excludes private rows, so the list scan never
-       resumed one; the by-id read returns them and must not either. */
-    saveLastViewedConversationId(ASSISTANT_ID, "private-row");
-    byIdRow = {
-      id: "private-row",
-      /* A legacy value the daemon's listing predicates exclude and the
-         current wire enum no longer names; the client type is a string. */
-      conversationType:
-        "private" as unknown as RawConversationFixture["conversationType"],
-    };
-    listRows = [{ id: "newest" }];
-
-    renderColdBoot(new QueryClient());
-
-    expect(await landedOn()).toContain("newest");
   });
 
   test("does not resume a stored conversation that has since been archived", async () => {
