@@ -10,7 +10,7 @@
  * "Don't show again" persists permanently and is never auto-cleared.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useNavigate } from "react-router";
 
@@ -26,6 +26,20 @@ import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 
 const DISMISS_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+
+function readCooldownActive(dismissedUntilKey: string | null): boolean {
+  if (!dismissedUntilKey) {
+    return false;
+  }
+  return Date.now() < getLocalNumber(dismissedUntilKey, 0);
+}
+
+function readSuppressed(suppressedKey: string | null): boolean {
+  if (!suppressedKey) {
+    return false;
+  }
+  return getLocalBool(suppressedKey, false);
+}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -59,18 +73,23 @@ export function ResourcePressureBannerSlot({
 
   // Evaluated lazily at mount; a cooldown that expires while the slot stays
   // mounted is picked up on the next mount, which is fine for a 7-day window.
-  const [cooldownActive, setCooldownActive] = useState(() => {
-    if (!dismissedUntilKey) {
-      return false;
-    }
-    return Date.now() < getLocalNumber(dismissedUntilKey, 0);
-  });
-  const [suppressed, setSuppressed] = useState(() => {
-    if (!suppressedKey) {
-      return false;
-    }
-    return getLocalBool(suppressedKey, false);
-  });
+  const [cooldownActive, setCooldownActive] = useState(() =>
+    readCooldownActive(dismissedUntilKey),
+  );
+  const [suppressed, setSuppressed] = useState(() =>
+    readSuppressed(suppressedKey),
+  );
+
+  // The slot stays mounted across assistant switches, and the first render
+  // can happen before the assistant id resolves. Re-seed both flags from
+  // storage whenever the keys change so one assistant's in-memory dismissal
+  // never bleeds into the next and a late-resolving id picks up its stored
+  // suppress / cooldown state. (`Date.now()` is impure, so the re-read lives
+  // in an effect rather than in render.)
+  useEffect(() => {
+    setCooldownActive(readCooldownActive(dismissedUntilKey));
+    setSuppressed(readSuppressed(suppressedKey));
+  }, [dismissedUntilKey, suppressedKey]);
 
   const dismiss = useCallback(
     (permanent: boolean) => {
@@ -96,15 +115,20 @@ export function ResourcePressureBannerSlot({
     return null;
   }
 
+  // The spacer lives with the banner, not around the slot: a wrapper on the
+  // caller's side outlives every `return null` above and leaves an empty
+  // element in the composer's banner stack, which reads there as a banner.
   return (
-    <ResourcePressureBanner
-      status={resourcePressure.status}
-      onDismiss={dismiss}
-      onUpgrade={
-        assistantStateKind === "active" && !isNativeAndroid
-          ? () => void navigate(routes.plans)
-          : null
-      }
-    />
+    <div className="mb-2">
+      <ResourcePressureBanner
+        status={resourcePressure.status}
+        onDismiss={dismiss}
+        onUpgrade={
+          assistantStateKind === "active" && !isNativeAndroid
+            ? () => void navigate(routes.plans)
+            : null
+        }
+      />
+    </div>
   );
 }
