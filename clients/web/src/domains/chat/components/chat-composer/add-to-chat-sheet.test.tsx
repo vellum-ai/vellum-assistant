@@ -47,20 +47,17 @@ mock.module("@vellumai/design-library", () => ({
   },
 }));
 
-// The Capacitor shell, where the photo and document rows leave the file input
-// behind for the native pickers. Defaults to the browser, so every existing
-// case still exercises the input path.
-let mockIsNativeMobile = false;
-mock.module("@/runtime/platform-detection", () => ({
-  isNativeMobile: () => mockIsNativeMobile,
-}));
-
-let mockPickPhotos: () => Promise<File[]> = async () => [];
+// A shell that can actually reach the native pickers: both a Capacitor
+// runtime AND a build that linked the plugin. Defaults to false, so every
+// existing case still exercises the file input.
+let mockNativePickersAvailable = false;
+let mockPickMedia: () => Promise<File[]> = async () => [];
 let mockPickFiles: () => Promise<File[]> = async () => [];
 mock.module(
   "@/domains/chat/components/chat-attachments/native-attachment-pickers",
   () => ({
-    pickPhotosNative: () => mockPickPhotos(),
+    nativeAttachmentPickersAvailable: () => mockNativePickersAvailable,
+    pickMediaNative: () => mockPickMedia(),
     pickFilesNative: () => mockPickFiles(),
   }),
 );
@@ -78,8 +75,8 @@ afterAll(() => {
 });
 afterEach(() => {
   cleanup();
-  mockIsNativeMobile = false;
-  mockPickPhotos = async () => [];
+  mockNativePickersAvailable = false;
+  mockPickMedia = async () => [];
   mockPickFiles = async () => [];
   requestComposerFocusSpy.mockClear();
 });
@@ -173,9 +170,9 @@ describe("AddToChatSheet", () => {
 describe("AddToChatSheet: native pickers", () => {
   test("the photo row opens the photo library and attaches what it returns", async () => {
     // GIVEN a shell whose photo library hands back one image
-    mockIsNativeMobile = true;
+    mockNativePickersAvailable = true;
     const picked = new File(["x"], "photo-1.jpg", { type: "image/jpeg" });
-    mockPickPhotos = async () => [picked];
+    mockPickMedia = async () => [picked];
     const { onAttachFiles } = renderSheet();
 
     // WHEN the photo row is tapped
@@ -192,7 +189,7 @@ describe("AddToChatSheet: native pickers", () => {
   test("a cancelled pick still hands focus back to the composer", async () => {
     // GIVEN a shell whose picker rejects, which is how both plugins report a
     // dismissal
-    mockIsNativeMobile = true;
+    mockNativePickersAvailable = true;
     mockPickFiles = async () => {
       throw new Error("User cancelled");
     };
@@ -212,11 +209,22 @@ describe("AddToChatSheet: native pickers", () => {
     expect(requestComposerFocusSpy).toHaveBeenCalled();
   });
 
-  test("a browser keeps the file input on both rows", () => {
-    // GIVEN the same sheet outside a shell
-    const { container } = renderSheet();
+  test("a shell without the plugin keeps the file input on both rows", async () => {
+    // GIVEN a build that predates the plugin being linked, which is what a
+    // remotely served bundle reaches on an app the user has not updated
+    mockNativePickersAvailable = false;
+    mockPickMedia = async () => {
+      throw new Error("pickMedia is not implemented on ios");
+    };
+    const { container, onOpenChange } = renderSheet();
 
     // THEN the hidden inputs are still what the rows drive
     expect(container.querySelectorAll('input[type="file"]').length).toBe(3);
+
+    // AND tapping the photo row still opens one, rather than reaching a
+    // rejecting native call and silently doing nothing
+    fireEvent.click(screen.getByText("Find in Gallery"));
+    await Promise.resolve();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

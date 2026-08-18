@@ -9,12 +9,12 @@ import {
 
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import {
+  nativeAttachmentPickersAvailable,
   pickFilesNative,
-  pickPhotosNative,
+  pickMediaNative,
 } from "@/domains/chat/components/chat-attachments/native-attachment-pickers";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
 import { useTranslation } from "@/i18n";
-import { isNativeMobile } from "@/runtime/platform-detection";
 
 interface AddToChatRowProps {
   icon: LucideIcon;
@@ -118,9 +118,11 @@ export function AddToChatSheet({
     };
 
   // Read once per render rather than per row, and deliberately not a hook:
-  // the shell a session runs in cannot change mid-session, and the sheet is
-  // already mounted for the session by the time a row can be tapped.
-  const native = isNativeMobile();
+  // neither the shell a session runs in nor the plugins its build links can
+  // change mid-session, and the sheet is already mounted for the session by
+  // the time a row can be tapped. False on a shell whose build predates the
+  // plugins, where the rows keep the file input rather than doing nothing.
+  const native = nativeAttachmentPickersAvailable();
 
   return (
     <>
@@ -164,7 +166,7 @@ export function AddToChatSheet({
               label={t("addToChatSheet.gallery")}
               onSelect={
                 native
-                  ? closeThenPickNative(pickPhotosNative)
+                  ? closeThenPickNative(pickMediaNative)
                   : closeThenPick(gallery.openPicker)
               }
             />
