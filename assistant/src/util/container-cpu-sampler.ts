@@ -1,0 +1,147 @@
+/**
+ * Rolling container CPU sampler.
+ *
+ * Tracks CPU usage over a rolling window so consumers (e.g. /v1/health) report
+ * near-real-time utilization instead of a lifetime average (total CPU time /
+ * total uptime). The sampler starts on module import and runs on an unref'd
+ * interval, so it never prevents process exit.
+ */
+
+import { readFileSync } from "node:fs";
+
+import { getIsPlatform } from "../config/env-registry.js";
+import { getContainerCpuCores } from "./cgroup-cpu.js";
+
+/**
+ * Read the container's CPU usage from cgroup accounting files.
+ *
+ * Returns total CPU microseconds consumed by the container since boot.
+ * We use the delta between two samples to compute percentage.
+ */
+function getContainerCpuUsageUs(): number | null {
+  // cgroups v2: cpu.stat has a "usage_usec" line.
+  try {
+    const stat = readFileSync("/sys/fs/cgroup/cpu.stat", "utf-8");
+    for (const line of stat.split("\n")) {
+      if (line.startsWith("usage_usec")) {
+        const val = parseInt(line.split(/\s+/)[1], 10);
+        if (!isNaN(val) && val > 0) {
+          return val;
+        }
+      }
+    }
+  } catch {
+    /* not available */
+  }
+
+  // cgroups v1: cpuacct.usage is in nanoseconds.
+  try {
+    const ns = parseInt(
+      readFileSync("/sys/fs/cgroup/cpuacct/cpuacct.usage", "utf-8").trim(),
+      10,
+    );
+    if (!isNaN(ns) && ns > 0) {
+      return ns / 1000;
+    } // convert ns → µs
+  } catch {
+    /* not available */
+  }
+
+  return null;
+}
+
+const CPU_SAMPLE_INTERVAL_MS = 5_000;
+
+/**
+ * Sample this process's cumulative CPU time, returning null when the
+ * underlying syscall fails.
+ */
+function sampleProcessCpuUsage(): NodeJS.CpuUsage | null {
+  try {
+    return process.cpuUsage();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Convert a CPU-time delta into a percent of the container's full allocation,
+ * rounded to 2 decimal places. Callers must guard `numCores > 0` and
+ * `elapsedMs > 0`; a zero divisor yields a non-finite result.
+ */
+export function computeCpuPercent(
+  deltaCpuUs: number,
+  elapsedMs: number,
+  numCores: number,
+): number {
+  const deltaCpuMs = deltaCpuUs / 1000;
+  return Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
+}
+
+let _lastProcessCpuUsage: NodeJS.CpuUsage | null = sampleProcessCpuUsage();
+let _lastCgroupCpuUs: number | null = getContainerCpuUsageUs();
+let _lastCpuTime: number = Date.now();
+let _cachedCpuPercent = 0;
+
+// Kick off the background sampler. unref() so it never prevents process exit.
+setInterval(() => {
+  const now = Date.now();
+  const elapsedMs = now - _lastCpuTime;
+  if (elapsedMs <= 0) {
+    return;
+  }
+
+  const numCores = getContainerCpuCores();
+  if (numCores <= 0) {
+    _lastCpuTime = now;
+    return;
+  }
+
+  // Always sample process-level CPU so the baseline stays fresh. This
+  // prevents a spike if the platform cgroup path later falls back to
+  // process.cpuUsage() after cgroup stats were previously available.
+  const newProcessUsage = sampleProcessCpuUsage();
+  const processDeltaUs =
+    newProcessUsage !== null && _lastProcessCpuUsage !== null
+      ? newProcessUsage.user -
+        _lastProcessCpuUsage.user +
+        (newProcessUsage.system - _lastProcessCpuUsage.system)
+      : null;
+  if (newProcessUsage !== null) {
+    _lastProcessCpuUsage = newProcessUsage;
+  }
+
+  if (getIsPlatform()) {
+    // In platform mode, prefer cgroup-level CPU usage so we see the full
+    // container footprint, not just this process.
+    const cgroupUs = getContainerCpuUsageUs();
+    if (cgroupUs !== null && _lastCgroupCpuUs !== null) {
+      _cachedCpuPercent = computeCpuPercent(
+        cgroupUs - _lastCgroupCpuUs,
+        elapsedMs,
+        numCores,
+      );
+    } else if (processDeltaUs !== null) {
+      // cgroup CPU stats unavailable (e.g. gVisor) – fall back to process-level.
+      _cachedCpuPercent = computeCpuPercent(
+        processDeltaUs,
+        elapsedMs,
+        numCores,
+      );
+    }
+    _lastCgroupCpuUs = cgroupUs;
+  } else if (processDeltaUs !== null) {
+    // Non-platform: use process.cpuUsage() (accurate for single-process mode).
+    _cachedCpuPercent = computeCpuPercent(processDeltaUs, elapsedMs, numCores);
+  }
+
+  _lastCpuTime = now;
+}, CPU_SAMPLE_INTERVAL_MS).unref();
+
+/**
+ * Near-real-time CPU utilization as a percent of the container's full
+ * allocation, refreshed every {@link CPU_SAMPLE_INTERVAL_MS}.
+ */
+export function getCachedContainerCpuPercent(): number {
+  return _cachedCpuPercent;
+}

@@ -19,6 +19,7 @@ import {
   getContainerMemoryLimitBytes,
   getContainerMemoryUsageBytes,
 } from "../../util/cgroup-memory.js";
+import { getCachedContainerCpuPercent } from "../../util/container-cpu-sampler.js";
 import { getDiskUsageInfo } from "../../util/disk-usage.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
@@ -93,128 +94,11 @@ interface CpuInfo {
   maxCores: number;
 }
 
-/**
- * Read the container's CPU usage from cgroup accounting files.
- *
- * Returns total CPU microseconds consumed by the container since boot.
- * We use the delta between two samples to compute percentage.
- */
-function getContainerCpuUsageUs(): number | null {
-  // cgroups v2: cpu.stat has a "usage_usec" line.
-  try {
-    const stat = readFileSync("/sys/fs/cgroup/cpu.stat", "utf-8");
-    for (const line of stat.split("\n")) {
-      if (line.startsWith("usage_usec")) {
-        const val = parseInt(line.split(/\s+/)[1], 10);
-        if (!isNaN(val) && val > 0) {
-          return val;
-        }
-      }
-    }
-  } catch {
-    /* not available */
-  }
-
-  // cgroups v1: cpuacct.usage is in nanoseconds.
-  try {
-    const ns = parseInt(
-      readFileSync("/sys/fs/cgroup/cpuacct/cpuacct.usage", "utf-8").trim(),
-      10,
-    );
-    if (!isNaN(ns) && ns > 0) {
-      return ns / 1000;
-    } // convert ns → µs
-  } catch {
-    /* not available */
-  }
-
-  return null;
-}
-
-// Track CPU usage over a rolling window so /v1/health reports near-real-time
-// utilization instead of a lifetime average (total CPU time / total uptime).
-const CPU_SAMPLE_INTERVAL_MS = 5_000;
-
-/**
- * Sample this process's cumulative CPU time, returning null when the
- * underlying syscall fails (mirroring {@link sampleProcessRssBytes}).
- */
-function sampleProcessCpuUsage(): NodeJS.CpuUsage | null {
-  try {
-    return process.cpuUsage();
-  } catch {
-    return null;
-  }
-}
-
-let _lastProcessCpuUsage: NodeJS.CpuUsage | null = sampleProcessCpuUsage();
-let _lastCgroupCpuUs: number | null = getContainerCpuUsageUs();
-let _lastCpuTime: number = Date.now();
-let _cachedCpuPercent = 0;
-
-// Kick off the background sampler. unref() so it never prevents process exit.
-setInterval(() => {
-  const now = Date.now();
-  const elapsedMs = now - _lastCpuTime;
-  if (elapsedMs <= 0) {
-    return;
-  }
-
-  const numCores = getContainerCpuCores();
-  if (numCores <= 0) {
-    _lastCpuTime = now;
-    return;
-  }
-
-  // Always sample process-level CPU so the baseline stays fresh. This
-  // prevents a spike if the platform cgroup path later falls back to
-  // process.cpuUsage() after cgroup stats were previously available.
-  const newProcessUsage = sampleProcessCpuUsage();
-  const processDeltaUs =
-    newProcessUsage !== null && _lastProcessCpuUsage !== null
-      ? newProcessUsage.user -
-        _lastProcessCpuUsage.user +
-        (newProcessUsage.system - _lastProcessCpuUsage.system)
-      : null;
-  if (newProcessUsage !== null) {
-    _lastProcessCpuUsage = newProcessUsage;
-  }
-
-  if (getIsPlatform()) {
-    // In platform mode, prefer cgroup-level CPU usage so we see the full
-    // container footprint, not just this process.
-    const cgroupUs = getContainerCpuUsageUs();
-    if (cgroupUs !== null && _lastCgroupCpuUs !== null) {
-      const deltaCpuUs = cgroupUs - _lastCgroupCpuUs;
-      const deltaCpuMs = deltaCpuUs / 1000;
-      _cachedCpuPercent =
-        Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
-    } else if (processDeltaUs !== null) {
-      // cgroup CPU stats unavailable (e.g. gVisor) – fall back to process-level.
-      const deltaCpuMs = processDeltaUs / 1000;
-      _cachedCpuPercent =
-        Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
-    }
-    _lastCgroupCpuUs = cgroupUs;
-  } else if (processDeltaUs !== null) {
-    // Non-platform: use process.cpuUsage() (accurate for single-process mode).
-    const deltaCpuMs = processDeltaUs / 1000;
-    _cachedCpuPercent =
-      Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
-  }
-
-  _lastCpuTime = now;
-}, CPU_SAMPLE_INTERVAL_MS).unref();
-
 function getCpuInfo(): CpuInfo {
-  try {
-    return {
-      currentPercent: _cachedCpuPercent,
-      maxCores: Math.ceil(getContainerCpuCores()),
-    };
-  } catch {
-    return { currentPercent: 0, maxCores: 0 };
-  }
+  return {
+    currentPercent: getCachedContainerCpuPercent(),
+    maxCores: Math.ceil(getContainerCpuCores()),
+  };
 }
 
 /**
