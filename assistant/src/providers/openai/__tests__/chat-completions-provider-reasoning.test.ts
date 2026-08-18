@@ -8,42 +8,11 @@ import {
   OpenAIChatCompletionsProvider,
   type OpenAIChatCompletionsProviderOptions,
 } from "../chat-completions-provider.js";
-
-type ReasoningDetail = {
-  type?: string;
-  summary?: string | null;
-  text?: string | null;
-};
-
-type MockChunkDelta = {
-  content?: string | null;
-  reasoning?: string | null;
-  reasoning_content?: string | null;
-  reasoning_details?: ReasoningDetail[] | null;
-};
-
-type MockChunk = {
-  choices: Array<{ delta: MockChunkDelta; finish_reason?: string | null }>;
-  model?: string;
-  usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    prompt_tokens_details?: {
-      cached_tokens?: number;
-      cache_write_tokens?: number;
-    };
-  };
-};
-
-function makeStream(chunks: MockChunk[]): AsyncIterable<MockChunk> {
-  return {
-    async *[Symbol.asyncIterator]() {
-      for (const c of chunks) {
-        yield c;
-      }
-    },
-  };
-}
+import {
+  type MockChunk,
+  rejection,
+  stubClient,
+} from "./chat-completions-stub.js";
 
 function stubProvider(
   chunks: MockChunk[],
@@ -58,19 +27,7 @@ function stubProvider(
     "test-model",
     options,
   );
-  const requests: unknown[] = [];
-  // Swap the SDK client for a stub whose chat.completions.create returns our
-  // canned async iterable.
-  (provider as unknown as { client: unknown }).client = {
-    chat: {
-      completions: {
-        create: async (params: unknown) => {
-          requests.push(params);
-          return makeStream(chunks);
-        },
-      },
-    },
-  };
+  const requests = stubClient(provider, chunks);
   const events: Array<{ type: string; thinking?: string; text?: string }> = [];
   (provider as unknown as { __events: typeof events }).__events = events;
   return { provider, events, requests };
@@ -542,23 +499,7 @@ function stubProviderWithErrors(
   chunks: MockChunk[],
 ): { provider: OpenAIChatCompletionsProvider; requests: unknown[] } {
   const provider = new OpenAIChatCompletionsProvider("test-key", "test-model");
-  const requests: unknown[] = [];
-  const pending = [...errors];
-  (provider as unknown as { client: unknown }).client = {
-    chat: {
-      completions: {
-        create: async (params: unknown) => {
-          // Snapshot: the fallback mutates `params` between attempts.
-          requests.push(JSON.parse(JSON.stringify(params)));
-          const error = pending.shift();
-          if (error !== undefined) {
-            throw error;
-          }
-          return makeStream(chunks);
-        },
-      },
-    },
-  };
+  const requests = stubClient(provider, chunks, errors);
   return { provider, requests };
 }
 
@@ -568,10 +509,6 @@ const OK_CHUNKS: MockChunk[] = [
     usage: { prompt_tokens: 1, completion_tokens: 1 },
   },
 ];
-
-function rejection(message: string, status = 400): Error {
-  return Object.assign(new Error(message), { status });
-}
 
 describe("reasoning opt-out rejection fallback", () => {
   test("retries once without reasoning params when a model rejects the explicit opt-out", async () => {
@@ -765,7 +702,9 @@ describe("thinking-mode tool_choice rejection fallback", () => {
 
     expect(requests).toHaveLength(2);
     expect((requests[0] as { tool_choice?: string }).tool_choice).toBe("none");
-    expect((requests[1] as { tool_choice?: string }).tool_choice).toBeUndefined();
+    expect(
+      (requests[1] as { tool_choice?: string }).tool_choice,
+    ).toBeUndefined();
   });
 
   test("does not retry a 4xx that does not name tool_choice", async () => {

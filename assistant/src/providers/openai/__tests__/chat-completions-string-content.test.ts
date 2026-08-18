@@ -1,57 +1,24 @@
 import { describe, expect, test } from "bun:test";
 
 import { OpenAIChatCompletionsProvider } from "../chat-completions-provider.js";
-
-type MockChunk = {
-  choices: Array<{
-    delta: { content?: string | null };
-    finish_reason?: string | null;
-  }>;
-  usage?: { prompt_tokens: number; completion_tokens: number };
-};
-
-function makeStream(chunks: MockChunk[]): AsyncIterable<MockChunk> {
-  return {
-    async *[Symbol.asyncIterator]() {
-      for (const c of chunks) {
-        yield c;
-      }
-    },
-  };
-}
+import { rejection, stubClient } from "./chat-completions-stub.js";
 
 function stubProviderWithErrors(errors: unknown[]): {
   provider: OpenAIChatCompletionsProvider;
   requests: unknown[];
 } {
   const provider = new OpenAIChatCompletionsProvider("test-key", "test-model");
-  const requests: unknown[] = [];
-  const pending = [...errors];
-  (provider as unknown as { client: unknown }).client = {
-    chat: {
-      completions: {
-        create: async (params: unknown) => {
-          // Snapshot: the fallback mutates `params` between attempts.
-          requests.push(JSON.parse(JSON.stringify(params)));
-          const error = pending.shift();
-          if (error !== undefined) {
-            throw error;
-          }
-          return makeStream([
-            {
-              choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
-              usage: { prompt_tokens: 1, completion_tokens: 1 },
-            },
-          ]);
-        },
+  const requests = stubClient(
+    provider,
+    [
+      {
+        choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
       },
-    },
-  };
+    ],
+    errors,
+  );
   return { provider, requests };
-}
-
-function rejection(message: string, status = 400): Error {
-  return Object.assign(new Error(message), { status });
 }
 
 // A user message with text + image serializes to a content-parts array.
