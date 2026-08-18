@@ -107,6 +107,20 @@ describe("usePublishPageSurface", () => {
     expect(usePageSurfaceStore.getState().transition).toBeNull();
   });
 
+  it("changes color in one write, with no clear in between", () => {
+    const steps: (string | null)[] = [];
+    const stop = usePageSurfaceStore.subscribe((state) =>
+      steps.push(state.surface),
+    );
+
+    const { rerender, unmount } = render(<Publisher surface="#17191C" />);
+    rerender(<Publisher surface="#E5C100" transition="1s ease-in-out" />);
+    stop();
+
+    expect(steps).toEqual(["#17191C", "#E5C100"]);
+    unmount();
+  });
+
   it("opts out without touching what another publisher set", () => {
     usePageSurfaceStore.getState().setSurface("#E5C100");
 

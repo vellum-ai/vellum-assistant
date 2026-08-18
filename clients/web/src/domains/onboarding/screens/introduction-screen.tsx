@@ -11,13 +11,16 @@
  * greeting bounces in with the Continue button.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { Button } from "@vellumai/design-library/components/button";
 
 import { useTranslation } from "@/i18n";
-import { ONBOARDING_STEP_CONTENT } from "@/domains/onboarding/onboarding-step-layout";
+import {
+  ONBOARDING_DARK_SURFACE,
+  ONBOARDING_STEP_CONTENT,
+} from "@/domains/onboarding/onboarding-step-layout";
 import { OnboardingPeekingEyes } from "@/domains/onboarding/components/onboarding-peeking-eyes";
 import { OnboardingStage } from "@/domains/onboarding/components/onboarding-stage";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
@@ -126,6 +129,22 @@ export function IntroductionScreen({
     return { body, color: color.hex };
   }, [components, chosen]);
 
+  // The stage paints the picker's dark surface at once and fades the tint in
+  // over it, so the strips have to start dark and follow rather than open on
+  // the tint. Publishing the tint on mount cannot express that: arriving from
+  // the pitch step by Back, the backdrop has already published this same hex,
+  // so there is no color change for the shell to transition and the strips
+  // would sit tinted through the whole fade. Reduced motion has no fade to
+  // follow, so it takes the tint at once.
+  const [tintPublished, setTintPublished] = useState(false);
+  useEffect(() => {
+    if (!art || reduce) {
+      return;
+    }
+    setTintPublished(true);
+  }, [art, reduce]);
+  const stripTinted = Boolean(reduce) || tintPublished;
+
   const trimmedFirstName = firstName.trim();
   const trimmedAssistantName = assistantName?.trim() ?? "";
   const greeting = trimmedFirstName
@@ -149,10 +168,10 @@ export function IntroductionScreen({
     // Starts on the picker's dark surface; the color layer below fades in.
     <OnboardingStage
       className="bg-[var(--surface-base)]"
-      surface={art.color}
+      surface={stripTinted ? art.color : ONBOARDING_DARK_SURFACE}
       // The strips fade on the color layer's own timing rather than jumping to
       // the tint while the stage is still dark.
-      surfaceTransition={reduce ? undefined : TINT_FADE_CSS}
+      surfaceTransition={tintPublished ? TINT_FADE_CSS : undefined}
     >
       {/* The avatar color fills in so coverage is end-to-end even where the
           body shape has gaps/spikes. */}

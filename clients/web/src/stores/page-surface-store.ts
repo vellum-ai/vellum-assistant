@@ -18,7 +18,7 @@
  * unmount, the same convention as the header slots in `chat-layout-slots-store`.
  */
 
-import { useLayoutEffect } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
@@ -114,15 +114,26 @@ export function usePublishPageSurface(
   transition: string | null = null,
 ): void {
   const setSurface = usePageSurfaceStore.use.setSurface();
+  const published = useRef<string | null>(null);
+
   useLayoutEffect(() => {
     if (surface === null) {
       return;
     }
+    published.current = surface;
     setSurface(surface, transition);
-    return () => {
-      if (usePageSurfaceStore.getState().surface === surface) {
+  }, [surface, transition, setSurface]);
+
+  // Releasing is its own effect so that publishing a new color is one store
+  // write rather than a clear followed by a set. The pair lands in a single
+  // commit either way, but the clear would be a frame of the neutral canvas
+  // the moment anything moved them apart.
+  useLayoutEffect(
+    () => () => {
+      if (usePageSurfaceStore.getState().surface === published.current) {
         setSurface(null);
       }
-    };
-  }, [surface, transition, setSurface]);
+    },
+    [setSurface],
+  );
 }
