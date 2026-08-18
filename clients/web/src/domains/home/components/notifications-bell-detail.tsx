@@ -1,4 +1,4 @@
-import { ChevronLeft, Mail, MailOpen, RotateCcw, Trash2 } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 
 import { useTranslation } from "@/i18n";
 import {
@@ -10,6 +10,7 @@ import { Button, Typography } from "@vellumai/design-library";
 
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
+import { FeedItemStatusActions } from "../feed-item-status-actions";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
 import { resolveFeedItemTitle } from "../utils";
 
@@ -93,11 +94,6 @@ export function NotificationsBellDetail({
 }: NotificationsBellDetailProps) {
   const { t } = useTranslation("home");
   const conversationId = item.conversationId ?? null;
-  const isUnread = item.status === "new";
-  const readToggleLabel = isUnread
-    ? t("actions.markAsRead")
-    : t("actions.markAsUnread");
-  const isDismissed = item.status === "dismissed";
   const actions = item.actions ?? [];
 
   // Same rule as the Activity page's detail panel, plus a pending case the
@@ -153,30 +149,11 @@ export function NotificationsBellDetail({
           header onto a second line.
         */}
         <div className="flex shrink-0 items-center gap-[var(--app-spacing-xs)]">
-          <Button
-            variant="ghost"
-            iconOnly={isUnread ? <MailOpen /> : <Mail />}
-            onClick={() => onUpdateStatus(item.id, isUnread ? "seen" : "new")}
-            aria-label={readToggleLabel}
-            tooltip={readToggleLabel}
+          <FeedItemStatusActions
+            item={item}
+            onUpdateStatus={onUpdateStatus}
+            onDismiss={onDismiss}
           />
-          {isDismissed ? (
-            <Button
-              variant="ghost"
-              iconOnly={<RotateCcw />}
-              onClick={() => onUpdateStatus(item.id, "seen")}
-              aria-label={t("actions.restore")}
-              tooltip={t("actions.restore")}
-            />
-          ) : (
-            <Button
-              variant="ghost"
-              iconOnly={<Trash2 />}
-              onClick={() => onDismiss(item.id)}
-              aria-label={t("actions.dismiss")}
-              tooltip={t("actions.dismiss")}
-            />
-          )}
         </div>
       </div>
 
