@@ -47,17 +47,34 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgIsReady,
 }));
 
-const { useConversationListQuery } = await import(
-  "@/hooks/conversation-queries"
-);
+const { useConversationListQuery, useSectionConversationListQuery } =
+  await import("@/hooks/conversation-queries");
+const { conversationListQueryKey } =
+  await import("@/utils/conversation-list-keys");
 
 const ASSISTANT_ID = "asst-1";
 
+function makeQueryClient(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+}
+
 function wrapper({ children }: { children: ReactNode }) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return createElement(QueryClientProvider, { client: queryClient }, children);
+  return createElement(
+    QueryClientProvider,
+    { client: makeQueryClient() },
+    children,
+  );
+}
+
+/** A wrapper over one client the test can inspect afterwards. */
+function wrapperFor(queryClient: QueryClient) {
+  return function InspectableWrapper({ children }: { children: ReactNode }) {
+    return createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      children,
+    );
+  };
 }
 
 async function settle() {
@@ -137,5 +154,58 @@ describe("conversation queries · daemon gate", () => {
     await settle();
 
     expect(conversationsGetMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("section list query · no filter, no query", () => {
+  test("a null filter mounts nothing: no cache entry, no request", async () => {
+    /* Every filter names a real cache under the generated key, the empty
+       filter included, so the only honest answer for a section with no
+       server filter is to observe nothing at all. In particular nothing may
+       sit on the foreground list's key. */
+    const queryClient = makeQueryClient();
+    renderHook(() => useSectionConversationListQuery(ASSISTANT_ID, null), {
+      wrapper: wrapperFor(queryClient),
+    });
+    await settle();
+
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(
+      queryClient.getQueryCache().find({
+        queryKey: conversationListQueryKey(ASSISTANT_ID),
+        exact: true,
+      }),
+    ).toBeUndefined();
+    expect(conversationsGetMock).not.toHaveBeenCalled();
+  });
+
+  test("a null filter reads as nothing to show", async () => {
+    const { result } = renderHook(
+      () => useSectionConversationListQuery(ASSISTANT_ID, null),
+      { wrapper },
+    );
+    await settle();
+
+    expect(result.current.conversations).toEqual([]);
+    expect(result.current.hasData).toBe(false);
+    expect(result.current.hasMore).toBe(false);
+    expect(result.current.isError).toBe(false);
+  });
+
+  test("a filter mounts exactly its own query", async () => {
+    const queryClient = makeQueryClient();
+    const filter = { groupId: "system:pinned" };
+    renderHook(() => useSectionConversationListQuery(ASSISTANT_ID, filter), {
+      wrapper: wrapperFor(queryClient),
+    });
+    await waitFor(() => {
+      expect(conversationsGetMock).toHaveBeenCalledTimes(1);
+    });
+
+    const keys = queryClient
+      .getQueryCache()
+      .getAll()
+      .map((query) => query.queryKey);
+    expect(keys).toEqual([conversationListQueryKey(ASSISTANT_ID, filter)]);
   });
 });
