@@ -388,6 +388,40 @@ describe("command URL provenance", () => {
     ).toBeNull();
   });
 
+  test("honors only the raw `src=intent` item, never a percent-encoded spelling", () => {
+    // The iOS shell strips the marker by its raw item; `URLSearchParams`
+    // would decode these to `src` / `intent` and honor a marker the shell
+    // never saw (ATL-1293). Each is a distinct spelling the shell's raw
+    // comparison keeps intact.
+    const opts = { acceptProvenance: true };
+    const encodedSpellings = [
+      "vellum-assistant://voice?s%72c=intent&prompt=hi",
+      "vellum-assistant://voice?%73%72%63=intent&prompt=hi",
+      "vellum-assistant://voice?%FF=1&s%72c=intent&prompt=hi",
+      "vellum-assistant://voice?src=%69ntent&prompt=hi",
+    ];
+    for (const link of encodedSpellings) {
+      expect(parseStartVoiceDeepLink(link, opts)?.provenance).toBeNull();
+    }
+    expect(
+      parseOpenThreadDeepLink(
+        `vellum-assistant://thread/${THREAD_ID}?message=hi&s%72c=intent`,
+        opts,
+      )?.provenance,
+    ).toBeNull();
+    // Position and neighbours do not matter, only the item itself.
+    expect(
+      parseStartVoiceDeepLink(
+        "vellum-assistant://voice?src=intent&prompt=hi&&mode=new&",
+        opts,
+      )?.provenance,
+    ).toBe("intent");
+    expect(
+      parseStartVoiceDeepLink("vellum-assistant://voice?src=intent#frag", opts)
+        ?.provenance,
+    ).toBe("intent");
+  });
+
   test("the marker never rescues a link the parser would otherwise reject", () => {
     const opts = { acceptProvenance: true };
     expect(
