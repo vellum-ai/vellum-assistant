@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   approvePairingRequest,
@@ -8,40 +8,16 @@ import {
   PAIRING_CONNECTIVITY_HINT,
   PairDeviceError,
 } from "./pair-device-client";
-
-const BASE = "http://localhost:3000/assistant/__gateway/20100";
-
-const originalFetch = globalThis.fetch;
-let requests: Array<{ url: string; init: RequestInit | undefined }> = [];
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
-function installFetch(respond: (url: string) => Response | Promise<Response>) {
-  const fetchMock = mock(async (input: string | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input.toString();
-    requests.push({ url, init });
-    return respond(url);
-  });
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
-  return fetchMock;
-}
-
-function pendingRequest() {
-  return {
-    requestId: "req-1",
-    userCode: "WXYZ-1234",
-    publicBaseUrl: "https://foo.ts.net",
-    requestedAt: "2026-08-17T10:00:00.000Z",
-    expiresAt: "2026-08-17T10:10:00.000Z",
-    requesterIp: "203.0.113.7",
-    requesterUserAgent: "Mozilla/5.0",
-  };
-}
+import {
+  fetchLog,
+  installFetch,
+  jsonResponse,
+  pendingRequest,
+  requestBody,
+  resetFetchLog,
+  restoreFetch,
+  TEST_GATEWAY_BASE as BASE,
+} from "./pair-device-test-helpers";
 
 async function capturePairDeviceError(
   promise: Promise<unknown>,
@@ -56,11 +32,11 @@ async function capturePairDeviceError(
 }
 
 beforeEach(() => {
-  requests = [];
+  resetFetchLog();
 });
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  restoreFetch();
 });
 
 describe("listPendingPairingRequests", () => {
@@ -70,12 +46,12 @@ describe("listPendingPairingRequests", () => {
     const result = await listPendingPairingRequests({ base: BASE });
 
     await expect(result).toEqual([pendingRequest()]);
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.url).toBe(`${BASE}/v1/remote-web/pairing-requests`);
-    expect(requests[0]?.init?.method).toBe("GET");
-    expect(requests[0]?.init?.body).toBeUndefined();
+    expect(fetchLog).toHaveLength(1);
+    expect(fetchLog[0]?.url).toBe(`${BASE}/v1/remote-web/pairing-requests`);
+    expect(fetchLog[0]?.init?.method).toBe("GET");
+    expect(fetchLog[0]?.init?.body).toBeUndefined();
     expect(
-      new Headers(requests[0]?.init?.headers).get("Authorization"),
+      new Headers(fetchLog[0]?.init?.headers).get("Authorization"),
     ).toBeNull();
   });
 
@@ -142,7 +118,7 @@ describe("listPendingPairingRequests", () => {
 
     await listPendingPairingRequests({ base: BASE, signal: controller.signal });
 
-    await expect(requests[0]?.init?.signal).toBe(controller.signal);
+    await expect(fetchLog[0]?.init?.signal).toBe(controller.signal);
   });
 });
 
@@ -158,15 +134,13 @@ describe("approvePairingRequest", () => {
 
     await approvePairingRequest({ base: BASE, requestId: "req-1" });
 
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.url).toBe(
+    expect(fetchLog).toHaveLength(1);
+    expect(fetchLog[0]?.url).toBe(
       `${BASE}/v1/remote-web/pairing-requests/approve`,
     );
-    expect(requests[0]?.init?.method).toBe("POST");
-    expect(JSON.parse(requests[0]?.init?.body as string)).toEqual({
-      requestId: "req-1",
-    });
-    const headers = new Headers(requests[0]?.init?.headers);
+    expect(fetchLog[0]?.init?.method).toBe("POST");
+    expect(requestBody(fetchLog[0])).toEqual({ requestId: "req-1" });
+    const headers = new Headers(fetchLog[0]?.init?.headers);
     expect(headers.get("Content-Type")).toBe("application/json");
     expect(headers.get("Authorization")).toBeNull();
   });
@@ -212,7 +186,7 @@ describe("approvePairingRequest", () => {
       signal: controller.signal,
     });
 
-    await expect(requests[0]?.init?.signal).toBe(controller.signal);
+    await expect(fetchLog[0]?.init?.signal).toBe(controller.signal);
   });
 });
 
@@ -222,16 +196,14 @@ describe("denyPairingRequest", () => {
 
     await denyPairingRequest({ base: BASE, requestId: "req-1" });
 
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.url).toBe(
+    expect(fetchLog).toHaveLength(1);
+    expect(fetchLog[0]?.url).toBe(
       `${BASE}/v1/remote-web/pairing-requests/deny`,
     );
-    expect(requests[0]?.init?.method).toBe("POST");
-    expect(JSON.parse(requests[0]?.init?.body as string)).toEqual({
-      requestId: "req-1",
-    });
+    expect(fetchLog[0]?.init?.method).toBe("POST");
+    expect(requestBody(fetchLog[0])).toEqual({ requestId: "req-1" });
     expect(
-      new Headers(requests[0]?.init?.headers).get("Authorization"),
+      new Headers(fetchLog[0]?.init?.headers).get("Authorization"),
     ).toBeNull();
   });
 
@@ -246,6 +218,26 @@ describe("denyPairingRequest", () => {
     expect(err.message).toBe("Request expired.");
     expect(err.hint).toBeUndefined();
     expect(err.status).toBe(410);
+  });
+
+  test("carries the server's error code for conflict handling", async () => {
+    installFetch(() =>
+      jsonResponse(
+        {
+          error: {
+            code: "ALREADY_APPROVED",
+            message: "Request already approved on another surface.",
+          },
+        },
+        409,
+      ),
+    );
+
+    const err = await capturePairDeviceError(
+      denyPairingRequest({ base: BASE, requestId: "req-1" }),
+    );
+    expect(err.status).toBe(409);
+    expect(err.code).toBe("ALREADY_APPROVED");
   });
 
   test("rethrows AbortError when the caller cancels", async () => {
@@ -266,6 +258,19 @@ describe("denyPairingRequest", () => {
 
 describe("mintDevicePairing", () => {
   const MINT_ARGS = { base: BASE, publicBaseUrl: "https://foo.ts.net" };
+  const CHALLENGE_URL = `${BASE}/v1/remote-web/pairing-challenge`;
+  const VERIFICATION_URL = `${BASE}/v1/remote-web/pairing-verification`;
+  const LIST_URL = `${BASE}/v1/remote-web/pairing-requests`;
+  const DENY_URL = `${LIST_URL}/deny`;
+
+  function challengeResponse(): Response {
+    return jsonResponse({
+      userCode: "WXYZ-1234",
+      deviceCode: "device-code-1",
+      verificationUri: "https://foo.ts.net/assistant/pair",
+      expiresAt: "2026-08-17T10:10:00.000Z",
+    });
+  }
 
   test("attaches the connectivity hint when the challenge mint is rejected", async () => {
     installFetch(() =>
@@ -275,22 +280,139 @@ describe("mintDevicePairing", () => {
     const err = await capturePairDeviceError(mintDevicePairing(MINT_ARGS));
     expect(err.message).toBe("Mint refused.");
     expect(err.hint).toBe(PAIRING_CONNECTIVITY_HINT);
+    // The challenge never minted, so there is no orphan to clean up.
+    expect(fetchLog.map((r) => r.url)).toEqual([CHALLENGE_URL]);
   });
 
   test("attaches the connectivity hint when the verification step is rejected", async () => {
     installFetch((url) =>
-      url.endsWith("/v1/remote-web/pairing-challenge")
-        ? jsonResponse({
-            userCode: "WXYZ-1234",
-            deviceCode: "device-code-1",
-            verificationUri: "https://foo.ts.net/assistant/pair",
-            expiresAt: "2026-08-17T10:10:00.000Z",
-          })
+      url === CHALLENGE_URL
+        ? challengeResponse()
         : jsonResponse({ error: { message: "Verification failed." } }, 400),
     );
 
     const err = await capturePairDeviceError(mintDevicePairing(MINT_ARGS));
     expect(err.message).toBe("Verification failed.");
     expect(err.hint).toBe(PAIRING_CONNECTIVITY_HINT);
+  });
+
+  test("denies its orphaned challenge when the verification step fails", async () => {
+    installFetch((url) => {
+      switch (url) {
+        case CHALLENGE_URL:
+          return challengeResponse();
+        case VERIFICATION_URL:
+          return jsonResponse(
+            { error: { message: "Verification failed." } },
+            400,
+          );
+        case LIST_URL:
+          return jsonResponse({
+            requests: [
+              pendingRequest({ requestId: "req-other", userCode: "AAAA-0000" }),
+              pendingRequest({
+                requestId: "req-orphan",
+                userCode: "WXYZ-1234",
+              }),
+            ],
+          });
+        case DENY_URL:
+          return jsonResponse({ status: "denied" });
+        default:
+          throw new Error(`unexpected fetch: ${url}`);
+      }
+    });
+
+    const err = await capturePairDeviceError(mintDevicePairing(MINT_ARGS));
+
+    // The original mint error propagates unchanged.
+    expect(err.message).toBe("Verification failed.");
+    expect(err.hint).toBe(PAIRING_CONNECTIVITY_HINT);
+    // Cleanup listed the pending requests and denied the matching userCode.
+    expect(fetchLog.map((r) => r.url)).toEqual([
+      CHALLENGE_URL,
+      VERIFICATION_URL,
+      LIST_URL,
+      DENY_URL,
+    ]);
+    expect(requestBody(fetchLog[3])).toEqual({ requestId: "req-orphan" });
+  });
+
+  test("skips the deny when no pending row matches the minted userCode", async () => {
+    installFetch((url) => {
+      switch (url) {
+        case CHALLENGE_URL:
+          return challengeResponse();
+        case VERIFICATION_URL:
+          return jsonResponse(
+            { error: { message: "Verification failed." } },
+            400,
+          );
+        case LIST_URL:
+          return jsonResponse({
+            requests: [
+              pendingRequest({ requestId: "req-other", userCode: "AAAA-0000" }),
+            ],
+          });
+        default:
+          throw new Error(`unexpected fetch: ${url}`);
+      }
+    });
+
+    const err = await capturePairDeviceError(mintDevicePairing(MINT_ARGS));
+
+    expect(err.message).toBe("Verification failed.");
+    expect(fetchLog.map((r) => r.url)).toEqual([
+      CHALLENGE_URL,
+      VERIFICATION_URL,
+      LIST_URL,
+    ]);
+  });
+
+  test("a cleanup failure does not mask the original mint error", async () => {
+    installFetch((url) => {
+      switch (url) {
+        case CHALLENGE_URL:
+          return challengeResponse();
+        case VERIFICATION_URL:
+          return jsonResponse(
+            { error: { message: "Verification failed." } },
+            400,
+          );
+        case LIST_URL:
+          return jsonResponse({ error: { message: "List broken." } }, 500);
+        default:
+          throw new Error(`unexpected fetch: ${url}`);
+      }
+    });
+
+    const err = await capturePairDeviceError(mintDevicePairing(MINT_ARGS));
+
+    expect(err.message).toBe("Verification failed.");
+    expect(err.hint).toBe(PAIRING_CONNECTIVITY_HINT);
+    expect(fetchLog.map((r) => r.url)).toEqual([
+      CHALLENGE_URL,
+      VERIFICATION_URL,
+      LIST_URL,
+    ]);
+  });
+
+  test("skips cleanup when the caller aborts during verification", async () => {
+    installFetch((url) => {
+      if (url === CHALLENGE_URL) {
+        return challengeResponse();
+      }
+      throw new DOMException("Aborted", "AbortError");
+    });
+    const controller = new AbortController();
+
+    await expect(
+      mintDevicePairing({ ...MINT_ARGS, signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(fetchLog.map((r) => r.url)).toEqual([
+      CHALLENGE_URL,
+      VERIFICATION_URL,
+    ]);
   });
 });

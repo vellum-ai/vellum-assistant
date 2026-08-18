@@ -10,14 +10,23 @@
  * `waitFor` (which schedules real timers).
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
-import type { RemoteWebPairingRequestSummary } from "@vellumai/service-contracts/remote-web-pairing";
-
+import type { PendingPairingRequestSummary } from "./pair-device-client";
+import {
+  createTimerHarness,
+  fetchLog,
+  installFetch,
+  jsonResponse,
+  pendingRequest,
+  resetFetchLog,
+  restoreFetch,
+  TEST_GATEWAY_BASE as BASE,
+  type ArmedTimer,
+} from "./pair-device-test-helpers";
 import { usePendingPairingRequests } from "./use-pending-pairing-requests";
 
-const BASE = "http://localhost:3000/assistant/__gateway/20100";
 const LIST_URL = `${BASE}/v1/remote-web/pairing-requests`;
 const APPROVE_URL = `${LIST_URL}/approve`;
 const DENY_URL = `${LIST_URL}/deny`;
@@ -25,25 +34,6 @@ const OTHER_BASE = "http://localhost:3000/assistant/__gateway/20200";
 const OTHER_LIST_URL = `${OTHER_BASE}/v1/remote-web/pairing-requests`;
 const OTHER_APPROVE_URL = `${OTHER_LIST_URL}/approve`;
 const POLL_INTERVAL_MS = 5000;
-
-function pendingRequest(requestId = "req-1"): RemoteWebPairingRequestSummary {
-  return {
-    requestId,
-    userCode: "WXYZ-1234",
-    publicBaseUrl: "https://foo.ts.net",
-    requestedAt: "2026-08-17T10:00:00.000Z",
-    expiresAt: "2026-08-17T10:10:00.000Z",
-    requesterIp: "203.0.113.7",
-    requesterUserAgent: "Mozilla/5.0",
-  };
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
 
 function approvedResponse(): Response {
   return jsonResponse({
@@ -53,31 +43,14 @@ function approvedResponse(): Response {
   });
 }
 
-// ---------------------------------------------------------------------------
-// fetch stub: per-URL responders plus a captured request log.
-// ---------------------------------------------------------------------------
-
-const originalFetch = globalThis.fetch;
-let requests: Array<{ url: string; init: RequestInit | undefined }> = [];
-
-function installFetch(respond: (url: string) => Response | Promise<Response>) {
-  const fetchMock = mock(async (input: string | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input.toString();
-    requests.push({ url, init });
-    return respond(url);
-  });
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
-  return fetchMock;
-}
-
 function listCalls() {
-  return requests.filter((request) => request.url === LIST_URL);
+  return fetchLog.filter((request) => request.url === LIST_URL);
 }
 
 /** Serve the list route with `summaries`; reassignable between polls. */
 let listResponder: () => Response | Promise<Response>;
 
-function serveList(summaries: RemoteWebPairingRequestSummary[]) {
+function serveList(summaries: PendingPairingRequestSummary[]) {
   listResponder = () => jsonResponse({ requests: summaries });
 }
 
@@ -93,22 +66,14 @@ function installRoutedFetch(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Armed-timer capture standing in for fake timers.
-// ---------------------------------------------------------------------------
-
-interface ArmedTimer {
-  handler: () => void;
-  delay: number;
-  cleared: boolean;
-}
-
-let armedTimers: ArmedTimer[] = [];
-const realSetInterval = globalThis.setInterval;
-const realClearInterval = globalThis.clearInterval;
+// Armed-timer capture standing in for fake timers (bun has none); interval
+// refreshes are driven by hand and flushed with `act` instead of `waitFor`.
+const timerHarness = createTimerHarness();
 
 function pollTimers(): ArmedTimer[] {
-  return armedTimers.filter((timer) => timer.delay === POLL_INTERVAL_MS);
+  return timerHarness.timers.filter(
+    (timer) => timer.delay === POLL_INTERVAL_MS,
+  );
 }
 
 /** Fire the (single) live poll interval once and flush the resulting poll. */
@@ -127,7 +92,7 @@ function renderPendingRequests(base: string | null = BASE) {
   );
 }
 
-async function renderWithList(summaries: RemoteWebPairingRequestSummary[]) {
+async function renderWithList(summaries: PendingPairingRequestSummary[]) {
   serveList(summaries);
   installRoutedFetch();
   let rendered!: ReturnType<typeof renderPendingRequests>;
@@ -138,27 +103,15 @@ async function renderWithList(summaries: RemoteWebPairingRequestSummary[]) {
 }
 
 beforeEach(() => {
-  requests = [];
+  resetFetchLog();
   serveList([]);
-
-  globalThis.setInterval = ((handler: () => void, delay: number) => {
-    armedTimers.push({ handler, delay, cleared: false });
-    return armedTimers.length as unknown as ReturnType<typeof setInterval>;
-  }) as typeof globalThis.setInterval;
-  globalThis.clearInterval = ((id: number) => {
-    const timer = armedTimers[id - 1];
-    if (timer) {
-      timer.cleared = true;
-    }
-  }) as typeof globalThis.clearInterval;
+  timerHarness.install();
 });
 
 afterEach(() => {
   cleanup();
-  armedTimers = [];
-  globalThis.setInterval = realSetInterval;
-  globalThis.clearInterval = realClearInterval;
-  globalThis.fetch = originalFetch;
+  timerHarness.restore();
+  restoreFetch();
 });
 
 describe("usePendingPairingRequests: polling", () => {
@@ -173,9 +126,9 @@ describe("usePendingPairingRequests: polling", () => {
   });
 
   test("an interval tick replaces the list", async () => {
-    const { result } = await renderWithList([pendingRequest("req-1")]);
+    const { result } = await renderWithList([pendingRequest({ requestId: "req-1" })]);
 
-    serveList([pendingRequest("req-1"), pendingRequest("req-2")]);
+    serveList([pendingRequest({ requestId: "req-1" }), pendingRequest({ requestId: "req-2" })]);
     await tickPoll();
 
     expect(listCalls()).toHaveLength(2);
@@ -186,7 +139,7 @@ describe("usePendingPairingRequests: polling", () => {
   });
 
   test("an unchanged poll keeps the same list reference", async () => {
-    const { result } = await renderWithList([pendingRequest("req-1")]);
+    const { result } = await renderWithList([pendingRequest({ requestId: "req-1" })]);
     const initial = result.current.requests;
 
     await tickPoll();
@@ -203,7 +156,7 @@ describe("usePendingPairingRequests: polling", () => {
       ({ result } = renderPendingRequests(null));
     });
 
-    expect(requests).toHaveLength(0);
+    expect(fetchLog).toHaveLength(0);
     expect(pollTimers()).toHaveLength(0);
     expect(result.current.requests).toEqual([]);
     expect(result.current.error).toBeNull();
@@ -246,7 +199,7 @@ describe("usePendingPairingRequests: polling", () => {
 
 describe("usePendingPairingRequests: approve/deny", () => {
   test("approve tracks the in-flight action and removes the row on success", async () => {
-    serveList([pendingRequest("req-1"), pendingRequest("req-2")]);
+    serveList([pendingRequest({ requestId: "req-1" }), pendingRequest({ requestId: "req-2" })]);
     let resolveApprove!: (response: Response) => void;
     installRoutedFetch({
       [APPROVE_URL]: () =>
@@ -272,7 +225,7 @@ describe("usePendingPairingRequests: approve/deny", () => {
       resolveApprove(approvedResponse());
     });
 
-    const approveCalls = requests.filter((r) => r.url === APPROVE_URL);
+    const approveCalls = fetchLog.filter((r) => r.url === APPROVE_URL);
     expect(approveCalls).toHaveLength(1);
     expect(JSON.parse(approveCalls[0]?.init?.body as string)).toEqual({
       requestId: "req-1",
@@ -283,7 +236,7 @@ describe("usePendingPairingRequests: approve/deny", () => {
   });
 
   test("deny removes the row and clears the in-flight marker", async () => {
-    serveList([pendingRequest("req-1")]);
+    serveList([pendingRequest({ requestId: "req-1" })]);
     installRoutedFetch({
       [DENY_URL]: () => jsonResponse({ status: "denied" }),
     });
@@ -297,13 +250,13 @@ describe("usePendingPairingRequests: approve/deny", () => {
       await result.current.deny("req-1");
     });
 
-    expect(requests.filter((r) => r.url === DENY_URL)).toHaveLength(1);
+    expect(fetchLog.filter((r) => r.url === DENY_URL)).toHaveLength(1);
     expect(result.current.actingOn).toBeNull();
     expect(result.current.requests).toEqual([]);
   });
 
   test("a 404 from approve is treated as removal, not an error", async () => {
-    serveList([pendingRequest("req-1")]);
+    serveList([pendingRequest({ requestId: "req-1" })]);
     installRoutedFetch({
       [APPROVE_URL]: () =>
         jsonResponse({ error: { message: "Unknown request." } }, 404),
@@ -324,7 +277,7 @@ describe("usePendingPairingRequests: approve/deny", () => {
   });
 
   test("a non-404 failure keeps the row and surfaces the message", async () => {
-    serveList([pendingRequest("req-1")]);
+    serveList([pendingRequest({ requestId: "req-1" })]);
     let approveResponder = () =>
       jsonResponse({ error: { message: "Approval failed." } }, 500);
     installRoutedFetch({ [APPROVE_URL]: () => approveResponder() });
@@ -338,7 +291,7 @@ describe("usePendingPairingRequests: approve/deny", () => {
       await result.current.approve("req-1");
     });
 
-    expect(result.current.requests).toEqual([pendingRequest("req-1")]);
+    expect(result.current.requests).toEqual([pendingRequest({ requestId: "req-1" })]);
     expect(result.current.actingOn).toBeNull();
     expect(result.current.error).toBe("Approval failed.");
 
@@ -352,7 +305,7 @@ describe("usePendingPairingRequests: approve/deny", () => {
   });
 
   test("a poll clears an action error once its request leaves the list", async () => {
-    serveList([pendingRequest("req-1")]);
+    serveList([pendingRequest({ requestId: "req-1" })]);
     installRoutedFetch({
       [APPROVE_URL]: () =>
         jsonResponse({ error: { message: "Approval failed." } }, 500),
@@ -381,7 +334,7 @@ describe("usePendingPairingRequests: approve/deny", () => {
   });
 
   test("a base change clears rows and errors before the new base's poll resolves", async () => {
-    serveList([pendingRequest("req-1")]);
+    serveList([pendingRequest({ requestId: "req-1" })]);
     // The new base's list never resolves, so anything shown for it is stale.
     installRoutedFetch({
       [OTHER_LIST_URL]: () => new Promise<Response>(() => {}),
@@ -407,12 +360,12 @@ describe("usePendingPairingRequests: approve/deny", () => {
     expect(result.current.requests).toEqual([]);
     expect(result.current.error).toBeNull();
     // The new base was polled, but its hung response left the list empty.
-    const otherListCalls = requests.filter((r) => r.url === OTHER_LIST_URL);
+    const otherListCalls = fetchLog.filter((r) => r.url === OTHER_LIST_URL);
     expect(otherListCalls).toHaveLength(1);
   });
 
   test("a base change aborts the pending action and frees the guard for the new base", async () => {
-    serveList([pendingRequest("req-1")]);
+    serveList([pendingRequest({ requestId: "req-1" })]);
     let resolveOldApprove!: (response: Response) => void;
     installRoutedFetch({
       [APPROVE_URL]: () =>
@@ -420,7 +373,7 @@ describe("usePendingPairingRequests: approve/deny", () => {
           resolveOldApprove = resolve;
         }),
       [OTHER_LIST_URL]: () =>
-        jsonResponse({ requests: [pendingRequest("req-9")] }),
+        jsonResponse({ requests: [pendingRequest({ requestId: "req-9" })] }),
       [OTHER_APPROVE_URL]: approvedResponse,
     });
 
@@ -443,7 +396,7 @@ describe("usePendingPairingRequests: approve/deny", () => {
     });
 
     // The old action was aborted and its marker cleared.
-    const oldApprove = requests.filter((r) => r.url === APPROVE_URL);
+    const oldApprove = fetchLog.filter((r) => r.url === APPROVE_URL);
     expect(oldApprove[0]?.init?.signal?.aborted).toBe(true);
     expect(result.current.actingOn).toBeNull();
     expect(result.current.requests.map((r) => r.requestId)).toEqual(["req-9"]);
@@ -458,7 +411,7 @@ describe("usePendingPairingRequests: approve/deny", () => {
     await act(async () => {
       await result.current.approve("req-9");
     });
-    expect(requests.filter((r) => r.url === OTHER_APPROVE_URL)).toHaveLength(1);
+    expect(fetchLog.filter((r) => r.url === OTHER_APPROVE_URL)).toHaveLength(1);
     expect(result.current.requests).toEqual([]);
     expect(result.current.error).toBeNull();
   });
@@ -475,7 +428,115 @@ describe("usePendingPairingRequests: approve/deny", () => {
       await result.current.approve("req-1");
     });
 
-    expect(requests).toHaveLength(0);
+    expect(fetchLog).toHaveLength(0);
     expect(result.current.actingOn).toBeNull();
+  });
+});
+
+describe("usePendingPairingRequests: deny racing an approve", () => {
+  const ALREADY_APPROVED_CONFLICT = () =>
+    jsonResponse(
+      {
+        error: {
+          code: "ALREADY_APPROVED",
+          message: "Request already approved on another surface.",
+        },
+      },
+      409,
+    );
+
+  test("a deny rejected with 409 ALREADY_APPROVED removes the row but surfaces the notice", async () => {
+    serveList([pendingRequest({ requestId: "req-1" })]);
+    installRoutedFetch({ [DENY_URL]: ALREADY_APPROVED_CONFLICT });
+
+    let result!: ReturnType<typeof renderPendingRequests>["result"];
+    await act(async () => {
+      ({ result } = renderPendingRequests());
+    });
+
+    await act(async () => {
+      await result.current.deny("req-1");
+    });
+
+    // The row is gone (it is no longer pending), but the user must learn the
+    // deny never took effect and the device is now paired.
+    expect(result.current.requests).toEqual([]);
+    expect(result.current.actingOn).toBeNull();
+    expect(result.current.error).toBe(
+      "This request was already approved somewhere else, so the deny didn't take effect and the device is now paired.",
+    );
+  });
+
+  test("the already-approved notice survives polls, then clears on the next action", async () => {
+    serveList([pendingRequest({ requestId: "req-1" })]);
+    installRoutedFetch({
+      [DENY_URL]: ALREADY_APPROVED_CONFLICT,
+      [APPROVE_URL]: approvedResponse,
+    });
+
+    let result!: ReturnType<typeof renderPendingRequests>["result"];
+    await act(async () => {
+      ({ result } = renderPendingRequests());
+    });
+    await act(async () => {
+      await result.current.deny("req-1");
+    });
+
+    // Unlike ordinary action errors, the notice is not dropped when a poll no
+    // longer lists the request; it would otherwise flash away within 5s.
+    serveList([]);
+    await tickPoll();
+    expect(result.current.requests).toEqual([]);
+    expect(result.current.error).toBe(
+      "This request was already approved somewhere else, so the deny didn't take effect and the device is now paired.",
+    );
+
+    // A later request showing up and being acted on clears the stale notice.
+    serveList([pendingRequest({ requestId: "req-2" })]);
+    await tickPoll();
+    await act(async () => {
+      await result.current.approve("req-2");
+    });
+    expect(result.current.error).toBeNull();
+  });
+
+  test("a 409 on approve is not treated as handled elsewhere", async () => {
+    serveList([pendingRequest({ requestId: "req-1" })]);
+    installRoutedFetch({ [APPROVE_URL]: ALREADY_APPROVED_CONFLICT });
+
+    let result!: ReturnType<typeof renderPendingRequests>["result"];
+    await act(async () => {
+      ({ result } = renderPendingRequests());
+    });
+
+    await act(async () => {
+      await result.current.approve("req-1");
+    });
+
+    // The row stays with the server's message; the next poll reconciles it.
+    expect(result.current.requests.map((r) => r.requestId)).toEqual(["req-1"]);
+    expect(result.current.error).toBe(
+      "Request already approved on another surface.",
+    );
+  });
+
+  test("a deny rejected with a plain 409 (no code) keeps the row and shows the message", async () => {
+    serveList([pendingRequest({ requestId: "req-1" })]);
+    installRoutedFetch({
+      [DENY_URL]: () =>
+        jsonResponse({ error: { message: "Conflicting request." } }, 409),
+    });
+
+    let result!: ReturnType<typeof renderPendingRequests>["result"];
+    await act(async () => {
+      ({ result } = renderPendingRequests());
+    });
+
+    await act(async () => {
+      await result.current.deny("req-1");
+    });
+
+    expect(result.current.requests.map((r) => r.requestId)).toEqual(["req-1"]);
+    expect(result.current.error).toBe("Conflicting request.");
   });
 });

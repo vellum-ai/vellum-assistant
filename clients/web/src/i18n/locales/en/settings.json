@@ -205,6 +205,7 @@
     "denyButton": "Deny",
     "instruction": "A device is asking to use this assistant. Approve a request only after confirming its code matches the one shown on the requesting device.",
     "requestedMeta": "Requested {when} from {ip}",
+    "requestedMetaHost": "Requested {when} from this computer",
     "title": "Pairing requests"
   },
   "profileAdvancedParams": {
@@ -426,6 +427,7 @@
   },
   "usePendingPairingRequests": {
     "actionErrorFallback": "Something went wrong. Try again.",
+    "denyAlreadyApproved": "This request was already approved somewhere else, so the deny didn't take effect and the device is now paired.",
     "pollErrorFallback": "Something went wrong while checking for pairing requests."
   },
   "useProfileSave": {
