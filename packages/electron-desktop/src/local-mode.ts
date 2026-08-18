@@ -195,10 +195,7 @@ async function listDevices(
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
-  const result = await runDevicesList(invocation, assistantId);
-  return result.ok
-    ? { ok: true, devices: result.devices }
-    : { ok: false, error: result.error };
+  return runDevicesList(invocation, assistantId);
 }
 
 /** Revoke one paired device's tokens. Mirrors `hatch`'s never-reject contract. */
@@ -212,12 +209,7 @@ async function revokeDevice(
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
-  const result = await runDevicesRevoke(
-    invocation,
-    assistantId,
-    hashedDeviceId,
-  );
-  return result.ok ? { ok: true } : { ok: false, error: result.error };
+  return runDevicesRevoke(invocation, assistantId, hashedDeviceId);
 }
 
 /**

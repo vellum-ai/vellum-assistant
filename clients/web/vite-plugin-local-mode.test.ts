@@ -337,7 +337,7 @@ describe("devices middleware", () => {
     });
 
     test("run-helper failure yields ok:false with no status field", async () => {
-      devicesListResult = { ok: false, status: 500, error: "gateway offline" };
+      devicesListResult = { ok: false, error: "gateway offline" };
 
       const result = await dispatch(
         "/__local/devices",
@@ -433,7 +433,7 @@ describe("devices middleware", () => {
     });
 
     test("run-helper failure yields ok:false with no status field", async () => {
-      devicesRevokeResult = { ok: false, status: 500, error: "revoke failed" };
+      devicesRevokeResult = { ok: false, error: "revoke failed" };
 
       const result = await dispatch(
         "/__local/devices-revoke",

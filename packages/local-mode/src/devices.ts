@@ -20,14 +20,14 @@ export interface DeviceRecord {
 
 export type DevicesListResult =
   | { ok: true; devices: DeviceRecord[] }
-  | { ok: false; status: number; error: string };
+  | { ok: false; error: string };
 
 export type DevicesRevokeResult =
-  { ok: true } | { ok: false; status: number; error: string };
+  { ok: true } | { ok: false; error: string };
 
 type CliRunResult =
   | { ok: true; stdout: string }
-  | { ok: false; status: number; error: string };
+  | { ok: false; error: string };
 
 function runDevicesCli(
   invocation: CliInvocation,
@@ -55,8 +55,7 @@ function runDevicesCli(
       child.kill("SIGTERM");
       finish({
         ok: false,
-        status: 500,
-        error: "Devices command timed out after 30 seconds",
+        error: `Devices command timed out after ${DEVICES_TIMEOUT_MS / 1000} seconds`,
       });
     }, DEVICES_TIMEOUT_MS);
 
@@ -72,14 +71,13 @@ function runDevicesCli(
       if (code === 0) {
         finish({ ok: true, stdout });
       } else {
-        finish({ ok: false, status: 500, error: stderr || stdout });
+        finish({ ok: false, error: stderr || stdout });
       }
     });
 
     child.on("error", (err) => {
       finish({
         ok: false,
-        status: 500,
         error: `Failed to spawn CLI: ${err.message}`,
       });
     });
@@ -143,7 +141,6 @@ export async function runDevicesList(
     const snippet = result.stdout.trim().slice(0, 200);
     return {
       ok: false,
-      status: 500,
       error: `CLI returned unparseable devices output: ${snippet}`,
     };
   }

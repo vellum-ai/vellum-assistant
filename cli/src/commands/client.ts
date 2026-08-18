@@ -751,21 +751,11 @@ async function handleLocalEndpoints(
     }
 
     if (revokeHash !== null) {
-      const result = await runDevicesRevoke(
-        invocation,
-        assistantId,
-        revokeHash,
-      );
       return Response.json(
-        result.ok ? { ok: true } : { ok: false, error: result.error },
+        await runDevicesRevoke(invocation, assistantId, revokeHash),
       );
     }
-    const result = await runDevicesList(invocation, assistantId);
-    return Response.json(
-      result.ok
-        ? { ok: true, devices: result.devices }
-        : { ok: false, error: result.error },
-    );
+    return Response.json(await runDevicesList(invocation, assistantId));
   }
 
   // Connect-import: register a pairing bundle from another machine (guardian
