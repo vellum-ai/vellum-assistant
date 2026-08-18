@@ -131,17 +131,33 @@ export function IntroductionScreen({
 
   // The stage paints the picker's dark surface at once and fades the tint in
   // over it, so the strips have to start dark and follow rather than open on
-  // the tint. Publishing the tint on mount cannot express that: arriving from
-  // the pitch step by Back, the backdrop has already published this same hex,
-  // so there is no color change for the shell to transition and the strips
-  // would sit tinted through the whole fade. Reduced motion has no fade to
-  // follow, so it takes the tint at once.
+  // the tint. Two things make that finicky. Arriving from the pitch step by
+  // Back, the backdrop has already published this same hex, so publishing the
+  // tint on mount is no color change at all and nothing transitions. And a
+  // transition only starts if the dark value went through a style change event
+  // first, which a passive effect does not guarantee: React schedules those on
+  // a macrotask that usually beats the browser's next rendering opportunity, so
+  // both writes would land in one style recalculation and coalesce back into
+  // tint-to-tint.
+  //
+  // Hence the dark surface in the mount commit and the tint two frames later:
+  // the first rAF still runs before this frame's style and paint, so the second
+  // is the earliest callback that the dark value is guaranteed to have been
+  // painted before. Reduced motion has no fade to follow and takes the tint at
+  // once.
   const [tintPublished, setTintPublished] = useState(false);
   useEffect(() => {
     if (!art || reduce) {
       return;
     }
-    setTintPublished(true);
+    let painted = 0;
+    const committed = requestAnimationFrame(() => {
+      painted = requestAnimationFrame(() => setTintPublished(true));
+    });
+    return () => {
+      cancelAnimationFrame(committed);
+      cancelAnimationFrame(painted);
+    };
   }, [art, reduce]);
   const stripTinted = Boolean(reduce) || tintPublished;
 

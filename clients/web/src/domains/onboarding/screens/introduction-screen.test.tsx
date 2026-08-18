@@ -1,16 +1,21 @@
 /**
  * The introduction screen opens on the picker's dark surface and fades the
  * avatar tint in over it, so the safe-area strips the app shell paints have to
- * start dark and follow rather than opening on the tint.
+ * start dark and follow.
  *
  * The regression this guards is the Back path from the pitch step, where the
- * toned backdrop has already published this same hex: publishing the tint on
- * mount is no color change at all, so nothing transitions and the strips sit
- * tinted through the whole fade. Asserted as a sequence, since the dark start
- * and the tint land in different commits. See `page-surface-store`.
+ * toned backdrop has already published this same hex. Two ways to get that
+ * wrong, and the tests cover both: publishing the tint on mount is no color
+ * change for the shell to transition, and publishing it from a passive effect
+ * is not a paint boundary either, so both writes coalesce into one style
+ * recalculation and the computed color never leaves the tint.
+ *
+ * Animation frames are therefore driven by hand here, so "the tint waits for a
+ * painted frame" is what the test actually asserts rather than something the
+ * environment happens to do. See `page-surface-store`.
  */
 
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("@/utils/use-bundled-avatar-components", () => ({
@@ -43,13 +48,20 @@ const { ONBOARDING_DARK_SURFACE } =
 const TEAL = "#2AA79B";
 const TINT_FADE_CSS = "0.6s ease-out 0.35s";
 
-/** Every surface the screen publishes, in order, as `color|transition`. */
-function recordPublishes(): { steps: string[]; stop: () => void } {
-  const steps: string[] = [];
-  const stop = usePageSurfaceStore.subscribe((state) => {
-    steps.push(`${state.surface}|${state.transition}`);
+/** Frames the component asked for, run only when a test says so. */
+let frames: FrameRequestCallback[] = [];
+const realRaf = globalThis.requestAnimationFrame;
+const realCancelRaf = globalThis.cancelAnimationFrame;
+
+/** Run every frame requested so far. Callbacks may request further frames. */
+function paintFrame() {
+  const due = frames;
+  frames = [];
+  act(() => {
+    for (const frame of due) {
+      frame(0);
+    }
   });
-  return { steps, stop };
 }
 
 function renderScreen() {
@@ -65,6 +77,10 @@ function renderScreen() {
 }
 
 beforeEach(() => {
+  frames = [];
+  globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) =>
+    frames.push(callback)) as typeof globalThis.requestAnimationFrame;
+  globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
   useOnboardingAvatarPoolStore.setState({
     characters: [{ bodyShape: "urchin", eyeStyle: "goofy", color: "teal" }],
     selectedIndex: 0,
@@ -73,14 +89,50 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  globalThis.requestAnimationFrame = realRaf;
+  globalThis.cancelAnimationFrame = realCancelRaf;
   usePageSurfaceStore.getState().setSurface(null);
   useOnboardingAvatarPoolStore.setState({ characters: [], selectedIndex: 0 });
 });
 
 describe("IntroductionScreen surface handover", () => {
-  test("opens on the dark surface, then fades to the tint", () => {
-    const { steps, stop } = recordPublishes();
+  test("holds the dark surface until a frame has painted it", () => {
+    // The Back path from the pitch step: the strips already carry this hex, so
+    // publishing the tint before the dark one paints leaves the shell with no
+    // color change to transition.
+    usePageSurfaceStore.getState().setSurface(TEAL);
+
     const { unmount } = renderScreen();
+
+    expect(usePageSurfaceStore.getState().surface).toBe(
+      ONBOARDING_DARK_SURFACE,
+    );
+    expect(usePageSurfaceStore.getState().transition).toBeNull();
+
+    // The frame the dark value is painted in. Still too early: this callback
+    // runs before the browser's style and paint for it.
+    paintFrame();
+    expect(usePageSurfaceStore.getState().surface).toBe(
+      ONBOARDING_DARK_SURFACE,
+    );
+
+    // The next frame, which the dark value is now behind.
+    paintFrame();
+    expect(usePageSurfaceStore.getState().surface).toBe(TEAL);
+    expect(usePageSurfaceStore.getState().transition).toBe(TINT_FADE_CSS);
+
+    unmount();
+  });
+
+  test("publishes the tint exactly once, with its fade", () => {
+    const steps: string[] = [];
+    const stop = usePageSurfaceStore.subscribe((state) =>
+      steps.push(`${state.surface}|${state.transition}`),
+    );
+
+    const { unmount } = renderScreen();
+    paintFrame();
+    paintFrame();
     stop();
 
     expect(steps).toEqual([
@@ -90,18 +142,13 @@ describe("IntroductionScreen surface handover", () => {
     unmount();
   });
 
-  test("starts dark even when the strips already carry the tint", () => {
-    // The Back path from the pitch step: the backdrop left the strips on this
-    // same hex, so a mount that published the tint would be no change at all
-    // and the shell would have nothing to transition.
-    usePageSurfaceStore.getState().setSurface(TEAL);
-
-    const { steps, stop } = recordPublishes();
+  test("releases the surface on unmount", () => {
     const { unmount } = renderScreen();
-    stop();
+    paintFrame();
+    paintFrame();
 
-    expect(steps[0]).toBe(`${ONBOARDING_DARK_SURFACE}|null`);
-    expect(steps.at(-1)).toBe(`${TEAL}|${TINT_FADE_CSS}`);
     unmount();
+
+    expect(usePageSurfaceStore.getState().surface).toBeNull();
   });
 });
