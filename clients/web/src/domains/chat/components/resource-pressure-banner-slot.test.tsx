@@ -69,12 +69,13 @@ function monitorResult(
 function slot(
   status: ResourcePressureStatus | null,
   assistantStateKind = "active",
+  assistantId: string | null = "assistant-1",
 ) {
   return (
     <MemoryRouter>
       <ResourcePressureBannerSlot
         resourcePressure={monitorResult(status)}
-        assistantId="assistant-1"
+        assistantId={assistantId}
         assistantStateKind={assistantStateKind}
       />
     </MemoryRouter>
@@ -159,6 +160,63 @@ describe("ResourcePressureBannerSlot", () => {
     render(slot(elevatedStatus));
 
     expect(queryBanner()).toBeTruthy();
+  });
+
+  test("cpu-only elevation shows the CPU body", () => {
+    render(
+      slot({
+        ...elevatedStatus,
+        memoryElevated: false,
+        memoryPercent: 40,
+      }),
+    );
+
+    expect(
+      screen.getByText("CPU usage has stayed high for an extended period."),
+    ).toBeTruthy();
+  });
+
+  test("memory-only elevation shows the memory body", () => {
+    render(
+      slot({
+        ...elevatedStatus,
+        cpuElevated: false,
+        cpuPercent: 20,
+      }),
+    );
+
+    expect(
+      screen.getByText("Memory usage has stayed high for an extended period."),
+    ).toBeTruthy();
+  });
+
+  test("switching assistants re-derives dismissal from the new keys", () => {
+    // GIVEN assistant-1's banner was just dismissed in memory, and
+    // assistant-2 carries a stored permanent suppress
+    localStorage.setItem(
+      "vellum:resourcePressureSuppressed:assistant-2",
+      "true",
+    );
+    const view = render(slot(elevatedStatus));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(queryBanner()).toBeNull();
+
+    // THEN assistant-2's stored suppress governs after the switch
+    view.rerender(slot(elevatedStatus, "active", "assistant-2"));
+    expect(queryBanner()).toBeNull();
+
+    // AND assistant-3, with no stored state, does not inherit assistant-1's
+    // in-memory dismiss
+    view.rerender(slot(elevatedStatus, "active", "assistant-3"));
+    expect(queryBanner()).toBeTruthy();
+  });
+
+  test("a stored suppress applies once a null assistant id resolves", () => {
+    localStorage.setItem(SUPPRESSED_KEY, "true");
+    const view = render(slot(elevatedStatus, "active", null));
+
+    view.rerender(slot(elevatedStatus, "active", "assistant-1"));
+    expect(queryBanner()).toBeNull();
   });
 
   test("permanent suppress persists and always hides the banner", () => {
