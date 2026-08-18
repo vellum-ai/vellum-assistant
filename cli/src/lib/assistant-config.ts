@@ -219,10 +219,6 @@ function withCliLockfileLock<T>(fn: () => T): T {
   return locked.value;
 }
 
-function writeLockfile(data: LockfileData): void {
-  withCliLockfileLock(() => writeLockfileUnlocked(data));
-}
-
 /**
  * Try to extract a port number from a URL string (e.g. `http://localhost:7830`).
  * Returns undefined if the URL is malformed or has no explicit port.
