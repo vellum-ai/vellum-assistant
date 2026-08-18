@@ -417,6 +417,10 @@
     "assistantNotReadyToast": "El asistente no está listo. Inténtalo de nuevo.",
     "saveApiKeyFailedToast": "No se pudo guardar la clave de API de {providerName}. Inténtalo de nuevo."
   },
+  "usePendingPairingRequests": {
+    "actionErrorFallback": "Algo salió mal. Inténtalo de nuevo.",
+    "pollErrorFallback": "Algo salió mal al comprobar las solicitudes de vinculación."
+  },
   "useProfileSave": {
     "createdToast": "Perfil \"{name}\" creado"
   },
