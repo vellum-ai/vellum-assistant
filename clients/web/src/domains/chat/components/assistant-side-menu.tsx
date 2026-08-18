@@ -559,12 +559,14 @@ export function AssistantSideMenu({
           style={
             variant === "overlay" && overlayBottomColumnHeight > 0
               ? ({
-                  /* The floating column overlaps the scrollport by its own
-                     height + the safe-area inset (its 1rem bottom offset
-                     cancels against the root's p-4); + 1rem breathing gap. */
+                  /* The column floats 1rem above the sheet's bottom edge; the
+                     body's own box stops one overlay inset short of that same
+                     edge. Reserving the column's height plus both 1rem steps,
+                     less the inset the body already has, leaves exactly the
+                     second step as clearance under the last row. */
                   "--overlay-bottom-column-h": `${overlayBottomColumnHeight}px`,
                   paddingBottom:
-                    "calc(var(--overlay-bottom-column-h) + 1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
+                    "calc(var(--overlay-bottom-column-h) + 2rem - var(--side-menu-inset) + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
                 } as CSSProperties)
               : undefined
           }
