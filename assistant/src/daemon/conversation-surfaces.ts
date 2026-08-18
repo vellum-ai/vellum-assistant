@@ -2282,12 +2282,6 @@ export async function handleSurfaceAction(
       { surfaceId, actionId, requestId, attachmentCount: attachments.length },
       "Processing surface action immediately (history-restored) with attachments",
     );
-    // Reached only when `enqueueMessage` declined to queue, i.e. the
-    // conversation is idle and this click is starting the turn. Stamp the
-    // committing actor so the run it kicks off hydrates and scopes to them.
-    if (actionTrustContext) {
-      ctx.setTrustContext(actionTrustContext);
-    }
     ctx
       .processMessage({
         content,
@@ -2297,6 +2291,9 @@ export async function handleSurfaceAction(
         activeSurfaceId: surfaceId,
         displayContent,
         sourceActorPrincipalId,
+        // Reached only when `enqueueMessage` declined to queue: the click is
+        // starting this turn, so it is the actor the run belongs to.
+        trustContext: actionTrustContext,
         isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
         scripted: isSyntheticSurfaceActionContent(content),
       })
@@ -2549,11 +2546,6 @@ export async function handleSurfaceAction(
     },
     "Processing surface action as follow-up with attachments",
   );
-  // Same commitment point as the history-restored branch above: the enqueue
-  // declined, so this click is the turn that is about to run.
-  if (actionTrustContext) {
-    ctx.setTrustContext(actionTrustContext);
-  }
   ctx
     .processMessage({
       content,
@@ -2563,6 +2555,9 @@ export async function handleSurfaceAction(
       activeSurfaceId: surfaceId,
       displayContent,
       sourceActorPrincipalId,
+      // Same as the history-restored branch: the enqueue declined, so this
+      // click is the turn about to run.
+      trustContext: actionTrustContext,
       isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
       scripted: isSyntheticSurfaceActionContent(content),
     })
