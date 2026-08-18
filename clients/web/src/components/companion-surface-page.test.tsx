@@ -12,6 +12,7 @@ const STATE: CompanionSurfaceState = {
   call: null,
   assistantName: "Ziggy",
   turns: [],
+  working: false,
 };
 
 mock.module("@/runtime/companion-surface", () => ({
