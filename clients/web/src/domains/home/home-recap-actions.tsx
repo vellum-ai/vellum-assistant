@@ -1,7 +1,5 @@
 import {
   Ellipsis,
-  Mail,
-  MailOpen,
   MessageSquare,
   RotateCcw,
   Trash2,
@@ -14,6 +12,8 @@ import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 import type { TFunction } from "@/i18n";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { ActionMenu, cn, Tooltip } from "@vellumai/design-library";
+
+import { buildReadToggle } from "./read-toggle";
 
 /**
  * The commands a recap row offers, in one list that every surface reaching them
@@ -89,11 +89,12 @@ export function buildRecapActions({
   const actions: RecapAction[] = [];
 
   if (onToggleRead) {
+    const readToggle = buildReadToggle(isUnread, t);
     actions.push({
       id: "toggle-read",
-      label: isUnread ? t("actions.markAsRead") : t("actions.markAsUnread"),
-      icon: isUnread ? MailOpen : Mail,
-      onSelect: () => onToggleRead(item.id, isUnread ? "seen" : "new"),
+      label: readToggle.label,
+      icon: readToggle.icon,
+      onSelect: () => onToggleRead(item.id, readToggle.nextStatus),
       swipeEdge: "trailing",
     });
   }
