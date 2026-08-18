@@ -5,6 +5,11 @@
  * from two single-row reads while the drained conversation list is still
  * pending. The list query is stubbed permanently pending here so a landing
  * that waited on it would never happen and every test would time out.
+ *
+ * The newest-row read asks the daemon to filter to foreground rows itself.
+ * The tests under "an assistant that predates foregroundOnly" flip the stub
+ * to ignore the parameter, which is what an older assistant does, and cover
+ * the paged search the loader falls back to when the answer proves that.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -98,12 +103,28 @@ const { useConversationLoader } =
 
 /** Requests the loader made, by URL, so a test can assert what it asked. */
 let requests: string[] = [];
+/** The query of every list request, in order, so a test can assert the ask. */
+let listQueries: Record<string, unknown>[] = [];
 let byIdRow: RawConversationFixture | null = null;
 let listRows: RawConversationFixture[] = [];
 /** Rows the daemon appends to an unfiltered page one beyond the limit. */
 let pinnedExtras: RawConversationFixture[] = [];
 /** How many upcoming requests answer 503 before the stub recovers. */
 let failNextRequests = 0;
+/**
+ * Whether the stub honors `foregroundOnly`. `false` plays an assistant that
+ * predates the parameter: it ignores it and answers with the unfiltered
+ * listing, appended pins and all.
+ */
+let daemonFiltersForeground = true;
+
+/** The stub's foreground rule: the run types the daemon's filter drops. */
+function isForegroundFixture(row: RawConversationFixture): boolean {
+  return (
+    row.conversationType !== "background" &&
+    row.conversationType !== "scheduled"
+  );
+}
 
 function stubDaemon() {
   daemonClient.get = mock(
@@ -138,14 +159,20 @@ function stubDaemon() {
         };
       }
       if (url.endsWith("/conversations")) {
+        listQueries.push(options.query ?? {});
         const limit = Number(options.query?.limit ?? 50);
         const offset = Number(options.query?.offset ?? 0);
+        const filtered =
+          daemonFiltersForeground && options.query?.foregroundOnly === "true";
+        const source = filtered
+          ? listRows.filter(isForegroundFixture)
+          : listRows;
         const body = {
           conversations: [
-            ...listRows.slice(offset, offset + limit),
-            ...(offset === 0 ? pinnedExtras : []),
+            ...source.slice(offset, offset + limit),
+            ...(offset === 0 && !filtered ? pinnedExtras : []),
           ].map(rawConversation),
-          hasMore: listRows.length > offset + limit,
+          hasMore: source.length > offset + limit,
         };
         return {
           data: body,
@@ -195,10 +222,12 @@ async function landedOn(): Promise<string> {
 
 beforeEach(() => {
   requests = [];
+  listQueries = [];
   byIdRow = null;
   listRows = [];
   pinnedExtras = [];
   failNextRequests = 0;
+  daemonFiltersForeground = true;
   podIsServing = true;
   orgIsReady = true;
   navigateMock.mockClear();
@@ -241,6 +270,11 @@ describe("useConversationLoader cold-boot landing", () => {
       "/v1/assistants/{assistant_id}/conversations/{id}",
       "/v1/assistants/{assistant_id}/conversations",
     ]);
+    /* One row, filtered by the daemon: the client neither pages nor
+       re-derives which rows are foreground. */
+    expect(listQueries).toEqual([
+      { foregroundOnly: "true", limit: 1, offset: 0 },
+    ]);
   });
 
   test("does not implicitly resume a stored background run", async () => {
@@ -253,7 +287,7 @@ describe("useConversationLoader cold-boot landing", () => {
     expect(await landedOn()).toContain("newest");
   });
 
-  test("with nothing stored, reads page one of the foreground list and caches nothing under the list prefix", async () => {
+  test("with nothing stored, reads the newest foreground row and caches nothing under the list prefix", async () => {
     listRows = [{ id: "newest" }, { id: "older" }, { id: "oldest" }];
     const queryClient = new QueryClient();
 
@@ -270,43 +304,10 @@ describe("useConversationLoader cold-boot landing", () => {
     ).toEqual([]);
   });
 
-  test("skips an unselectable newest row and lands on the first chat", async () => {
+  test("lands on the first chat past any number of unselectable rows, in one request", async () => {
     /* The standard listing admits background runs filed in custom groups,
-       so page one can lead with one. */
-    listRows = [
-      { id: "bg-in-group", conversationType: "background", groupId: "grp-1" },
-      { id: "first-chat" },
-    ];
-
-    renderColdBoot(new QueryClient());
-
-    expect(await landedOn()).toContain("first-chat");
-  });
-
-  test("keeps looking past page one when it has no chat, and stops after the 200 newest rows", async () => {
-    /* 60 background runs in a custom group lead the list; the first chat sits
-       on page two. The stub pages by the server's own offset arithmetic. */
-    listRows = [
-      ...Array.from({ length: 60 }, (_, i) => ({
-        id: `bg-${i}`,
-        conversationType: "background" as const,
-        groupId: "grp-1",
-      })),
-      { id: "first-chat" },
-    ];
-    renderColdBoot(new QueryClient());
-    expect(await landedOn()).toContain("first-chat");
-    expect(requests.filter((u) => u.endsWith("/conversations"))).toHaveLength(
-      2,
-    );
-
-    cleanup();
-    navigateMock.mockClear();
-    requests = [];
-    useConversationStore.setState({ activeConversationId: null });
-
-    /* 300 unselectable rows before the first chat: the search stops after
-       four pages and lands on the assistant itself rather than scanning on. */
+       so its newest rows can all be runs; the daemon's filter skips them, so
+       the first chat is one row away however deep it sits. */
     listRows = [
       ...Array.from({ length: 300 }, (_, i) => ({
         id: `bg-${i}`,
@@ -315,71 +316,152 @@ describe("useConversationLoader cold-boot landing", () => {
       })),
       { id: "deep-chat" },
     ];
+
     renderColdBoot(new QueryClient());
-    const landing = await landedOn();
-    expect(landing).toContain(ASSISTANT_ID);
-    expect(landing).not.toContain("deep-chat");
+
+    expect(await landedOn()).toContain("deep-chat");
     expect(requests.filter((u) => u.endsWith("/conversations"))).toHaveLength(
-      4,
+      1,
     );
   });
 
-  test("pages by the server's page size, not by rows received, so appended pinned rows skip nothing", async () => {
-    /* Page one is 50 rows plus 2 appended pinned rows, all unselectable; the
-       first chat is row 51 in server order, so an offset advanced by rows
-       received (52) would skip it. */
-    pinnedExtras = [
-      { id: "pin-a", conversationType: "background", groupId: "grp-1" },
-      { id: "pin-b", conversationType: "background", groupId: "grp-1" },
-    ];
-    listRows = [
-      ...Array.from({ length: 50 }, (_, i) => ({
-        id: `bg-${i}`,
-        conversationType: "background" as const,
-        groupId: "grp-1",
-      })),
-      { id: "row-51-chat" },
-    ];
-    renderColdBoot(new QueryClient());
-    expect(await landedOn()).toContain("row-51-chat");
-  });
+  describe("an assistant that predates foregroundOnly", () => {
+    /* Such an assistant ignores the parameter and answers with the newest
+       row of the unfiltered listing. When that row is a chat it is the same
+       answer a filtering assistant gives; when it is not, the loader knows
+       the filter was not applied and pages through the list itself. */
+    beforeEach(() => {
+      daemonFiltersForeground = false;
+    });
 
-  test("an appended pin older than the window does not pre-empt a newer chat on page two", async () => {
-    /* The window's 50 newest rows are all unselectable; the daemon appends
-       an old pinned chat beyond the window; a newer (still selectable) chat
-       leads page two. Recency order: bg rows (100..51), the page-two chat
-       (30), the appended pin (1). */
-    pinnedExtras = [{ id: "old-pin", isPinned: true, lastMessageAt: 1 }];
-    listRows = [
-      ...Array.from({ length: 50 }, (_, i) => ({
-        id: `bg-${i}`,
-        conversationType: "background" as const,
-        groupId: "grp-1",
-        lastMessageAt: 100 - i,
-      })),
-      { id: "page-two-chat", lastMessageAt: 30 },
-    ];
+    test("a newest row that is a chat is the landing, in one request", async () => {
+      listRows = [{ id: "newest" }, { id: "older" }];
 
-    renderColdBoot(new QueryClient());
+      renderColdBoot(new QueryClient());
 
-    expect(await landedOn()).toContain("page-two-chat");
-  });
+      expect(await landedOn()).toContain("newest");
+      expect(requests.filter((u) => u.endsWith("/conversations"))).toHaveLength(
+        1,
+      );
+    });
 
-  test("an appended pin newer than everything past the window wins", async () => {
-    pinnedExtras = [{ id: "newer-pin", isPinned: true, lastMessageAt: 40 }];
-    listRows = [
-      ...Array.from({ length: 50 }, (_, i) => ({
-        id: `bg-${i}`,
-        conversationType: "background" as const,
-        groupId: "grp-1",
-        lastMessageAt: 100 - i,
-      })),
-      { id: "page-two-chat", lastMessageAt: 30 },
-    ];
+    test("a newest row that is not a chat proves the filter was ignored, and the loader pages", async () => {
+      listRows = [
+        { id: "bg-in-group", conversationType: "background", groupId: "grp-1" },
+        { id: "first-chat" },
+      ];
 
-    renderColdBoot(new QueryClient());
+      renderColdBoot(new QueryClient());
 
-    expect(await landedOn()).toContain("newer-pin");
+      expect(await landedOn()).toContain("first-chat");
+      /* The one-row read, then page one of the unfiltered list. */
+      expect(listQueries).toEqual([
+        { foregroundOnly: "true", limit: 1, offset: 0 },
+        { limit: 50, offset: 0 },
+      ]);
+    });
+
+    test("keeps looking past page one when it has no chat, and stops after the 200 newest rows", async () => {
+      /* 60 background runs in a custom group lead the list; the first chat
+         sits on page two. The stub pages by the server's own offset
+         arithmetic. Request counts include the one-row read that detected
+         the older assistant. */
+      listRows = [
+        ...Array.from({ length: 60 }, (_, i) => ({
+          id: `bg-${i}`,
+          conversationType: "background" as const,
+          groupId: "grp-1",
+        })),
+        { id: "first-chat" },
+      ];
+      renderColdBoot(new QueryClient());
+      expect(await landedOn()).toContain("first-chat");
+      expect(requests.filter((u) => u.endsWith("/conversations"))).toHaveLength(
+        3,
+      );
+
+      cleanup();
+      navigateMock.mockClear();
+      requests = [];
+      useConversationStore.setState({ activeConversationId: null });
+
+      /* 300 unselectable rows before the first chat: the search stops after
+         four pages and lands on the assistant itself rather than scanning
+         on. */
+      listRows = [
+        ...Array.from({ length: 300 }, (_, i) => ({
+          id: `bg-${i}`,
+          conversationType: "background" as const,
+          groupId: "grp-1",
+        })),
+        { id: "deep-chat" },
+      ];
+      renderColdBoot(new QueryClient());
+      const landing = await landedOn();
+      expect(landing).toContain(ASSISTANT_ID);
+      expect(landing).not.toContain("deep-chat");
+      expect(requests.filter((u) => u.endsWith("/conversations"))).toHaveLength(
+        5,
+      );
+    });
+
+    test("pages by the server's page size, not by rows received, so appended pinned rows skip nothing", async () => {
+      /* Page one is 50 rows plus 2 appended pinned rows, all unselectable;
+         the first chat is row 51 in server order, so an offset advanced by
+         rows received (52) would skip it. */
+      pinnedExtras = [
+        { id: "pin-a", conversationType: "background", groupId: "grp-1" },
+        { id: "pin-b", conversationType: "background", groupId: "grp-1" },
+      ];
+      listRows = [
+        ...Array.from({ length: 50 }, (_, i) => ({
+          id: `bg-${i}`,
+          conversationType: "background" as const,
+          groupId: "grp-1",
+        })),
+        { id: "row-51-chat" },
+      ];
+      renderColdBoot(new QueryClient());
+      expect(await landedOn()).toContain("row-51-chat");
+    });
+
+    test("an appended pin older than the window does not pre-empt a newer chat on page two", async () => {
+      /* The window's 50 newest rows are all unselectable; the daemon appends
+         an old pinned chat beyond the window; a newer (still selectable)
+         chat leads page two. Recency order: bg rows (100..51), the page-two
+         chat (30), the appended pin (1). */
+      pinnedExtras = [{ id: "old-pin", isPinned: true, lastMessageAt: 1 }];
+      listRows = [
+        ...Array.from({ length: 50 }, (_, i) => ({
+          id: `bg-${i}`,
+          conversationType: "background" as const,
+          groupId: "grp-1",
+          lastMessageAt: 100 - i,
+        })),
+        { id: "page-two-chat", lastMessageAt: 30 },
+      ];
+
+      renderColdBoot(new QueryClient());
+
+      expect(await landedOn()).toContain("page-two-chat");
+    });
+
+    test("an appended pin newer than everything past the window wins", async () => {
+      pinnedExtras = [{ id: "newer-pin", isPinned: true, lastMessageAt: 40 }];
+      listRows = [
+        ...Array.from({ length: 50 }, (_, i) => ({
+          id: `bg-${i}`,
+          conversationType: "background" as const,
+          groupId: "grp-1",
+          lastMessageAt: 100 - i,
+        })),
+        { id: "page-two-chat", lastMessageAt: 30 },
+      ];
+
+      renderColdBoot(new QueryClient());
+
+      expect(await landedOn()).toContain("newer-pin");
+    });
   });
 
   test("retries a transient failure before falling back", async () => {
