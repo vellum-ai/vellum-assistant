@@ -7,6 +7,10 @@ export type LockfileLockResult<T> =
 /** Minimum age before a lock is even considered for breaking; the owner pid
  *  check is what decides, so a live-but-slow holder is never stolen from. */
 const STALE_LOCK_MS = 5_000;
+/** A pid is not stable identity: a crashed holder's pid can be recycled to an
+ *  unrelated long-lived process, which would wedge writers forever. Real holds
+ *  last microseconds, so past this ceiling the pid check is ignored. */
+const HARD_STALE_LOCK_MS = 10 * 60_000;
 const ACQUIRE_ATTEMPTS = 10;
 const RETRY_DELAY_MS = 25;
 
@@ -46,9 +50,12 @@ function isProcessAlive(pid: number): boolean {
 
 function tryBreakStaleLock(lockDir: string): void {
   try {
-    if (Date.now() - fs.statSync(lockDir).mtimeMs <= STALE_LOCK_MS) return;
-    const ownerPid = readOwnerPid(lockDir);
-    if (ownerPid !== null && isProcessAlive(ownerPid)) return;
+    const age = Date.now() - fs.statSync(lockDir).mtimeMs;
+    if (age <= STALE_LOCK_MS) return;
+    if (age <= HARD_STALE_LOCK_MS) {
+      const ownerPid = readOwnerPid(lockDir);
+      if (ownerPid !== null && isProcessAlive(ownerPid)) return;
+    }
     // Rename before removing so exactly one contender wins the break.
     const tombstone = `${lockDir}.stale-${process.pid}-${breakCounter++}`;
     fs.renameSync(lockDir, tombstone);
@@ -75,7 +82,8 @@ function releaseLock(lockDir: string): void {
  * mkdir has O_EXCL semantics on every platform, so exactly one process wins.
  * The winner records its pid in an `owner` file; a contender breaks the lock
  * only when the recorded owner process is gone (or never recorded ownership),
- * never on age alone. Acquisition is bounded (~250ms worst case) and failure
+ * except past a hard age ceiling that bounds recovery from pid reuse.
+ * Acquisition is bounded (~250ms worst case) and failure
  * is returned structurally rather than thrown, so never-throw seams stay
  * never-throw; `fn`'s own exceptions propagate, with the lock released in
  * `finally`.

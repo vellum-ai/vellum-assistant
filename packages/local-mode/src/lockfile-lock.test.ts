@@ -117,6 +117,19 @@ describe("withLockfileLock", () => {
     );
   });
 
+  test("breaks a hard-stale lock even when the recorded owner pid is alive", () => {
+    // Models a crashed holder whose pid was recycled to a live process: past
+    // the hard ceiling the pid check no longer keeps the lock alive.
+    fs.mkdirSync(lockDir);
+    fs.writeFileSync(path.join(lockDir, "owner"), String(process.pid));
+    const past = new Date(Date.now() - 11 * 60_000);
+    fs.utimesSync(lockDir, past, past);
+
+    const result = withLockfileLock([lockfilePath], () => "ran");
+    expect(result).toEqual({ ok: true, value: "ran" });
+    expect(fs.existsSync(lockDir)).toBe(false);
+  });
+
   test("records this process as the owner while the lock is held", () => {
     withLockfileLock([lockfilePath], () => {
       expect(fs.readFileSync(path.join(lockDir, "owner"), "utf-8")).toBe(
