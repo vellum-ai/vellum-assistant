@@ -260,7 +260,7 @@ describe("paired gateway proxy", () => {
   });
 });
 
-describe("devices middlewares", () => {
+describe("devices middleware", () => {
   beforeEach(() => {
     devicesListResult = { ok: true, devices: [] };
     devicesRevokeResult = { ok: true };
