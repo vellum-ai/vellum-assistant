@@ -30,29 +30,28 @@ describe("useSupportsResourcePressureStatus", () => {
     expect(check("")).toBe(false);
   });
 
-  // The route landed after the 0.11.3 tag, so the released 0.11.3
-  // (and every stable before it) must stay dark.
-  test("returns false for releases without the route", () => {
+  // The 0.11.4 release branch was cut from main before the route
+  // landed, so the whole 0.11.4 line (staging builds included) must
+  // stay dark along with every earlier release.
+  test("returns false for release lines without the route", () => {
+    expect(check("0.11.4")).toBe(false);
+    expect(check("0.11.4-staging.3")).toBe(false);
     expect(check("0.11.3")).toBe(false);
-    expect(check("0.11.2")).toBe(false);
     expect(check("0.10.12")).toBe(false);
   });
 
-  // A dev build cut from main before the route landed does not carry
-  // it, which is why the floor is the commit timestamp, not `dev.0`.
-  test("returns false for dev builds cut before the route landed", () => {
-    expect(check("0.11.3-dev.202608181000.abc1234")).toBe(false);
+  // Pre-0.11.5 dev builds are excluded even when cut after the route
+  // landed: the floor trades them away for zero 404 noise against the
+  // routeless 0.11.4 line.
+  test("returns false for dev builds below the release floor", () => {
+    expect(check("0.11.3-dev.202608181912.d77d014")).toBe(false);
+    expect(check("0.11.4-dev.202608190000.fedcba9")).toBe(false);
   });
 
-  test("returns true at the floor and for later dev builds", () => {
+  test("returns true at the floor and beyond", () => {
     expect(check(MIN_VERSION)).toBe(true);
-    expect(check("0.11.3-dev.202608190000.fedcba9")).toBe(true);
-  });
-
-  // The point of a dev floor: no release number is predicted, so
-  // whichever number the next cut takes satisfies it.
-  test("returns true for every later release, whatever it is numbered", () => {
-    expect(check("0.11.4")).toBe(true);
+    expect(check("0.11.5-dev.202608190000.fedcba9")).toBe(true);
+    expect(check("0.11.6")).toBe(true);
     expect(check("0.12.0")).toBe(true);
     expect(check("1.0.0")).toBe(true);
   });
