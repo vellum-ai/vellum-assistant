@@ -81,6 +81,11 @@ function makeFakeConversation(options: {
     emitActivityState: () => {
       mutationCalls.push("emitActivityState");
     },
+    // The drain re-scopes history to the queued sender before running.
+    ensureActorScopedHistory: async () => {
+      mutationCalls.push("ensureActorScopedHistory");
+    },
+    setTrustContext: () => {},
     isProcessing: () => options.processing ?? false,
     persistUserMessage: async (opts: { content: string }) => {
       persistCalls.push(opts.content);

@@ -812,6 +812,18 @@ async function drainSingleMessage(
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
 
+  // History is scoped to the resting actor: `loadFromDb` splices persisted
+  // personal-memory blocks into the transcript only for actors allowed to see
+  // them. A queued sender is frequently not who the previous turn ran as, so
+  // stamp them and re-scope before this turn reads that history, or it
+  // inherits the previous actor's view of it. `ensureActorScopedHistory`
+  // early-returns unless the trust class or personal-memory gate actually
+  // changed, so a same-actor queue costs nothing.
+  if (next.trustContext) {
+    conversation.setTrustContext(next.trustContext);
+  }
+  await conversation.ensureActorScopedHistory();
+
   // Resolve slash commands for queued messages
   const slashResult = await resolveSlash(
     next.content,
@@ -1414,6 +1426,18 @@ async function drainBatch(
     head.trustContext ?? conversation.trustContext;
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
+
+  // History is scoped to the resting actor: `loadFromDb` splices persisted
+  // personal-memory blocks into the transcript only for actors allowed to see
+  // them. A queued sender is frequently not who the previous turn ran as, so
+  // stamp them and re-scope before this turn reads that history, or it
+  // inherits the previous actor's view of it. `ensureActorScopedHistory`
+  // early-returns unless the trust class or personal-memory gate actually
+  // changed, so a same-actor queue costs nothing.
+  if (head.trustContext) {
+    conversation.setTrustContext(head.trustContext);
+  }
+  await conversation.ensureActorScopedHistory();
 
   // Single activity-state transition for the batched turn. Per-message
   // emissions would publish N "thinking" phase transitions to every

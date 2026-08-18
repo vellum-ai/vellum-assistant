@@ -85,6 +85,9 @@ function makeFakeConversation(
         throw new Error("activity emit exploded");
       }
     },
+    // The drain re-scopes history to the queued sender before running.
+    ensureActorScopedHistory: async () => {},
+    setTrustContext: () => {},
     isProcessing: () => false,
     persistUserMessage: async (opts: { content: string }) => {
       persistCalls.push(opts.content);
