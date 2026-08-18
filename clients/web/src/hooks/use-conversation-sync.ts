@@ -35,10 +35,13 @@ import { createConcurrencyLimiter } from "@/utils/concurrency-limiter";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
-  archivedConversationsQueryKey,
   sidebarSectionsQueryKey,
   unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
+import {
+  conversationListQueryFilter,
+  isArchivedFilter,
+} from "@/utils/conversation-list-keys";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import {
   parseConversationSyncTag,
@@ -206,13 +209,13 @@ function scheduleConversationListRefetch(
         });
       },
     );
-    // The archive list stays on plain invalidation: it also drains, but
-    // its query is mounted only while the archive view is open, and
-    // invalidation refetches active queries alone. Groups are a single
-    // unpaginated GET.
-    void queryClient.invalidateQueries({
-      queryKey: archivedConversationsQueryKey(assistantId),
-    });
+    // The archived lists stay on plain invalidation: they order by
+    // `archivedAt` while the window refresh merges on a recency axis, and
+    // they are mounted only while the archive view is open, so invalidation
+    // refetches nothing until then. Groups are a single unpaginated GET.
+    void queryClient.invalidateQueries(
+      conversationListQueryFilter(assistantId, isArchivedFilter),
+    );
     void queryClient.invalidateQueries({
       queryKey: groupsGetQueryKey({
         path: { assistant_id: assistantId ?? "" },

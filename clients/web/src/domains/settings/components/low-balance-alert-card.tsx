@@ -7,15 +7,10 @@ import {
   organizationsBillingLowBalanceAlertRetrieveSetQueryData,
   organizationsBillingLowBalanceAlertUpdateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { formatUsd } from "@/utils/format-usd";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
-
-/** Format a USD decimal string ("5.00") as "$5.00" for display copy. */
-function formatUsd(value: string): string {
-  const n = parseFloat(value);
-  return Number.isFinite(n) ? `$${n.toFixed(2)}` : `$${value}`;
-}
 
 /**
  * Validate the threshold input against the same bounds the backend enforces

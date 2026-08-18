@@ -33,6 +33,8 @@
     "./file-open-preload": "./src/file-open-preload.ts",
     "./global-shortcuts": "./src/global-shortcuts.ts",
     "./hotkeys": "./src/hotkeys.ts",
+    "./host-proxy/cu-executor": "./src/host-proxy/cu-executor.ts",
+    "./host-proxy/helper-proxy-executor": "./src/host-proxy/helper-proxy-executor.ts",
     "./host-proxy/poster": "./src/host-proxy/poster.ts",
     "./host-proxy/router": "./src/host-proxy/router.ts",
     "./host-proxy/sse": "./src/host-proxy/sse.ts",

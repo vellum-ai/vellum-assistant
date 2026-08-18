@@ -24,10 +24,10 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
   attention state appear on the Windows taskbar.
 - Persisted main-window geometry and maximized state, load/show readiness,
   dynamic assistant titles, and frameless title-bar overlay controls.
-- Packaged static serving of the renderer from `src/main/index.ts`, with
+- Static serving of the renderer from `src/main/index.ts`, with
   path-traversal protection from `@vellumai/electron-utils/app-protocol`,
-  single-instance lock, per-environment `userData` separation, and
-  `electron-log` file logging.
+  platform API forwarding, single-instance lock, per-environment `userData`
+  separation, and `electron-log` file logging.
 - `electron-builder` NSIS installer target (`bun run pack`).
 
 ## Packaged CLI provisioning
@@ -59,10 +59,8 @@ use the existing POSIX archive process.
 
 ## Not ported yet (see `clients/macos/src/main/` for reference implementations)
 
-- Gateway (`/assistant/__gateway/{port}/*`) and platform (`/v1/*`,
-  `/_allauth/*`, `/accounts/*`) request forwarding. Packaged builds can't
-  reach local gateways or the cloud platform until this lands; dev runs are
-  unaffected because the Vite dev server proxies both.
+- Gateway (`/assistant/__gateway/{port}/*`) request forwarding. Packaged
+  builds cannot reach local gateways until this lands.
 - Native auth / OAuth sign-in chain, notifications, auto-update, CSP, hotkeys,
   local-mode IPC (hatch/wake/retire), and device id.
 
@@ -75,6 +73,18 @@ bun run dev
 Probes for `vel up` at `localhost:3000` and attaches to it, or falls back to
 standalone mode (spawns `clients/web`'s Vite on :5173, shell only, no
 backends). Scripts assume a POSIX shell; on Windows use Git Bash (or WSL).
+
+To test local web changes against the deployed dev platform without starting
+Vite or opening a local development port, run this from PowerShell:
+
+```powershell
+$env:VELLUM_ENVIRONMENT="dev"
+$env:VELLUM_DEV_URL="https://dev-assistant.vellum.ai/assistant"
+bun run dev:electron-local-web
+```
+
+This builds the local `clients/web` source, serves it from Electron's
+`app://` origin, and forwards platform API requests to `dev-assistant`.
 
 ## Packaging
 

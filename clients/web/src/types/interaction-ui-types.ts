@@ -41,8 +41,6 @@ export interface PendingConfirmationState {
   requestId: string;
   title?: string;
   description?: string;
-  confirmLabel?: string;
-  denyLabel?: string;
   toolName?: string;
   riskLevel?: string;
   riskReason?: string;

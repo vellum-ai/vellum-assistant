@@ -25,6 +25,7 @@ import {
 
 import { createWindowsHostProxyRuntime } from "../host-proxy-adapter";
 import log from "../logger";
+import { COMPUTER_USE_ACTION_EXECUTORS } from "./computer-use-actions";
 
 const hostProxy: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "host-proxy",
@@ -80,6 +81,7 @@ const installBridge = (capabilities: DesktopCapabilityRegistry): void => {
       // daemon lets mobile pushes through.
       installPresenceMonitor: () => () => undefined,
       getClientId: getDeviceId,
+      computerUseExecutors: capabilities.get(COMPUTER_USE_ACTION_EXECUTORS),
       logger: log,
     }),
   );

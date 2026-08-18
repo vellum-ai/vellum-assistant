@@ -1,4 +1,4 @@
-import { ArrowUp, Plus, Square } from "lucide-react";
+import { ArrowUp, Square } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -9,10 +9,12 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
 
+import { PlusIcon } from "@/domains/chat/components/plus-icon";
 import {
   AttachFileButton,
   ChatAttachmentsStrip,
@@ -37,6 +39,7 @@ import {
   MOBILE_CONTROL_CLASS,
   MOBILE_GHOST_WASH_CLASS,
   MOBILE_GLYPH_CLASS,
+  preventPressFocusTransfer,
 } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import {
   COMPOSER_MOBILE_RADIUS_CLASS,
@@ -73,7 +76,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { isNativeIOS } from "@/runtime/platform-detection";
+import { isNativeIOS, useIsNativeMobile } from "@/runtime/platform-detection";
 import { isPointerCoarse, usePointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
@@ -260,18 +263,29 @@ interface AddToChatButtonProps {
   disabled: boolean;
   label: string;
   onClick: () => void;
+  /** See `holdsFocusOnPress`. The row's other controls read the same signal. */
+  onMouseDown?: (event: ReactMouseEvent<HTMLElement>) => void;
 }
 
 /** The narrow row's plus. What a press opens is the caller's decision. */
-function AddToChatButton({ disabled, label, onClick }: AddToChatButtonProps) {
+function AddToChatButton({
+  disabled,
+  label,
+  onClick,
+  onMouseDown,
+}: AddToChatButtonProps) {
   return (
     <Button
       variant="ghost"
-      iconOnly={<Plus strokeWidth={2} />}
+      iconOnly={<PlusIcon strokeWidth={2} />}
       iconOnlyGlyphClassName={MOBILE_GLYPH_CLASS}
       // The row sizes its own controls, so the primitive's mobile growth is
       // off here and every narrow window gets the same plus.
       expandOnMobile={false}
+      // Where the press would not carry focus to this button, it has to leave
+      // the composer's focus alone until the click arrives. Whatever the click
+      // opens takes focus into its own portal from there.
+      onMouseDown={onMouseDown}
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
@@ -528,6 +542,19 @@ export function ChatComposer({
         return;
       }
       liveVoiceEntryOriginRef.current = origin ?? null;
+      // A soft keyboard is the only thing worth dropping focus for: it would
+      // otherwise stay raised under a room that takes the whole screen. Read at
+      // press time rather than from render, since a convertible can gain or lose
+      // its keyboard between the two.
+      //
+      // Everywhere else the focus stays put. A pointing device or a keyboard
+      // entry leaves focus on the button, and a `not-ready` verdict never opens
+      // the room at all: it raises a "Configure voice" action that the user then
+      // has to reach, which is a good deal harder from the body. The textarea by
+      // name for the same reason, so nothing else can be blurred by accident.
+      if (isPointerCoarse()) {
+        inputRef.current?.blur();
+      }
       // First-run preferences card — shown on the first-ever voice entry on
       // EVERY platform, the Capacitor iOS shell included (web↔iOS parity for the
       // welcome card). On iOS the card renders locked (`nonDismissible`, see its
@@ -542,7 +569,7 @@ export function ChatComposer({
       }
       startLiveVoiceSession();
     },
-    [assistantId, startLiveVoiceSession],
+    [assistantId, inputRef, startLiveVoiceSession],
   );
   const handleFirstRunStart = useCallback(() => {
     useVoicePrefsStore.getState().markFirstRunSeen();
@@ -754,6 +781,21 @@ export function ChatComposer({
   const pointerCoarseNow = usePointerCoarse();
   const usesAddSheet = isMobile && pointerCoarseNow;
 
+  // Whether a press on one of the row's controls has to hold the composer's
+  // focus for the click behind it. Both halves are load-bearing and neither one
+  // alone is the question: the row is what gates itself on that focus, and a
+  // press is what fails to carry it. A pointing device focuses the button it
+  // presses, and the button sits inside the shell `useComposerFocusWithin`
+  // watches, so the row never drops and the click never misses. Cancelling the
+  // press there would only take the focus the button is owed. Live rather than
+  // read once, since a convertible crosses this mid-session.
+  const holdsFocusOnPress = isMobile && pointerCoarseNow;
+  // The handler form, for the controls this file renders itself. See
+  // `preventPressFocusTransfer` for what the press would otherwise cost.
+  const rowPressGuard = holdsFocusOnPress
+    ? preventPressFocusTransfer
+    : undefined;
+
   // The picker the plus opens where the sheet has nothing to offer: the same
   // picker behind the desktop paperclip, through the same hook so the iOS
   // refocus dance is identical. Owned by the composer rather than by the plus,
@@ -772,11 +814,69 @@ export function ChatComposer({
   // sheet rises and the card would shift down under the scrim.
   const composerInUse =
     composerFocusWithin || settingsSheetOpen || addSheetOpen;
-  const settingsPillsVisible = isMobileMainComposer && composerInUse;
+  // Whether a banner is standing over the card. Read off the box rather than
+  // derived from props: most of that stack arrives through
+  // `noticesAboveFormSlot`, an opaque node, and the composer-owned notices in
+  // it source their own state, so what the box holds is the one answer that
+  // covers all of them at once.
+  const bannerStackRef = useRef<HTMLDivElement>(null);
+  const [hasBannerAboveCard, setHasBannerAboveCard] = useState(false);
+  const readBannerStack = useCallback(() => {
+    const node = bannerStackRef.current;
+    if (node) {
+      setHasBannerAboveCard(node.childElementCount > 0);
+    }
+  }, []);
+  // On every commit, so a banner that arrives with a render of this composer
+  // (the slot above, or a notice keyed on state it already subscribes to)
+  // settles in that same commit rather than a frame later.
+  useLayoutEffect(readBannerStack);
+  // The backstop for the rest: `ComposerDraftNotices` sources its own state,
+  // and its restored-draft notice comes and goes without this composer
+  // rendering at all. `childList` alone, since every notice in there is an
+  // element of its own.
+  useLayoutEffect(() => {
+    const node = bannerStackRef.current;
+    if (!node) {
+      return;
+    }
+    const observer = new MutationObserver(readBannerStack);
+    observer.observe(node, { childList: true });
+    return () => {
+      observer.disconnect();
+    };
+  }, [readBannerStack]);
+
+  // The app shells hold the row up for the whole session. On a phone these
+  // pills are the only place the access and profile pickers live, and a row
+  // that comes and goes with the keyboard puts both a tap out of reach for as
+  // long as the composer is at rest. A mobile browser keeps the focus-driven
+  // reveal, where the row is competing with the page's own chrome for the
+  // bottom of the screen.
+  const isNativeMobileShell = useIsNativeMobile();
+  // A banner docks to the card's top edge and takes the strip this row floats
+  // in, so the row stands down while one is up rather than crowding it. The
+  // avatar peeking over that same edge stands down with it (`ComposerPeek`).
+  const settingsPillsVisible =
+    isMobileMainComposer &&
+    !hasBannerAboveCard &&
+    (isNativeMobileShell || composerInUse);
   // The caption is the row's opposite number: it stands under the card at rest
   // and steps aside the moment anything takes the bottom of the screen, which
-  // is where the keyboard and every sheet cover it anyway.
+  // is where the keyboard and every sheet cover it anyway. In the shells,
+  // where the pills row stands throughout, the two share the resting composer
+  // rather than trading places.
   const disclaimerVisible = isMobileMainComposer && !composerInUse;
+  // The entrance belongs to the row that arrives with the keyboard. A row that
+  // stands throughout has no arrival to animate, and the same animation there
+  // replays on every mount, settling the composer on each navigation.
+  const settingsPillsClassName = settingsPillsVisible
+    ? `mb-3 flex justify-end gap-1.5 pr-1.5${
+        isNativeMobileShell
+          ? ""
+          : " animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] motion-reduce:animate-none"
+      }`
+    : undefined;
 
   // A pill at mobile widths (half the card's 52px collapsed height), the 10px
   // panel elsewhere, both from the live-voice bar's module: the bar stacks on
@@ -872,6 +972,7 @@ export function ChatComposer({
       onClick={
         usesAddSheet ? () => handleAddSheetOpenChange(true) : openAttachPicker
       }
+      onMouseDown={rowPressGuard}
     />
   );
 
@@ -890,6 +991,7 @@ export function ChatComposer({
       onBeforeStart={onVoiceBeforeStart}
       onStreamReady={setVoiceStream}
       mobileRow={isMobile}
+      holdComposerFocus={holdsFocusOnPress}
     />
   ) : null;
 
@@ -909,6 +1011,7 @@ export function ChatComposer({
       onStart={handleLiveVoiceStart}
       disabled={typingDisabled || isVoiceActive || isLiveVoiceSessionLive}
       mobileRow={isMobile}
+      holdComposerFocus={holdsFocusOnPress}
     />
   ) : (
     <Button
@@ -917,6 +1020,7 @@ export function ChatComposer({
       iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!isMobile}
       type="submit"
+      onMouseDown={rowPressGuard}
       disabled={sendBlocked}
       title={
         sendDisabled || !canSendMessageContent
@@ -943,6 +1047,7 @@ export function ChatComposer({
       iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!isMobile}
       type="submit"
+      onMouseDown={rowPressGuard}
       title="Send message"
       aria-label="Send message"
       className={cn(
@@ -958,6 +1063,7 @@ export function ChatComposer({
       iconOnly={<Square className="h-3 w-3" />}
       iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!isMobile}
+      onMouseDown={rowPressGuard}
       onClick={onStopGenerating}
       aria-label="Stop generating"
       className={isMobile ? MOBILE_CONTROL_CLASS : undefined}
@@ -1249,49 +1355,55 @@ export function ChatComposer({
           nonDismissible={isNativeIOS()}
         />
       )}
-      {/* Composer-owned draft/attachment notices (self-sourced), above the
-          orchestration banner stack. */}
-      <ComposerDraftNotices />
-      {/* Live-voice failure notice — surfaced by the voice-enabled composer
-          the user is looking at, mirroring the dictation `voiceError` Notice
-          rendered by `ComposerNotices` in the orchestration stack below.
-          Keyed on the session state (not entry eligibility) for the same
-          reason as `isLiveVoiceActive`: a session that fails right after an
-          eligibility drop must still surface its error. */}
-      {showVoiceInput && liveVoiceState === "failed" && liveVoiceError && (
-        <div className="mb-2">
-          <Notice tone="error" onDismiss={dismissLiveVoiceFailure}>
-            {liveVoiceError}
-          </Notice>
-        </div>
-      )}
-      {/* Pre-open "configure voice" prompt — surfaced when the readiness
-          preflight returns `not-ready` (no usable STT/TTS provider that
-          couldn't be auto-configured). The room stays closed; the action
-          deep-links to voice settings so the user can wire a provider. */}
-      {showVoiceInput && voiceConfigNotice && (
-        <div className="mb-2">
-          <Notice
-            tone="warning"
-            onDismiss={() => setVoiceConfigNotice(null)}
-            actions={
-              <Button
-                variant="outlined"
-                size="compact"
-                onClick={() => {
-                  setVoiceConfigNotice(null);
-                  navigate(routes.settings.voice);
-                }}
-              >
-                Configure voice
-              </Button>
-            }
-          >
-            {voiceConfigNotice}
-          </Notice>
-        </div>
-      )}
-      {noticesAboveFormSlot}
+      {/* Every banner that stands over the card, in one watched box. While
+          anything is in it the strip between the banner and the card is
+          spoken for, and the two things that float in that strip (the mobile
+          settings row below, and `ComposerPeek`'s avatar) stand down. */}
+      <div ref={bannerStackRef} data-slot="composer-banner-stack">
+        {/* Composer-owned draft/attachment notices (self-sourced), above the
+            orchestration banner stack. */}
+        <ComposerDraftNotices />
+        {/* Live-voice failure notice, surfaced by the voice-enabled composer
+            the user is looking at, mirroring the dictation `voiceError` Notice
+            rendered by `ComposerNotices` in the orchestration stack below.
+            Keyed on the session state (not entry eligibility) for the same
+            reason as `isLiveVoiceActive`: a session that fails right after an
+            eligibility drop must still surface its error. */}
+        {showVoiceInput && liveVoiceState === "failed" && liveVoiceError && (
+          <div className="mb-2">
+            <Notice tone="error" onDismiss={dismissLiveVoiceFailure}>
+              {liveVoiceError}
+            </Notice>
+          </div>
+        )}
+        {/* Pre-open "configure voice" prompt, surfaced when the readiness
+            preflight returns `not-ready` (no usable STT/TTS provider that
+            couldn't be auto-configured). The room stays closed; the action
+            deep-links to voice settings so the user can wire a provider. */}
+        {showVoiceInput && voiceConfigNotice && (
+          <div className="mb-2">
+            <Notice
+              tone="warning"
+              onDismiss={() => setVoiceConfigNotice(null)}
+              actions={
+                <Button
+                  variant="outlined"
+                  size="compact"
+                  onClick={() => {
+                    setVoiceConfigNotice(null);
+                    navigate(routes.settings.voice);
+                  }}
+                >
+                  Configure voice
+                </Button>
+              }
+            >
+              {voiceConfigNotice}
+            </Notice>
+          </div>
+        )}
+        {noticesAboveFormSlot}
+      </div>
       {isLiveVoiceActive && (
         // The minimized session surface, directly above the composer card
         // rather than in place of it: the session gets a bar, the user keeps a
@@ -1315,7 +1427,14 @@ export function ChatComposer({
           />
         </div>
       )}
-      <div ref={composerShellRef} data-slot="chat-composer-shell">
+      {/* `data-banner-above` is published for `ComposerPeek`, which reads the
+          flag off this shell rather than watching the same stack a second
+          time on its own clock. */}
+      <div
+        ref={composerShellRef}
+        data-slot="chat-composer-shell"
+        data-banner-above={hasBannerAboveCard ? "" : undefined}
+      >
         {/* Above every slot placement, the pills row included: what a control
             does when the card runs narrow is the control's own business, and
             must not depend on which row it happens to be sitting in. */}
@@ -1324,13 +1443,13 @@ export function ChatComposer({
             // Mounted for as long as the composer is, because each pill gates
             // itself on server state its own menu loads (access waits on the
             // global-threshold fetch), and a row that mounted on first focus
-            // would rise with that pill still missing. Only its visibility
-            // follows focus: `hidden` is `display: none`, which keeps the resting
-            // row out of the layout, the tab order and the accessibility tree,
-            // and lets the entrance animation run again on every reveal.
+            // would rise with that pill still missing.
             //
-            // The row rises into place rather than appearing, since it arrives
-            // with the keyboard; reduced motion keeps the placement and drops the
+            // In the app shells it then stays visible. In a mobile browser its
+            // visibility follows focus, and `hidden` is `display: none`, which
+            // keeps the resting row out of the layout, the tab order and the
+            // accessibility tree, and lets the entrance run again on every
+            // reveal. Reduced motion keeps the placement and drops the
             // movement.
             <div
               data-slot="composer-settings-pills"
@@ -1338,11 +1457,7 @@ export function ChatComposer({
               // The right inset lands the last pill's edge over the send
               // circle's, so the row reads as hung off the card rather than
               // floated past it.
-              className={
-                settingsPillsVisible
-                  ? "mb-3 flex animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] justify-end gap-1.5 pr-1.5 motion-reduce:animate-none"
-                  : undefined
-              }
+              className={settingsPillsClassName}
             >
               {thresholdPickerSlot}
               {modelPickerSlot}

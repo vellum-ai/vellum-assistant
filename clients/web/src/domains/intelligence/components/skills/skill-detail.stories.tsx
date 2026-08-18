@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { type ComponentProps, useState } from "react";
 
 import type { SkillInfo } from "@/domains/intelligence/skills/types";
 import {
@@ -161,14 +162,27 @@ function seededClient(options: {
   return client;
 }
 
+/**
+ * Holds the selected tab the way the route page does (there it rides
+ * `?tab=`), so clicking the tab strip works in a story. `tab` in args is the
+ * tab the story opens on.
+ */
+function SkillDetailWithTabState(props: ComponentProps<typeof SkillDetail>) {
+  const [tab, setTab] = useState(props.tab);
+  return <SkillDetail {...props} tab={tab} onTabChange={setTab} />;
+}
+
 const meta: Meta<typeof SkillDetail> = {
   title: "Intelligence/Skills/SkillDetail",
   component: SkillDetail,
   parameters: { layout: "fullscreen" },
+  render: (args) => <SkillDetailWithTabState {...args} />,
   args: {
     assistantId: ASSISTANT_ID,
     skill: SKILL,
     sourceConversationId: "conv_story",
+    tab: "files",
+    onTabChange: () => {},
     onBack: () => {},
     onRemove: () => {},
   },
@@ -195,11 +209,21 @@ function withShell(client: QueryClient) {
 
 /**
  * Landing on the page: Files is selected and History sits beside it. Click
- * History to see the revision list inside the page's own card. The tab is
- * uncontrolled, so this and the story below both open on Files.
+ * History to see the revision list inside the page's own card. This and the
+ * story below both open on Files.
  */
 export const Default: Story = {
   decorators: [withShell(seededClient({ historySupported: true }))],
+};
+
+/**
+ * Arriving by deep link: the in-chat Level Up card links to
+ * `/assistant/skills/:skillId?tab=history`, so the page opens straight onto
+ * the revision list.
+ */
+export const HistoryDeepLink: Story = {
+  decorators: [withShell(seededClient({ historySupported: true }))],
+  args: { tab: "history" },
 };
 
 /** Workspace history was squashed, so the list carries its caveat. */

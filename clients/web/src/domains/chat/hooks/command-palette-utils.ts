@@ -16,7 +16,7 @@ import {
 
 import type { CommandPaletteSection } from "@/components/command-palette/command-palette";
 import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
-import { isElectron } from "@/runtime/is-electron";
+import { newChatShortcutHint } from "@/domains/chat/new-chat-shortcut";
 
 /** Build the static "Actions" section with keyboard shortcuts. */
 export function buildActionsSection(
@@ -30,7 +30,7 @@ export function buildActionsSection(
         id: "action-new-conversation",
         icon: SquarePen,
         title: "New Conversation",
-        shortcutHint: isElectron() ? "⌘N" : "⌘⇧O",
+        shortcutHint: newChatShortcutHint(),
       },
       {
         id: "action-current-conversation",

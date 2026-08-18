@@ -40,6 +40,7 @@ export function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
     workflowName: null,
     sourceKey: null,
     userEnabled: null,
+    disarmReason: null,
     isOneShot: false,
     isDeferred: false,
     ...overrides,

@@ -174,6 +174,11 @@ export interface UserPromptSubmitInputContext {
    */
   readonly isHiddenPrompt?: boolean;
   /**
+   * Daemon-authored kind from the triggering row's `metadata.messageKind`,
+   * when the turn needs a more specific identity than role or visibility.
+   */
+  readonly messageKind?: string;
+  /**
    * The user's original message list, immutable for the hook. Plugins
    * may snapshot or compare against this but MUST NOT mutate it.
    */

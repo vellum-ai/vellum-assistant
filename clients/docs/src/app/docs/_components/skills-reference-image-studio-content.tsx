@@ -156,9 +156,10 @@ A Gemini API key is required. If one isn&apos;t configured, your assistant will
               a preference.
             </li>
             <li>
-              <strong>File delivery:</strong> Generated images are delivered as attachments in chat.
-              You can also ask your assistant to save them to a specific folder on your machine
-              (requires file access permission).
+              <strong>File delivery:</strong> Generated images appear inline in your assistant&rsquo;s
+              reply and are saved in its workspace, so you can refer back to them or ask for edits
+              later. You can also ask your assistant to save them to a specific folder on your
+              machine (requires file access permission).
             </li>
           </ul>
         </section>

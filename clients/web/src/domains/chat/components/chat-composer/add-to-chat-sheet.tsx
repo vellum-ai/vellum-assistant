@@ -41,7 +41,7 @@ interface AddToChatSheetProps {
 }
 
 /**
- * Mobile "Add to chat" bottom sheet: Camera, Find in Gallery, and Files, each
+ * Mobile "Add to chat" bottom sheet: Camera, Photo Library, and Files, each
  * backed by its own hidden `<input type="file">`.
  *
  * The three inputs render as siblings of `BottomSheet.Root`, outside the

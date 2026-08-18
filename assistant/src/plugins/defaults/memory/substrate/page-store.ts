@@ -153,6 +153,16 @@ export function validateSlug(slug: string): void {
   }
 }
 
+/** Boolean form of {@link validateSlug}. */
+export function isValidSlug(slug: string): boolean {
+  try {
+    validateSlug(slug);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Path helpers
 // ---------------------------------------------------------------------------

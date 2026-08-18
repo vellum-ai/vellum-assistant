@@ -14,17 +14,25 @@ import { createHostUiSnapshotExecutor } from "@vellumai/electron-desktop/host-pr
 import { getDevRendererBase, RENDERER_BASE_PROD } from "./app-config";
 import { hostBashExecutor } from "./executors/host-bash-adapter";
 
+import type { ComputerUseActionExecutors } from "./features/computer-use-actions";
+
 export type WindowsHostProxySources = Omit<
   HostProxyRuntime,
   "executors" | "teardownExecutors" | "posterClientHeaders" | "sseClientHeaders"
 > & {
   getClientId: () => string;
+  /**
+   * Computer-use executors contributed by the `computer-use-actions` capability
+   * module. Absent when the native helper feature is not installed, in which
+   * case `host_cu` is reported as unavailable to the daemon.
+   */
+  computerUseExecutors?: ComputerUseActionExecutors;
 };
 
 export const createWindowsHostProxyRuntime = (
   sources: WindowsHostProxySources,
 ): HostProxyRuntime => {
-  const { getClientId, ...runtimeSources } = sources;
+  const { getClientId, computerUseExecutors, ...runtimeSources } = sources;
   const browserExecutor = new HostBrowserExecutor();
   return {
     ...runtimeSources,
@@ -33,8 +41,6 @@ export const createWindowsHostProxyRuntime = (
       getMachineName: hostname,
       interfaceId: "windows",
     }),
-    // Only the portable committed executor kinds; host_cu and
-    // host_app_control wait on their Windows capability providers.
     executors: {
       host_bash: hostBashExecutor,
       host_file: hostFileExecutor,
@@ -44,9 +50,13 @@ export const createWindowsHostProxyRuntime = (
         resolveRendererBase: () =>
           app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
       }),
+      ...(computerUseExecutors
+        ? { host_cu: computerUseExecutors.host_cu }
+        : {}),
     },
     teardownExecutors: () => {
       browserExecutor.destroy();
+      computerUseExecutors?.teardown();
     },
   };
 };

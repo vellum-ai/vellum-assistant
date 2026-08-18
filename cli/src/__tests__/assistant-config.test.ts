@@ -8,10 +8,12 @@ import {
   spyOn,
 } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -95,6 +97,39 @@ describe("assistant-config", () => {
     const all = loadAllAssistants();
     expect(all).toHaveLength(1);
     expect(all[0].assistantId).toBe("test-1");
+  });
+
+  test("saveAssistantEntry writes under the advisory lock and cleans it up", () => {
+    saveAssistantEntry(makeEntry("locked-1"));
+    expect(loadAllAssistants()).toHaveLength(1);
+    // The shared `${lockfilePath}.lock` key hosts contend on is released.
+    expect(existsSync(join(testDir, ".vellum.lock.json.lock"))).toBe(false);
+  });
+
+  test("saveAssistantEntry breaks a stale lock and still lands the write", () => {
+    const lockDir = join(testDir, ".vellum.lock.json.lock");
+    mkdirSync(lockDir);
+    const past = new Date(Date.now() - 60_000);
+    utimesSync(lockDir, past, past);
+
+    saveAssistantEntry(makeEntry("stale-lock-1"));
+    expect(loadAllAssistants()).toHaveLength(1);
+    expect(existsSync(lockDir)).toBe(false);
+  });
+
+  test("saveAssistantEntry fails fast without writing when another holder is fresh", () => {
+    const lockDir = join(testDir, ".vellum.lock.json.lock");
+    mkdirSync(lockDir);
+    try {
+      const start = Date.now();
+      expect(() => saveAssistantEntry(makeEntry("contended-1"))).toThrow(
+        /Timed out acquiring lockfile lock/,
+      );
+      expect(Date.now() - start).toBeLessThan(2_000);
+      expect(loadAllAssistants()).toEqual([]);
+    } finally {
+      rmSync(lockDir, { recursive: true, force: true });
+    }
   });
 
   test("findAssistantByName returns matching entry", () => {

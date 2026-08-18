@@ -254,18 +254,17 @@ export function useSidebarState({
   // below them.
   /* This list decides which sections exist, and it is the only thing that
      does. A section's *contents* come from its own query, but every entry
-     here renders: `curatedSectionCount` and the move-up/move-down nudges
-     count these entries, so an entry that renders nothing draws the curated
-     rule over an empty tier and offers a move that swaps with something off
+     here renders: the move-up/move-down nudges count these entries, so an
+     entry that renders nothing offers a move that swaps with something off
      screen. One predicate for membership and visibility, or the two drift.
 
-     Membership comes from the loaded list, which is accurate while that list
-     drains in full. It stops being accurate under a windowed list
-     (LUM-2444), the same change that removes `groupConversations`, so
-     section existence needs a server-side source at that point. A section
-     cannot answer this for itself in the meantime: emptiness has to be known
-     before the list is built, and this hook cannot mount N queries for N
-     groups. */
+     Membership has two sources and the branch below picks between them: the
+     daemon's section index where it is served, and the loaded list
+     otherwise. The fallback is accurate only while that list drains in full,
+     which a windowed list does not do, so the index is what keeps existence
+     correct there. A section cannot answer this for itself either way:
+     emptiness has to be known before the list is built, and this hook cannot
+     mount N queries for N groups. */
   const defaultSections = useMemo((): SidebarSection[] => {
     /* Which sections exist has two possible sources, never mixed within one
        render. When the daemon serves the section index, it is authoritative

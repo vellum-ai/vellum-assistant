@@ -45,7 +45,11 @@
  *   6. Verify the run drained the buffer. `runResult.ok` only means the
  *      background run completed — the trim itself is delegated to the agent.
  *      A run that completes without shrinking the buffer is reported as
- *      `invoked` with `noProgress: true` and enqueues no follow-ups.
+ *      `invoked` with `noProgress: true` and enqueues no follow-ups. The
+ *      post-run page index is also read for `danglingLinks` (structural
+ *      references with no target page): reported on the outcome and in the
+ *      log, and fed into the NEXT pass's prompt as a repair step like
+ *      `parseFailures`. They never gate follow-ups.
  *   7. On progress, enqueue `memory_v2_reembed` (re-index any pages the agent
  *      touched). Tracking touched pages via mtime would be more precise but
  *      is fragile across filesystems; the embedder's content-hash cache makes
@@ -104,6 +108,7 @@ import {
   tryAcquireLock,
 } from "./consolidation-lock.js";
 import { getPageIndex, type PageParseFailure } from "./page-index.js";
+import type { DanglingLink } from "./page-links.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 import { resolveSubstrateTuning } from "./tuning.js";
 
@@ -296,7 +301,16 @@ export type ConsolidationOutcome =
        * follow-ups were enqueued.
        */
       noProgress: boolean;
+      /**
+       * Structural references (`links:`, `[[wikilinks]]`, `edges:`) in the
+       * post-run corpus whose target page does not exist; `null` when the
+       * post-run index could not be read.
+       */
+      danglingLinks: number | null;
     };
+
+/** Dangling links named in the post-run warn line before the count takes over. */
+const MAX_LOGGED_DANGLING_LINKS = 20;
 
 export async function memoryV2ConsolidateJob(
   _job: MemoryJob,
@@ -419,16 +433,20 @@ export async function memoryV2ConsolidateJob(
     // v2-only install must keep producing `summary:`-bearing fragment pages.
     const memoryV3Live = isMemoryV3Live(config);
     // Pages the index build dropped (malformed frontmatter) or degraded
-    // (unterminated fence) — rendered into the prompt's repair step so the
-    // agent fixes them this pass. Best-effort: prompt assembly must never
-    // fail because the index build did.
+    // (unterminated fence), and structural references with no target page,
+    // rendered into the prompt's repair steps so the agent fixes them this
+    // pass. Best-effort: prompt assembly must never fail because the index
+    // build did.
     let parseFailures: PageParseFailure[] = [];
+    let danglingLinks: DanglingLink[] = [];
     try {
-      parseFailures = (await getPageIndex(getWorkspaceDir())).parseFailures;
+      const index = await getPageIndex(getWorkspaceDir());
+      parseFailures = index.parseFailures;
+      danglingLinks = index.danglingLinks;
     } catch (err) {
       log.warn(
         { err },
-        "consolidation: page-index read failed; omitting the repair section",
+        "consolidation: page-index read failed; omitting the repair sections",
       );
     }
     const prompt = resolveConsolidationPrompt(
@@ -438,6 +456,7 @@ export async function memoryV2ConsolidateJob(
         includeCorePagesSection: memoryV3Live,
         articleShape: memoryV3Live ? "v3" : "v2",
         parseFailures,
+        danglingLinks,
       },
     );
 
@@ -496,6 +515,13 @@ export async function memoryV2ConsolidateJob(
     const bufferLinesAfter = countBufferLines(bufferPath);
     const noProgress = bufferLinesAfter >= bufferLinesBefore;
 
+    // The agent's file-tool writes invalidate the page index, so this read
+    // sees the post-run corpus.
+    const danglingAfter = await readDanglingLinks(
+      runResult.conversationId,
+      danglingLinks.length,
+    );
+
     // Failure-state bookkeeping. A skipped run (`skipReason`) never invoked
     // the agent, so it neither clears nor records. A completed run that made
     // no progress behaves like a failure for scheduling — the size trigger
@@ -526,6 +552,7 @@ export async function memoryV2ConsolidateJob(
         deferredEntries,
         followUpJobIds: [],
         noProgress: true,
+        danglingLinks: danglingAfter,
       };
     }
 
@@ -577,10 +604,45 @@ export async function memoryV2ConsolidateJob(
       deferredEntries,
       followUpJobIds,
       noProgress: false,
+      danglingLinks: danglingAfter,
     };
   } finally {
     releaseLock(lockPath);
   }
+}
+
+/**
+ * Post-run dangling-link count; warns (with a capped sample and the pre-run
+ * count) when any remain. `null` when the index cannot be read.
+ */
+async function readDanglingLinks(
+  conversationId: string,
+  danglingBefore: number,
+): Promise<number | null> {
+  let dangling: DanglingLink[];
+  try {
+    dangling = (await getPageIndex(getWorkspaceDir())).danglingLinks;
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "consolidation: post-run page-index read failed; dangling links unknown",
+    );
+    return null;
+  }
+  if (dangling.length > 0) {
+    log.warn(
+      {
+        conversationId,
+        danglingBefore,
+        danglingAfter: dangling.length,
+        sample: dangling
+          .slice(0, MAX_LOGGED_DANGLING_LINKS)
+          .map((d) => `${d.from} -> ${d.to} (${d.kind})`),
+      },
+      "consolidation left structural links whose target page does not exist; the next pass renders them as a repair step",
+    );
+  }
+  return dangling.length;
 }
 
 /**

@@ -1,11 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, SearchX } from "lucide-react";
 import { useCallback, useMemo, useRef } from "react";
-import { Navigate, useLocation, useNavigate, useParams } from "react-router";
+import {
+  Navigate,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { SkillRemovalDialog } from "@/components/skill-removal-dialog";
-import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
+import {
+  parseSkillDetailTab,
+  SkillDetail,
+  type SkillDetailTab,
+} from "@/domains/intelligence/components/skills/skill-detail";
 import { SkillDetailMobile } from "@/domains/intelligence/components/skills/skill-detail-mobile";
 import { SkillsErrorState } from "@/domains/intelligence/components/skills/skills-error-state";
 import { SkillsLoadingState } from "@/domains/intelligence/components/skills/skills-loading-state";
@@ -47,6 +57,27 @@ export function SkillDetailPage() {
   const routerState = location.state as { listSearch?: unknown } | null;
   const listSearch =
     typeof routerState?.listSearch === "string" ? routerState.listSearch : "";
+
+  // The desktop view's Files/History tab rides `?tab=`, so an in-chat card
+  // can link straight to a skill's history
+  // (`/assistant/skills/:skillId?tab=history`). Files is the default and
+  // keeps the URL clean; a tab change replaces rather than pushes so Back
+  // still leaves the page, and carries the entry's router state forward so
+  // the list search above survives the switch.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = parseSkillDetailTab(searchParams.get("tab"));
+  const handleTabChange = useCallback(
+    (next: SkillDetailTab) => {
+      const params = new URLSearchParams(searchParams);
+      if (next === "history") {
+        params.set("tab", "history");
+      } else {
+        params.delete("tab");
+      }
+      setSearchParams(params, { replace: true, state: location.state });
+    },
+    [searchParams, setSearchParams, location.state],
+  );
 
   const skillsQuery = useQuery({
     ...skillsGetOptions({
@@ -182,7 +213,7 @@ export function SkillDetailPage() {
           swipeContainerRef={swipeContainerRef}
         />
       ) : (
-        <SkillDetail {...detailProps} />
+        <SkillDetail {...detailProps} tab={tab} onTabChange={handleTabChange} />
       )}
       <SkillRemovalDialog
         skillName={skillPendingRemoval?.name ?? null}

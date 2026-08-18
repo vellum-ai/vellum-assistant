@@ -522,6 +522,20 @@ describe("ChatBody - plain empty state bottom-anchors while the keyboard is open
     expect(container.innerHTML).not.toContain("[justify-content:safe_center]");
   });
 
+  test("flipping docked/undocked keeps the composer DOM node mounted", () => {
+    keyboardOpen = false;
+    const { container, rerender } = render(<ChatBody {...withEmptyState()} />);
+    const composer = container.querySelector('[data-testid="composer"]');
+    expect(composer).not.toBeNull();
+
+    rerender(
+      <ChatBody
+        {...withEmptyState({ dockStartersToBottom: true, startersSlot })}
+      />,
+    );
+    expect(container.querySelector('[data-testid="composer"]')).toBe(composer);
+  });
+
   test("app-editing (non-docked with inline starters) stays centered with the keyboard open", () => {
     // Discriminates the gate: same non-docked empty state and open
     // keyboard, but with the inline startersSlot the app-editing branch

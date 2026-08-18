@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { DetailCard } from "@/components/detail-card";
 import { SettingRow } from "@/components/setting-row";
@@ -13,6 +13,7 @@ import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card
 import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings";
 import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { Trans, useTranslation } from "@/i18n";
 import {
   useAuthStore,
   useHasConfirmedPlatformSession,
@@ -22,15 +23,15 @@ import { savePreferenceToggle } from "@/lib/consent/consent-persistence";
 import { legalUrl, routes } from "@/utils/routes";
 import { Select } from "@vellumai/design-library/components/select";
 
-const RETENTION_OPTIONS: { value: string; label: string }[] = [
-  { value: "dontRetain", label: "Don't retain" },
-  { value: "oneHour", label: "1 hour" },
-  { value: "oneDay", label: "1 day" },
-  { value: "sevenDays", label: "7 days" },
-  { value: "thirtyDays", label: "30 days" },
-  { value: "ninetyDays", label: "90 days" },
-  { value: "keepForever", label: "Keep forever" },
-];
+const RETENTION_OPTIONS = [
+  { value: "dontRetain", labelKey: "privacyPage.retentionDontRetain" },
+  { value: "oneHour", labelKey: "privacyPage.retentionOneHour" },
+  { value: "oneDay", labelKey: "privacyPage.retentionOneDay" },
+  { value: "sevenDays", labelKey: "privacyPage.retentionSevenDays" },
+  { value: "thirtyDays", labelKey: "privacyPage.retentionThirtyDays" },
+  { value: "ninetyDays", labelKey: "privacyPage.retentionNinetyDays" },
+  { value: "keepForever", labelKey: "privacyPage.retentionKeepForever" },
+] as const;
 
 const DEFAULT_RETENTION_ID = "thirtyDays";
 
@@ -41,6 +42,7 @@ function Divider() {
 }
 
 export function PrivacyPage() {
+  const { t } = useTranslation("settings");
   // platformHostedOnly so the divider visibility matches the gate inside
   // `AccessConsentSetting` exactly.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
@@ -61,6 +63,15 @@ export function PrivacyPage() {
   const shareDiagnosticsChecked = shareDiagnostics ?? true;
   const [retentionId, setRetentionId] = useState(() =>
     getDeviceSetting("llmLogRetention", DEFAULT_RETENTION_ID),
+  );
+
+  const retentionOptions = useMemo(
+    () =>
+      RETENTION_OPTIONS.map((option) => ({
+        value: option.value,
+        label: t(option.labelKey),
+      })),
+    [t],
   );
 
   const handleAnalyticsToggle = () => {
@@ -90,21 +101,23 @@ export function PrivacyPage() {
       <RiskToleranceSettings />
       <MediaEmbedsCard />
       <DetailCard
-        title="Privacy"
+        title={t("privacyPage.title")}
         subtitle={
           hasPlatformSession ? (
-            <>
-              View details about what data we collect and how it's used in our{" "}
-              <a
-                href={legalUrl(routes.docs.legal.privacyPolicy)}
-                target="_blank"
-                rel="noreferrer"
-                className="underline"
-              >
-                privacy policy
-              </a>
-              .
-            </>
+            <Trans
+              ns="settings"
+              i18nKey="privacyPage.subtitleWithPolicy"
+              components={{
+                policyLink: (
+                  <a
+                    href={legalUrl(routes.docs.legal.privacyPolicy)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  />
+                ),
+              }}
+            />
           ) : undefined
         }
       >
@@ -112,16 +125,16 @@ export function PrivacyPage() {
           {showShareConsent && (
             <>
               <SettingRow
-                label="Share Analytics"
-                helperText="Send aggregated product usage data"
+                label={t("privacyPage.shareAnalyticsLabel")}
+                helperText={t("privacyPage.shareAnalyticsHelper")}
                 checked={shareAnalyticsChecked}
                 onChange={handleAnalyticsToggle}
                 variant="toggle-trailing"
               />
               <Divider />
               <SettingRow
-                label="Share Diagnostics"
-                helperText="Send crash reports, conversation traces, and session replay data"
+                label={t("privacyPage.shareDiagnosticsLabel")}
+                helperText={t("privacyPage.shareDiagnosticsHelper")}
                 checked={shareDiagnosticsChecked}
                 onChange={handleDiagnosticsToggle}
                 variant="toggle-trailing"
@@ -141,20 +154,17 @@ export function PrivacyPage() {
               htmlFor="llm-log-retention"
               className="block text-body-medium-default text-[var(--content-default)]"
             >
-              LLM Request Log Retention
+              {t("privacyPage.llmLogRetentionLabel")}
             </label>
             <div className="mt-2" style={{ maxWidth: 280 }}>
               <Select
                 value={retentionId}
                 onChange={handleRetentionChange}
-                options={RETENTION_OPTIONS}
+                options={retentionOptions}
               />
             </div>
             <p className="mt-2 text-body-small-default text-[var(--content-tertiary)]">
-              How long to keep LLM request and response logs on this device.
-              These logs record the prompts and completions sent to model
-              providers and are used for debugging. Shorter retention improves
-              privacy; longer retention helps troubleshoot issues.
+              {t("privacyPage.llmLogRetentionDescription")}
             </p>
           </div>
         </div>

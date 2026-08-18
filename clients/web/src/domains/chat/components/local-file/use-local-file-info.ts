@@ -118,6 +118,18 @@ async function probeWorkspaceFile(
       throwOnError: false,
     });
 
+    // The probe's range starts at byte 0, so the only file it is unsatisfiable
+    // for is a zero-byte one: the file exists and is empty. Classify it by
+    // extension, since there are no bytes to sniff.
+    if (response?.status === 416) {
+      const { mime, kind } = resolveLocalFileType({
+        sniffedMime: null,
+        serverMime: null,
+        filename: workspaceBasenameOf(workspacePath),
+      });
+      return { ok: true, kind, mime, sizeBytes: 0 };
+    }
+
     if (error || !response?.ok) {
       return {
         ok: false,

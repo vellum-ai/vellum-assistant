@@ -270,6 +270,46 @@ export const growthFor = (
 };
 
 /**
+ * Keep the avatar on screen, whatever the drag asks for.
+ *
+ * A drag arrives as a delta and is applied blind, so nothing in the gesture
+ * itself stops the surface being pushed past the edge of the display. It has to
+ * be stopped here, because there is no way back: the canvas is transparent and
+ * mostly empty, so a surface pushed off screen leaves nothing to grab and
+ * nothing to see, and the position is not persisted, so the only recovery is
+ * relaunching the app.
+ *
+ * The avatar is what is kept inside the work area, not the canvas. The canvas
+ * reaches hundreds of points past the avatar in every direction to hold a pill
+ * that is usually not drawn, and clamping that box would fence the avatar into
+ * the middle of the display, unable to reach the corner it is meant to rest in.
+ *
+ * Exported for its tests, as {@link growthFor} is, and pure for the same
+ * reason: it is the rule that decides whether the surface can be lost.
+ */
+export const clampCanvasOrigin = (
+  origin: { x: number; y: number },
+  workArea: { x: number; y: number; width: number; height: number },
+): { x: number; y: number } => {
+  const centreX = origin.x + CANVAS_WIDTH / 2;
+  const centreY = origin.y + CANVAS_HEIGHT / 2;
+  // Half the avatar may hang past the edge, so the clamp is to its centre plus
+  // a half box. A work area smaller than the avatar would put the maximum below
+  // the minimum, which `Math.min` then resolves toward the top-left corner
+  // rather than producing a position outside the display.
+  const minCentreX = workArea.x + AVATAR_BOX / 2;
+  const maxCentreX = workArea.x + workArea.width - AVATAR_BOX / 2;
+  const minCentreY = workArea.y + AVATAR_BOX / 2;
+  const maxCentreY = workArea.y + workArea.height - AVATAR_BOX / 2;
+  const clampedX = Math.min(Math.max(centreX, minCentreX), maxCentreX);
+  const clampedY = Math.min(Math.max(centreY, minCentreY), maxCentreY);
+  return {
+    x: Math.round(clampedX - CANVAS_WIDTH / 2),
+    y: Math.round(clampedY - CANVAS_HEIGHT / 2),
+  };
+};
+
+/**
  * Where the surface opens with no remembered position: the bottom-right of the
  * display under the cursor, near where the Dock usually is and clear of the
  * window the user is working in.
@@ -381,6 +421,11 @@ export const installCompanionWindow = (): void => {
   // that knows where the window currently is. Moving fires `move`, which
   // recomputes the direction, so dragging toward a screen edge flips the growth
   // before the user gets there.
+  //
+  // The delta is clamped rather than trusted. A drag that outruns the window,
+  // or one whose release this window never saw, arrives here as a single huge
+  // jump, and unclamped that jump puts the surface somewhere the user cannot
+  // reach it. See `clampCanvasOrigin`.
   on(
     "vellum:companion:moveBy",
     z.tuple([z.number(), z.number()]),
@@ -390,7 +435,17 @@ export const installCompanionWindow = (): void => {
         return;
       }
       const [x, y] = win.getPosition();
-      win.setPosition(Math.round(x + dx), Math.round(y + dy));
+      const wanted = { x: x + dx, y: y + dy };
+      // Measured against the display the drag is heading for rather than the
+      // one it started on, so a surface dragged onto a second display is
+      // clamped to that display's edges instead of being held back at the
+      // first one's.
+      const { workArea } = screen.getDisplayNearestPoint({
+        x: Math.round(wanted.x + CANVAS_WIDTH / 2),
+        y: Math.round(wanted.y + CANVAS_HEIGHT / 2),
+      });
+      const next = clampCanvasOrigin(wanted, workArea);
+      win.setPosition(next.x, next.y);
     },
   );
 

@@ -21,7 +21,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { formatUsdShort } from "@/domains/settings/billing/format-usd";
+import { formatUsdShort } from "@/utils/format-usd";
 import { AutoTopUpDisableConfirm } from "@/domains/settings/components/auto-top-up-disable-confirm";
 import {
   AutoTopUpForm,

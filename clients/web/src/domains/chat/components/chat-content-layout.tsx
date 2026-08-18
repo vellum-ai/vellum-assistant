@@ -414,8 +414,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   let rightPanel: ReactNode = null;
   if (!isMobile) {
     if (mainView === "document" && openedDocumentState && assistantId) {
-      // A file the editor cannot round-trip is shown read-only instead, in a
-      // panel that fetches its own bytes.
+      // A workspace file is shown read-only, in a panel that fetches its own
+      // bytes.
       if (openedDocumentState.source === "workspace-file-preview") {
         rightPanel = (
           <FilePreviewContainer
@@ -441,7 +441,6 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             assistantId={assistantId}
             surfaceId={openedDocumentState.surfaceId}
             conversationId={openedDocumentState.conversationId}
-            workspacePath={openedDocumentState.workspacePath}
             onSubmitFeedback={() => {
               const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
               navigate(

@@ -1,6 +1,14 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { readFileSync } from "fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "fs";
+import { tmpdir } from "os";
 import { dirname, join } from "path";
 
 import { __resetRegistryForTesting, getTool } from "../tools/registry.js";
@@ -97,7 +105,22 @@ import { run } from "../config/bundled-skills/image-studio/tools/media-generate-
 // Clean up after this file to prevent contamination of later test files.
 afterAll(() => {
   __resetRegistryForTesting();
+  for (const dir of tempWorkingDirs) {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
+
+const tempWorkingDirs: string[] = [];
+
+/** Build a ToolContext with a fresh temp working directory. */
+function makeContext(): ToolContext {
+  const workingDir = mkdtempSync(join(tmpdir(), "media-gen-test-"));
+  tempWorkingDirs.push(workingDir);
+  return {
+    conversationId: "conv-123",
+    workingDir,
+  } as unknown as ToolContext;
+}
 
 const CONFIG_DIR = join(
   dirname(import.meta.dirname!),
@@ -128,12 +151,10 @@ beforeEach(() => {
     platformBaseUrl: "",
     assistantApiKey: "",
   };
+  fakeContext = makeContext();
 });
 
-const fakeContext = {
-  conversationId: "conv-123",
-  workingDir: "/tmp",
-} as unknown as ToolContext;
+let fakeContext: ToolContext;
 
 describe("image-studio skill script wrapper", () => {
   test("exports a run function without registering media_generate_image in the tool registry", async () => {
@@ -431,28 +452,117 @@ describe("image-studio skill script wrapper", () => {
   });
 
   test("reads source images from file paths on disk", async () => {
-    // Write a temp image file inside the workspace (fakeContext.workingDir = /tmp)
-    const tmpPath = join("/tmp", "test-source-image.png");
+    // Write a temp image file inside the workspace
+    const tmpPath = join(fakeContext.workingDir, "test-source-image.png");
     const pngBytes = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
       "base64",
     );
     await Bun.write(tmpPath, pngBytes);
 
-    try {
-      const result = await run(
-        { prompt: "edit this", mode: "edit", source_paths: [tmpPath] },
-        fakeContext,
-      );
+    const result = await run(
+      { prompt: "edit this", mode: "edit", source_paths: [tmpPath] },
+      fakeContext,
+    );
 
-      expect(result.isError).toBe(false);
-      expect(result.content).toContain("Generated 1 image");
-    } finally {
-      const { unlink } = await import("fs/promises");
-      if (await Bun.file(tmpPath).exists()) {
-        await unlink(tmpPath);
-      }
-    }
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Generated 1 image");
+  });
+
+  test("saves the image into media/generated and returns the embed instruction", async () => {
+    const result = await run({ prompt: "a sunset" }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Saved to media/generated/a-sunset.png");
+    expect(result.content).toContain(
+      "![description](vellum://workspace/media/generated/a-sunset.png)",
+    );
+    const saved = Bun.file(
+      join(fakeContext.workingDir, "media/generated/a-sunset.png"),
+    );
+    expect(await saved.exists()).toBe(true);
+    const bytes = Buffer.from(await saved.arrayBuffer());
+    expect(bytes.equals(Buffer.from("generated-data", "base64"))).toBe(true);
+  });
+
+  test("uses the image title for the filename when present", async () => {
+    mockGenerateResult = {
+      images: [
+        {
+          mimeType: "image/png",
+          dataBase64: "img1",
+          title: "Twilight Gremlin!",
+        } as never,
+      ],
+      text: "",
+      resolvedModel: "gemini-3.1-flash-image-preview",
+    };
+
+    const result = await run({ prompt: "a pond creature" }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain(
+      "Saved to media/generated/twilight-gremlin.png",
+    );
+  });
+
+  test("gives each variant a distinct filename", async () => {
+    mockGenerateResult = {
+      images: [
+        { mimeType: "image/png", dataBase64: "img1" },
+        { mimeType: "image/png", dataBase64: "img2" },
+      ],
+      text: undefined as unknown as string,
+      resolvedModel: "gemini-3.1-flash-image-preview",
+    };
+
+    const result = await run({ prompt: "a robot", variants: 2 }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("- media/generated/a-robot.png");
+    expect(result.content).toContain("- media/generated/a-robot-2.png");
+    expect(
+      await Bun.file(
+        join(fakeContext.workingDir, "media/generated/a-robot-2.png"),
+      ).exists(),
+    ).toBe(true);
+  });
+
+  test("suffixes the filename when a previous generation already used it", async () => {
+    const first = await run({ prompt: "a fox" }, fakeContext);
+    expect(first.content).toContain("Saved to media/generated/a-fox.png");
+
+    const second = await run({ prompt: "a fox" }, fakeContext);
+    expect(second.content).toContain("Saved to media/generated/a-fox-2.png");
+  });
+
+  test("refuses to write through a symlink that escapes the workspace", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "media-gen-outside-"));
+    tempWorkingDirs.push(outside);
+    symlinkSync(outside, join(fakeContext.workingDir, "media"));
+
+    const result = await run({ prompt: "a cat" }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Could not save to the workspace");
+    expect(result.content).not.toContain("vellum://workspace/");
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
+  test("falls back to inline-only when the workspace write fails", async () => {
+    // Occupy the media path with a regular file so the directory creation
+    // under it fails.
+    writeFileSync(join(fakeContext.workingDir, "media"), "not a directory");
+
+    const result = await run({ prompt: "a cat" }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Could not save to the workspace");
+    expect(result.content).toContain(
+      "will be attached to your reply automatically",
+    );
+    expect(result.content).not.toContain("vellum://workspace/");
+    expect(result.contentBlocks).toHaveLength(1);
   });
 
   test("returns error when all source_paths are invalid", async () => {

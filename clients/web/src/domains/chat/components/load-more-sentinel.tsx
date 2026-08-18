@@ -13,7 +13,7 @@
  * full page.
  *
  * Fires on every entry into view, not once: the callback is expected to be
- * idempotent while a load is in flight (`loadMoreSectionConversations`
+ * idempotent while a load is in flight (`loadMoreConversations`
  * guards per section), and re-firing after rows arrive is what pages in the
  * next window when the user keeps scrolling.
  */

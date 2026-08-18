@@ -1,4 +1,14 @@
-import { and, count, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  getTableColumns,
+  isNull,
+  lt,
+  sql,
+} from "drizzle-orm";
+import type { SQLiteSelect } from "drizzle-orm/sqlite-core";
 
 import {
   parseExternalContentEnvelope,
@@ -189,7 +199,8 @@ function surfacedVisibilitySql(alias = "conversations"): string {
  * explicitly surfaced. {@link standardListingVisibilitySql} already admits
  * such rows through its surfaced and custom-group arms, so a caller that
  * must distinguish "visible in the listing" from "user-facing foreground"
- * (unread counting) applies this on top.
+ * (unread counting, the section index, a `foregroundOnly` list read) applies
+ * this on top.
  *
  * The SQL twin of `isBackgroundConversation` in the web client's
  * `utils/conversation-predicates.ts`.
@@ -263,6 +274,25 @@ export interface ConversationListFilter {
    * section, and a UUID one custom group. Omit to span every group.
    */
   groupId?: string;
+  /**
+   * Restrict to conversations whose latest assistant message the user has
+   * not seen: the same "unseen" predicate the unread count and the section
+   * index apply ({@link unseenAttentionStateConditions}), so every reader
+   * of "needs attention" agrees. Only `true` narrows; omit to span every
+   * conversation. A client that keeps no complete list can ask for exactly
+   * the rows its attention surfaces need instead of scanning for them.
+   */
+  needsAttention?: true;
+  /**
+   * Restrict to user-facing foreground conversations: drop the automated
+   * background/scheduled rows the standard listing admits through its
+   * custom-group arm ({@link notBackgroundVisibilitySql}, the same predicate
+   * the unread count and the section index apply on top of visibility).
+   * Only `true` narrows; omit to keep every visible row. A client that
+   * needs the newest conversation a user can open can ask for it in one
+   * row instead of paging past runs it would skip.
+   */
+  foregroundOnly?: true;
 }
 
 export interface ConversationListQuery extends ConversationListFilter {
@@ -327,19 +357,55 @@ function originChannelClause(originChannel: string) {
   return eq(conversations.originChannel, originChannel);
 }
 
+/**
+ * The join between a conversation and its attention projection, one row per
+ * conversation in `conversation_assistant_attention_state`. Every reader of
+ * "unseen" joins on this: the list and count filters, the unread count, and
+ * the section index.
+ */
+const attentionJoin = eq(
+  conversationAssistantAttentionState.conversationId,
+  conversations.id,
+);
+
 function conversationListWhere(filter: ConversationListFilter) {
   const {
     conversationType = "standard",
     archiveStatus = "active",
     originChannel,
     groupId,
+    needsAttention,
+    foregroundOnly,
   } = filter;
   return and(
     conversationTypeClause(conversationType),
     archiveStatusClause(archiveStatus) ?? undefined,
     originChannel ? originChannelClause(originChannel) : undefined,
     groupId ? groupIdClause(groupId) : undefined,
+    ...(needsAttention ? unseenAttentionStateConditions() : []),
+    foregroundOnly ? sql.raw(notBackgroundVisibilitySql()) : undefined,
   );
+}
+
+/**
+ * The joins {@link conversationListWhere}'s predicates need, applied to a
+ * list or count query over `conversations`. The attention predicate lives on
+ * `conversation_assistant_attention_state`, so `needsAttention` joins it.
+ * Inner, not left: a conversation with no
+ * attention row has no unseen message by definition. Joined only when the
+ * filter asks, so a query without the filter runs without the join and
+ * lists every conversation the predicates admit. One place for both
+ * {@link listConversations} and {@link countConversations}, so a page and
+ * its total always describe the same set.
+ */
+function withListFilterJoins<T extends SQLiteSelect>(
+  query: T,
+  filter: ConversationListFilter,
+) {
+  if (!filter.needsAttention) {
+    return query;
+  }
+  return query.innerJoin(conversationAssistantAttentionState, attentionJoin);
 }
 
 export function listConversations(
@@ -362,9 +428,13 @@ export function listConversations(
   // distinguish a total order from a lucky one. The guarantee becomes
   // observable, and gets its test, with the keyset pagination work.
   const tiebreak = desc(conversations.id);
-  return db
-    .select()
-    .from(conversations)
+  // Selecting the conversation columns explicitly keeps the row shape
+  // `parseConversation` maps identical whether or not the attention join is
+  // present.
+  return withListFilterJoins(
+    db.select(getTableColumns(conversations)).from(conversations).$dynamic(),
+    filter,
+  )
     .where(conversationListWhere(filter))
     .orderBy(recency, tiebreak)
     .limit(limit ?? 100)
@@ -542,9 +612,10 @@ export function countConversations(
 ): number {
   ensureGroupMigration();
   const db = getDb();
-  const [{ total }] = db
-    .select({ total: count() })
-    .from(conversations)
+  const [{ total }] = withListFilterJoins(
+    db.select({ total: count() }).from(conversations).$dynamic(),
+    filter,
+  )
     .where(conversationListWhere(filter))
     .all();
   return total;
@@ -582,10 +653,7 @@ export function countUnreadConversations(): number {
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
-    .innerJoin(
-      conversationAssistantAttentionState,
-      eq(conversationAssistantAttentionState.conversationId, conversations.id),
-    )
+    .innerJoin(conversationAssistantAttentionState, attentionJoin)
     .where(
       and(
         conversationTypeClause("standard"),
@@ -646,11 +714,6 @@ export function countConversationSections(): ConversationSectionCounts {
     sql.raw(notBackgroundVisibilitySql()),
     ...unseenAttentionStateConditions(),
   )} THEN 1 ELSE 0 END)`;
-
-  const attentionJoin = eq(
-    conversationAssistantAttentionState.conversationId,
-    conversations.id,
-  );
 
   const groups = db
     .select({

@@ -709,6 +709,8 @@ Live voice STT uses the same `resolveStreamingTranscriber()` path as conversatio
 
 Live voice TTS uses `streamLiveVoiceTtsAudio()` and the configured `services.tts.provider`. The selected provider must be registered, catalog-compatible, and expose `capabilities.supportsStreaming` plus `synthesizeStream()`. Providers whose catalog entry advertises `supportsStreaming` (currently all four catalog providers: ElevenLabs, Fish Audio, Deepgram, and xAI) satisfy this requirement; a buffered-only provider would remain available for buffered message playback or other supported surfaces, but live voice reports a TTS error instead of silently falling back to buffered playback.
 
+The `voiceFrontDoor` prompt skips current-turn legacy and v3 memory retrieval, while prior frozen memory cards and static memory context remain available. The front-door rule escalates rather than guessing when required personal context is absent. The escalated leg runs the ordinary memory pipeline against the latest visible caller prompt before the quality model, with low selector effort. This keeps memory work off the front-door TTFT path without cross-leg speculative state.
+
 V1 is local/gateway-scoped. Managed/cloud WebSocket proxy support, cross-region routing, and p50/p95 latency guarantees are out of scope for this version. Metrics frames expose timing data for measurement, but the architecture does not promise a hard latency SLO.
 
 **Client service-first boundary:**
@@ -886,17 +888,29 @@ startup pass in `daemon/lifecycle.ts` (after plugin init, before the
 scheduler starts), the end of `reconcilePluginSourcesNow()` in
 `plugins/mtime-cache.ts` (install/uninstall/upgrade and sentinel-driven
 changes), the plugin enable/disable routes, and a 60s backstop sweep
-registered with the HTTP server's background sweeps.
+registered with the HTTP server's background sweeps. The desired set is
+gated on activation as well as on what is on disk:
+`collectDesiredDeclarations` skips any plugin directory that
+`isPluginDirActivated` (`plugins/mtime-cache.ts`) does not report as brought
+up in this process, so a directory that merely exists under the plugins root
+never arms a row.
 
 Reconcile lag never lets a disabled plugin run. The disable path writes a
 `.disabled` sentinel that only a reconcile pass turns into disarmed rows, so
 the scheduler re-reads the sentinel at fire time and records a skipped run
 instead of executing a claimed row whose plugin is off. Run-now applies the
-same boundary through `declarationExistsOnDisk`, which also covers a plugin
+same boundary through `pluginScheduleSourceAvailable`
+(`schedule/plugin-schedule-availability.ts`), which composes the activation
+ledger with `declarationExistsOnDisk`. That disk probe also covers a plugin
 whose manifest no longer parses, a declaration directory that is gone, and a
 plugin root or declaration directory resolving outside the tree it belongs to
 (the same `isInsidePluginRoot` containment the loader applies before importing
-a plugin).
+a plugin). Fire time in the scheduler and the user re-enable path in
+`schedule-store.ts` deliberately use the disk probe on its own, because both
+can run outside the daemon process, where the activation ledger is empty and
+every plugin would read as unactivated. The reconciler's sweep disarms the
+rows of a plugin it has not activated within one pass, which bounds what
+those disk-only probes can let through.
 
 A declaration that stops parsing keeps its execute row armed on the message
 already stored in the row, but disarms its script rows: a script row fires its
@@ -909,7 +923,10 @@ timezone, message/script, retry policy, `definition_hash`); the execution
 engine owns runtime columns (`next_run_at`, `status`, `last_*`,
 `retry_count`) and its latches are never overridden; the user owns
 `user_enabled`, a sticky override consulted when computing effective
-`enabled`. Nothing ever writes to plugin files. Execution itself is
+`enabled`. `definition_hash` is a sha256 over the relPath and bytes of
+exactly two files, the declaration's `config.json` and its entrypoint, so
+nothing else under `schedules/<name>/` can produce a definition change.
+Nothing ever writes to plugin files. Execution itself is
 unchanged: declared rows fire through the same `claimDueSchedules` path as
 imperative ones.
 

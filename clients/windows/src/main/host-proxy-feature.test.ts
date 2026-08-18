@@ -43,6 +43,8 @@ mock.module("electron-log/main", () => {
 const { __testing } =
   await import("@vellumai/electron-desktop/host-proxy/router");
 const { default: hostProxyFeature } = await import("./features/host-proxy");
+const { COMPUTER_USE_ACTION_EXECUTORS } =
+  await import("./features/computer-use-actions");
 const { DesktopCapabilityRegistry } =
   await import("@vellumai/electron-desktop/capability-registry");
 
@@ -71,4 +73,20 @@ test("installs the bridge with the portable executors and tears down on quit", a
   expect(quitListeners.length).toBe(1);
   quitListeners[0]();
   expect(__testing.executors.size).toBe(0);
+});
+
+test("installs the computer-use executor contributed by its capability", async () => {
+  const registry = new DesktopCapabilityRegistry();
+  registry.provide(COMPUTER_USE_ACTION_EXECUTORS, {
+    host_cu: {
+      handleRequest: () => undefined,
+      handleCancel: () => undefined,
+    },
+    teardown: () => undefined,
+  });
+
+  hostProxyFeature.install(registry);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(__testing.executors.has("host_cu")).toBe(true);
 });

@@ -23,10 +23,6 @@ import {
   lookupAssistantByIdentifier,
 } from "./assistant-config.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
-import {
-  isAssistantFeatureFlagEnabled,
-  WEB_REMOTE_INGRESS_FLAG,
-} from "./feature-flags.js";
 import { waitForDaemonReady } from "./http-client.js";
 import { loadRawConfig, saveRawConfig } from "./ingress-config.js";
 import { findWebDistDir } from "./web-dist.js";
@@ -879,50 +875,6 @@ export async function startRemoteWebIngress(opts: {
   return rollback("port-conflict");
 }
 
-/** Retry policy for the `web-remote-ingress` flag lookup. */
-export interface FlagRetryPolicy {
-  attempts: number;
-  intervalMs: number;
-}
-
-/**
- * Resolve the edge mode for an assistant: the `web-remote-ingress` flag selects
- * the SPA edge when enabled and the webhooks-only edge when disabled. The
- * lookup requires a reachable assistant; `flagRetry` rides out a gateway that
- * is still starting by retrying thrown lookups (a resolved `false` is a real
- * answer, not a retry). When the budget is spent the last error throws with a
- * wake hint.
- */
-async function resolveEdgeIncludesWebApp(
-  assistantId: string,
-  gatewayPort: number,
-  flagRetry?: FlagRetryPolicy,
-): Promise<boolean> {
-  const attempts = Math.max(1, flagRetry?.attempts ?? 1);
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    try {
-      return await isAssistantFeatureFlagEnabled(
-        assistantId,
-        WEB_REMOTE_INGRESS_FLAG,
-        { runtimeUrl: `http://127.0.0.1:${gatewayPort}` },
-      );
-    } catch (err) {
-      lastError = err;
-      if (attempt < attempts) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, flagRetry?.intervalMs ?? 0),
-        );
-      }
-    }
-  }
-  throw new Error(
-    `Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag before starting the edge. Is the assistant running? Try \`vellum wake\` and retry. ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
-  );
-}
-
 /**
  * Display name recorded for the assistant in the CLI lockfile; undefined when
  * no entry matches, so the served config omits the label rather than guessing.
@@ -952,13 +904,11 @@ export interface TunnelEdge {
  * Bring up the nginx edge as the canonical tunnel target and return the listen
  * port a tunnel should front.
  *
- * The `web-remote-ingress` flag picks the edge mode (enabled: SPA + gateway
- * proxy, disabled: webhooks-only proxy); an entry without an assistant id
- * cannot have the flag verified and gets the webhooks-only edge. The resolved
+ * The edge always serves the SPA alongside the gateway proxy. The requested
  * mode is always delegated to `startRemoteWebIngress`, which reuses a running
  * edge that already serves that mode, gateway port, and injected SPA config
  * and restarts one that drifted in any respect, so the returned port always
- * fronts the flag-resolved config. `started` is false when a matching edge was
+ * fronts the requested config. `started` is false when a matching edge was
  * reused; a drifted edge that survives the restart attempt throws rather than
  * reporting the wrong config. Failures throw with actionable install or
  * diagnostic text.
@@ -967,8 +917,6 @@ export async function ensureTunnelEdge(opts: {
   assistantId: string | undefined;
   workspaceDir: string;
   gatewayPort: number;
-  /** Retries thrown flag lookups (e.g. a still-starting gateway); default one attempt. */
-  flagRetry?: FlagRetryPolicy;
   /** Forwarded to `startRemoteWebIngress` for caller progress output. */
   onStarting?: (info: {
     version: string;
@@ -976,23 +924,14 @@ export async function ensureTunnelEdge(opts: {
     listenPort: number;
   }) => void;
 }): Promise<TunnelEdge> {
-  const includeWebApp = opts.assistantId
-    ? await resolveEdgeIncludesWebApp(
-        opts.assistantId,
-        opts.gatewayPort,
-        opts.flagRetry,
-      )
-    : false;
-
-  const assistantName =
-    includeWebApp && opts.assistantId
-      ? lockfileAssistantName(opts.assistantId)
-      : undefined;
+  const assistantName = opts.assistantId
+    ? lockfileAssistantName(opts.assistantId)
+    : undefined;
 
   const result = await startRemoteWebIngress({
     workspaceDir: opts.workspaceDir,
     gatewayPort: opts.gatewayPort,
-    includeWebApp,
+    includeWebApp: true,
     ...(assistantName ? { assistantName } : {}),
     ...(opts.onStarting ? { onStarting: opts.onStarting } : {}),
   });
@@ -1002,16 +941,15 @@ export async function ensureTunnelEdge(opts: {
       return {
         port: result.listenPort,
         started: true,
-        includesWebApp: includeWebApp,
+        includesWebApp: true,
       };
     case "already-running": {
       // `already-running` also covers a drifted edge whose restart failed, so
       // trust the recorded state it carries over the requested config.
-      if (result.includeWebApp !== includeWebApp) {
-        const describe = (spa: boolean) => (spa ? "web app" : "webhooks-only");
+      if (!result.includeWebApp) {
         throw new Error(
-          `The nginx edge is still running in ${describe(result.includeWebApp)} mode ` +
-            `and could not be restarted in ${describe(includeWebApp)} mode. ` +
+          "The nginx edge is still running in webhooks-only mode " +
+            "and could not be restarted in web app mode. " +
             "Run `vellum nginx-ingress down` and retry.",
         );
       }

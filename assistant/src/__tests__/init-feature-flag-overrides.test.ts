@@ -11,6 +11,7 @@ import {
   clearFeatureFlagOverridesCache,
   initFeatureFlagOverrides,
   isAssistantFeatureFlagEnabled,
+  refreshOverridesFromGateway,
 } from "../config/assistant-feature-flags.js";
 import { mockGatewayIpc, resetMockGatewayIpc } from "./mock-gateway-ipc.js";
 
@@ -108,5 +109,53 @@ describe("initFeatureFlagOverrides", () => {
     expect(isAssistantFeatureFlagEnabled("first-call", config)).toBe(true);
     // second-call should not be in the cache since init was a no-op
     expect(isAssistantFeatureFlagEnabled("second-call", config)).toBe(false);
+  });
+});
+
+describe("refreshOverridesFromGateway", () => {
+  it("replaces the cache with the new gateway values", async () => {
+    mockGatewayIpc({ "moving-flag": true });
+    await initFeatureFlagOverrides();
+
+    resetMockGatewayIpc();
+    mockGatewayIpc({ "moving-flag": false });
+
+    expect(await refreshOverridesFromGateway()).toBe(true);
+
+    const config = {} as any;
+    expect(isAssistantFeatureFlagEnabled("moving-flag", config)).toBe(false);
+  });
+
+  it("keeps the last known values when the refresh fails", async () => {
+    mockGatewayIpc({ "moving-flag": true });
+    await initFeatureFlagOverrides();
+
+    resetMockGatewayIpc();
+    mockGatewayIpc(null, { error: true });
+
+    expect(await refreshOverridesFromGateway()).toBe(false);
+
+    // A failed refresh must not drop the flag to its registry default: a
+    // value the assistant selects behavior from (an experiment arm, a kill
+    // switch) would otherwise flip on one timed-out IPC call.
+    const config = {} as any;
+    expect(isAssistantFeatureFlagEnabled("moving-flag", config)).toBe(true);
+  });
+
+  it("keeps the cache readable for the whole call", async () => {
+    mockGatewayIpc({ "moving-flag": true });
+    await initFeatureFlagOverrides();
+
+    resetMockGatewayIpc();
+    mockGatewayIpc({ "moving-flag": false });
+
+    const config = {} as any;
+    const inFlight = refreshOverridesFromGateway();
+    // A sync read landing mid-refresh sees the previous values, never an
+    // empty cache.
+    expect(isAssistantFeatureFlagEnabled("moving-flag", config)).toBe(true);
+
+    await inFlight;
+    expect(isAssistantFeatureFlagEnabled("moving-flag", config)).toBe(false);
   });
 });

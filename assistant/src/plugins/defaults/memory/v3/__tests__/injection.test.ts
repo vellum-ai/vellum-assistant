@@ -364,6 +364,24 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     expect(getActiveSlugs("conv-1")).toEqual(new Set());
   });
 
+  test("voice front door skips current-turn orchestration in both injectors", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a"]));
+    seedMemoryConfig();
+    const ctx = {
+      requestId: "req-voice",
+      conversationId: "conv-voice",
+      turnIndex: 0,
+      trust: GUARDIAN_TRUST,
+      callSite: "voiceFrontDoor" as const,
+    };
+
+    expect(await memoryV3Injector.produce(ctx)).toBeNull();
+    expect(await memoryV3SpotlightInjector.produce(ctx)).toBeNull();
+    expect(observeTurnSpy).not.toHaveBeenCalled();
+    expect(getActiveSlugs("conv-voice")).toEqual(new Set());
+  });
+
   test("live retrieval failure queues a degraded-memory notice", async () => {
     liveEnabled = true;
     turnResults.set(

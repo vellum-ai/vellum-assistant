@@ -45,6 +45,10 @@ mock.module("../plugins/defaults/memory/substrate/skill-store.js", () => ({
   seedV2SkillEntries: async () => {
     seedCallCount += 1;
   },
+  // The validate route builds the page index, which reads the seeded
+  // skill catalog; an empty catalog keeps that walk inert here.
+  listSkillEntries: () => [],
+  SKILL_SLUG_PREFIX: "skills/",
 }));
 
 // ---------------------------------------------------------------------------
@@ -254,7 +258,7 @@ describe("all memory v2 routes — MEMORY_V2_DISABLED gate", () => {
     const result = (await route!.handler({ body: {} })) as {
       pageCount: number;
       edgeCount: number;
-      missingEdgeEndpoints: unknown[];
+      danglingLinks: unknown[];
       oversizedPages: unknown[];
       parseFailures: unknown[];
     };
@@ -263,7 +267,7 @@ describe("all memory v2 routes — MEMORY_V2_DISABLED gate", () => {
     // returned at all (no MEMORY_V2_DISABLED throw).
     expect(result.pageCount).toBe(0);
     expect(result.edgeCount).toBe(0);
-    expect(result.missingEdgeEndpoints).toEqual([]);
+    expect(result.danglingLinks).toEqual([]);
     expect(result.oversizedPages).toEqual([]);
     expect(result.parseFailures).toEqual([]);
   });

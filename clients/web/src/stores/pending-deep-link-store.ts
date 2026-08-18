@@ -44,6 +44,25 @@ export interface PendingDeepLinkState {
    * (see `consumePendingVoiceStart`).
    */
   pendingVoiceStartAt: number | null;
+  /**
+   * A message that a *proven* App Intent asked to send into a specific
+   * conversation (`deeplink.sendToThread` with `provenance: "intent"`), or
+   * `null` if none. Unlike `pendingComposerMessage` this is a request to
+   * send, not to pre-fill, so it stays parked until the chat domain has
+   * confirmed the target thread exists (`useDeepLinkThreadSend`); relaying
+   * before that could let a stale id mint a new conversation. `parkedAt`
+   * lets the consumer bound how long a park that never drains stays a
+   * *send* (it demotes to a pre-fill past the bound), as with the voice
+   * start's age check.
+   */
+  pendingThreadSend: PendingThreadSend | null;
+}
+
+/** A proven send-into-thread request; see `pendingThreadSend`. */
+export interface PendingThreadSend {
+  threadId: string;
+  message: string;
+  parkedAt: number;
 }
 
 export interface PendingDeepLinkActions {
@@ -69,6 +88,19 @@ export interface PendingDeepLinkActions {
    * which owns the age bound.
    */
   consumePendingVoiceStart: (maxAgeMs: number) => boolean;
+  /**
+   * Park a proven send-into-thread request. A newer request replaces an
+   * older one: the most recent intent wins, same as the composer message.
+   */
+  setPendingThreadSend: (threadId: string, message: string) => void;
+  /**
+   * Read and clear the parked send request, `parkedAt` included. Returns
+   * `null` when none is parked. Unlike `consumePendingVoiceStart` the age
+   * bound is not applied here: the consumer (`useDeepLinkThreadSend`) owns
+   * it, because an expired request is demoted to a composer pre-fill rather
+   * than dropped, and only the consumer can do that demotion.
+   */
+  consumePendingThreadSend: () => PendingThreadSend | null;
 }
 
 export type PendingDeepLinkStore = PendingDeepLinkState &
@@ -78,6 +110,7 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
   (set, get) => ({
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
+    pendingThreadSend: null,
     setPendingComposerMessage: (message) =>
       set({ pendingComposerMessage: message }),
     consumePendingComposerMessage: () => {
@@ -96,6 +129,15 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
       set({ pendingVoiceStartAt: null });
       return Date.now() - parkedAt <= maxAgeMs;
     },
+    setPendingThreadSend: (threadId, message) =>
+      set({ pendingThreadSend: { threadId, message, parkedAt: Date.now() } }),
+    consumePendingThreadSend: () => {
+      const parked = get().pendingThreadSend;
+      if (parked !== null) {
+        set({ pendingThreadSend: null });
+      }
+      return parked;
+    },
   }),
 );
 
@@ -110,5 +152,6 @@ export function __resetPendingDeepLinkForTesting(): void {
   usePendingDeepLinkStoreBase.setState({
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
+    pendingThreadSend: null,
   });
 }

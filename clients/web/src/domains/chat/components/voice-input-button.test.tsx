@@ -651,4 +651,62 @@ describe("VoiceInputButton: mobile composer row chrome", () => {
       MOBILE_GLYPH_CLASS,
     );
   });
+
+  test("holdComposerFocus holds the composer's focus through the press", () => {
+    // GIVEN the mic in the focus-gated row, on a press that would not carry
+    // focus to it
+    render(
+      <VoiceInputButton
+        assistantId="assistant-1"
+        onTranscript={async () => {}}
+        mobileRow
+        holdComposerFocus
+      />,
+    );
+    const button = screen.getByRole("button", { name: "Start voice input" });
+
+    // THEN `pointerdown` runs untouched: WebKit drops the rest of the tap's
+    // sequence, `click` included, when it is cancelled
+    expect(fireEvent.pointerDown(button)).toBe(true);
+
+    // WHILE `mousedown` is cancelled, since that is the press that would blur
+    // the textarea, collapse the focus-gated row and move this circle out from
+    // under the finger before the click arrives
+    expect(fireEvent.mouseDown(button)).toBe(false);
+  });
+
+  test("the default leaves the press alone, mobile row or not", () => {
+    // GIVEN the mic anywhere else, where no row is gated on the composer's
+    // focus
+    render(
+      <VoiceInputButton
+        assistantId="assistant-1"
+        onTranscript={async () => {}}
+      />,
+    );
+
+    // THEN the press behaves as the platform intends
+    expect(
+      fireEvent.mouseDown(
+        screen.getByRole("button", { name: "Start voice input" }),
+      ),
+    ).toBe(true);
+
+    // AND the row's chrome alone does not cancel it: a window dragged narrow
+    // takes the row with a pointing device still driving it, and that device
+    // focuses the button it presses, so the row never drops.
+    cleanup();
+    render(
+      <VoiceInputButton
+        assistantId="assistant-1"
+        onTranscript={async () => {}}
+        mobileRow
+      />,
+    );
+    expect(
+      fireEvent.mouseDown(
+        screen.getByRole("button", { name: "Start voice input" }),
+      ),
+    ).toBe(true);
+  });
 });

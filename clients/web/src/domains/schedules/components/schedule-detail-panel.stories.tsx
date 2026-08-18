@@ -42,6 +42,7 @@ const SCHEDULE: ScheduleDetailPanelProps["schedule"] = {
   workflowName: null,
   sourceKey: null,
   userEnabled: null,
+  disarmReason: null,
 } as ScheduleDetailPanelProps["schedule"];
 
 function seededClient() {
