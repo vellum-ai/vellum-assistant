@@ -171,9 +171,9 @@ mock.module("../tools/network/url-safety.js", () => ({
 // ── ipcClassifyRisk mock ─────────────────────────────────────────────────────
 // This is the core mock — all classification goes through this.
 
-import type { ClassificationResult } from "./ipc-risk-types.js";
+import type { ClassifyRiskIpcResponse } from "@vellumai/gateway-client";
 
-let mockIpcClassifyRiskResult: ClassificationResult | undefined;
+let mockIpcClassifyRiskResult: ClassifyRiskIpcResponse | undefined;
 let lastClassifyRiskParams: Record<string, unknown> | undefined;
 
 mock.module("../ipc/gateway-client.js", () => ({

@@ -325,7 +325,7 @@ export class ToolExecutor {
         safeResult.isError,
       );
 
-      // Merge risk metadata from the classifier assessment cache onto the
+      // Merge the classification's risk metadata onto the
       // tool result so downstream consumers (AgentEvent → handleToolResult →
       // ToolResult SSE message) can forward it to the client.
       if (permRiskMeta) {

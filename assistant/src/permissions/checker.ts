@@ -89,15 +89,15 @@ export interface RiskClassificationWithMeta extends RiskClassification {
   /** Resolved filesystem path arguments for directory-scoped rule matching. */
   resolvedPaths?: string[];
   /** Scope options for the "save this classification" UI, narrowest to broadest. */
-  scopeOptions: ClassificationResult["scopeOptions"];
+  scopeOptions: ClassifyRiskIpcResponse["scopeOptions"];
   /**
    * Directory scope options emitted by the gateway for filesystem operations.
    * Present when the classifier identified one or more filesystem path
    * arguments and generated a directory-scope ladder for them.
    */
-  directoryScopeOptions?: ClassificationResult["directoryScopeOptions"];
+  directoryScopeOptions?: ClassifyRiskIpcResponse["directoryScopeOptions"];
   /** How the risk was determined. */
-  matchType: ClassificationResult["matchType"];
+  matchType: ClassifyRiskIpcResponse["matchType"];
 }
 
 // ── Approval policy singleton ────────────────────────────────────────────────
@@ -342,18 +342,19 @@ function escapeMinimatchLiteral(value: string): string {
 }
 
 // ── IPC param builders ───────────────────────────────────────────────────────
-// Build the ClassifyRiskParams for each tool family. These resolve
+// Build the classify_risk request for each tool family. These resolve
 // assistant-local context (file paths, skill metadata, etc.) before
 // forwarding to the gateway.
 
 import type {
-  ClassificationResult,
-  ClassifyRiskParams,
-  FileContext,
-  SkillMetadata,
-} from "./ipc-risk-types.js";
+  ClassifyRiskFileContext,
+  ClassifyRiskIpcParams,
+  ClassifyRiskIpcResponse,
+  ClassifyRiskSkillMetadata,
+  RiskLevelValue,
+} from "@vellumai/gateway-client";
 
-function buildFileContext(): FileContext {
+function buildFileContext(): ClassifyRiskFileContext {
   const config = getConfig();
   // Canonicalize the protected directories via realpath so that a symlinked
   // component anywhere in their path still prefix-matches the canonicalized
@@ -488,7 +489,9 @@ function resolveFileToolPaths(
   };
 }
 
-function resolveSkillMetadata(selector: string): SkillMetadata | undefined {
+function resolveSkillMetadata(
+  selector: string,
+): ClassifyRiskSkillMetadata | undefined {
   const resolved = resolveSkillIdAndHash(selector);
   if (!resolved) {
     return undefined;
@@ -513,7 +516,7 @@ function buildClassifyRiskParams(
   input: Record<string, unknown>,
   workingDir?: string,
   manifestOverride?: ManifestOverride,
-): ClassifyRiskParams {
+): ClassifyRiskIpcParams {
   // ── Bash/host_bash ──
   if (toolName === "bash" || toolName === "host_bash") {
     // Count credential references attached to this invocation.
@@ -603,7 +606,7 @@ function buildClassifyRiskParams(
   // instead of hardcoding medium for unknown tools. When the tool is not in the
   // registry but a manifestOverride provides a risk, use that instead.
   const tool = getTool(toolName);
-  let registryDefaultRisk: string | undefined;
+  let registryDefaultRisk: RiskLevelValue | undefined;
   if (tool) {
     registryDefaultRisk =
       tool.defaultRiskLevel === RiskLevel.Low

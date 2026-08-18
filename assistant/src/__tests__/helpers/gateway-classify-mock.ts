@@ -17,7 +17,7 @@
  *   installIpcMock();
  *
  *   mockIpcResponse("classify_risk",
- *     { risk: "low", reason: "ls", matchType: "shell" });
+ *     { risk: "low", reason: "ls", matchType: "registry", scopeOptions: [] });
  *
  *   const result = await classifyRisk("bash", { command: "ls" });
  */

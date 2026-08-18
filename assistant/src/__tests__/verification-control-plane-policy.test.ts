@@ -20,7 +20,6 @@ mock.module("../permissions/checker.js", () => ({
   check: async () => ({ decision: "allow", reason: "allowed" }),
   generateAllowlistOptions: () => [],
   generateScopeOptions: () => [],
-  getCachedAssessment: () => undefined,
 }));
 
 mock.module("../persistence/conversation-crud.js", () => ({

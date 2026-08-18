@@ -53,7 +53,8 @@ function mockRisk(
   mockIpcResponse("classify_risk", {
     risk,
     reason: "test fixture",
-    matchType: "shell",
+    matchType: "registry",
+    scopeOptions: [],
     ...extras,
   });
 }

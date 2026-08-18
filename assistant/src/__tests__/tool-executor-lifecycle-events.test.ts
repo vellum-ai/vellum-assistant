@@ -110,7 +110,6 @@ mock.module("../permissions/checker.js", () => ({
     { label: "exact", description: "exact", pattern: "exact" },
   ],
   generateScopeOptions: () => [{ label: "/tmp", scope: "/tmp" }],
-  getCachedAssessment: () => undefined,
 }));
 
 // The scoped-grant consume the gate performs for a sensitive tool invoked by
