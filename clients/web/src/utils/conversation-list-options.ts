@@ -40,9 +40,10 @@
 
 import { queryOptions } from "@tanstack/react-query";
 
+import { conversationsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   type ConversationListFilter,
-  conversationListQueryKey,
+  type ConversationListQueryKey,
   FOREGROUND_FILTER,
   isPinnedInjectedFilter,
   isSectionFilter,
@@ -72,7 +73,17 @@ export function conversationListOptions(
   assistantId: string,
   filter: ConversationListFilter = FOREGROUND_FILTER,
 ) {
-  const queryKey = conversationListQueryKey(assistantId, filter);
+  /* The generated factory is the route contract, and its key is what this
+     cache is filed under. Its `queryFn` is not reused: it returns the wire
+     page for one offset, typed as `ConversationsGetResponse` through every
+     TanStack option slot (`select`, `initialData`, `placeholderData`), so
+     the object cannot be spread under a `queryFn` that returns
+     `ConversationListPage`; the key is taken from it and the query function
+     is this module's. */
+  const queryKey: ConversationListQueryKey = conversationsGetOptions({
+    path: { assistant_id: assistantId },
+    query: filter,
+  }).queryKey;
   if (isSectionFilter(filter)) {
     return queryOptions({
       queryKey,
