@@ -57,7 +57,7 @@ export const isCompanionSurfaceEnabled = (): boolean =>
  * choice from the tray.
  *
  * The flag is a floor and the tray preference is a veto, so both have to say
- * yes. Exported for its tests, as `callOnStart` is: it is the rule that decides
+ * yes. Exported for its tests, as `callOnUpdate` is: it is the rule that decides
  * whether the most conspicuous window this app has appears at all.
  */
 export const shouldShowCompanionSurface = (
@@ -214,26 +214,6 @@ const currentState = (): CompanionSurfaceState => {
     working: context.working,
   };
 };
-
-/**
- * The session after a `start`, which is not always a new session.
- *
- * A redundant start updates the running call rather than restarting its clock.
- * The mirror re-syncs on mount and the session controller remounts across
- * layout-level route changes while the store persists, so a second start for a
- * call already on screen is expected traffic, and an elapsed timer that jumped
- * back to zero on a route change would be a visible lie about a session that
- * never stopped.
- *
- * Exported for its tests, which is also why it takes `now` rather than reading
- * the clock.
- */
-export const callOnStart = (
-  current: VoiceActivityState | null,
-  start: Omit<VoiceActivityState, "startedAt">,
-  now: number,
-): VoiceActivityState =>
-  current === null ? { ...start, startedAt: now } : { ...current, ...start };
 
 /**
  * The session after an `update`, or `null` when there is nothing to update.
@@ -570,7 +550,12 @@ export const installCompanionWindow = (): void => {
     "vellum:voiceActivity:start",
     z.tuple([voiceActivityStartSchema]),
     ([start]) => {
-      call = callOnStart(call, start, Date.now());
+      // Taken whole, redundant or not. The mirror re-syncs on mount and the
+      // session controller remounts across layout-level route changes while the
+      // store persists, so a second start for a call already on screen is
+      // expected traffic; every field it carries is current, so there is
+      // nothing on the running call worth preserving against it.
+      call = start;
       pushState();
     },
   );
