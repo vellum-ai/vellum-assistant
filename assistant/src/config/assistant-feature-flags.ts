@@ -196,11 +196,11 @@ const DEFAULT_INIT_RETRY_BACKOFFS_MS: readonly number[] = [
  * intentionally simulate an unreachable gateway and want immediate
  * fallback without waiting through the production schedule).
  *
- * No-ops when the cache is already populated — callers that want to
- * refresh must call `clearFeatureFlagOverridesCache()` first. This lets
- * tests preseed flag state via `setOverridesForTesting()` (in
- * `__tests__/feature-flag-test-helpers.ts`) without the gateway IPC call
- * clobbering their setup.
+ * No-ops when the cache is already populated — this is the load-time
+ * populate, and `refreshOverridesFromGateway()` is what re-reads a cache that
+ * already holds values. The no-op also lets tests preseed flag state via
+ * `setOverridesForTesting()` (in `__tests__/feature-flag-test-helpers.ts`)
+ * without the gateway IPC call clobbering their setup.
  *
  * Resolves `true` when the override cache is populated from the gateway and
  * `false` when the cache is left unset (exhausted retries / unreachable
@@ -280,10 +280,13 @@ function loadOverrides(): Record<string, boolean | string> {
  * Invalidate the cached overrides so the next call to
  * `isAssistantFeatureFlagEnabled` re-reads from the gateway.
  *
- * Called by `refreshOverridesFromGateway()` when the gateway pushes a
- * `feature_flags_changed` event, and by tests between cases to reset
- * module state. (Tests typically call `setOverridesForTesting()` from
- * `__tests__/feature-flag-test-helpers.ts`, which combines clear + seed.)
+ * Used by tests between cases to reset module state. (Tests typically call
+ * `setOverridesForTesting()` from `__tests__/feature-flag-test-helpers.ts`,
+ * which combines clear + seed.)
+ *
+ * Not a step in refreshing from the gateway: `refreshOverridesFromGateway()`
+ * swaps the cache atomically so flag values never read as unset while a
+ * refresh is in flight.
  */
 export function clearFeatureFlagOverridesCache(): void {
   clearCachedOverrides();
