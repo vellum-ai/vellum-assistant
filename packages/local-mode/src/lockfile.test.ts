@@ -396,6 +396,81 @@ describe("renameLockfileAssistantIfPresent", () => {
   });
 });
 
+describe("lockfile writers under lock contention", () => {
+  const entry = {
+    assistantId: "asst_1",
+    cloud: "local",
+    runtimeUrl: "http://a",
+    name: "Old Name",
+  };
+
+  function holdLock(): string {
+    const lockDir = `${lockfilePath}.lock`;
+    fs.mkdirSync(lockDir);
+    return lockDir;
+  }
+
+  test("rename refuses with 423 and leaves the file untouched", () => {
+    writeOnDisk({ activeAssistant: null, assistants: [entry] });
+    const before = fs.readFileSync(lockfilePath, "utf-8");
+    holdLock();
+
+    const result = renameLockfileAssistantIfPresent(
+      [lockfilePath],
+      "asst_1",
+      "Renamed",
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(423);
+    }
+    expect(fs.readFileSync(lockfilePath, "utf-8")).toBe(before);
+  });
+
+  test("upsert refuses with 423 and leaves the file untouched", () => {
+    writeOnDisk({ activeAssistant: null, assistants: [entry] });
+    const before = fs.readFileSync(lockfilePath, "utf-8");
+    holdLock();
+
+    const result = upsertLockfileAssistant(
+      [lockfilePath],
+      { assistantId: "asst_2", cloud: "local" },
+      undefined,
+    );
+
+    expect(result).toMatchObject({ ok: false, status: 423 });
+    expect(fs.readFileSync(lockfilePath, "utf-8")).toBe(before);
+  });
+
+  test("platform replace refuses with 423 and leaves the file untouched", () => {
+    writeOnDisk({ activeAssistant: null, assistants: [entry] });
+    const before = fs.readFileSync(lockfilePath, "utf-8");
+    holdLock();
+
+    const result = replacePlatformAssistants(
+      [lockfilePath],
+      [{ assistantId: "asst_p", cloud: "vellum", runtimeUrl: "http://p" }],
+    );
+
+    expect(result).toMatchObject({ ok: false, status: 423 });
+    expect(fs.readFileSync(lockfilePath, "utf-8")).toBe(before);
+  });
+
+  test("a successful rename leaves no lock dir behind", () => {
+    writeOnDisk({ activeAssistant: null, assistants: [entry] });
+
+    const result = renameLockfileAssistantIfPresent(
+      [lockfilePath],
+      "asst_1",
+      "Renamed",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(fs.existsSync(`${lockfilePath}.lock`)).toBe(false);
+  });
+});
+
 describe("upsertRendererLockfileAssistant", () => {
   const paired = {
     assistantId: "paired-1",

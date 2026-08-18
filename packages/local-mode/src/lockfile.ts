@@ -6,6 +6,7 @@ import {
   resolveCloud,
   type Lockfile,
 } from "./lockfile-contract";
+import { withLockfileLock } from "./lockfile-lock";
 import { stripSensitiveFields } from "./util";
 
 export type LockfileResult =
@@ -62,6 +63,11 @@ export function isPairedLockfileEntry(
 export type WriteResult =
   | { ok: true; lockfile: Lockfile }
   | { ok: false; status: number; error: string };
+
+/** 423 Locked: the cross-process advisory lock could not be acquired. */
+function lockFailure(error: string): WriteResult {
+  return { ok: false, status: 423, error };
+}
 
 /**
  * Read the first parseable lockfile as raw JSON (unknown fields intact) for a
@@ -154,7 +160,10 @@ export function writeRawLockfile(
  * a missing entry refuses (404) and an unreadable on-disk file refuses (409)
  * instead of being treated as an empty registry, so a stale renderer cache
  * can neither resurrect a retired assistant nor replace a registry it could
- * not read with a skeleton row. Never touches `activeAssistant`.
+ * not read with a skeleton row. Never touches `activeAssistant`. The whole
+ * read-check-write runs under the shared advisory lock so a concurrent writer
+ * (e.g. a CLI retire) cannot be clobbered by this snapshot; lock contention
+ * refuses (423) without writing.
  */
 export function renameLockfileAssistantIfPresent(
   lockfilePaths: string[],
@@ -168,28 +177,31 @@ export function renameLockfileAssistantIfPresent(
     return { ok: false, status: 400, error: "Missing name" };
   }
 
-  const read = readRawLockfileStrict(lockfilePaths);
-  if (!read.ok) {
-    return { ok: false, status: 409, error: read.error };
-  }
-  const lockfile = read.lockfile;
-  const assistants = Array.isArray(lockfile.assistants)
-    ? (lockfile.assistants as Array<Record<string, unknown>>)
-    : [];
-  const idx = assistants.findIndex((a) => a?.assistantId === assistantId);
-  if (idx < 0) {
-    return {
-      ok: false,
-      status: 404,
-      error: "No lockfile entry for this assistant",
-    };
-  }
-  if (assistants[idx]!.name === name) {
-    return { ok: true, lockfile: toWireLockfile(lockfile) };
-  }
-  assistants[idx] = { ...assistants[idx], name };
-  lockfile.assistants = assistants;
-  return writeRawLockfile(lockfilePaths, lockfile);
+  const locked = withLockfileLock(lockfilePaths, (): WriteResult => {
+    const read = readRawLockfileStrict(lockfilePaths);
+    if (!read.ok) {
+      return { ok: false, status: 409, error: read.error };
+    }
+    const lockfile = read.lockfile;
+    const assistants = Array.isArray(lockfile.assistants)
+      ? (lockfile.assistants as Array<Record<string, unknown>>)
+      : [];
+    const idx = assistants.findIndex((a) => a?.assistantId === assistantId);
+    if (idx < 0) {
+      return {
+        ok: false,
+        status: 404,
+        error: "No lockfile entry for this assistant",
+      };
+    }
+    if (assistants[idx]!.name === name) {
+      return { ok: true, lockfile: toWireLockfile(lockfile) };
+    }
+    assistants[idx] = { ...assistants[idx], name };
+    lockfile.assistants = assistants;
+    return writeRawLockfile(lockfilePaths, lockfile);
+  });
+  return locked.ok ? locked.value : lockFailure(locked.error);
 }
 
 export function upsertLockfileAssistant(
@@ -201,22 +213,25 @@ export function upsertLockfileAssistant(
     return { ok: false, status: 400, error: "Missing assistant.assistantId" };
   }
 
-  const lockfile = readRawLockfile(lockfilePaths);
-  const assistants = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
-  const existingIdx = assistants.findIndex(
-    (a: Record<string, unknown>) => a?.assistantId === assistant.assistantId,
-  );
-  if (existingIdx >= 0) {
-    assistants[existingIdx] = { ...assistants[existingIdx], ...assistant };
-  } else {
-    assistants.push(assistant);
-  }
-  lockfile.assistants = assistants;
-  if (activeAssistant !== undefined) {
-    lockfile.activeAssistant = activeAssistant;
-  }
+  const locked = withLockfileLock(lockfilePaths, (): WriteResult => {
+    const lockfile = readRawLockfile(lockfilePaths);
+    const assistants = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
+    const existingIdx = assistants.findIndex(
+      (a: Record<string, unknown>) => a?.assistantId === assistant.assistantId,
+    );
+    if (existingIdx >= 0) {
+      assistants[existingIdx] = { ...assistants[existingIdx], ...assistant };
+    } else {
+      assistants.push(assistant);
+    }
+    lockfile.assistants = assistants;
+    if (activeAssistant !== undefined) {
+      lockfile.activeAssistant = activeAssistant;
+    }
 
-  return writeRawLockfile(lockfilePaths, lockfile);
+    return writeRawLockfile(lockfilePaths, lockfile);
+  });
+  return locked.ok ? locked.value : lockFailure(locked.error);
 }
 
 const PAIRED_LOCKFILE_WRITE_ERROR =
@@ -236,33 +251,38 @@ export function upsertRendererLockfileAssistant(
     return { ok: false, status: 400, error: "Missing assistant.assistantId" };
   }
 
-  const lockfile = readRawLockfile(lockfilePaths);
-  const assistants = Array.isArray(lockfile.assistants)
-    ? (lockfile.assistants as Array<Record<string, unknown>>)
-    : [];
-  const existing = assistants.find(
-    (entry) => entry?.assistantId === assistant.assistantId,
-  );
-  const merged = { ...existing, ...assistant };
-  const existingIsPaired =
-    existing != null &&
-    (resolveCloud(existing) === "paired" || existing.paired === true);
-  const mergedIsPaired =
-    resolveCloud(merged) === "paired" || merged.paired === true;
+  // Lock spans the paired-guard read and the upsert (which reenters) so the
+  // guard cannot be judged against a snapshot another writer replaces.
+  const locked = withLockfileLock(lockfilePaths, (): WriteResult => {
+    const lockfile = readRawLockfile(lockfilePaths);
+    const assistants = Array.isArray(lockfile.assistants)
+      ? (lockfile.assistants as Array<Record<string, unknown>>)
+      : [];
+    const existing = assistants.find(
+      (entry) => entry?.assistantId === assistant.assistantId,
+    );
+    const merged = { ...existing, ...assistant };
+    const existingIsPaired =
+      existing != null &&
+      (resolveCloud(existing) === "paired" || existing.paired === true);
+    const mergedIsPaired =
+      resolveCloud(merged) === "paired" || merged.paired === true;
 
-  if (!existingIsPaired && mergedIsPaired) {
-    return { ok: false, status: 403, error: PAIRED_LOCKFILE_WRITE_ERROR };
-  }
-  if (
-    existingIsPaired &&
-    (resolveCloud(merged) !== "paired" ||
-      merged.runtimeUrl !== existing.runtimeUrl ||
-      merged.paired !== existing.paired)
-  ) {
-    return { ok: false, status: 403, error: PAIRED_LOCKFILE_WRITE_ERROR };
-  }
+    if (!existingIsPaired && mergedIsPaired) {
+      return { ok: false, status: 403, error: PAIRED_LOCKFILE_WRITE_ERROR };
+    }
+    if (
+      existingIsPaired &&
+      (resolveCloud(merged) !== "paired" ||
+        merged.runtimeUrl !== existing.runtimeUrl ||
+        merged.paired !== existing.paired)
+    ) {
+      return { ok: false, status: 403, error: PAIRED_LOCKFILE_WRITE_ERROR };
+    }
 
-  return upsertLockfileAssistant(lockfilePaths, assistant, activeAssistant);
+    return upsertLockfileAssistant(lockfilePaths, assistant, activeAssistant);
+  });
+  return locked.ok ? locked.value : lockFailure(locked.error);
 }
 
 export function isActiveAssistant(
@@ -308,24 +328,27 @@ export function replacePlatformAssistants(
     };
   }
 
-  const lockfile = readRawLockfile(lockfilePaths);
-  const existing = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
-  const syncedIds = new Set(platformAssistants.map((a) => a.assistantId));
-  // Org-scoped sync preserves other orgs' platform entries; no org full-replaces.
-  const preserved = existing.filter((a: Record<string, unknown>) => {
-    if (a?.cloud !== "vellum") return true;
-    if (syncedIds.has(a.assistantId)) return false;
-    return organizationId != null && a.organizationId !== organizationId;
+  const locked = withLockfileLock(lockfilePaths, (): WriteResult => {
+    const lockfile = readRawLockfile(lockfilePaths);
+    const existing = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
+    const syncedIds = new Set(platformAssistants.map((a) => a.assistantId));
+    // Org-scoped sync preserves other orgs' platform entries; no org full-replaces.
+    const preserved = existing.filter((a: Record<string, unknown>) => {
+      if (a?.cloud !== "vellum") return true;
+      if (syncedIds.has(a.assistantId)) return false;
+      return organizationId != null && a.organizationId !== organizationId;
+    });
+    lockfile.assistants = [...preserved, ...platformAssistants];
+
+    const active = lockfile.activeAssistant as string | null;
+    if (active) {
+      const stillExists = (lockfile.assistants as Array<Record<string, unknown>>).some(
+        (a) => a.assistantId === active,
+      );
+      if (!stillExists) lockfile.activeAssistant = null;
+    }
+
+    return writeRawLockfile(lockfilePaths, lockfile);
   });
-  lockfile.assistants = [...preserved, ...platformAssistants];
-
-  const active = lockfile.activeAssistant as string | null;
-  if (active) {
-    const stillExists = (lockfile.assistants as Array<Record<string, unknown>>).some(
-      (a) => a.assistantId === active,
-    );
-    if (!stillExists) lockfile.activeAssistant = null;
-  }
-
-  return writeRawLockfile(lockfilePaths, lockfile);
+  return locked.ok ? locked.value : lockFailure(locked.error);
 }
