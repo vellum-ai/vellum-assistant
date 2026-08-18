@@ -374,8 +374,8 @@ describe("non-code messages fall through to the runtime", () => {
     seedVellumGuardian();
     const { sessionId } = mintDoctorStyleSession();
 
-    // "Ok" is what the ATL-1290 reporter typed after /start; the intercept
-    // must leave it for the ACL stage rather than treating it as a code.
+    // Conversational text is not a code: the intercept leaves it for the ACL
+    // stage rather than counting it as a verification attempt.
     const result = await interceptFromChat(GUARDIAN_TG_ID, "Ok");
 
     expect(result).toEqual({ intercepted: false });
