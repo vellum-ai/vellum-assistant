@@ -267,6 +267,7 @@ describe("buildIngressNginxConfig", () => {
 
   test("proxies health and public API traffic to the gateway in remote web mode", () => {
     expect(remoteConf).toContain("location = /healthz {");
+    expect(remoteConf).toContain("location = /readyz {");
     expect(remoteConf).toContain("location ^~ /v1/ {");
     expect(remoteConf).toContain("proxy_pass http://127.0.0.1:7830;");
     expect(remoteConf).toContain("proxy_request_buffering off;");
@@ -294,6 +295,20 @@ describe("buildIngressNginxConfig", () => {
     expect(conf).not.toContain("/healthz { return 404; }");
     expect(conf).toContain("location / {");
     expect(conf).toContain("proxy_pass http://127.0.0.1:7830;");
+  });
+
+  test("proxies /readyz in remote web mode so pairing does not look expired", () => {
+    expect(remoteConf).toContain("location = /readyz {");
+    const readyzStart = remoteConf.indexOf("location = /readyz {");
+    const readyzBlock = remoteConf.slice(
+      readyzStart,
+      remoteConf.indexOf("location ^~ /v1/", readyzStart),
+    );
+    expect(readyzBlock).toContain("proxy_pass http://127.0.0.1:7830;");
+    // Catch-all 404 must come after the exact /readyz location.
+    expect(remoteConf.indexOf("location = /readyz {")).toBeLessThan(
+      remoteConf.lastIndexOf("location / {"),
+    );
   });
 
   test("blocks local-only bootstrap helpers before generic API proxying", () => {
