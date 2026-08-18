@@ -145,6 +145,9 @@ export function IntroductionScreen({
   // is the earliest callback that the dark value is guaranteed to have been
   // painted before. Reduced motion has no fade to follow and takes the tint at
   // once.
+  //
+  // The color layer below waits on this same flip, so its delay and the strips'
+  // start together rather than the canvas leading them by the two frames.
   const [tintPublished, setTintPublished] = useState(false);
   useEffect(() => {
     if (!art || reduce) {
@@ -190,12 +193,13 @@ export function IntroductionScreen({
       surfaceTransition={tintPublished ? TINT_FADE_CSS : undefined}
     >
       {/* The avatar color fills in so coverage is end-to-end even where the
-          body shape has gaps/spikes. */}
+          body shape has gaps/spikes. Held at zero until the strips have their
+          dark starting color on screen, so the two fades share a start. */}
       <motion.div
         className="absolute inset-0 z-0"
         style={{ backgroundColor: art.color }}
         initial={reduce ? false : { opacity: 0 }}
-        animate={{ opacity: 1 }}
+        animate={{ opacity: stripTinted ? 1 : 0 }}
         transition={reduce ? { duration: 0 } : TINT_FADE}
       />
 
