@@ -262,7 +262,7 @@ describe("Slack edit propagation", () => {
     expect(second.eventId).toBe(first.eventId);
   });
 
-  test("threaded Slack edits use the threaded conversation key and preserve thread metadata", async () => {
+  test("a threaded edit stays in the edited message's conversation and preserves thread metadata", async () => {
     const conversationExternalId = "C0123CHANNEL";
     const threadTs = "1234.0000";
     const seeded = await seedSlackMessage({
@@ -270,6 +270,14 @@ describe("Slack edit propagation", () => {
       channelTs: "1234.5678",
       initialContent: "original text",
     });
+    const db = getDb();
+    const conversationCount = (): number =>
+      (
+        db.$client.prepare("SELECT COUNT(*) AS n FROM conversations").get() as {
+          n: number;
+        }
+      ).n;
+    const before = conversationCount();
 
     const resp = await handleEditIntercept({
       sourceChannel: "slack",
@@ -282,10 +290,12 @@ describe("Slack edit propagation", () => {
     });
 
     expect((resp as Record<string, unknown>).accepted).toBe(true);
+
+    // The thread id names where the reply goes, not a conversation of the
+    // edit's own. Keying one off it is what minted a conversation per edit.
     const threadedKey = `asst:self:slack:${conversationExternalId}:thread:${threadTs}`;
-    const editConversation = getConversationByKey(threadedKey);
-    expect(editConversation).not.toBeNull();
-    expect(editConversation!.conversationId).not.toBe(seeded.conversationId);
+    expect(getConversationByKey(threadedKey)).toBeNull();
+    expect(conversationCount()).toBe(before);
 
     const after = readMessageRow(seeded.messageId);
     const outer = JSON.parse(after.metadata!) as Record<string, unknown>;

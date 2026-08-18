@@ -154,6 +154,12 @@ export async function handleEditIntercept(
     externalMessageId,
     { sourceMessageId, conversationId: original.conversationId },
   );
+  if (editResult.duplicate) {
+    // Two deliveries of one edit raced through the probe above while neither
+    // had recorded yet. The first owns the write; applying it twice would
+    // re-enqueue lexical indexing for no change.
+    return { accepted: true, duplicate: true, eventId: editResult.eventId };
+  }
 
   const newContent = content ?? "";
   // Short-circuit no-op edits: Slack fires `message_changed` for link
