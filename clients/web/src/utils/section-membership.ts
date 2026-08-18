@@ -27,13 +27,16 @@ import {
   NATIVE_ORIGIN_CHANNEL,
   SYSTEM_ALL_GROUP_ID,
   SYSTEM_PINNED_GROUP_ID,
-  parseSectionConversationsQueryKey,
-  sectionListPrefix,
   sidebarSectionsQueryKey,
   type ConversationListPage,
-  type SectionConversationFilter,
   type SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
+import {
+  type ConversationListFilter,
+  conversationListFilterOf,
+  conversationListPrefix,
+  isSectionFilter,
+} from "@/utils/conversation-list-keys";
 import { insertIntoWindow } from "@/utils/conversation-order";
 import {
   isConversationPinned,
@@ -138,7 +141,7 @@ function isSidebarVisible(conversation: Conversation): boolean {
  */
 export function matchesSectionFilter(
   conversation: Conversation,
-  filter: SectionConversationFilter,
+  filter: ConversationListFilter,
 ): boolean {
   if (!isSidebarVisible(conversation)) {
     return false;
@@ -323,12 +326,13 @@ export function reconcileSectionMembership(
   }
   const needsRefetch: (readonly unknown[])[] = [];
   const entries = queryClient.getQueriesData<ConversationListPage>({
-    queryKey: sectionListPrefix(assistantId),
+    queryKey: conversationListPrefix(assistantId),
   });
 
   for (const [queryKey, page] of entries) {
-    const filter = parseSectionConversationsQueryKey(queryKey);
-    if (!filter) {
+    /* Only the section caches; the buckets are not membership caches. */
+    const filter = conversationListFilterOf(queryKey);
+    if (!filter || !isSectionFilter(filter)) {
       continue;
     }
     if (!page) {

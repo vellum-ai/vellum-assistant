@@ -1,6 +1,6 @@
 /**
  * Tests for `refreshConversationListWindows` covering the per-section caches,
- * and for `loadMoreSectionConversations`, the windowed caches' append path.
+ * and for `loadMoreConversations`, the windowed caches' append path.
  *
  * A section cache is a window (LUM-2444): the sync path window-refreshes it
  * (one first-page GET per populated cache, merged so load-more pages
@@ -71,7 +71,7 @@ mock.module("@/utils/conversation-list-fetchers", (): typeof fetchers => ({
   },
 }));
 
-const { loadMoreSectionConversations, refreshConversationListWindows } =
+const { loadMoreConversations, refreshConversationListWindows } =
   await import("@/utils/conversation-cache-mutations");
 
 const ASSISTANT_ID = "ast-test";
@@ -354,7 +354,7 @@ describe("refreshConversationListWindows and sections", () => {
   });
 });
 
-describe("loadMoreSectionConversations", () => {
+describe("loadMoreConversations", () => {
   test("appends the next page at the cache's current row count", async () => {
     const client = reset();
     const slackKey = sectionConversationsQueryKey(ASSISTANT_ID, SLACK);
@@ -375,7 +375,7 @@ describe("loadMoreSectionConversations", () => {
       hasMore: false,
     });
 
-    await loadMoreSectionConversations(client, ASSISTANT_ID, SLACK);
+    await loadMoreConversations(client, ASSISTANT_ID, SLACK);
 
     expect(loadMoreCalls).toEqual([{ filter: SLACK, offset: 2 }]);
     expect(rowsIn(client, SLACK)).toEqual(["s1", "s2", "s3"]);
@@ -400,7 +400,7 @@ describe("loadMoreSectionConversations", () => {
       hasMore: true,
     });
 
-    await loadMoreSectionConversations(client, ASSISTANT_ID, SLACK);
+    await loadMoreConversations(client, ASSISTANT_ID, SLACK);
 
     expect(rowsIn(client, SLACK)).toEqual(["s1", "s2"]);
   });
@@ -412,8 +412,8 @@ describe("loadMoreSectionConversations", () => {
       listPage([conversation({ conversationId: "s1" })]),
     );
 
-    await loadMoreSectionConversations(client, ASSISTANT_ID, SLACK);
-    await loadMoreSectionConversations(client, ASSISTANT_ID, PINNED);
+    await loadMoreConversations(client, ASSISTANT_ID, SLACK);
+    await loadMoreConversations(client, ASSISTANT_ID, PINNED);
 
     expect(loadMoreCalls).toEqual([]);
   });
@@ -430,9 +430,9 @@ describe("loadMoreSectionConversations", () => {
         resolvePage = resolve;
       });
 
-    const first = loadMoreSectionConversations(client, ASSISTANT_ID, SLACK);
+    const first = loadMoreConversations(client, ASSISTANT_ID, SLACK);
     // The sentinel re-fires while the request is out; the guard holds.
-    const second = loadMoreSectionConversations(client, ASSISTANT_ID, SLACK);
+    const second = loadMoreConversations(client, ASSISTANT_ID, SLACK);
     resolvePage({
       conversations: [conversation({ conversationId: "s2" })],
       hasMore: false,
@@ -460,7 +460,7 @@ describe("loadMoreSectionConversations", () => {
         resolvePage = resolve;
       });
 
-    const inFlight = loadMoreSectionConversations(client, ASSISTANT_ID, SLACK);
+    const inFlight = loadMoreConversations(client, ASSISTANT_ID, SLACK);
     client.setQueryData(
       slackKey,
       listPage([conversation({ conversationId: "s2" })], true),
@@ -485,14 +485,14 @@ describe("loadMoreSectionConversations", () => {
     loadMorePages = () => Promise.reject(new Error("network down"));
 
     await expect(
-      loadMoreSectionConversations(client, ASSISTANT_ID, SLACK),
+      loadMoreConversations(client, ASSISTANT_ID, SLACK),
     ).rejects.toThrow("network down");
 
     loadMorePages = () => ({
       conversations: [conversation({ conversationId: "s2" })],
       hasMore: false,
     });
-    await loadMoreSectionConversations(client, ASSISTANT_ID, SLACK);
+    await loadMoreConversations(client, ASSISTANT_ID, SLACK);
 
     expect(rowsIn(client, SLACK)).toEqual(["s1", "s2"]);
   });

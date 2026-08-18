@@ -36,7 +36,7 @@
  * documented on the options factories, not here.
  */
 
-import { partialMatchKey } from "@tanstack/react-query";
+import { partialMatchKey, type QueryFilters } from "@tanstack/react-query";
 
 import { conversationsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { ConversationsGetData } from "@/generated/daemon/types.gen";
@@ -50,6 +50,33 @@ export type ConversationListFilter = Omit<
   NonNullable<ConversationsGetData["query"]>,
   "limit" | "offset"
 >;
+
+/**
+ * Filters for the four bucket reads that predate the per-section queries.
+ * Named so callers spread the same object and get the same key; every one
+ * of them is still one `conversationsGet` request scoped by these params.
+ */
+export const FOREGROUND_FILTER: ConversationListFilter = {};
+export const BACKGROUND_FILTER: ConversationListFilter = {
+  conversationType: "background",
+};
+export const SCHEDULED_FILTER: ConversationListFilter = {
+  conversationType: "scheduled",
+};
+export const ARCHIVED_FILTER: ConversationListFilter = {
+  archiveStatus: "archived",
+};
+/**
+ * The archived view shows archived rows of every type, and the route's
+ * `conversationType` defaults to standard with no "all" value, so archived
+ * background rows are a second request. It is its own cache, keyed by its
+ * own filter, and the archive page merges the two at the consumer; there is
+ * no honest single key for a client-side union of two requests.
+ */
+export const ARCHIVED_BACKGROUND_FILTER: ConversationListFilter = {
+  archiveStatus: "archived",
+  conversationType: "background",
+};
 
 /** The generated key type for one list cache; what `partialMatchKey` walks. */
 export type ConversationListQueryKey = ReturnType<
@@ -125,10 +152,51 @@ export function conversationListFilterOf(
 }
 
 /**
+ * A `queryClient` filter selecting the subset of one assistant's list
+ * caches whose filter satisfies `matches`: the prefix narrows to list
+ * caches and the predicate reads each key's filter, and TanStack applies
+ * both. For "invalidate every section" or "every archived list" without
+ * enumerating keys.
+ *
+ * @see {@link https://tanstack.com/query/latest/docs/framework/react/guides/filters#query-filters}
+ */
+export function conversationListQueryFilter(
+  assistantId: string | null,
+  matches: (filter: ConversationListFilter) => boolean,
+): QueryFilters {
+  return {
+    queryKey: conversationListPrefix(assistantId),
+    predicate: (query) => {
+      const filter = conversationListFilterOf(query.queryKey);
+      return filter !== undefined && matches(filter);
+    },
+  };
+}
+
+/**
  * Whether a list filter names a sidebar section (as opposed to a whole
  * bucket): any filter constrained on the group or channel axis. The
  * placement seam moves rows between section caches only.
  */
 export function isSectionFilter(filter: ConversationListFilter): boolean {
   return filter.groupId !== undefined || filter.originChannel !== undefined;
+}
+
+/**
+ * Whether the daemon appends every pinned row to this filter's first page.
+ * True for exactly one read, the fully unfiltered foreground list (every
+ * axis at its default); every scoped read gets the filtered page alone.
+ * Mirrors the guard in the daemon's `handleListConversations`, the
+ * compatibility shim for clients that still read Pinned out of the
+ * unfiltered list, and matters to `mergeListFirstPage`, which must keep the
+ * injected rows out of its window cutoff.
+ */
+export function isPinnedInjectedFilter(filter: ConversationListFilter): boolean {
+  return (
+    filter.conversationType === undefined &&
+    (filter.archiveStatus === undefined || filter.archiveStatus === "active") &&
+    filter.originChannel === undefined &&
+    filter.groupId === undefined &&
+    filter.needsAttention === undefined
+  );
 }

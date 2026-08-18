@@ -19,9 +19,12 @@ import {
   adjustUnreadCountCache,
 } from "@/utils/conversation-cache-mutations";
 import {
-  sectionListPrefix,
   sidebarSectionsQueryKey,
 } from "@/utils/conversation-list-fetchers";
+import {
+  conversationListQueryFilter,
+  isSectionFilter,
+} from "@/utils/conversation-list-keys";
 import { contributesToUnreadCount } from "@/utils/conversation-predicates";
 import { executeBulkWithFallback } from "@/utils/bulk-with-fallback";
 import {
@@ -148,9 +151,9 @@ function reconcilePlacement(
   if (!sectionKeys?.length) {
     return Promise.all([
       refreshIndex,
-      queryClient.invalidateQueries({
-        queryKey: sectionListPrefix(assistantId),
-      }),
+      queryClient.invalidateQueries(
+        conversationListQueryFilter(assistantId, isSectionFilter),
+      ),
     ]);
   }
   return Promise.all([
