@@ -7,6 +7,7 @@ import {
   setHotkey,
   type ResolvedHotkey,
 } from "@/runtime/hotkeys";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -17,23 +18,26 @@ import {
   findConflict,
 } from "@/domains/settings/keyboard-shortcuts/electron-accelerator";
 
-/** Section copy keyed by the command scope, ordered global-first. */
-const SCOPE_SECTIONS: {
+type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
+
+function scopeSections(t: SettingsTranslate): {
   scope: ResolvedHotkey["scope"];
   title: string;
   description: string;
-}[] = [
-  {
-    scope: "global",
-    title: "Global shortcuts",
-    description: "Work anywhere, even when Vellum is in the background.",
-  },
-  {
-    scope: "menu",
-    title: "App shortcuts",
-    description: "Work while a Vellum window is focused.",
-  },
-];
+}[] {
+  return [
+    {
+      scope: "global",
+      title: t("shortcutsSections.globalTitle"),
+      description: t("shortcutsSections.globalDescription"),
+    },
+    {
+      scope: "menu",
+      title: t("shortcutsSections.appTitle"),
+      description: t("shortcutsSections.appDescription"),
+    },
+  ];
+}
 
 interface ShortcutRowProps {
   hotkey: ResolvedHotkey;
@@ -60,6 +64,7 @@ function ShortcutRow({
   onReset,
   onRemove,
 }: ShortcutRowProps) {
+  const { t } = useTranslation("settings");
   const isDisabled = hotkey.accelerator === "";
   const isCustomized = hotkey.override !== null;
 
@@ -71,7 +76,7 @@ function ShortcutRow({
         </div>
         {conflictLabel !== null && (
           <div className="text-body-small-default text-[var(--system-negative-strong)]">
-            Already used by {conflictLabel}
+            {t("shortcutsSections.alreadyUsedBy", { label: conflictLabel })}
           </div>
         )}
       </div>
@@ -79,11 +84,11 @@ function ShortcutRow({
       <div className="flex shrink-0 items-center gap-2">
         {recording ? (
           <span className="text-body-small-default text-[var(--content-secondary)]">
-            Recording… press a shortcut, or Esc to cancel
+            {t("shortcutsSections.recordingHint")}
           </span>
         ) : isDisabled ? (
           <span className="text-body-small-default italic text-[var(--content-disabled)]">
-            Disabled
+            {t("shortcutsSections.disabled")}
           </span>
         ) : (
           <ShortcutKeys accelerator={hotkey.accelerator} />
@@ -91,16 +96,18 @@ function ShortcutRow({
 
         {recording ? (
           <Button variant="ghost" size="compact" onClick={onCancelRecording}>
-            Cancel
+            {t("shortcutsSections.cancel")}
           </Button>
         ) : (
           <Button
             variant="outlined"
             size="compact"
             onClick={onStartRecording}
-            aria-label={`Record shortcut for ${hotkey.label}`}
+            aria-label={t("shortcutsSections.recordShortcutAriaLabel", {
+              label: hotkey.label,
+            })}
           >
-            Record
+            {t("shortcutsSections.record")}
           </Button>
         )}
 
@@ -110,7 +117,9 @@ function ShortcutRow({
           disabled={!isCustomized}
           leftIcon={<RotateCcw className="h-3.5 w-3.5" />}
           onClick={onReset}
-          aria-label={`Reset ${hotkey.label} to default`}
+          aria-label={t("shortcutsSections.resetShortcutAriaLabel", {
+            label: hotkey.label,
+          })}
         />
         <Button
           variant="ghost"
@@ -118,7 +127,9 @@ function ShortcutRow({
           disabled={isDisabled}
           leftIcon={<X className="h-3.5 w-3.5" />}
           onClick={onRemove}
-          aria-label={`Remove ${hotkey.label} binding`}
+          aria-label={t("shortcutsSections.removeBindingAriaLabel", {
+            label: hotkey.label,
+          })}
         />
       </div>
     </div>
@@ -134,6 +145,7 @@ function ShortcutRow({
  * renders this on Electron, so the bridge calls here always have a host.
  */
 export function ShortcutsSections() {
+  const { t } = useTranslation("settings");
   const [catalog, setCatalog] = useState<ResolvedHotkey[]>([]);
   const [recordingKey, setRecordingKey] = useState<string | null>(null);
   const [conflict, setConflict] = useState<{
@@ -225,23 +237,25 @@ export function ShortcutsSections() {
   // in `catalog` solely so `findConflict` can flag collisions against them.
   const sections = useMemo(
     () =>
-      SCOPE_SECTIONS.map((section) => ({
+      scopeSections(t).map((section) => ({
         ...section,
         commands: catalog.filter(
           (entry) => entry.rebindable && entry.scope === section.scope,
         ),
       })).filter((section) => section.commands.length > 0),
-    [catalog],
+    [catalog, t],
   );
 
   return (
     <div className="space-y-4">
       {conflict !== null && (
         <Notice tone="warning">
-          That shortcut is already used by {conflict.label}.{" "}
+          {t("shortcutsSections.conflictNoticePrefix", {
+            label: conflict.label,
+          })}{" "}
           {recordingKey !== null
-            ? "Pick a different combination, or press Esc to cancel."
-            : "Remove or change that binding before resetting."}
+            ? t("shortcutsSections.conflictRecordingHint")
+            : t("shortcutsSections.conflictResetHint")}
         </Notice>
       )}
 

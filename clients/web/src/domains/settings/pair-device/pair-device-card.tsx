@@ -4,6 +4,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 
 import { DetailCard } from "@/components/detail-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useTranslation } from "@/i18n";
 import { useSupportsRemoteWebPairing } from "@/lib/backwards-compat/remote-web-pairing-gate";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
@@ -25,12 +26,13 @@ import { usePairDevice } from "./use-pair-device";
  * no pairing functionality.
  */
 export function PairDeviceCard() {
+  const { t } = useTranslation("settings");
   const target = resolvePairDeviceTarget();
   const supported = useSupportsRemoteWebPairing();
   const webRemoteIngressOn = useClientFeatureFlagStore.use.webRemoteIngress();
   const pair = usePairDevice(target?.base ?? null, target?.ingressUrl ?? null);
   const { copy, copied } = useCopyToClipboard({
-    errorMessage: "Could not copy the pairing address.",
+    errorMessage: t("pairDeviceCard.copyFailed"),
   });
 
   if (!target || !supported || !webRemoteIngressOn) {
@@ -46,35 +48,34 @@ export function PairDeviceCard() {
   const showNoTunnelGuidance =
     pair.prefillSource === "none" && pair.publicBaseUrl.trim() === "";
   const buttonLabel = isMinting
-    ? "Generating…"
+    ? t("pairDeviceCard.generating")
     : isReady
-      ? "Generate new code"
-      : "Generate pairing QR";
+      ? t("pairDeviceCard.generateNewCode")
+      : t("pairDeviceCard.generatePairingQr");
 
   return (
     <DetailCard
-      title="Pair a device"
-      subtitle={`Scan with another device's camera — or open the link on it — to use ${
-        target.assistantName ?? "this assistant"
-      } there.`}
+      title={t("pairDeviceCard.title")}
+      subtitle={t("pairDeviceCard.subtitle", {
+        assistantName:
+          target.assistantName ?? t("pairDeviceCard.thisAssistant"),
+      })}
     >
       <div className="flex flex-col gap-4">
         {showNoTunnelGuidance && (
-          <Notice tone="info" title="No tunnel detected">
-            {
-              "On this computer, run `vellum tunnel --provider tailscale` (or another provider) — its address appears here."
-            }
+          <Notice tone="info" title={t("pairDeviceCard.noTunnelTitle")}>
+            {t("pairDeviceCard.noTunnelBody")}
           </Notice>
         )}
         <div className="flex flex-col gap-3">
           <Input
-            label="Public URL"
+            label={t("pairDeviceCard.publicUrlLabel")}
             fullWidth
-            placeholder="https://your-assistant.ts.net"
+            placeholder={t("pairDeviceCard.publicUrlPlaceholder")}
             helperText={
               prefilledFromTunnel
-                ? "This address comes from `vellum tunnel` on this computer. Edit it if your devices reach this assistant at a different URL."
-                : "The https address your devices can reach this assistant at (your Tailscale URL, or another tunnel's)."
+                ? t("pairDeviceCard.helperTextFromTunnel")
+                : t("pairDeviceCard.helperTextManual")
             }
             value={pair.publicBaseUrl}
             errorText={pair.inputError ?? undefined}

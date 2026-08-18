@@ -4,6 +4,10 @@ import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 
+import { useTranslation } from "@/i18n";
+
+type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
+
 interface PairDeviceReadyProps {
   pairUrl: string;
   remainingMs: number;
@@ -13,16 +17,15 @@ interface PairDeviceReadyProps {
 }
 
 /** "Expires in m:ss · single-use.", or a bare "Single-use." once time is up. */
-function formatExpiry(remainingMs: number): string {
+function formatExpiry(remainingMs: number, t: SettingsTranslate): string {
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
-    return "Single-use.";
+    return t("pairDeviceReady.singleUse");
   }
   const totalSeconds = Math.ceil(remainingMs / 1000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  return `Expires in ${minutes}:${seconds
-    .toString()
-    .padStart(2, "0")} · single-use.`;
+  const time = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  return t("pairDeviceReady.expiresIn", { time });
 }
 
 /**
@@ -36,10 +39,15 @@ export function PairDeviceReady({
   copied,
   onCopy,
 }: PairDeviceReadyProps) {
+  const { t } = useTranslation("settings");
+
   if (expired) {
     return (
-      <Notice tone="warning" title="This pairing code expired.">
-        Generate a new code to pair a device.
+      <Notice
+        tone="warning"
+        title={t("pairDeviceReady.expiredTitle")}
+      >
+        {t("pairDeviceReady.expiredBody")}
       </Notice>
     );
   }
@@ -52,8 +60,10 @@ export function PairDeviceReady({
         <QRCodeSVG
           value={pairUrl}
           size={192}
+          // QR error-correction level (L/M/Q/H), not user-facing copy.
+          // eslint-disable-next-line local/no-untranslated-strings -- QR ECC level enum
           level="M"
-          title="Device pairing QR code"
+          title={t("pairDeviceReady.qrCodeTitle")}
         />
       </div>
       <div className="flex items-center gap-2">
@@ -69,11 +79,11 @@ export function PairDeviceReady({
           leftIcon={copied ? <Check /> : <Copy />}
           onClick={() => onCopy(pairUrl)}
         >
-          {copied ? "Copied" : "Copy"}
+          {copied ? t("pairDeviceReady.copied") : t("pairDeviceReady.copy")}
         </Button>
       </div>
       <p className="text-body-small-default text-[var(--content-tertiary)]">
-        {formatExpiry(remainingMs)}
+        {formatExpiry(remainingMs, t)}
       </p>
     </div>
   );
