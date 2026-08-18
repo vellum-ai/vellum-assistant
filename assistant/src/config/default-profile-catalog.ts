@@ -510,7 +510,7 @@ export const CODE_DEFAULT_PROFILE_ENTRIES: Readonly<
 // ── Balanced model experiment ────────────────────────────────────────
 // A/B arms for the managed `balanced` model, selected per-user by a
 // LaunchDarkly-targeted string flag. The flag only picks an arm from this
-// closed, code-reviewed set — it never carries a model id — so an
+// closed, code-reviewed set (it never carries a model id), so an
 // unexpected value (old build, typo'd variation, flags not yet hydrated)
 // falls back to the control body. Resolved at effective-profile read time:
 // flags hydrate after the boot seeder runs, and read-time resolution means
