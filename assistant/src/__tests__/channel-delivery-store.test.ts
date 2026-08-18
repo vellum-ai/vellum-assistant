@@ -13,6 +13,7 @@ import {
   findMessageBySourceId,
   linkMessage,
   recordInbound,
+  resolveInboundConversation,
   storePayload,
 } from "../persistence/delivery-crud.js";
 import {
@@ -127,6 +128,48 @@ describe("channel-delivery-store", () => {
     const r2 = recordInbound("telegram", "chat-1", "msg-2");
 
     expect(r1.conversationId).toBe(r2.conversationId);
+  });
+
+  test("reports created only on the event that mints the conversation", () => {
+    const first = recordInbound("telegram", "chat-1", "msg-1");
+    const second = recordInbound("telegram", "chat-1", "msg-2");
+    const replay = recordInbound("telegram", "chat-1", "msg-1");
+
+    expect(first.created).toBe(true);
+    expect(second.created).toBe(false);
+    expect(replay.duplicate).toBe(true);
+    expect(replay.created).toBe(false);
+  });
+
+  test("resolveInboundConversation reports created on the mint and never on an alias", () => {
+    const channelId = "C0123ABCDEF";
+    const threadTs = "1710000000.000100";
+    const minted = resolveInboundConversation("slack", channelId, null);
+    const again = resolveInboundConversation("slack", channelId, null);
+    expect(minted.created).toBe(true);
+    expect(again).toEqual({
+      conversationId: minted.conversationId,
+      created: false,
+    });
+
+    // A threaded key aliased onto the flat conversation is an existing
+    // conversation, not a new one.
+    recordInbound("slack", channelId, "legacy-event", {
+      sourceMessageId: threadTs,
+    });
+    const aliased = resolveInboundConversation("slack", channelId, threadTs);
+    expect(aliased).toEqual({
+      conversationId: minted.conversationId,
+      created: false,
+    });
+
+    const separate = resolveInboundConversation(
+      "slack",
+      channelId,
+      "1710000000.000200",
+    );
+    expect(separate.created).toBe(true);
+    expect(separate.conversationId).not.toBe(minted.conversationId);
   });
 
   test("same Slack channel and thread reuses the same conversation", () => {
@@ -488,6 +531,41 @@ describe("channel-delivery-store", () => {
       getConversationByKey(`asst:self:slack:${channelId}:thread:${threadTs}`)
         ?.conversationId,
     ).toBe(afterReset.conversationId);
+  });
+
+  test("Slack thread reset titles the eagerly re-minted conversation", async () => {
+    const channelId = "C0123ABCDEF";
+    const threadTs = "1710000000.000100";
+    recordInbound("slack", channelId, "thread-reply", {
+      sourceThreadId: threadTs,
+      sourceMessageId: "1710000001.000100",
+    });
+
+    const req = new Request("http://localhost/channels/conversation", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceChannel: "slack",
+        conversationExternalId: channelId,
+        sourceThreadId: threadTs,
+      }),
+    });
+    const res = await handleDeleteConversation(req);
+    expect(res.status).toBe(200);
+
+    const fresh = getConversationByKey(
+      `asst:self:slack:${channelId}:thread:${threadTs}`,
+    );
+    expect(fresh).not.toBeNull();
+    const row = getDb()
+      .select({
+        title: conversations.title,
+        isAutoTitle: conversations.isAutoTitle,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, fresh!.conversationId))
+      .get();
+    expect(row).toEqual({ title: "New Slack message", isAutoTitle: 2 });
   });
 
   test("different chats get different conversations", () => {

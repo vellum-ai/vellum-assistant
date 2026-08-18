@@ -78,6 +78,7 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
       conversationId: "conv-1",
       accepted: true,
       duplicate: false,
+      created: false,
     };
   },
   clearPayload: () => {},

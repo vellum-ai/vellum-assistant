@@ -28,6 +28,12 @@ export interface InboundResult {
   eventId: string;
   conversationId: string;
   duplicate: boolean;
+  /**
+   * Whether this call minted `conversationId`: false for a duplicate event and
+   * for an address that already resolved to a conversation. Once-per-
+   * conversation work (the deterministic mint title) keys on it.
+   */
+  created: boolean;
 }
 
 export interface RecordInboundOptions {
@@ -141,12 +147,17 @@ export interface ResolveInboundConversationOptions {
   origin?: ChannelId;
 }
 
+/**
+ * Resolve the conversation an inbound (channel, chat, thread) address lands
+ * in, minting one when nothing is bound yet. `created` is true only on that
+ * mint; an alias onto an existing conversation is not a creation.
+ */
 export function resolveInboundConversation(
   sourceChannel: string,
   externalChatId: string,
   sourceThreadId?: string | null,
   opts?: ResolveInboundConversationOptions,
-): { conversationId: string } {
+): { conversationId: string; created: boolean } {
   const threadedKey = buildScopedConversationKey(
     sourceChannel,
     externalChatId,
@@ -165,7 +176,7 @@ export function resolveInboundConversation(
 
   const threadedMapping = getConversationByKey(threadedKey);
   if (threadedMapping) {
-    return { conversationId: threadedMapping.conversationId };
+    return { conversationId: threadedMapping.conversationId, created: false };
   }
 
   const legacyKey = buildScopedConversationKey(
@@ -185,7 +196,7 @@ export function resolveInboundConversation(
     setConversationKeyIfAbsent(threadedKey, legacyMapping.conversationId);
     const aliasedMapping = getConversationByKey(threadedKey);
     if (aliasedMapping) {
-      return { conversationId: aliasedMapping.conversationId };
+      return { conversationId: aliasedMapping.conversationId, created: false };
     }
   }
 
@@ -277,6 +288,7 @@ export function recordInbound(
       eventId: existing.id,
       conversationId: existing.conversationId,
       duplicate: true,
+      created: false,
     };
   }
 
@@ -313,6 +325,7 @@ export function recordInbound(
     eventId,
     conversationId: mapping.conversationId,
     duplicate: false,
+    created: mapping.created,
   };
 }
 

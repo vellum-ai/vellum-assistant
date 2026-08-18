@@ -193,24 +193,12 @@ async function resolveChannelConversation(
   channel: ConversationChannelAddress,
   conversationType?: "standard" | "background",
 ): Promise<{ conversationId: string; created: boolean }> {
-  const { findInboundConversationId, resolveInboundConversation } =
+  const { resolveInboundConversation } =
     await import("../persistence/delivery-crud.js");
   const { upsertBinding } =
     await import("../persistence/external-conversation-store.js");
 
-  // Asked before resolving, because resolving is what creates it: once the id
-  // is in hand a new conversation is indistinguishable from an existing one,
-  // and the caller announces only the new. `findInboundConversationId` is the
-  // read-only mirror of the resolution below, so the two agree on what
-  // "already bound" means, including the Slack flat-key alias.
-  const created =
-    findInboundConversationId(
-      channel.sourceChannel,
-      channel.externalChatId,
-      channel.externalThreadId,
-    ) === null;
-
-  const { conversationId } = resolveInboundConversation(
+  const { conversationId, created } = resolveInboundConversation(
     channel.sourceChannel,
     channel.externalChatId,
     channel.externalThreadId,

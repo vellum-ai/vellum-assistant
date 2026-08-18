@@ -18,6 +18,7 @@ mock.module("../persistence/delivery-crud.js", () => ({
     conversationId: "conv-test",
     accepted: true,
     duplicate: false,
+    created: false,
   }),
 }));
 
