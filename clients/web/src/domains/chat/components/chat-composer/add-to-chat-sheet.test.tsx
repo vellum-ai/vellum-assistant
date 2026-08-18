@@ -106,7 +106,7 @@ describe("AddToChatSheet", () => {
     renderSheet();
 
     expect(screen.getByText("Camera")).toBeTruthy();
-    expect(screen.getByText("Find in Gallery")).toBeTruthy();
+    expect(screen.getByText("Photo Library")).toBeTruthy();
     expect(screen.getByText("Files")).toBeTruthy();
   });
 
@@ -176,7 +176,7 @@ describe("AddToChatSheet: native pickers", () => {
     const { onAttachFiles } = renderSheet();
 
     // WHEN the photo row is tapped
-    fireEvent.click(screen.getByText("Find in Gallery"));
+    fireEvent.click(screen.getByText("Photo Library"));
     await Promise.resolve();
     await Promise.resolve();
 
@@ -223,7 +223,7 @@ describe("AddToChatSheet: native pickers", () => {
 
     // AND tapping the photo row still opens one, rather than reaching a
     // rejecting native call and silently doing nothing
-    fireEvent.click(screen.getByText("Find in Gallery"));
+    fireEvent.click(screen.getByText("Photo Library"));
     await Promise.resolve();
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
