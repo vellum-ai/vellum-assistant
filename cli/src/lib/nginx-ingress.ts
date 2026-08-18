@@ -90,6 +90,7 @@ function gatewayProxyBlock(gatewayPort: number): string {
       proxy_read_timeout 1h;
       proxy_set_header Host $host;
       proxy_set_header X-Vellum-Edge-Forwarded "1";
+      proxy_set_header X-Vellum-Client-Ip $vellum_edge_client_ip;
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection $connection_upgrade;`;
 }
@@ -112,6 +113,12 @@ const DENYLIST_LOCATIONS = `    location = /auth/token { return 404; }
     location = /v1/guardian/init/ { return 404; }
     location = /v1/guardian/reset-bootstrap { return 404; }
     location = /v1/guardian/reset-bootstrap/ { return 404; }
+    location = /v1/remote-web/pairing-requests { return 404; }
+    location = /v1/remote-web/pairing-requests/ { return 404; }
+    location = /v1/remote-web/pairing-requests/approve { return 404; }
+    location = /v1/remote-web/pairing-requests/approve/ { return 404; }
+    location = /v1/remote-web/pairing-requests/deny { return 404; }
+    location = /v1/remote-web/pairing-requests/deny/ { return 404; }
     location = /v1/remote-web/pairing-verification { return 404; }
     location = /v1/remote-web/pairing-verification/ { return 404; }
     location ^~ /assistant/__local/ { return 404; }
@@ -158,7 +165,7 @@ function remoteWebIngressConfig(
  * fingerprint matches, so this must change whenever the generated index or
  * nginx template does.
  */
-const EDGE_TEMPLATE_VERSION = 2;
+const EDGE_TEMPLATE_VERSION = 3;
 
 /**
  * Stable fingerprint of the SPA config injected into the served index and
@@ -272,6 +279,19 @@ http {
   map $http_upgrade $connection_upgrade {
     default upgrade;
     "" close;
+  }
+
+  # Edge-observed client address, stamped onto every proxied request as
+  # X-Vellum-Client-Ip. proxy_set_header overwrites any inbound value, so a
+  # remote client cannot smuggle one. Every caller reaches this loopback-only
+  # listener through the TLS-terminating front (tunnel agent), so the raw peer
+  # is always 127.0.0.1; the front records the real client as the RIGHTMOST
+  # X-Forwarded-For entry (ngrok/cloudflared append, tailscale serve sets it),
+  # which the remote client cannot control. Fall back to the raw peer when the
+  # front sets no X-Forwarded-For.
+  map $http_x_forwarded_for $vellum_edge_client_ip {
+    default $remote_addr;
+    "~,?\\s*(?<vellum_last_xff>[^,\\s]+)\\s*$" $vellum_last_xff;
   }
 
   server {

@@ -4,7 +4,7 @@ import {
   buildRibbonWave,
   mulberry32,
   type RibbonPoint,
-} from "@/domains/onboarding/avatar-wave-ribbon";
+} from "@/utils/avatar-wave-ribbon";
 import type { CharacterComponents } from "@/types/avatar";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 

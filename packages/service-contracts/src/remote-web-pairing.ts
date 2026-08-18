@@ -11,6 +11,12 @@
  *       (`gateway/src/http/routes/remote-web-pairing-verification.ts`)
  *   - `POST /v1/remote-web/pairing-token`         poll + exchange device code
  *       (`gateway/src/http/routes/remote-web-pairing-token.ts`)
+ *   - `GET  /v1/remote-web/pairing-requests`          list pending challenges
+ *       (loopback-only)
+ *   - `POST /v1/remote-web/pairing-requests/approve`  approve by request id
+ *       (loopback-only)
+ *   - `POST /v1/remote-web/pairing-requests/deny`     deny (delete) by request id
+ *       (loopback-only)
  *
  * These shapes mirror those handlers' request/response bodies exactly so the
  * gateway, the `vellum pair` CLI (`cli/src/commands/pair.ts`), and the web SPA
@@ -66,6 +72,60 @@ export interface RemoteWebPairingVerificationResponse {
   verificationUri: string;
   /** ISO-8601 instant the approved challenge expires. */
   expiresAt: string;
+}
+
+/**
+ * One pending challenge as shown on a host approval surface.
+ *
+ * The requesting device already sees the plaintext `userCode` in its own
+ * challenge response ({@link RemoteWebPairingChallengeResponse.userCode});
+ * the loopback-gated list route is the only host-side re-exposure. Displaying
+ * it there is what lets the approver match the code against the requesting
+ * device's screen: the device-flow anti-phishing binding.
+ */
+export interface RemoteWebPairingRequestSummary {
+  /** Opaque server-side id used to approve or deny this request. */
+  requestId: string;
+  /** The human-readable code the requesting device is displaying (e.g. "ABCD-EFGH"). */
+  userCode: string;
+  /** Public base URL the challenge was minted for. */
+  publicBaseUrl: string;
+  /** ISO-8601 instant the challenge was minted. */
+  requestedAt: string;
+  /** ISO-8601 instant the challenge expires. */
+  expiresAt: string;
+  /**
+   * Client IP of the mint request: the loopback/host address when minted
+   * locally, or the edge-observed client address when the mint arrived
+   * through the nginx tunnel edge (which stamps it via `proxy_set_header`,
+   * so a remote client cannot smuggle a value).
+   */
+  requesterIp: string;
+  /** User-Agent header of the mint request, or null when absent. */
+  requesterUserAgent: string | null;
+  /**
+   * Whether the mint arrived through the public tunnel edge rather than the
+   * host itself.
+   */
+  viaEdgeProxy: boolean;
+}
+
+/** `GET /v1/remote-web/pairing-requests` success response body (200). */
+export interface RemoteWebPairingRequestListResponse {
+  requests: RemoteWebPairingRequestSummary[];
+}
+
+/**
+ * Request body for the pairing-request approve and deny routes. The approve
+ * route's success body reuses {@link RemoteWebPairingVerificationResponse}.
+ */
+export interface RemoteWebPairingRequestActionRequest {
+  requestId: string;
+}
+
+/** `POST /v1/remote-web/pairing-requests/deny` success response body (200). */
+export interface RemoteWebPairingRequestDenyResponse {
+  status: "denied";
 }
 
 /** `POST /v1/remote-web/pairing-token` request body. */

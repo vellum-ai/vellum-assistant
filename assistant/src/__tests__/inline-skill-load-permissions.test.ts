@@ -26,6 +26,7 @@ process.env.GATEWAY_SECURITY_DIR = join(testDir, "protected");
 
 import {
   installIpcMock,
+  lastIpcParams,
   mockIpcResponse,
 } from "./helpers/gateway-classify-mock.js";
 installIpcMock();
@@ -33,6 +34,7 @@ mockIpcResponse("classify_risk", {
   risk: "low",
   reason: "skill_load",
   matchType: "unknown",
+  scopeOptions: [],
 });
 mockIpcResponse("get_global_thresholds", {
   interactive: "low",
@@ -42,8 +44,7 @@ mockIpcResponse("get_global_thresholds", {
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────
 
-import { check, generateAllowlistOptions } from "../permissions/checker.js";
-import { clearRiskCache } from "../permissions/checker.js";
+import { check, classifyRisk } from "../permissions/checker.js";
 import { _clearGlobalCacheForTesting } from "../permissions/gateway-threshold-reader.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
@@ -82,13 +83,34 @@ function writeDynamicSkill(
   );
 }
 
+/**
+ * What the gateway skill classifier answers for a load whose params carry
+ * `hasInlineExpansions` (gateway/src/risk/skill-risk-classifier.ts): High,
+ * registry-matched. The daemon does not elevate locally; the gateway is the
+ * one place a dynamic load becomes High.
+ */
+function mockDynamicSkillClassification(): void {
+  mockIpcResponse("classify_risk", {
+    risk: "high",
+    reason:
+      "Skill load with inline command expansions (executes shell commands at load time)",
+    matchType: "registry",
+    scopeOptions: [],
+  });
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────
 
 describe("inline-command skill_load permissions", () => {
   beforeEach(() => {
-    clearRiskCache();
     _clearGlobalCacheForTesting();
     setOverridesForTesting({});
+    mockIpcResponse("classify_risk", {
+      risk: "low",
+      reason: "skill_load",
+      matchType: "unknown",
+      scopeOptions: [],
+    });
     mockIpcResponse("get_global_thresholds", {
       interactive: "low",
       autonomous: "medium",
@@ -116,6 +138,7 @@ describe("inline-command skill_load permissions", () => {
     test("an uncovered dynamic skill prompts below Full access", async () => {
       ensureSkillsDir();
       writeDynamicSkill("dynamic-prompt", "Dynamic Prompt Skill");
+      mockDynamicSkillClassification();
 
       // interactive threshold "low" (beforeEach) is below the High risk of an
       // inline-command load, so it prompts.
@@ -131,6 +154,7 @@ describe("inline-command skill_load permissions", () => {
     test("an uncovered dynamic skill runs at Full access (high threshold)", async () => {
       ensureSkillsDir();
       writeDynamicSkill("dynamic-full", "Dynamic Full Access Skill");
+      mockDynamicSkillClassification();
       mockIpcResponse("get_global_thresholds", {
         interactive: "high",
         autonomous: "high",
@@ -155,6 +179,7 @@ describe("inline-command skill_load permissions", () => {
         risk: "low",
         reason: "user rule: skill_load_dynamic:dynamic-covered",
         matchType: "user_rule",
+        scopeOptions: [],
       });
 
       const result = await check(
@@ -163,17 +188,12 @@ describe("inline-command skill_load permissions", () => {
         "/tmp",
       );
       expect(result.decision).toBe("allow");
-
-      mockIpcResponse("classify_risk", {
-        risk: "low",
-        reason: "skill_load",
-        matchType: "unknown",
-      });
     });
 
     test("dynamic skill prompts in strict mode (no matching rule)", async () => {
       ensureSkillsDir();
       writeDynamicSkill("dynamic-strict", "Dynamic Strict Skill");
+      mockDynamicSkillClassification();
       mockIpcResponse("get_global_thresholds", {
         interactive: "none",
         autonomous: "none",
@@ -211,43 +231,34 @@ describe("inline-command skill_load permissions", () => {
 
   // ── Allowlist options ────────────────────────────────────────────────
 
-  describe("allowlist options", () => {
-    test("dynamic skill allowlist options use skill_load_dynamic: namespace", async () => {
+  describe("skill metadata sent to the gateway", () => {
+    // The gateway picks the `skill_load_dynamic:` namespace off these flags,
+    // so what the daemon reads from disk decides which rule namespace a user
+    // can save into.
+    test("a skill with inline expansions is sent as dynamic", async () => {
       ensureSkillsDir();
       writeDynamicSkill("dynamic-opts", "Dynamic Opts Skill");
 
-      const options = await generateAllowlistOptions("skill_load", {
-        skill: "dynamic-opts",
-      });
+      await classifyRisk("skill_load", { skill: "dynamic-opts" });
 
-      expect(options.length).toBeGreaterThanOrEqual(1);
-      // All options should use skill_load_dynamic: prefix
-      for (const option of options) {
-        expect(option.pattern).toMatch(/^skill_load_dynamic:/);
-      }
-
-      // Should have an any-version option
-      const anyVersionOption = options.find(
-        (o) => o.pattern === "skill_load_dynamic:dynamic-opts",
-      );
-      expect(anyVersionOption).toBeDefined();
-      expect(anyVersionOption!.description).toBe("This skill (any version)");
+      const metadata = lastIpcParams("classify_risk")?.skillMetadata as
+        | { hasInlineExpansions: boolean; isDynamic: boolean }
+        | undefined;
+      expect(metadata?.hasInlineExpansions).toBe(true);
+      expect(metadata?.isDynamic).toBe(true);
     });
 
-    test("plain skill allowlist options use skill_load: namespace", async () => {
+    test("a plain skill is not sent as dynamic", async () => {
       ensureSkillsDir();
       writePlainSkill("plain-opts", "Plain Opts Skill");
 
-      const options = await generateAllowlistOptions("skill_load", {
-        skill: "plain-opts",
-      });
+      await classifyRisk("skill_load", { skill: "plain-opts" });
 
-      expect(options.length).toBeGreaterThanOrEqual(1);
-      // Should use skill_load: prefix, not skill_load_dynamic:
-      for (const option of options) {
-        expect(option.pattern).toMatch(/^skill_load:/);
-        expect(option.pattern).not.toMatch(/^skill_load_dynamic:/);
-      }
+      const metadata = lastIpcParams("classify_risk")?.skillMetadata as
+        | { hasInlineExpansions: boolean; isDynamic: boolean }
+        | undefined;
+      expect(metadata?.hasInlineExpansions).toBe(false);
+      expect(metadata?.isDynamic).toBe(false);
     });
   });
 });

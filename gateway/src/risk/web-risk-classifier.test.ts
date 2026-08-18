@@ -124,31 +124,107 @@ describe("network_request", () => {
 });
 
 // -- Allowlist options --------------------------------------------------------
-// The web classifier intentionally does NOT produce allowlistOptions.
-// URL normalization for scope options is handled by the canonical
-// urlAllowlistStrategy in checker.ts (avoids circular import + divergent
-// normalization). These tests verify the classifier omits them.
+// The ladder a saved trust rule is built from, canonicalized through
+// `@vellumai/service-contracts/url-normalization` so the saved pattern has one
+// spelling rather than whichever the model wrote. Rule lookup is a raw
+// exact-string match, so it does not fold those spellings together.
 
 describe("allowlistOptions", () => {
-  test("web_fetch omits allowlistOptions (defers to canonical urlAllowlistStrategy)", async () => {
+  test("web_fetch offers the exact URL, the origin, then the tool", async () => {
     const classifier = makeClassifier();
     const result = await classifier.classify({
       toolName: "web_fetch",
-      url: "https://example.com/api/data?key=value",
+      url: "https://example.com/docs/page",
     });
-    expect(result.allowlistOptions).toBeUndefined();
+    expect(result.allowlistOptions).toEqual([
+      {
+        label: "https://example.com/docs/page",
+        description: "This exact URL",
+        pattern: "web_fetch:https://example.com/docs/page",
+      },
+      {
+        label: "https://example.com/*",
+        description: "Any page on example.com",
+        pattern: "web_fetch:https://example.com/*",
+      },
+      {
+        label: "web_fetch:*",
+        description: "All URL fetches",
+        // A standalone globstar: `web_fetch:*` would not match a candidate
+        // containing "/". The tool field is matched separately.
+        pattern: "**",
+      },
+    ]);
   });
 
-  test("network_request omits allowlistOptions", async () => {
+  test("network_request offers the same ladder under its own tool name", async () => {
     const classifier = makeClassifier();
     const result = await classifier.classify({
       toolName: "network_request",
       url: "https://api.example.com/v1/users",
     });
-    expect(result.allowlistOptions).toBeUndefined();
+    expect(result.allowlistOptions?.map((o) => o.pattern)).toEqual([
+      "network_request:https://api.example.com/v1/users",
+      "network_request:https://api.example.com/*",
+      "**",
+    ]);
   });
 
-  test("web_search omits allowlistOptions", async () => {
+  test("the URL is canonicalized, so a rule saved here matches the next call", async () => {
+    const classifier = makeClassifier();
+    const result = await classifier.classify({
+      toolName: "web_fetch",
+      // Userinfo and fragment must never reach a saved rule; a trailing root
+      // dot and a percent-escaped path segment are the same target.
+      url: "https://user:pw@EXAMPLE.com./%70rivate/page#section",
+    });
+    expect(result.allowlistOptions?.[0].pattern).toBe(
+      "web_fetch:https://example.com/private/page",
+    );
+    expect(result.allowlistOptions?.[1].pattern).toBe(
+      "web_fetch:https://example.com/*",
+    );
+  });
+
+  test("host:port shorthand resolves to an https origin", async () => {
+    const classifier = makeClassifier();
+    const result = await classifier.classify({
+      toolName: "web_fetch",
+      url: "example.com:8443/status",
+    });
+    expect(result.allowlistOptions?.[1].pattern).toBe(
+      "web_fetch:https://example.com:8443/*",
+    );
+  });
+
+  test("a non-http target offers no origin option", async () => {
+    const classifier = makeClassifier();
+    const result = await classifier.classify({
+      toolName: "web_fetch",
+      url: "file:///etc/passwd",
+    });
+    // The raw text is still offered as an exact literal, but nothing that
+    // would grant a scheme-wide or origin-wide rule.
+    expect(result.allowlistOptions?.map((o) => o.pattern)).toEqual([
+      "web_fetch:file:///etc/passwd",
+      "**",
+    ]);
+  });
+
+  test("a URL carrying glob-looking characters is offered verbatim", async () => {
+    // Rules are matched by exact string, so a pattern that escapes anything
+    // the lookup key does not escape is a rule that can never fire.
+    const classifier = makeClassifier();
+    const result = await classifier.classify({
+      toolName: "web_fetch",
+      url: "https://example.com/a(b)+c[d]",
+    });
+    expect(result.allowlistOptions?.[0].pattern).toBe(
+      "web_fetch:https://example.com/a(b)+c[d]",
+    );
+  });
+
+  test("web_search carries no ladder: it has no URL to scope a rule to", async () => {
     const classifier = makeClassifier();
     const result = await classifier.classify({
       toolName: "web_search",

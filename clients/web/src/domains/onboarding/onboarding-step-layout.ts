@@ -18,3 +18,12 @@ export const ONBOARDING_STEP_CONTENT =
  * See LUM-2597.
  */
 export const MOBILE_INPUT_NO_ZOOM = "touch-mobile:text-[16px]";
+
+/**
+ * `--surface-base` resolved in the dark theme every onboarding screen forces on
+ * itself. The app shell paints the safe-area strips from outside that subtree,
+ * so what it publishes has to be the value, not the token. Otherwise the home
+ * indicator sits on the light canvas and leaves a pale band along the bottom
+ * edge on iOS. See `page-surface-store`.
+ */
+export const ONBOARDING_DARK_SURFACE = "#17191C";

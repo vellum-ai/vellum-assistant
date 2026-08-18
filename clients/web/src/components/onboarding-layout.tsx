@@ -7,9 +7,11 @@ import { AvatarWave } from "./avatar-wave";
 import { CreatureFooter } from "./creature-footer";
 
 /**
- * Shared chrome for the onboarding screens: a full-height dark surface with
- * the decorative creature footer pinned to the bottom. Caller owns the inner
- * column's layout and padding.
+ * Shared chrome for the pre-app screens — the onboarding funnel and the
+ * welcome screen both front doors show (`/assistant/welcome` and
+ * `/account/login`): a full-height dark surface with the decorative creature
+ * footer pinned to the bottom. Caller owns the inner column's layout and
+ * padding.
  *
  * The outer div fills the RootLayout's fixed-height (100dvh) shell. Children
  * render inside a flex-1 scroll container so screens whose content exceeds

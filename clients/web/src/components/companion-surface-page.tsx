@@ -62,6 +62,10 @@ export function CompanionSurfacePage() {
   // Empty until the app's window publishes one, which the surface covers with
   // the component's own fallback wording rather than drawing a blank name.
   const [assistantName, setAssistantName] = useState("");
+  // Whether a turn is in flight, from the window that owns it. What the surface
+  // draws as its working ring, so the assistant being busy is legible without
+  // opening the card or reading a word of it.
+  const [working, setWorking] = useState(false);
   const [hovered, setHovered] = useState(false);
   // Whether the composer is open. Local to this page rather than pushed from
   // main, because nothing outside this window opens or closes it: main is told
@@ -100,6 +104,7 @@ export function CompanionSurfacePage() {
       setCall(state.call);
       setTurns(state.turns);
       setAssistantName(state.assistantName);
+      setWorking(state.working);
     };
     const unsubscribe = subscribeCompanionState(apply);
     // The route chunk loads lazily after the window is created, so a state
@@ -296,6 +301,11 @@ export function CompanionSurfacePage() {
         // before the app's window has published one.
         assistantName={assistantName === "" ? undefined : assistantName}
         call={call ?? undefined}
+        // Unlike the turns, this is drawn whether or not the exchange on the
+        // card is this surface's own: the question it answers is whether the
+        // assistant is busy, and it is busy on someone else's conversation just
+        // as much as on this one.
+        working={working}
         rootRef={pillRef}
         onSurfaceMouseDown={(event) => {
           dragRef.current = { x: event.screenX, y: event.screenY };

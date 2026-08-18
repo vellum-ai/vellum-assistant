@@ -44,12 +44,8 @@ mock.module("../permissions/checker.js", () => ({
     }
     return { decision: "allow", reason: "allowed" };
   },
-  generateAllowlistOptions: () => [
-    { label: "exact", description: "exact", pattern: "exact" },
-  ],
   generateScopeOptions: () =>
     scopeOptionsOverride ?? [{ label: "/tmp", scope: "/tmp" }],
-  getCachedAssessment: () => undefined,
 }));
 
 // Mock every export so downstream test files that dynamically import modules

@@ -98,7 +98,7 @@ export function LibraryView({
         await queryClient.invalidateQueries({
           queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }),
         });
-        toast.success(result.name + " imported");
+        toast.success(t("libraryView.imported", { name: result.name }));
         onOpenApp(result.appId);
       } catch (err) {
         toast.error(

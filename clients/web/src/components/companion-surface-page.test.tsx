@@ -12,6 +12,13 @@ const STATE: CompanionSurfaceState = {
   call: null,
   assistantName: "Ziggy",
   turns: [],
+  working: false,
+};
+
+/** Reset between cases, since `STATE` is what the mocked bridge hands back. */
+const resetState = () => {
+  STATE.working = false;
+  STATE.call = null;
 };
 
 mock.module("@/runtime/companion-surface", () => ({
@@ -34,6 +41,7 @@ const { CompanionSurfacePage } = await import("./companion-surface-page");
 
 afterEach(() => {
   cleanup();
+  resetState();
   moveByMock.mockClear();
   setInteractiveMock.mockClear();
   activateMock.mockClear();
@@ -201,5 +209,32 @@ describe("dragging the companion surface", () => {
     fireEvent.click(avatarOf(container));
 
     expect(activateMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The working ring is fed by two independent things: a live call's own phase,
+ * and the flag the window owning the conversation publishes. A typed turn has
+ * no call behind it, so it rides entirely on the flag, and these cover that it
+ * survives the trip through main rather than only through the component.
+ */
+describe("the working ring on the page", () => {
+  test("lights for a typed turn, with no call running", async () => {
+    STATE.working = true;
+
+    const { container } = render(<CompanionSurfacePage />);
+
+    await waitFor(() => {
+      expect(
+        container.querySelector(".companion-working-ring"),
+      ).not.toBeNull();
+    });
+  });
+
+  test("stays dark when nothing is running", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinPill(container);
+
+    expect(container.querySelector(".companion-working-ring")).toBeNull();
   });
 });

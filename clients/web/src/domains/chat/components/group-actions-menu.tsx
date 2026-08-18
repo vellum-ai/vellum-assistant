@@ -22,7 +22,6 @@ import {
   Archive,
   ArrowDown,
   ArrowUp,
-  CircleCheck,
   Copy,
   Layers,
   Pencil,
@@ -31,11 +30,13 @@ import {
 import { type ReactNode, useState } from "react";
 
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
+import { useTranslation, type TFunction } from "@/i18n";
 import { SectionActionsButton } from "@/components/section-actions-button";
 import {
   buildPanelMenuItem,
   PanelMenuDivider,
 } from "@/domains/chat/components/panel-menu-item";
+import { MARK_ALL_READ_ICON } from "@/utils/read-state-icon";
 import {
   BottomSheet,
   ContextMenu,
@@ -128,7 +129,11 @@ export function renderGroupMenuItems({
   isGroupedByChannel = false,
   onMoveUp,
   onMoveDown,
-}: GroupMenuItemsProps & { Primitive: GroupMenuPrimitive }): ReactNode {
+  t,
+}: GroupMenuItemsProps & {
+  Primitive: GroupMenuPrimitive;
+  t: TFunction<"chat">;
+}): ReactNode {
   const hasBulkActions = onMarkAllRead != null || onArchiveAll != null;
   const hasIndividualActions =
     onRename != null ||
@@ -144,7 +149,7 @@ export function renderGroupMenuItems({
           section (no rename/delete) and a custom group. */}
       {onMoveUp ? (
         <Primitive.Item leftIcon={<ArrowUp size={14} />} onSelect={onMoveUp}>
-          Move Section Up
+          {t("groupActions.moveSectionUp")}
         </Primitive.Item>
       ) : null}
       {onMoveDown ? (
@@ -152,7 +157,7 @@ export function renderGroupMenuItems({
           leftIcon={<ArrowDown size={14} />}
           onSelect={onMoveDown}
         >
-          Move Section Down
+          {t("groupActions.moveSectionDown")}
         </Primitive.Item>
       ) : null}
       {hasMoveActions && (hasBulkActions || hasIndividualActions) ? (
@@ -160,11 +165,11 @@ export function renderGroupMenuItems({
       ) : null}
       {onMarkAllRead ? (
         <Primitive.Item
-          leftIcon={<CircleCheck size={14} />}
+          leftIcon={<MARK_ALL_READ_ICON size={14} />}
           onSelect={onMarkAllRead}
           disabled={!hasUnreadConversations}
         >
-          Mark All as Read
+          {t("groupActions.markAllRead")}
         </Primitive.Item>
       ) : null}
       {onArchiveAll ? (
@@ -173,23 +178,25 @@ export function renderGroupMenuItems({
           onSelect={onArchiveAll}
           disabled={!hasConversations}
         >
-          Archive All…
+          {t("groupActions.archiveAll")}
         </Primitive.Item>
       ) : null}
       {hasBulkActions && hasIndividualActions ? <Primitive.Separator /> : null}
       {onRename ? (
         <Primitive.Item leftIcon={<Pencil size={14} />} onSelect={onRename}>
-          Rename
+          {t("groupActions.rename")}
         </Primitive.Item>
       ) : null}
       {onDelete ? (
         <Primitive.Item leftIcon={<Trash2 size={14} />} onSelect={onDelete}>
-          {hasConversations ? "Delete group…" : "Delete group"}
+          {hasConversations
+            ? t("groupActions.deleteGroupWithConversations")
+            : t("groupActions.deleteGroup")}
         </Primitive.Item>
       ) : null}
       {onCopyGroupId ? (
         <Primitive.Item leftIcon={<Copy size={14} />} onSelect={onCopyGroupId}>
-          Copy group ID
+          {t("groupActions.copyGroupId")}
         </Primitive.Item>
       ) : null}
       {onToggleGroupByChannel ? (
@@ -197,7 +204,9 @@ export function renderGroupMenuItems({
           leftIcon={<Layers size={14} />}
           onSelect={onToggleGroupByChannel}
         >
-          {isGroupedByChannel ? "Ungroup" : "Group by channel"}
+          {isGroupedByChannel
+            ? t("groupActions.ungroup")
+            : t("groupActions.groupByChannel")}
         </Primitive.Item>
       ) : null}
     </>
@@ -221,7 +230,11 @@ export function renderGroupMenuItemsAsPanelItems({
   onMoveUp,
   onMoveDown,
   onClose,
-}: GroupMenuItemsProps & { onClose: () => void }): ReactNode {
+  t,
+}: GroupMenuItemsProps & {
+  onClose: () => void;
+  t: TFunction<"chat">;
+}): ReactNode {
   const hasBulkActions = onMarkAllRead != null || onArchiveAll != null;
   const hasIndividualActions =
     onRename != null ||
@@ -236,7 +249,7 @@ export function renderGroupMenuItemsAsPanelItems({
         ? buildPanelMenuItem({
             key: "move-section-up",
             icon: ArrowUp,
-            label: "Move Section Up",
+            label: t("groupActions.moveSectionUp"),
             run: onMoveUp,
             onClose,
           })
@@ -245,7 +258,7 @@ export function renderGroupMenuItemsAsPanelItems({
         ? buildPanelMenuItem({
             key: "move-section-down",
             icon: ArrowDown,
-            label: "Move Section Down",
+            label: t("groupActions.moveSectionDown"),
             run: onMoveDown,
             onClose,
           })
@@ -256,8 +269,8 @@ export function renderGroupMenuItemsAsPanelItems({
       {onMarkAllRead
         ? buildPanelMenuItem({
             key: "mark-all-read",
-            icon: CircleCheck,
-            label: "Mark All as Read",
+            icon: MARK_ALL_READ_ICON,
+            label: t("groupActions.markAllRead"),
             disabled: !hasUnreadConversations,
             run: onMarkAllRead,
             onClose,
@@ -267,7 +280,7 @@ export function renderGroupMenuItemsAsPanelItems({
         ? buildPanelMenuItem({
             key: "archive-all",
             icon: Archive,
-            label: "Archive All…",
+            label: t("groupActions.archiveAll"),
             disabled: !hasConversations,
             run: onArchiveAll,
             onClose,
@@ -278,7 +291,7 @@ export function renderGroupMenuItemsAsPanelItems({
         ? buildPanelMenuItem({
             key: "rename",
             icon: Pencil,
-            label: "Rename",
+            label: t("groupActions.rename"),
             run: onRename,
             onClose,
           })
@@ -287,7 +300,9 @@ export function renderGroupMenuItemsAsPanelItems({
         ? buildPanelMenuItem({
             key: "delete",
             icon: Trash2,
-            label: hasConversations ? "Delete group…" : "Delete group",
+            label: hasConversations
+              ? t("groupActions.deleteGroupWithConversations")
+              : t("groupActions.deleteGroup"),
             run: onDelete,
             onClose,
           })
@@ -296,7 +311,7 @@ export function renderGroupMenuItemsAsPanelItems({
         ? buildPanelMenuItem({
             key: "copy-group-id",
             icon: Copy,
-            label: "Copy group ID",
+            label: t("groupActions.copyGroupId"),
             run: onCopyGroupId,
             onClose,
           })
@@ -305,7 +320,9 @@ export function renderGroupMenuItemsAsPanelItems({
         ? buildPanelMenuItem({
             key: "toggle-group-by-channel",
             icon: Layers,
-            label: isGroupedByChannel ? "Ungroup" : "Group by channel",
+            label: isGroupedByChannel
+              ? t("groupActions.ungroup")
+              : t("groupActions.groupByChannel"),
             run: onToggleGroupByChannel,
             onClose,
           })
@@ -335,6 +352,7 @@ export function GroupActionsMenu({
 }: GroupActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const isTouchMobile = useTouchMobile();
+  const { t } = useTranslation("chat");
   const closeMenu = () => setOpen(false);
   const hasItems = hasAnyGroupMenuAction(menuProps);
 
@@ -345,6 +363,7 @@ export function GroupActionsMenu({
   const items = renderGroupMenuItemsAsPanelItems({
     ...menuProps,
     onClose: closeMenu,
+    t,
   });
 
   const trigger = <SectionActionsButton label={label} />;
@@ -355,7 +374,9 @@ export function GroupActionsMenu({
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
         <BottomSheet.Content aria-describedby={undefined}>
           <BottomSheet.Header className="sr-only">
-            <BottomSheet.Title>{label} actions</BottomSheet.Title>
+            <BottomSheet.Title>
+              {t("groupActionsSheet.title", { name: label })}
+            </BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="pt-0">{items}</BottomSheet.Body>
         </BottomSheet.Content>

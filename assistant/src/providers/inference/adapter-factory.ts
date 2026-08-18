@@ -139,6 +139,9 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       providerName: "openai-compatible",
       providerLabel: "OpenAI-compatible",
       streamTimeoutMs,
+      // Custom OpenAI-compatible endpoints may front strict reasoning
+      // models (DeepSeek thinking) that 400 on any explicit tool_choice.
+      omitToolChoiceWhenReasoning: true,
       ...(baseURL ? { baseURL } : {}),
     }),
   minimax: ({ apiKey, model, streamTimeoutMs }) =>

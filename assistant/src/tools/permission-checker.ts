@@ -1,13 +1,18 @@
+import type {
+  RiskAllowlistOption,
+  RiskDirectoryScopeOption,
+  RiskPatternScopeOption,
+} from "@vellumai/gateway-client";
+
 import { getIsContainerized } from "../config/env-registry.js";
 import { mapApprovalProvenance } from "../permissions/approval-provenance.js";
 import { buildChannelPermissionCellQuery } from "../permissions/channel-permission-query.js";
 import {
   check,
   classifyRisk,
-  generateAllowlistOptions,
   generateScopeOptions,
-  getCachedAssessment,
   isDynamicSkillLoadInvocation,
+  type RiskClassificationWithMeta,
 } from "../permissions/checker.js";
 import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
@@ -37,19 +42,15 @@ export type PermissionDecision =
       decision: string;
       riskLevel: string;
       wasPrompted?: boolean;
-      /** ID of the trust rule that matched this invocation (if any). Always set when a rule matched, even for non-classifier tools where riskMeta is absent. */
+      /** ID of the trust rule that matched this invocation (if any). */
       matchedTrustRuleId?: string;
-      /** Risk metadata from the classifier assessment cache (when available). */
-      riskMeta?: {
+      /** Risk metadata from the invocation's classification. */
+      riskMeta: {
         riskLevel: string;
         riskReason: string;
-        riskScopeOptions: Array<{ pattern: string; label: string }>;
-        riskAllowlistOptions?: Array<{
-          label: string;
-          description: string;
-          pattern: string;
-        }>;
-        riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+        riskScopeOptions: RiskPatternScopeOption[];
+        riskAllowlistOptions?: RiskAllowlistOption[];
+        riskDirectoryScopeOptions?: RiskDirectoryScopeOption[];
         isContainerized?: boolean;
       };
       approvalMode?: ApprovalMode;
@@ -61,19 +62,15 @@ export type PermissionDecision =
       decision: string;
       riskLevel: string;
       content: string;
-      /** ID of the trust rule that matched this invocation (if any). Always set when a rule matched, even for non-classifier tools where riskMeta is absent. */
+      /** ID of the trust rule that matched this invocation (if any). */
       matchedTrustRuleId?: string;
-      /** Risk metadata from the classifier assessment cache (when available). */
-      riskMeta?: {
+      /** Risk metadata from the invocation's classification. */
+      riskMeta: {
         riskLevel: string;
         riskReason: string;
-        riskScopeOptions: Array<{ pattern: string; label: string }>;
-        riskAllowlistOptions?: Array<{
-          label: string;
-          description: string;
-          pattern: string;
-        }>;
-        riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+        riskScopeOptions: RiskPatternScopeOption[];
+        riskAllowlistOptions?: RiskAllowlistOption[];
+        riskDirectoryScopeOptions?: RiskDirectoryScopeOption[];
         isContainerized?: boolean;
       };
       approvalMode?: ApprovalMode;
@@ -89,10 +86,13 @@ export class PermissionChecker {
   }
 
   /**
-   * Run risk classification, trust rule evaluation, and (if needed) user
-   * prompting for a tool invocation. Returns whether the tool is allowed
-   * to execute, along with the decision string and risk level for lifecycle
-   * event reporting.
+   * Run trust rule evaluation and (if needed) user prompting for a tool
+   * invocation. Returns whether the tool is allowed to execute, along with
+   * the decision string and risk level for lifecycle event reporting.
+   *
+   * `classification` is the invocation's gateway classification when the
+   * executor already holds it (it classifies once, before its gates); absent
+   * that, the same input is classified here.
    */
   async checkPermission(
     name: string,
@@ -113,10 +113,11 @@ export class PermissionChecker {
         }
       | undefined
     >,
+    classification?: RiskClassificationWithMeta,
   ): Promise<PermissionDecision> {
     // Sandbox/host routing for the prompt comes from the tool's manifest.
     const executionTarget = resolveExecutionTarget(tool);
-    const { level: risk, reason: riskReason } = await classifyRisk(
+    classification ??= await classifyRisk(
       name,
       input,
       context.workingDir,
@@ -124,26 +125,19 @@ export class PermissionChecker {
       undefined,
       context.signal,
     );
+    const { level: risk, reason: riskReason } = classification;
     const riskLevel: string = risk;
 
-    // Look up the cached assessment to extract risk metadata for the tool result.
-    // This is populated by classifyRisk() for classifier-backed tools (bash, file, web, skill).
-    // For tools without classifiers (e.g. MCP tools), the cache returns undefined.
-    const cachedAssessment = getCachedAssessment(name, input);
-    const riskMeta = cachedAssessment
-      ? {
-          riskLevel: cachedAssessment.riskLevel,
-          riskReason: cachedAssessment.reason,
-          // Display ladder (regex patterns — internal only, not for save).
-          riskScopeOptions: cachedAssessment.scopeOptions,
-          // Save ladder (Minimatch globs — what the gateway matches against).
-          // Populated for classifiers that produce allowlist options
-          // (bash, file, skill); undefined otherwise.
-          riskAllowlistOptions: cachedAssessment.allowlistOptions,
-          riskDirectoryScopeOptions: cachedAssessment.directoryScopeOptions,
-          isContainerized: getIsContainerized(),
-        }
-      : undefined;
+    const riskMeta = {
+      riskLevel: classification.level,
+      riskReason: classification.reason,
+      // Display ladder: bash only, internal, never persisted as a rule.
+      riskScopeOptions: classification.scopeOptions,
+      // Save ladder: the patterns the gateway matches a rule by, exactly.
+      riskAllowlistOptions: classification.allowlistOptions,
+      riskDirectoryScopeOptions: classification.directoryScopeOptions,
+      isContainerized: getIsContainerized(),
+    };
 
     // Wrap the rest of permission evaluation so that any exception
     // carries the classified risk level back to the caller. Without
@@ -158,6 +152,7 @@ export class PermissionChecker {
         policyContext,
         undefined,
         context.signal,
+        classification,
       );
 
       // Every threshold read for this invocation must consult the same
@@ -240,7 +235,7 @@ export class PermissionChecker {
       if (
         context.isInteractive === false &&
         isDynamicSkillLoadInvocation(name, input) &&
-        getCachedAssessment(name, input)?.matchType !== "user_rule"
+        classification.matchType !== "user_rule"
       ) {
         log.info(
           { toolName: name, riskLevel },
@@ -385,11 +380,7 @@ export class PermissionChecker {
           context.workingDir,
         );
         const promptOptions = {
-          allowlistOptions: await generateAllowlistOptions(
-            name,
-            input,
-            context.signal,
-          ),
+          allowlistOptions: classification.allowlistOptions ?? [],
           scopeOptions: generateScopeOptions(context.workingDir, name),
           persistentDecisionsAllowed: !context.requireFreshApproval,
         };
@@ -410,7 +401,7 @@ export class PermissionChecker {
           context.toolUseId,
           riskReason,
           getIsContainerized(),
-          cachedAssessment?.directoryScopeOptions,
+          classification.directoryScopeOptions,
         );
 
         const decision = response.decision;

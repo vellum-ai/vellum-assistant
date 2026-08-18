@@ -1,8 +1,6 @@
 import {
   Archive,
   ArchiveRestore,
-  Circle,
-  CircleCheck,
   Copy,
   ExternalLink,
   FolderInput,
@@ -29,6 +27,7 @@ import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { useTranslation, type TFunction } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import { READ_ICON, UNREAD_ICON } from "@/utils/read-state-icon";
 import { BottomSheet, ContextMenu, Menu } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
 
@@ -245,14 +244,14 @@ export function renderConversationMenuItems({
   const markReadUnreadItem =
     !isReadonly && onMarkRead ? (
       <Primitive.Item
-        leftIcon={<CircleCheck size={14} />}
+        leftIcon={<UNREAD_ICON size={14} />}
         onSelect={onMarkRead}
       >
         {t("conversationActions.markRead")}
       </Primitive.Item>
     ) : !isReadonly && onMarkUnread ? (
       <Primitive.Item
-        leftIcon={<Circle size={14} />}
+        leftIcon={<READ_ICON size={14} />}
         onSelect={onMarkUnread}
         disabled={isMarkUnreadDisabled}
       >
@@ -552,7 +551,7 @@ export function renderConversationMenuItemsAsPanelItems({
     !isReadonly && onMarkRead
       ? buildSheetMenuItem({
           key: "mark-read",
-          icon: CircleCheck,
+          icon: UNREAD_ICON,
           label: t("conversationActions.markRead"),
           run: onMarkRead,
           onClose,
@@ -560,7 +559,7 @@ export function renderConversationMenuItemsAsPanelItems({
       : !isReadonly && onMarkUnread
         ? buildSheetMenuItem({
             key: "mark-unread",
-            icon: Circle,
+            icon: READ_ICON,
             label: t("conversationActions.markUnread"),
             disabled: isMarkUnreadDisabled,
             run: onMarkUnread,

@@ -33,6 +33,13 @@ export interface RouteInvokeParams {
   readonly url: string;
   /** Request header entries as `[name, value]` pairs (preserves duplicates). */
   readonly headers: ReadonlyArray<readonly [string, string]>;
+  /**
+   * Manifest name of the plugin whose namespace the route falls in, absent for
+   * a workspace route. The host marks it as the plugin in context for the
+   * handler's execution, so plugin-scoped host APIs behave the same whether the
+   * handler runs in the host or in-thread on the daemon.
+   */
+  readonly pluginName?: string;
 }
 
 /**
