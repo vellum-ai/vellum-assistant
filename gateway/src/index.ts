@@ -1,5 +1,6 @@
 process.title = "vellum-gateway";
 
+import { slackEventRefersToAnotherMessage } from "./slack/event-kind.js";
 import { buildSlackSourceMetadata } from "./slack/source-metadata.js";
 import { randomBytes } from "node:crypto";
 
@@ -2362,11 +2363,9 @@ async function main() {
         if (!threadTs && origMessageTs) params.set("messageTs", origMessageTs);
         const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?${params}`;
 
-        // Whether this event represents an edit or callback action — these
-        // never carry attachments to upload, and neither names a thread.
-        const isEdit = !!normalized.event.message.isEdit;
-        const isCallback = !!normalized.event.message.callbackData;
-
+        const refersToAnotherMessage = slackEventRefersToAnotherMessage(
+          normalized.event.message,
+        );
         const slackSourceMetadata = buildSlackSourceMetadata(normalized);
 
         // Handle /new command — reset conversation before it reaches the runtime
@@ -2422,16 +2421,15 @@ async function main() {
           }
 
           try {
-            // Download and upload attachments if present (skip for edits and
-            // callback actions — edits only update text, callbacks have no media)
+            // Download and upload attachments if present. An event that acts
+            // on another message brings no media of its own.
             let attachmentIds: string[] | undefined;
             const eventAttachments = normalized.event.message.attachments;
             if (
               eventAttachments &&
               eventAttachments.length > 0 &&
               normalized.slackFiles &&
-              !isEdit &&
-              !isCallback
+              !refersToAnotherMessage
             ) {
               attachmentIds = [];
               const failedAttachmentNames: string[] = [];

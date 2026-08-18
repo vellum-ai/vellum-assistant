@@ -1,14 +1,13 @@
+import type { SourceMetadata } from "@vellumai/gateway-client";
+
+import { slackEventRefersToAnotherMessage } from "./event-kind.js";
 import type { NormalizedSlackEvent } from "./message-schemas.js";
 
-/**
- * Slack-specific fields added to a forwarded event's `sourceMetadata`. Indexed
- * so it composes with the wider `SourceMetadata` the gateway forwards.
- */
-export interface SlackSourceMetadata {
-  [key: string]: unknown;
-  slackBotMentioned?: true;
-  threadId?: string;
-}
+/** The `sourceMetadata` fields the Slack ingress path sets. */
+export type SlackSourceMetadata = Pick<
+  SourceMetadata,
+  "slackBotMentioned" | "threadId"
+>;
 
 /**
  * Build the Slack fields the runtime reads off `sourceMetadata`.
@@ -31,12 +30,12 @@ export function buildSlackSourceMetadata(
   normalized: NormalizedSlackEvent,
 ): SlackSourceMetadata {
   const { message, source, raw } = normalized.event;
-  const refersToAnotherMessage =
-    message.isEdit === true || typeof message.callbackData === "string";
 
   return {
-    ...(raw.type === "app_mention" ? { slackBotMentioned: true as const } : {}),
-    ...(normalized.threadTs && !source.threadId && !refersToAnotherMessage
+    ...(raw.type === "app_mention" ? { slackBotMentioned: true } : {}),
+    ...(normalized.threadTs &&
+    !source.threadId &&
+    !slackEventRefersToAnotherMessage(message)
       ? { threadId: normalized.threadTs }
       : {}),
   };

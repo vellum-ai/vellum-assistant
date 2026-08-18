@@ -11,14 +11,16 @@
  * the message's metadata via a single transactional content+metadata update,
  * so downstream renderers can surface the edited marker.
  *
- * Extracted from inbound-message-handler.ts to keep the top-level handler
- * focused on orchestration.
+ * An edit belongs to the conversation of the message it changes, so the stage
+ * resolves that message before it records anything, and an edit with no
+ * resolvable target is dropped.
  */
 import type { ChannelId } from "../../../channels/types.js";
 import {
   mergeSlackMetadata,
   readSlackMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
+import type { MessageRow } from "../../../persistence/conversation-crud.js";
 import {
   getMessageById,
   updateMessageContent,
@@ -119,12 +121,13 @@ export async function handleEditIntercept(
   }
 
   if (!original) {
-    // Nothing to edit, and nothing to record it against. Recording it anyway
-    // is what created a conversation per edited message.
+    // Nothing to edit, and nothing to record it against: recording it anyway
+    // would resolve a conversation from the edit's own address and create one
+    // there.
     //
-    // Slack keeps this at `debug`: the row may have been compacted, never
-    // stored, or predate this behaviour. Other channels keep the louder
-    // `warn`, since their edit pipelines expect the row to exist.
+    // Slack keeps this at `debug`, since the row may have been compacted or
+    // never stored. Other channels keep the louder `warn`, since their edit
+    // pipelines expect the row to exist.
     const missingTarget = {
       assistantId,
       sourceChannel,
@@ -187,6 +190,7 @@ export async function handleEditIntercept(
     // the minimum-required fields from the lookup data.
     applySlackEditMetadata({
       messageId: original.messageId,
+      existingRow,
       conversationExternalId,
       sourceMessageId,
       sourceThreadId,
@@ -229,6 +233,8 @@ export async function handleEditIntercept(
  */
 function applySlackEditMetadata(params: {
   messageId: string;
+  /** The stored row, already read by the caller's no-op guard. */
+  existingRow: MessageRow | null;
   conversationExternalId: string;
   sourceMessageId: string;
   sourceThreadId?: string;
@@ -236,13 +242,13 @@ function applySlackEditMetadata(params: {
 }): void {
   const {
     messageId,
+    existingRow: row,
     conversationExternalId,
     sourceMessageId,
     sourceThreadId,
     newContent,
   } = params;
 
-  const row = getMessageById(messageId);
   const outerMetadata: Record<string, unknown> =
     row?.metadata != null ? safeParseRecord(row.metadata) : {};
   const existingSlackMeta =
