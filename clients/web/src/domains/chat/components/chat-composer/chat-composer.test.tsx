@@ -830,6 +830,11 @@ function disclaimer(container: HTMLElement) {
   return container.querySelector('[data-slot="composer-disclaimer"]');
 }
 
+/** The wrapper around the card, which publishes the banner flag. */
+function composerShell(container: HTMLElement) {
+  return container.querySelector('[data-slot="chat-composer-shell"]');
+}
+
 function addSheet(container: HTMLElement) {
   return container.querySelector('[data-testid="add-to-chat-sheet"]');
 }
@@ -1410,6 +1415,104 @@ describe("ChatComposer: mobile settings pills row", () => {
 
     // THEN there is nothing to float, so no row is rendered
     expect(pillsRow(container)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Banners standing over the card, and what gives way to them
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer: a banner standing over the card", () => {
+  test("an empty banner stack leaves the row up and publishes nothing", () => {
+    // GIVEN a resting phone composer in an app shell, with nothing above it
+    mockIsNativeMobile = true;
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // THEN the row stands, and the shell carries no flag for the avatar peek
+    // that reads this off it
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      false,
+    );
+  });
+
+  test("a banner mounted with the composer takes the row down", () => {
+    // GIVEN the same shell composer, with a banner in the stack above the card
+    mockIsNativeMobile = true;
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      noticesAboveFormSlot: <div>BANNER</div>,
+    });
+
+    // THEN the row stands down: the banner docks to the card's top edge and
+    // takes the strip the row floats in
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+
+    // AND the shell publishes the banner, which is how `ComposerPeek` knows to
+    // hold its avatar down behind that same edge
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      true,
+    );
+  });
+
+  test("focus does not buy the row back from a banner", () => {
+    // GIVEN a browser phone composer under a banner, where focus is normally
+    // what raises the row
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      noticesAboveFormSlot: <div>BANNER</div>,
+    });
+
+    // WHEN the user taps into it
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN the banner still wins
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+  });
+
+  test("a banner arriving after mount takes the row down with it", async () => {
+    // GIVEN a standing row in an app shell
+    mockIsNativeMobile = true;
+    const { container, rerender } = renderPhoneComposer(SETTINGS_SLOTS);
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+
+    // WHEN a banner arrives mid-session, the way a low credit balance does
+    await act(async () => {
+      rerender(
+        composerElement({
+          ...SETTINGS_SLOTS,
+          noticesAboveFormSlot: <div>BANNER</div>,
+        }),
+      );
+    });
+
+    // THEN the row follows it down. The stack is watched rather than derived
+    // from props, so notices that source their own state take it down too
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      true,
+    );
+  });
+
+  test("a banner leaving gives the row back", async () => {
+    // GIVEN a shell composer whose row is down under a banner
+    mockIsNativeMobile = true;
+    const { container, rerender } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      noticesAboveFormSlot: <div>BANNER</div>,
+    });
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+
+    // WHEN the banner is dismissed
+    await act(async () => {
+      rerender(composerElement(SETTINGS_SLOTS));
+    });
+
+    // THEN the strip is free again and the row comes back up with it
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      false,
+    );
   });
 });
 
