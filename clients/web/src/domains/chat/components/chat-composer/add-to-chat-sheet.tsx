@@ -11,9 +11,10 @@ import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import {
   isPickerDismissal,
   nativeAttachmentPickersAvailable,
+  type OnPickedFile,
   pickFilesNative,
   pickMediaNative,
-  type ReadResult,
+  type PickOutcome,
 } from "@/domains/chat/components/chat-attachments/native-attachment-pickers";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
@@ -105,13 +106,14 @@ export function AddToChatSheet({
    * cancel alike.
    */
   const closeThenPickNative =
-    (pick: () => Promise<ReadResult>) => async (): Promise<void> => {
+    (pick: (onFile: OnPickedFile) => Promise<PickOutcome>) =>
+    async (): Promise<void> => {
       onOpenChange(false);
       try {
-        const { files: picked, skipped } = await pick();
-        if (picked.length > 0) {
-          onAttachFiles(picked);
-        }
+        // Handed on one at a time rather than collected: the picker reads the
+        // next file only after this one has left it, so a multi-select never
+        // sits decoded in the picker all at once.
+        const { skipped } = await pick((file) => onAttachFiles([file]));
         // Refused before their bytes were read, so the composer never sees
         // them and cannot report them itself.
         if (skipped.length > 0) {

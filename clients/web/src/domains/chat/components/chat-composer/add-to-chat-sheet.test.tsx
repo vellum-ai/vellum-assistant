@@ -51,16 +51,19 @@ mock.module("@vellumai/design-library", () => ({
 // runtime AND a build that linked the plugin. Defaults to false, so every
 // existing case still exercises the file input.
 let mockNativePickersAvailable = false;
-type ReadResult = { files: File[]; skipped: string[] };
-const EMPTY_PICK: ReadResult = { files: [], skipped: [] };
-let mockPickMedia: () => Promise<ReadResult> = async () => EMPTY_PICK;
-let mockPickFiles: () => Promise<ReadResult> = async () => EMPTY_PICK;
+type PickOutcome = { skipped: string[] };
+type OnPickedFile = (file: File) => void;
+const EMPTY_PICK: PickOutcome = { skipped: [] };
+let mockPickMedia: (onFile: OnPickedFile) => Promise<PickOutcome> = async () =>
+  EMPTY_PICK;
+let mockPickFiles: (onFile: OnPickedFile) => Promise<PickOutcome> = async () =>
+  EMPTY_PICK;
 mock.module(
   "@/domains/chat/components/chat-attachments/native-attachment-pickers",
   () => ({
     nativeAttachmentPickersAvailable: () => mockNativePickersAvailable,
-    pickMediaNative: () => mockPickMedia(),
-    pickFilesNative: () => mockPickFiles(),
+    pickMediaNative: (onFile: OnPickedFile) => mockPickMedia(onFile),
+    pickFilesNative: (onFile: OnPickedFile) => mockPickFiles(onFile),
     // The real discriminator, not a stub: what counts as a dismissal is the
     // behaviour under test here.
     isPickerDismissal: (error: unknown) =>
@@ -184,7 +187,10 @@ describe("AddToChatSheet: native pickers", () => {
     // GIVEN a shell whose photo library hands back one image
     mockNativePickersAvailable = true;
     const picked = new File(["x"], "photo-1.jpg", { type: "image/jpeg" });
-    mockPickMedia = async () => ({ files: [picked], skipped: [] });
+    mockPickMedia = async (onFile) => {
+      onFile(picked);
+      return { skipped: [] };
+    };
     const { onAttachFiles } = renderSheet();
 
     // WHEN the photo row is tapped

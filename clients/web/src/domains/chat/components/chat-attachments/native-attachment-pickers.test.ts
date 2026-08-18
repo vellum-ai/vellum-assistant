@@ -31,11 +31,21 @@ mock.module("@capawesome/capacitor-file-picker", () => ({
   },
 }));
 
+const statPaths: string[] = [];
+let mockStat: (path: string) => number | Error = () => 0;
+
 mock.module("@capacitor/filesystem", () => ({
   Filesystem: {
     readFile: ({ path }: { path: string }) => {
       readPaths.push(path);
       return Promise.resolve({ data: mockRead(path) });
+    },
+    stat: ({ path }: { path: string }) => {
+      statPaths.push(path);
+      const size = mockStat(path);
+      return size instanceof Error
+        ? Promise.reject(size)
+        : Promise.resolve({ size });
     },
   },
 }));
@@ -45,8 +55,16 @@ const { isPickerDismissal, pickFilesNative, pickMediaNative } =
 
 const MB = 1024 * 1024;
 
+/** Collects what the picker hands over, one file at a time. */
+function collector() {
+  const files: File[] = [];
+  return { files, onFile: (file: File) => files.push(file) };
+}
+
 function reset() {
   readPaths.length = 0;
+  statPaths.length = 0;
+  mockStat = () => 0;
   mockRead = () => "";
   lastPickMediaOptions = "unset";
   lastPickFilesOptions = "unset";
@@ -58,8 +76,8 @@ describe("native pickers: reading", () => {
     // is read until a size has been checked, so it is never requested.
     reset();
     mockFiles = [];
-    await pickMediaNative();
-    await pickFilesNative();
+    await pickMediaNative(() => {});
+    await pickFilesNative(() => {});
     expect(lastPickMediaOptions).toBeUndefined();
     expect(lastPickFilesOptions).toBeUndefined();
   });
@@ -76,7 +94,9 @@ describe("native pickers: reading", () => {
       },
     ];
 
-    const { files, skipped } = await pickMediaNative();
+    const sink = collector();
+    const { skipped } = await pickMediaNative(sink.onFile);
+    const files = sink.files;
 
     expect(readPaths).toEqual(["/tmp/shot.jpg"]);
     expect(skipped).toEqual([]);
@@ -99,7 +119,9 @@ describe("native pickers: reading", () => {
       },
     ];
 
-    const { files } = await pickFilesNative();
+    const sink = collector();
+    await pickFilesNative(sink.onFile);
+    const files = sink.files;
 
     expect(files).toHaveLength(1);
     expect(files[0]?.name).toBe("empty.txt");
@@ -117,7 +139,9 @@ describe("native pickers: reading", () => {
       },
     ];
 
-    const { files } = await pickMediaNative();
+    const sink = collector();
+    await pickMediaNative(sink.onFile);
+    const files = sink.files;
 
     expect(readPaths).toEqual([]);
     expect(await files[0]?.text()).toBe("from blob");
@@ -136,7 +160,9 @@ describe("native pickers: size limit", () => {
       },
     ];
 
-    const { files, skipped } = await pickMediaNative();
+    const sink = collector();
+    const { skipped } = await pickMediaNative(sink.onFile);
+    const files = sink.files;
 
     // Never read: the whole point is that the bytes do not cross the bridge.
     expect(readPaths).toEqual([]);
@@ -158,7 +184,9 @@ describe("native pickers: size limit", () => {
       },
     ];
 
-    const { files, skipped } = await pickMediaNative();
+    const sink = collector();
+    const { skipped } = await pickMediaNative(sink.onFile);
+    const files = sink.files;
 
     expect(skipped).toEqual([]);
     expect(files).toHaveLength(1);
@@ -182,7 +210,9 @@ describe("native pickers: size limit", () => {
       },
     ];
 
-    const { files, skipped } = await pickFilesNative();
+    const sink = collector();
+    const { skipped } = await pickFilesNative(sink.onFile);
+    const files = sink.files;
 
     expect(readPaths).toEqual(["/tmp/fine.txt"]);
     expect(files).toHaveLength(1);
@@ -201,5 +231,103 @@ describe("isPickerDismissal", () => {
       isPickerDismissal(new Error("Unable to copy file to temp directory")),
     ).toBe(false);
     expect(isPickerDismissal("canceled")).toBe(false);
+  });
+});
+
+describe("native pickers: bounding what is held at once", () => {
+  test("hands each file over before reading the next", async () => {
+    // Collecting into an array and returning it at the end would hold every
+    // decoded file at once, so several large-but-valid documents exhaust the
+    // web view exactly as one huge file would. The order here is the point:
+    // each read is followed by its delivery, not by the next read.
+    reset();
+    mockRead = () => btoa("x");
+    mockFiles = [
+      { path: "/a.txt", name: "a.txt", mimeType: "text/plain", size: 1 },
+      { path: "/b.txt", name: "b.txt", mimeType: "text/plain", size: 1 },
+    ];
+
+    const events: string[] = [];
+    mockRead = (path: string) => {
+      events.push(`read ${path}`);
+      return btoa("x");
+    };
+
+    await pickFilesNative((file) => events.push(`deliver ${file.name}`));
+
+    expect(events).toEqual([
+      "read /a.txt",
+      "deliver a.txt",
+      "read /b.txt",
+      "deliver b.txt",
+    ]);
+  });
+});
+
+describe("native pickers: unknown sizes", () => {
+  test("stats a zero-size entry rather than trusting it", async () => {
+    // Android reports 0 both for an empty file and for a provider that does
+    // not publish a size, so a large cloud-backed document arrives looking
+    // safely tiny.
+    reset();
+    mockStat = () => 900 * MB;
+    mockFiles = [
+      {
+        path: "/cloud.doc",
+        name: "cloud.doc",
+        mimeType: "application/msword",
+        size: 0,
+      },
+    ];
+
+    const sink = collector();
+    const { skipped } = await pickFilesNative(sink.onFile);
+
+    expect(statPaths).toEqual(["/cloud.doc"]);
+    expect(readPaths).toEqual([]);
+    expect(sink.files).toEqual([]);
+    expect(skipped).toEqual(["cloud.doc"]);
+  });
+
+  test("still attaches a file that is genuinely empty", async () => {
+    reset();
+    mockStat = () => 0;
+    mockRead = () => "";
+    mockFiles = [
+      {
+        path: "/empty.txt",
+        name: "empty.txt",
+        mimeType: "text/plain",
+        size: 0,
+      },
+    ];
+
+    const sink = collector();
+    const { skipped } = await pickFilesNative(sink.onFile);
+
+    expect(skipped).toEqual([]);
+    expect(sink.files).toHaveLength(1);
+    expect(sink.files[0]?.size).toBe(0);
+  });
+
+  test("refuses rather than reads when the size stays unknown", async () => {
+    // Losing an empty attachment costs an attachment; reading a file of
+    // unknown size costs the web view.
+    reset();
+    mockStat = () => new Error("stat failed");
+    mockFiles = [
+      {
+        path: "/unknown.bin",
+        name: "unknown.bin",
+        mimeType: "application/octet-stream",
+        size: 0,
+      },
+    ];
+
+    const sink = collector();
+    const { skipped } = await pickFilesNative(sink.onFile);
+
+    expect(readPaths).toEqual([]);
+    expect(skipped).toEqual(["unknown.bin"]);
   });
 });

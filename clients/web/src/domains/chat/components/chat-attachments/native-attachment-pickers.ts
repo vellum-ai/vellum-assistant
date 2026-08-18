@@ -29,11 +29,13 @@ import {
 import { MAX_ATTACHMENT_BYTES } from "@/domains/chat/composer-store";
 import { isNativeMobile } from "@/runtime/platform-detection";
 
-/** Picked files that could be read, plus the names of any refused as too big. */
-export interface ReadResult {
-  files: File[];
+/** Names of any entries refused without being read. */
+export interface PickOutcome {
   skipped: string[];
 }
+
+/** Receives each file as it is read, before the next one is. */
+export type OnPickedFile = (file: File) => void;
 
 /** Registered name of the native plugin backing both pickers. */
 const FILE_PICKER_PLUGIN = "FilePicker";
@@ -97,48 +99,80 @@ interface PickedFile {
 }
 
 /**
+ * The size to judge an entry by.
+ *
+ * The plugin's own number is trusted only when it is non-zero. On Android
+ * `getSizeFromUri` starts at `0` and returns that whenever the provider does
+ * not publish `OpenableColumns.SIZE`, so zero means "empty" and "no idea"
+ * alike, and reading a cloud-backed document on the strength of it is exactly
+ * the crash this check exists to avoid. A stat tells the two apart: a genuinely
+ * empty file stats at zero and still attaches.
+ */
+async function resolveSize(file: PickedFile): Promise<number | null> {
+  if (file.size > 0) {
+    return file.size;
+  }
+  if (!file.path) {
+    return file.size;
+  }
+  const { Filesystem } = await import("@capacitor/filesystem");
+  try {
+    const { size } = await Filesystem.stat({ path: file.path });
+    return size;
+  } catch {
+    // Still unknown, so it stays unread. Refusing an empty file whose stat
+    // failed costs an attachment; reading a file of unknown size costs the
+    // web view.
+    return null;
+  }
+}
+
+/**
  * Mirrors the ceiling `composer-store` already enforces, so a pick too large
  * to attach is refused before its bytes move rather than after. The store's
  * own rule is not a flat cap: an auto-resizable image is allowed a larger
  * source because it gets downscaled on the way up.
  */
-function isWithinAttachmentLimit(file: PickedFile): boolean {
-  if (file.size <= MAX_ATTACHMENT_BYTES) {
+function isWithinAttachmentLimit(file: PickedFile, size: number): boolean {
+  if (size <= MAX_ATTACHMENT_BYTES) {
     return true;
   }
   return (
     isAutoResizableImage({ name: file.name, type: file.mimeType }) &&
-    file.size <= IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES
+    size <= IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES
   );
 }
 
 /**
- * Reads the picked entries into `File`s, skipping any the composer would
- * refuse anyway.
+ * Reads the picked entries, handing each one on before reading the next.
  *
  * Neither pick asks for the data up front. The plugin's own note on that
  * option is that reading large files can crash the app, and both pickers
  * default to an unlimited selection, so requesting it eagerly would
- * base64-encode a whole video (or a whole multi-select) across the bridge
- * before anything checked whether it could be attached at all. The size comes
- * back with the pick, so the check happens first and only the entries that
- * pass are read.
+ * base64-encode a whole video, or a whole multi-select, across the bridge
+ * before anything checked whether it could be attached at all.
  *
- * Sequential rather than `Promise.all`: reading is the expensive step, and one
- * at a time holds peak memory to a single file instead of the whole selection.
+ * Delivering incrementally rather than collecting an array is what bounds
+ * this: reading sequentially into a list still holds every decoded file at
+ * once, so a handful of large-but-valid documents exhausts the web view just
+ * as a single huge one would. Handing each file to the caller as it is read
+ * leaves this module holding one at a time.
  */
-async function readPicked(picked: PickedFile[]): Promise<ReadResult> {
-  const files: File[] = [];
+async function readPicked(
+  picked: PickedFile[],
+  onFile: OnPickedFile,
+): Promise<PickOutcome> {
   const skipped: string[] = [];
 
   for (const file of picked) {
     // The web implementation hands back a Blob directly, already in memory and
     // carrying no path to read from.
     if (file.blob) {
-      files.push(new File([file.blob], file.name, { type: file.mimeType }));
+      onFile(new File([file.blob], file.name, { type: file.mimeType }));
       continue;
     }
-    if (!isWithinAttachmentLimit(file)) {
+    const size = await resolveSize(file);
+    if (size === null || !isWithinAttachmentLimit(file, size)) {
       skipped.push(file.name);
       continue;
     }
@@ -150,13 +184,13 @@ async function readPicked(picked: PickedFile[]): Promise<ReadResult> {
     // A zero-byte file reads back as an empty string, which is a valid payload
     // and not a missing one.
     if (typeof data === "string") {
-      files.push(fileFromBase64(data, file.name, file.mimeType));
+      onFile(fileFromBase64(data, file.name, file.mimeType));
     } else {
-      files.push(new File([data], file.name, { type: file.mimeType }));
+      onFile(new File([data], file.name, { type: file.mimeType }));
     }
   }
 
-  return { files, skipped };
+  return { skipped };
 }
 
 /**
@@ -165,19 +199,23 @@ async function readPicked(picked: PickedFile[]): Promise<ReadResult> {
  * `image/*,video/*`, and a row that silently dropped video would be a
  * narrower Photo Library than the one it replaces.
  */
-export async function pickMediaNative(): Promise<ReadResult> {
+export async function pickMediaNative(
+  onFile: OnPickedFile,
+): Promise<PickOutcome> {
   // Destructured inline, never held at module scope or returned from an async
   // function: a plugin is a Proxy that synthesizes `.then`, so letting one
   // reach a Promise-resolution context dispatches `then()` natively and hangs
   // the await for good. See `docs/CAPACITOR.md`.
   const { FilePicker } = await import("@capawesome/capacitor-file-picker");
   const { files } = await FilePicker.pickMedia();
-  return readPicked(files);
+  return readPicked(files, onFile);
 }
 
 /** Opens the system document picker. */
-export async function pickFilesNative(): Promise<ReadResult> {
+export async function pickFilesNative(
+  onFile: OnPickedFile,
+): Promise<PickOutcome> {
   const { FilePicker } = await import("@capawesome/capacitor-file-picker");
   const { files } = await FilePicker.pickFiles();
-  return readPicked(files);
+  return readPicked(files, onFile);
 }
