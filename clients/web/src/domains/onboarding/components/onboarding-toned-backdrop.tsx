@@ -116,6 +116,15 @@ const PEEKERS: {
   },
 ];
 
+/**
+ * The canvas crossfade, in the two forms it has to be stated in: motion's for
+ * the backdrop itself, CSS's for the safe-area strips the app shell paints (see
+ * `page-surface-store`). Keep them equal, or the strips will arrive on a
+ * different beat than the canvas. Motion's `easeInOut` is CSS `ease-in-out`.
+ */
+const CANVAS_FADE = { duration: 1, ease: "easeInOut" } as const;
+const CANVAS_FADE_CSS = "1s ease-in-out";
+
 /** The team that peeks in from the top, persisting once it forms. */
 const TOP_TEAM = [
   { bodyShape: "blob", eyeStyle: "gentle" },
@@ -183,8 +192,12 @@ export function OnboardingTonedBackdrop({
   }, [components, chosen]);
 
   // The backdrop, not the stage, owns this screen's canvas color, so it is what
-  // hands it to the app shell for the safe-area strips. See `page-surface-store`.
-  usePublishPageSurface(darkBg ? ONBOARDING_DARK_SURFACE : bg);
+  // hands it to the app shell for the safe-area strips, on the same crossfade
+  // timing so the two arrive together. See `page-surface-store`.
+  usePublishPageSurface(
+    darkBg ? ONBOARDING_DARK_SURFACE : bg,
+    reduce ? null : CANVAS_FADE_CSS,
+  );
 
   return (
     <>
@@ -192,9 +205,7 @@ export function OnboardingTonedBackdrop({
         className="absolute inset-0 z-0"
         initial={false}
         animate={{ backgroundColor: darkBg ? ONBOARDING_DARK_SURFACE : bg }}
-        transition={
-          reduce ? { duration: 0 } : { duration: 1, ease: "easeInOut" }
-        }
+        transition={reduce ? { duration: 0 } : CANVAS_FADE}
       />
 
       {/* The assistant's eyes peek up from the bottom (until they collapse into

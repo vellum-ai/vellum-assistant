@@ -88,6 +88,16 @@ function IntroductionBodyGrow({
   );
 }
 
+/**
+ * The tint layer's fade-in, in the two forms it has to be stated in: motion's
+ * for the layer itself, CSS's for the safe-area strips the app shell paints
+ * (see `page-surface-store`). Keep them equal, or the strips will arrive on a
+ * different beat than the canvas. Motion's default tween ease is CSS
+ * `ease-out`.
+ */
+const TINT_FADE = { duration: 0.6, delay: 0.35 };
+const TINT_FADE_CSS = "0.6s ease-out 0.35s";
+
 export function IntroductionScreen({
   firstName,
   assistantName,
@@ -137,7 +147,13 @@ export function IntroductionScreen({
 
   return (
     // Starts on the picker's dark surface; the color layer below fades in.
-    <OnboardingStage className="bg-[var(--surface-base)]" surface={art.color}>
+    <OnboardingStage
+      className="bg-[var(--surface-base)]"
+      surface={art.color}
+      // The strips fade on the color layer's own timing rather than jumping to
+      // the tint while the stage is still dark.
+      surfaceTransition={reduce ? undefined : TINT_FADE_CSS}
+    >
       {/* The avatar color fills in so coverage is end-to-end even where the
           body shape has gaps/spikes. */}
       <motion.div
@@ -145,7 +161,7 @@ export function IntroductionScreen({
         style={{ backgroundColor: art.color }}
         initial={reduce ? false : { opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={reduce ? { duration: 0 } : { duration: 0.6, delay: 0.35 }}
+        transition={reduce ? { duration: 0 } : TINT_FADE}
       />
 
       {/* Body: grows from the picker size to cover the screen. */}

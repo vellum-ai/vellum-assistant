@@ -43,17 +43,25 @@ interface OnboardingStageProps {
    * is owned and animated by a child layer (that layer publishes instead).
    */
   surface?: string | null;
+  /**
+   * How the strips should reach {@link OnboardingStageProps.surface}: the tail
+   * of a CSS `transition` shorthand, mirroring the screen's own motion timing
+   * when its canvas fades in rather than appearing at once. Omit to change the
+   * strips in one frame.
+   */
+  surfaceTransition?: string;
   children: ReactNode;
 }
 
 export function OnboardingStage({
   className,
   surface = ONBOARDING_DARK_SURFACE,
+  surfaceTransition,
   children,
 }: OnboardingStageProps) {
   const { ref, size } = useElementSize();
 
-  usePublishPageSurface(surface);
+  usePublishPageSurface(surface, surfaceTransition ?? null);
 
   return (
     <div

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import {
   DEFAULT_SHELL_BACKGROUND,
   resolveShellBackground,
+  resolveShellTransition,
   usePageSurfaceStore,
   usePublishPageSurface,
 } from "@/stores/page-surface-store";
@@ -11,6 +12,22 @@ import {
 afterEach(() => {
   cleanup();
   usePageSurfaceStore.getState().setSurface(null);
+});
+
+describe("resolveShellTransition", () => {
+  it("scopes a published transition to the color", () => {
+    expect(resolveShellTransition("1s ease-in-out", true)).toBe(
+      "background-color 1s ease-in-out",
+    );
+  });
+
+  it("leaves the property off when nothing is animating", () => {
+    expect(resolveShellTransition(null, true)).toBeUndefined();
+  });
+
+  it("keeps the property off outside native mobile, where nothing is painted", () => {
+    expect(resolveShellTransition("1s ease-in-out", false)).toBeUndefined();
+  });
 });
 
 describe("resolveShellBackground", () => {
@@ -53,8 +70,14 @@ describe("usePageSurfaceStore", () => {
   });
 });
 
-function Publisher({ surface }: { surface: string | null }) {
-  usePublishPageSurface(surface);
+function Publisher({
+  surface,
+  transition,
+}: {
+  surface: string | null;
+  transition?: string;
+}) {
+  usePublishPageSurface(surface, transition ?? null);
   return null;
 }
 
@@ -65,6 +88,23 @@ describe("usePublishPageSurface", () => {
 
     unmount();
     expect(usePageSurfaceStore.getState().surface).toBeNull();
+  });
+
+  it("carries the page's timing so the strips animate with it", () => {
+    render(<Publisher surface="#E5C100" transition="0.6s ease-out 0.35s" />);
+
+    expect(usePageSurfaceStore.getState().transition).toBe(
+      "0.6s ease-out 0.35s",
+    );
+  });
+
+  it("clears the timing along with the surface", () => {
+    const { unmount } = render(
+      <Publisher surface="#E5C100" transition="1s ease-in-out" />,
+    );
+    unmount();
+
+    expect(usePageSurfaceStore.getState().transition).toBeNull();
   });
 
   it("opts out without touching what another publisher set", () => {

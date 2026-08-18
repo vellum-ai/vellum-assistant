@@ -29,17 +29,34 @@ interface PageSurfaceState {
    * back to the shell's neutral canvas.
    */
   surface: string | null;
+  /**
+   * How the strips should get to {@link surface}: the tail of a CSS
+   * `transition` shorthand (duration, easing, and optional delay), or null to
+   * change it in one frame.
+   *
+   * A page whose canvas animates has to say so, because the strips are painted
+   * by a different element than the page: publishing only the destination color
+   * snaps them there while the canvas is still crossfading, which is the same
+   * visible seam along the edge that publishing a surface at all is meant to
+   * remove. Mirror the page's own motion transition here.
+   */
+  transition: string | null;
 }
 
 interface PageSurfaceActions {
-  setSurface: (surface: string | null) => void;
+  setSurface: (surface: string | null, transition?: string | null) => void;
 }
 
 const usePageSurfaceStoreBase = create<PageSurfaceState & PageSurfaceActions>(
   (set) => ({
     surface: null,
-    setSurface: (surface) =>
-      set((state) => (state.surface === surface ? state : { surface })),
+    transition: null,
+    setSurface: (surface, transition = null) =>
+      set((state) =>
+        state.surface === surface && state.transition === transition
+          ? state
+          : { surface, transition },
+      ),
   }),
 );
 
@@ -63,28 +80,49 @@ export function resolveShellBackground(
 }
 
 /**
- * Publish `surface` as the shell canvas for as long as the caller is mounted.
+ * The app shell's `transition` for a published surface, scoped to the color so
+ * it never catches the height and padding the shell re-computes for the iOS
+ * keyboard. `undefined` (not `"none"`) when nothing is animating, so the shell
+ * leaves the property off entirely.
+ */
+export function resolveShellTransition(
+  pageTransition: string | null,
+  nativeMobile: boolean,
+): string | undefined {
+  return pageTransition && nativeMobile
+    ? `background-color ${pageTransition}`
+    : undefined;
+}
+
+/**
+ * Publish `surface` as the shell canvas for as long as the caller is mounted,
+ * reaching it over `transition` when the page's own canvas animates there.
  *
  * Layout effect, not passive: the page commits and can paint before a passive
  * effect runs, so the safe-area strips would trail the page by a frame both on
- * arrival and whenever the color resolves.
+ * arrival and whenever the color resolves. It also puts the strips' transition
+ * in the same frame the page starts its own, which is what keeps the two in
+ * step rather than merely equal in duration.
  *
  * Pass `null` to opt out (a screen whose color is owned by a child layer). The
  * cleanup only clears a surface this caller still owns, so a screen that mounts
  * before the outgoing one unmounts keeps its color instead of flashing the
  * neutral canvas.
  */
-export function usePublishPageSurface(surface: string | null): void {
+export function usePublishPageSurface(
+  surface: string | null,
+  transition: string | null = null,
+): void {
   const setSurface = usePageSurfaceStore.use.setSurface();
   useLayoutEffect(() => {
     if (surface === null) {
       return;
     }
-    setSurface(surface);
+    setSurface(surface, transition);
     return () => {
       if (usePageSurfaceStore.getState().surface === surface) {
         setSurface(null);
       }
     };
-  }, [surface, setSurface]);
+  }, [surface, transition, setSurface]);
 }
