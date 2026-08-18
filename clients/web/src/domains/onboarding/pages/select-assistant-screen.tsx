@@ -1268,12 +1268,16 @@ function RemoteOriginCard({
   /** Opens the remove-from-this-device confirmation, when there is one. */
   onRemove?: () => void;
 }) {
+  const { t } = useTranslation("onboarding");
   const label = originLabel(origin);
+  const subtitleKey = current
+    ? "selectAssistantScreen.currentWithHost"
+    : "selectAssistantScreen.remoteWithHost";
   return (
     <ChooserCard
       icon={icon ?? <Globe className="h-5 w-5" />}
       title={label}
-      subtitle={`${current ? "Current" : "Remote"} · ${originHostname(origin)}`}
+      subtitle={t(subtitleKey, { host: originHostname(origin) })}
       selected={selected}
       tabStop={tabStop}
       onSelect={onSelect}

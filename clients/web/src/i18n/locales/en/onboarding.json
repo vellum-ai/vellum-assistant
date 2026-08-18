@@ -62,7 +62,9 @@
     "rowActionsAriaLabel": "Actions for {name}",
     "removeFromDevice": "Remove from this device…",
     "selfHosted": "Self-hosted",
-    "selfHostedWithHost": "Self-hosted · {host}"
+    "selfHostedWithHost": "Self-hosted · {host}",
+    "currentWithHost": "Current · {host}",
+    "remoteWithHost": "Remote · {host}"
   },
   "hatchingScreen": {
     "apiKeyFailed": "Your API key didn't work",
