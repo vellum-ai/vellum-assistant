@@ -220,12 +220,12 @@
     "failed": "No se pudo descargar el archivo"
   },
   "groupActions": {
-    "archiveAll": "Archivar todo…",
+    "archiveAll": "Archivar todas…",
     "copyGroupId": "Copiar ID del grupo",
     "deleteGroup": "Eliminar grupo",
     "deleteGroupWithConversations": "Eliminar grupo…",
     "groupByChannel": "Agrupar por canal",
-    "markAllRead": "Marcar todo como leído",
+    "markAllRead": "Marcar todas como leídas",
     "moveSectionDown": "Bajar sección",
     "moveSectionUp": "Subir sección",
     "rename": "Cambiar nombre",
