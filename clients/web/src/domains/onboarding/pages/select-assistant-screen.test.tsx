@@ -264,7 +264,7 @@ mock.module("@/domains/onboarding/components/add-remote-origin-dialog", () => ({
     ) : null,
 }));
 
-mock.module("@/domains/onboarding/components/onboarding-layout", () => ({
+mock.module("@/components/onboarding-layout", () => ({
   OnboardingLayout: ({ children }: { children: ReactNode }) => children,
 }));
 

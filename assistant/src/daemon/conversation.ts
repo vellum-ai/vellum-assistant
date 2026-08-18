@@ -41,6 +41,7 @@ import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
+import { isGuardianCardRow } from "../notifications/approval-card-data.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -1341,6 +1342,16 @@ export class Conversation {
       parsedMessages.length,
     );
     for (const [index, message] of parsedMessages.entries()) {
+      // Applied after the compaction slice, never before it: the slice and
+      // `rowToHistoryIndex` are both computed against the full row list, so
+      // dropping earlier would shift them. A dropped row maps to a null
+      // history index exactly like a fully-injected user row that strips to
+      // nothing. `index` is shared with `slicedDbMessages`, which
+      // `parsedMessages` maps 1:1.
+      if (isGuardianCardRow(slicedDbMessages[index]?.content)) {
+        preRepairIndexBySlicedRow[index] = null;
+        continue;
+      }
       const stripped =
         index < preStrippedCount
           ? stripInjectionsForCompaction([message])
@@ -1443,7 +1454,7 @@ export class Conversation {
       messageCount: this.messages.length,
     });
 
-    this.restoreSurfaceStateFromHistory();
+    this.restoreSurfaceStateFromHistory(parsedMessages);
     this.graphMemory.restoreState();
 
     // Row→history correspondence for this load: slice offset, then the
@@ -1475,14 +1486,19 @@ export class Conversation {
    * populate surfaceState so that findConversationBySurfaceId works for
    * surfaces restored from history (e.g. after daemon restart).
    *
-   * Only scans live (non-compacted) messages in this.messages — not all DB
-   * rows — because surface IDs are not globally unique and restoring stale
-   * compacted surfaces would let findConversationBySurfaceId route actions
-   * to the wrong conversation.
+   * Scans the live (non-compacted) window only, never all DB rows, because
+   * surface IDs are not globally unique and restoring stale compacted
+   * surfaces would let findConversationBySurfaceId route actions to the wrong
+   * conversation.
+   *
+   * Takes that window as rows rather than reading `this.messages`, because a
+   * surface's lifecycle and the model's context are different questions. A
+   * guardian card is absent from `this.messages`, but it is exactly the card
+   * whose Approve/Reject buttons must still route after a restart.
    */
-  private restoreSurfaceStateFromHistory(): void {
+  private restoreSurfaceStateFromHistory(liveWindow: Message[]): void {
     this.surfaceState.clear();
-    for (const msg of this.messages) {
+    for (const msg of liveWindow) {
       if (!Array.isArray(msg.content)) {
         continue;
       }

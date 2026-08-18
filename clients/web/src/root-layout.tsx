@@ -67,6 +67,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import {
   resolveShellBackground,
+  resolveShellTransition,
   usePageSurfaceStore,
 } from "@/stores/page-surface-store";
 import { isPopoutWindow } from "@/runtime/popout-window";
@@ -450,6 +451,13 @@ export function RootLayout() {
   // desktop the neutral canvas is what makes a page read as a card on a page.
   const pageSurface = usePageSurfaceStore.use.surface();
   const shellBackground = resolveShellBackground(pageSurface, isNativeMobile());
+  // A page whose canvas animates hands over its timing too, so the strips move
+  // with it instead of snapping to the destination color a second early.
+  const pageSurfaceTransition = usePageSurfaceStore.use.transition();
+  const shellTransition = resolveShellTransition(
+    pageSurfaceTransition,
+    isNativeMobile(),
+  );
   const shellPaddingTop =
     keyboardOffsetTop > 0
       ? appShellOwnsTopInset
@@ -465,6 +473,7 @@ export function RootLayout() {
       className="app-shell"
       style={{
         background: shellBackground,
+        transition: shellTransition,
         height:
           keyboardOpen && visibleViewport
             ? `${visibleViewport.height + keyboardOffsetTop}px`

@@ -3,10 +3,11 @@
  * non-list reads (unread count, section index).
  *
  * Every list read is the daemon's paginated `conversationsGet()` scoped by a
- * {@link ConversationListFilter}; three primitives cover them all: a drain
+ * {@link ConversationListFilter}; four primitives cover them all: a drain
  * ({@link drainConversationList}), the newest page
- * ({@link listConversationsFirstPage}), and a page at an offset
- * ({@link listConversationsPage}). Rows come back as `Conversation`
+ * ({@link listConversationsFirstPage}), a page at an offset
+ * ({@link listConversationsPage}), and the newest foreground row
+ * ({@link fetchNewestForegroundConversation}). Rows come back as `Conversation`
  * (`toConversation` runs here, in the fetch), shaped per bucket by
  * {@link shapeListRows}. Keys live in `conversation-list-keys.ts` and the
  * list `queryOptions` in `conversation-list-options.ts`.
@@ -259,11 +260,12 @@ async function fetchConversationListPage(
   offset: number,
   source: ListFetchSource,
   filter: ConversationListFilter = {},
+  limit: number = CONVERSATION_LIST_PAGE_SIZE,
 ): Promise<TimedConversationListPage> {
   const startedAt = performance.now();
   const { data, error, response } = await conversationsGet({
     path: { assistant_id: assistantId },
-    query: { ...filter, limit: CONVERSATION_LIST_PAGE_SIZE, offset },
+    query: { ...filter, limit, offset },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to list conversations.");
@@ -413,6 +415,38 @@ export async function hasAnyActiveConversation(
     "existence_probe",
   );
   return conversations.length > 0;
+}
+
+/**
+ * The newest conversation the user can open, as one row: `limit=1` on the
+ * foreground list with `foregroundOnly=true`, so the daemon applies its own
+ * "not an unsurfaced background or scheduled run" predicate and its own
+ * order, and the first row is the answer. `null` when the daemon has none.
+ *
+ * An assistant that predates the parameter ignores it and answers with the
+ * newest row of the unfiltered listing (plus its appended pinned rows, which
+ * this read drops). That row is not necessarily openable, and the caller
+ * decides what to do about it: `landing-conversation.ts` checks the row
+ * against the client's selectability rule and falls back to a paged search
+ * when it fails, which is how it detects the older assistant without a
+ * version gate.
+ *
+ * Reported to the diagnostics ring as a `landing` first-page read of the
+ * foreground list; the label set is closed, and this is that read at a
+ * smaller limit.
+ */
+export async function fetchNewestForegroundConversation(
+  assistantId: string,
+): Promise<Conversation | null> {
+  const page = await fetchConversationListPage(
+    assistantId,
+    0,
+    "landing",
+    { foregroundOnly: "true" },
+    1,
+  );
+  recordFirstPageFetch(assistantId, page, "foreground", "landing");
+  return page.conversations[0] ?? null;
 }
 
 /**

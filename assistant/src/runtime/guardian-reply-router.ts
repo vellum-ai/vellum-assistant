@@ -97,8 +97,12 @@ export interface GuardianReplyContext {
   channel: string;
   /** Actor identity context for the sender. */
   actor: ActorContext;
-  /** Conversation ID for this message (may be the guardian's conversation). */
-  conversationId: string;
+  /**
+   * Conversation the message arrived in (may be the guardian's own). Only the
+   * text and NL paths read it; reactions and `apr:` callbacks resolve their
+   * target by card address or embedded request id and may pass none.
+   */
+  conversationId?: string;
   /** Callback data from button presses (e.g. `apr:<requestId>:<action>`). */
   callbackData?: string;
   /**

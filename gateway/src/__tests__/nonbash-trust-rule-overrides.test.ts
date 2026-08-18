@@ -67,6 +67,9 @@ describe("FileRiskClassifier user overrides", () => {
     expect(result.riskLevel).toBe("high");
     expect(result.reason).toBe("User-blocked file path");
     expect(result.matchType).toBe("user_rule");
+    // An override changes the risk, not what the invocation was: what the
+    // classifier derived from the path survives it.
+    expect(result.allowlistOptions?.[0].pattern).toBe("file_write:/some/path");
   });
 
   test("user-modified default rule overrides classification", async () => {
@@ -126,6 +129,31 @@ describe("WebRiskClassifier user overrides", () => {
     expect(result.reason).toBe("User-blocked URL");
     expect(result.matchType).toBe("user_rule");
   });
+
+  test("an overridden classification still carries the allowlist ladder", async () => {
+    // The prompt is built from the ladder; an override changes the risk, not
+    // the user's ability to save a rule from the prompt it produces.
+    store.create({
+      tool: "web_fetch",
+      pattern: "https://example.com",
+      risk: "high",
+      description: "User-blocked URL",
+    });
+
+    initTrustRuleCache(store);
+
+    const result = await new WebRiskClassifier().classify({
+      toolName: "web_fetch",
+      url: "https://example.com",
+    });
+
+    expect(result.matchType).toBe("user_rule");
+    expect(result.allowlistOptions?.map((o) => o.pattern)).toEqual([
+      "web_fetch:https://example.com/",
+      "web_fetch:https://example.com/*",
+      "**",
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -152,6 +180,33 @@ describe("SkillLoadRiskClassifier user overrides", () => {
     expect(result.riskLevel).toBe("high");
     expect(result.reason).toBe("User-blocked skill");
     expect(result.matchType).toBe("user_rule");
+  });
+
+  test("an overridden skill_load still carries its allowlist ladder", async () => {
+    // A user who already wrote a rule is the last person who should be handed
+    // a prompt with nothing to save.
+    store.create({
+      tool: "skill_load",
+      pattern: "my-skill",
+      risk: "high",
+      description: "User-blocked skill",
+    });
+
+    initTrustRuleCache(store);
+
+    const result = await new SkillLoadRiskClassifier().classify({
+      toolName: "skill_load",
+      skillSelector: "my-skill",
+    });
+
+    expect(result.matchType).toBe("user_rule");
+    expect(result.allowlistOptions).toEqual([
+      {
+        label: "my-skill",
+        description: "This skill",
+        pattern: "skill_load:my-skill",
+      },
+    ]);
   });
 });
 

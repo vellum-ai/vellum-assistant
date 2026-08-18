@@ -60,6 +60,17 @@ const STRUCTURAL_PROPS = new Set([
   "stroke",
   "transform",
   "viewBox",
+  // ARIA relationships hold element ids, not copy: `aria-labelledby` points at
+  // the node holding the label rather than spelling one out. This is every
+  // attribute WAI-ARIA types as an ID reference or ID reference list.
+  "aria-activedescendant",
+  "aria-controls",
+  "aria-describedby",
+  "aria-details",
+  "aria-errormessage",
+  "aria-flowto",
+  "aria-labelledby",
+  "aria-owns",
   "as",
   "autoComplete",
   "charSet",
@@ -231,12 +242,26 @@ export const noUntranslatedStrings = {
       }
       if (node.type === "TemplateLiteral") {
         const statics = node.quasis.map((q) => q.value.cooked ?? "").join(" ");
-        if (isCopy(statics)) {
+        // A template with an interpolation is copy assembled in the component
+        // whatever its static half looks like, so it is judged by
+        // `isTranslatable` rather than by `isCopy`. `aria-label={`${name}
+        // actions`}` leaves "actions" behind: one lowercase word, which reads
+        // as an enum value to the prop-level test and slips through, while the
+        // string it builds is exactly the untranslatable shape, since a
+        // translator cannot put the word before the name.
+        const isAssembled = node.expressions.length > 0;
+        if (isAssembled ? isTranslatable(statics) : isCopy(statics)) {
           context.report({
             node,
             messageId,
             data: { ...data, text: preview(statics) },
           });
+        }
+        // The interpolations carry copy of their own: `${draft ? "Draft" :
+        // "Live"}` is a word chosen in the component, and sits in the one
+        // place the static halves are not.
+        for (const expression of node.expressions) {
+          checkExpression(expression, messageId, data, isCopy);
         }
         return;
       }

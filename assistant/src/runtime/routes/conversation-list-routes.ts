@@ -269,12 +269,18 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
       ? true
       : undefined;
 
+  const foregroundOnly =
+    parseEnumQueryParam(queryParams, "foregroundOnly", ["true"]) === "true"
+      ? true
+      : undefined;
+
   const filter: ConversationListFilter = {
     conversationType,
     archiveStatus,
     originChannel,
     groupId,
     needsAttention,
+    foregroundOnly,
   };
   let rows = listConversations({ ...filter, limit, offset });
   const totalCount = countConversations(filter);
@@ -289,19 +295,20 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   // Skipped for group-scoped queries for the same reason: a caller asking
   // for one group gets that group, and a client that fetches the Pinned
   // section via `groupId=system:pinned` has no use for rows appended to
-  // some other group's page. Skipped for attention-scoped queries too: the
-  // caller asked for the unseen subset, and a seen pinned row appended to
-  // it would put a row outside the filter in the page while `hasMore` is
-  // computed from the filtered count. This is the compatibility shim for
-  // clients that still read Pinned out of the unfiltered list; it goes
-  // away once every section fetches its own group.
+  // some other group's page. Skipped for attention-scoped and
+  // foreground-only queries too: the caller asked for a subset, and a
+  // pinned row outside it appended to the page would sit there while
+  // `hasMore` is computed from the filtered count. This is the
+  // compatibility shim for clients that still read Pinned out of the
+  // unfiltered list; it goes away once every section fetches its own group.
   if (
     offset === 0 &&
     conversationType === "standard" &&
     archiveStatus === "active" &&
     originChannel === undefined &&
     groupId === undefined &&
-    needsAttention === undefined
+    needsAttention === undefined &&
+    foregroundOnly === undefined
   ) {
     const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));
@@ -609,6 +616,14 @@ export const ROUTES: RouteDefinition[] = [
         required: false,
         description:
           'Pass "true" to return only conversations whose latest assistant message the user has not seen: the same predicate behind the unread count and the section index, so a client that keeps no complete conversation list can ask for exactly the rows its attention surfaces need. Composes with every other filter. Any value other than "true" is rejected. Omit to span every conversation.',
+        schema: { type: "string", enum: ["true"] },
+      },
+      {
+        name: "foregroundOnly",
+        type: "string",
+        required: false,
+        description:
+          'Pass "true" to return only user-facing foreground conversations, dropping the automated background and scheduled runs the standard listing admits when they are filed in a custom group (a surfaced run stays). This is the same predicate the unread count and the section index apply, so a client can ask for the newest conversation a user can open in one row instead of paging past runs it would skip. Composes with every other filter; a foreground-only first page never has pinned rows appended to it. Any value other than "true" is rejected. Omit to keep every visible row.',
         schema: { type: "string", enum: ["true"] },
       },
     ],

@@ -38,10 +38,15 @@ them. Everything not listed as a tier directory is spine.
 
 | Directory         | What lives there                                                                                                                                                                                                                                                                                                                                                                                                                  | Gate predicate                |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| `substrate/`      | The shared concept-page substrate (v2 + v3): `page-store`, `page-index`, `edge-index`, `qdrant`, `sim`, `sparse-bm25`, `spread`, `skill-store`, `cli-command-store`, `skill-content`, `cli-command-content`, `injected-block-slugs`, `static-context`, `boot-maintenance`, `frontmatter-sweep`, `consolidation-lock`, `consolidation-job`, `ingest`, `sweep-job`, `reembed-job`, `tuning`, `types`, `constants`, `prompts/`.      | `usesConceptPageMemory()`     |
+| `substrate/`      | The shared concept-page substrate (v2 + v3): `page-store`, `page-index`, `edge-index`, `qdrant`, `sim`, `sparse-bm25`, `spread`, `skill-store`, `cli-command-store`, `skill-content`, `cli-command-content`, `injected-block-slugs`, `static-context`, `boot-maintenance`, `frontmatter-sweep`, `consolidation-lock`, `consolidation-job`, `ingest`, `sweep-job`, `reembed-job`, `tuning`, `types`, `page-links`, `prompts/`.     | `usesConceptPageMemory()`     |
 | `v1/`             | The legacy PKB/graph engine: `pkb/`, `graph/` (retriever, triggers, scoring, serendipity, extraction, extraction-job, decay, consolidation, pattern-scan, narrative, bootstrap, injection, and the hybrid node-search half of `graph-search`), `jobs/embed-pkb-file.ts`, `job-handlers/{backfill,embedding,index-maintenance}.ts`, `pkb-schedule.ts`, `filing-jobs.ts`, `semantic-search.ts`, `identity-context.ts`, `README.md`. | `isMemoryV1Active()`          |
 | `v2/`             | The v2 activation/router injection engine: `activation`, `activation-store`, `activation-log-store`, `concept-frequency`, `injection`, `injection-events`, `router`, `reranker`, `rerank-local`, `migration`, `now-text`, `backfill-jobs` (migrate + activation-recompute), `harness/`, `prompts/router`.                                                                                                                         | `isV2InjectionEngineActive()` |
 | `v3/`, `v3-eval/` | The v3 lanes, orchestrator, injectors, maintain job, and the eval siblings.                                                                                                                                                                                                                                                                                                                                                       | `isMemoryV3Live()`            |
+
+`substrate/page-links` is the one owner of `links:`-entry and `[[wikilink]]`
+parsing; every reader in any tier imports it (the same single-matcher rule
+`buffer-format` follows for buffer entries, below). Do not add a second
+wikilink matcher or `links:` splitter anywhere.
 
 Everything else under the plugin root is **spine**:
 
@@ -708,8 +713,11 @@ not deleted**. Today the test-only hits are:
      client-coordinated change.
    - `cli/commands/memory/memory-v2.ts` — follows its routes rather than being
      deleted outright. `memory v2 reembed` (which posts the surviving `reembed`
-     backfill op), `memory v2 reembed-skills`, and `memory v2 validate` keep
-     working and move with the substrate routes; `memory v2 activation` (the
+     backfill op) and `memory v2 reembed-skills` keep working and move with
+     the substrate routes; `memory v2 validate` and the top-level
+     `memory validate` (`cli/commands/memory/memory-validate.ts`) share
+     `runMemoryValidate`, which lives in `memory-v2.ts` and moves with the
+     survivors; `memory v2 activation` (the
      `activation-recompute` op), `memory v2 ema`, `memory v2 simulate`, and
      `memory v2 compare` go with the engine. There is no `migrate` subcommand —
      the route is that job's only enqueue path.

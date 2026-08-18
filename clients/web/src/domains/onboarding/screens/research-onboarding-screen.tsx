@@ -12,13 +12,17 @@ import { useState } from "react";
 import { ArrowRight } from "lucide-react";
 
 import { OnboardingEdgeCharacters } from "@/domains/onboarding/components/onboarding-edge-characters";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { OnboardingLayout } from "@/components/onboarding-layout";
 import { TagAutocompleteInput } from "@/domains/onboarding/components/onboarding-autocomplete";
 import { HOBBY_SUGGESTIONS } from "@/domains/onboarding/onboarding-suggestions";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 
-import { MOBILE_INPUT_NO_ZOOM } from "@/domains/onboarding/onboarding-step-layout";
+import {
+  MOBILE_INPUT_NO_ZOOM,
+  ONBOARDING_DARK_SURFACE,
+} from "@/domains/onboarding/onboarding-step-layout";
+import { usePublishPageSurface } from "@/stores/page-surface-store";
 import { useTranslation } from "@/i18n";
 
 export interface ResearchOnboardingValues {
@@ -55,6 +59,9 @@ export function ResearchOnboardingScreen({
   onSubmit,
 }: ResearchOnboardingScreenProps) {
   const { t } = useTranslation("onboarding");
+  // The screen owns the whole viewport, so the shell paints its safe-area
+  // strips to match. See `page-surface-store`.
+  usePublishPageSurface(ONBOARDING_DARK_SURFACE);
   const [firstName, setFirstName] = useState(initialFirstName);
   const [lastName, setLastName] = useState(initialLastName);
   const [role, setRole] = useState("");

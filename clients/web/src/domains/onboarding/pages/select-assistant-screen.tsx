@@ -29,7 +29,7 @@ import {
 import { AddRemoteOriginDialog } from "@/domains/onboarding/components/add-remote-origin-dialog";
 import { ConnectAssistantDialog } from "@/domains/onboarding/components/connect-assistant-dialog";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { OnboardingLayout } from "@/components/onboarding-layout";
 import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
 import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
@@ -1268,12 +1268,16 @@ function RemoteOriginCard({
   /** Opens the remove-from-this-device confirmation, when there is one. */
   onRemove?: () => void;
 }) {
+  const { t } = useTranslation("onboarding");
   const label = originLabel(origin);
+  const subtitleKey = current
+    ? "selectAssistantScreen.currentWithHost"
+    : "selectAssistantScreen.remoteWithHost";
   return (
     <ChooserCard
       icon={icon ?? <Globe className="h-5 w-5" />}
       title={label}
-      subtitle={`${current ? "Current" : "Remote"} · ${originHostname(origin)}`}
+      subtitle={t(subtitleKey, { host: originHostname(origin) })}
       selected={selected}
       tabStop={tabStop}
       onSelect={onSelect}

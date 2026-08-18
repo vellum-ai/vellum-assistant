@@ -6,14 +6,14 @@ import type { FsError } from "./errors.js";
 
 export interface ReadInput {
   path: string;
-  /** 1-indexed line number to start reading from. */
-  offset?: number;
-  /** Maximum number of lines to read. */
-  limit?: number;
+  /** 0-indexed character to start reading from. */
+  startIndex?: number;
+  /** Maximum number of characters to read. */
+  maxChars?: number;
 }
 
 export interface ReadOutput {
-  /** The (possibly line-numbered) file content. */
+  /** The character window, with a truncation notice when it stops short. */
   content: string;
 }
 

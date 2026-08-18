@@ -86,6 +86,33 @@ ruleTester.run("no-untranslated-strings", noUntranslatedStrings, {
       code: `const C = () => <Button variant="primary" tone="error" size="compact" />;`,
     },
     {
+      name: "ARIA relationships holding element ids are not copy",
+      filename: COMPONENT,
+      // Every attribute WAI-ARIA types as an ID reference, since the
+      // tightened template test would otherwise read the id suffix as a word.
+      code: [
+        "const C = () => (",
+        "  <input",
+        "    aria-activedescendant={`${id}-opt-${i}`}",
+        "    aria-controls={`${id}-list`}",
+        "    aria-describedby={`${id}-hint`}",
+        "    aria-details={`${id}-details`}",
+        "    aria-errormessage={`${id}-error`}",
+        "    aria-flowto={`${id}-next`}",
+        "    aria-labelledby={`${id}-label`}",
+        "    aria-owns={`${id}-popup`}",
+        "  />",
+        ");",
+      ].join("\n"),
+    },
+    {
+      name: "values joined by punctuation carry no copy of their own",
+      filename: COMPONENT,
+      // Both halves come from elsewhere and the statics are a separator, so
+      // there is nothing here for a translator to receive.
+      code: `const C = () => <span title={\`\${label}: \${cost}\`} />;`,
+    },
+    {
       name: "toast copy read through t()",
       filename: COMPONENT,
       code: `toast.error(t("save.failed"));`,
@@ -128,6 +155,21 @@ ruleTester.run("no-untranslated-strings", noUntranslatedStrings, {
       // the source, so no translator can move the count or the noun.
       code: `const C = () => <span aria-label={\`\${n} files selected\`} />;`,
       errors: [{ messageId: "prop" }],
+    },
+    {
+      name: "a name concatenated with a single lowercase word",
+      filename: COMPONENT,
+      // The static half is one lowercase word, which reads as an enum value
+      // on its own. The string it builds is still assembled in the component.
+      code: `const C = () => <button aria-label={\`\${label} actions\`} />;`,
+      errors: [{ messageId: "prop" }],
+    },
+    {
+      name: "copy chosen inside an interpolation",
+      filename: COMPONENT,
+      // The words sit in the one place the static halves are not.
+      code: `const C = () => <span title={\`\${live ? "Live" : "Draft"} · \${host}\`} />;`,
+      errors: [{ messageId: "prop" }, { messageId: "prop" }],
     },
     {
       name: "a sentence assembled by template literal as a JSX child",

@@ -18,23 +18,25 @@ import {
   buildRemoteWebBrowserAuthCookies,
   remoteWebRefreshCookiePathForPublicBaseUrl,
 } from "../browser-auth-cookies.js";
-import { readLimitedBody } from "../read-limited-body.js";
+import { errorResponse } from "../loopback-guard.js";
+import { methodNotAllowed, readJsonStringField } from "../route-helpers.js";
 
 const MAX_TOKEN_BODY_BYTES = 512;
 const REMOTE_WEB_PLATFORM = "web";
 
-function jsonError(code: string, message: string, status: number): Response {
-  return Response.json(
-    { error: { code, message } },
-    { status, headers: { "Cache-Control": "no-store" } },
-  );
+/** Token-exchange JSON responses, errors included, are never cacheable. */
+function noStore(res: Response): Response {
+  res.headers.set("Cache-Control", "no-store");
+  return res;
 }
 
 function invalidDeviceCodeResponse(): Response {
-  return jsonError(
-    "INVALID_OR_EXPIRED_DEVICE_CODE",
-    "invalid or expired pairing device code",
-    401,
+  return noStore(
+    errorResponse(
+      "INVALID_OR_EXPIRED_DEVICE_CODE",
+      "invalid or expired pairing device code",
+      401,
+    ),
   );
 }
 
@@ -42,33 +44,16 @@ export async function handleRemoteWebPairingToken(
   req: Request,
 ): Promise<Response> {
   if (req.method !== "POST") {
-    return new Response("method not allowed", {
-      status: 405,
-      headers: { Allow: "POST" },
-    });
+    return methodNotAllowed("POST");
   }
 
-  const rawBody = await readLimitedBody(req, MAX_TOKEN_BODY_BYTES);
-  if (rawBody.status === "too_large") {
-    return jsonError("PAYLOAD_TOO_LARGE", "request body too large", 413);
-  }
-  if (rawBody.status === "unreadable") {
-    return jsonError("BAD_REQUEST", "failed to read request body", 400);
-  }
-
-  let deviceCode: string | null = null;
-  try {
-    const body = JSON.parse(rawBody.text) as { deviceCode?: unknown };
-    deviceCode =
-      typeof body.deviceCode === "string" && body.deviceCode.trim()
-        ? body.deviceCode
-        : null;
-  } catch {
-    return jsonError("BAD_REQUEST", "invalid JSON body", 400);
-  }
-
-  if (!deviceCode) {
-    return jsonError("BAD_REQUEST", "deviceCode is required", 400);
+  const deviceCode = await readJsonStringField(
+    req,
+    MAX_TOKEN_BODY_BYTES,
+    "deviceCode",
+  );
+  if (deviceCode instanceof Response) {
+    return noStore(deviceCode);
   }
 
   const challenge = claimRemoteWebPairingChallengeExchange(deviceCode);
@@ -114,10 +99,12 @@ export async function handleRemoteWebPairingToken(
       // Stays 503 (unlike /auth/token's repairable 401): 401 here means
       // invalid/expired device code, and the released code stays
       // exchangeable after guardian repair.
-      return jsonError(
-        "GUARDIAN_REPAIR_REQUIRED",
-        "gateway guardian binding is missing over evidence of prior onboarding — repair via guardian init, then retry pairing",
-        503,
+      return noStore(
+        errorResponse(
+          "GUARDIAN_REPAIR_REQUIRED",
+          "gateway guardian binding is missing over evidence of prior onboarding; repair via guardian init, then retry pairing",
+          503,
+        ),
       );
     }
     throw err;

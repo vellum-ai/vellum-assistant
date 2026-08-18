@@ -683,6 +683,139 @@ describe("GET /v1/conversations with needsAttention", () => {
   });
 });
 
+describe("GET /v1/conversations with foregroundOnly", () => {
+  function fileIntoGroup(conversationId: string, groupId: string): void {
+    rawRun(
+      "test:fileIntoGroup",
+      "UPDATE conversations SET group_id = ? WHERE id = ?",
+      groupId,
+      conversationId,
+    );
+  }
+
+  function surface(conversationId: string): void {
+    rawRun(
+      "test:surfaceConversation",
+      "UPDATE conversations SET surfaced_at = ? WHERE id = ?",
+      Date.now(),
+      conversationId,
+    );
+  }
+
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  test("drops the automated runs the standard listing admits through a custom group", async () => {
+    /* The standard listing shows a background run filed in a custom group,
+       so a caller reading page one to find "the newest chat" can lead with
+       one; the filter is what lets that caller ask for chats alone. A
+       surfaced run is a chat for this purpose, exactly as the unread count
+       treats it. */
+    const group = createGroup("Work");
+    createConversation("plain-chat");
+    const bgInGroup = createConversation({
+      title: "bg-in-group",
+      conversationType: "background",
+    });
+    fileIntoGroup(bgInGroup.id, group.id);
+    const surfacedBg = createConversation({
+      title: "surfaced-bg",
+      conversationType: "background",
+    });
+    surface(surfacedBg.id);
+
+    const unfiltered = await invoke();
+    expect(unfiltered.conversations.map((c) => c.title).sort()).toEqual([
+      "bg-in-group",
+      "plain-chat",
+      "surfaced-bg",
+    ]);
+
+    const result = await invoke({ foregroundOnly: "true" });
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "plain-chat",
+      "surfaced-bg",
+    ]);
+  });
+
+  test("hasMore and the total describe the filtered set, not the whole table", async () => {
+    /* The reason for the filter is a limit=1 read whose first row is the
+       answer; that read is only right if the page and its total come from
+       the same predicate. */
+    const group = createGroup("Work");
+    for (let i = 0; i < 3; i++) {
+      const bg = createConversation({
+        title: `bg-${i}`,
+        conversationType: "background",
+      });
+      fileIntoGroup(bg.id, group.id);
+    }
+    createConversation("the-only-chat");
+
+    const page = await invoke({ foregroundOnly: "true", limit: "1" });
+
+    expect(page.conversations.map((c) => c.title)).toEqual(["the-only-chat"]);
+    expect(page.hasMore).toBe(false);
+  });
+
+  test("a foreground-only first page has no pinned rows appended to it", async () => {
+    /* Same rule as the attention- and group-scoped pages: the injection is
+       for a client reading Pinned out of the unfiltered list, and a caller
+       that asked for the newest chat in one row is not that client. The
+       older pinned chat is a member of the filter, so only the injection
+       could put it on a limit=1 page. */
+    const older = createConversation("older-pinned-chat");
+    rawRun(
+      "test:pinConversation",
+      "UPDATE conversations SET is_pinned = 1, group_id = 'system:pinned', last_message_at = ? WHERE id = ?",
+      Date.now() - 60_000,
+      older.id,
+    );
+    const newer = createConversation("newest-chat");
+    rawRun(
+      "test:bumpRecency",
+      "UPDATE conversations SET last_message_at = ? WHERE id = ?",
+      Date.now(),
+      newer.id,
+    );
+
+    const unfiltered = await invoke({ limit: "1" });
+    expect(unfiltered.conversations.map((c) => c.title)).toEqual([
+      "newest-chat",
+      "older-pinned-chat",
+    ]);
+
+    const result = await invoke({ foregroundOnly: "true", limit: "1" });
+    expect(result.conversations.map((c) => c.title)).toEqual(["newest-chat"]);
+  });
+
+  test("composes with the other filters", async () => {
+    const group = createGroup("Work");
+    const chatInGroup = createConversation("chat-in-group");
+    fileIntoGroup(chatInGroup.id, group.id);
+    const bgInGroup = createConversation({
+      title: "bg-in-group",
+      conversationType: "background",
+    });
+    fileIntoGroup(bgInGroup.id, group.id);
+    createConversation("chat-outside");
+
+    const result = await invoke({
+      foregroundOnly: "true",
+      groupId: group.id,
+    });
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["chat-in-group"]);
+  });
+
+  test('any value other than "true" is rejected with a 400', () => {
+    for (const bad of ["false", "1", "yes", "TRUE"]) {
+      expect(() => invoke({ foregroundOnly: bad })).toThrow(BadRequestError);
+    }
+  });
+});
+
 describe("GET /v1/conversations/unread-count", () => {
   const unreadCountHandler = findHandler(
     CONVERSATION_LIST_ROUTES,

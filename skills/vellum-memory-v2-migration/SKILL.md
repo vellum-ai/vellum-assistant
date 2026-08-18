@@ -216,17 +216,17 @@ git add -A && git commit -m "memory-v2-migration: pages + buffer drain + always-
 ### Step 10 — Validate
 
 ```
-assistant memory v2 validate
+assistant memory validate
 ```
 
-Walks `concepts/`, reports page count, edge count, orphan outgoing-edge targets, oversized pages, and parse failures. Read-only.
+Walks `concepts/`, reports page count, edge count, dangling links (an `edges:` entry, `links:` entry, or `[[wikilink]]` whose target page does not exist), oversized pages, and parse failures. Read-only.
 
-**Pass criteria — fail closed on any of these:** orphan edge targets, oversized pages, parse failures. If there are orphans, fix them: write the missing target page or remove the dangling edge. If a page is oversized, split it into smaller pages and re-edge. Re-run until clean.
+**Pass criteria (fail closed on any of these):** dangling links, oversized pages, parse failures. If there are dangling links, fix them: write the missing target page or remove the dangling reference. If a page is oversized, split it into smaller pages and re-edge. Re-run until clean.
 
 **Fix order when validate reports many issues** — minimize churn:
 
 1. **Parse failures first.** They prevent the validator from reading the page at all; usually a frontmatter typo (unbalanced quotes, missing `summary:`, malformed list).
-2. **Orphan edges next.** Either write the missing target or delete the dangling edge. Removing an edge is safer than inventing a stub page just to satisfy validation — a stub built reflexively to clear an error is exactly the kind of low-density page the cheat-sheet budget can't afford.
+2. **Dangling links next.** Either write the missing target or delete the dangling reference. Removing a reference is safer than inventing a stub page just to satisfy validation: a stub built reflexively to clear an error is exactly the kind of low-density page the cheat-sheet budget can't afford.
 3. **Oversized pages last.** Splitting a page creates new pages and new edges, so do this after the corpus is otherwise clean — the same fix may need to land twice if validate runs early and finds new orphans created by the split.
 
 Re-run validate after each batch of fixes, not after each individual fix. The validator is fast and you want the feedback signal — but not the paralysis of validating between every keystroke.

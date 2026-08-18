@@ -17,10 +17,14 @@ mock.module("electron-store", () => ({
 
 // Dynamic, so the mock above is installed before the module graph loads:
 // static imports hoist above it.
-const { growthFor, callOnStart, callOnUpdate, shouldShowCompanionSurface } =
-  await import("./companion-window");
+const {
+  growthFor,
+  clampCanvasOrigin,
+  callOnUpdate,
+  shouldShowCompanionSurface,
+} = await import("./companion-window");
 
-/** A session as the mirror publishes one, before main stamps its clock. */
+/** A session as the mirror publishes one, which is what main then holds. */
 const START = {
   phase: "listening",
   label: "Listening",
@@ -89,20 +93,94 @@ describe("growthFor", () => {
  * about the elapsed clock, which is the one thing on the call pill that main
  * owns rather than passes through.
  */
+/**
+ * The clamp is the other half of that: growth decides which way the pill
+ * unfurls, and this decides whether the avatar it unfurls from is still
+ * somewhere the user can reach. A surface pushed off the display cannot be
+ * dragged back, because there is nothing left on screen to grab.
+ */
+
+// The canvas the avatar is centred in, from the constants the module derives
+// them from: 360 wide at most, a 44 avatar, 24 of shadow padding.
+const CANVAS_WIDTH = (360 - 44 / 2) * 2 + 24 * 2;
+const CANVAS_HEIGHT = (290 - 44 / 2 + 24) * 2;
+
+/** A 1440x900 display with the menu bar taken off the top. */
+const WORK_AREA = { x: 0, y: 25, width: 1440, height: 875 };
+
+/** The canvas origin that puts the avatar's centre exactly here. */
+const originFor = (centreX: number, centreY: number) => ({
+  x: centreX - CANVAS_WIDTH / 2,
+  y: centreY - CANVAS_HEIGHT / 2,
+});
+
+/** Where the avatar's centre ends up for a given canvas origin. */
+const centreOf = (origin: { x: number; y: number }) => ({
+  x: origin.x + CANVAS_WIDTH / 2,
+  y: origin.y + CANVAS_HEIGHT / 2,
+});
+
+describe("clampCanvasOrigin", () => {
+  test("leaves a position inside the work area alone", () => {
+    const origin = originFor(700, 500);
+    expect(clampCanvasOrigin(origin, WORK_AREA)).toEqual({
+      x: Math.round(origin.x),
+      y: Math.round(origin.y),
+    });
+  });
+
+  test("holds the avatar at the right edge rather than past it", () => {
+    const flung = originFor(9000, 500);
+    expect(centreOf(clampCanvasOrigin(flung, WORK_AREA)).x).toBe(1440 - 22);
+  });
+
+  test("holds the avatar at the left edge rather than past it", () => {
+    const flung = originFor(-9000, 500);
+    expect(centreOf(clampCanvasOrigin(flung, WORK_AREA)).x).toBe(22);
+  });
+
+  test("keeps the avatar below the menu bar", () => {
+    const flung = originFor(700, -9000);
+    expect(centreOf(clampCanvasOrigin(flung, WORK_AREA)).y).toBe(25 + 22);
+  });
+
+  test("holds the avatar at the bottom edge rather than past it", () => {
+    const flung = originFor(700, 9000);
+    expect(centreOf(clampCanvasOrigin(flung, WORK_AREA)).y).toBe(900 - 22);
+  });
+
+  /**
+   * The canvas is far wider than the avatar, so a clamp written against the
+   * canvas box would refuse to let the avatar anywhere near the edge. The
+   * corner is exactly where the surface is meant to rest.
+   */
+  test("lets the avatar reach the corner the surface opens in", () => {
+    const corner = originFor(1440 - 22, 900 - 22);
+    expect(centreOf(clampCanvasOrigin(corner, WORK_AREA))).toEqual({
+      x: 1440 - 22,
+      y: 900 - 22,
+    });
+  });
+
+  test("clamps against the display it is given, not the primary one", () => {
+    const secondary = { x: 1440, y: 0, width: 1920, height: 1080 };
+    const flung = originFor(99999, 500);
+    expect(centreOf(clampCanvasOrigin(flung, secondary)).x).toBe(
+      1440 + 1920 - 22,
+    );
+  });
+
+  test("stays inside a work area too small for the avatar", () => {
+    const tiny = { x: 0, y: 0, width: 10, height: 10 };
+    const centre = centreOf(clampCanvasOrigin(originFor(9000, 9000), tiny));
+    expect(centre.x).toBeLessThanOrEqual(10);
+    expect(centre.y).toBeLessThanOrEqual(10);
+  });
+});
+
 describe("the session main holds", () => {
-  test("start stamps the clock", () => {
-    expect(callOnStart(null, START, 1_000).startedAt).toBe(1_000);
-  });
-
-  test("a redundant start updates the session without restarting its clock", () => {
-    const running = callOnStart(null, START, 1_000);
-    const again = callOnStart(running, { ...START, phase: "thinking" }, 9_000);
-    expect(again.startedAt).toBe(1_000);
-    expect(again.phase).toBe("thinking");
-  });
-
   test("update merges content and leaves the fixed fields alone", () => {
-    const running = callOnStart(null, START, 1_000);
+    const running = { ...START };
     const next = callOnUpdate(running, { phase: "speaking", detail: "Reading" });
     expect(next).toEqual({
       ...running,
@@ -118,7 +196,7 @@ describe("the session main holds", () => {
   });
 
   test("carries the pending approval through", () => {
-    const running = callOnStart(null, START, 1_000);
+    const running = { ...START };
     expect(
       callOnUpdate(running, { approvalRequestId: "req-1" })?.approvalRequestId,
     ).toBe("req-1");

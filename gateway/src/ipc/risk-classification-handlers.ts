@@ -3,12 +3,18 @@
  *
  * Exposes classify_risk to the assistant daemon over the IPC socket. The
  * assistant sends tool invocation parameters; the handler dispatches to the
- * appropriate classifier and returns a complete ClassificationResult.
+ * appropriate classifier and returns a complete `ClassifyRiskIpcResponse`
+ * (`@vellumai/gateway-client`, the contract both sides import).
  */
 
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { z } from "zod";
+
+import {
+  ClassifyRiskIpcParamsSchema,
+  type ClassifyRiskIpcParams,
+  type ClassifyRiskIpcResponse,
+} from "@vellumai/gateway-client";
 
 import { parseArgs } from "../risk/arg-parser.js";
 import {
@@ -34,108 +40,7 @@ import {
 } from "../risk/shell-identity.js";
 import { skillLoadRiskClassifier } from "../risk/skill-risk-classifier.js";
 import { webRiskClassifier } from "../risk/web-risk-classifier.js";
-import type { IpcRoute } from "./server.js";
-
-// ── Zod schema ──────────────────────────────────────────────────────────────
-
-const ClassifyRiskSchema = z.object({
-  tool: z.string().min(1),
-  command: z.string().optional(),
-  url: z.string().optional(),
-  path: z.string().optional(),
-  // Symlink-resolved target path for file tools, canonicalized by the daemon.
-  // Used for security escalation checks so a symlink cannot mask the real
-  // target. Falls back to lexical resolution of `path` when absent.
-  resolvedPath: z.string().optional(),
-  // Symlink-resolved sandbox working dir, canonicalized by the daemon. Paired
-  // with resolvedPath for the workspace-boundary check so a symlinked
-  // workspace prefix does not read as an escape.
-  resolvedWorkingDir: z.string().optional(),
-  skill: z.string().optional(),
-  mode: z.string().optional(),
-  script: z.string().optional(),
-  workingDir: z.string().optional(),
-  allowPrivateNetwork: z.boolean().optional(),
-  networkMode: z.string().optional(),
-  isContainerized: z.boolean().optional(),
-  workspaceRoot: z.string().optional(),
-  // File classifier context (pre-resolved by assistant)
-  fileContext: z
-    .object({
-      protectedDir: z.string(),
-      deprecatedDir: z.string(),
-      hooksDir: z.string(),
-      pluginsDir: z.string().optional(),
-      toolsDir: z.string().optional(),
-      routesDir: z.string().optional(),
-      workflowsDir: z.string().optional(),
-      monitoringDir: z.string().optional(),
-      actorTokenSigningKeyPath: z.string(),
-      skillSourceDirs: z.array(z.string()),
-    })
-    .optional(),
-  // Skill classifier context (pre-resolved by assistant)
-  skillMetadata: z
-    .object({
-      skillId: z.string(),
-      selector: z.string(),
-      versionHash: z.string(),
-      transitiveHash: z.string().optional(),
-      hasInlineExpansions: z.boolean(),
-      isDynamic: z.boolean(),
-    })
-    .optional(),
-  /** Tool registry default risk level for unknown tools. */
-  registryDefaultRisk: z.string().optional(),
-  /** Number of credential references attached to this tool invocation. */
-  credentialRefCount: z.number().int().nonnegative().optional(),
-  /**
-   * For host_file_transfer to_sandbox: the workspace-side destination path
-   * and the sandbox working directory it resolves against. Lets the classifier
-   * escalate writes that land an executable file in a code-injection sink
-   * (tools/routes/hooks/plugins/skills) even though `path` carries the
-   * host-side source.
-   */
-  transferSandboxDestPath: z.string().optional(),
-  transferSandboxWorkingDir: z.string().optional(),
-  // Symlink-resolved to_sandbox destination, canonicalized by the daemon.
-  resolvedTransferDestPath: z.string().optional(),
-});
-
-type ClassifyRiskParams = z.infer<typeof ClassifyRiskSchema>;
-
-// ── Result type ─────────────────────────────────────────────────────────────
-
-interface ClassificationResult {
-  risk: string;
-  reason: string;
-  scopeOptions: Array<{ pattern: string; label: string }>;
-  allowlistOptions?: Array<{
-    label: string;
-    description: string;
-    pattern: string;
-  }>;
-  actionKeys?: string[];
-  commandCandidates?: string[];
-  dangerousPatterns?: Array<{
-    type: string;
-    description: string;
-    text: string;
-  }>;
-  opaqueConstructs?: boolean;
-  isComplexSyntax?: boolean;
-  sandboxAutoApprove?: boolean;
-  /**
-   * Lexically-resolved path arguments from sandbox-auto-approve-eligible
-   * segments. The daemon resolves these through symlinks and re-checks
-   * against the workspace root to catch symlink-based escapes that the
-   * gateway's lexical check cannot detect.
-   */
-  sandboxPathArgs?: string[];
-  directoryScopeOptions?: DirectoryScopeOption[];
-  resolvedPaths?: string[];
-  matchType: string;
-}
+import { ipcRoute, type IpcRoute } from "./server.js";
 
 // ── Registry spec lookup ────────────────────────────────────────────────────
 
@@ -222,8 +127,8 @@ async function computeSandboxAutoApprove(
 // ── Handler ─────────────────────────────────────────────────────────────────
 
 export async function handleClassifyRisk(
-  params: ClassifyRiskParams,
-): Promise<ClassificationResult> {
+  params: ClassifyRiskIpcParams,
+): Promise<ClassifyRiskIpcResponse> {
   const tool = params.tool;
 
   switch (tool) {
@@ -609,11 +514,9 @@ export async function handleClassifyRisk(
 // ── Route export ────────────────────────────────────────────────────────────
 
 export const riskClassificationRoutes: IpcRoute[] = [
-  {
+  ipcRoute({
     method: "classify_risk",
-    schema: ClassifyRiskSchema,
-    handler: (params?: Record<string, unknown>) => {
-      return handleClassifyRisk(params as ClassifyRiskParams);
-    },
-  },
+    schema: ClassifyRiskIpcParamsSchema,
+    handler: handleClassifyRisk,
+  }),
 ];
