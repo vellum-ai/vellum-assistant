@@ -531,6 +531,9 @@
     "responsePayload": "Carga de la respuesta",
     "retry": "Reintentar"
   },
+  "redactedCredentialChip": {
+    "revealFailed": "No se pudo revelar {name}."
+  },
   "responseTab": {
     "argumentsPreview": "Vista previa de argumentos",
     "copySectionAria": "Copiar contenido de la sección",
@@ -575,6 +578,10 @@
     "noInputSchema": "Sin esquema de entrada: esta herramienta no acepta entrada estructurada.",
     "required": "obligatorio",
     "settings": "Configuración"
+  },
+  "transcriptMessageBody": {
+    "fileUnavailable": "El archivo no está disponible para descargar",
+    "fileUnavailableHostTimeout": "El archivo no está disponible para descargar (puede que la aprobación del archivo en el host haya caducado)"
   },
   "useConversationLoader": {
     "authFailed": "No se pudo autenticar al usuario."

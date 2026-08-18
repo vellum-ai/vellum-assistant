@@ -531,6 +531,9 @@
     "responsePayload": "Response payload",
     "retry": "Retry"
   },
+  "redactedCredentialChip": {
+    "revealFailed": "Couldn't reveal {name}."
+  },
   "responseTab": {
     "argumentsPreview": "Arguments preview",
     "copySectionAria": "Copy section content",
@@ -575,6 +578,10 @@
     "noInputSchema": "No input schema - this tool takes no structured input.",
     "required": "required",
     "settings": "Settings"
+  },
+  "transcriptMessageBody": {
+    "fileUnavailable": "File not available for download",
+    "fileUnavailableHostTimeout": "File not available for download (host file approval may have timed out)"
   },
   "useConversationLoader": {
     "authFailed": "Failed to authenticate user."

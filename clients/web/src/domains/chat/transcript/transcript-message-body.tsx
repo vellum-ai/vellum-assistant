@@ -505,7 +505,9 @@ export function TranscriptMessageBody({
       })();
     } else {
       toast.error(
-        `File not available for download${pending.isHost ? " (host file approval may have timed out)" : ""}`,
+        pending.isHost
+          ? t("chat:transcriptMessageBody.fileUnavailableHostTimeout")
+          : t("chat:transcriptMessageBody.fileUnavailable"),
         { description: pending.filename },
       );
     }
