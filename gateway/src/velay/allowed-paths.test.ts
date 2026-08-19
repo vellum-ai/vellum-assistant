@@ -1,10 +1,27 @@
-import { describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
 
-import {
+let velayWebhooksEnabled = false;
+
+mock.module("../feature-flag-resolver.js", () => ({
+  isFeatureFlagEnabled: (flag: string) =>
+    flag === "velay-webhooks" ? velayWebhooksEnabled : false,
+}));
+
+const {
   VELAY_ALLOWED_PATHS,
   VELAY_ALLOWED_PATHS_HEADER,
   VELAY_ALLOWED_PATHS_HEADER_VALUE,
-} from "./allowed-paths.js";
+  VELAY_STATIC_ALLOWED_PATHS,
+  buildVelayAllowedPathsHeaderValue,
+} = await import("./allowed-paths.js");
+
+function decode(headerValue: string): string[] {
+  return JSON.parse(headerValue) as string[];
+}
+
+beforeEach(() => {
+  velayWebhooksEnabled = false;
+});
 
 describe("VELAY_ALLOWED_PATHS", () => {
   it("matches the platform-side header name (must stay in sync with vellum-assistant-platform RegistrationAllowedPathsHeader)", () => {
@@ -23,7 +40,17 @@ describe("VELAY_ALLOWED_PATHS", () => {
   it("contains only RE2-portable regex patterns (no JS-specific lookaround / backreferences) that compile in JavaScript too", () => {
     // We can't run Go RE2 here, but every pattern below is plain anchored
     // prefix/exact matching that's a strict subset of both engines.
-    for (const pattern of VELAY_ALLOWED_PATHS) {
+    velayWebhooksEnabled = true;
+    const patterns = [
+      ...VELAY_ALLOWED_PATHS,
+      ...decode(
+        buildVelayAllowedPathsHeaderValue([
+          "/webhooks/plugins/example/realtime",
+          "/webhooks/plugins/ex.am+ple/(realtime)",
+        ]),
+      ),
+    ];
+    for (const pattern of patterns) {
       expect(() => new RegExp(pattern)).not.toThrow();
       // RE2-incompatible features that should never appear: lookahead,
       // lookbehind, backreferences. A simple guard is enough — the platform
@@ -75,5 +102,61 @@ describe("VELAY_ALLOWED_PATHS", () => {
       const matched = compiled.some((re) => re.test(path));
       expect({ path, matched }).toEqual({ path, matched: expected });
     }
+  });
+});
+
+describe("buildVelayAllowedPathsHeaderValue", () => {
+  it("advertises the legacy list verbatim while the flag is off", () => {
+    expect(buildVelayAllowedPathsHeaderValue([])).toBe(
+      VELAY_ALLOWED_PATHS_HEADER_VALUE,
+    );
+    expect(buildVelayAllowedPathsHeaderValue(["/webhooks/telegram"])).toBe(
+      VELAY_ALLOWED_PATHS_HEADER_VALUE,
+    );
+  });
+
+  it("drops the webhook wildcard for the statics plus one exact rule per registered path", () => {
+    velayWebhooksEnabled = true;
+
+    const rules = decode(
+      buildVelayAllowedPathsHeaderValue([
+        "/webhooks/telegram",
+        "/webhooks/plugins/example/realtime",
+      ]),
+    );
+
+    expect(rules).toEqual([
+      ...VELAY_STATIC_ALLOWED_PATHS,
+      "^/webhooks/telegram$",
+      "^/webhooks/plugins/example/realtime$",
+    ]);
+    expect(rules).not.toContain("^/webhooks/");
+    // The Twilio subtree keeps its prefix rule because its paths carry call
+    // state the registry cannot hold.
+    expect(rules).toContain("^/webhooks/twilio/");
+  });
+
+  it("advertises only the statics when nothing is registered", () => {
+    velayWebhooksEnabled = true;
+
+    expect(decode(buildVelayAllowedPathsHeaderValue([]))).toEqual([
+      ...VELAY_STATIC_ALLOWED_PATHS,
+    ]);
+  });
+
+  it("escapes regex metacharacters so a generated rule matches only its own path", () => {
+    velayWebhooksEnabled = true;
+    const path = "/webhooks/plugins/a.b+c*d?e|f(g)h[i]j{k}^l$m\\n";
+
+    const rules = decode(buildVelayAllowedPathsHeaderValue([path]));
+    const generated = rules[rules.length - 1];
+    const compiled = new RegExp(generated);
+
+    expect(compiled.test(path)).toBe(true);
+    expect(compiled.test("/webhooks/plugins/aXbXcXdXeXfXgXhXiXjXkXlXmXn")).toBe(
+      false,
+    );
+    expect(compiled.test(`${path}/extra`)).toBe(false);
+    expect(compiled.test(`/prefix${path}`)).toBe(false);
   });
 });
