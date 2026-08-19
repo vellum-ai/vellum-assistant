@@ -157,6 +157,14 @@ function applyReportedQuestion(params: {
   const { reported, revisionBefore, messages } = params;
   const interactionStore = useInteractionStore.getState();
 
+  // Whatever this read has to say, it describes the slot as it was when the
+  // request went out. If the slot has moved since, something newer than this
+  // response already owns it, and that is true of the marker fallback as much
+  // as of the registry's answer.
+  if (interactionStore.questionRevision !== revisionBefore) {
+    return;
+  }
+
   if (reported === undefined) {
     const wirePendingQuestion = extractWirePendingQuestion(messages);
     if (wirePendingQuestion && !interactionStore.pendingQuestion) {
@@ -165,9 +173,6 @@ function applyReportedQuestion(params: {
     return;
   }
 
-  if (interactionStore.questionRevision !== revisionBefore) {
-    return;
-  }
   const current = interactionStore.pendingQuestion;
 
   const action = decidePendingQuestion({ reported, current });
@@ -199,12 +204,16 @@ export function useConversationHistory({
   });
 
   /**
-   * Bumped once per committed-snapshot reconcile so a read that is overtaken
-   * by a newer one applies nothing. The card-identity guard below cannot cover
-   * this: two reads issued before either lands both capture the same
-   * `questionBeforeFetch`, so an older response arriving last still matches and
-   * would re-raise a prompt the newer read already saw resolved. Ordering is
-   * not a property of the responses, so it has to be tracked here.
+   * Bumped once per committed-snapshot reconcile, so a read that a later
+   * reconcile has overtaken applies nothing.
+   *
+   * This is the ordering half of the pair that keeps a stale registry read from
+   * moving the card. It answers "is my read still the current one", which the
+   * question slot's revision cannot: two reads issued before either lands
+   * observe the same slot, so the older response looks just as current as the
+   * newer one when it arrives last. The revision answers the other half, "has
+   * the slot moved since I was issued", which ordering cannot see. Neither
+   * subsumes the other.
    */
   const reconcileGenerationRef = useRef(0);
 

@@ -372,6 +372,31 @@ describe("ask_question restore on a committed snapshot", () => {
     expect(useInteractionStore.getState().pendingQuestion).toBeNull();
   });
 
+  test("does not re-raise from the marker when the slot moved mid-read", async () => {
+    // GIVEN a legacy assistant (no `pendingQuestion` key, so the marker is the
+    // only source) and a snapshot still carrying the marker for `req-1`
+    deferredCalls = [];
+    renderHistory();
+    await waitFor(() => {
+      expect(deferredCalls?.length).toBe(1);
+    });
+
+    // WHEN that prompt arrives and settles while the read is in flight
+    useInteractionStore
+      .getState()
+      .showQuestion({ requestId: "req-1", entries: ENTRIES });
+    useInteractionStore.getState().dismissQuestionIfMatches("req-1");
+
+    // AND the read lands with no opinion, sending the marker fallback down its
+    // own branch
+    deferredCalls?.[0]?.({ pendingConfirmation: null, pendingSecret: null });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // THEN the settled prompt is not restored from the marker either. The
+    // ordering rule holds for every branch, not only the registry's answer.
+    expect(useInteractionStore.getState().pendingQuestion).toBeNull();
+  });
+
   test("ignores a read that a newer one has already overtaken", async () => {
     // GIVEN two reconciles whose reads are both in flight, which happens when
     // two snapshots commit close together (a turn-end reseed landing on top of
