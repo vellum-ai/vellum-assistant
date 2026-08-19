@@ -13,7 +13,14 @@ const commandsFeature: CapabilityModule<
   install: (registry) => {
     registry.contribute("menu", {
       setPlatformSession: (has) =>
-        ipcRenderer.invoke("vellum:menu:setPlatformSession", has) as Promise<void>,
+        ipcRenderer.invoke(
+          "vellum:menu:setPlatformSession",
+          has,
+        ) as Promise<void>,
+      titles: () =>
+        ipcRenderer.invoke("vellum:menu:titles") as Promise<string[]>,
+      popup: (title, x, y) =>
+        ipcRenderer.invoke("vellum:menu:popup", title, x, y) as Promise<void>,
     });
   },
 };

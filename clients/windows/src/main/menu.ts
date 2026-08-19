@@ -1,4 +1,10 @@
-import { Menu, app, shell, type MenuItemConstructorOptions } from "electron";
+import {
+  BrowserWindow,
+  Menu,
+  app,
+  shell,
+  type MenuItemConstructorOptions,
+} from "electron";
 import { z } from "zod";
 
 import {
@@ -85,9 +91,7 @@ export const buildWindowsMenu = ({
       { type: "separator" },
       { role: "reload" },
       { role: "forceReload" },
-      ...(!app.isPackaged
-        ? [{ role: "toggleDevTools" as const }]
-        : []),
+      ...(!app.isPackaged ? [{ role: "toggleDevTools" as const }] : []),
       { type: "separator" },
       { role: "resetZoom" },
       { role: "zoomIn" },
@@ -157,6 +161,37 @@ export const installWindowsMenu = (options: WindowsMenuOptions): void => {
         hasPlatformSession = has;
         apply();
       }
+    },
+  );
+  // The main window hides the native frame (`titleBarStyle: "hidden"`), which
+  // hides the OS menu bar with it. The renderer draws the top-level titles in
+  // its title bar and pops the real native submenus here, so items,
+  // accelerators, and enabled states keep the one template above as owner.
+  options.handle("vellum:menu:titles", z.tuple([]), () =>
+    buildWindowsMenu(options).map((item) => String(item.label)),
+  );
+  options.handle(
+    "vellum:menu:popup",
+    z.tuple([z.string(), z.number(), z.number()]),
+    ([title, x, y], event) => {
+      const submenu = buildWindowsMenu(options).find(
+        (item) => item.label === title,
+      )?.submenu;
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!Array.isArray(submenu) || !win || win.isDestroyed()) {
+        return;
+      }
+      // The renderer reports CSS pixels; popup() takes DIPs, which differ
+      // from CSS pixels by the page zoom.
+      const zoom = event.sender.getZoomFactor();
+      return new Promise<void>((resolve) => {
+        Menu.buildFromTemplate(submenu).popup({
+          window: win,
+          x: Math.round(x * zoom),
+          y: Math.round(y * zoom),
+          callback: resolve,
+        });
+      });
     },
   );
   onHotkeyOverridesChange(apply);
