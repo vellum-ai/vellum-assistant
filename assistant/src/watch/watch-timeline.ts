@@ -20,15 +20,21 @@
  * `[t+MM:SS]` offset into the message text, so the model reads one interleaved
  * timeline even where a row's position and its capture moment disagree.
  *
- * Observations render the AX tree inside an `<ax-tree>` block so
- * `context/outbound-sanitize.ts`'s `compactAxTreeHistory` collapses all but the
- * most recent few. That is the whole context story for a watch session: a
- * half-hour of observations is bounded by machinery that already exists, and
- * the offset prefix and the diff survive the collapse, so a compacted entry
- * still tells the retro when it happened and what moved.
+ * Every entry is wrapped in the `<watch-entry>` marker `wrapWatchEntry`
+ * writes, which is what lets `context/outbound-sanitize.ts` treat generated
+ * capture differently from what a user typed. Observations render the AX tree
+ * inside an `<ax-tree>` block, so `compactAxTreeHistory` collapses all but the
+ * most recent few, and `stripOldMediaBlocks` reaches an entry's screenshot the
+ * same way it reaches a tool result's. That is the whole context story for a
+ * watch session: a half-hour of observations is bounded by machinery that
+ * already exists, and the offset prefix and the diff survive the collapse, so
+ * a compacted entry still tells the retro when it happened and what moved.
  */
 
-import { escapeAxTreeContent } from "../context/outbound-sanitize.js";
+import {
+  escapeAxTreeContent,
+  wrapWatchEntry,
+} from "../context/outbound-sanitize.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
@@ -109,6 +115,7 @@ function formatOffset(atMs: number): string {
 function renderObservation(
   atMs: number,
   observation: WatchObservationInput,
+  attachScreenshot: boolean,
 ): string | null {
   const parts = [`${formatOffset(atMs)} ${OBSERVATION_LABEL}`];
   if (observation.axTree) {
@@ -123,7 +130,7 @@ function renderObservation(
       `changed since the previous observation:\n${observation.axDiff}`,
     );
   }
-  if (observation.screenshot) {
+  if (attachScreenshot) {
     parts.push("a screenshot of this moment is attached.");
   }
   return parts.length > 1 ? parts.join("\n") : null;
@@ -193,6 +200,9 @@ async function acquireProcessing(
 /**
  * Persist one rendered entry as a user message, running no turn.
  *
+ * The rendered body goes in wrapped in the watch marker, the one place any
+ * entry acquires it, so nothing a caller renders can reach history unmarked.
+ *
  * Holds the conversation's processing lock across the write, which is what
  * keeps it from interleaving with a turn's own persist. That matters at the
  * two ends of a session, where the retro's turn and a late-arriving entry can
@@ -223,7 +233,7 @@ async function persistEntry(
 
     try {
       const persisted = await persistQueuedMessageBody(conversation, {
-        content: entry.content,
+        content: wrapWatchEntry(entry.content),
         attachments: entry.attachments,
         // A watch entry is ambient capture, not a turn the user typed. It must
         // not read as activation, and a session's worth of AX trees must not
@@ -285,14 +295,21 @@ export function appendNarration(
  * not be read is a row the retro has to reason about, and the honest timeline
  * of a session where observation stalled is simply a sparser one.
  *
- * The screenshot rides along only when the observation actually carries one.
- * Attaching pixels to every entry is what makes a long session unaffordable:
- * `stripOldMediaBlocks` only reaches media on tool results, so an image on a
- * plain user message stays in context for the life of the conversation.
+ * The screenshot is persisted only when `attachScreenshot` asks for it, and
+ * carrying one is not asking. The host captures a screenshot on every observe
+ * with no opt-out, so an observation always has pixels available and a policy
+ * of "attach what arrives" is a policy of attaching every frame. Which frames
+ * are worth an image is a cadence decision, and it belongs to the caller
+ * driving the session rather than to the row writer.
  */
 export function appendObservation(
   conversationId: string,
-  options: { observation: WatchObservationInput; atMs: number },
+  options: {
+    observation: WatchObservationInput;
+    atMs: number;
+    /** Persist the observation's screenshot. Defaults to false. */
+    attachScreenshot?: boolean;
+  },
 ): Promise<WatchTimelineResult> {
   const { observation, atMs } = options;
   if (observation.executionError) {
@@ -303,17 +320,26 @@ export function appendObservation(
     return Promise.resolve(FAILED);
   }
 
-  const content = renderObservation(atMs, observation);
+  const screenshot =
+    options.attachScreenshot === true && observation.screenshot
+      ? observation.screenshot
+      : undefined;
+
+  const content = renderObservation(
+    atMs,
+    observation,
+    screenshot !== undefined,
+  );
   if (content === null) {
     return Promise.resolve(FAILED);
   }
 
-  const attachments: UserMessageAttachment[] = observation.screenshot
+  const attachments: UserMessageAttachment[] = screenshot
     ? [
         {
           filename: `watch-screen-${Math.max(0, Math.floor(atMs))}.jpg`,
           mimeType: SCREENSHOT_MIME,
-          data: observation.screenshot,
+          data: screenshot,
         },
       ]
     : [];

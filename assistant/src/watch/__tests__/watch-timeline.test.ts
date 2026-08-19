@@ -66,9 +66,27 @@ function messageText(message: { content: Message["content"] }): string {
     .join("\n");
 }
 
-/** The persisted entry texts, in the order they were stored. */
+const WATCH_ENTRY_OPEN = "<watch-entry>\n";
+const WATCH_ENTRY_CLOSE = "\n</watch-entry>";
+
+/**
+ * The body of a persisted entry, with the watch marker peeled off after
+ * asserting it is there. Every assertion below reads a body, so an entry that
+ * reached history unmarked fails the test that reads it rather than passing
+ * quietly: the marker is what tells `preModelCallSanitize` this text is
+ * generated capture and not something the user typed.
+ */
+function entryBody(text: string): string {
+  expect(text.startsWith(WATCH_ENTRY_OPEN)).toBe(true);
+  expect(text.endsWith(WATCH_ENTRY_CLOSE)).toBe(true);
+  return text.slice(WATCH_ENTRY_OPEN.length, -WATCH_ENTRY_CLOSE.length);
+}
+
+/** The persisted entry bodies, in the order they were stored. */
 function timelineTexts(conversationId: string): string[] {
-  return getMessages(conversationId).map(messageText);
+  return getMessages(conversationId).map((message) =>
+    entryBody(messageText(message)),
+  );
 }
 
 describe("watch timeline", () => {
@@ -206,30 +224,49 @@ describe("watch timeline", () => {
     }
   });
 
-  test("attaches a screenshot only for the observations that carry one", async () => {
+  test("attaches a screenshot only when the caller asks for one", async () => {
     const session = startSession("Watch timeline screenshots");
     try {
-      const withShot = await appendObservation(session.id, {
+      // The host captures a screenshot on every observe, so an observation
+      // carrying one says nothing about whether it is worth persisting.
+      const unasked = await appendObservation(session.id, {
         observation: {
           axTree: "Window: Invoices",
           screenshot: SCREENSHOT_BASE64,
         },
         atMs: 1_000,
       });
-      const withoutShot = await appendObservation(session.id, {
-        observation: { axTree: "Window: Invoices, export sheet" },
+      const asked = await appendObservation(session.id, {
+        observation: {
+          axTree: "Window: Invoices, export sheet",
+          screenshot: SCREENSHOT_BASE64,
+        },
         atMs: 2_000,
+        attachScreenshot: true,
+      });
+      const askedWithNothingToAttach = await appendObservation(session.id, {
+        observation: { axTree: "Window: Invoices, saved" },
+        atMs: 3_000,
+        attachScreenshot: true,
       });
 
-      expect(withShot.messageId).toBeDefined();
-      expect(withoutShot.messageId).toBeDefined();
       expect(
-        getAttachmentsForMessage(withShot.messageId as string),
-      ).toHaveLength(1);
-      expect(
-        getAttachmentsForMessage(withoutShot.messageId as string),
+        getAttachmentsForMessage(unasked.messageId as string),
       ).toHaveLength(0);
-      expect(timelineTexts(session.id)[0]).toContain(
+      expect(getAttachmentsForMessage(asked.messageId as string)).toHaveLength(
+        1,
+      );
+      expect(
+        getAttachmentsForMessage(askedWithNothingToAttach.messageId as string),
+      ).toHaveLength(0);
+
+      // The entry says an image is attached only where one actually is.
+      const texts = timelineTexts(session.id);
+      expect(texts[0]).not.toContain(
+        "a screenshot of this moment is attached.",
+      );
+      expect(texts[1]).toContain("a screenshot of this moment is attached.");
+      expect(texts[2]).not.toContain(
         "a screenshot of this moment is attached.",
       );
     } finally {
