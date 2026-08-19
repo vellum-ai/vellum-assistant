@@ -592,7 +592,7 @@
   },
   "paymentMethodsCard": {
     "addButton": "Añadir método de pago",
-    "empty": "No hay ningún método de pago guardado",
+    "empty": "No hay ningún método de pago guardado. Añade uno para usar la recarga automática.",
     "loadError": "No se pudieron cargar los métodos de pago.",
     "loading": "Cargando…",
     "removeConfirmCancel": "Conservar tarjeta",

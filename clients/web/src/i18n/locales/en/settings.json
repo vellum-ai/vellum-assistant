@@ -592,7 +592,7 @@
   },
   "paymentMethodsCard": {
     "addButton": "Add Payment Method",
-    "empty": "No payment method on file",
+    "empty": "No payment method on file. Add one to use auto-reload.",
     "loadError": "Failed to load payment methods.",
     "loading": "Loading…",
     "removeConfirmCancel": "Keep card",

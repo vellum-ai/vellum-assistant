@@ -95,12 +95,11 @@ export function PaymentMethodsCard() {
     }
     if (!config.has_payment_method) {
       return (
-        <p
-          className="mt-4 text-body-medium-lighter text-[var(--content-tertiary)]"
-          data-testid="payment-methods-empty"
-        >
-          {t("paymentMethodsCard.empty")}
-        </p>
+        <div className="mt-4">
+          <Notice tone="neutral" data-testid="payment-methods-empty">
+            {t("paymentMethodsCard.empty")}
+          </Notice>
+        </div>
       );
     }
     return (
