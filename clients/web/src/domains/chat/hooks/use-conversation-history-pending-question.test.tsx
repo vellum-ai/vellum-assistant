@@ -104,10 +104,21 @@ let openGate: (() => void) | null = null;
 
 /** When set, the read rejects instead of answering (a 5xx or a dropped network). */
 let readFailure: Error | null = null;
+/**
+ * When set, each call parks and is answered by the test in whatever order it
+ * chooses, so two reads can be in flight and land out of order.
+ */
+let deferredCalls: Array<(value: Record<string, unknown>) => void> | null =
+  null;
 
 mock.module("@/domains/chat/api/interactions", () => ({
   ...realInteractionsModule,
   getPendingInteractions: async () => {
+    if (deferredCalls) {
+      return new Promise((resolve) => {
+        deferredCalls?.push(resolve as (v: Record<string, unknown>) => void);
+      });
+    }
     if (gate) {
       await gate;
     }
@@ -147,6 +158,7 @@ beforeEach(() => {
   gate = null;
   openGate = null;
   readFailure = null;
+  deferredCalls = null;
   dataUpdatedAt = 1;
   useInteractionStore.getState().resetAll();
   useConversationStore.setState({
@@ -326,6 +338,39 @@ describe("ask_question restore on a committed snapshot", () => {
         useConversationStore.getState().attentionConversationIds.has("conv-A"),
       ).toBe(false);
     });
+  });
+
+  test("ignores a read that a newer one has already overtaken", async () => {
+    // GIVEN two reconciles whose reads are both in flight, which happens when
+    // two snapshots commit close together (a turn-end reseed landing on top of
+    // the processing revalidate).
+    currentMessages = [];
+    deferredCalls = [];
+    const { rerender } = renderHistory();
+    await waitFor(() => {
+      expect(deferredCalls?.length).toBe(1);
+    });
+    dataUpdatedAt = 2;
+    rerender();
+    await waitFor(() => {
+      expect(deferredCalls?.length).toBe(2);
+    });
+
+    // WHEN the newer read answers first, reporting the prompt as resolved
+    deferredCalls?.[1]?.({ pendingQuestion: null });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    // AND the older read lands afterwards, still carrying the prompt it saw
+    // before the answer
+    deferredCalls?.[0]?.({
+      pendingQuestion: { requestId: "req-answered", entries: ENTRIES },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // THEN the stale response raises nothing. Both reads captured the same
+    // empty card state, so the identity guard alone would have let this one
+    // through and put the answered prompt back on screen.
+    expect(useInteractionStore.getState().pendingQuestion).toBeNull();
   });
 
   test("leaves a prompt that arrived while the read was in flight", async () => {

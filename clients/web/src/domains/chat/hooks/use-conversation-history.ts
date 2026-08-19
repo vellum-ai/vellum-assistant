@@ -196,6 +196,16 @@ export function useConversationHistory({
       !!activeConversationId,
   });
 
+  /**
+   * Bumped once per committed-snapshot reconcile so a read that is overtaken
+   * by a newer one applies nothing. The card-identity guard below cannot cover
+   * this: two reads issued before either lands both capture the same
+   * `questionBeforeFetch`, so an older response arriving last still matches and
+   * would re-raise a prompt the newer read already saw resolved. Ordering is
+   * not a property of the responses, so it has to be tracked here.
+   */
+  const reconcileGenerationRef = useRef(0);
+
   const setIsLoadingHistory = useChatSessionStore.use.setIsLoadingHistory();
   const setTranscriptPagination =
     useChatSessionStore.use.setTranscriptPagination();
@@ -456,6 +466,7 @@ export function useConversationHistory({
     // Read before the fetch so the question reconcile below can tell whether
     // anything moved underneath it while the request was in flight.
     const questionBeforeFetch = useInteractionStore.getState().pendingQuestion;
+    const generation = ++reconcileGenerationRef.current;
     void (async () => {
       // A read that never landed carries no opinion, exactly like an assistant
       // that predates `pendingQuestion`, so it leaves `reported` undefined and
@@ -472,6 +483,13 @@ export function useConversationHistory({
         );
       } catch {
         interactions = null;
+      }
+      // Superseded by a newer reconcile: that read describes the registry at a
+      // later moment, so this one has nothing to say about any kind, not just
+      // the question. Checked before the conversation guard because a switch
+      // bumps the generation too.
+      if (reconcileGenerationRef.current !== generation) {
+        return;
       }
       if (
         useConversationStore.getState().activeConversationId !==
