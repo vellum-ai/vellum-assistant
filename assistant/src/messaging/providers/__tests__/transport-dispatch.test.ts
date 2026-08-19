@@ -60,6 +60,7 @@ mock.module("../../../util/logger.js", () => ({
 const {
   deliverDirect,
   sendChannelTyping,
+  supportsChannelTyping,
   isDirectDelivery,
   getTransportForCallback,
 } = await import("../index.js");
@@ -203,6 +204,16 @@ describe("capability gating across channels", () => {
       }),
     );
     expect(telegram.sendTelegramReply).toHaveBeenCalledTimes(1);
+  });
+
+  test("the typing capability is read from the transport, not the channel name", () => {
+    // The heartbeat gate in background-dispatch asks this rather than testing
+    // `sourceChannel === "telegram"`, so a channel that implements the method
+    // starts showing an indicator without a caller being changed.
+    expect(supportsChannelTyping(`${BASE}/deliver/telegram`)).toBe(true);
+    expect(supportsChannelTyping(`${BASE}/deliver/discord`)).toBe(true);
+    expect(supportsChannelTyping(`${BASE}/deliver/slack`)).toBe(false);
+    expect(supportsChannelTyping(`${BASE}/deliver/whatsapp`)).toBe(false);
   });
 
   test("sendChannelTyping reaches Telegram's typing indicator", async () => {
