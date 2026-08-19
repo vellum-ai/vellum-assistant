@@ -16,15 +16,12 @@ import {
   isConfigurablePushToTalkActive,
   subscribeToConfigurablePushToTalk,
 } from "@/runtime/hotkey";
-import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
   CTRL_PTT_ACTIVATOR,
-  LS_PTT_ACTIVATION_KEY,
   activatorDisplayName,
   activatorsEqual,
   modifierLabel,
-  parseActivator,
-  serializeActivator,
+  pushToTalkActivation,
   sortModifiers,
   type PTTActivator,
   type PTTModifier,
@@ -56,12 +53,7 @@ export function PushToTalkCard() {
     () => subscribeToConfigurablePushToTalk(setNativeActive),
     [],
   );
-  const [activator, setActivator] = useState<PTTActivator>(() => {
-    const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
-    return raw
-      ? parseActivator(raw)
-      : { kind: "off" };
-  });
+  const activator = pushToTalkActivation.useValue();
   const [isRecording, setIsRecording] = useState(false);
   const [pendingModifiers, setPendingModifiers] = useState<PTTModifier[]>([]);
   const recordingZoneRef = useRef<HTMLDivElement | null>(null);
@@ -70,8 +62,7 @@ export function PushToTalkCard() {
   const showFocusedTabNote = enabled && !nativeActive;
 
   const selectActivator = useCallback((next: PTTActivator) => {
-    setActivator(next);
-    setLocalSetting(LS_PTT_ACTIVATION_KEY, serializeActivator(next));
+    pushToTalkActivation.save(next);
     setIsRecording(false);
     setPendingModifiers([]);
   }, []);

@@ -6,14 +6,17 @@ import { useNativePushToTalkRegistration } from "@/domains/chat/voice/use-native
 import {
   CTRL_PTT_ACTIVATOR,
   LS_PTT_ACTIVATION_KEY,
+  pushToTalkActivation,
   serializeActivator,
 } from "@/utils/ptt-activator";
 import { setLocalSetting } from "@/utils/local-settings";
 import { isConfigurablePushToTalkActive } from "@/runtime/hotkey";
+import { withRejectedWrites } from "@/utils/rejected-writes.test-helper";
 
 afterEach(() => {
   cleanup();
   delete window.vellum;
+  pushToTalkActivation.save({ kind: "off" });
   localStorage.clear();
   window.history.replaceState({}, "", "/");
 });
@@ -190,4 +193,32 @@ test("registers the latest binding after an in-flight failure", async () => {
     kind: "modifierOnly",
     modifiers: ["control", "shift"],
   });
+});
+
+test("applies a binding in memory when storage rejects the write", async () => {
+  const registrations: Array<PushToTalkActivator | null> = [];
+  window.vellum = {
+    platform: "electron",
+    helper: {
+      hotkey: {
+        setPushToTalk: async (activator: PushToTalkActivator | null) => {
+          registrations.push(activator);
+          return { ok: true, enabled: activator !== null };
+        },
+        onEvent: () => () => undefined,
+        onRegistrationChange: () => () => undefined,
+      },
+    },
+  } as unknown as typeof window.vellum;
+  renderHook(() => useNativePushToTalkRegistration());
+  await waitFor(() => expect(registrations).toHaveLength(1));
+
+  const optionActivator = {
+    kind: "modifierOnly" as const,
+    modifiers: ["option" as const],
+  };
+  withRejectedWrites(() => pushToTalkActivation.save(optionActivator));
+
+  await waitFor(() => expect(registrations).toHaveLength(2));
+  expect(registrations[1]).toEqual(optionActivator);
 });

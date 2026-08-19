@@ -16,6 +16,8 @@ import type {
   PushToTalkModifier,
 } from "@vellumai/ipc-contract";
 
+import { createStorageAccessor } from "@/utils/typed-storage";
+
 export type PTTModifier = PushToTalkModifier;
 export type PTTActivator = PushToTalkActivator;
 export type PTTOff = Extract<PTTActivator, { kind: "off" }>;
@@ -198,6 +200,14 @@ export function parseActivator(
   }
   return CTRL_PTT_ACTIVATOR;
 }
+
+export const pushToTalkActivation = createStorageAccessor<PTTActivator>({
+  key: LS_PTT_ACTIVATION_KEY,
+  scope: "device",
+  parse: parseActivator,
+  serialize: serializeActivator,
+  fallback: { kind: "off" },
+});
 
 // ---------------------------------------------------------------------------
 // Keyboard event matching (runtime PTT listener)

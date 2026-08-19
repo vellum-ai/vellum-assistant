@@ -1,12 +1,10 @@
 import { useEffect } from "react";
 
 import {
-  LS_PTT_ACTIVATION_KEY,
-  parseActivator,
+  pushToTalkActivation,
   serializeActivator,
   type PTTActivator,
 } from "@/utils/ptt-activator";
-import { getLocalSetting, watchSetting } from "@/utils/local-settings";
 import {
   setConfigurablePushToTalkActive,
   setNativePushToTalkActivator,
@@ -16,8 +14,7 @@ import {
 import { isPopoutWindow } from "@/runtime/popout-window";
 
 function desiredActivator(): PTTActivator {
-  const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
-  return raw ? parseActivator(raw) : { kind: "off" };
+  return pushToTalkActivation.load();
 }
 
 export function useNativePushToTalkRegistration(): void {
@@ -75,8 +72,7 @@ export function useNativePushToTalkRegistration(): void {
     };
 
     updateDesiredRegistration();
-    const unsubscribeSetting = watchSetting(
-      LS_PTT_ACTIVATION_KEY,
+    const unsubscribeSetting = pushToTalkActivation.subscribe(
       updateDesiredRegistration,
     );
     const unsubscribeRegistration = subscribeToPushToTalkRegistration(

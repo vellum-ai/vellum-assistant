@@ -1,13 +1,11 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 import {
-  LS_PTT_ACTIVATION_KEY,
   eventActivatesPTT,
   eventDeactivatesPTT,
-  parseActivator,
+  pushToTalkActivation,
   type PTTActivator,
 } from "@/utils/ptt-activator";
-import { getLocalSetting, watchSetting } from "@/utils/local-settings";
 import {
   isConfigurablePushToTalkActive,
   subscribeToHotkeyEvents,
@@ -141,8 +139,7 @@ export function usePushToTalk(
 
     const nativeConfigurable = supportsConfigurablePushToTalk();
     const readActivator = () => {
-      const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
-      activatorRef.current = raw ? parseActivator(raw) : { kind: "off" };
+      activatorRef.current = pushToTalkActivation.load();
     };
     readActivator();
 
@@ -297,7 +294,7 @@ export function usePushToTalk(
       }
     };
 
-    const unsubscribeSetting = watchSetting(LS_PTT_ACTIVATION_KEY, () => {
+    const unsubscribeSetting = pushToTalkActivation.subscribe(() => {
       cancelHold();
       if (activeRef.current) {
         stopActiveTarget();
