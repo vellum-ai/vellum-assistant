@@ -2,6 +2,8 @@ import {
   ArrowUp,
   AudioLines,
   Check,
+  Eye,
+  EyeOff,
   Keyboard,
   Mic,
   MicOff,
@@ -40,11 +42,11 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
  * position (`left: 50%` plus the avatar's own half-width) rather than a
  * transform, and only `width` animates.
  *
- * **Growth needs clearance on the side it runs into**, `width - 44` of it: 144px
- * expanded and 316px in a call. A circle parked against the right edge does not
- * have it, and unclamped the body would run straight off the display with the
- * controls the user was reaching for. So the surface flips and grows the other
- * way instead, the way a menu does, through {@link growth}.
+ * **Growth needs clearance on the side it runs into**, `width - 44` of it:
+ * 228px expanded and 316px at its widest. A circle parked against the right
+ * edge does not have it, and unclamped the body would run straight off the
+ * display with the controls the user was reaching for. So the surface flips and
+ * grows the other way instead, the way a menu does, through {@link growth}.
  *
  * **Presentational only.** Phase comes from the caller, so this renders
  * identically in Storybook and in the Electron panel. Hover is a phase rather
@@ -75,6 +77,21 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 export type CompanionSurfacePhase =
   | "resting"
   | "hover"
+  /**
+   * Watching: the pill held open by a session reading the screen.
+   *
+   * Open regardless of the pointer, the way `call` is, and for a sharper
+   * reason. A screen reader that hides itself when the pointer leaves is one
+   * the user cannot see, and a capture nobody can see is one nobody can stop.
+   *
+   * It ranks below `typing` and `call` and above `hover`: a half-typed
+   * sentence and a live call are both something the user is in the middle of.
+   * Being outranked costs the session nothing, because this phase is only what
+   * the pill is showing. Whether the screen is being read is
+   * {@link CompanionSurfaceProps.watching}, and that is what the indicator
+   * reads.
+   */
+  | "watching"
   | "call"
   /**
    * Typing: the pill becomes a card carrying a condensed read of the
@@ -122,6 +139,16 @@ const DEFAULT_ACCENT = "#5eead4";
  */
 const ASSISTANT_TURN_PHASES = new Set(["transcribing", "thinking", "speaking"]);
 
+/**
+ * The colour a watch session lights the ring in.
+ *
+ * Fixed rather than the assistant's own accent, because the ring in the accent
+ * already means "a turn is running" and a screen being read is a different fact
+ * about the machine. Amber is the tone the host burns for a live capture, so
+ * the surface agrees with the menu bar above it.
+ */
+const WATCHING_RING_ACCENT = "#ff9f45";
+
 // The avatar is a fixed 44px disc in every state; only the body around it
 // changes. That is what makes this one surface expanding rather than three
 // surfaces that happen to share a colour, and it is the property to protect as
@@ -164,11 +191,23 @@ const INNER_GAP = 8;
  * Measuring is also what makes the surface survive its own roadmap. Once
  * plugins contribute actions (LUM-3097) no hardcoded number can be correct, and
  * these become nothing but the value for the first frame.
+ *
+ * **Every entry stays at or under 360**, which is `BASE_MAX_PILL_WIDTH` in
+ * `companion-window.ts`. The window is a fixed canvas sized once for the widest
+ * state the surface has, so the ceiling is the host's rather than this file's:
+ * a state that wanted more would be clipped by the window, and buying the room
+ * back means resizing the canvas, which is the thing a fixed canvas exists to
+ * avoid.
  */
-const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
+export const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
   resting: AVATAR_BOX,
-  hover: 188,
-  call: 296,
+  hover: 272,
+  // The same row of controls hover draws, since the session is run from it
+  // rather than from a row of its own.
+  watching: 272,
+  // The row with the stop control on it, which is the widest a call draws: a
+  // watch session adds a fifth control to the four the call already has.
+  call: 332,
   typing: 360,
 };
 
@@ -241,9 +280,9 @@ export interface CompanionSurfaceProps {
    * Whether the pointer is on the surface, which the creature answers by
    * widening its eyes.
    *
-   * Passed rather than derived from `phase`, because a call holds the pill open
-   * regardless of the pointer and the mascot should still notice a hand
-   * arriving over it mid-call.
+   * Passed rather than derived from `phase`, because a call and a watch session
+   * both hold the pill open regardless of the pointer and the mascot should
+   * still notice a hand arriving over it either way.
    */
   hovered?: boolean;
   /**
@@ -302,6 +341,14 @@ export interface CompanionSurfaceProps {
    */
   onType?: () => void;
   /**
+   * Start or stop the session that reads the screen, which is what Watch does.
+   *
+   * One press for both edges, the way the contract's `toggleWatch` is: the
+   * surface draws a single control, and the side holding the session is the
+   * only one that knows which edge a press is.
+   */
+  onWatch?: () => void;
+  /**
    * Send what was typed. The text is the composer's own until it leaves, so
    * this is the only thing the caller ever sees of it.
    */
@@ -334,6 +381,24 @@ export interface CompanionSurfaceProps {
    * work.
    */
   working?: boolean;
+  /**
+   * Whether a session reading the screen is running.
+   *
+   * Its own input rather than `phase === "watching"`, and this is the one place
+   * on the surface where that separation is not a matter of taste. The phase
+   * says what the pill is showing; this says whether the screen is being read,
+   * and they are different questions. A phase is outranked by a half-typed
+   * sentence and by a live call, so an indicator drawn from one would go dark
+   * the moment the user typed or took a call, which is the same capture the
+   * user cannot see with a different trigger. The ring belongs to the session,
+   * not to whatever the surface happens to be drawing over it.
+   *
+   * Absence is not a session, the way `CompanionSurfaceState.watching` has it:
+   * every state that is not a positive answer has to read as nothing running,
+   * because the alternative is a consent signal over a machine nobody is
+   * capturing.
+   */
+  watching?: boolean;
   /**
    * The running session, when `phase` is `call`.
    *
@@ -373,10 +438,12 @@ export function CompanionSurface({
   spotlight,
   onTalk,
   onType,
+  onWatch,
   onSubmit,
   onCancelTyping,
   onAvatarClick,
   working = false,
+  watching = false,
   call,
   onControl,
 }: CompanionSurfaceProps) {
@@ -515,17 +582,28 @@ export function CompanionSurface({
         style={{ opacity: expanded ? 1 : 0 }}
         aria-hidden
       />
-      {/* The turn itself, as a light travelling around the surface's edge.
+      {/* Something running, as a light travelling around the surface's edge.
           Drawn over the body so it reads as the surface's own border in every
           state, and outside it by a hair so it never crowds the avatar at rest,
           which is the state it has to be legible in: the whole point is being
-          readable from the corner of an eye while the user works elsewhere. */}
-      {assistantWorking && (
+          readable from the corner of an eye while the user works elsewhere.
+
+          A turn burns it in the assistant's colour, a watch session in amber,
+          and the session's ring is drawn in every phase rather than only the
+          one named after it. The session also takes the colour when both are
+          true: the creature already carries the turn in its own pose, and a
+          capture running with nothing drawn over it is the worse of the two
+          failures. */}
+      {(assistantWorking || watching) && (
         <span
           className={`companion-working-ring pointer-events-none absolute -inset-0.5 ${
             typing ? "rounded-[24px]" : "rounded-full"
           }`}
-          style={{ ["--companion-ring-accent" as string]: accentHex }}
+          style={{
+            ["--companion-ring-accent" as string]: watching
+              ? WATCHING_RING_ACCENT
+              : accentHex,
+          }}
           aria-hidden
         />
       )}
@@ -548,8 +626,10 @@ export function CompanionSurface({
         {typing ? (
           <Composer
             assistantName={assistantName}
+            watching={watching}
             onSubmit={onSubmit}
             onCancel={onCancelTyping}
+            onWatch={onWatch}
           />
         ) : (
           <div
@@ -569,9 +649,20 @@ export function CompanionSurface({
             }}
           >
             {phase === "call" ? (
-              <CallBody call={call} onControl={onControl} />
+              <CallBody
+                call={call}
+                watching={watching}
+                onControl={onControl}
+                onWatch={onWatch}
+              />
             ) : (
-              <IdleBody spotlight={spotlight} onTalk={onTalk} onType={onType} />
+              <IdleBody
+                spotlight={spotlight}
+                watching={watching}
+                onTalk={onTalk}
+                onType={onType}
+                onWatch={onWatch}
+              />
             )}
           </div>
         )}
@@ -651,15 +742,28 @@ function RecentTurns({ turns }: { turns: CompanionTurn[] }) {
  * pressing Type changes what the pill contains without changing what the pill
  * is: empty, focused, or full of text, it is the same elongated single line as
  * the voice states. Growth happens above it, never to it.
+ *
+ * **It carries the stop control while a watch session runs**, because the card
+ * is the one state with no control row of its own and the ring around it says
+ * the screen is being read in every state. An indicator the user can see and
+ * cannot act on is a worse bargain than no indicator: it names something
+ * happening to them and withholds the means to end it. The row is where it fits
+ * without cost, since the card is a fixed {@link CARD_WIDTH} and the field
+ * takes the space out of its own flexible width rather than out of the card's,
+ * and a row added above would push the card past the canvas main sized for it.
  */
 function Composer({
   assistantName,
+  watching,
   onSubmit,
   onCancel,
+  onWatch,
 }: {
   assistantName: string;
+  watching: boolean;
   onSubmit?: (message: string) => void;
   onCancel?: () => void;
+  onWatch?: () => void;
 }) {
   // The draft is the composer's own and never leaves except as a submitted
   // message. Holding it in the page instead would re-render the whole surface,
@@ -714,6 +818,7 @@ function Composer({
         }}
         className="min-w-0 flex-1 bg-transparent text-[12px] text-white/85 placeholder:text-white/40 focus:outline-none"
       />
+      {watching && <StopWatchingButton onWatch={onWatch} />}
       {/* **The way out, and the way on, in one control.** With nothing typed
           there is nothing to send, so the trailing control is the way back to
           the pill; the moment there are words it becomes the way to send them.
@@ -828,20 +933,27 @@ function Avatar({
 }
 
 /**
- * Expanded, with the app idle: the two ways in.
+ * Expanded, with the app idle: the ways in.
  *
- * "Talk" and "Type" rather than "Talk" and "Ask", because they are two halves
- * of one choice about how to say something, and a verb pair reads as that where
- * a verb and a question word do not.
+ * Verbs throughout. "Talk" and "Type" rather than "Talk" and "Ask", because
+ * they are two halves of one choice about how to say something, and a verb pair
+ * reads as that where a verb and a question word do not. "Watch" is the third,
+ * and the one where the assistant does the looking rather than the user the
+ * saying.
  */
 function IdleBody({
   spotlight,
+  watching = false,
   onTalk,
   onType,
+  onWatch,
 }: {
   spotlight?: "talk" | "type";
+  /** Whether the session Watch starts is already running. */
+  watching?: boolean;
   onTalk?: () => void;
   onType?: () => void;
+  onWatch?: () => void;
 }) {
   return (
     <>
@@ -858,6 +970,18 @@ function IdleBody({
         showLabel
         active={spotlight === "type"}
         onClick={onType}
+      />
+      {/* Held down for as long as the session runs, so the row says which
+          control is holding the pill open and which press ends it. `pressed`
+          rather than `active`, because this one is a state and not a look: a
+          reader is told a session is running, where everything else this
+          surface does about it is a colour they never receive. */}
+      <PillButton
+        icon={<Eye className="size-4" />}
+        label="Watch"
+        showLabel
+        pressed={watching}
+        onClick={onWatch}
       />
     </>
   );
@@ -887,15 +1011,25 @@ function IdleBody({
  */
 function CallBody({
   call,
+  watching,
   onControl,
+  onWatch,
 }: {
   call?: VoiceActivityState;
+  watching: boolean;
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
+  onWatch?: () => void;
 }) {
   // The confirmation takes the row rather than crowding into it. The turn is
   // stopped until it is answered, so it is the only thing here worth pressing,
   // and a pill that tried to carry five controls would make each of them a
   // smaller target than the decision deserves.
+  //
+  // The watch session's stop control is among what it excludes. The row already
+  // measures within a couple of points of the canvas ceiling, and what a canvas
+  // too narrow does is clip its trailing control, so adding one here risks
+  // clipping Deny. A blocked turn is reading nothing while it waits, and
+  // answering it lands back on the row that carries the stop.
   if (call !== undefined && call.approvalRequestId !== "") {
     return (
       <ApprovalBody
@@ -924,6 +1058,10 @@ function CallBody({
       <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
         {line}
       </span>
+      {/* Beside what the session is doing rather than beside the end control:
+          two stops next to each other is a misclick that ends the wrong thing,
+          and only one of the two is irreversible. */}
+      {watching && <StopWatchingButton onWatch={onWatch} />}
       <PillButton
         icon={
           muted ? <MicOff className="size-4" /> : <Mic className="size-4" />
@@ -1012,11 +1150,45 @@ function ApprovalBody({
 }
 
 /**
+ * End the watch session, on whichever row the user is looking at.
+ *
+ * One component for the two that draw it, because the label is the whole of
+ * what this control says. It carries no words, so an accessible name that
+ * drifted between the composer and the call row would be two different controls
+ * to anyone reading the surface rather than looking at it, and this is the
+ * control a user reaches for precisely when they want the reading to stop.
+ *
+ * An action rather than a toggle, and so no pressed state: it goes one way, and
+ * it is drawn only while there is a session for it to end. Its name is what
+ * tells a reader both of those things at once, since a control offering to stop
+ * the watching is only there when something is being watched.
+ */
+function StopWatchingButton({ onWatch }: { onWatch?: () => void }) {
+  return (
+    <PillButton
+      icon={<EyeOff className="size-4" />}
+      label="Stop watching"
+      onClick={onWatch}
+    />
+  );
+}
+
+/**
  * A control in the pill.
  *
  * `label` is always the accessible name; it is only drawn when the pill has
  * room for words, which is why the call's controls are icon-only without being
  * unlabelled.
+ *
+ * **`active` and `pressed` are two props because they are two different
+ * claims.** `active` is a look: the demo reel draws a control as though a
+ * pointer were on it, and a highlight staged for a recording is not a state the
+ * control is in. `pressed` is the control's own on or off, which is a state,
+ * and reporting a highlight as one would tell a reader that Talk is switched on
+ * because a clip wanted it lit.
+ *
+ * `pressed` draws the same held-down look, so the state a looking user reads
+ * off the background and the state a reader is told cannot come apart.
  */
 function PillButton({
   icon,
@@ -1024,20 +1196,32 @@ function PillButton({
   tone,
   showLabel = false,
   active = false,
+  pressed,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
   tone?: "positive" | "negative";
   showLabel?: boolean;
-  /** Held down, for a control whose surface is currently open. */
+  /** Drawn as though the pointer were on it. A look, not a state. */
   active?: boolean;
+  /**
+   * On or off, for a control that genuinely toggles.
+   *
+   * Undefined for everything that does not, which is most of this surface: a
+   * button reporting a state it does not have is one assistive technology
+   * describes wrongly. Where it is set it carries the whole of that state to a
+   * reader, since the ring and the held-down background are both things only a
+   * looking user gets.
+   */
+  pressed?: boolean;
   onClick?: () => void;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
+      aria-pressed={pressed}
       title={label}
       onClick={onClick}
       // A press on a control is not the start of a drag. Without this the
@@ -1046,7 +1230,7 @@ function PillButton({
         event.stopPropagation();
       }}
       className={`flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
-        active ? "bg-white/15" : ""
+        active || pressed === true ? "bg-white/15" : ""
       } ${
         tone === "negative"
           ? "text-[#ff6b6b]"
