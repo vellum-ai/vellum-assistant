@@ -371,6 +371,38 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
     expect(result.runMessages).toEqual(messages);
   });
 
+  test("separate routing history directs v1 retrieval without replacing model history", async () => {
+    const memory = makeMemory();
+    const config = makeConfig(false);
+    const callerText = "What is my preferred editor?";
+    const continuationText = "Continue the answer.";
+    const routingMessages = makeMessages(callerText);
+    const messages: Message[] = [
+      ...routingMessages,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Let me check that." }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: continuationText }],
+      },
+    ];
+
+    const result = await memory.prepareMemory(
+      messages,
+      config,
+      new AbortController().signal,
+      noopEvent,
+      routingMessages,
+    );
+
+    expect(retrieveForTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userLastMessage: callerText }),
+    );
+    expect(result.runMessages).toEqual(messages);
+  });
+
   test("config on → v2 block prepended, mode is per-turn", async () => {
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
 
@@ -496,6 +528,51 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
         (call[0] as string).includes(assistantText),
       ),
     ).toBe(false);
+  });
+
+  test("separate routing history directs v2 retrieval while injection stays on model history", async () => {
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+
+    const memory = makeMemory();
+    const config = makeConfig(true);
+    const callerText = "What is my preferred editor?";
+    const continuationText = "Continue the answer.";
+    const routingMessages = makeMessages(callerText);
+    const messages: Message[] = [
+      ...routingMessages,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Let me check that." }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: continuationText }],
+      },
+    ];
+
+    const result = await memory.prepareMemory(
+      messages,
+      config,
+      new AbortController().signal,
+      noopEvent,
+      routingMessages,
+    );
+
+    expect(generateSparseEmbeddingMock.mock.calls).toContainEqual([callerText]);
+    expect(generateSparseEmbeddingMock.mock.calls).not.toContainEqual([
+      continuationText,
+    ]);
+    const tail = result.runMessages[result.runMessages.length - 1];
+    expect(tail?.role).toBe("user");
+    expect(tail?.content).toContainEqual({
+      type: "text",
+      text: continuationText,
+    });
+    expect(tail?.content[0]).toEqual(expect.objectContaining({ type: "text" }));
+    if (tail?.content[0]?.type !== "text") {
+      throw new Error("unexpected block type");
+    }
+    expect(tail.content[0].text).toContain("# memory/concepts/alice-vscode.md");
   });
 
   test("config on with empty Qdrant hits → no retrieved concepts in the v2 block, v1 fallback skipped", async () => {

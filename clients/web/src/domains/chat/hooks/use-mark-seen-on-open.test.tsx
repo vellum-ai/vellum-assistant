@@ -16,10 +16,8 @@ import { createElement, type ReactNode } from "react";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
-import {
-  conversationsQueryKey,
-  unreadConversationCountQueryKey,
-} from "@/utils/conversation-list-fetchers";
+import { unreadConversationCountQueryKey } from "@/utils/conversation-list-fetchers";
+import { conversationListQueryKey } from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 
 const seenCalls: Array<{ conversationId: string }> = [];
@@ -59,7 +57,7 @@ function setup(conversation: Conversation | undefined, unreadCount: number) {
     defaultOptions: { queries: { retry: false } },
   });
   client.setQueryData(
-    conversationsQueryKey(ASSISTANT_ID),
+    conversationListQueryKey(ASSISTANT_ID),
     listPage(conversation ? [conversation] : []),
   );
   client.setQueryData(
@@ -92,7 +90,7 @@ function readCount(client: QueryClient): number | null | undefined {
 
 function readUnseen(client: QueryClient): boolean | undefined {
   return client
-    .getQueryData<ConversationListPage>(conversationsQueryKey(ASSISTANT_ID))
+    .getQueryData<ConversationListPage>(conversationListQueryKey(ASSISTANT_ID))
     ?.conversations.find((c) => c.conversationId === "conv-1")
     ?.hasUnseenLatestAssistantMessage;
 }

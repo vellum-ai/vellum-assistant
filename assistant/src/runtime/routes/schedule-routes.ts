@@ -5,6 +5,9 @@
  * the shared ROUTES array.
  */
 
+import { statSync } from "node:fs";
+import { join } from "node:path";
+
 import { z } from "zod";
 
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
@@ -15,9 +18,10 @@ import {
   getUsageCostForRun,
   listRunConversationIds,
 } from "../../persistence/llm-usage-store.js";
+import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { isDeferSchedule } from "../../schedule/defer-provenance.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
-import { declarationExistsOnDisk } from "../../schedule/plugin-schedule-declarations.js";
+import { pluginScheduleSourceAvailable } from "../../schedule/plugin-schedule-availability.js";
 import { isPluginSchedulesEnabled } from "../../schedule/plugin-schedules-gate.js";
 import {
   describeRRuleExpression,
@@ -38,6 +42,7 @@ import {
   getLastScheduleConversationId,
   getSchedule,
   getScheduleRuns,
+  isEngineLatched,
   listSchedules,
   resolveScheduleConversationGroupId,
   type ScheduleJob,
@@ -49,6 +54,7 @@ import { buildWakeScheduleOptions } from "../../schedule/wake-schedule-options.j
 import { initializeTools } from "../../tools/registry.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { normalizeCapabilityManifest } from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
 import { isOwnerCaller } from "../auth/owner-caller.js";
@@ -108,6 +114,76 @@ async function assertWakeMutationAllowed(
 // Response schemas (shared by all schedule routes)
 // ---------------------------------------------------------------------------
 
+const DISARM_REASONS = [
+  "user_disabled",
+  "plugin_removed",
+  "plugin_disabled",
+  "declaration_removed",
+  "declaration_disabled",
+] as const;
+
+type DisarmReason = (typeof DISARM_REASONS)[number];
+
+/**
+ * Why a plugin-sourced schedule sits disarmed, so a client can say so instead
+ * of showing an off row with no explanation.
+ *
+ * Only a sourced row that is off can have one, which also bounds the disk
+ * probes below to those rows. The first matching cause wins, ordered so the
+ * most specific answer comes first: the user's own override outranks anything
+ * the plugin's files say, a plugin that is gone outranks one that is merely
+ * disabled, and a declaration that is gone outranks one that is still there.
+ * `declaration_disabled` is the fallback the plugin's own files account for:
+ * a declared `enabled: false`, a declaration too broken to arm, or a manifest
+ * that no longer parses.
+ *
+ * Two off states never get a reason, because in neither did the plugin's files
+ * turn the schedule off. A row the engine latched (a fired or cancelled
+ * one-shot, a bounded recurrence the claim path exhausted) is a schedule that
+ * finished, not one that is paused. And when the `plugin-schedules` kill switch
+ * is off the reconciler disarms every sourced row regardless of what its
+ * declaration says, so no per-row cause is the true one. Both return null, and
+ * clients show the row like any other schedule that is off.
+ */
+function deriveDisarmReason(
+  job: Pick<
+    ScheduleJob,
+    | "sourceKey"
+    | "enabled"
+    | "userEnabled"
+    | "status"
+    | "nextRunAt"
+    | "lastRunAt"
+  >,
+): DisarmReason | null {
+  if (job.sourceKey === null || job.enabled) {
+    return null;
+  }
+  if (job.userEnabled === false) {
+    return "user_disabled";
+  }
+  if (isEngineLatched(job) || !isPluginSchedulesEnabled()) {
+    return null;
+  }
+  const match = /^plugin:([^/]+)\/(.+)$/.exec(job.sourceKey);
+  if (!match) {
+    return null;
+  }
+  const [, pluginName, scheduleName] = match;
+  const pluginDir = join(getWorkspacePluginsDir(), pluginName!);
+  if (!statSync(pluginDir, { throwIfNoEntry: false })?.isDirectory()) {
+    return "plugin_removed";
+  }
+  if (isPluginDisabled(pluginName!)) {
+    return "plugin_disabled";
+  }
+  const declarationDir = join(pluginDir, "schedules", scheduleName!);
+  if (!statSync(declarationDir, { throwIfNoEntry: false })?.isDirectory()) {
+    return "declaration_removed";
+  }
+  return "declaration_disabled";
+}
+
 const scheduleSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -149,6 +225,12 @@ const scheduleSchema = z.object({
     .nullable()
     .describe(
       "User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value applies. Always null for user-created schedules.",
+    ),
+  disarmReason: z
+    .enum(DISARM_REASONS)
+    .nullable()
+    .describe(
+      "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled, the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule is on, and always null for user-created schedules.",
     ),
   isOneShot: z.boolean(),
   // A deferred wake ("remind me about this tomorrow") is an ordinary schedule
@@ -302,6 +384,7 @@ function serializeSchedule(
     workflowName: j.workflowName,
     sourceKey: j.sourceKey,
     userEnabled: j.userEnabled,
+    disarmReason: deriveDisarmReason(j),
     isOneShot: isOneShotForDisplay(j),
     isDeferred: isDeferSchedule(j.createdBy),
   };
@@ -1240,15 +1323,19 @@ async function handleRunScheduleNow(
 
   // A plugin-sourced row runs the plugin's own script or prompt, so run-now is
   // only offered while that plugin is something the runtime would activate.
-  // `declarationExistsOnDisk` is the same probe the enable path uses: it covers
-  // a disabled plugin, an unreadable or invalid manifest, and a declaration
-  // that is simply gone. Turning the feature flag off retires the surface
-  // wholesale and takes the same path. The row can still be armed at this
-  // point, because the reconciler that disarms it runs on its own schedule.
+  // `pluginScheduleSourceAvailable` covers a plugin the daemon never
+  // activated, a disabled plugin, an unreadable or invalid manifest, and a
+  // declaration that is simply gone. Turning the feature flag off retires the
+  // surface wholesale and takes the same path. The row can still be armed at
+  // this point, because the reconciler that disarms it runs on its own
+  // schedule.
+  // Routes are served by the daemon, so the activation half of the probe reads
+  // a live ledger here. Paths that run in worker processes cannot ask that
+  // question and use the on-disk probe alone.
   if (
     schedule.sourceKey !== null &&
     (!isPluginSchedulesEnabled() ||
-      !(await declarationExistsOnDisk(schedule.sourceKey)))
+      !(await pluginScheduleSourceAvailable(schedule.sourceKey)))
   ) {
     throw new BadRequestError(
       "This schedule's plugin is disabled or no longer declares it, so it cannot be run.",

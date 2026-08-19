@@ -1,3 +1,6 @@
+import { mkdirSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
+
 import {
   resolveImageGenCredentials,
   resolveImageGenRouting,
@@ -18,6 +21,87 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { getConfig } from "../../../loader.js";
+
+/** Workspace-relative directory where generated images are saved. */
+const GENERATED_MEDIA_DIR = "media/generated";
+
+/**
+ * Derive a filesystem-safe base name for a generated image from its title
+ * (when the provider returns one) or the generation prompt.
+ */
+function imageFileSlug(title: string | undefined, prompt: string): string {
+  const base = (title?.trim() || prompt)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, 48)
+    .replace(/-+$/, "");
+  return base || "image";
+}
+
+/** Upper bound on filename-collision retries per image. */
+const MAX_FILENAME_ATTEMPTS = 1000;
+
+/**
+ * Save generated images under `media/generated/` in the workspace so the
+ * model can reference them by path (inline embeds, edit-mode iteration).
+ * Each target path is validated through `sandboxPolicy` so a symlinked
+ * directory cannot redirect the write outside the workspace, and files are
+ * created exclusively (`wx`) so concurrent generations cannot claim the
+ * same filename. Returns workspace-relative paths for the images written
+ * before any failure; a failure stops the loop and is reported, not
+ * thrown, so the inline content blocks still reach the model.
+ */
+function saveGeneratedImages(
+  images: Array<{ mimeType: string; dataBase64: string; title?: string }>,
+  prompt: string,
+  workingDir: string,
+): { savedPaths: string[]; saveError?: string } {
+  const savedPaths: string[] = [];
+  try {
+    for (const img of images) {
+      const ext = img.mimeType.split("/")[1] ?? "png";
+      const slug = imageFileSlug(img.title, prompt);
+      let written = false;
+      for (let attempt = 1; attempt <= MAX_FILENAME_ATTEMPTS; attempt++) {
+        const relPath =
+          attempt === 1
+            ? `${GENERATED_MEDIA_DIR}/${slug}.${ext}`
+            : `${GENERATED_MEDIA_DIR}/${slug}-${attempt}.${ext}`;
+        const pathCheck = sandboxPolicy(join(workingDir, relPath), workingDir, {
+          mustExist: false,
+        });
+        if (!pathCheck.ok) {
+          throw new Error(pathCheck.error);
+        }
+        mkdirSync(dirname(pathCheck.resolved), { recursive: true });
+        try {
+          writeFileSync(
+            pathCheck.resolved,
+            Buffer.from(img.dataBase64, "base64"),
+            { flag: "wx" },
+          );
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+            continue;
+          }
+          throw error;
+        }
+        savedPaths.push(relPath);
+        written = true;
+        break;
+      }
+      if (!written) {
+        throw new Error(
+          `Could not find a free filename for "${slug}.${ext}" after ${MAX_FILENAME_ATTEMPTS} attempts.`,
+        );
+      }
+    }
+  } catch (error) {
+    return { savedPaths, saveError: (error as Error).message };
+  }
+  return { savedPaths };
+}
 
 export async function run(
   input: Record<string, unknown>,
@@ -127,7 +211,24 @@ export async function run(
     });
 
     const imageCount = result.images.length;
+    const { savedPaths, saveError } = saveGeneratedImages(
+      result.images,
+      prompt,
+      context.workingDir,
+    );
+
     let content = `Generated ${imageCount} image${imageCount !== 1 ? "s" : ""} using ${result.resolvedModel}.`;
+    if (savedPaths.length === 1) {
+      content += ` Saved to ${savedPaths[0]}.`;
+    } else if (savedPaths.length > 1) {
+      content += ` Saved to:\n${savedPaths.map((p) => `- ${p}`).join("\n")}`;
+    }
+    if (savedPaths.length > 0) {
+      content += `\n\nShow the user an image by embedding it in your reply: ![description](vellum://workspace/${savedPaths[0]}). To iterate on a result, pass its saved path via source_paths with mode "edit".`;
+    }
+    if (saveError) {
+      content += `\n\nCould not save to the workspace (${saveError}); the image${imageCount !== 1 ? "s" : ""} will be attached to your reply automatically instead.`;
+    }
     if (result.text) {
       content += `\n\n${result.text}`;
     }

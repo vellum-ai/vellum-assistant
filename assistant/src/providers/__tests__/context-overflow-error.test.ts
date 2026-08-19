@@ -239,6 +239,30 @@ describe("detectOpenAICompatibleContextOverflow", () => {
     expect(detectOpenAICompatibleContextOverflow(err)).toBeNull();
   });
 
+  test("matches OpenAI's per-part 10MiB string_above_max_length 400", () => {
+    const err = buildOpenAIApiError(400, {
+      message:
+        "Invalid 'input[191].content[1].text': string too long. Expected a string with maximum length 10485760, but got a string with length 11436754 instead.",
+      type: "invalid_request_error",
+      code: "string_above_max_length",
+    });
+    const out = detectOpenAICompatibleContextOverflow(err);
+    expect(out).not.toBeNull();
+    // Byte lengths in this message must not be misread as token counts.
+    expect(out?.actualTokens).toBeUndefined();
+    expect(out?.maxTokens).toBeUndefined();
+  });
+
+  test("returns null for string_above_max_length on a non-content field", () => {
+    const err = buildOpenAIApiError(400, {
+      message:
+        "Invalid 'tools[0].function.description': string too long. Expected a string with maximum length 1048576, but got a string with length 2000000 instead.",
+      type: "invalid_request_error",
+      code: "string_above_max_length",
+    });
+    expect(detectOpenAICompatibleContextOverflow(err)).toBeNull();
+  });
+
   test("matches 'too many input tokens' variant emitted by some OpenAI-compatible providers", () => {
     const err = buildOpenAIApiError(400, {
       message: "too many input tokens: 250000",

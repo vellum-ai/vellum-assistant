@@ -15,6 +15,9 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Bell } from "lucide-react";
+
+import { Button } from "@vellumai/design-library";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
@@ -23,6 +26,7 @@ import type { AvatarData } from "@/hooks/use-assistant-avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
+import { DRAWER_SURFACE_BACKGROUND } from "@/domains/chat/utils/drawer-surface";
 import { useAuthStore } from "@/stores/auth-store";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { savePinnedApps } from "@/utils/app-pin-storage";
@@ -422,5 +426,55 @@ export const CharacterAvatar: Story = {
     ...SHARED_ARGS,
     assistantId: "asst-character",
     assistantName: "Haze II",
+  },
+};
+
+/**
+ * The mobile drawer (Figma 7842-83305). Its own decorator, because the
+ * overlay's shell is not the desktop one: `chat-layout` mounts it as a
+ * full-bleed sheet over the chat, and the sheet's surface thins toward the
+ * chat edge, so the page behind it has to be there for the gradient to mean
+ * anything. The frame is a 402x874 phone.
+ */
+export const OverlayDrawer: Story = {
+  name: "Overlay drawer (mobile)",
+  parameters: { layout: "centered" },
+  beforeEach: () => seedViewMode("asst-overlay", "all"),
+  decorators: [
+    (Story) => (
+      <div className="relative h-[874px] w-[402px] overflow-hidden bg-[var(--surface-base)]">
+        {/* Stand-in for the chat the drawer covers: only its legibility
+            through the sheet is under test, not its own layout. */}
+        <div className="absolute inset-0 flex flex-col gap-3 p-4 pt-24 text-body-medium-lighter text-[var(--content-default)]">
+          <p>You&rsquo;re absolutely right, and thank you for correcting me.</p>
+          <p>
+            The decel valve draws its air from above the sensor plate, so CIS
+            has accounted for that air with a corresponding fuel increase.
+          </p>
+        </div>
+        <aside
+          className="absolute inset-0 flex flex-col"
+          style={{ background: DRAWER_SURFACE_BACKGROUND }}
+        >
+          <Story />
+        </aside>
+      </div>
+    ),
+  ],
+  args: {
+    ...SHARED_ARGS,
+    assistantId: "asst-overlay",
+    conversations: LONG_CONVERSATIONS,
+    variant: "overlay",
+    collapsed: false,
+    onClose: () => {},
+    /* `chat-layout` switches the trigger for the overlay; the story does the
+       same so the pill it shows is the one the drawer actually mounts. */
+    footerAction: (
+      <PreferencesMenu assistantId="asst-overlay" triggerVariant="pill" />
+    ),
+    notificationsAction: (
+      <Button variant="ghost" iconOnly={<Bell />} aria-label="Notifications" />
+    ),
   },
 };

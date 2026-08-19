@@ -2,7 +2,7 @@
  * Domain-level cache mutation helpers for conversations and groups.
  *
  * Each function is a thin `queryClient.setQueryData` wrapper so call sites
- * stay declarative. Low-level cache primitives (`updateConversationsCache`,
+ * stay declarative. Low-level cache primitives (`updateConversationListCache`,
  * `findConversation`, `patchConversation`) live in `@/utils/conversation-cache`.
  *
  * References:
@@ -31,30 +31,27 @@ import {
   findConversation,
   patchConversation,
   updateAllConversationCaches,
-  updateBackgroundConversationsCache,
-  updateConversationsCache,
-  updateScheduledConversationsCache,
+  updateConversationListCache,
 } from "@/utils/conversation-cache";
 import {
-  backgroundConversationsQueryKey,
-  conversationsQueryKey,
-  parseSectionConversationsQueryKey,
-  scheduledConversationsQueryKey,
-  sectionListPrefix,
+  type ConversationListPage,
+  type SidebarIndexSection,
+  listConversationsFirstPage,
+  listConversationsPage,
   sidebarSectionsQueryKey,
   unreadConversationCountQueryKey,
-  type SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
 import {
-  type ConversationListPage,
-  type SectionConversationFilter,
-  listBackgroundConversationsFirstPage,
-  listConversationsFirstPage,
-  listScheduledConversationsFirstPage,
-  listSectionConversationsFirstPage,
-  listSectionConversationsPage,
-  sectionConversationsQueryKey,
-} from "@/utils/conversation-list-fetchers";
+  BACKGROUND_FILTER,
+  type ConversationListFilter,
+  conversationListFilterOf,
+  conversationListPrefix,
+  conversationListQueryKey,
+  FOREGROUND_FILTER,
+  isArchivedFilter,
+  isPinnedInjectedFilter,
+  SCHEDULED_FILTER,
+} from "@/utils/conversation-list-keys";
 import {
   ConversationNotFoundError,
   fetchConversationDetail,
@@ -179,10 +176,12 @@ export function prependConversation(
   assistantId: string | null,
   conversation: Conversation,
 ): void {
-  updateConversationsCache(queryClient, assistantId, (conversations) => [
-    conversation,
-    ...conversations,
-  ]);
+  updateConversationListCache(
+    queryClient,
+    assistantId,
+    FOREGROUND_FILTER,
+    (conversations) => [conversation, ...conversations],
+  );
 }
 
 export function removeConversation(
@@ -257,10 +256,16 @@ export function applySurfacedConversation(
     findConversation(queryClient, assistantId, conversation.conversationId) ??
     conversation;
   const surfaced: Conversation = { ...latest, surfacedAt };
-  updateConversationsCache(queryClient, assistantId, (conversations) =>
-    conversations.some((c) => c.conversationId === conversation.conversationId)
-      ? conversations
-      : insertByRecency(conversations, surfaced),
+  updateConversationListCache(
+    queryClient,
+    assistantId,
+    FOREGROUND_FILTER,
+    (conversations) =>
+      conversations.some(
+        (c) => c.conversationId === conversation.conversationId,
+      )
+        ? conversations
+        : insertByRecency(conversations, surfaced),
   );
   patchConversation(queryClient, assistantId, conversation.conversationId, {
     surfacedAt,
@@ -293,12 +298,17 @@ export function surfaceConversationInCaches(
     return changed ? next : conversations;
   });
 
-  updateConversationsCache(queryClient, assistantId, (conversations) => [
-    surfacedConversation,
-    ...conversations.filter(
-      (c) => c.conversationId !== conversation.conversationId,
-    ),
-  ]);
+  updateConversationListCache(
+    queryClient,
+    assistantId,
+    FOREGROUND_FILTER,
+    (conversations) => [
+      surfacedConversation,
+      ...conversations.filter(
+        (c) => c.conversationId !== conversation.conversationId,
+      ),
+    ],
+  );
 }
 
 /**
@@ -371,53 +381,48 @@ export async function refreshConversationRow(
   }
 
   if (isScheduledConversation(result)) {
-    updateScheduledConversationsCache(
+    updateConversationListCache(
       queryClient,
       assistantId,
+      SCHEDULED_FILTER,
       (conversations) => [...conversations, result],
     );
     return;
   }
   if (isBackgroundConversation(result)) {
-    updateBackgroundConversationsCache(
+    updateConversationListCache(
       queryClient,
       assistantId,
+      BACKGROUND_FILTER,
       (conversations) => [...conversations, result],
     );
     return;
   }
-  updateConversationsCache(queryClient, assistantId, (conversations) => [
-    ...conversations,
-    result,
-  ]);
+  updateConversationListCache(
+    queryClient,
+    assistantId,
+    FOREGROUND_FILTER,
+    (conversations) => [...conversations, result],
+  );
 }
-
-const LIST_WINDOW_BUCKETS = [
-  {
-    queryKey: conversationsQueryKey,
-    fetchFirstPage: listConversationsFirstPage,
-  },
-  {
-    queryKey: backgroundConversationsQueryKey,
-    fetchFirstPage: listBackgroundConversationsFirstPage,
-  },
-  {
-    queryKey: scheduledConversationsQueryKey,
-    fetchFirstPage: listScheduledConversationsFirstPage,
-  },
-] as const;
 
 /**
  * Refresh the top window of every populated conversation-list cache with a
  * single first-page GET per cache, merging via {@link mergeListFirstPage}.
  *
- * Covers the three static buckets AND every populated per-section cache,
- * discovered through the section key prefix and decoded back to the filter
- * each was fetched with. A section cache is a *window* (LUM-2444): its
- * plain refetch is one first-page GET, but that refetch would also replace
- * the whole window with page one, throwing away every load-more page the
- * user scrolled in. Merging here keeps the loaded window and refreshes its
- * top, so a signal costs one request per cache and loses nothing.
+ * Covers every tracked list cache, bucket or section, discovered through
+ * the list prefix and read back to the filter each was fetched with (the
+ * filter is the key's `query`). A section cache is a *window* (LUM-2444):
+ * its plain refetch is one first-page GET, but that refetch would also
+ * replace the whole window with page one, throwing away every load-more
+ * page the user scrolled in. Merging here keeps the loaded window and
+ * refreshes its top, so a signal costs one request per cache and loses
+ * nothing.
+ *
+ * The archived caches are the exception and stay on plain invalidation
+ * (`use-conversation-sync.ts`): they are ordered by `archivedAt`, while
+ * every daemon page is recency-ordered and the merge's window cutoff is a
+ * recency axis, so a merged archived list would come out mis-ordered.
  *
  * Drives the `conversationsList` sync-tag and SSE-reconnect handlers in
  * `use-conversation-sync.ts`. The full list query drains every page
@@ -459,7 +464,9 @@ export async function refreshConversationListWindows(
     const before = queryClient.getQueryData<ConversationListPage>(queryKey);
     if (before === undefined) {
       if (fetchStatus === "idle") {
-        await queryClient.invalidateQueries({ queryKey });
+        /* Exact: this cache alone. As a partial filter the foreground key
+           (`query: {}`) would match every list cache. */
+        await queryClient.invalidateQueries({ queryKey, exact: true });
       }
       return;
     }
@@ -488,39 +495,23 @@ export async function refreshConversationListWindows(
     );
   };
 
-  const bucketRefreshes = LIST_WINDOW_BUCKETS.map(async (bucket) => {
-    const queryKey = bucket.queryKey(assistantId);
-    const state = queryClient.getQueryState<ConversationListPage>(queryKey);
-    if (!state) {
-      return;
-    }
-    await refresh(
-      queryKey,
-      state.fetchStatus,
-      () => bucket.fetchFirstPage(assistantId),
-      /* The one request the daemon appends pinned rows to is the unfiltered
-         foreground list; see mergeListFirstPage. */
-      bucket.queryKey === conversationsQueryKey,
-    );
-  });
-
-  const sectionRefreshes = queryClient
+  const refreshes = queryClient
     .getQueryCache()
-    .findAll({ queryKey: sectionListPrefix(assistantId) })
+    .findAll({ queryKey: conversationListPrefix(assistantId) })
     .map(async (query) => {
-      const filter = parseSectionConversationsQueryKey(query.queryKey);
-      if (!filter) {
+      const filter = conversationListFilterOf(query.queryKey);
+      if (!filter || isArchivedFilter(filter)) {
         return;
       }
       await refresh(
         query.queryKey,
         query.state.fetchStatus,
-        () => listSectionConversationsFirstPage(assistantId, filter),
-        false,
+        () => listConversationsFirstPage(assistantId, filter),
+        isPinnedInjectedFilter(filter),
       );
     });
 
-  await Promise.all([...bucketRefreshes, ...sectionRefreshes]);
+  await Promise.all(refreshes);
 }
 
 export function resolveDraftKey(
@@ -529,17 +520,22 @@ export function resolveDraftKey(
   oldKey: string,
   newKey: string,
 ): void {
-  updateConversationsCache(queryClient, assistantId, (conversations) => {
-    let changed = false;
-    const next = conversations.map((c) => {
-      if (c.conversationId !== oldKey) {
-        return c;
-      }
-      changed = true;
-      return { ...c, conversationId: newKey, draft: false };
-    });
-    return changed ? next : conversations;
-  });
+  updateConversationListCache(
+    queryClient,
+    assistantId,
+    FOREGROUND_FILTER,
+    (conversations) => {
+      let changed = false;
+      const next = conversations.map((c) => {
+        if (c.conversationId !== oldKey) {
+          return c;
+        }
+        changed = true;
+        return { ...c, conversationId: newKey, draft: false };
+      });
+      return changed ? next : conversations;
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -662,10 +658,10 @@ export function deleteGroupAndResetConversations(
  * would need a per-offset query key for a page that is appended into
  * another key's cache rather than owned by its own.
  */
-const sectionLoadsInFlight = new Set<string>();
+const loadsInFlight = new Set<string>();
 
 /**
- * Extend a windowed section cache by one page.
+ * Extend a windowed list cache by one page.
  *
  * The offset is the cache's current row count at request time, not a stored
  * cursor: optimistic writes add and remove rows, and a frozen cursor would
@@ -682,23 +678,23 @@ const sectionLoadsInFlight = new Set<string>();
  *
  * No-op when the cache is absent (nothing to extend) or already complete.
  */
-export async function loadMoreSectionConversations(
+export async function loadMoreConversations(
   queryClient: QueryClient,
   assistantId: string,
-  filter: SectionConversationFilter,
+  filter: ConversationListFilter,
 ): Promise<void> {
-  const queryKey = sectionConversationsQueryKey(assistantId, filter);
+  const queryKey = conversationListQueryKey(assistantId, filter);
   const guardKey = hashKey(queryKey);
-  if (sectionLoadsInFlight.has(guardKey)) {
+  if (loadsInFlight.has(guardKey)) {
     return;
   }
   const before = queryClient.getQueryData<ConversationListPage>(queryKey);
   if (!before || !before.hasMore) {
     return;
   }
-  sectionLoadsInFlight.add(guardKey);
+  loadsInFlight.add(guardKey);
   try {
-    const page = await listSectionConversationsPage(
+    const page = await listConversationsPage(
       assistantId,
       filter,
       before.conversations.length,
@@ -713,6 +709,6 @@ export async function loadMoreSectionConversations(
       hasMore: page.hasMore,
     });
   } finally {
-    sectionLoadsInFlight.delete(guardKey);
+    loadsInFlight.delete(guardKey);
   }
 }

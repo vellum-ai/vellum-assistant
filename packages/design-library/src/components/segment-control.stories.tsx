@@ -1,4 +1,5 @@
 import { Monitor, Moon, Sun } from "lucide-react";
+import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useArgs } from "storybook/preview-api";
 import { expect, screen, userEvent, waitFor } from "storybook/test";
@@ -35,6 +36,29 @@ const THEME_ITEMS: SegmentControlItem<DemoValue>[] = [
   { value: "dark", label: "Dark", icon: <Moon className="h-4 w-4" /> },
 ];
 
+/**
+ * A tap as Safari sequences it: the compatibility mouse burst, and so `focus`,
+ * arrives after `pointerup` rather than between `pointerdown` and it. Written
+ * out by hand because `userEvent` emits the Chromium ordering, in which focus
+ * lands while the pointer is still down.
+ */
+function dispatchSafariTap(target: HTMLElement) {
+  const touch = {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    pointerId: 1,
+    isPrimary: true,
+    pointerType: "touch",
+  } as const;
+  target.dispatchEvent(new PointerEvent("pointerdown", touch));
+  target.dispatchEvent(new PointerEvent("pointerup", touch));
+  // Radix clears its pointer-down flag from a document-level `pointerup`.
+  document.dispatchEvent(new PointerEvent("pointerup", touch));
+  target.focus();
+  target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
 const meta: Meta<typeof SegmentControl<DemoValue>> = {
   title: "Components/SegmentControl",
   component: SegmentControl,
@@ -43,7 +67,6 @@ const meta: Meta<typeof SegmentControl<DemoValue>> = {
     value: "medium",
     ariaLabel: "Size",
     iconOnly: false,
-    showTooltips: true,
   },
   argTypes: {
     items: { control: false },
@@ -53,7 +76,6 @@ const meta: Meta<typeof SegmentControl<DemoValue>> = {
       options: [...SIZE_ITEMS.map((item) => item.value), null],
     },
     iconOnly: { control: "boolean" },
-    showTooltips: { control: "boolean" },
     className: { control: false },
   },
   // Controlled: drive `value` from the arg and write it back on change so the
@@ -92,13 +114,9 @@ export const Default: Story = {};
 
 /**
  * Icon-only mode: each segment renders its `icon` alone and promotes `label`
- * to the button's `aria-label`, with a hover/focus tooltip carrying the label
- * for sighted pointer users.
- *
- * The play function is the control half of the pair this story forms with
- * {@link IconOnlyWithoutTooltips}: it proves a hover really does open a
- * tooltip here, so the negative assertion over there cannot pass merely
- * because hovering did nothing.
+ * to the button's `aria-label`, with a tooltip carrying the label for sighted
+ * pointer users. {@link IconOnlyTooltipBehaviour} is the interactive sibling
+ * that exercises when that tooltip appears.
  */
 export const IconOnly: Story = {
   args: {
@@ -106,7 +124,6 @@ export const IconOnly: Story = {
     value: "system",
     ariaLabel: "Theme",
     iconOnly: true,
-    showTooltips: true,
   },
   argTypes: {
     value: {
@@ -114,50 +131,72 @@ export const IconOnly: Story = {
       options: [...THEME_ITEMS.map((item) => item.value), null],
     },
   },
-  play: async () => {
-    await userEvent.hover(await screen.findByRole("radio", { name: "Light" }));
-    await waitFor(() => {
-      expect(screen.getByRole("tooltip")).toHaveTextContent("Light");
-    });
-  },
 };
 
 /**
- * The same control with `showTooltips={false}`. Exactly one call site passes
- * it, `theme-toggle.tsx`, as `showTooltips={!pointerCoarse}`, so this is the
- * treatment every touch user gets and {@link IconOnly} is the desktop one.
- * Suppressing the tooltip leaves the `aria-label` as the only label, which
- * screen readers still read.
+ * The interactive sibling of {@link IconOnly}, owning `value` in local state
+ * rather than through `useArgs`. Arg writes reach the canvas over the preview
+ * channel, which the test runner does not turn, so a tap in an args-backed
+ * story would leave the selection unchanged there and identical assertions
+ * would mean different things in Storybook and in CI.
  *
- * This story documents the branch as the prop currently defines it. Whether
- * the prop should exist at all is a separate question: the rationale in its
- * docstring is about tooltips on touch generally, which would make it a
- * property of the Tooltip primitive rather than of this one component.
+ * It pins the pointer-dependence of the tooltip. A tap leaves none behind, and
+ * a hover opens one. Both halves are needed: the hover is what stops the tap
+ * assertions passing vacuously, since a harness that dispatched nothing at all
+ * would satisfy them and fail the hover.
  *
- * A regression that ignored the prop would render identically to
- * {@link IconOnly}, which is precisely what the play function catches: the
- * segments here are plain buttons, not tooltip triggers, so no tooltip opens
- * and none of Radix's trigger state (`data-state`, `aria-describedby`) is
- * mounted on them at all.
+ * Two tap orderings are checked, because browsers disagree about when focus
+ * lands. Chromium delivers it inside the pointer sequence, where Radix's
+ * pointer-down flag is still set and suppresses the focus-open, so nothing
+ * opens at all. Safari delivers focus in the compatibility mouse burst *after*
+ * `pointerup`, by which point that flag is clear: focus does open the tooltip,
+ * and the `click` from the same burst closes it a render later. `userEvent`
+ * emits only the Chromium sequence, so the Safari one is dispatched by hand.
+ *
+ * The gestures that would strand a label are the ones with no `click` to close
+ * it, and they are unreachable for the same reason: a scroll cancels the touch
+ * and a long press takes the callout path, and neither delivers `focus`
+ * either, so neither opens anything to begin with.
  */
-export const IconOnlyWithoutTooltips: Story = {
-  args: {
-    ...IconOnly.args,
-    showTooltips: false,
+export const IconOnlyTooltipBehaviour: Story = {
+  args: { ...IconOnly.args },
+  // The story owns `value`, so the Controls entry for it would be dead.
+  parameters: { controls: { disable: true } },
+  render: function Render(args) {
+    const [value, setValue] = useState<DemoValue | null>("system");
+    return <SegmentControl {...args} value={value} onChange={setValue} />;
   },
-  argTypes: IconOnly.argTypes,
   play: async () => {
     const segment = await screen.findByRole("radio", { name: "Light" });
-    await userEvent.hover(segment);
 
-    // Radix stamps `data-state` on every tooltip trigger it mounts, open or
-    // closed, and `aria-describedby` once one opens. A segment carrying
-    // neither was never wrapped in a Tooltip at all, so there is nothing that
-    // could open on hover or linger after a tap. That is a stronger claim
-    // than "no tooltip happened to be visible when we looked".
-    expect(segment).not.toHaveAttribute("data-state");
-    expect(segment).not.toHaveAttribute("aria-describedby");
-    expect(screen.queryByRole("tooltip")).toBeNull();
+    /**
+     * No tooltip may survive a tap. A transient one is tolerated, because the
+     * Safari ordering opens on focus and closes on the `click` from the same
+     * burst, and those are separate renders. What must not happen is a tooltip
+     * that is still there once the dust settles, or one that arrives later:
+     * hence settling first and then holding the absence across the open delay,
+     * rather than sampling once.
+     */
+    const expectNoTooltipSurvivesTap = async () => {
+      await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
+      await expect(
+        waitFor(() => expect(screen.getByRole("tooltip")).toBeInTheDocument(), {
+          timeout: 600,
+        }),
+      ).rejects.toThrow();
+    };
+
+    await userEvent.pointer({ keys: "[TouchA]", target: segment });
+    await expectNoTooltipSurvivesTap();
+
+    segment.blur();
+    dispatchSafariTap(segment);
+    await expectNoTooltipSurvivesTap();
+
+    await userEvent.hover(segment);
+    await waitFor(() => {
+      expect(screen.getByRole("tooltip")).toHaveTextContent("Light");
+    });
   },
 };
 

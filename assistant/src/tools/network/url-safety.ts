@@ -1,23 +1,16 @@
 import { lookup } from "node:dns/promises";
 
+import {
+  looksLikeHostPortShorthand,
+  looksLikePathOnlyInput,
+} from "@vellumai/service-contracts/url-normalization";
+
 export type ResolveHostAddresses = (hostname: string) => Promise<string[]>;
 
-export function looksLikeHostPortShorthand(value: string): boolean {
-  if (/^\[[0-9a-fA-F:.%]+\]:\d+(?:[/?#]|$)/.test(value)) {
-    return true;
-  }
-  return /^[^/?#@\s:]+:\d+(?:[/?#]|$)/.test(value);
-}
-
-export function looksLikePathOnlyInput(value: string): boolean {
-  return (
-    value.startsWith("/") ||
-    value.startsWith("./") ||
-    value.startsWith("../") ||
-    value.startsWith("?") ||
-    value.startsWith("#")
-  );
-}
+// The URL input-shape predicates are defined once, beside the canonicalizer
+// the gateway builds trust-rule patterns with, so what counts as a `host:port`
+// or a path here is what counts there. Re-exported for existing consumers.
+export { looksLikeHostPortShorthand, looksLikePathOnlyInput };
 
 export function parseUrl(input: unknown): URL | null {
   if (typeof input !== "string") {

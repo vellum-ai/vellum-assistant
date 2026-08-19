@@ -10,6 +10,7 @@ const {
   GuardianTokenError,
   hatchLocalAssistant,
   loadLockfileHost,
+  renameLockfileAssistantHost,
   saveLockfileAssistantHost,
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
@@ -216,6 +217,77 @@ describe("saveLockfileAssistantHost", () => {
       { assistantId: "a-1" },
       "a-1",
     );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("renameLockfileAssistantHost", () => {
+  test("web/dev host POSTs the rename body shape to the lockfile middleware", async () => {
+    const lockfile = { assistants: [], activeAssistant: null };
+    const fetchMock = mock(async () => ({
+      json: async () => ({ ok: true, lockfile }),
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await renameLockfileAssistantHost("a-1", "Credence");
+
+    expect(result).toEqual({ ok: true, lockfile });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("/assistant/__local/lockfile");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      rename: { assistantId: "a-1", name: "Credence" },
+    });
+  });
+
+  test("web/dev host surfaces the host's structured refusal", async () => {
+    globalThis.fetch = mock(async () => ({
+      json: async () => ({ ok: false, error: "No lockfile entry" }),
+    })) as unknown as typeof fetch;
+
+    const result = await renameLockfileAssistantHost("gone", "Credence");
+
+    expect(result).toEqual({ ok: false, error: "No lockfile entry" });
+  });
+
+  test("Electron host renames through the bridge and never touches fetch", async () => {
+    const renameLockfileAssistant = mock(async () => ({
+      ok: true,
+      lockfile: {},
+    }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ renameLockfileAssistant });
+
+    await renameLockfileAssistantHost("a-1", "Credence");
+
+    expect(renameLockfileAssistant).toHaveBeenCalledWith("a-1", "Credence");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("older Electron shell without the channel refuses without falling back to the upsert", async () => {
+    const saveLockfileAssistant = mock(async () => ({
+      ok: true,
+      lockfile: {},
+    }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ saveLockfileAssistant });
+
+    const result = await renameLockfileAssistantHost("a-1", "Credence");
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Renaming is not supported by this app version",
+    });
+    expect(saveLockfileAssistant).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

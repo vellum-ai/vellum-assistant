@@ -71,7 +71,6 @@ mock.module("../plugins/defaults/memory/substrate/edge-index.js", () => ({
   getEdgeIndex: async (): Promise<EdgeIndex> => edgeIndex,
   invalidateEdgeIndex: () => {},
   getReachable: () => new Set<string>(),
-  validateEdgeTargets: () => ({ ok: true, missing: [] }),
   totalEdgeCount: () => 0,
 }));
 

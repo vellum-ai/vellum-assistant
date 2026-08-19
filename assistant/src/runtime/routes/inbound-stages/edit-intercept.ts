@@ -11,20 +11,23 @@
  * the message's metadata via a single transactional content+metadata update,
  * so downstream renderers can surface the edited marker.
  *
- * Extracted from inbound-message-handler.ts to keep the top-level handler
- * focused on orchestration.
+ * An edit belongs to the conversation of the message it changes, so the stage
+ * resolves that message before it records anything, and an edit with no
+ * resolvable target is dropped.
  */
 import type { ChannelId } from "../../../channels/types.js";
 import {
   mergeSlackMetadata,
   readSlackMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
+import type { MessageRow } from "../../../persistence/conversation-crud.js";
 import {
   getMessageById,
   updateMessageContent,
   updateMessageContentAndMetadata,
 } from "../../../persistence/conversation-crud.js";
 import {
+  findInboundEvent,
   findMessageBySourceId,
   recordInbound,
 } from "../../../persistence/delivery-crud.js";
@@ -71,19 +74,19 @@ export async function handleEditIntercept(
     content,
   } = params;
 
-  // Dedup the edit event itself (retried edited_message webhooks)
-  const editResult = recordInbound(
+  // Dedup the edit event itself (retried edited_message webhooks) before the
+  // lookup below, so a redelivery answers immediately instead of waiting out
+  // the retry window a second time.
+  const alreadyRecorded = findInboundEvent(
     sourceChannel,
     conversationExternalId,
     externalMessageId,
-    { sourceMessageId, sourceThreadId },
   );
-
-  if (editResult.duplicate) {
+  if (alreadyRecorded) {
     return {
       accepted: true,
       duplicate: true,
-      eventId: editResult.eventId,
+      eventId: alreadyRecorded.eventId,
     };
   }
 
@@ -117,81 +120,100 @@ export async function handleEditIntercept(
     }
   }
 
-  if (original) {
-    const newContent = content ?? "";
-    // Short-circuit no-op edits: Slack fires `message_changed` for link
-    // unfurls and other decorations where the text is identical to the
-    // previous revision. Skipping the DB write here covers that case and
-    // also drops trivially-redundant edit webhooks. We only have the
-    // authoritative previous text once the original row is located, so
-    // this check lives after the lookup.
-    const existingRow = getMessageById(original.messageId);
-    if (
-      existingRow &&
-      stringifyMessageContent(existingRow.content) === newContent
-    ) {
-      log.debug(
-        {
-          assistantId,
-          sourceChannel,
-          sourceMessageId,
-          messageId: original.messageId,
-        },
-        "Edit text unchanged; skipping update",
-      );
-      return {
-        accepted: true,
-        duplicate: false,
-        noop: true,
-        eventId: editResult.eventId,
-      };
-    }
+  if (!original) {
+    // Nothing to edit, and nothing to record it against: recording it anyway
+    // would resolve a conversation from the edit's own address and create one
+    // there.
+    //
+    // Slack keeps this at `debug`, since the row may have been compacted or
+    // never stored. Other channels keep the louder `warn`, since their edit
+    // pipelines expect the row to exist.
+    const missingTarget = {
+      assistantId,
+      sourceChannel,
+      conversationExternalId,
+      sourceMessageId,
+    };
     if (sourceChannel === "slack") {
-      // Slack edits stamp `slackMeta.editedAt` so the chronological
-      // transcript renderer can surface the edited marker. The merge
-      // tolerates rows that lack slackMeta enrichment by synthesizing
-      // the minimum-required fields from the lookup data.
-      applySlackEditMetadata({
-        messageId: original.messageId,
-        conversationExternalId,
-        sourceMessageId,
-        sourceThreadId,
-        newContent,
-      });
-    } else {
-      updateMessageContent(original.messageId, newContent);
-    }
-    // The edit changed searchable text (the no-op guard above already returned
-    // for identical content) and this path bypasses the `addMessage` persist
-    // path, so reindex the message into the lexical index — the idempotent
-    // upsert replaces the stale Qdrant point with the edited content.
-    enqueueLexicalIndexForMessage(original.messageId);
-    log.info(
-      { assistantId, sourceMessageId, messageId: original.messageId },
-      "Updated message content from edited_message",
-    );
-  } else {
-    // For Slack, treat missing-target edits as `debug` (the row may have
-    // been compacted, never stored, or pre-date this upgrade); for other
-    // channels, retain the louder `warn` since their edit pipelines
-    // historically expect the row to exist.
-    if (sourceChannel === "slack") {
-      log.debug(
-        {
-          assistantId,
-          sourceChannel,
-          channelId: conversationExternalId,
-          externalMessageId: sourceMessageId,
-        },
-        "Slack edit target not found, ignoring",
-      );
+      log.debug(missingTarget, "Slack edit target not found, ignoring");
     } else {
       log.warn(
-        { assistantId, sourceChannel, conversationExternalId, sourceMessageId },
+        missingTarget,
         "Could not find original message for edit after retries, ignoring",
       );
     }
+    return { accepted: true, duplicate: false, edited: false };
   }
+
+  // The edit belongs to the conversation of the message it changes. Resolving
+  // one from the edit's own address would key it on the edited message's
+  // timestamp and create a conversation there.
+  const editResult = recordInbound(
+    sourceChannel,
+    conversationExternalId,
+    externalMessageId,
+    { sourceMessageId, conversationId: original.conversationId },
+  );
+  if (editResult.duplicate) {
+    // Two deliveries of one edit raced through the probe above while neither
+    // had recorded yet. The first owns the write; applying it twice would
+    // re-enqueue lexical indexing for no change.
+    return { accepted: true, duplicate: true, eventId: editResult.eventId };
+  }
+
+  const newContent = content ?? "";
+  // Short-circuit no-op edits: Slack fires `message_changed` for link
+  // unfurls and other decorations where the text is identical to the
+  // previous revision. Skipping the DB write here covers that case and
+  // also drops trivially-redundant edit webhooks. We only have the
+  // authoritative previous text once the original row is located, so
+  // this check lives after the lookup.
+  const existingRow = getMessageById(original.messageId);
+  if (
+    existingRow &&
+    stringifyMessageContent(existingRow.content) === newContent
+  ) {
+    log.debug(
+      {
+        assistantId,
+        sourceChannel,
+        sourceMessageId,
+        messageId: original.messageId,
+      },
+      "Edit text unchanged; skipping update",
+    );
+    return {
+      accepted: true,
+      duplicate: false,
+      noop: true,
+      eventId: editResult.eventId,
+    };
+  }
+  if (sourceChannel === "slack") {
+    // Slack edits stamp `slackMeta.editedAt` so the chronological
+    // transcript renderer can surface the edited marker. The merge
+    // tolerates rows that lack slackMeta enrichment by synthesizing
+    // the minimum-required fields from the lookup data.
+    applySlackEditMetadata({
+      messageId: original.messageId,
+      existingRow,
+      conversationExternalId,
+      sourceMessageId,
+      sourceThreadId,
+      newContent,
+    });
+  } else {
+    updateMessageContent(original.messageId, newContent);
+  }
+  // The edit changed searchable text (the no-op guard above already returned
+  // for identical content) and this path bypasses the `addMessage` persist
+  // path, so reindex the message into the lexical index — the idempotent
+  // upsert replaces the stale Qdrant point with the edited content.
+  enqueueLexicalIndexForMessage(original.messageId);
+  log.info(
+    { assistantId, sourceMessageId, messageId: original.messageId },
+    "Updated message content from edited_message",
+  );
 
   return {
     accepted: true,
@@ -217,6 +239,8 @@ export async function handleEditIntercept(
  */
 function applySlackEditMetadata(params: {
   messageId: string;
+  /** The stored row, already read by the caller's no-op guard. */
+  existingRow: MessageRow | null;
   conversationExternalId: string;
   sourceMessageId: string;
   sourceThreadId?: string;
@@ -224,13 +248,13 @@ function applySlackEditMetadata(params: {
 }): void {
   const {
     messageId,
+    existingRow: row,
     conversationExternalId,
     sourceMessageId,
     sourceThreadId,
     newContent,
   } = params;
 
-  const row = getMessageById(messageId);
   const outerMetadata: Record<string, unknown> =
     row?.metadata != null ? safeParseRecord(row.metadata) : {};
   const existingSlackMeta =

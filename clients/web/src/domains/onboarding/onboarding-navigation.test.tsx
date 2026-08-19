@@ -31,6 +31,20 @@ let searchParamsValue = new URLSearchParams();
 mock.module("react-router", () => ({
   useNavigate: () => navigateMock,
   useSearchParams: () => [searchParamsValue, mock(() => {})],
+  // The welcome screen's shared chrome renders a `Link` for the secondary
+  // action on the surfaces that navigate rather than handle it in place.
+  Link: ({
+    to,
+    children,
+    ...rest
+  }: {
+    to: string;
+    children: React.ReactNode;
+  } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
+  ),
 }));
 
 let localAssistants = false;
@@ -75,7 +89,7 @@ mock.module("@/stores/resolved-assistants-store", () => ({
   useResolvedAssistantsStore: { use: { assistants: () => [] } },
 }));
 
-mock.module("@/domains/onboarding/components/onboarding-layout", () => ({
+mock.module("@/components/onboarding-layout", () => ({
   OnboardingLayout: ({ children }: { children: ReactNode }) => children,
 }));
 

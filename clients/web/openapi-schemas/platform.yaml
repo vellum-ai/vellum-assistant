@@ -4522,6 +4522,64 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/organizations/billing/daily-credit-limit/skip-today/:
+    post:
+      operationId: organizations_billing_daily_credit_limit_skip_today_create
+      description: |-
+        Skip the daily limit for the rest of the current UTC day.
+
+        Idempotent: skipping an already-skipped day rewrites the same bucket.
+        Rejected with 400 when no limit is configured, so the client can never
+        record a skip that has nothing to suspend.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyCreditLimitResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    delete:
+      operationId: organizations_billing_daily_credit_limit_skip_today_destroy
+      description: Restore the daily limit immediately, ending an active skip early.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyCreditLimitResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/billing/invoices/:
     get:
       operationId: organizations_billing_invoices_retrieve
@@ -6595,8 +6653,14 @@ components:
             "0.00" when the stored counter is from a prior UTC day.
         daily_limit_reached:
           type: boolean
-          description: True when a daily limit is set and today's spend has reached
-            it.
+          description: True when a daily limit is set, today's spend has reached it,
+            and the limit is being enforced. False while the limit is skipped for
+            the day (see daily_limit_snoozed). Drives the in-app daily-limit banner.
+        daily_limit_snoozed:
+          type: boolean
+          description: True when the daily limit has been skipped for the current
+            UTC day, so it is not enforced until the next reset. Auto top-up is unaffected
+            and keeps charging.
         low_balance_threshold_usd:
           type: string
           description: Effective low-balance alert threshold in USD as a decimal string
@@ -6623,6 +6687,7 @@ components:
       - credits_expiring_soon_usd
       - daily_credit_limit_usd
       - daily_limit_reached
+      - daily_limit_snoozed
       - daily_spend_usd
       - effective_balance
       - effective_balance_usd
@@ -6970,9 +7035,16 @@ components:
         day_bucket:
           type: string
           nullable: true
+        daily_limit_snoozed:
+          type: boolean
+        daily_limit_snoozed_day_bucket:
+          type: string
+          nullable: true
       required:
       - current_day_spent_usd
       - daily_credit_limit_usd
+      - daily_limit_snoozed
+      - daily_limit_snoozed_day_bucket
       - day_bucket
     DetailResponse:
       type: object

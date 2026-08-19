@@ -174,9 +174,10 @@ function regexToOpenApiPath(escaped: string): string | null {
   path = path.replace(/\(\?(?:=|!|<=|<!).*?\)/g, "");
 
   // Replace capture groups with numbered params.
-  // Handles both `([^/]+)` (single segment) and `(.+)` (greedy) patterns.
+  // Handles `([^/]+)` (single segment), `(.+)` (greedy), and `(.+?)`
+  // (non-greedy, used when an optional trailing slash sits outside the group).
   let paramIndex = 0;
-  path = path.replace(/\(\[\^\/\]\+\)|\(\.\+\)/g, () => {
+  path = path.replace(/\(\[\^\/\]\+\)|\(\.\+\??\)/g, () => {
     paramIndex++;
     return `{param${paramIndex}}`;
   });
@@ -205,6 +206,10 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   "/v1/remote-web/pairing-verification",
   // Remote web pairing token bootstrap — not part of the public gateway API
   "/v1/remote-web/pairing-token",
+  // Loopback-only pairing-request approval surface: not part of the public gateway API
+  "/v1/remote-web/pairing-requests",
+  "/v1/remote-web/pairing-requests/approve",
+  "/v1/remote-web/pairing-requests/deny",
   // Loopback-only device management — not part of the public gateway API
   "/v1/devices",
   "/v1/devices/revoke",

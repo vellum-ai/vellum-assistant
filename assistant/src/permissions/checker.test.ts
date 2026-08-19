@@ -171,9 +171,9 @@ mock.module("../tools/network/url-safety.js", () => ({
 // ── ipcClassifyRisk mock ─────────────────────────────────────────────────────
 // This is the core mock — all classification goes through this.
 
-import type { ClassificationResult } from "./ipc-risk-types.js";
+import type { ClassifyRiskIpcResponse } from "@vellumai/gateway-client";
 
-let mockIpcClassifyRiskResult: ClassificationResult | undefined;
+let mockIpcClassifyRiskResult: ClassifyRiskIpcResponse | undefined;
 let lastClassifyRiskParams: Record<string, unknown> | undefined;
 
 mock.module("../ipc/gateway-client.js", () => ({
@@ -204,9 +204,7 @@ import type { Tool, ToolContext } from "../tools/types.js";
 import {
   check,
   classifyRisk,
-  generateAllowlistOptions,
   generateScopeOptions,
-  getCachedAssessment,
   isInstalledStaticSkillLoad,
 } from "./checker.js";
 import { RiskLevel } from "./types.js";
@@ -352,36 +350,9 @@ describe("Permission Checker (gateway IPC)", () => {
       expect(lastClassifyRiskParams?.resolvedWorkingDir).toBeUndefined();
     });
 
-    test("caches results for identical inputs", async () => {
-      mockIpcClassifyRiskResult = {
-        risk: "low",
-        reason: "Cached test",
-        matchType: "registry",
-        scopeOptions: [],
-      };
-
-      // First call
-      const result1 = await classifyRisk("file_read", { path: "/tmp/a.txt" });
-      expect(result1.level).toBe(RiskLevel.Low);
-
-      // Change the mock to verify cache is used
-      mockIpcClassifyRiskResult = {
-        risk: "high",
-        reason: "Should not see this",
-        matchType: "registry",
-        scopeOptions: [],
-      };
-
-      // Second call with same inputs should return cached result
-      const result2 = await classifyRisk("file_read", { path: "/tmp/a.txt" });
-      expect(result2.level).toBe(RiskLevel.Low);
-      expect(result2.reason).toBe("Cached test");
-    });
-
-    test("file-tool cache misses when a symlink target is retargeted", async () => {
-      // File risk depends on filesystem state: the cache key folds in the
-      // symlink-resolved target, so the same raw input must NOT return a stale
-      // cached result after the symlink is pointed somewhere new.
+    test("a retargeted symlink is reflected on the next classification of the same raw input", async () => {
+      // File risk depends on filesystem state; nothing in the daemon memoises
+      // a classification, so re-pointing the symlink changes the answer.
       const dir = mkdtempSync(join(tmpdir(), "risk-cache-symlink-"));
       try {
         const benign = join(dir, "benign.txt");
@@ -411,7 +382,7 @@ describe("Permission Checker (gateway IPC)", () => {
           scopeOptions: [],
         };
         const second = await classifyRisk("file_read", { path: link });
-        // Cache must have missed and re-classified against the new target.
+        // Re-classified against the new target.
         expect(second.level).toBe(RiskLevel.High);
         expect(second.reason).toBe("now sensitive");
       } finally {
@@ -427,12 +398,8 @@ describe("Permission Checker (gateway IPC)", () => {
         scopeOptions: [],
         commandCandidates: ["ls -la", "action:ls"],
       };
-      // Use unique command to avoid cache hits from other tests
       const result = await classifyRisk("bash", { command: "ls -la" });
-      expect((result as any).commandCandidates).toEqual([
-        "ls -la",
-        "action:ls",
-      ]);
+      expect(result.commandCandidates).toEqual(["ls -la", "action:ls"]);
     });
 
     test("preserves sandboxAutoApprove from gateway response", async () => {
@@ -443,9 +410,8 @@ describe("Permission Checker (gateway IPC)", () => {
         scopeOptions: [],
         sandboxAutoApprove: true,
       };
-      // Use unique command to avoid cache hits
       const result = await classifyRisk("bash", { command: "pwd" });
-      expect((result as any).sandboxAutoApprove).toBe(true);
+      expect(result.sandboxAutoApprove).toBe(true);
     });
 
     test("overrides sandboxAutoApprove when symlink escape detected", async () => {
@@ -461,7 +427,7 @@ describe("Permission Checker (gateway IPC)", () => {
       const result = await classifyRisk("bash", {
         command: "cat /workspace/escape/passwd",
       });
-      expect((result as any).sandboxAutoApprove).toBe(false);
+      expect(result.sandboxAutoApprove).toBe(false);
       mockIsPathWithinWorkspaceRoot = true;
     });
 
@@ -478,7 +444,7 @@ describe("Permission Checker (gateway IPC)", () => {
       const result = await classifyRisk("bash", {
         command: "cat /workspace/file.txt",
       });
-      expect((result as any).sandboxAutoApprove).toBe(true);
+      expect(result.sandboxAutoApprove).toBe(true);
     });
 
     test("overrides sandboxAutoApprove when any path arg escapes", async () => {
@@ -494,7 +460,7 @@ describe("Permission Checker (gateway IPC)", () => {
       const result = await classifyRisk("bash", {
         command: "cat /workspace/safe.txt && cat /workspace/escape/passwd",
       });
-      expect((result as any).sandboxAutoApprove).toBe(false);
+      expect(result.sandboxAutoApprove).toBe(false);
       mockIsPathWithinWorkspaceRoot = true;
     });
 
@@ -509,11 +475,11 @@ describe("Permission Checker (gateway IPC)", () => {
         // No sandboxPathArgs — e.g. older gateway that doesn't send them
       };
       const result = await classifyRisk("bash", { command: "ls" });
-      expect((result as any).sandboxAutoApprove).toBe(true);
+      expect(result.sandboxAutoApprove).toBe(true);
       mockIsPathWithinWorkspaceRoot = true;
     });
 
-    test("cache hit re-runs symlink escape check after symlink retargeted", async () => {
+    test("the symlink escape check runs on every classification, so a retargeted symlink revokes sandbox auto-approve", async () => {
       // First call: path args within workspace → sandboxAutoApprove true.
       mockIsPathWithinWorkspaceRoot = true;
       mockIpcClassifyRiskResult = {
@@ -527,16 +493,15 @@ describe("Permission Checker (gateway IPC)", () => {
       const first = await classifyRisk("bash", {
         command: "cat /workspace/escape/secret42.bin",
       });
-      expect((first as any).sandboxAutoApprove).toBe(true);
+      expect(first.sandboxAutoApprove).toBe(true);
 
-      // Second call with the same command: cache hit, but symlink now
-      // resolves outside workspace. The cache hit must re-run the check
-      // and override sandboxAutoApprove to false.
+      // Second call with the same command: the symlink now resolves outside
+      // the workspace, so sandboxAutoApprove is revoked.
       mockIsPathWithinWorkspaceRoot = false;
       const second = await classifyRisk("bash", {
         command: "cat /workspace/escape/secret42.bin",
       });
-      expect((second as any).sandboxAutoApprove).toBe(false);
+      expect(second.sandboxAutoApprove).toBe(false);
       mockIsPathWithinWorkspaceRoot = true;
     });
 
@@ -556,9 +521,8 @@ describe("Permission Checker (gateway IPC)", () => {
         scopeOptions: [],
         allowlistOptions: mockOptions,
       };
-      // Use unique command to avoid cache hits
       const result = await classifyRisk("bash", { command: "date" });
-      expect((result as any).allowlistOptions).toEqual(mockOptions);
+      expect(result.allowlistOptions).toEqual(mockOptions);
     });
   });
 
@@ -1215,10 +1179,10 @@ describe("Permission Checker (gateway IPC)", () => {
     });
   });
 
-  // ── generateAllowlistOptions ──────────────────────────────────────────────
+  // ── allowlist ladder ──────────────────────────────────────────────────────
 
-  describe("generateAllowlistOptions", () => {
-    test("returns gateway-provided options from assessment cache", async () => {
+  describe("allowlist ladder", () => {
+    test("is the gateway's, carried through unchanged", async () => {
       const mockOptions = [
         { label: "wc -l", description: "Exact command", pattern: "wc -l" },
         {
@@ -1235,37 +1199,27 @@ describe("Permission Checker (gateway IPC)", () => {
         allowlistOptions: mockOptions,
       };
 
-      // First classify to populate the cache
-      await classifyRisk("bash", { command: "wc -l" });
-
-      // Then generate options should use cached assessment
-      const options = await generateAllowlistOptions("bash", {
-        command: "wc -l",
-      });
-      expect(options).toEqual(mockOptions);
+      const classification = await classifyRisk("bash", { command: "wc -l" });
+      expect(classification.allowlistOptions).toEqual(mockOptions);
     });
 
-    test("falls back to per-tool strategy for file tools without cached options", async () => {
-      const options = await generateAllowlistOptions("file_read", {
-        path: "/tmp/foo.txt",
-      });
-      // Should get file-specific options (exact path, directory wildcards, etc.)
-      expect(options.length).toBeGreaterThan(0);
-      expect(options[0].pattern).toContain("file_read:");
-    });
+    test("is absent when the classifier produced none", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "no ladder",
+        matchType: "registry",
+        scopeOptions: [],
+      };
 
-    test("returns default option for unknown tools", async () => {
-      const options = await generateAllowlistOptions("custom_tool", {});
-      expect(options).toEqual([
-        { label: "*", description: "Everything", pattern: "*" },
-      ]);
+      const classification = await classifyRisk("custom_tool", {});
+      expect(classification.allowlistOptions).toBeUndefined();
     });
   });
 
-  // ── getCachedAssessment ───────────────────────────────────────────────────
+  // ── classifyRisk carries the gateway's assessment fields ──────────────────
 
-  describe("getCachedAssessment", () => {
-    test("returns cached assessment after classifyRisk call", async () => {
+  describe("classifyRisk assessment fields", () => {
+    test("carries reason, matchType and allowlistOptions from the gateway result", async () => {
       mockIpcClassifyRiskResult = {
         risk: "low",
         reason: "Test assessment",
@@ -1276,21 +1230,37 @@ describe("Permission Checker (gateway IPC)", () => {
         ],
       };
 
-      await classifyRisk("bash", { command: "echo test" });
-
-      const assessment = getCachedAssessment("bash", { command: "echo test" });
-      expect(assessment).toBeDefined();
-      expect(assessment!.riskLevel).toBe("low");
-      expect(assessment!.reason).toBe("Test assessment");
-      expect(assessment!.allowlistOptions).toHaveLength(1);
+      const classification = await classifyRisk("bash", {
+        command: "echo test",
+      });
+      expect(classification.level).toBe(RiskLevel.Low);
+      expect(classification.reason).toBe("Test assessment");
+      expect(classification.matchType).toBe("registry");
+      expect(classification.allowlistOptions).toHaveLength(1);
     });
 
-    test("returns undefined for uncached tool invocations", () => {
-      const assessment = getCachedAssessment("bash", { command: "not-cached" });
-      expect(assessment).toBeUndefined();
+    test("is not memoised: a changed gateway answer for the same input is returned", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "before the rule",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const before = await classifyRisk("bash", { command: "curl example" });
+      expect(before.level).toBe(RiskLevel.Low);
+
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "after the rule",
+        matchType: "user_rule",
+        scopeOptions: [],
+      };
+      const after = await classifyRisk("bash", { command: "curl example" });
+      expect(after.level).toBe(RiskLevel.High);
+      expect(after.matchType).toBe("user_rule");
     });
 
-    test("preserves scopeOptions from gateway result in cached assessment", async () => {
+    test("preserves scopeOptions from the gateway result", async () => {
       mockIpcClassifyRiskResult = {
         risk: "low",
         reason: "Registry match",
@@ -1302,22 +1272,16 @@ describe("Permission Checker (gateway IPC)", () => {
         allowlistOptions: [],
       };
 
-      await classifyRisk("bash", { command: "echo hello" });
-
-      const assessment = getCachedAssessment("bash", { command: "echo hello" });
-      expect(assessment).toBeDefined();
-      expect(assessment!.scopeOptions).toHaveLength(2);
-      expect(assessment!.scopeOptions[0]).toEqual({
-        pattern: "echo *",
-        label: "only 'echo' commands",
+      const classification = await classifyRisk("bash", {
+        command: "echo hello",
       });
-      expect(assessment!.scopeOptions[1]).toEqual({
-        pattern: ".*",
-        label: "everywhere",
-      });
+      expect(classification.scopeOptions).toEqual([
+        { pattern: "echo *", label: "only 'echo' commands" },
+        { pattern: ".*", label: "everywhere" },
+      ]);
     });
 
-    test("preserves directoryScopeOptions from gateway result in cached assessment", async () => {
+    test("preserves directoryScopeOptions from the gateway result", async () => {
       mockIpcClassifyRiskResult = {
         risk: "medium",
         reason: "Filesystem write",
@@ -1331,25 +1295,14 @@ describe("Permission Checker (gateway IPC)", () => {
         ],
       };
 
-      await classifyRisk("file_write", { path: "/workspace/scratch/out.txt" });
-
-      const assessment = getCachedAssessment("file_write", {
+      const classification = await classifyRisk("file_write", {
         path: "/workspace/scratch/out.txt",
       });
-      expect(assessment).toBeDefined();
-      expect(assessment!.directoryScopeOptions).toHaveLength(3);
-      expect(assessment!.directoryScopeOptions![0]).toEqual({
-        scope: "/workspace/scratch/*",
-        label: "In scratch/",
-      });
-      expect(assessment!.directoryScopeOptions![1]).toEqual({
-        scope: "/workspace/*",
-        label: "In workspace/",
-      });
-      expect(assessment!.directoryScopeOptions![2]).toEqual({
-        scope: "everywhere",
-        label: "everywhere",
-      });
+      expect(classification.directoryScopeOptions).toEqual([
+        { scope: "/workspace/scratch/*", label: "In scratch/" },
+        { scope: "/workspace/*", label: "In workspace/" },
+        { scope: "everywhere", label: "everywhere" },
+      ]);
     });
   });
 

@@ -27,7 +27,7 @@ mock.module("../daemon/host-file-proxy.js", () => ({
 }));
 
 import { hostFileReadTool } from "../tools/host-filesystem/read.js";
-import { DEFAULT_READ_LINE_LIMIT } from "../tools/shared/filesystem/file-ops-service.js";
+import { READ_CHAR_BUDGET } from "../tools/shared/filesystem/file-ops-service.js";
 import type { ToolContext } from "../tools/types.js";
 
 const testDirs: string[] = [];
@@ -77,19 +77,19 @@ describe("host_file_read tool", () => {
     expect(result.content).toContain("must be absolute");
   });
 
-  test("reads file with line numbers", async () => {
+  test("reads a character window", async () => {
     const dir = mkdtempSync(join(tmpdir(), "host-file-read-test-"));
     testDirs.push(dir);
     const filePath = join(dir, "sample.txt");
     writeFileSync(filePath, "first\nsecond\nthird\n");
 
     const result = await hostFileReadTool.execute(
-      { path: filePath, offset: 2, limit: 2 },
+      { path: filePath, start_index: 6, max_chars: 6 },
       makeContext(),
     );
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("2  second");
-    expect(result.content).toContain("3  third");
+    expect(result.content).toContain("second");
+    expect(result.content).not.toContain("first");
   });
 
   test("returns error when file does not exist", async () => {
@@ -128,7 +128,7 @@ describe("host_file_read tool", () => {
     expect(result.content).toContain('Invalid input for tool "host_file_read"');
   });
 
-  test("reads entire file when no offset or limit specified", async () => {
+  test("reads the whole file when no window is specified", async () => {
     const dir = mkdtempSync(join(tmpdir(), "host-file-read-test-"));
     testDirs.push(dir);
     const filePath = join(dir, "full.txt");
@@ -139,9 +139,7 @@ describe("host_file_read tool", () => {
       makeContext(),
     );
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("1  line1");
-    expect(result.content).toContain("2  line2");
-    expect(result.content).toContain("3  line3");
+    expect(result.content).toBe("line1\nline2\nline3\n");
   });
 
   test("handles empty file", async () => {
@@ -157,20 +155,19 @@ describe("host_file_read tool", () => {
     expect(result.isError).toBe(false);
   });
 
-  test("offset starts from the correct line (1-indexed)", async () => {
+  test("start_index is 0-indexed", async () => {
     const dir = mkdtempSync(join(tmpdir(), "host-file-read-test-"));
     testDirs.push(dir);
     const filePath = join(dir, "lines.txt");
     writeFileSync(filePath, "a\nb\nc\nd\ne\n");
 
     const result = await hostFileReadTool.execute(
-      { path: filePath, offset: 3, limit: 1 },
+      { path: filePath, start_index: 4, max_chars: 1 },
       makeContext(),
     );
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("3  c");
-    expect(result.content).not.toContain("2  b");
-    expect(result.content).not.toContain("4  d");
+    const [body] = result.content.split("\n\n[Truncated:");
+    expect(body).toBe("c");
   });
 
   test("reads a file with symlinks resolved", async () => {
@@ -228,15 +225,15 @@ describe("host_file_read image support", () => {
     expect(result.isError).toBe(false);
     expect(result.contentBlocks).toHaveLength(1);
     // The proxied request carries the resolved default window, so a host read
-    // is bounded by the same limit as a local one rather than streaming a
+    // is bounded by the same budget as a local one rather than streaming a
     // whole file across the bridge.
     expect(requests).toEqual([
       {
         input: {
           operation: "read",
           path: "/host/screenshot.png",
-          offset: undefined,
-          limit: DEFAULT_READ_LINE_LIMIT,
+          startIndex: undefined,
+          maxChars: READ_CHAR_BUDGET,
         },
         conversationId: "test-conversation",
         signal: undefined,
@@ -306,8 +303,8 @@ describe("host_file_read image support", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("1  hello world");
-    expect(result.content).toContain("2  second line");
+    expect(result.content).toContain("hello world");
+    expect(result.content).toContain("second line");
     expect((result as any).contentBlocks).toBeUndefined();
   });
 

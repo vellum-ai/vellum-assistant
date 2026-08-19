@@ -4,24 +4,24 @@ import { advisorRequestText, buildAdvisorSystem } from "../consult-prompt.js";
 
 describe("buildAdvisorSystem", () => {
   test("includes the senior-advisor framing", () => {
-    const prompt = buildAdvisorSystem(null);
+    const prompt = buildAdvisorSystem();
     expect(prompt).toContain("senior advisor");
   });
 
-  test("embeds the parent prompt inside <agent_system_prompt> when provided", () => {
-    const prompt = buildAdvisorSystem("You are a coding agent.");
-    expect(prompt).toContain(
-      "<agent_system_prompt>\nYou are a coding agent.\n</agent_system_prompt>",
-    );
+  test("frames the advisor's input as the agent's written brief", () => {
+    const prompt = buildAdvisorSystem();
+    expect(prompt).toContain("brief");
   });
 
-  test("omits the <agent_system_prompt> block when no parent prompt is given", () => {
-    const prompt = buildAdvisorSystem(null);
+  test("carries no parent system prompt", () => {
+    // The consult runs on the brief alone, so nothing of the executing agent's
+    // own prompt travels with it.
+    const prompt = buildAdvisorSystem();
     expect(prompt).not.toContain("<agent_system_prompt>");
   });
 
   test("tells the advisor it has read-only tools for verifying decisive facts", () => {
-    const prompt = buildAdvisorSystem(null);
+    const prompt = buildAdvisorSystem();
     expect(prompt).toContain("read-only tools");
     expect(prompt).toContain("read files");
     expect(prompt).toContain("verification, not exploration");
@@ -32,7 +32,7 @@ describe("buildAdvisorSystem", () => {
     // The advisor's read tools stop at the workspace. Naming `recall` here
     // would advertise a search the role allowlist does not grant, and would
     // contradict the scope the consult framing promises the user.
-    const prompt = buildAdvisorSystem(null);
+    const prompt = buildAdvisorSystem();
     expect(prompt).not.toContain("recall");
     expect(prompt).toContain("you cannot see other conversations");
   });
@@ -40,27 +40,38 @@ describe("buildAdvisorSystem", () => {
   test("does not claim the advisor is tool-less", () => {
     // The advisor can open a file to check a fact; a prompt that says otherwise
     // suppresses the read it was given tools for.
-    const prompt = buildAdvisorSystem(null);
+    const prompt = buildAdvisorSystem();
     expect(prompt).not.toContain("You have no tools");
     expect(prompt).not.toContain("cannot search, read files, or run commands");
   });
 
   test("keeps the situational context pack out of the system prompt", () => {
     // System Prompt Minimalism: the pack rides in the request turn instead.
-    expect(buildAdvisorSystem("parent")).not.toContain("<agent_environment>");
+    expect(buildAdvisorSystem()).not.toContain("<agent_environment>");
   });
 });
 
 describe("advisorRequestText", () => {
-  test("is non-empty and asks for focused strategic guidance", () => {
+  test("asks for focused strategic guidance on the brief", () => {
+    const text = advisorRequestText("advise me on the migration");
+    expect(text).toContain("focused strategic guidance");
+    expect(text).toContain(
+      "<agent_request>\nadvise me on the migration\n</agent_request>",
+    );
+  });
+
+  test("asks for a brief when the agent sent none", () => {
+    // With no brief there is no task to advise on, so the request must not
+    // pretend context exists.
     const text = advisorRequestText();
     expect(text.length).toBeGreaterThan(0);
-    expect(text).toContain("focused strategic guidance");
+    expect(text).toContain("no brief");
+    expect(text).toContain("Do not guess at the task");
   });
 
   test("imposes no length cap", () => {
     // The request must not constrain how much the advisor writes.
-    expect(advisorRequestText()).not.toContain("words");
+    expect(advisorRequestText("advise me")).not.toContain("words");
   });
 
   test("embeds situational context inside <agent_environment>", () => {

@@ -16,15 +16,22 @@ const DEFAULT_RESUME_GRACE_MS = 15_000;
 // banner-consumer wiring is under test.
 let listError: Error | null = null;
 
+const realQueries = await import("@/hooks/conversation-queries");
 mock.module("@/hooks/conversation-queries", () => ({
+  ...realQueries,
   useConversationListQuery: () => ({
     conversations: [],
     isLoading: false,
     isPending: false,
     isError: listError !== null,
     error: listError,
+    hasData: false,
+    hasMore: false,
     refetch: () => {},
   }),
+  /* These tests mount with an explicit URL key, so the landing lookups
+     never run; the gate only needs to exist. */
+  useCanQueryDaemon: () => true,
 }));
 
 mock.module("@/domains/chat/hooks/use-conversation-history", () => ({
@@ -47,9 +54,8 @@ mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
 }));
 
-const { useConversationLoader } = await import(
-  "@/domains/chat/hooks/use-conversation-loader"
-);
+const { useConversationLoader } =
+  await import("@/domains/chat/hooks/use-conversation-loader");
 
 const queryClient = new QueryClient();
 

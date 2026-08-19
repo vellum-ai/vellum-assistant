@@ -11,6 +11,7 @@
  * transforms from `send-message-utils`.
  */
 
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { type MutableRefObject, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -591,7 +592,7 @@ export function useSendMessage({
           throwOnError: false,
         });
         if (error || !data) {
-          toast.error("Couldn't run that command. Please try again.");
+          toast.error(t("chat:useSendMessage.commandFailed"));
           return;
         }
         useChatSessionStore.getState().addEphemeralMetaResult({
@@ -613,7 +614,7 @@ export function useSendMessage({
         }
       } catch (err) {
         captureError(err, { context: "run_local_meta_command" });
-        toast.error("Couldn't run that command. Please try again.");
+        toast.error(t("chat:useSendMessage.commandFailed"));
       }
     },
     [],
@@ -645,7 +646,7 @@ export function useSendMessage({
         // surface a notice rather than sending "/doctor …" as a normal turn.
         if (doctorGate === "gated") {
           useComposerStore.getState().setInput("");
-          toast.info("The Doctor isn't available on this assistant.");
+          toast.info(t("chat:useSendMessage.doctorUnavailable"));
           return;
         }
         if (doctorPrompt) {

@@ -18,6 +18,7 @@ import type { KeyboardEvent, MouseEvent } from "react";
 
 import { Button, cn, Menu, toast } from "@vellumai/design-library";
 
+import { t } from "@/i18n";
 import { downloadWorkspaceFile } from "@/utils/download-workspace-file";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 
@@ -64,7 +65,7 @@ export function LocalFileMenu({
         filename,
       });
     } catch {
-      toast.error("Failed to download file", { description: filename });
+      toast.error(t("chat:fileDownload.failed"), { description: filename });
     }
   }, [assistantId, filename, workspacePath]);
 

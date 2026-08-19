@@ -29,6 +29,7 @@ module.exports = {
   // resources/web-dist and resources/native-helper exist.
   extraResources: [
     { from: "resources/web-dist", to: "web-dist" },
+    { from: `resources/native-helper/${targetArch}`, to: "native-helper" },
     { from: "resources/tray.ico", to: "tray.ico" },
     { from: "resources/cli-runtime", to: "cli-runtime" },
     {

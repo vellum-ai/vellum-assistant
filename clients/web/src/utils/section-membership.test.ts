@@ -22,13 +22,14 @@ import { QueryClient } from "@tanstack/react-query";
 
 import type { Conversation } from "@/types/conversation-types";
 import {
-  conversationsQueryKey,
-  sectionConversationsQueryKey,
   sidebarSectionsQueryKey,
-  type SectionConversationFilter,
   type SidebarIndexSection,
   type ConversationListPage,
 } from "@/utils/conversation-list-fetchers";
+import {
+  conversationListQueryKey,
+  type ConversationListFilter,
+} from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
@@ -40,17 +41,17 @@ import {
 
 const ASSISTANT_ID = "asst-1";
 
-const PINNED: SectionConversationFilter = { groupId: "system:pinned" };
-const CHATS: SectionConversationFilter = { groupId: "system:all" };
-const SLACK: SectionConversationFilter = {
+const PINNED: ConversationListFilter = { groupId: "system:pinned" };
+const CHATS: ConversationListFilter = { groupId: "system:all" };
+const SLACK: ConversationListFilter = {
   groupId: "system:all",
   originChannel: "slack",
 };
-const NATIVE_CHATS: SectionConversationFilter = {
+const NATIVE_CHATS: ConversationListFilter = {
   groupId: "system:all",
   originChannel: "vellum",
 };
-const CUSTOM: SectionConversationFilter = { groupId: "group-uuid" };
+const CUSTOM: ConversationListFilter = { groupId: "group-uuid" };
 
 function conversation(overrides: Partial<Conversation> = {}): Conversation {
   return { conversationId: "conv-1", lastMessageAt: 1_000, ...overrides };
@@ -236,14 +237,14 @@ describe("patchAffectsMembership", () => {
 // ---------------------------------------------------------------------------
 
 function seed(
-  sections: Array<[SectionConversationFilter, Conversation[], boolean?]>,
+  sections: Array<[ConversationListFilter, Conversation[], boolean?]>,
 ): QueryClient {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   for (const [filter, rows, hasMore] of sections) {
     client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, filter),
+      conversationListQueryKey(ASSISTANT_ID, filter),
       listPage(rows, hasMore),
     );
   }
@@ -252,11 +253,11 @@ function seed(
 
 function rowsIn(
   client: QueryClient,
-  filter: SectionConversationFilter,
+  filter: ConversationListFilter,
 ): Conversation[] {
   return (
     client.getQueryData<ConversationListPage>(
-      sectionConversationsQueryKey(ASSISTANT_ID, filter),
+      conversationListQueryKey(ASSISTANT_ID, filter),
     )?.conversations ?? []
   );
 }
@@ -264,7 +265,7 @@ function rowsIn(
 /** How many sections hold `conversationId`, counting duplicates within one. */
 function copiesAcrossSections(
   client: QueryClient,
-  filters: SectionConversationFilter[],
+  filters: ConversationListFilter[],
   conversationId: string,
 ): number {
   return filters.reduce(
@@ -508,7 +509,7 @@ describe("reconcileSectionMembership", () => {
     });
 
     const page = client.getQueryData<ConversationListPage>(
-      sectionConversationsQueryKey(ASSISTANT_ID, SLACK),
+      conversationListQueryKey(ASSISTANT_ID, SLACK),
     );
     expect(page?.conversations).toEqual([]);
     expect(page?.hasMore).toBe(true);
@@ -527,7 +528,7 @@ describe("reconcileSectionMembership", () => {
     });
 
     expect(
-      client.getQueryData(sectionConversationsQueryKey(ASSISTANT_ID, PINNED)),
+      client.getQueryData(conversationListQueryKey(ASSISTANT_ID, PINNED)),
     ).toBeUndefined();
     expect(rowsIn(client, CHATS)).toEqual([]);
   });
@@ -541,10 +542,10 @@ describe("reconcileSectionMembership", () => {
       defaultOptions: { queries: { retry: false } },
     });
     client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, CHATS),
+      conversationListQueryKey(ASSISTANT_ID, CHATS),
       listPage([conversation({ conversationId: "c1" })]),
     );
-    const pinnedKey = sectionConversationsQueryKey(ASSISTANT_ID, PINNED);
+    const pinnedKey = conversationListQueryKey(ASSISTANT_ID, PINNED);
     void client
       .prefetchQuery({
         queryKey: pinnedKey,
@@ -585,7 +586,10 @@ describe("reconcileSectionMembership", () => {
        it for Pinned to appear in the first place. */
     const row = conversation({ conversationId: "c1" });
     const client = seed([[CHATS, [row]]]);
-    client.setQueryData(conversationsQueryKey(ASSISTANT_ID), listPage([row]));
+    client.setQueryData(
+      conversationListQueryKey(ASSISTANT_ID),
+      listPage([row]),
+    );
 
     reconcileSectionMembership(client, ASSISTANT_ID, {
       ...row,
@@ -595,7 +599,9 @@ describe("reconcileSectionMembership", () => {
 
     expect(
       client
-        .getQueryData<ConversationListPage>(conversationsQueryKey(ASSISTANT_ID))
+        .getQueryData<ConversationListPage>(
+          conversationListQueryKey(ASSISTANT_ID),
+        )
         ?.conversations.map((c) => c.conversationId),
     ).toEqual(["c1"]);
   });

@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useViewerStore } from "@/stores/viewer-store";
 
@@ -13,6 +14,7 @@ import {
 import {
   createDraftConversationId,
   resolveBootstrappedConversationId,
+  resolvePreselectedConversationId,
   shouldMintNewChatDraft,
 } from "@/domains/chat/utils/conversation-selection";
 import {
@@ -38,13 +40,16 @@ import type { AssistantStateKind } from "@/domains/chat/types";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useConversationListQuery } from "@/hooks/conversation-queries";
+import {
+  useCanQueryDaemon,
+  useConversationListQuery,
+} from "@/hooks/conversation-queries";
 import { useResumeGrace } from "@/hooks/use-resume-grace";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { resolveLandingConversation } from "@/domains/chat/utils/landing-conversation";
 import type { Conversation } from "@/types/conversation-types";
 import { ApiError } from "@/utils/api-errors";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";
-import { isBackgroundConversation } from "@/utils/conversation-predicates";
 
 // ---------------------------------------------------------------------------
 // Module constants
@@ -122,7 +127,7 @@ export function useConversationLoader({
   // refreshConversations -- invalidate the cached conversation list + groups
   // so subscribed query consumers refetch. The active list query is mounted
   // by `ChatLayout` and `ChatPage`, so invalidation triggers a background
-  // refetch through the same `listConversations` queryFn used at boot.
+  // refetch through the same `conversationListOptions` queryFn used at boot.
   // -------------------------------------------------------------------------
   const refreshConversations = useCallback(async () => {
     if (!assistantId) {
@@ -151,8 +156,8 @@ export function useConversationLoader({
   // `useBackgroundConversationListQuery`, gated on the sidebar revealing
   // those sections, so a large background backlog never blocks the initial
   // render. Sibling consumers in `ChatLayout` and `ChatPage` mount the same
-  // foreground query — they all share one cache entry under
-  // `conversationsQueryKey(assistantId)`, so dedupe and structural-sharing
+  // foreground query; they all share one cache entry under
+  // `conversationListQueryKey(assistantId)`, so dedupe and structural-sharing
   // are automatic.
   //
   // The query owns:
@@ -172,7 +177,6 @@ export function useConversationLoader({
     assistantStateKind === "active",
   );
   const queryConversations = conversationListQuery.conversations;
-  const conversationListIsPending = conversationListQuery.isPending;
   const conversationListError = conversationListQuery.error;
   const conversationListIsError = conversationListQuery.isError;
 
@@ -216,7 +220,7 @@ export function useConversationLoader({
       conversationListError instanceof ApiError &&
       conversationListError.status === 401
     ) {
-      toast.error("Failed to authenticate user.");
+      toast.error(t("chat:useConversationLoader.authFailed"));
     }
   }, [conversationListError]);
 
@@ -292,20 +296,24 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   // Bootstrap routing
   //
-  // When conversation data arrives in the cache (from any source — this
-  // hook's own subscription or a sibling subscriber that fetched first),
-  // resolve the bootstrap conversation key and write it into the URL +
-  // client store. Idempotent: `resolveBootstrappedConversationId` prefers
-  // the currently-active key when one is set, so a refetch with the same
-  // data shape (de-duped by React Query's structural sharing) does not
-  // churn the route.
+  // Resolve the bootstrap conversation key and write it into the URL +
+  // client store. An explicit URL key, an onboarding draft, the existing
+  // in-memory selection, or a new-chat draft resolve synchronously. Only the
+  // cold-load fallbacks (resume last-viewed, else land on newest) need the
+  // server, and they ask it two single-row questions rather than waiting on
+  // the drained conversation list, whose length grows with the account. The
+  // async branch discards its answer if the assistant or the URL moved on
+  // while it was in flight.
   //
-  // This effect intentionally does not raise the banner — error handling
-  // lives in the banner-consumer effect above. Decoupling lets the
-  // routing logic run as soon as data is available, even if the *most
-  // recent* fetch failed (we still have last-known-good data to land on).
+  // This effect intentionally does not raise the banner; error handling
+  // lives in the banner-consumer effect above.
   // -------------------------------------------------------------------------
   const lastAppliedUrlConversationIdRef = useRef<string | null>(null);
+  /* The same gate every daemon query honors: org header available and the
+     pod serving. A waking pod 503s every request, so the landing lookups
+     wait for the gate rather than spend their retries against it; the
+     effect re-runs when the gate opens. */
+  const canQueryDaemon = useCanQueryDaemon(assistantId);
   useEffect(() => {
     if (assistantStateKind !== "active") {
       return;
@@ -330,26 +338,9 @@ export function useConversationLoader({
       ? createDraftConversationId()
       : null;
 
-    // Only the "resume last-viewed" / "land on latest foreground" fallbacks
-    // read the fetched list. An explicit URL key, an onboarding draft, the
-    // existing in-memory selection, or a new-chat draft all resolve without
-    // it, so the chat transcript the user opened renders immediately instead
-    // of blocking on the sidebar's conversation-list API.
-    const needsConversationList = !(
-      explicitConversationId != null ||
-      searchParams.get("onboarding") === "1" ||
-      (assistantIdRef.current === assistantId &&
-        currentConversationId != null) ||
-      newChatDraftConversationId != null
-    );
-    if (needsConversationList && conversationListIsPending) {
-      return;
-    }
-
-    // When only the conversation list changed (e.g. from resolveDraftKey's
-    // setQueryData) but the URL hasn't changed, the URL key is stale —
-    // a programmatic navigate() is in flight. Trust the store's
-    // activeConversationId and let the URL catch up.
+    // A programmatic navigate() may be in flight for the key already applied
+    // from the URL; trust the store's activeConversationId and let the URL
+    // catch up.
     if (
       explicitConversationId != null &&
       explicitConversationId === lastAppliedUrlConversationIdRef.current &&
@@ -359,45 +350,89 @@ export function useConversationLoader({
     }
     lastAppliedUrlConversationIdRef.current = explicitConversationId;
 
-    // Compute the default landing conversation — prefer the latest
-    // foreground conversation. Background/scheduled conversations live
-    // behind a collapsed-by-default sidebar section and must never be
-    // selected implicitly.
-    const active = queryConversations.filter((c) => c.archivedAt == null);
-    const latestForeground = active.find((c) => !isBackgroundConversation(c));
-    const defaultConversationId = latestForeground
-      ? latestForeground.conversationId
-      : assistantId;
-
     let onboardingDraftConversationId: string | null = null;
     if (searchParams.get("onboarding") === "1") {
       onboardingDraftConversationIdRef.current ??= createDraftConversationId();
       onboardingDraftConversationId = onboardingDraftConversationIdRef.current;
     }
-    const key = resolveBootstrappedConversationId({
+
+    const apply = (key: string) => {
+      useConversationStore.getState().setActiveConversationId(key);
+      void navigate(routes.conversation(key), { replace: true });
+    };
+    const preselected = {
       queryParamKey: explicitConversationId,
       onboardingDraftConversationId,
       newChatDraftConversationId,
       currentConversationId,
       currentAssistantId: assistantIdRef.current,
       nextAssistantId: assistantId,
-      storedConversationId: loadLastViewedConversationId(assistantId),
-      defaultConversationId,
-      conversations: queryConversations,
-    });
-
-    useConversationStore.getState().setActiveConversationId(key);
-    if (key) {
-      void navigate(routes.conversation(key), { replace: true });
+    };
+    const preselectedId = resolvePreselectedConversationId(preselected);
+    if (preselectedId) {
+      apply(preselectedId);
+      return;
     }
+    if (!canQueryDaemon) {
+      /* Nothing to decide yet; the deps re-run this once the daemon is
+         reachable, and with no URL key applied the fallback is reached
+         again rather than frozen behind an explicit one. */
+      return;
+    }
+
+    let stale = false;
+    void resolveLandingConversation(
+      queryClient,
+      assistantId,
+      loadLastViewedConversationId(assistantId),
+    )
+      .then((landing) => {
+        if (stale) {
+          return;
+        }
+        /* Something selected a conversation while the lookups ran (a deep
+           link, a draft); it outranks both fallbacks. */
+        if (useConversationStore.getState().activeConversationId != null) {
+          return;
+        }
+        apply(
+          resolveBootstrappedConversationId({
+            ...preselected,
+            storedConversation: landing.storedConversation,
+            // Background/scheduled conversations live behind a
+            // collapsed-by-default sidebar section and must never be selected
+            // implicitly, so the newest *foreground* row is the default, and
+            // the assistant itself when it has none.
+            defaultConversationId: landing.latestForegroundId ?? assistantId,
+          }),
+        );
+      })
+      .catch((error: unknown) => {
+        if (stale) {
+          return;
+        }
+        /* The list-load banner reports the outage; landing on the
+           assistant itself is the same terminal fallback the drained list
+           reaches when it cannot load. */
+        captureError(error, {
+          context: "conversationList.landing",
+          bestEffort: true,
+        });
+        if (useConversationStore.getState().activeConversationId == null) {
+          apply(assistantId);
+        }
+      });
+    return () => {
+      stale = true;
+    };
   }, [
-    queryConversations,
-    conversationListIsPending,
     assistantId,
     assistantStateKind,
+    canQueryDaemon,
     urlConversationId,
     searchParams,
     navigate,
+    queryClient,
     assistantIdRef,
     onboardingDraftConversationIdRef,
   ]);

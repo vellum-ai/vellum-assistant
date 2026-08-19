@@ -13,12 +13,12 @@ import {
   replaceOptimisticGroup,
   resolveDraftKey,
 } from "@/utils/conversation-cache-mutations";
+import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
 import {
-  backgroundConversationsQueryKey,
-  conversationsQueryKey,
-  scheduledConversationsQueryKey,
-  type ConversationListPage,
-} from "@/utils/conversation-list-fetchers";
+  BACKGROUND_FILTER,
+  conversationListQueryKey,
+  SCHEDULED_FILTER,
+} from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { patchConversation } from "@/utils/conversation-cache";
@@ -57,15 +57,16 @@ function seedConversations(
   conversations: Conversation[],
 ): void {
   qc.setQueryData<ConversationListPage>(
-    conversationsQueryKey(ASSISTANT_ID),
+    conversationListQueryKey(ASSISTANT_ID),
     listPage(conversations),
   );
 }
 
 function getConversations(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<ConversationListPage>(conversationsQueryKey(ASSISTANT_ID))
-      ?.conversations ?? []
+    qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID),
+    )?.conversations ?? []
   );
 }
 
@@ -74,7 +75,7 @@ function seedBackgroundConversations(
   conversations: Conversation[],
 ): void {
   qc.setQueryData<ConversationListPage>(
-    backgroundConversationsQueryKey(ASSISTANT_ID),
+    conversationListQueryKey(ASSISTANT_ID, BACKGROUND_FILTER),
     listPage(conversations),
   );
 }
@@ -82,7 +83,7 @@ function seedBackgroundConversations(
 function getBackgroundConversations(qc: QueryClient): Conversation[] {
   return (
     qc.getQueryData<ConversationListPage>(
-      backgroundConversationsQueryKey(ASSISTANT_ID),
+      conversationListQueryKey(ASSISTANT_ID, BACKGROUND_FILTER),
     )?.conversations ?? []
   );
 }
@@ -92,7 +93,7 @@ function seedScheduledConversations(
   conversations: Conversation[],
 ): void {
   qc.setQueryData<ConversationListPage>(
-    scheduledConversationsQueryKey(ASSISTANT_ID),
+    conversationListQueryKey(ASSISTANT_ID, SCHEDULED_FILTER),
     listPage(conversations),
   );
 }
@@ -100,7 +101,7 @@ function seedScheduledConversations(
 function getScheduledConversations(qc: QueryClient): Conversation[] {
   return (
     qc.getQueryData<ConversationListPage>(
-      scheduledConversationsQueryKey(ASSISTANT_ID),
+      conversationListQueryKey(ASSISTANT_ID, SCHEDULED_FILTER),
     )?.conversations ?? []
   );
 }
@@ -140,7 +141,7 @@ describe("patchConversation", () => {
     patchConversation(qc, ASSISTANT_ID, "a", { title: "x" });
     expect(
       qc.getQueryData<ConversationListPage>(
-        conversationsQueryKey(ASSISTANT_ID),
+        conversationListQueryKey(ASSISTANT_ID),
       ),
     ).toBeUndefined();
   });

@@ -166,37 +166,6 @@ export function getReachable(
   return result;
 }
 
-export interface EdgeValidationResult {
-  ok: boolean;
-  /**
-   * Outgoing-edge targets that don't correspond to any known slug. Sorted by
-   * `(from, to)` for deterministic output.
-   */
-  missing: Array<{ from: string; to: string }>;
-}
-
-/**
- * Validate every outgoing edge target against `knownSlugs`. Returns a sorted
- * list of `(from, to)` pairs whose `to` slug has no corresponding concept
- * page on disk.
- */
-export function validateEdgeTargets(
-  index: EdgeIndex,
-  knownSlugs: ReadonlySet<string>,
-): EdgeValidationResult {
-  const missing: Array<{ from: string; to: string }> = [];
-  const sources = [...index.outgoing.keys()].sort();
-  for (const from of sources) {
-    const targets = [...(index.outgoing.get(from) ?? [])].sort();
-    for (const to of targets) {
-      if (!knownSlugs.has(to)) {
-        missing.push({ from, to });
-      }
-    }
-  }
-  return { ok: missing.length === 0, missing };
-}
-
 /**
  * Total count of directed edges in the index — i.e. the sum of every page's
  * outgoing-edge fanout. Each (from, to) pair counts once.

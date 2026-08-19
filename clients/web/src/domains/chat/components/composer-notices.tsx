@@ -143,9 +143,10 @@ export function ComposerNotices({
           </Notice>
         </div>
       )}
-      {diskPressureBanner ? (
-        <div className="mb-2">{diskPressureBanner}</div>
-      ) : null}
+      {/* Rendered bare: the slot is always a truthy element and decides for
+          itself whether it has a banner, so a wrapper here would stand in the
+          stack even when it renders nothing. It brings its own spacing. */}
+      {diskPressureBanner}
       {billingBannerSlot}
       {showMissingApiKeyBanner && (
         <div className="mb-2">

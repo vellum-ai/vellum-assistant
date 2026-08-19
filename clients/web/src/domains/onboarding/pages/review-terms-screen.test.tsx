@@ -65,7 +65,7 @@ mock.module("@/stores/auth-store", () => ({
 }));
 
 // Light passthroughs for layout/design-library so the screen renders in happy-dom.
-mock.module("@/domains/onboarding/components/onboarding-layout", () => ({
+mock.module("@/components/onboarding-layout", () => ({
   OnboardingLayout: ({ children }: { children: React.ReactNode }) => children,
 }));
 mock.module("@vellumai/design-library/components/button", () => ({

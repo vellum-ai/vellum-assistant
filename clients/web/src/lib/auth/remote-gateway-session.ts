@@ -53,7 +53,8 @@ interface RemoteGatewaySessionCredentials {
 }
 
 export type RemoteWebPairingTokenResult =
-  RemoteWebPairingTokenPendingResponse | RemoteWebPairingTokenApprovedResponse;
+  | RemoteWebPairingTokenPendingResponse
+  | RemoteWebPairingTokenApprovedResponse;
 
 export class RemoteWebPairingError extends Error {
   readonly status: number;
@@ -358,8 +359,10 @@ export async function createRemoteWebPairingChallenge(
   return body;
 }
 
-async function refreshRemoteGatewaySessionOnce(): Promise<boolean> {
-  if (!shouldRefreshRemoteGatewaySession()) {
+async function refreshRemoteGatewaySessionOnce(
+  force: boolean,
+): Promise<boolean> {
+  if (!force && !shouldRefreshRemoteGatewaySession()) {
     return true;
   }
 
@@ -384,13 +387,21 @@ async function refreshRemoteGatewaySessionOnce(): Promise<boolean> {
   return true;
 }
 
-export async function refreshRemoteGatewaySession(): Promise<boolean> {
-  if (!shouldRefreshRemoteGatewaySession()) {
+/**
+ * Refresh the paired browser session when it is due. `force` refreshes
+ * regardless of the schedule, for a caller whose access token the gateway
+ * has just rejected: the schedule is local bookkeeping and cannot see a
+ * server-side revocation. Concurrent callers share one in-flight refresh.
+ */
+export async function refreshRemoteGatewaySession({
+  force = false,
+}: { force?: boolean } = {}): Promise<boolean> {
+  if (!force && !shouldRefreshRemoteGatewaySession()) {
     return true;
   }
 
-  refreshRemoteGatewaySessionPromise ??= withRefreshLock(
-    refreshRemoteGatewaySessionOnce,
+  refreshRemoteGatewaySessionPromise ??= withRefreshLock(() =>
+    refreshRemoteGatewaySessionOnce(force),
   ).finally(() => {
     refreshRemoteGatewaySessionPromise = null;
   });

@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.3
+  version: 0.11.4
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -6596,6 +6596,32 @@ paths:
             "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A
             group-scoped request is recency-ordered like every list read (COALESCE(last_message_at, updated_at)
             descending) and never has pinned rows appended to it. Omit to span every group.
+        - name: needsAttention
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - "true"
+          description:
+            'Pass "true" to return only conversations whose latest assistant message the user has not seen: the same
+            predicate behind the unread count and the section index, so a client that keeps no complete conversation
+            list can ask for exactly the rows its attention surfaces need. Composes with every other filter. Any value
+            other than "true" is rejected. Omit to span every conversation.'
+        - name: foregroundOnly
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - "true"
+          description:
+            Pass "true" to return only user-facing foreground conversations, dropping the automated background and
+            scheduled runs the standard listing admits when they are filed in a custom group (a surfaced run stays).
+            This is the same predicate the unread count and the section index apply, so a client can ask for the newest
+            conversation a user can open in one row instead of paging past runs it would skip. Composes with every other
+            filter; a foreground-only first page never has pinned rows appended to it. Any value other than "true" is
+            rejected. Omit to keep every visible row.
       responses:
         "200":
           description: Successful response
@@ -6953,7 +6979,9 @@ paths:
     get:
       operationId: conversations_by_id_get
       summary: Get conversation detail
-      description: Retrieve a single conversation with full metadata.
+      description:
+        Retrieve a single conversation with full metadata. Rows the listing hides by type (legacy private rows) are
+        not found here either.
       tags:
         - conversations
       parameters:
@@ -10906,11 +10934,6 @@ paths:
                     type: number
                   updatedAt:
                     type: number
-                  workspacePath:
-                    anyOf:
-                      - type: string
-                      - type: "null"
-                    description: Workspace-relative file this document is bound to, or null
                 required:
                   - success
                   - surfaceId
@@ -10920,7 +10943,6 @@ paths:
                   - wordCount
                   - createdAt
                   - updatedAt
-                  - workspacePath
                 additionalProperties: false
   /v1/documents/{id}/comments:
     get:
@@ -11338,74 +11360,6 @@ paths:
               schema:
                 type: string
                 format: binary
-  /v1/documents/for-workspace-file:
-    post:
-      operationId: documents_forworkspacefile_post
-      summary: Get or create the document for a workspace markdown file
-      description:
-        "Return the document bound to a workspace markdown file, creating it on first open. The file is the source
-        of truth at open time: stored content that has drifted from the file is refreshed from disk before the document
-        is returned."
-      tags:
-        - documents
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                path:
-                  type: string
-                  description: Workspace-relative path to a .md/.markdown file
-                conversationId:
-                  type: string
-                  description: Conversation the document is opened from
-              required:
-                - path
-                - conversationId
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  surfaceId:
-                    type: string
-                  conversationId:
-                    type: string
-                  title:
-                    type: string
-                  content:
-                    type: string
-                  wordCount:
-                    type: number
-                  createdAt:
-                    type: number
-                  updatedAt:
-                    type: number
-                  workspacePath:
-                    anyOf:
-                      - type: string
-                      - type: "null"
-                    description: Workspace-relative file this document is bound to, or null
-                required:
-                  - success
-                  - surfaceId
-                  - conversationId
-                  - title
-                  - content
-                  - wordCount
-                  - createdAt
-                  - updatedAt
-                  - workspacePath
-                additionalProperties: false
-        "422":
-          description: Path is not a markdown file
   /v1/domain/register:
     post:
       operationId: domain_register_post
@@ -25778,6 +25732,20 @@ paths:
                           description:
                             User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                             applies. Always null for user-created schedules.
+                        disarmReason:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - user_disabled
+                                - plugin_removed
+                                - plugin_disabled
+                                - declaration_removed
+                                - declaration_disabled
+                            - type: "null"
+                          description:
+                            "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                            the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                            is on, and always null for user-created schedules."
                         isOneShot:
                           type: boolean
                         isDeferred:
@@ -25814,6 +25782,7 @@ paths:
                         - workflowName
                         - sourceKey
                         - userEnabled
+                        - disarmReason
                         - isOneShot
                         - isDeferred
                       additionalProperties: false
@@ -26011,6 +25980,20 @@ paths:
                         description:
                           User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                           applies. Always null for user-created schedules.
+                      disarmReason:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - user_disabled
+                              - plugin_removed
+                              - plugin_disabled
+                              - declaration_removed
+                              - declaration_disabled
+                          - type: "null"
+                        description:
+                          "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                          the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                          is on, and always null for user-created schedules."
                       isOneShot:
                         type: boolean
                       isDeferred:
@@ -26047,6 +26030,7 @@ paths:
                       - workflowName
                       - sourceKey
                       - userEnabled
+                      - disarmReason
                       - isOneShot
                       - isDeferred
                     additionalProperties: false
@@ -26196,6 +26180,20 @@ paths:
                           description:
                             User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                             applies. Always null for user-created schedules.
+                        disarmReason:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - user_disabled
+                                - plugin_removed
+                                - plugin_disabled
+                                - declaration_removed
+                                - declaration_disabled
+                            - type: "null"
+                          description:
+                            "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                            the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                            is on, and always null for user-created schedules."
                         isOneShot:
                           type: boolean
                         isDeferred:
@@ -26232,6 +26230,7 @@ paths:
                         - workflowName
                         - sourceKey
                         - userEnabled
+                        - disarmReason
                         - isOneShot
                         - isDeferred
                       additionalProperties: false
@@ -26378,6 +26377,20 @@ paths:
                         description:
                           User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                           applies. Always null for user-created schedules.
+                      disarmReason:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - user_disabled
+                              - plugin_removed
+                              - plugin_disabled
+                              - declaration_removed
+                              - declaration_disabled
+                          - type: "null"
+                        description:
+                          "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                          the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                          is on, and always null for user-created schedules."
                       isOneShot:
                         type: boolean
                       isDeferred:
@@ -26414,6 +26427,7 @@ paths:
                       - workflowName
                       - sourceKey
                       - userEnabled
+                      - disarmReason
                       - isOneShot
                       - isDeferred
                     additionalProperties: false
@@ -26620,6 +26634,20 @@ paths:
                           description:
                             User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                             applies. Always null for user-created schedules.
+                        disarmReason:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - user_disabled
+                                - plugin_removed
+                                - plugin_disabled
+                                - declaration_removed
+                                - declaration_disabled
+                            - type: "null"
+                          description:
+                            "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                            the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                            is on, and always null for user-created schedules."
                         isOneShot:
                           type: boolean
                         isDeferred:
@@ -26656,6 +26684,7 @@ paths:
                         - workflowName
                         - sourceKey
                         - userEnabled
+                        - disarmReason
                         - isOneShot
                         - isDeferred
                       additionalProperties: false
@@ -26805,6 +26834,20 @@ paths:
                           description:
                             User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                             applies. Always null for user-created schedules.
+                        disarmReason:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - user_disabled
+                                - plugin_removed
+                                - plugin_disabled
+                                - declaration_removed
+                                - declaration_disabled
+                            - type: "null"
+                          description:
+                            "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                            the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                            is on, and always null for user-created schedules."
                         isOneShot:
                           type: boolean
                         isDeferred:
@@ -26841,6 +26884,7 @@ paths:
                         - workflowName
                         - sourceKey
                         - userEnabled
+                        - disarmReason
                         - isOneShot
                         - isDeferred
                       additionalProperties: false
@@ -26992,6 +27036,20 @@ paths:
                           description:
                             User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                             applies. Always null for user-created schedules.
+                        disarmReason:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - user_disabled
+                                - plugin_removed
+                                - plugin_disabled
+                                - declaration_removed
+                                - declaration_disabled
+                            - type: "null"
+                          description:
+                            "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                            the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                            is on, and always null for user-created schedules."
                         isOneShot:
                           type: boolean
                         isDeferred:
@@ -27028,6 +27086,7 @@ paths:
                         - workflowName
                         - sourceKey
                         - userEnabled
+                        - disarmReason
                         - isOneShot
                         - isDeferred
                       additionalProperties: false
@@ -27314,6 +27373,20 @@ paths:
                           description:
                             User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
                             applies. Always null for user-created schedules.
+                        disarmReason:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - user_disabled
+                                - plugin_removed
+                                - plugin_disabled
+                                - declaration_removed
+                                - declaration_disabled
+                            - type: "null"
+                          description:
+                            "Why a plugin-sourced schedule is off: the user turned it off, the plugin is gone, the plugin is disabled,
+                            the declaration is gone, or the plugin's own files turned it off. Null whenever the schedule
+                            is on, and always null for user-created schedules."
                         isOneShot:
                           type: boolean
                         isDeferred:
@@ -27350,6 +27423,7 @@ paths:
                         - workflowName
                         - sourceKey
                         - userEnabled
+                        - disarmReason
                         - isOneShot
                         - isDeferred
                       additionalProperties: false

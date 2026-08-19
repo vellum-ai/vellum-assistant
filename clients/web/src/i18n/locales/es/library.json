@@ -8,6 +8,7 @@
   },
   "libraryView": {
     "importFailed": "No se pudo importar la aplicación",
+    "imported": "{name} importada",
     "loadingAria": "Cargando las aplicaciones",
     "retry": "Reintentar",
     "import": "Importar",

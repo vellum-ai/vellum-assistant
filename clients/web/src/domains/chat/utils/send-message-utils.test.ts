@@ -207,11 +207,7 @@ describe("completeSubmittedSurface", () => {
     ];
 
     expect(
-      completeSubmittedSurface(
-        messages,
-        "s-first-run-scope",
-        "scope_work",
-      ),
+      completeSubmittedSurface(messages, "s-first-run-scope", "scope_work"),
     ).toBe(messages);
   });
 
@@ -365,8 +361,6 @@ describe("parsePendingConfirmationData", () => {
       requestId: "req-1",
       title: "Confirm action",
       description: "Are you sure?",
-      confirmLabel: "Yes",
-      denyLabel: "No",
       toolName: "delete_file",
       riskLevel: "high",
       riskReason: "Irreversible",
@@ -374,20 +368,15 @@ describe("parsePendingConfirmationData", () => {
       input: { path: "/tmp" },
       toolUseId: "tu-1",
     };
-    const { confData, state } = parsePendingConfirmationData(raw);
+    const parsed = parsePendingConfirmationData(raw);
 
-    expect(state.requestId).toBe("req-1");
-    expect(state.confirmLabel).toBe("Yes");
-    expect(state.denyLabel).toBe("No");
-    expect(state.toolName).toBe("delete_file");
-
-    expect(confData.requestId).toBe("req-1");
-    expect(confData.toolUseId).toBe("tu-1");
+    expect(parsed.requestId).toBe("req-1");
+    expect(parsed.toolName).toBe("delete_file");
+    expect(parsed.toolUseId).toBe("tu-1");
   });
 
   it("defaults requestId to empty string when missing", () => {
-    const { state } = parsePendingConfirmationData({});
-    expect(state.requestId).toBe("");
+    expect(parsePendingConfirmationData({}).requestId).toBe("");
   });
 });
 

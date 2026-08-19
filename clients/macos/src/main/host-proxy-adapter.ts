@@ -13,13 +13,17 @@ import {
   type CliInvocation,
 } from "@vellumai/local-mode";
 
+import { app } from "electron";
+
+import { HostBrowserExecutor } from "@vellumai/electron-desktop/host-proxy/executors/host-browser-executor";
+import { hostFileExecutor } from "@vellumai/electron-desktop/host-proxy/executors/host-file-executor";
+import { hostTransferExecutor } from "@vellumai/electron-desktop/host-proxy/executors/host-transfer-executor";
+import { createHostUiSnapshotExecutor } from "@vellumai/electron-desktop/host-proxy/executors/host-ui-snapshot-executor";
+
+import { getDevRendererBase, RENDERER_BASE_PROD } from "./app-config";
 import { hostAppControlExecutor } from "./executors/host-app-control-executor";
-import { hostBashExecutor } from "./executors/host-bash-executor";
-import { HostBrowserExecutor } from "./executors/host-browser-executor";
+import { hostBashExecutor } from "./executors/host-bash-adapter";
 import { hostCuExecutor } from "./executors/host-cu-executor";
-import { hostFileExecutor } from "./executors/host-file-executor";
-import { hostTransferExecutor } from "./executors/host-transfer-executor";
-import { hostUiSnapshotExecutor } from "./executors/host-ui-snapshot-executor";
 import {
   getWatchedLockfile,
   onLockfileChange,
@@ -33,6 +37,10 @@ export const installHostProxyBridge = (
   resolveCliInvocation: () => Promise<CliInvocation>,
 ): (() => void) => {
   const browserExecutor = new HostBrowserExecutor();
+  const uiSnapshotExecutor = createHostUiSnapshotExecutor({
+    resolveRendererBase: () =>
+      app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
+  });
   const runtime: HostProxyRuntime = {
     acquireGuardianToken: async (assistantId) => {
       const configDir = resolveConfigDir(process.env);
@@ -79,7 +87,7 @@ export const installHostProxyBridge = (
       host_browser: browserExecutor,
       host_cu: hostCuExecutor,
       host_app_control: hostAppControlExecutor,
-      host_ui_snapshot: hostUiSnapshotExecutor,
+      host_ui_snapshot: uiSnapshotExecutor,
     },
     teardownExecutors: () => {
       browserExecutor.destroy();

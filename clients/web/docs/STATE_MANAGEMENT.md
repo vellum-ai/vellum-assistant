@@ -62,7 +62,7 @@ registries (if any are added) should follow the same shape.
 ## Zustand store conventions
 
 Each domain owns its store, colocated within the domain folder:
-`domains/messages/message-store.ts`. Store files use
+`domains/chat/chat-session-store.ts`. Store files use
 `{domain}-store.ts`. Zustand stores are module-level singletons with
 both React hook and non-React APIs (`.getState()`, `.setState()`,
 `.subscribe()`), so the file describes what the module *is* (a store),

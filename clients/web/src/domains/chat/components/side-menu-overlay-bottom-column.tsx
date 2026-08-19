@@ -1,7 +1,7 @@
-import { SquarePen } from "lucide-react";
+import { MessageSquarePlus } from "lucide-react";
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 
-import { Button, cn } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 
 export interface SideMenuOverlayBottomColumnProps {
   tipCard?: ReactNode;
@@ -59,7 +59,7 @@ export function SideMenuOverlayBottomColumn({
   return (
     <div
       ref={columnRef}
-      className="pointer-events-none absolute inset-x-4 z-10 flex flex-col gap-4"
+      className="pointer-events-none absolute inset-x-3 z-10 flex flex-col gap-4"
       style={{
         bottom:
           "calc(1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
@@ -75,30 +75,21 @@ export function SideMenuOverlayBottomColumn({
           {tipCard}
         </div>
       ) : null}
-      {/* Grid, not flex: a plain `flex-1` on both children doesn't
-         actually split them evenly here, since the Preferences pill
-         (wrapped in its own div, see `footerAction` below) and the New
-         Chat button (a flex item directly) don't carry the same
-         content-based automatic minimum size, so equal flex-grow still
-         resolves to unequal widths. `minmax(0,1fr)` tracks are immune
-         to that: each column is forced to the same size regardless of
-         its content or DOM depth. */}
-      <div
-        className={cn(
-          "grid items-center gap-4",
-          footerAction
-            ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
-            : "grid-cols-1",
-        )}
-      >
+      {/* The two pills are sized by what they carry rather than split
+         evenly: Preferences shrink-wraps its avatar and name, and New Chat
+         takes the rest of the row. `min-w-0` on the shrinking one keeps a
+         long display name from pushing New Chat off the row. */}
+      <div className="flex items-center gap-2">
         {footerAction ? (
-          <div className="pointer-events-auto min-w-0">{footerAction}</div>
+          <div className="pointer-events-auto min-w-0 shrink">
+            {footerAction}
+          </div>
         ) : null}
         {onStartNewConversation ? (
           <Button
             variant="primary"
-            className="pointer-events-auto h-10 w-full rounded-full px-4 shadow-[var(--shadow-lg)]"
-            leftIcon={<SquarePen />}
+            className="pointer-events-auto min-h-[var(--side-menu-tile-size,36px)] w-full min-w-0 flex-1 rounded-full px-3 shadow-[var(--shadow-lg)]"
+            leftIcon={<MessageSquarePlus />}
             onClick={() => {
               onStartNewConversation();
               onClose?.();

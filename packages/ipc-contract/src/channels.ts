@@ -17,6 +17,13 @@ export const CONFIG_GET = "vellum:config:get";
 export const TEXT_INSERT = "vellum:text:insertIntoFrontApp";
 export const TEXT_OPEN_SETTINGS = "vellum:text:openAutomationSettings";
 
+// System permissions
+export const PERMISSIONS_GET_STATE = "vellum:permissions:getState";
+export const PERMISSIONS_REQUEST = "vellum:permissions:request";
+export const PERMISSIONS_OPEN_SETTINGS = "vellum:permissions:openSettings";
+export const PERMISSIONS_QUIT_AND_REOPEN = "vellum:permissions:quitAndReopen";
+export const PERMISSIONS_STATE_EVENT = "vellum:permissions:state";
+
 // Auth
 export const AUTH_START_OAUTH = "vellum:auth:startOAuth";
 export const AUTH_CANCEL_OAUTH = "vellum:auth:cancelOAuth";
@@ -45,7 +52,8 @@ export const HELPER_RESTART = "vellum:helper:restart";
 export const HELPER_STATE_EVENT = "vellum:helper:state";
 export const HELPER_HOTKEY_FN_PTT = "vellum:helper:hotkey:fnPushToTalk";
 export const HELPER_HOTKEY_EVENT = "vellum:helper:hotkey:event";
-export const HELPER_DICTATION_SET_PARTIALS = "vellum:helper:dictation:setPartials";
+export const HELPER_DICTATION_SET_PARTIALS =
+  "vellum:helper:dictation:setPartials";
 export const HELPER_DICTATION_PARTIAL_EVENT = "vellum:helper:dictation:partial";
 
 // Commands
@@ -67,8 +75,10 @@ export const DOCK_SET_BADGE = "vellum:dock:setBadge";
 // Local mode
 export const LOCAL_MODE_HATCH = "vellum:localMode:hatch";
 export const LOCAL_MODE_READ_LOCKFILE = "vellum:localMode:readLockfile";
-export const LOCAL_MODE_SAVE_ASSISTANT = "vellum:localMode:saveLockfileAssistant";
-export const LOCAL_MODE_REPLACE_PLATFORM = "vellum:localMode:replacePlatformAssistants";
+export const LOCAL_MODE_SAVE_ASSISTANT =
+  "vellum:localMode:saveLockfileAssistant";
+export const LOCAL_MODE_REPLACE_PLATFORM =
+  "vellum:localMode:replacePlatformAssistants";
 export const LOCAL_MODE_RETIRE = "vellum:localMode:retire";
 export const LOCAL_MODE_UNPAIR = "vellum:localMode:unpair";
 export const LOCAL_MODE_SLEEP = "vellum:localMode:sleep";

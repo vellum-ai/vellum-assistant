@@ -42,9 +42,9 @@ describe("feature flag catalog", () => {
     );
   });
 
-  test("exposes the billing CTA experiment as a client string flag", () => {
-    expect(CLIENT_STRING_FLAG_DEFAULTS.experimentBillingCta20260723).toBe(
-      "control",
+  test("does not expose the GA billing CTA experiment as a feature flag", () => {
+    expect("experimentBillingCta20260723" in CLIENT_STRING_FLAG_DEFAULTS).toBe(
+      false,
     );
     expect("experimentBillingCta20260723" in CLIENT_FLAG_DEFAULTS).toBe(false);
     expect("experimentBillingCta20260723" in ASSISTANT_FLAG_DEFAULTS).toBe(
@@ -68,9 +68,9 @@ describe("feature flag catalog", () => {
     expect("quoteReply" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
   });
 
-  test("exposes web remote ingress as an assistant flag defaulted off", () => {
-    expect(ASSISTANT_FLAG_DEFAULTS.webRemoteIngress).toBe(false);
-    expect("webRemoteIngress" in CLIENT_FLAG_DEFAULTS).toBe(false);
+  test("exposes web remote ingress as a client flag defaulted off", () => {
+    expect(CLIENT_FLAG_DEFAULTS.webRemoteIngress).toBe(false);
+    expect("webRemoteIngress" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
   });
 
   test("exposes the MCP add-server gate without a page-level MCP gate", () => {

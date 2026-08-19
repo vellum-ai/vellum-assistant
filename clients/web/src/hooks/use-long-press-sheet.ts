@@ -9,13 +9,16 @@
  *    themselves buttons (or `role="button"`), so the default
  *    interactive-target skip would suppress the gesture entirely. Callers
  *    pass `shouldSkip` to exclude nested real controls instead.
- * 2. **The compatibility click is swallowed.** After a long-press fires, the
- *    browser still emits a click on touchend; without suppression it reaches
- *    the row/header underneath and navigates or toggles. `wrapperProps`
- *    carries a capture-phase handler that eats exactly that one click.
- * 3. **The flag clears when the sheet closes.** The compat click may never
- *    reach the wrapper (it can be routed to the sheet instead), so the guard
- *    is also reset on close rather than relying on the click alone.
+ * 2. **The release emits no compatibility mouse events.** A touch that fired
+ *    the gesture would otherwise be followed by `mousedown`, `mouseup` and
+ *    `click` retargeted outside the row, which the sheet's dismissable layer
+ *    reads as a click-outside and closes the sheet the gesture just opened.
+ *    Cancelling the `touchend` suppresses that whole sequence at its source.
+ * 3. **A compatibility click is swallowed if one arrives anyway.**
+ *    `wrapperProps` carries a capture-phase handler that eats one click per
+ *    fired gesture, covering engines whose tap heuristics outlive the
+ *    cancellation. The flag also clears when the sheet closes, since a click
+ *    that never reaches the wrapper cannot clear it.
  *
  * The sheet must be rendered as a **sibling** of the element spread with
  * `wrapperProps`, never inside it: React propagates events through the React
@@ -28,6 +31,8 @@
  *     <div className="contents" {...longPress.wrapperProps}>{row}</div>
  *     <ActionSheet open={longPress.open} onOpenChange={longPress.onOpenChange} />
  *   </>
+ *
+ * @see https://www.w3.org/TR/touch-events/#compatibility-mouse-events
  */
 
 import {
@@ -54,8 +59,8 @@ export interface LongPressSheetWrapperProps {
   onClickCapture: (event: ReactMouseEvent) => void;
   onTouchStart: (event: ReactTouchEvent) => void;
   onTouchMove: (event: ReactTouchEvent) => void;
-  onTouchEnd: () => void;
-  onTouchCancel: () => void;
+  onTouchEnd: (event: ReactTouchEvent) => void;
+  onTouchCancel: (event: ReactTouchEvent) => void;
 }
 
 export interface UseLongPressSheetResult {
@@ -101,6 +106,20 @@ export function useLongPressSheet({
     }
   }, []);
 
+  /* Only a release that completed the gesture is cancelled, since a plain tap
+     needs its click to reach the row. React registers `touchend` as an active
+     listener, so the cancellation takes effect. A cancelled touch emits no
+     compatibility sequence at all and needs nothing here. */
+  const onTouchEnd = useCallback(
+    (event: ReactTouchEvent) => {
+      handlers.onTouchEnd();
+      if (firedRef.current) {
+        event.preventDefault();
+      }
+    },
+    [handlers],
+  );
+
   return {
     open,
     onOpenChange,
@@ -110,7 +129,7 @@ export function useLongPressSheet({
       onClickCapture,
       onTouchStart: handlers.onTouchStart,
       onTouchMove: handlers.onTouchMove,
-      onTouchEnd: handlers.onTouchEnd,
+      onTouchEnd,
       onTouchCancel: handlers.onTouchCancel,
     },
   };

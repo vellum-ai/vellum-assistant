@@ -13,10 +13,10 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 
+import { t } from "@/i18n";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import {
   profilePickerLabel,
@@ -33,6 +33,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { conversationsByIdInferenceprofilePut } from "@/generated/daemon/sdk.gen";
 import { useComposerCompact } from "@/domains/chat/components/chat-composer/composer-compact";
+import { preventPressFocusTransfer } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import {
@@ -59,25 +60,6 @@ import {
   Tooltip,
 } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
-
-/**
- * Keeps a press from moving focus off the composer's textarea. WebKit blurs the
- * textarea on a press without focusing the pressed button, and the pills row is
- * focus-gated, so it goes away before the tap's click reaches the trigger.
- *
- * `mousedown` is the press to cancel, not `pointerdown`. WebKit drops the whole
- * compatibility sequence when `pointerdown` is cancelled, `click` included, and
- * the bottom sheet opens on that click. Cancelling the compatibility `mousedown`
- * suppresses the focus transfer and nothing else. See
- * `clients/web/docs/CAPACITOR.md` for the event ordering this relies on.
- *
- * Only ever wired on the touch presentation, whose sheet opens on click. The
- * mouse presentation's menu opens on the pointerdown before it, which this
- * leaves alone.
- */
-function preventPressFocusTransfer(event: ReactMouseEvent<HTMLElement>) {
-  event.preventDefault();
-}
 
 interface Props {
   assistantId: string;
@@ -470,7 +452,7 @@ export function ComposerSettingsMenu({
           // would send the user round the same failing loop.
           toast.error(
             badRequestMessage(error) ??
-              "Failed to switch profile. Please try again.",
+              t("chat:composerSettingsMenu.profileSwitchFallback"),
           );
         }
         return false;
@@ -533,45 +515,57 @@ export function ComposerSettingsMenu({
   // the mobile SectionLabel. Closes the popover/sheet, then opens the modal.
   // Disabled until `profilesLoaded` — opening the modal with empty profile
   // data would let a duplicate name overwrite an existing profile.
-  const quickAddButton = (
+  const quickAddControl = (
+    <Button
+      variant="ghost"
+      size="compact"
+      iconOnly={<Plus className="h-3.5 w-3.5" />}
+      aria-label="New Profile"
+      disabled={!profilesLoaded}
+      aria-disabled={!profilesLoaded}
+      onClick={() => {
+        if (!profilesLoaded) {
+          return;
+        }
+        setProfileOpen(false);
+        setCompactOpen(false);
+        // Claimed after the open call, not before: taking the modal over
+        // releases whoever held it, and that release must not land on top of
+        // this claim.
+        openProfileQuickAdd({
+          existingNames: existingProfileNames,
+          onClosed: () => setQuickAddOpen(false),
+          onCreated: (name, _label) => {
+            // ProfileQuickAddProvider already wrote the full PATCH response
+            // (merged config including the new profile's provider/model/etc.)
+            // to the shared config query cache via configGetSetQueryData.
+            // No cache write needed here, just autoselect the new profile.
+            void handleProfileSelect(name).then((selected) => {
+              if (!selected) {
+                toast.error(t("chat:composerSettingsMenu.profileSwitchFailed"));
+              }
+            });
+          },
+        });
+        setQuickAddOpen(true);
+      }}
+    />
+  );
+
+  // The tooltip is a hover affordance, so the touch presentation goes without
+  // it. Radix opens a tooltip on focus as well as hover, and the bottom sheet
+  // autofocuses its first tabbable element, which is this button: on a phone
+  // the label appeared unbidden every time the sheet rose, clipped against the
+  // right edge of the screen. The button's `aria-label` carries the same words,
+  // so nothing is lost by dropping it here.
+  const quickAddButton = isTouchMobile ? (
+    quickAddControl
+  ) : (
     <Tooltip
       content={profilesLoaded ? "New Profile" : "Loading profiles…"}
       side="top"
     >
-      <Button
-        variant="ghost"
-        size="compact"
-        iconOnly={<Plus className="h-3.5 w-3.5" />}
-        aria-label="New Profile"
-        disabled={!profilesLoaded}
-        aria-disabled={!profilesLoaded}
-        onClick={() => {
-          if (!profilesLoaded) {
-            return;
-          }
-          setProfileOpen(false);
-          setCompactOpen(false);
-          // Claimed after the open call, not before: taking the modal over
-          // releases whoever held it, and that release must not land on top of
-          // this claim.
-          openProfileQuickAdd({
-            existingNames: existingProfileNames,
-            onClosed: () => setQuickAddOpen(false),
-            onCreated: (name, _label) => {
-              // ProfileQuickAddProvider already wrote the full PATCH response
-              // (merged config including the new profile's provider/model/etc.)
-              // to the shared config query cache via configGetSetQueryData.
-              // No cache write needed here — just autoselect the new profile.
-              void handleProfileSelect(name).then((selected) => {
-                if (!selected) {
-                  toast.error("Profile created, but couldn't switch to it");
-                }
-              });
-            },
-          });
-          setQuickAddOpen(true);
-        }}
-      />
+      {quickAddControl}
     </Tooltip>
   );
 

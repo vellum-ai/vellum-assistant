@@ -18,7 +18,7 @@ import {
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
 import { lifecycleService } from "@/assistant/lifecycle-service";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { OnboardingLayout } from "@/components/onboarding-layout";
 import {
   readSelectedVersion,
   writeSelectedVersion,

@@ -33,6 +33,7 @@ import type { AttentionHints } from "../notifications/signal.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parsePluginManifest } from "../plugins/external-plugin-loader.js";
 import { listInstalledPluginDirs } from "../plugins/installed-plugin-dirs.js";
+import { isPluginDirActivated } from "../plugins/mtime-cache.js";
 import { getLogger } from "../util/logger.js";
 import {
   type DeclarationError,
@@ -264,9 +265,14 @@ function isCompletedRecurrence(
  * as the plugin source collector) and gather their schedule declarations.
  * Identity = the directory basename, mirroring `parsePluginManifest`.
  *
- * Disabled plugins and plugins without a `schedules/` directory are skipped
- * entirely; in particular, only schedule-declaring plugins pay the manifest
- * parse each pass. A schedule-declaring plugin whose manifest fails
+ * Disabled plugins, plugins this daemon has not activated
+ * ({@link isPluginDirActivated}), and plugins without a `schedules/` directory
+ * are skipped entirely; in particular, only schedule-declaring plugins pay the
+ * manifest parse each pass. The activation gate is what keeps a directory
+ * dropped into the plugins root out of the desired set: nothing has run its
+ * `init`, so its hooks and tools are not live and its schedules must not arm
+ * either. It joins the set on the pass after the boot scan or an imperative
+ * reconcile brings it up. A schedule-declaring plugin whose manifest fails
  * `parsePluginManifest` (unreadable or schema-invalid `package.json`) also
  * contributes nothing to the desired set: the runtime loader refuses to
  * bring such a plugin up, so its schedules must not stay armed either. Each
@@ -280,6 +286,9 @@ async function collectDesiredDeclarations(): Promise<CollectedDeclarations> {
 
   for (const { name, dir } of listInstalledPluginDirs()) {
     if (isPluginDisabled(name)) {
+      continue;
+    }
+    if (!isPluginDirActivated(dir)) {
       continue;
     }
     if (!existsSync(join(dir, "schedules"))) {

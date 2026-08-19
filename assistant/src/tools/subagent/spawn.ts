@@ -5,20 +5,18 @@ import { validateInferenceProfileKey } from "../../config/inference-profile-vali
 import { getConfig } from "../../config/loader.js";
 import { profileSupportsTools } from "../../config/profile-tool-support.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
-import { getMessages } from "../../persistence/conversation-crud.js";
 import {
   countRecentSimilarSpawns,
   normalizeSpawnObjective,
   type RecentSimilarSpawns,
   type SimilarSpawnTally,
 } from "../../persistence/subagent-store.js";
-import type { ContentBlock, Message } from "../../providers/types.js";
+import type { Message } from "../../providers/types.js";
 import { buildAdvisorContext } from "../../subagent/consult-context.js";
 import {
   advisorRequestText,
   buildAdvisorSystem,
 } from "../../subagent/consult-prompt.js";
-import { sanitizeConsultTranscript } from "../../subagent/consult-transcript.js";
 import {
   getSubagentManager,
   SubagentAbortedError,
@@ -49,7 +47,7 @@ const log = getLogger("subagent-spawn");
  * reasoning while it works, so a fixed wall-clock ceiling would kill it
  * mid-thought; an idle window instead fires only when the consult is genuinely
  * stalled (or never starts). Generous enough to also span time-to-first-token
- * over a large inherited transcript.
+ * on a slow reasoning profile.
  */
 const ADVISOR_IDLE_TIMEOUT_MS = 60_000;
 
@@ -540,13 +538,19 @@ function inFlightGuardResult(
 // ── Advisor consult ──────────────────────────────────────────────────
 
 /**
- * Run the `advisor` role as a synchronous, context-inheriting, stronger-model
- * consult and return its guidance as the tool result.
+ * Run the `advisor` role as a synchronous, stronger-model consult and return
+ * its guidance as the tool result.
  *
- * Inherits the parent transcript (sanitized), frames it as advice via
- * `buildAdvisorSystem`, and runs on `llm.advisorProfile` (unless the caller
- * passed an explicit `inference_profile`) under both the advisor role allowlist
- * and `denySideEffectTools`, so the only tools it can reach are the first-party
+ * The consult sees only what it is handed: the spawning agent's own `objective`
+ * as a written brief, plus the situational context pack from
+ * `buildAdvisorContext`. Nothing of the parent conversation's transcript or
+ * system prompt travels with it, so a consult costs the brief rather than a
+ * re-prefill of the whole chat at premium rates.
+ *
+ * It is framed as advice via `buildAdvisorSystem` and runs on
+ * `llm.advisorProfile` (unless the caller passed an explicit
+ * `inference_profile`) under both the advisor role allowlist and
+ * `denySideEffectTools`, so the only tools it can reach are the first-party
  * built-in readers. It is bounded on two axes, because the consult holds up the
  * user-facing turn while it runs: a progress-aware deadline (an idle window,
  * `ADVISOR_IDLE_TIMEOUT_MS`, reset on every streamed token and every tool event
@@ -562,7 +566,7 @@ function inFlightGuardResult(
 async function runAdvisorConsult(args: {
   context: ToolContext;
   label: string;
-  /** The agent's own `objective` — its framing of what it wants advised on. */
+  /** The agent's own `objective`: the brief the advisor advises off. */
   objective: string;
   sendToClient: (msg: AssistantEvent) => void;
   requestedOverrideProfile: string | undefined;
@@ -576,35 +580,16 @@ async function runAdvisorConsult(args: {
   let profileNote: string | undefined;
 
   try {
+    // The parent conversation is looked up only for its warm skill catalog, so
+    // an unresolvable one (e.g. evicted) costs the skills section of the pack
+    // and nothing else: the consult itself runs off the brief.
     const parentConversation = findConversation(context.conversationId);
-    if (!parentConversation) {
-      return {
-        content:
-          "(advisor unavailable: parent conversation could not be resolved)",
-        isError: false,
-      };
-    }
-
-    // Snapshot the parent's in-memory transcript and system prompt, then append
-    // the in-flight assistant turn (the plan/text the model wrote THIS turn,
-    // before calling the advisor). The in-memory array does not yet hold that
-    // turn — the agent loop only writes it back to `conversation.messages` after
-    // the turn settles — but it is already persisted to the DB (the assistant
-    // row is finalized at `message_complete`, which fires before tool execution).
-    // `sanitizeConsultTranscript` then strips the dangling advisor `tool_use`
-    // off that final assistant turn so the inherited transcript is provider-safe.
-    const parentSystemPrompt = parentConversation.getCurrentSystemPrompt();
-    const withInFlight = appendInFlightAssistantTurn(
-      [...parentConversation.messages],
-      context.conversationId,
-    );
-    const sanitizedMessages = sanitizeConsultTranscript(withInFlight);
 
     // Situational awareness for the advisor: the parent's live tool set, the
     // full skill catalog, and its workspace. Assembled off the per-turn
     // ToolContext snapshot (trust, channel) so the personal-memory sections
     // are gated exactly like the runtime injectors. Best-effort: a null pack
-    // just means the consult runs on transcript + system prompt alone.
+    // just means the consult runs on the brief alone.
     const situationalContext = await buildAdvisorContext({
       conversationId: context.conversationId,
       workingDir: context.workingDir,
@@ -614,7 +599,7 @@ async function runAdvisorConsult(args: {
       enabledPluginSet: context.enabledPluginSet,
       // The parent's warm per-turn catalog keeps the synchronous on-disk
       // catalog scan out of the consult path.
-      skillCatalog: parentConversation.skillProjectionCache?.catalog,
+      skillCatalog: parentConversation?.skillProjectionCache?.catalog,
     });
 
     // Default to the stronger advisor profile when the caller did not pin one;
@@ -623,7 +608,7 @@ async function runAdvisorConsult(args: {
     let overrideProfile = requestedOverrideProfile ?? config.llm.advisorProfile;
     // The advisor carries read tools, so a profile the catalog states cannot
     // call them is handed a surface it can never use and answers from the
-    // transcript alone. Fall back to the call site's own default and say so
+    // brief alone. Fall back to the call site's own default and say so
     // alongside the guidance, the way a regular spawn reports it. The check is
     // unconditional, matching the tools it protects, and only a catalog `false`
     // redirects, so a model the catalog has never heard of is left alone.
@@ -697,16 +682,15 @@ async function runAdvisorConsult(args: {
         {
           parentConversationId: context.conversationId,
           label,
-          // Carry the agent's own objective into the consult request — the
-          // agent states the task here, and the inherited transcript can be
-          // thin. The situational pack rides in the model request only
-          // (`requestText`), keeping the system prompt minimal and the
-          // display-facing `objective` free of bulky internal context.
+          // The agent's own objective IS the brief the consult runs on, so it
+          // carries into the request verbatim. The situational pack rides in
+          // the model request only (`requestText`), keeping the system prompt
+          // minimal and the display-facing `objective` free of bulky internal
+          // context.
           objective: advisorRequestText(objective),
           requestText: advisorRequestText(objective, situationalContext),
           sendResultToUser: false,
           role: "advisor",
-          fork: true,
           // The advisor's read-only guarantee cannot rest on tool NAMES. A
           // workspace tool may register under `file_read` (registerWorkspaceTools
           // stashes the built-in and installs its own implementation), and a
@@ -718,10 +702,9 @@ async function runAdvisorConsult(args: {
           //
           // The advisor is a ROLE, not an `LLMCallSiteEnum` value, so its usage
           // lands under `subagentSpawn` like any other subagent. This is what
-          // makes advisor consults separable from regular forks in telemetry.
+          // makes advisor consults separable from regular spawns in telemetry.
           spawnMode: "advisor_consult",
-          parentMessages: sanitizedMessages,
-          systemPromptOverride: buildAdvisorSystem(parentSystemPrompt),
+          systemPromptOverride: buildAdvisorSystem(),
           ...(overrideProfile ? { overrideProfile } : {}),
           ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
           // A consult is delegated work of the invoking turn, so its spend
@@ -816,47 +799,4 @@ function withAdvisorNote(
     return guidance;
   }
   return `${guidance}\n\n${present.map((note) => `_(${note})_`).join("\n")}`;
-}
-
-/**
- * Append the in-flight assistant turn (persisted this turn before the advisor
- * tool ran) to an in-memory message snapshot, unless the snapshot already ends
- * with it. The latest persisted assistant row carries the plan/text the model
- * wrote immediately before calling the advisor plus the dangling advisor
- * `tool_use`; `sanitizeConsultTranscript` strips the dangling call.
- *
- * Best-effort: a malformed or missing row leaves the snapshot unchanged so the
- * consult still runs over the in-memory history.
- */
-function appendInFlightAssistantTurn(
-  messages: Message[],
-  conversationId: string,
-): Message[] {
-  // When the snapshot already ends on an assistant turn, the in-flight turn is
-  // present (or there is none to add) — appending the latest row would duplicate it.
-  if (messages[messages.length - 1]?.role === "assistant") {
-    return messages;
-  }
-
-  let rows;
-  try {
-    rows = getMessages(conversationId);
-  } catch {
-    return messages;
-  }
-  if (!rows || rows.length === 0) {
-    return messages;
-  }
-
-  const lastRow = rows[rows.length - 1];
-  if (lastRow.role !== "assistant") {
-    return messages;
-  }
-
-  const blocks: ContentBlock[] = lastRow.content;
-
-  if (blocks.length === 0) {
-    return messages;
-  }
-  return [...messages, { role: "assistant", content: blocks }];
 }

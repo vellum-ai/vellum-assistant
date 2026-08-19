@@ -125,16 +125,19 @@ describe("FileSystemOps symlink handling", () => {
 });
 
 // ===========================================================================
-// FileSystemOps: read offset/limit edge cases
+// FileSystemOps: read character-window edge cases
 // ===========================================================================
 
-describe("FileSystemOps read offset/limit edge cases", () => {
-  test("offset beyond file length returns empty content", async () => {
+describe("FileSystemOps read character-window edge cases", () => {
+  test("startIndex beyond file length returns empty content", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "short.txt"), "a\nb\nc");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = await ops.readFileSafe({ path: "short.txt", offset: 100 });
+    const result = await ops.readFileSafe({
+      path: "short.txt",
+      startIndex: 100,
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
@@ -142,12 +145,12 @@ describe("FileSystemOps read offset/limit edge cases", () => {
     expect(result.value.content).toBe("");
   });
 
-  test("limit of zero returns empty content", async () => {
+  test("maxChars of zero returns empty content", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "file.txt"), "a\nb\nc");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = await ops.readFileSafe({ path: "file.txt", limit: 0 });
+    const result = await ops.readFileSafe({ path: "file.txt", maxChars: 0 });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
@@ -155,61 +158,57 @@ describe("FileSystemOps read offset/limit edge cases", () => {
     expect(result.value.content).toBe("");
   });
 
-  test("offset=1 reads from first line (1-indexed)", async () => {
+  test("startIndex=0 reads from the first character (0-indexed)", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "file.txt"), "first\nsecond\nthird");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
     const result = await ops.readFileSafe({
       path: "file.txt",
-      offset: 1,
-      limit: 1,
+      startIndex: 0,
+      maxChars: 5,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
-    expect(result.value.content).toContain("first");
-    expect(result.value.content).not.toContain("second");
+    const [body] = result.value.content.split("\n\n[Truncated:");
+    expect(body).toBe("first");
   });
 
-  test("limit exceeding file length returns all remaining lines", async () => {
+  test("maxChars exceeding file length returns the rest of the file", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "file.txt"), "a\nb");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
     const result = await ops.readFileSafe({
       path: "file.txt",
-      offset: 1,
-      limit: 1000,
+      startIndex: 0,
+      maxChars: 1000,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
-    expect(result.value.content).toContain("a");
-    expect(result.value.content).toContain("b");
+    expect(result.value.content).toBe("a\nb");
   });
 
-  test("read adds line numbers starting from offset", async () => {
+  test("the window starts at startIndex and carries no line numbers", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "file.txt"), "a\nb\nc\nd\ne");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
     const result = await ops.readFileSafe({
       path: "file.txt",
-      offset: 3,
-      limit: 2,
+      startIndex: 4,
+      maxChars: 3,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
-    // Lines should be numbered 3 and 4
-    expect(result.value.content).toContain("3");
-    expect(result.value.content).toContain("4");
-    expect(result.value.content).toContain("c");
-    expect(result.value.content).toContain("d");
+    const [body] = result.value.content.split("\n\n[Truncated:");
+    expect(body).toBe("c\nd");
   });
 });
 

@@ -37,9 +37,27 @@ import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { invalidateSkillsList, isRemovableSkill } from "@/utils/skills";
 import { Button, Card, Tabs } from "@vellumai/design-library";
 
+export type SkillDetailTab = "files" | "history";
+
+/**
+ * Narrow an arbitrary tab value (a `?tab=` param, a Radix `onValueChange`
+ * string) to a tab the page renders; anything else is Files.
+ */
+export function parseSkillDetailTab(value: string | null): SkillDetailTab {
+  return value === "history" ? "history" : "files";
+}
+
 interface SkillDetailProps {
   assistantId: string;
   skill: SkillInfo;
+  /**
+   * Which tab is selected. The route page owns it (it rides `?tab=` so a
+   * link can open the page straight onto History, as the in-chat Level Up
+   * card does); this component only pins it to Files while History is
+   * hidden.
+   */
+  tab: SkillDetailTab;
+  onTabChange: (tab: SkillDetailTab) => void;
   onBack: () => void;
   onInstall?: () => void;
   onRemove?: () => void;
@@ -55,6 +73,8 @@ interface SkillDetailProps {
 export function SkillDetail({
   assistantId,
   skill,
+  tab,
+  onTabChange,
   onBack,
   onInstall,
   onRemove,
@@ -90,10 +110,10 @@ export function SkillDetail({
     revisionCount: revisions.length,
   });
 
-  const [selectedTab, setSelectedTab] = useState("files");
   // Pin to Files whenever the strip is hidden, so the page never rests on an
-  // unrendered panel.
-  const activeTab = showHistory ? selectedTab : "files";
+  // unrendered panel. A History deep link therefore shows Files while the
+  // history query is in flight and switches once revisions arrive.
+  const activeTab: SkillDetailTab = showHistory ? tab : "files";
 
   const header = (
     <div className="mb-4 flex items-start gap-3">
@@ -275,12 +295,14 @@ export function SkillDetail({
       */}
       <Tabs.Root
         value={activeTab}
-        onValueChange={setSelectedTab}
+        onValueChange={(value) => onTabChange(parseSkillDetailTab(value))}
         className="flex min-h-0 flex-1 flex-col"
       >
         {showHistory && (
           <Tabs.List className="mb-3">
-            <Tabs.Trigger value="files">{t("skillDetail.filesTab")}</Tabs.Trigger>
+            <Tabs.Trigger value="files">
+              {t("skillDetail.filesTab")}
+            </Tabs.Trigger>
             <Tabs.Trigger value="history">
               {t("skillDetail.historyTab")}
             </Tabs.Trigger>

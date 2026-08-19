@@ -60,7 +60,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-30T14:17:04.000Z"
+      "updatedAt": "2026-08-18T17:13:09.000Z"
     },
     {
       "id": "chat-complex-documents",
@@ -370,7 +370,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T20:42:41.000Z"
+      "updatedAt": "2026-08-10T18:03:33.000Z"
     },
     {
       "id": "guardian-verify-setup",
@@ -626,7 +626,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-30T14:17:04.000Z"
+      "updatedAt": "2026-08-18T17:13:09.000Z"
     },
     {
       "id": "notifications",
@@ -732,7 +732,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T20:42:41.000Z"
+      "updatedAt": "2026-08-10T18:03:33.000Z"
     },
     {
       "id": "plugin-builder",
@@ -759,7 +759,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T19:19:58.000Z"
+      "updatedAt": "2026-08-18T22:07:54.000Z"
     },
     {
       "id": "public-ingress",
@@ -1112,7 +1112,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-08-18T17:59:07.000Z"
     },
     {
       "id": "vellum-memory-v3-migration",

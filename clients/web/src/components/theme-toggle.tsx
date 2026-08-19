@@ -1,12 +1,10 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
-import { useMemo } from "react";
 
 import { cn, SegmentControl } from "@vellumai/design-library";
 
 import { type ThemePreference } from "@/utils/theme-preferences";
 import { useThemePreference } from "@/hooks/use-theme-preference";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { isPointerCoarse } from "@/utils/pointer";
 
 const BASE_THEME_OPTIONS: ReadonlyArray<{
   value: ThemePreference;
@@ -34,13 +32,12 @@ const VELVET_THEME_OPTION = {
  * `useThemePreference` hook so they stay in sync via the `watchDeviceSetting`
  * listener.
  *
- * Tooltips are suppressed on coarse pointers: a tap moves focus to the segment
- * and the tooltip stays open until focus leaves, leaving phantom labels. Hover
- * devices keep the labels, which non-obvious options (Velvet's Heart) need.
+ * Every segment carries a tooltip of its label, which non-obvious options
+ * (Velvet's Heart) need. Radix opens those on hover and on keyboard focus but
+ * never on a tap, so touch users are not left with a phantom label.
  */
 export function ThemeToggle({ className }: { className?: string } = {}) {
   const { theme, setThemePreference } = useThemePreference();
-  const pointerCoarse = useMemo(() => isPointerCoarse(), []);
 
   const themeOptions = useClientFeatureFlagStore.use.velvet()
     ? [...BASE_THEME_OPTIONS, VELVET_THEME_OPTION]
@@ -64,7 +61,6 @@ export function ThemeToggle({ className }: { className?: string } = {}) {
         value={theme}
         onChange={setThemePreference}
         iconOnly
-        showTooltips={!pointerCoarse}
         items={themeOptions.map(({ value, label, Icon }) => ({
           value,
           label,

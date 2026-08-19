@@ -2,10 +2,12 @@ import { BellRing } from "lucide-react";
 import { Navigate } from "react-router";
 
 import { AndroidNotificationSettingsCard } from "@/domains/settings/components/android-notification-settings-card";
+import { useTranslation } from "@/i18n";
 import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 
 export function NotificationsPage() {
+  const { t } = useTranslation("settings");
   const isNativeAndroid = useIsNativeAndroid();
 
   if (!isNativeAndroid) {
@@ -20,10 +22,10 @@ export function NotificationsPage() {
         </span>
         <div className="min-w-0">
           <h1 className="text-title-medium text-[var(--content-emphasised)]">
-            Notifications
+            {t("notificationsPage.title")}
           </h1>
           <p className="mt-1 text-body-medium-lighter text-[var(--content-secondary)]">
-            Manage how Vellum notifies you on this Android device.
+            {t("notificationsPage.description")}
           </p>
         </div>
       </div>

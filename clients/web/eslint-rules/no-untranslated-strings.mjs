@@ -60,6 +60,17 @@ const STRUCTURAL_PROPS = new Set([
   "stroke",
   "transform",
   "viewBox",
+  // ARIA relationships hold element ids, not copy: `aria-labelledby` points at
+  // the node holding the label rather than spelling one out. This is every
+  // attribute WAI-ARIA types as an ID reference or ID reference list.
+  "aria-activedescendant",
+  "aria-controls",
+  "aria-describedby",
+  "aria-details",
+  "aria-errormessage",
+  "aria-flowto",
+  "aria-labelledby",
+  "aria-owns",
   "as",
   "autoComplete",
   "charSet",
@@ -111,6 +122,61 @@ function looksLikeCopy(text) {
     return false;
   }
   return trimmed.includes(" ") || /^\p{Lu}/u.test(trimmed);
+}
+
+/**
+ * The words a static fragment contributes, once whatever is glued to an
+ * interpolation is taken off it.
+ *
+ * A sentence separates its words, so `${label} actions` keeps "actions" and
+ * `${count}-day trial` keeps "trial". An identifier does not separate
+ * anything, so `${name}.vellum` and `${id}-opt-${expr}` are left with nothing:
+ * a file extension and an id segment are not copy, and neither is the "-day"
+ * that a translator would have to leave attached to the number anyway. The
+ * ends of the run are free, since nothing is joined there.
+ */
+function unglue(text, followsExpression, precedesExpression) {
+  let words = text;
+  if (followsExpression) {
+    const boundary = words.search(/\s/);
+    words = boundary === -1 ? "" : words.slice(boundary);
+  }
+  if (precedesExpression) {
+    const boundary = words.search(/\s\S*$/);
+    words = boundary === -1 ? "" : words.slice(0, boundary + 1);
+  }
+  return words;
+}
+
+/**
+ * The fields of a toast's options bag that the toast renders, taken from
+ * `ToastOptions` in `packages/design-library/src/components/toast.tsx`, which
+ * is the only toast this app has: nothing imports `sonner` directly. The rest
+ * of that interface (`id`, `duration`, `tone`, and the `onClick` beside this
+ * `label`) is machinery. Add to these when that interface gains copy.
+ */
+const TOAST_COPY_FIELDS = new Set(["description", "label"]);
+const TOAST_COPY_BAGS = new Set(["action"]);
+
+/** The operands of a `+` chain, left to right, with the chain flattened out. */
+function flattenConcatenation(node) {
+  if (node.type === "BinaryExpression" && node.operator === "+") {
+    return [
+      ...flattenConcatenation(node.left),
+      ...flattenConcatenation(node.right),
+    ];
+  }
+  return [node];
+}
+
+/** True for a string written out in the source rather than computed. */
+function isStringLiteral(node) {
+  return node.type === "Literal" && typeof node.value === "string";
+}
+
+/** True for an operand that stands in for a value, the way `${x}` does. */
+function isInterpolation(node) {
+  return Boolean(node) && node.type !== "Literal";
 }
 
 /** Files whose strings are fixtures rather than shipped copy. */
@@ -219,7 +285,7 @@ export const noUntranslatedStrings = {
       if (!node) {
         return;
       }
-      if (node.type === "Literal" && typeof node.value === "string") {
+      if (isStringLiteral(node)) {
         if (isCopy(node.value)) {
           context.report({
             node,
@@ -230,14 +296,43 @@ export const noUntranslatedStrings = {
         return;
       }
       if (node.type === "TemplateLiteral") {
-        const statics = node.quasis.map((q) => q.value.cooked ?? "").join(" ");
-        if (isCopy(statics)) {
-          context.report({
-            node,
-            messageId,
-            data: { ...data, text: preview(statics) },
-          });
-        }
+        checkAssembled(
+          node,
+          node.quasis.map((quasi, index) =>
+            unglue(
+              quasi.value.cooked ?? "",
+              index > 0,
+              index < node.quasis.length - 1,
+            ),
+          ),
+          node.expressions,
+          messageId,
+          data,
+          isCopy,
+        );
+        return;
+      }
+      // `"Delete " + name` builds its sentence the same way a template does,
+      // so it is read the same way. Only `+` builds a string, which leaves the
+      // other operators out of it.
+      if (node.type === "BinaryExpression" && node.operator === "+") {
+        const operands = flattenConcatenation(node);
+        checkAssembled(
+          node,
+          operands.map((operand, index) =>
+            isStringLiteral(operand)
+              ? unglue(
+                  operand.value,
+                  isInterpolation(operands[index - 1]),
+                  isInterpolation(operands[index + 1]),
+                )
+              : "",
+          ),
+          operands.filter(isInterpolation),
+          messageId,
+          data,
+          isCopy,
+        );
         return;
       }
       // `cond ? "Open" : "Close"` and `label || "Untitled"` are copy chosen in
@@ -251,6 +346,68 @@ export const noUntranslatedStrings = {
       }
       if (node.type === "LogicalExpression") {
         checkExpression(node.right, messageId, data, isCopy);
+      }
+    }
+
+    /**
+     * Read a string the component assembles, from its static fragments and
+     * the values interleaved between them.
+     *
+     * Anything with a value in it is judged by `isTranslatable` rather than by
+     * `isCopy`: `` `${name} actions` `` leaves "actions" behind, one lowercase
+     * word that the prop-value test reads as an enum, while the string it
+     * builds is the shape a translator cannot reorder. The values are read in
+     * turn, since `${draft ? "Draft" : "Live"}` puts its copy in the one place
+     * the fragments are not.
+     */
+    function checkAssembled(node, fragments, values, messageId, data, isCopy) {
+      const statics = fragments.join(" ");
+      if (values.length > 0 ? isTranslatable(statics) : isCopy(statics)) {
+        context.report({
+          node,
+          messageId,
+          data: { ...data, text: preview(statics) },
+        });
+      }
+      for (const value of values) {
+        checkExpression(value, messageId, data, isCopy);
+      }
+    }
+
+    /**
+     * The copy in a toast's options bag: the fields the toast renders, and the
+     * nested `action` / `cancel` bags that carry a label of their own. Keyed
+     * rather than walked, because the same object holds a toast id, durations,
+     * placement and callbacks, none of which a translator has any use for.
+     *
+     * These are judged as copy on sight rather than through the prop-value
+     * test: `description: "saved"` is one lowercase word, which that test
+     * reads as an enum value, and a toast renders it to the user regardless.
+     */
+    function checkToastOptions(node) {
+      for (const property of node.properties) {
+        if (property.type !== "Property" || property.computed) {
+          continue;
+        }
+        const key =
+          property.key.type === "Identifier"
+            ? property.key.name
+            : property.key.type === "Literal"
+              ? String(property.key.value)
+              : undefined;
+        if (!key) {
+          continue;
+        }
+        if (
+          TOAST_COPY_BAGS.has(key) &&
+          property.value.type === "ObjectExpression"
+        ) {
+          checkToastOptions(property.value);
+          continue;
+        }
+        if (TOAST_COPY_FIELDS.has(key)) {
+          checkExpression(property.value, "toast", {});
+        }
       }
     }
 
@@ -303,15 +460,24 @@ export const noUntranslatedStrings = {
         checkExpression(value, "prop", { prop: name }, looksLikeCopy);
       },
 
+      // Every argument, not just the first: `toast.error(t("x"), {
+      // description: "raw" })` carries its untranslated half in the options
+      // bag, and `toast.promise(p, { loading, success })` puts a promise where
+      // the message would be and all of its copy in the bag.
       CallExpression(node) {
         if (!isToastCall(node.callee)) {
           return;
         }
-        const [first] = node.arguments;
-        if (!first || insideTranslationCall(first)) {
-          return;
+        for (const argument of node.arguments) {
+          if (insideTranslationCall(argument)) {
+            continue;
+          }
+          if (argument.type === "ObjectExpression") {
+            checkToastOptions(argument);
+            continue;
+          }
+          checkExpression(argument, "toast", {});
         }
-        checkExpression(first, "toast", {});
       },
     };
   },
