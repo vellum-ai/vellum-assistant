@@ -1,21 +1,13 @@
 import { RotateCcw, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
-import {
-  getHotkeys,
-  onHotkeysChange,
-  setHotkey,
-  type ResolvedHotkey,
-} from "@/runtime/hotkeys";
+import { type ResolvedHotkey } from "@/runtime/hotkeys";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { ShortcutKeys } from "@vellumai/design-library/components/shortcut-keys";
 
-import {
-  eventToAccelerator,
-  findConflict,
-} from "@/domains/settings/keyboard-shortcuts/electron-accelerator";
+import { useHotkeyRecorder } from "@/domains/settings/keyboard-shortcuts/use-hotkey-recorder";
 
 /** Section copy keyed by the command scope, ordered global-first. */
 const SCOPE_SECTIONS: {
@@ -35,7 +27,7 @@ const SCOPE_SECTIONS: {
   },
 ];
 
-interface ShortcutRowProps {
+export interface ShortcutRowProps {
   hotkey: ResolvedHotkey;
   recording: boolean;
   conflictLabel: string | null;
@@ -47,11 +39,12 @@ interface ShortcutRowProps {
 
 /**
  * One rebindable command: its current binding plus record / reset / remove
- * controls. While recording, a keydown anywhere is captured by the page and
+ * controls. Shared with Settings, Voice, which renders this same row for Talk
+ * so the affordance is the one users already know. While recording, a keydown anywhere is captured by the page and
  * turned into an accelerator; this row just reflects the recording state and
  * surfaces a conflict message inline.
  */
-function ShortcutRow({
+export function ShortcutRow({
   hotkey,
   recording,
   conflictLabel,
@@ -134,92 +127,15 @@ function ShortcutRow({
  * renders this on Electron, so the bridge calls here always have a host.
  */
 export function ShortcutsSections() {
-  const [catalog, setCatalog] = useState<ResolvedHotkey[]>([]);
-  const [recordingKey, setRecordingKey] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<{
-    key: string;
-    label: string;
-  } | null>(null);
-
-  const refresh = useCallback(() => {
-    void getHotkeys().then(setCatalog);
-  }, []);
-
-  useEffect(() => {
-    refresh();
-    return onHotkeysChange(setCatalog);
-  }, [refresh]);
-
-  const stopRecording = useCallback(() => {
-    setRecordingKey(null);
-    setConflict(null);
-  }, []);
-
-  useEffect(() => {
-    if (recordingKey === null) {
-      return;
-    }
-
-    const handleKeydown = (event: KeyboardEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (event.code === "Escape") {
-        stopRecording();
-        return;
-      }
-
-      const accelerator = eventToAccelerator(event);
-      if (accelerator === null) {
-        return;
-      }
-
-      const clash = findConflict(catalog, recordingKey, accelerator);
-      if (clash !== null) {
-        setConflict({ key: recordingKey, label: clash.label });
-        return;
-      }
-
-      void setHotkey(recordingKey, accelerator).then(refresh);
-      stopRecording();
-    };
-
-    window.addEventListener("keydown", handleKeydown, true);
-    return () => window.removeEventListener("keydown", handleKeydown, true);
-  }, [recordingKey, catalog, refresh, stopRecording]);
-
-  const startRecording = useCallback((key: string) => {
-    setConflict(null);
-    setRecordingKey(key);
-  }, []);
-
-  const resetHotkey = useCallback(
-    (key: string) => {
-      // Reverting to the compiled default is still a write, so it must clear the
-      // same conflict bar as recording: a default freed by rebinding this
-      // command may have since been claimed by another, and writing `null`
-      // blindly would resurrect that accelerator and shadow the other binding.
-      const fallback =
-        catalog.find((entry) => entry.key === key)?.defaultAccelerator ?? "";
-      const clash = findConflict(catalog, key, fallback);
-      if (clash !== null) {
-        setRecordingKey(null);
-        setConflict({ key, label: clash.label });
-        return;
-      }
-      stopRecording();
-      void setHotkey(key, null).then(refresh);
-    },
-    [catalog, refresh, stopRecording],
-  );
-
-  const removeHotkey = useCallback(
-    (key: string) => {
-      stopRecording();
-      void setHotkey(key, "").then(refresh);
-    },
-    [refresh, stopRecording],
-  );
+  const {
+    catalog,
+    recordingKey,
+    conflict,
+    startRecording,
+    stopRecording,
+    resetHotkey,
+    removeHotkey,
+  } = useHotkeyRecorder();
 
   // Only rebindable commands get a row; reserved entries (e.g. Find) ride along
   // in `catalog` solely so `findConflict` can flag collisions against them.

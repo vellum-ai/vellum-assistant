@@ -14,7 +14,6 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Slider } from "@vellumai/design-library/components/slider";
-import { ShortcutKeys } from "@vellumai/design-library/components/shortcut-keys";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { ListeningLanguageCard } from "@/domains/settings/pages/listening-language-card";
@@ -22,7 +21,8 @@ import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { isElectron } from "@/runtime/is-electron";
-import { getHotkeys } from "@/runtime/hotkeys";
+import { ShortcutRow } from "@/domains/settings/keyboard-shortcuts/shortcuts-sections";
+import { useHotkeyRecorder } from "@/domains/settings/keyboard-shortcuts/use-hotkey-recorder";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 
 import { DetailCard } from "@/components/detail-card";
@@ -384,26 +384,10 @@ function VoiceModeShortcutCard() {
    * accelerator and cannot live on that rail.
    */
   const desktopHost = isElectron();
-  const [talkAccelerator, setTalkAccelerator] = useState<string | null>(null);
-  useEffect(() => {
-    if (!desktopHost) {
-      return;
-    }
-    let live = true;
-    // Read the real binding rather than printing the compiled default: the
-    // user may have rebound it, and a card that names the wrong chord is
-    // worse than one that names none.
-    void getHotkeys().then((catalog) => {
-      if (!live) {
-        return;
-      }
-      const talk = catalog.find((entry) => entry.key === TALK_HOTKEY_KEY);
-      setTalkAccelerator(talk?.accelerator || null);
-    });
-    return () => {
-      live = false;
-    };
-  }, [desktopHost]);
+  const recorder = useHotkeyRecorder();
+  const talkHotkey = recorder.catalog.find(
+    (entry) => entry.key === TALK_HOTKEY_KEY,
+  );
   const [activator, setActivator] = useState<VoiceModeActivator>(() =>
     readVoiceModeActivator(fnConfigurable),
   );
@@ -554,31 +538,26 @@ function VoiceModeShortcutCard() {
         title={t("voicePage.voiceShortcutTitle")}
         subtitle={t("voicePage.voiceShortcutSubtitleDesktop")}
       >
-        <div className="flex flex-col gap-4">
-          {/* The binding itself, reported rather than edited: it belongs to
-              the host, which is also the only thing that can bind a key
-              system-wide. */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-body-default text-[var(--content-default)]">
-              {t("voicePage.talkShortcutLabel")}
-            </span>
-            {talkAccelerator ? (
-              <ShortcutKeys accelerator={talkAccelerator} />
-            ) : (
-              <span className={labelClasses}>
-                {t("voicePage.talkShortcutUnbound")}
-              </span>
-            )}
-          </div>
-          <Link
-            to={routes.settings.keyboardShortcuts}
-            className="inline-flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
-          >
-            {talkAccelerator
-              ? t("voicePage.talkShortcutLink")
-              : t("voicePage.talkShortcutSetLink")}
-            <ArrowUpRight className="h-3 w-3" />
-          </Link>
+        <div className="flex flex-col gap-2">
+          {/* Rebound from here rather than from the page that lists every
+              shortcut: whoever is reading this card is the person who wants to
+              change this binding, and the same row is what they would have
+              found there. The write goes to the host either way. */}
+          {talkHotkey && (
+            <ShortcutRow
+              hotkey={talkHotkey}
+              recording={recorder.recordingKey === TALK_HOTKEY_KEY}
+              conflictLabel={
+                recorder.conflict?.key === TALK_HOTKEY_KEY
+                  ? recorder.conflict.label
+                  : null
+              }
+              onStartRecording={() => recorder.startRecording(TALK_HOTKEY_KEY)}
+              onCancelRecording={recorder.stopRecording}
+              onReset={() => recorder.resetHotkey(TALK_HOTKEY_KEY)}
+              onRemove={() => recorder.removeHotkey(TALK_HOTKEY_KEY)}
+            />
+          )}
 
           {/* Fn is not an accelerator, so it cannot live on that rail and is
               configured here instead. */}
