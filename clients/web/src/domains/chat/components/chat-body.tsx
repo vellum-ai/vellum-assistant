@@ -311,7 +311,7 @@ export function ChatBody({
   // from the tab order and the accessibility tree. The inner div clips only
   // while collapsed: the collapse needs the clip, but at rest it would shave
   // the keyboard-focus rings that paint outside the cards and buttons inside
-  // the slot.
+  // the slot. Reduced motion gets the same end states without the tween.
   const renderCollapse = (
     dataSlot: string,
     collapsed: boolean,
@@ -320,7 +320,7 @@ export function ChatBody({
     <div
       data-slot={dataSlot}
       inert={collapsed || undefined}
-      className={`grid transition-[grid-template-rows,opacity] duration-150${collapsed ? " pointer-events-none opacity-0" : ""}`}
+      className={`grid transition-[grid-template-rows,opacity] duration-150 motion-reduce:transition-none${collapsed ? " pointer-events-none opacity-0" : ""}`}
       style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
     >
       <div className={`min-h-0${collapsed ? " overflow-hidden" : ""}`}>
