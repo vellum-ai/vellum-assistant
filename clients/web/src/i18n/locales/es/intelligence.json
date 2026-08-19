@@ -131,7 +131,7 @@
     },
     "superpowers": {
       "description": "Lo que puedo hacer",
-      "label": "Mis superpoderes"
+      "label": "Superpoderes"
     },
     "workspace": {
       "description": "Mis archivos",
