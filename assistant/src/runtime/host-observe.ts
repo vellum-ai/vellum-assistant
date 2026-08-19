@@ -1,27 +1,35 @@
 /**
- * Daemon-initiated screen observation, outside any conversation or tool call.
+ * Screen observation raised by the daemon outside any conversation or tool
+ * call.
  *
  * `computer_use_observe` normally reaches the desktop client through
- * `HostCuProxy`, which only exists inside an agent turn. A watch session needs
- * the same observation while no turn is running, so this helper drives the
- * `host_cu` wire protocol directly: mint a requestId, register a pending
- * interaction, broadcast a `host_cu_request` envelope, and await the client's
- * POST to `/v1/host-cu-result`. The flow mirrors the staged UI-snapshot request
- * in `routes/ui-snapshot-routes.ts`, the existing precedent for a
- * conversation-agnostic host request.
+ * `HostCuProxy`, which only exists inside an agent turn. This helper drives the
+ * `host_cu` wire protocol directly for callers that have no turn to hang the
+ * request off: it mints a requestId, registers a pending interaction,
+ * broadcasts a `host_cu_request` envelope to a single client, and awaits that
+ * client's POST to `/v1/host-cu-result`.
  *
- * No new host-proxy executor kind is involved: the client's existing `host_cu`
- * registration services the request unchanged, and the observation fields
- * mirror `CU_RESULT_SCHEMA` exactly so the executor's result deserializes as-is.
+ * Every request is bound to the actor principal that initiated it, the same
+ * binding `HostBashProxy.request()` applies. The target client is either
+ * auto-resolved among that actor's own `host_cu` clients
+ * ({@link pickSameUserAutoResolve}) or, when named explicitly, checked against
+ * the actor before dispatch ({@link enforceSameActorOrErrorResult}), so a
+ * caller can only capture the accessibility tree and screenshot of a machine
+ * its own authenticated user is signed in on.
  *
- * Every failure path resolves to `{ ok: false, reason }` rather than throwing —
- * a watch session must degrade, never crash.
+ * Every failure path resolves to `{ ok: false, reason }` rather than throwing:
+ * a caller observing in the background must degrade, never crash.
  */
 
 import { randomUUID } from "node:crypto";
 
 import { getLogger } from "../util/logger.js";
 import { assistantEventHub, broadcastMessage } from "./assistant-event-hub.js";
+import {
+  ambiguousSameUserError,
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "./auth/same-actor.js";
 import * as pendingInteractions from "./pending-interactions.js";
 
 const log = getLogger("host-observe");
@@ -29,13 +37,16 @@ const log = getLogger("host-observe");
 const DEFAULT_OBSERVE_TIMEOUT_MS = 30_000;
 const MAX_OBSERVE_TIMEOUT_MS = 120_000;
 
+const NO_CLIENT_REASON =
+  "No connected client supports screen observation for this user. Make sure the desktop app is running and signed in.";
+
 /**
  * Observation fields returned by the host CU executor. Mirrors the optional
  * fields of `CU_RESULT_SCHEMA` (see
- * `packages/electron-desktop/src/host-proxy/cu-executor.ts`) so the existing
- * executor result deserializes unchanged. `executionResult` and
- * `secondaryWindows` are omitted: an observe-only request executes no action,
- * so they carry nothing for a watch session.
+ * `packages/electron-desktop/src/host-proxy/cu-executor.ts`) so the executor's
+ * result deserializes as-is. `executionResult` and `secondaryWindows` are
+ * omitted: an observe-only request executes no action, so they carry nothing
+ * for the caller.
  */
 export interface HostObservationFields {
   axTree?: string;
@@ -54,11 +65,22 @@ export type HostObservation =
   | { ok: false; reason: string; timedOut?: boolean };
 
 export interface ObserveHostScreenOptions {
+  /**
+   * Principal id of the actor on whose behalf the observation is taken.
+   * Required, and the only identity the target client is matched against.
+   * `undefined` (no authenticated actor) fails closed: it selects no client
+   * and rejects any explicitly named one.
+   */
+  sourceActorPrincipalId: string | undefined;
   /** How long to wait for the client. Defaults to 30s, capped at 120s. */
   timeoutMs?: number;
   /** Keep the base64 screenshot in the result. Defaults to true. */
   includeScreenshot?: boolean;
-  /** Target a specific client; defaults to the most recently active one. */
+  /**
+   * Target a specific client. Must belong to `sourceActorPrincipalId`.
+   * Defaults to the actor's own `host_cu` client when exactly one is
+   * connected.
+   */
   clientId?: string;
 }
 
@@ -73,28 +95,72 @@ interface LocalFailure {
 }
 
 /**
- * Ask a connected `host_cu`-capable client for the current screen state.
+ * Resolve the `host_cu` client to observe, bound to the initiating actor.
+ * Returns the client id, or the failure to hand back to the caller.
+ */
+function resolveObserveTarget(
+  sourceActorPrincipalId: string | undefined,
+  clientId: string | undefined,
+): { clientId: string } | { reason: string } {
+  let resolvedClientId: string;
+  if (clientId) {
+    const target = assistantEventHub.getClientById(clientId);
+    if (!target?.capabilities.includes("host_cu")) {
+      return {
+        reason: `Client "${clientId}" is not connected or does not support host_cu.`,
+      };
+    }
+    resolvedClientId = clientId;
+  } else {
+    // Auto-resolve to the unique same-user client. Refusing the ambiguous case
+    // keeps one observation from fanning out across every machine the user has
+    // connected.
+    const resolved = pickSameUserAutoResolve({
+      hub: assistantEventHub,
+      capability: "host_cu",
+      sourceActorPrincipalId,
+    });
+    if (resolved.kind === "ambiguous") {
+      return { reason: ambiguousSameUserError("host_cu").content };
+    }
+    if (resolved.kind === "none") {
+      return { reason: NO_CLIENT_REASON };
+    }
+    resolvedClientId = resolved.clientId;
+  }
+
+  // Fail closed before registration and before broadcast, so no caller reaches
+  // a client whose authenticated user is not its own.
+  const rejection = enforceSameActorOrErrorResult({
+    hub: assistantEventHub,
+    sourceActorPrincipalId,
+    targetClientId: resolvedClientId,
+    op: "host_cu",
+  });
+  if (rejection) {
+    return { reason: rejection.content };
+  }
+  return { clientId: resolvedClientId };
+}
+
+/**
+ * Ask the initiating actor's `host_cu`-capable client for the current screen
+ * state.
  */
 export async function observeHostScreen(
-  options: ObserveHostScreenOptions = {},
+  options: ObserveHostScreenOptions,
 ): Promise<HostObservation> {
-  const { includeScreenshot = true, clientId } = options;
+  const { sourceActorPrincipalId, includeScreenshot = true } = options;
   const timeoutMs = Math.min(
     options.timeoutMs ?? DEFAULT_OBSERVE_TIMEOUT_MS,
     MAX_OBSERVE_TIMEOUT_MS,
   );
 
-  const client = clientId
-    ? assistantEventHub.getClientById(clientId)
-    : assistantEventHub.getMostRecentClientByCapability("host_cu");
-  if (!client?.capabilities.includes("host_cu")) {
-    return {
-      ok: false,
-      reason: clientId
-        ? `Client "${clientId}" is not connected or does not support host_cu.`
-        : "No connected client supports screen observation. Make sure the desktop app is running.",
-    };
+  const target = resolveObserveTarget(sourceActorPrincipalId, options.clientId);
+  if ("reason" in target) {
+    return { ok: false, reason: target.reason };
   }
+  const targetClientId = target.clientId;
 
   const requestId = randomUUID();
 
@@ -111,7 +177,7 @@ export async function observeHostScreen(
         broadcastMessage(
           { type: "host_cu_cancel", requestId, conversationId: "" },
           undefined,
-          { targetClientId: client.clientId },
+          { targetClientId },
         );
         resolvePromise({
           failureReason: `Timed out after ${timeoutMs}ms waiting for the desktop client. It may be busy, outdated, or disconnected.`,
@@ -119,18 +185,16 @@ export async function observeHostScreen(
         });
       }, timeoutMs);
 
-      // Arm the same-actor result check only when the target client has a
-      // verified actor principal; a legacy/service connection would otherwise
-      // fail `missing_target` on its own legitimate result.
+      // The target's actor principal is present by construction: the same-actor
+      // check above rejects a client that registered without one.
       const targetActorPrincipalId =
-        assistantEventHub.getActorPrincipalIdForClient(client.clientId);
+        assistantEventHub.getActorPrincipalIdForClient(targetClientId);
       pendingInteractions.register(requestId, {
         kind: "host_cu",
         rpcResolve: resolvePromise as (value: unknown) => void,
         timer,
-        ...(targetActorPrincipalId
-          ? { targetClientId: client.clientId, targetActorPrincipalId }
-          : {}),
+        targetClientId,
+        ...(targetActorPrincipalId ? { targetActorPrincipalId } : {}),
       });
 
       try {
@@ -147,7 +211,7 @@ export async function observeHostScreen(
             stepNumber: 1,
           },
           undefined,
-          { targetClientId: client.clientId },
+          { targetClientId },
         );
       } catch (err) {
         pendingInteractions.resolve(requestId, "cancelled");
