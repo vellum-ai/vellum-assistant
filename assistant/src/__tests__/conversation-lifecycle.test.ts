@@ -655,9 +655,9 @@ describe("loadFromDb metadata injection rehydration", () => {
   test("internal-channel trusted_contact view does not rehydrate memoryV2StaticBlock", async () => {
     // Rehydration keys on the actor, not the surface: a trusted_contact is
     // denied personal memory on the internal `"vellum"` channel exactly as it
-    // is on a remote one. The rehydrate gate must match injection so a
-    // daemon-restart reload of the same conversation produces an identical
-    // prefix, and both now read `canSeePersonalMemory`.
+    // is on a remote one. Injection and rehydration share
+    // `canSeePersonalMemory`, so a daemon-restart reload of the same
+    // conversation produces an identical prefix.
     mockConversation = defaultConv();
     mockDbMessages = [
       {

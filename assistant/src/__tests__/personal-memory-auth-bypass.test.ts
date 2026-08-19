@@ -50,7 +50,7 @@ describe("isPersonalMemoryAllowed — no exposure to non-guardian channel actors
 
   test("allows personal memory for the guardian and for local / native turns", () => {
     expect(isPersonalMemoryAllowed(slack("guardian"))).toBe(true);
-    // Local/native turn — no actor bound at all. `resolveTrustClass` elevates
+    // Local/native turn: no actor bound at all. `resolveTrustClass` elevates
     // this to guardian under a disabled-auth posture, so identity resolution
     // admits it rather than the memory gate carving out an exception.
     expect(isPersonalMemoryAllowed(undefined)).toBe(true);

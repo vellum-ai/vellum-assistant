@@ -110,10 +110,9 @@ describe("canSeePersonalMemory", () => {
   });
 
   test("takes no channel: a surface cannot stand in for an actor", () => {
-    // Guarding the shape itself. The previous gate granted memory to any actor
-    // on the first-party console, which handed the fail-closed `unknown` class
-    // the guardian's memory. Answering "who is this" belongs upstream in
-    // `resolveTrustClass`, not here.
+    // Guarding the shape itself: channel data cannot grant memory to an
+    // unknown actor, because the gate has nowhere to read it from. Answering
+    // "who is this" belongs upstream in `resolveTrustClass`, not here.
     expect(canSeePersonalMemory.length).toBe(1);
     const asRecord = canSeePersonalMemory as unknown as (a: {
       trustClass: string;
