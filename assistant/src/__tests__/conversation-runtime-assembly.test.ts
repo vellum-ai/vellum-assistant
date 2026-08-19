@@ -3187,7 +3187,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     // filtered out.
     const { messages: initialResult } = await applyRuntimeInjections(
       preCompactionMessages,
-      { conversationId: FALLBACK_CONVERSATION_ID },
+      makePkbOptions(),
     );
     // Unwrap the injected reminder from the last user message.
     const initialTexts = extractTexts(initialResult);
@@ -6680,6 +6680,7 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
     pkbSearchThrows = null;
     const { blocks } = await applyRuntimeInjections(baseMessages, {
       conversationId: FALLBACK_CONVERSATION_ID,
+      trust: GUARDIAN_TRUST_FIXTURE,
       mode: "full",
     });
 
@@ -6691,6 +6692,7 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
     seedPkbContent();
     const { blocks } = await applyRuntimeInjections(baseMessages, {
       conversationId: FALLBACK_CONVERSATION_ID,
+      trust: GUARDIAN_TRUST_FIXTURE,
       mode: "minimal",
     });
 
@@ -6700,6 +6702,7 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
   test("not captured when PKB inactive", async () => {
     const { blocks } = await applyRuntimeInjections(baseMessages, {
       conversationId: FALLBACK_CONVERSATION_ID,
+      trust: GUARDIAN_TRUST_FIXTURE,
       mode: "full",
     });
 
