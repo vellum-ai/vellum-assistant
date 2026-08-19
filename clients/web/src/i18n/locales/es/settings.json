@@ -1042,7 +1042,7 @@
     "sectionOutputDescription": "Cómo suena tu asistente.",
     "sectionOutputHeading": "Salida",
     "shortcutChordHint": "Mantén pulsado un modificador (Cmd, Ctrl, Opción o Mayús) y pulsa una tecla.",
-    "shortcutConflict": "Ya lo usa {{command}}",
+    "shortcutConflict": "Ya lo usa {command}",
     "speechServicesBannerLink": "Configúralo en Modelos y servicios",
     "speechServicesBannerPrompt": "¿Quieres usar tu propia clave API para STT o TTS, o configurar una voz personalizada?",
     "systemDefault": "Predeterminado del sistema",

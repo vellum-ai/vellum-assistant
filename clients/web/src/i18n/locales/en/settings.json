@@ -1042,7 +1042,7 @@
     "sectionOutputDescription": "How your assistant sounds.",
     "sectionOutputHeading": "Output",
     "shortcutChordHint": "Hold a modifier (Cmd, Ctrl, Option, or Shift) and press a key.",
-    "shortcutConflict": "Already used by {{command}}",
+    "shortcutConflict": "Already used by {command}",
     "speechServicesBannerLink": "Set it up in Models & Services",
     "speechServicesBannerPrompt": "Want to use your own API key for STT or TTS, or set a custom voice?",
     "systemDefault": "System Default",
