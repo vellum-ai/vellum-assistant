@@ -5,13 +5,7 @@ import path from "node:path";
 
 import { argValue } from "./cli-args";
 
-/**
- * Installs a packaged NSIS artifact, launches the app, and uninstalls it.
- *
- * Covers per-user install into a directory with spaces, packaged resource
- * layout, HKCU protocol and file-association registration, app launch with
- * log output, uninstall cleanup, and preserved session data.
- */
+/** Installs, launches, verifies, and uninstalls a packaged NSIS artifact. */
 
 const windowsDir = path.resolve(import.meta.dir, "..");
 const requireCjs = createRequire(import.meta.url);
@@ -100,7 +94,6 @@ const main = async (): Promise<void> => {
   ] as const) {
     assertExists(path.join(resources, relative), label);
   }
-  assertRegistered(`HKCU\\Software\\Classes\\${scheme}`);
   assertRegistered("HKCU\\Software\\Classes\\.vellum");
 
   console.log(`Launching ${appExe}`);
@@ -121,6 +114,7 @@ const main = async (): Promise<void> => {
   if (child.exitCode !== null) {
     fail(`App exited early with code ${child.exitCode}`);
   }
+  assertRegistered(`HKCU\\Software\\Classes\\${scheme}`);
   console.log(`App is running with logs at ${logFile}`);
   spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
     stdio: "inherit",

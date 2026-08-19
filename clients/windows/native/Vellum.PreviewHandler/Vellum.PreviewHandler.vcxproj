@@ -19,7 +19,7 @@
     <ConfigurationType Condition="'$(Configuration)'=='Release'">DynamicLibrary</ConfigurationType>
     <ConfigurationType Condition="'$(Configuration)'=='Tests'">Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
