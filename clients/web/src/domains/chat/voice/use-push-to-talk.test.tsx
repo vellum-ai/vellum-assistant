@@ -120,7 +120,7 @@ describe("usePushToTalk", () => {
           },
         },
       },
-    } as typeof window.vellum;
+    } as unknown as typeof window.vellum;
     localStorage.setItem(
       LS_PTT_ACTIVATION_KEY,
       serializeActivator(CTRL_PTT_ACTIVATOR),
