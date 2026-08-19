@@ -51,6 +51,10 @@ import {
   withSqliteRetry,
 } from "../util/sqlite-retry.js";
 import {
+  purgeAllWatchTimelines,
+  purgeWatchTimelineForConversation,
+} from "../watch/watch-timeline.js";
+import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
 } from "./attachments-store.js";
@@ -190,6 +194,30 @@ function dedicatedTableExists(db: DrizzleDb, table: string): boolean {
  * keys on `conversation_id` regardless of event name, so this covers every
  * conversation-scoped pending event.
  */
+/**
+ * Remove a conversation's watch-session timeline and the screenshot files
+ * those entries own.
+ *
+ * Runs with the other on-disk cleanup, after the row deletes: the entries are
+ * keyed by conversation id, and their frames are staged attachment files, so a
+ * delete that skipped them would leave pictures of the user's screen on disk
+ * for a conversation they asked to remove.
+ *
+ * Best-effort, like the rest of the post-transaction cleanup. The conversation
+ * row is already gone by this point, so throwing here would turn a completed
+ * delete into an error the caller cannot usefully retry.
+ */
+function purgeWatchTimelineForDeletedConversation(id: string): void {
+  try {
+    purgeWatchTimelineForConversation(id);
+  } catch (err) {
+    log.warn(
+      { err, conversationId: id },
+      "Failed to purge the watch timeline for a deleted conversation",
+    );
+  }
+}
+
 function deletePendingTelemetryEventsForConversation(id: string): void {
   const telemetry = getTelemetryDb({ createIfMissing: false });
   if (!telemetry || !dedicatedTableExists(telemetry, "telemetry_events")) {
@@ -2110,6 +2138,8 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
+  purgeWatchTimelineForDeletedConversation(id);
+
   // Notify `conversation-deleted` hooks (e.g. the memory plugin failing its
   // still-pending jobs for this conversation). Fire-and-forget from this
   // synchronous primitive — the pipeline contains per-hook failures, and
@@ -2259,6 +2289,8 @@ export async function deleteConversationGently(
   if (createdAtForDiskCleanup != null) {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
+
+  purgeWatchTimelineForDeletedConversation(id);
 
   // Notify `conversation-deleted` hooks — fire-and-forget, same contract as
   // the synchronous delete primitive.
@@ -3577,6 +3609,13 @@ export async function clearAll(): Promise<{
   );
   await runOrThrow("DELETE FROM llm_usage_events");
   await runOrThrow("DELETE FROM message_attachments");
+  // Watch-session timelines are conversation-keyed rows whose screenshots are
+  // staged attachment files on disk. `DELETE FROM attachments` drops rows, not
+  // files, so the timeline is purged through its own store first: that path
+  // unlinks each frame as it removes the row it belongs to. It runs after
+  // message_attachments so nothing still references a frame, and before the
+  // bulk attachment wipe so every row it needs is still there to read.
+  purgeAllWatchTimelines();
   await runOrThrow("DELETE FROM attachments");
   await runOrThrow("DELETE FROM tool_invocations");
   await runOrThrow("DELETE FROM messages");

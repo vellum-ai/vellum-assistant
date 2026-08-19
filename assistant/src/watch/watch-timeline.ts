@@ -27,7 +27,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { eq, type SQL } from "drizzle-orm";
 
 import { escapeAxTreeContent } from "../context/outbound-sanitize.js";
 import {
@@ -47,6 +47,39 @@ const SCREENSHOT_MIME = "image/jpeg";
 
 /** Stands in for an AX tree the render bound left out. */
 const AX_TREE_OMITTED = "<ax-tree-omitted />";
+
+/**
+ * Stands in for a screen the host captured but could not enumerate.
+ *
+ * The macOS host falls back to a bare screenshot whenever there is no focused
+ * window (`HostCuExecutor.swift`), so an observation with pixels and no tree is
+ * an expected shape rather than a broken one. The marker is what tells the
+ * retrospective it is looking at a screen it can see but not read.
+ */
+const AX_TREE_UNAVAILABLE = "<ax-tree-unavailable />";
+
+/** Notes that an entry's moment is also available as an image. */
+const SCREENSHOT_NOTE = "a screenshot of this moment was captured.";
+
+/** Separates one rendered entry from the next. */
+const BLOCK_SEPARATOR = "\n\n";
+
+/** Marks content the byte budget cut short. */
+const TRUNCATION_MARKER = "[truncated]";
+
+/**
+ * Bytes an entry needs before it is worth rendering at all. A block clipped
+ * below this says nothing its offset prefix does not, so the render stops
+ * instead and reports the loss through `truncated`.
+ */
+const MIN_ENTRY_BYTES = 256;
+
+/**
+ * Bytes an AX tree needs before it is spelled out. Below it the tree collapses
+ * to {@link AX_TREE_OMITTED}, which costs less than a tree clipped after its
+ * first few elements and reads as the deliberate omission it is.
+ */
+const MIN_AX_TREE_BYTES = 256;
 
 /**
  * Entries rendered by default, counted back from the most recent.
@@ -70,6 +103,22 @@ export const DEFAULT_MAX_ENTRIES = 200;
  * sane prompt without losing when anything happened or what changed.
  */
 export const DEFAULT_MAX_AX_TREES = 2;
+
+/**
+ * Bytes of rendered timeline text the retrospective reads by default.
+ *
+ * The count bounds above cap how many entries render, not how large they are,
+ * and every retained string is emitted verbatim. A single AX tree runs to the
+ * macOS enumerator's ceiling of 10,000 elements
+ * (`AccessibilityTree.swift`), and diffs and narrations carry no length limit
+ * of their own, so counting entries is not a bound on the prompt. This is.
+ *
+ * 120 KB is roughly 30k tokens of dense UI text, about a seventh of a
+ * 200k-token window: enough for a long session's shape to survive intact,
+ * while leaving the retrospective room for the conversation it is summarizing
+ * and for its own reply. Callers that want more pass `maxRenderBytes`.
+ */
+export const DEFAULT_MAX_RENDER_BYTES = 120_000;
 
 /**
  * The screen observation a timeline entry records, structurally the result the
@@ -115,6 +164,8 @@ export interface WatchTimelineRenderOptions {
   readonly maxEntries?: number;
   /** Entries whose AX tree renders in full, counted back from the most recent. */
   readonly maxAxTrees?: number;
+  /** Bytes of rendered text to spend, newest entry first. */
+  readonly maxRenderBytes?: number;
 }
 
 export interface WatchTimelineRender {
@@ -122,9 +173,13 @@ export interface WatchTimelineRender {
   readonly text: string;
   /** The entries `text` was rendered from, oldest first. */
   readonly entries: readonly WatchTimelineEntry[];
-  /** Entries the session has, including any the bound left out. */
+  /** Entries the session has, including any the bounds left out. */
   readonly totalEntries: number;
-  /** True when the bound left earlier entries out. */
+  /**
+   * True when the render is partial: the count bound left earlier entries out,
+   * the byte budget ran out before the oldest entry, or the budget cut an
+   * entry's own content short.
+   */
   readonly truncated: boolean;
   /** Attachment ids of the rendered entries' screenshots, oldest first. */
   readonly screenshotAttachmentIds: readonly string[];
@@ -241,6 +296,13 @@ export function appendNarration(
  * of "store what arrives" is a policy of storing every frame. Which frames are
  * worth an image is a cadence decision, and it belongs to the caller driving
  * the session rather than to the row writer.
+ *
+ * A screenshot the caller asked to keep is content on its own, so an
+ * observation carrying one is never empty. The host falls back to a bare
+ * screenshot whenever accessibility enumeration yields no focused window
+ * (`HostCuExecutor.swift`), which is the ordinary shape for an inaccessible
+ * app: requiring a tree or a diff would make watching one produce an empty
+ * timeline while the frames the user asked for were being discarded.
  */
 export async function appendObservation(
   sessionId: string,
@@ -260,15 +322,22 @@ export async function appendObservation(
     );
     return { ok: false, reason: "observation_failed" };
   }
-  if (!observation.axTree && !observation.axDiff) {
+  const screenshot =
+    options.attachScreenshot === true ? observation.screenshot : undefined;
+  if (!observation.axTree && !observation.axDiff && !screenshot) {
     return { ok: false, reason: "empty" };
   }
 
   const atMs = normalizeAtMs(options.atMs);
-  const screenshotAttachmentId =
-    options.attachScreenshot === true && observation.screenshot
-      ? await storeScreenshot(sessionId, atMs, observation.screenshot)
-      : null;
+  const screenshotAttachmentId = screenshot
+    ? await storeScreenshot(sessionId, atMs, screenshot)
+    : null;
+
+  // A screenshot-only observation whose upload failed carries nothing at all,
+  // so it falls back to the empty case rather than persisting a blank row.
+  if (!observation.axTree && !observation.axDiff && !screenshotAttachmentId) {
+    return { ok: false, reason: "empty" };
+  }
 
   const result = insertEntry({
     id: randomUUID(),
@@ -304,41 +373,135 @@ function readEntries(sessionId: string): WatchTimelineEntry[] {
     .map(toEntry);
 }
 
-/** Render one entry, with `renderAxTree` deciding whether its tree is spelled out. */
-function renderEntry(entry: WatchTimelineEntry, renderAxTree: boolean): string {
+function byteLength(value: string): number {
+  return Buffer.byteLength(value, "utf8");
+}
+
+/**
+ * Clip `value` to `maxBytes` of UTF-8 and mark the cut.
+ *
+ * Slicing by bytes can land inside a multi-byte character, so the replacement
+ * character the decode leaves at the tail is dropped.
+ */
+function clip(
+  value: string,
+  maxBytes: number,
+): { text: string; truncated: boolean } {
+  if (byteLength(value) <= maxBytes) {
+    return { text: value, truncated: false };
+  }
+  const keep = Math.max(0, maxBytes - TRUNCATION_MARKER.length - 1);
+  const head = Buffer.from(value, "utf8")
+    .subarray(0, keep)
+    .toString("utf8")
+    .replace(/\uFFFD+$/, "");
+  return { text: `${head}\n${TRUNCATION_MARKER}`, truncated: true };
+}
+
+/** One entry rendered into the budget it was given. */
+interface RenderedBlock {
+  readonly text: string;
+  readonly truncated: boolean;
+}
+
+/**
+ * Render one entry into at most `maxBytes`, with `renderAxTree` deciding
+ * whether its tree is spelled out.
+ *
+ * The offset prefix, the diff, and the notes are paid for before the tree. The
+ * tree is the bulk of an entry and the part that ages worst, so an entry the
+ * budget squeezes keeps when it happened and what moved and gives up the full
+ * screen. A screen the host captured but could not enumerate says so, so the
+ * retrospective can tell "nothing was on screen" from "the screen was not
+ * readable" and reach for the image instead.
+ */
+function renderEntry(
+  entry: WatchTimelineEntry,
+  renderAxTree: boolean,
+  maxBytes: number,
+): RenderedBlock {
   const offset = formatOffset(entry.atMs);
   if (entry.kind === "narration") {
-    return `${offset} ${NARRATION_LABEL} ${entry.text}`;
+    const head = `${offset} ${NARRATION_LABEL} `;
+    const body = clip(entry.text, Math.max(0, maxBytes - byteLength(head)));
+    return { text: `${head}${body.text}`, truncated: body.truncated };
   }
 
-  const parts = [`${offset} ${OBSERVATION_LABEL}`];
-  if (entry.axTree) {
-    parts.push(
-      renderAxTree
-        ? `<ax-tree>\n${escapeAxTreeContent(entry.axTree)}\n</ax-tree>`
-        : AX_TREE_OMITTED,
-    );
-  }
-  if (entry.axDiff) {
-    parts.push(`changed since the previous observation:\n${entry.axDiff}`);
+  const header = `${offset} ${OBSERVATION_LABEL}`;
+  const notes: string[] = [];
+  if (!entry.axTree && !entry.axDiff) {
+    notes.push(AX_TREE_UNAVAILABLE);
   }
   if (entry.screenshotAttachmentId) {
-    parts.push("a screenshot of this moment was captured.");
+    notes.push(SCREENSHOT_NOTE);
   }
-  return parts.join("\n");
+
+  let remaining = maxBytes - byteLength(header);
+  for (const note of notes) {
+    remaining -= byteLength(note) + 1;
+  }
+
+  let truncated = false;
+
+  let diffBlock: string | null = null;
+  if (entry.axDiff) {
+    const prefix = "changed since the previous observation:\n";
+    const body = clip(
+      entry.axDiff,
+      Math.max(0, remaining - byteLength(prefix) - 1),
+    );
+    diffBlock = `${prefix}${body.text}`;
+    truncated = truncated || body.truncated;
+    remaining -= byteLength(diffBlock) + 1;
+  }
+
+  let treeBlock: string | null = null;
+  if (entry.axTree) {
+    const open = "<ax-tree>\n";
+    const close = "\n</ax-tree>";
+    const room = remaining - byteLength(open) - byteLength(close) - 1;
+    if (!renderAxTree || room < MIN_AX_TREE_BYTES) {
+      treeBlock = AX_TREE_OMITTED;
+      // The count bound collapsing a tree is the documented default; the
+      // budget collapsing one is a loss the caller has to hear about.
+      truncated = truncated || renderAxTree;
+    } else {
+      const body = clip(escapeAxTreeContent(entry.axTree), room);
+      treeBlock = `${open}${body.text}${close}`;
+      truncated = truncated || body.truncated;
+    }
+  }
+
+  const parts = [header];
+  if (treeBlock !== null) {
+    parts.push(treeBlock);
+  }
+  if (diffBlock !== null) {
+    parts.push(diffBlock);
+  }
+  parts.push(...notes);
+  return { text: parts.join("\n"), truncated };
 }
 
 /**
  * Render a session's timeline for the retrospective.
  *
+ * Two bounds apply. The count bounds pick which entries are candidates and
+ * which of their trees are spelled out; the byte budget then decides how much
+ * of that actually fits, because a count is no bound at all on text that is
+ * emitted verbatim. The budget is spent newest entry first, so the material
+ * closest to the moment the retrospective is about is the material that
+ * survives, and an entry too large for what is left is clipped with a marker
+ * rather than dropped without one.
+ *
  * The AX tree comes before the diff in an observation deliberately: the tree
- * is what the bound collapses, so putting it first leaves the offset prefix
+ * is what the bounds collapse, so putting it first leaves the offset prefix
  * and the diff intact in an entry whose tree was left out.
  *
  * The result carries what the retrospective needs to decide how much of this
- * to use: how many entries the session actually has, whether the bound cut any
- * off, and the attachment ids of the screenshots among the entries rendered,
- * so it can attach the images it wants without a second query.
+ * to use: how many entries the session actually has, whether anything was cut,
+ * and the attachment ids of the screenshots among the entries rendered, so it
+ * can attach the images it wants without a second query.
  */
 export function renderWatchTimeline(
   sessionId: string,
@@ -346,23 +509,51 @@ export function renderWatchTimeline(
 ): WatchTimelineRender {
   const maxEntries = Math.max(0, options?.maxEntries ?? DEFAULT_MAX_ENTRIES);
   const maxAxTrees = Math.max(0, options?.maxAxTrees ?? DEFAULT_MAX_AX_TREES);
+  const maxRenderBytes = Math.max(
+    0,
+    options?.maxRenderBytes ?? DEFAULT_MAX_RENDER_BYTES,
+  );
 
   const all = readEntries(sessionId);
-  const entries = all.slice(Math.max(0, all.length - maxEntries));
+  const candidates = all.slice(Math.max(0, all.length - maxEntries));
 
-  const treeIndices = entries
+  const treeIndices = candidates
     .map((entry, index) => (entry.axTree ? index : -1))
     .filter((index) => index >= 0);
   const fullTreeFrom = treeIndices.length - maxAxTrees;
   const renderFullTree = new Set(treeIndices.slice(Math.max(0, fullTreeFrom)));
 
+  const blocks: string[] = [];
+  const entries: WatchTimelineEntry[] = [];
+  let remaining = maxRenderBytes;
+  let clipped = false;
+
+  for (let index = candidates.length - 1; index >= 0; index--) {
+    const entry = candidates[index];
+    if (!entry) {
+      continue;
+    }
+    const separator = blocks.length > 0 ? byteLength(BLOCK_SEPARATOR) : 0;
+    const available = remaining - separator;
+    if (available < MIN_ENTRY_BYTES) {
+      clipped = true;
+      break;
+    }
+    const block = renderEntry(entry, renderFullTree.has(index), available);
+    blocks.push(block.text);
+    entries.push(entry);
+    remaining -= separator + byteLength(block.text);
+    clipped = clipped || block.truncated;
+  }
+
+  blocks.reverse();
+  entries.reverse();
+
   return {
-    text: entries
-      .map((entry, index) => renderEntry(entry, renderFullTree.has(index)))
-      .join("\n\n"),
+    text: blocks.join(BLOCK_SEPARATOR),
     entries,
     totalEntries: all.length,
-    truncated: entries.length < all.length,
+    truncated: clipped || entries.length < all.length,
     screenshotAttachmentIds: entries
       .map((entry) => entry.screenshotAttachmentId)
       .filter((id): id is string => id !== null),
@@ -370,22 +561,22 @@ export function renderWatchTimeline(
 }
 
 /**
- * Delete every timeline entry belonging to a conversation, along with the
- * screenshots those entries own.
+ * Delete the timeline entries matching `where`, along with the screenshots
+ * those entries own.
  *
  * Attachments go first. A row deleted before its attachment is a screenshot
  * nothing points at, which no later sweep can attribute to anything.
+ * `deleteAttachment` unlinks the staged file with the row, so the frames leave
+ * disk rather than surviving as unreferenced bytes under the workspace.
  */
-export function purgeWatchTimelineForConversation(
-  conversationId: string,
-): WatchTimelinePurgeResult {
+function purgeEntries(where: SQL | undefined): WatchTimelinePurgeResult {
   const db = getDb();
   const rows = db
     .select({
       screenshotAttachmentId: watchTimelineEntries.screenshotAttachmentId,
     })
     .from(watchTimelineEntries)
-    .where(eq(watchTimelineEntries.conversationId, conversationId))
+    .where(where)
     .all();
 
   let attachmentsDeleted = 0;
@@ -398,9 +589,29 @@ export function purgeWatchTimelineForConversation(
     }
   }
 
-  db.delete(watchTimelineEntries)
-    .where(eq(watchTimelineEntries.conversationId, conversationId))
-    .run();
+  db.delete(watchTimelineEntries).where(where).run();
 
   return { entriesDeleted: rows.length, attachmentsDeleted };
+}
+
+/**
+ * Delete every timeline entry belonging to a conversation, along with the
+ * screenshots those entries own. Every conversation-delete path calls this:
+ * the entries hold frames of the user's screen, so a delete that left them
+ * behind would strand the conversation's most sensitive artifact on disk.
+ */
+export function purgeWatchTimelineForConversation(
+  conversationId: string,
+): WatchTimelinePurgeResult {
+  return purgeEntries(eq(watchTimelineEntries.conversationId, conversationId));
+}
+
+/**
+ * Delete every timeline entry in the store, along with the screenshots those
+ * entries own. The clear-all wipe's counterpart to
+ * {@link purgeWatchTimelineForConversation}: a wipe that dropped the rows
+ * alone would leave the frames behind as staged files no row points at.
+ */
+export function purgeAllWatchTimelines(): WatchTimelinePurgeResult {
+  return purgeEntries(undefined);
 }
