@@ -54,6 +54,34 @@ describe("events client registration", () => {
     ac.abort();
   });
 
+  test("registers Windows with only its implemented host capabilities", () => {
+    const ac = new AbortController();
+    const hub = new AssistantEventHub();
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "test-windows-001",
+          "x-vellum-interface-id": "windows",
+        },
+        abortSignal: ac.signal,
+      },
+      { hub },
+    );
+
+    const entry = hub.getClientById("test-windows-001");
+    expect(entry?.interfaceId).toBe("windows");
+    expect(entry?.capabilities).toEqual([
+      "host_bash",
+      "host_file",
+      "host_cu",
+      "host_browser",
+      "host_ui_snapshot",
+    ]);
+
+    ac.abort();
+  });
+
   test("skips registration when no headers are provided (backwards compat)", () => {
     const ac = new AbortController();
     const hub = new AssistantEventHub();
