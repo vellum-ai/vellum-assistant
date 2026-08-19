@@ -7,7 +7,7 @@ import {
   isLiveVoiceSessionActive,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { requestVoiceModeStart } from "@/domains/chat/voice/pending-voice-start";
+import { startVoiceFromSurface } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { useNativeFnRegistration } from "@/domains/chat/voice/use-native-fn-registration";
 import {
   LS_VOICE_MODE_ACTIVATION_KEY,
@@ -22,8 +22,6 @@ import {
   supportsFnPushToTalk,
 } from "@/runtime/hotkey";
 import { watchSetting } from "@/utils/local-settings";
-import { useConversationStore } from "@/stores/conversation-store";
-import { routes } from "@/utils/routes";
 
 /**
  * Binds the configured voice mode shortcut (Settings, Voice) to starting and
@@ -40,6 +38,10 @@ import { routes } from "@/utils/routes";
  * a hold (`down`/`up`) and a toggle has no use for the release. A host that
  * accepts no Fn registration falls back to the keyboard chord, so the
  * shortcut stays reachable without Input Monitoring.
+ *
+ * Starting is not this hook's to define. A press is handed to
+ * `startVoiceFromSurface`, the same entry the companion surface's Talk uses,
+ * so the shortcut and the surface stay one behaviour rather than two.
  */
 export function useVoiceModeHotkey({
   enabled = true,
@@ -59,32 +61,17 @@ export function useVoiceModeHotkey({
     setFnRegistered,
   );
 
-  /**
-   * Start through the seam the visible composer registers, so a shortcut
-   * start runs the same preflight, first-run card, and entry-origin animation
-   * as its voice button. Off a chat route no composer is mounted, so the
-   * request is parked and the conversation surface brought up to serve it.
-   */
-  const startVoiceMode = useCallback(() => {
-    const { entryHandler } = useLiveVoiceStore.getState();
-    if (entryHandler) {
-      entryHandler();
-      return;
-    }
-    requestVoiceModeStart();
-    const conversationId = useConversationStore.getState().activeConversationId;
-    navigate(
-      conversationId ? routes.conversation(conversationId) : routes.assistant,
-    );
-  }, [navigate]);
-
   const toggleVoiceMode = useCallback(() => {
     if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
       endLiveVoiceSession();
       return;
     }
-    startVoiceMode();
-  }, [startVoiceMode]);
+    // The same action as the companion surface's Talk, deliberately: a press
+    // here and a press there are the same request, made from outside the
+    // conversation either way. `startVoiceFromSurface` owns what that means,
+    // so the two cannot drift.
+    startVoiceFromSurface(navigate);
+  }, [navigate]);
 
   useEffect(() => {
     if (!enabled || typeof window === "undefined") {

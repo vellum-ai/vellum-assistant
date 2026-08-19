@@ -34,7 +34,6 @@ beforeEach(() => {
   // reset() deliberately preserves the starter (mount-scoped); clear it
   // explicitly so tests can't leak a registered starter into each other.
   useLiveVoiceStore.getState().setStarter(null);
-  useLiveVoiceStore.getState().setEntryHandler(null);
 });
 
 function makeStarter() {
@@ -97,17 +96,14 @@ describe("useLiveVoiceStore — session starter", () => {
     expect(useLiveVoiceStore.getState().starter).toBeNull();
   });
 
-  test("reset preserves the starter and entry handler: session teardown must not deregister mount-scoped seams", () => {
+  test("reset preserves the starter — session teardown must not deregister the mounted controller", () => {
     const starter = makeStarter();
-    const entryHandler = mock(() => {});
     useLiveVoiceStore.getState().setStarter(starter);
-    useLiveVoiceStore.getState().setEntryHandler(entryHandler);
     // Simulate a full session lifecycle ending in teardown's reset().
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
     useLiveVoiceStore.getState().setState("listening");
     useLiveVoiceStore.getState().reset();
     expect(useLiveVoiceStore.getState().starter).toBe(starter);
-    expect(useLiveVoiceStore.getState().entryHandler).toBe(entryHandler);
   });
 });
 

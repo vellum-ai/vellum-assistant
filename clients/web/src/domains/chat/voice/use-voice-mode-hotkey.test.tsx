@@ -20,6 +20,16 @@ mock.module("@/runtime/hotkey", () => ({
   },
 }));
 
+/**
+ * The shared entry the companion surface's Talk also calls. Mocked rather than
+ * exercised: what belongs to this hook is *that* a press reaches it, not what
+ * happens afterwards, which `start-voice-request` owns and tests.
+ */
+const startVoiceFromSurface = mock(() => {});
+mock.module("@/domains/chat/voice/live-voice/start-voice-request", () => ({
+  startVoiceFromSurface,
+}));
+
 const { useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 const {
@@ -29,8 +39,6 @@ const {
 } = await import("@/utils/voice-mode-activation");
 const { useVoiceModeHotkey } =
   await import("@/domains/chat/voice/use-voice-mode-hotkey");
-const { clearPendingVoiceModeStart, consumePendingVoiceModeStart } =
-  await import("@/domains/chat/voice/pending-voice-start");
 
 /** The hook navigates when nothing is registered, so it needs a router. */
 function renderVoiceModeHotkey(options?: { enabled?: boolean }) {
@@ -39,7 +47,6 @@ function renderVoiceModeHotkey(options?: { enabled?: boolean }) {
   });
 }
 
-const entryHandler = mock(() => {});
 const stop = mock(() => {});
 
 /** The default chord, as the DOM would deliver it. */
@@ -61,13 +68,11 @@ function chordEvent(): KeyboardEvent {
 beforeEach(() => {
   fnSupported = false;
   fnRegistrationSucceeds = true;
-  clearPendingVoiceModeStart();
   emitHotkeyEvent = null;
-  entryHandler.mockClear();
+  startVoiceFromSurface.mockClear();
   stop.mockClear();
   localStorage.removeItem(LS_VOICE_MODE_ACTIVATION_KEY);
   useLiveVoiceStore.getState().reset();
-  useLiveVoiceStore.getState().setEntryHandler(entryHandler);
   useLiveVoiceStore.getState().setControls({
     stop,
     release: () => {},
@@ -82,19 +87,17 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  clearPendingVoiceModeStart();
-  useLiveVoiceStore.getState().setEntryHandler(null);
   useLiveVoiceStore.getState().reset();
 });
 
 describe("useVoiceModeHotkey", () => {
-  test("starts a session through the composer's entry handler", () => {
+  test("starts a session through the shared surface entry", () => {
     renderVoiceModeHotkey();
     const event = chordEvent();
 
     window.dispatchEvent(event);
 
-    expect(entryHandler).toHaveBeenCalledTimes(1);
+    expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
     expect(event.defaultPrevented).toBe(true);
   });
 
@@ -106,7 +109,7 @@ describe("useVoiceModeHotkey", () => {
 
     textarea.dispatchEvent(chordEvent());
 
-    expect(entryHandler).toHaveBeenCalledTimes(1);
+    expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
     textarea.remove();
   });
 
@@ -117,7 +120,7 @@ describe("useVoiceModeHotkey", () => {
     window.dispatchEvent(chordEvent());
 
     expect(stop).toHaveBeenCalledTimes(1);
-    expect(entryHandler).not.toHaveBeenCalled();
+    expect(startVoiceFromSurface).not.toHaveBeenCalled();
   });
 
   test("ignores a chord that is not the binding", () => {
@@ -131,7 +134,7 @@ describe("useVoiceModeHotkey", () => {
 
     window.dispatchEvent(event);
 
-    expect(entryHandler).not.toHaveBeenCalled();
+    expect(startVoiceFromSurface).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
   });
 
@@ -141,7 +144,7 @@ describe("useVoiceModeHotkey", () => {
 
     window.dispatchEvent(chordEvent());
 
-    expect(entryHandler).not.toHaveBeenCalled();
+    expect(startVoiceFromSurface).not.toHaveBeenCalled();
   });
 
   test("stays out of the way when disabled for the host", () => {
@@ -149,13 +152,13 @@ describe("useVoiceModeHotkey", () => {
 
     window.dispatchEvent(chordEvent());
 
-    expect(entryHandler).not.toHaveBeenCalled();
+    expect(startVoiceFromSurface).not.toHaveBeenCalled();
   });
 
-  test("parks the start for the composer when no composer is registered", () => {
-    // Settings, Library, the app viewer: no composer means no guarded entry
-    // flow to call, so the press is handed to the one that mounts next.
-    useLiveVoiceStore.getState().setEntryHandler(null);
+  test("starts the same way off a chat route as on one", () => {
+    // Settings, Library, the app viewer. The press means the same thing from
+    // all of them, so there is no route branch here to get wrong: the entry
+    // is handed the request and owns the navigation and the parking.
     renderVoiceModeHotkey();
 
     // Navigation re-renders the router, so let React flush it.
@@ -163,17 +166,7 @@ describe("useVoiceModeHotkey", () => {
       window.dispatchEvent(chordEvent());
     });
 
-    expect(entryHandler).not.toHaveBeenCalled();
-    expect(consumePendingVoiceModeStart()).toBe(true);
-  });
-
-  test("parks nothing while a composer is registered", () => {
-    renderVoiceModeHotkey();
-
-    window.dispatchEvent(chordEvent());
-
-    expect(entryHandler).toHaveBeenCalledTimes(1);
-    expect(consumePendingVoiceModeStart()).toBe(false);
+    expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
   });
 
   describe("Fn", () => {
@@ -185,12 +178,12 @@ describe("useVoiceModeHotkey", () => {
       renderVoiceModeHotkey();
 
       emitHotkeyEvent?.({ kind: "fnPushToTalk", state: "down" });
-      expect(entryHandler).toHaveBeenCalledTimes(1);
+      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
 
       // The user has already lifted the key that started the session; the
       // release edge only ever meant something to push to talk.
       emitHotkeyEvent?.({ kind: "fnPushToTalk", state: "up" });
-      expect(entryHandler).toHaveBeenCalledTimes(1);
+      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
     });
 
     test("falls back to the chord when the host refuses the registration", async () => {
@@ -201,7 +194,7 @@ describe("useVoiceModeHotkey", () => {
 
       await waitFor(() => {
         window.dispatchEvent(chordEvent());
-        expect(entryHandler).toHaveBeenCalledTimes(1);
+        expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
       });
     });
 
@@ -211,7 +204,7 @@ describe("useVoiceModeHotkey", () => {
 
       emitHotkeyEvent?.({ kind: "fnPushToTalk", state: "down" });
 
-      expect(entryHandler).not.toHaveBeenCalled();
+      expect(startVoiceFromSurface).not.toHaveBeenCalled();
     });
   });
 });

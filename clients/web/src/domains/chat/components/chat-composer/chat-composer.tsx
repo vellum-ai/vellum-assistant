@@ -67,7 +67,6 @@ import {
   useIsLiveVoiceSessionOwnedBy,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { consumePendingVoiceModeStart } from "@/domains/chat/voice/pending-voice-start";
 import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { VoiceFirstRunCard } from "@/domains/chat/voice/voice-room/voice-first-run-card";
@@ -587,28 +586,6 @@ export function ChatComposer({
     setFirstRunCardOpen(false);
     startLiveVoiceSession();
   }, [startLiveVoiceSession]);
-
-  // The voice mode shortcut fires from anywhere in the app, but this composer
-  // owns the guarded entry flow, so register the same handler the button uses
-  // and let the shortcut reach voice through it. A shortcut pressed on a route
-  // with no composer parks its request and navigates here; draining it on
-  // registration is what serves that press. Cleanup is identity-safe so an
-  // unmounting composer cannot clear a newer handler.
-  useEffect(() => {
-    if (!showVoiceInput || !assistantId || !supportsLiveVoice) {
-      return;
-    }
-    useLiveVoiceStore.getState().setEntryHandler(handleLiveVoiceStart);
-    if (consumePendingVoiceModeStart()) {
-      handleLiveVoiceStart();
-    }
-    return () => {
-      const store = useLiveVoiceStore.getState();
-      if (store.entryHandler === handleLiveVoiceStart) {
-        store.setEntryHandler(null);
-      }
-    };
-  }, [assistantId, handleLiveVoiceStart, showVoiceInput, supportsLiveVoice]);
 
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   // `shouldSubmitOnEnter` ignores Enter under a coarse primary pointer, since a

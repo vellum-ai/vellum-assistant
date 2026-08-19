@@ -30,6 +30,7 @@ const {
   PENDING_VOICE_START_TTL_MS,
   drainPendingVoiceStart,
   requestVoiceStart,
+  startVoiceFromSurface,
 } = await import("@/domains/chat/voice/live-voice/start-voice-request");
 const { useLiveVoiceStore } = await import(
   "@/domains/chat/voice/live-voice/live-voice-store"
@@ -267,5 +268,55 @@ describe("one-shot delivery", () => {
     await drainPendingVoiceStart();
 
     expect(starter).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The shared surface entry
+// ---------------------------------------------------------------------------
+
+describe("startVoiceFromSurface", () => {
+  test("navigates to the draft composer and parks the request", () => {
+    identityHydrated();
+    const navigate = mock((_to: string) => undefined);
+
+    startVoiceFromSurface(navigate);
+
+    // The draft route, not the open conversation: the session starts with no
+    // conversation and the server assigns one on `ready`. Navigating is also
+    // what mounts the layout that owns the starter.
+    expect(navigate).toHaveBeenCalledWith("/assistant");
+    expect(isParked()).toBe(true);
+  });
+
+  test("starts once the starter registers, which is the press that used to be lost", async () => {
+    // The press lands where no chat layout is mounted, so nothing can serve it
+    // yet. It must survive until one does rather than being spent on arrival.
+    identityHydrated();
+    const navigate = mock((_to: string) => undefined);
+
+    startVoiceFromSurface(navigate);
+    await Promise.resolve();
+    expect(starter).not.toHaveBeenCalled();
+    expect(isParked()).toBe(true);
+
+    registerStarter();
+    await drainPendingVoiceStart();
+
+    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+  });
+
+  test("a running session spends the press", () => {
+    identityHydrated();
+    registerStarter();
+    useLiveVoiceStore.getState().setState("listening");
+    const navigate = mock((_to: string) => undefined);
+
+    startVoiceFromSurface(navigate);
+
+    // That session is the one the user is in. Navigating would only walk the
+    // app away from the composer that owns it.
+    expect(navigate).not.toHaveBeenCalled();
+    expect(isParked()).toBe(false);
   });
 });

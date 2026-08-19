@@ -29,10 +29,6 @@ import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
 import * as emojiCatalogMod from "@/domains/chat/components/chat-composer/emoji-catalog";
 import * as nativeAuthMod from "@/runtime/native-auth";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
-import {
-  clearPendingVoiceModeStart,
-  requestVoiceModeStart,
-} from "@/domains/chat/voice/pending-voice-start";
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
 // Pure helpers live in `chat-composer-utils` (no mocks needed), so import them
@@ -706,9 +702,6 @@ afterEach(() => {
 });
 beforeEach(() => {
   resetLiveVoiceMocks();
-  // A parked voice start is process-wide and one-shot; clear it so a test that
-  // parks one cannot start voice in the next composer that mounts.
-  clearPendingVoiceModeStart();
   mockCompactComposer = false;
   // Roomy window, mouse: the desktop shape, unless a test says otherwise.
   viewport.set({ narrow: false, coarsePointer: false });
@@ -2589,30 +2582,6 @@ describe("ChatComposer — live-voice integration", () => {
     expect(liveStarterSpy).not.toHaveBeenCalled();
     expect(liveCancelPrewarmSpy).toHaveBeenCalledTimes(1);
     expect(useLiveVoiceStore.getState().state).toBe("idle");
-  });
-
-  test("a voice start parked off a chat route runs on registration", () => {
-    // GIVEN a shortcut pressed where no composer was mounted (Settings, say),
-    // which parks the request and navigates here
-    useTurnStore.setState(INITIAL_TURN_STATE);
-    useVoicePrefsStore.setState({ firstRunSeen: false });
-    requestVoiceModeStart();
-
-    // WHEN the voice-enabled composer mounts and registers its entry handler
-    const { getByTestId } = renderVoiceComposer();
-
-    // THEN the parked press runs the same guarded flow the mic button does
-    expect(getByTestId("first-run-card")).toBeTruthy();
-  });
-
-  test("a composer mounting with nothing parked starts nothing", () => {
-    useTurnStore.setState(INITIAL_TURN_STATE);
-    useVoicePrefsStore.setState({ firstRunSeen: false });
-
-    const { queryByTestId } = renderVoiceComposer();
-
-    expect(queryByTestId("first-run-card")).toBe(null);
-    expect(liveStarterSpy).not.toHaveBeenCalled();
   });
 
   test("first-ever entry opens the prefs card instead of starting the session", () => {
