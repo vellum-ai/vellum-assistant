@@ -16,14 +16,13 @@
  * it (still only for platform-hosted assistants; the call site ANDs
  * this gate with `useActiveAssistantIsPlatformHosted()`).
  *
- * MIN_VERSION is 0.11.5, the first release line that can contain the
- * route: the v0.11.4 release branch was cut from main before the route
- * landed, so no 0.11.4 build carries it. `versionSupports` compares
- * base versions first, so any lower floor (a dev-timestamp floor on an
- * earlier base included) would admit every 0.11.4 build and 404-poll
- * against it. Dev builds with a pre-0.11.5 base are excluded too, even
- * though ones cut after the route landed do carry it; that is the
- * deliberate conservative trade for zero 404 noise against 0.11.4.
+ * MIN_VERSION invariant: no build with a base version below 0.11.5
+ * carries the route (0.11.4 and earlier lines lack it entirely).
+ * `versionSupports` compares base versions first, so any lower floor
+ * (a dev-timestamp floor on an earlier base included) would admit
+ * routeless 0.11.4 builds and 404-poll against them. Dev builds with a
+ * pre-0.11.5 base are excluded even when they do carry the route; that
+ * is the deliberate conservative trade for zero 404 noise.
  *
  * Unscoped on purpose: the monitor polls only the active assistant and
  * resets its snapshot on every assistant switch, so the worst a stale
