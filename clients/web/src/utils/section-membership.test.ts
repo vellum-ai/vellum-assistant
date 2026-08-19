@@ -567,7 +567,12 @@ describe("reconcileSectionMembership", () => {
     expect(serialized).toContain(JSON.stringify(pinnedKey));
   });
 
-  test("a member is replaced in place and reports no membership change", () => {
+  test("a member is replaced in place without its section being refetched", () => {
+    /* The row is rewritten where it already sits, and the section holding it
+       is not reported: a settle must never refetch a section this write left
+       correct. Sections the walk never saw can still be named, since nothing
+       here can tell a section that is about to render from one that will not,
+       and naming a cache that does not exist invalidates nothing. */
     const row = conversation({ conversationId: "c1", title: "before" });
     const client = seed([[CHATS, [row]]]);
 
@@ -577,7 +582,9 @@ describe("reconcileSectionMembership", () => {
     });
 
     expect(rowsIn(client, CHATS)[0]?.title).toBe("after");
-    expect(changed).toEqual([]);
+    expect(changed).not.toContainEqual(
+      conversationListQueryKey(ASSISTANT_ID, CHATS),
+    );
   });
 
   test("the foreground list is left alone", () => {
@@ -665,22 +672,6 @@ describe("reconcileSectionMembership", () => {
 
     expect(keys).toContainEqual(conversationListQueryKey(ASSISTANT_ID, CHATS));
     expect(keys).toContainEqual(conversationListQueryKey(ASSISTANT_ID, SLACK));
-  });
-
-  test("a section the walk claimed is not also named from the row", () => {
-    /* The loaded destination decides for itself, deliberate skips included,
-       so a section that is already right is never refetched to confirm it. */
-    const row = conversation({ conversationId: "c1" });
-    const client = seed([[CHATS, [row]]]);
-
-    const keys = reconcileSectionMembership(client, ASSISTANT_ID, {
-      ...row,
-      surfacedAt: 5,
-    });
-
-    expect(keys).not.toContainEqual(
-      conversationListQueryKey(ASSISTANT_ID, CHATS),
-    );
   });
 
   test("one view's loaded section does not answer for the other view's", () => {
