@@ -673,6 +673,34 @@ export const pluginIngressApprovals = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Webhook ingress routes (the subpaths this assistant accepts from outside)
+// ---------------------------------------------------------------------------
+
+/**
+ * The assistant's own allowlist of inbound webhook subpaths.
+ *
+ * A row is a claim that some live integration expects traffic on that exact
+ * path, so a path nothing registered can be refused before it reaches the
+ * route table or a per-route signature check.
+ */
+export const webhookIngressRoutes = sqliteTable("webhook_ingress_routes", {
+  // Origin-relative path with its leading slash, e.g. `/webhooks/telegram`.
+  path: text("path").primaryKey(),
+  // What kind of integration owns the path, e.g. `telegram` or `plugin`.
+  type: text("type").notNull(),
+  // The specific instance within that type, e.g. a plugin name. Null when
+  // the type alone identifies the owner.
+  source: text("source"),
+  // Only exact paths are matched today. The column exists so prefix or
+  // pattern rules can be added later without a schema change.
+  match: text("match").$type<"exact">().notNull().default("exact"),
+  createdAt: integer("created_at").notNull(),
+  // Refreshed on every re-registration, so a path nothing claims any more is
+  // visible as a stale row.
+  lastRegisteredAt: integer("last_registered_at").notNull(),
+});
+
+// ---------------------------------------------------------------------------
 // Inbound dedup (a vendor's retry must not become a second turn)
 // ---------------------------------------------------------------------------
 
