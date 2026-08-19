@@ -918,6 +918,44 @@ describe("pairDeliveryWithConversation", () => {
     expect(messagesInvalidated).toContain("conv-producer");
   });
 
+  test("appends for a foreground producer the home feed will not mirror", async () => {
+    // `resolveHomeFeedMirror` declines a signal that is neither
+    // `assistant_tool`, nor flagged async-background, nor produced by a
+    // background-typed conversation, so no card is written for this one. The
+    // append is deliberately not gated on that: the vellum banner still
+    // deep-links to this conversation, and the client suppresses the banner
+    // entirely when the user is already viewing it, leaving the transcript as
+    // the only place the notification can land.
+    mockExistingConversations["conv-foreground"] = {
+      id: "conv-foreground",
+      source: "user",
+      title: "An ordinary chat",
+    };
+    const signal = makeSignal({
+      requiresConversation: undefined,
+      sourceChannel: "plugin",
+      sourceContextId: "conv-foreground",
+      attentionHints: {
+        requiresAction: false,
+        urgency: "medium",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+    });
+    const copy = makeCopy({ body: "Something you asked to watch changed." });
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      copy,
+    );
+
+    expect(result.conversationId).toBe("conv-foreground");
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).toHaveBeenCalledTimes(1);
+    expect(messagesInvalidated).toContain("conv-foreground");
+  });
+
   test("appended notification body skips indexing", async () => {
     mockExistingConversations["conv-producer"] = {
       id: "conv-producer",

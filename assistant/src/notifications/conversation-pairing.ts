@@ -134,20 +134,29 @@ export async function pairDeliveryWithConversation(
         ? copy.conversationSeedMessage
         : composeConversationSeed(signal, channel, copy);
 
-    // Passive vellum notifications surface via the home feed alone and link
-    // back to the originating conversation via `signal.sourceContextId`.
-    // Materializing a fresh per-notification conversation just to host the
-    // seed message leaves a graveyard entry in the sidebar, so nothing is
-    // created here when the producer did not opt in via
-    // `requiresConversation`. The decision engine's `reuse_existing` hint is
-    // ignored for the same reason: a failed reuse (stale target / source
-    // mismatch) falls through to `createConversation`, producing exactly the
-    // graveyard entry we want to avoid.
+    // Passive vellum notifications link back to the originating conversation
+    // via `signal.sourceContextId` rather than materializing one of their own.
+    // A fresh per-notification conversation just to host the seed message
+    // leaves a graveyard entry in the sidebar, so nothing is created here when
+    // the producer did not opt in via `requiresConversation`. The decision
+    // engine's `reuse_existing` hint is ignored for the same reason: a failed
+    // reuse (stale target / source mismatch) falls through to
+    // `createConversation`, producing exactly the graveyard entry we want to
+    // avoid.
     //
     // The body is still appended to the producing conversation when
-    // `sourceContextId` resolves, because that row is already the home feed's
-    // "Go to Conversation" target. Appending keeps that button honest (what it
-    // opens contains the notification the user tapped) without creating rows.
+    // `sourceContextId` resolves, because every route the user has into this
+    // notification ends at that conversation. Tapping the banner deep-links
+    // there, and resolves there with or without this append, since the
+    // broadcaster falls back to `sourceContextId` for the vellum deep link.
+    // The client suppresses the banner outright when that conversation is
+    // already on screen, leaving the transcript as the only place the
+    // notification can appear. The home feed aims its "Go to Conversation"
+    // button at the same row whenever it mirrors the signal.
+    //
+    // So this is deliberately not gated on home-feed eligibility: a signal the
+    // feed declines to mirror still reaches the user through the banner, and
+    // this row is what makes that landing honest.
     if (strategy === "start_new_conversation" && !signal.requiresConversation) {
       const appended = await appendBodyToSourceConversation(
         signal,
