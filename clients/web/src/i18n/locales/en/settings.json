@@ -514,6 +514,54 @@
   "packageSwitchConfirmModal": {
     "cancel": "Cancel"
   },
+  "pairDeviceCard": {
+    "copyError": "Could not copy the pairing address.",
+    "generateButton": "Generate pairing QR",
+    "generateButtonMinting": "Generating…",
+    "generateButtonRegenerate": "Generate new code",
+    "noTunnelBody": "On this computer, run `vellum tunnel --provider tailscale` (or another provider). Its address appears here.",
+    "noTunnelTitle": "No tunnel detected",
+    "publicUrlHelper": "The https address your devices can reach this assistant at (your Tailscale URL, or another tunnel's).",
+    "publicUrlHelperTunnel": "This address comes from `vellum tunnel` on this computer. Edit it if your devices reach this assistant at a different URL.",
+    "publicUrlLabel": "Public URL",
+    "publicUrlPlaceholder": "https://your-assistant.ts.net",
+    "subtitle": "Scan with another device's camera, or open the link on it, to use {name} there.",
+    "subtitleFallbackName": "this assistant",
+    "title": "Pair a device"
+  },
+  "pairDeviceClient": {
+    "connectivityHint": "If a scan can't connect, make sure a tunnel is running on the host (`vellum tunnel`) and the public URL points at it, then generate a new code.",
+    "httpError": "Pairing failed (HTTP {status}).",
+    "networkError": "Couldn't reach the assistant. Make sure it's running and try again.",
+    "unexpectedResponse": "The assistant returned an unexpected response."
+  },
+  "pairDeviceReady": {
+    "copiedButton": "Copied",
+    "copyButton": "Copy",
+    "expiredBody": "Generate a new code to pair a device.",
+    "expiredTitle": "This pairing code expired.",
+    "expiresIn": "Expires in {time} · single-use.",
+    "qrTitle": "Device pairing QR code",
+    "singleUse": "Single-use."
+  },
+  "pairDeviceUrl": {
+    "loopback": "This is a loopback address other devices can't reach. Enter the assistant's public https URL.",
+    "nonHttps": "The URL must use https so your devices can connect securely.",
+    "serviceFallbackName": "the tunnel provider",
+    "serviceWebsite": "This is {service}'s website, not your assistant's address. Run `vellum tunnel` on the host to get one.",
+    "unparseable": "Enter a valid URL, e.g. https://your-assistant.ts.net."
+  },
+  "pairedDevicesSection": {
+    "confirmMessage": "The {platform} device {hash} loses access to this assistant. Its access tokens are invalidated immediately; that device must be paired again from this machine to reconnect.",
+    "confirmTitle": "Revoke this device?",
+    "dateUnknown": "unknown",
+    "datesLine": "Paired {paired} · Last used {lastUsed}",
+    "hostRevokeDisabledTitle": "This is this machine's own credential; revoking it would lock the host out of the assistant.",
+    "platformUnknown": "Unknown",
+    "revokeButton": "Revoke",
+    "thisMachine": "This machine",
+    "title": "Paired devices ({count})"
+  },
   "pendingPairingRequests": {
     "approveButton": "Approve",
     "denyButton": "Deny",
@@ -898,6 +946,9 @@
   "useDaemonConfig": {
     "assistantNotReadyToast": "Assistant not ready. Please try again.",
     "saveApiKeyFailedToast": "Failed to save {providerName} API key. Please try again."
+  },
+  "usePairDevice": {
+    "mintErrorFallback": "Something went wrong while generating the code."
   },
   "usePendingPairingRequests": {
     "actionErrorFallback": "Something went wrong. Try again.",

@@ -514,6 +514,54 @@
   "packageSwitchConfirmModal": {
     "cancel": "Cancelar"
   },
+  "pairDeviceCard": {
+    "copyError": "No se pudo copiar la dirección de vinculación.",
+    "generateButton": "Generar QR de vinculación",
+    "generateButtonMinting": "Generando…",
+    "generateButtonRegenerate": "Generar nuevo código",
+    "noTunnelBody": "En este equipo, ejecuta `vellum tunnel --provider tailscale` (u otro proveedor). Su dirección aparecerá aquí.",
+    "noTunnelTitle": "No se detectó ningún túnel",
+    "publicUrlHelper": "La dirección https en la que tus dispositivos pueden alcanzar este asistente (tu URL de Tailscale o la de otro túnel).",
+    "publicUrlHelperTunnel": "Esta dirección proviene de `vellum tunnel` en este equipo. Edítala si tus dispositivos alcanzan este asistente en otra URL.",
+    "publicUrlLabel": "URL pública",
+    "publicUrlPlaceholder": "https://your-assistant.ts.net",
+    "subtitle": "Escanéalo con la cámara de otro dispositivo, o abre el enlace en él, para usar {name} allí.",
+    "subtitleFallbackName": "este asistente",
+    "title": "Vincular un dispositivo"
+  },
+  "pairDeviceClient": {
+    "connectivityHint": "Si un escaneo no puede conectar, asegúrate de que haya un túnel en ejecución en el host (`vellum tunnel`) y de que la URL pública apunte a él; después genera un nuevo código.",
+    "httpError": "La vinculación falló (HTTP {status}).",
+    "networkError": "No se pudo conectar con el asistente. Asegúrate de que esté en ejecución e inténtalo de nuevo.",
+    "unexpectedResponse": "El asistente devolvió una respuesta inesperada."
+  },
+  "pairDeviceReady": {
+    "copiedButton": "Copiado",
+    "copyButton": "Copiar",
+    "expiredBody": "Genera un nuevo código para vincular un dispositivo.",
+    "expiredTitle": "Este código de vinculación expiró.",
+    "expiresIn": "Expira en {time} · de un solo uso.",
+    "qrTitle": "Código QR de vinculación de dispositivo",
+    "singleUse": "De un solo uso."
+  },
+  "pairDeviceUrl": {
+    "loopback": "Esta es una dirección de loopback que otros dispositivos no pueden alcanzar. Introduce la URL https pública del asistente.",
+    "nonHttps": "La URL debe usar https para que tus dispositivos se conecten de forma segura.",
+    "serviceFallbackName": "el proveedor del túnel",
+    "serviceWebsite": "Este es el sitio web de {service}, no la dirección de tu asistente. Ejecuta `vellum tunnel` en el host para obtener una.",
+    "unparseable": "Introduce una URL válida, p. ej. https://your-assistant.ts.net."
+  },
+  "pairedDevicesSection": {
+    "confirmMessage": "El dispositivo {platform} {hash} pierde el acceso a este asistente. Sus tokens de acceso se invalidan de inmediato; ese dispositivo tendrá que vincularse de nuevo desde este equipo para reconectarse.",
+    "confirmTitle": "¿Revocar este dispositivo?",
+    "dateUnknown": "desconocido",
+    "datesLine": "Vinculado {paired} · Último uso {lastUsed}",
+    "hostRevokeDisabledTitle": "Esta es la credencial de este mismo equipo; revocarla dejaría al host sin acceso al asistente.",
+    "platformUnknown": "Desconocido",
+    "revokeButton": "Revocar",
+    "thisMachine": "Este equipo",
+    "title": "Dispositivos vinculados ({count})"
+  },
   "pendingPairingRequests": {
     "approveButton": "Aprobar",
     "denyButton": "Denegar",
@@ -898,6 +946,9 @@
   "useDaemonConfig": {
     "assistantNotReadyToast": "El asistente no está listo. Inténtalo de nuevo.",
     "saveApiKeyFailedToast": "No se pudo guardar la clave de API de {providerName}. Inténtalo de nuevo."
+  },
+  "usePairDevice": {
+    "mintErrorFallback": "Algo salió mal al generar el código."
   },
   "usePendingPairingRequests": {
     "actionErrorFallback": "Algo salió mal. Inténtalo de nuevo.",
