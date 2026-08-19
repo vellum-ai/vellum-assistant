@@ -336,7 +336,7 @@ describe("PairDeviceCard", () => {
 
     expect(
       screen.getByText(
-        "Scan with another device's camera — or open the link on it — to use My Assistant there.",
+        "Scan with another device's camera, or open the link on it, to use My Assistant there.",
       ),
     ).toBeTruthy();
   });
@@ -366,7 +366,7 @@ describe("PairDeviceCard", () => {
 
     expect(
       screen.getByText(
-        "Scan with another device's camera — or open the link on it — to use this assistant there.",
+        "Scan with another device's camera, or open the link on it, to use this assistant there.",
       ),
     ).toBeTruthy();
   });
