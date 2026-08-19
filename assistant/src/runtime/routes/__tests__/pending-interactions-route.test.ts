@@ -14,12 +14,20 @@
  *   - the diagnostic (unfiltered) mode is unchanged.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { QuestionEntry } from "../../../api/events/question-request.js";
 import * as pendingInteractions from "../../pending-interactions.js";
-import { ROUTES as APPROVAL_ROUTES } from "../approval-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
+
+// The conversation-key lookup is the only path into the unresolvable-conversation
+// early return, and it reads SQLite. Stub it so this stays a unit test of the
+// response shape. Imported dynamically below so the stub is in place first.
+mock.module("../../../persistence/conversation-key-store.js", () => ({
+  getConversationByKey: () => undefined,
+}));
+
+const { ROUTES: APPROVAL_ROUTES } = await import("../approval-routes.js");
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = APPROVAL_ROUTES.find((r) => r.operationId === operationId);
@@ -57,15 +65,21 @@ const ENTRIES: QuestionEntry[] = [
   },
 ];
 
-function registerQuestion(
-  requestId: string,
-  entries: QuestionEntry[] | undefined = ENTRIES,
-): void {
+function registerQuestion(requestId: string, entries = ENTRIES): void {
   pendingInteractions.register(requestId, {
     conversationId: "conv-1",
     kind: "question",
     toolUseId: `tool-${requestId}`,
-    ...(entries ? { questionDetails: { entries } } : {}),
+    questionDetails: { entries },
+  });
+}
+
+/** A question interaction that never got its batch attached. */
+function registerQuestionWithoutDetails(requestId: string): void {
+  pendingInteractions.register(requestId, {
+    conversationId: "conv-1",
+    kind: "question",
+    toolUseId: `tool-${requestId}`,
   });
 }
 
@@ -133,7 +147,7 @@ describe("pending-interactions, conversation-scoped", () => {
 
   test("does not report a question registered without its entries", async () => {
     // GIVEN a question interaction carrying no renderable batch
-    registerQuestion("req-1", undefined);
+    registerQuestionWithoutDetails("req-1");
 
     // WHEN the conversation's pending interactions are read
     const result = await listForConversation("conv-1");
