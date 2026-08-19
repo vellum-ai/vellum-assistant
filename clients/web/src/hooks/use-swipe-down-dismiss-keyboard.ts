@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { hideNativeKeyboard } from "@/runtime/native-keyboard";
-import { isPointerCoarse } from "@/utils/pointer";
+import { usePointerCoarse } from "@/utils/pointer";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -177,6 +177,11 @@ function findTouch(touches: TouchList, touchId: number): Touch | null {
  * and tearing listeners down mid-gesture would strand the in-flight touch; the
  * gesture is gated per-touch through `enabledRef` instead.
  *
+ * The pointer type is the one input that does re-run setup. It is read as a
+ * subscription, not a one-shot: a convertible that sheds its keyboard, or a
+ * tablet lifted out of a dock, switches to a coarse primary pointer mid-session
+ * and must get the gesture then, without waiting for this layout to remount.
+ *
  * Passive listeners never call `preventDefault()`, so the thread keeps
  * scrolling natively under the gesture. That is deliberate: the swipe rides
  * along with the scroll exactly as `.onDrag` does on a native list.
@@ -201,8 +206,10 @@ export function useSwipeDownDismissKeyboard({
     enabledRef.current = enabled;
   });
 
+  const pointerCoarse = usePointerCoarse();
+
   useEffect(() => {
-    if (!isPointerCoarse()) {
+    if (!pointerCoarse) {
       return;
     }
 
@@ -285,5 +292,5 @@ export function useSwipeDownDismissKeyboard({
       document.removeEventListener("touchend", endGesture, true);
       document.removeEventListener("touchcancel", endGesture, true);
     };
-  }, []);
+  }, [pointerCoarse]);
 }
