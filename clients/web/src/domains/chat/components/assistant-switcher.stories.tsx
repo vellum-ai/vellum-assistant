@@ -6,7 +6,7 @@
  * assistants, the assistant-switcher flag, a live platform session, and a
  * query cache carrying one character avatar per entry; a story that seeds a
  * single assistant shows the affordance-free pill the short list collapses
- * to. The names mirror the mock so the states can be compared against it.
+ * to.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -30,15 +30,15 @@ function platformAssistant(id: string, name: string): ResolvedAssistant {
 }
 
 const ASSISTANTS: ResolvedAssistant[] = [
-  platformAssistant("asst-mel", "Mel Gibson"),
-  platformAssistant("asst-jimmy", "Jimmy Buckets"),
-  platformAssistant("asst-shqurte", "Shqurte Fejza"),
+  platformAssistant("asst-1", "Alice"),
+  platformAssistant("asst-2", "Bob"),
+  platformAssistant("asst-3", "Carol"),
 ];
 
 const TRAITS: Record<string, CharacterTraits> = {
-  "asst-mel": { bodyShape: "blob", eyeStyle: "curious", color: "teal" },
-  "asst-jimmy": { bodyShape: "star", eyeStyle: "goofy", color: "green" },
-  "asst-shqurte": { bodyShape: "burst", eyeStyle: "surprised", color: "pink" },
+  "asst-1": { bodyShape: "blob", eyeStyle: "curious", color: "teal" },
+  "asst-2": { bodyShape: "star", eyeStyle: "goofy", color: "green" },
+  "asst-3": { bodyShape: "burst", eyeStyle: "surprised", color: "pink" },
 };
 
 /* One client for every story: the seeds are per-assistant-id and the stories
@@ -65,7 +65,7 @@ function seedStores(assistants: ResolvedAssistant[]): void {
   useResolvedAssistantsStore.setState({
     assistants,
     assistantsHydrated: true,
-    activeAssistantId: "asst-mel",
+    activeAssistantId: "asst-1",
   });
   useClientFeatureFlagStore.setState({ assistantSwitcher: true });
   /* `useSwitchableAssistants` only counts platform entries where a platform
@@ -77,8 +77,8 @@ const meta: Meta<typeof AssistantSwitcher> = {
   title: "Chat/AssistantSwitcher",
   component: AssistantSwitcher,
   args: {
-    assistantId: "asst-mel",
-    label: "Mel Gibson",
+    assistantId: "asst-1",
+    label: "Alice",
     active: false,
     collapsed: false,
     onSelect: () => {},
