@@ -18,11 +18,9 @@ import { CHANNEL_IDS } from "../channels/types.js";
  * in, whether it is a message or a reaction, and, when it is a reaction, which
  * message it was attached to.
  *
- * Those facts were previously spelled in Slack's vocabulary (`channelTs`,
- * `threadTs`, `reaction.targetChannelTs`) inside `slackMeta`, which is why
- * history assembly reads as Slack logic despite being purely structural: it
- * groups a reaction with the message it targets, inside a thread. That rule
- * holds for any thread-scoped channel, and Telegram and Discord both are one.
+ * History assembly is structural, not Slack logic: it groups a reaction with
+ * the message it targets, inside a thread. That rule holds for any
+ * thread-scoped channel.
  *
  * The schema passes through what it does not name, so a provider carries its
  * own fields (Slack's file markers and timezone labels) on this same object
@@ -52,8 +50,13 @@ export const providerMessageMetadataSchema = z
      * word for a delivery address and "channel" names the provider.
      */
     conversationExternalId: z.string(),
-    /** Provider id of this row itself. */
-    messageId: z.string(),
+    /**
+     * Provider id of this row itself. Absent on a reaction, which no channel
+     * gives an id of its own: a reaction event names the chat, the message it
+     * was attached to, the actor and the emoji, and nothing identifies the
+     * reaction. The message it acts on is `reaction.targetMessageId`.
+     */
+    messageId: z.string().optional(),
     /**
      * Provider id of the thread this row sits in, absent when it is not in one.
      * Never synthesized from `messageId`: a value here asserts that a thread
@@ -63,8 +66,8 @@ export const providerMessageMetadataSchema = z
     /**
      * Provider id of whoever authored the row or performed the reaction. Trust
      * is keyed on this everywhere else, and it is what lets a channel say who
-     * acted; a display name is a label, not an identity. Optional only because
-     * rows written before this shape existed may not carry one.
+     * acted; a display name is a label, not an identity. Optional because a
+     * provider envelope need not carry one.
      */
     actorExternalId: z.string().optional(),
     displayName: z.string().optional(),
@@ -111,7 +114,11 @@ export function readProviderMessageMetadata(
  * The id a row is grouped by when assembling a thread: its own for a message,
  * its target's for a reaction, so a reaction lands beside the message it was
  * attached to rather than in a block of its own.
+ *
+ * Undefined for a row that identifies neither, which cannot be placed.
  */
-export function groupingMessageId(meta: ProviderMessageMetadata): string {
+export function groupingMessageId(
+  meta: ProviderMessageMetadata,
+): string | undefined {
   return meta.reaction?.targetMessageId ?? meta.messageId;
 }

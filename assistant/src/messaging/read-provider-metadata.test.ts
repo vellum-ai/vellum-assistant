@@ -25,8 +25,7 @@ function slackRow(
 
 describe("readProviderMetadata", () => {
   it("reads a row that only has the legacy Slack envelope", () => {
-    // Rows written before `providerMeta` existed are mapped on read rather
-    // than rewritten, so there is no migration.
+    // Slack's own envelope is mapped on read, so no row is rewritten.
     const metadata = JSON.stringify({
       slackMeta: JSON.stringify(slackRow({ threadTs: TARGET_TS })),
     });
@@ -71,6 +70,9 @@ describe("readProviderMetadata", () => {
 
     const meta = readProviderMetadata(metadata);
     expect(meta?.eventKind).toBe("reaction");
+    // No channel gives a reaction an id of its own, so the row must not claim
+    // its target's: two rows sharing one id break resolution by message id.
+    expect(meta?.messageId).toBeUndefined();
     expect(meta?.reaction).toEqual({
       targetMessageId: TARGET_TS,
       emoji: "thumbsup",

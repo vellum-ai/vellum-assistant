@@ -19,15 +19,12 @@ import {
  * understands them. History assembly, the conversation route and the
  * transcript renderer then work for a channel nobody here has heard of.
  *
- * `slackMeta` is Slack's own envelope, mapped on read. Slack predates the
- * neutral shape and holds fields no other channel has an equivalent for, so
- * it keeps writing what it writes and loses nothing. That makes Slack the
- * exception rather than the pattern: a channel added from here writes
- * `providerMeta` and needs no adapter at all.
+ * `slackMeta` is Slack's own envelope, mapped on read. It holds fields no
+ * other channel has an equivalent for, so Slack keeps writing it and loses
+ * nothing. A channel that writes `providerMeta` needs no adapter at all.
  *
- * Normalizing on read rather than on write is what allows both. Writing stays
- * where provider detail legitimately lives, nothing is rewritten, and nothing
- * is stored twice.
+ * Normalizing on read is what allows both. Writing stays where provider
+ * detail legitimately lives, and nothing is stored twice.
  *
  * A row with no recognized envelope, or one that fails validation, reads as
  * null: callers already treat absent metadata as "not a channel row".

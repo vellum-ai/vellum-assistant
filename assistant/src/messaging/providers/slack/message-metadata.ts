@@ -293,15 +293,13 @@ export function readSlackMetadataFromMessageMetadata(
 /**
  * Present a Slack row's stored metadata as the channel-neutral shape.
  *
- * Slack spelled the structural facts in its own vocabulary, so rows written
- * before the neutral shape existed are read through here rather than
- * rewritten. `channelTs` is the row's own provider id and `targetChannelTs`
- * the id of the message a reaction was attached to; both are Slack `ts`
- * strings, which is a Slack detail of the id format, not of the fact.
+ * `channelTs` is the row's own provider id and `targetChannelTs` the id of the
+ * message a reaction was attached to. Both are Slack `ts` strings, which is a
+ * Slack detail of the id format, not of the fact.
  *
- * Slack keeps the rest of its envelope (file markers, timezone labels,
- * channel name, actor id): those are either Slack's own or have no second
- * channel asking for them yet.
+ * The rest of Slack's envelope (file markers, timezone labels, channel name)
+ * stays there and is read from there by the Slack transcript renderer, which
+ * is a provider renderer by design.
  */
 export function slackMetadataAsProviderMetadata(
   meta: SlackMessageMetadata,
@@ -309,7 +307,9 @@ export function slackMetadataAsProviderMetadata(
   return {
     source: "slack",
     conversationExternalId: meta.channelId,
-    messageId: meta.channelTs,
+    // A reaction row stores the reacted message's ts in `channelTs`, which is
+    // its target rather than an id of its own.
+    ...(meta.eventKind === "reaction" ? {} : { messageId: meta.channelTs }),
     ...(meta.actorExternalUserId
       ? { actorExternalId: meta.actorExternalUserId }
       : {}),
