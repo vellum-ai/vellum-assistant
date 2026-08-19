@@ -571,7 +571,7 @@ function VoiceModeShortcutCard() {
             )}
           </div>
           <Link
-            to={routes.settings.general}
+            to={routes.settings.keyboardShortcuts}
             className="inline-flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
           >
             {talkAccelerator
