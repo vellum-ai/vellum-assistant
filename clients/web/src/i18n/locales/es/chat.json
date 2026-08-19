@@ -8,7 +8,10 @@
     "closeAriaLabel": "Cerrar",
     "camera": "Cámara",
     "gallery": "Fototeca",
-    "files": "Archivos"
+    "files": "Archivos",
+    "pickFailed": "No se pudo añadir ese archivo. Inténtalo de nuevo.",
+    "tooLarge": "{count, plural, one {# archivo es demasiado grande para adjuntarlo} other {# archivos son demasiado grandes para adjuntarlos}}",
+    "pickFull": "{count, plural, one {# archivo no cupo en este lote. Añádelo por separado.} other {# archivos no cupieron en este lote. Añádelos por separado.}}"
   },
   "allowOptionsMenu": {
     "allowAndCreateRule": "Permitir y crear regla",

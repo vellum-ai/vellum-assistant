@@ -1,26 +1,13 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Stubs — must precede executor import
-// ---------------------------------------------------------------------------
+import { HostProxyPoster } from "../poster";
+import { createHostShellExecutor, __testing as executorTesting } from "./host-shell-executor";
 
-// Stub electron-log
-mock.module("electron-log/main", () => {
-  const noop = () => {};
-  return {
-    default: {
-      info: noop,
-      warn: noop,
-      error: noop,
-      debug: noop,
-      initialize: noop,
-      transports: { file: { maxSize: 0, fileName: "", format: "", getFile: () => ({ path: "" }) } },
-    },
-  };
+// Exercises the shared lifecycle through a Bash spec, mirroring the macOS
+// adapter's invocation.
+const bashExecutor = createHostShellExecutor({
+  buildSpawn: (command) => ({ file: "/bin/bash", args: ["-c", "--", command] }),
 });
-
-const { HostProxyPoster } = await import("@vellumai/electron-desktop/host-proxy/poster");
-const { hostBashExecutor, __testing: executorTesting } = await import("./host-bash-executor");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -53,7 +40,7 @@ function capturingPoster(): { poster: InstanceType<typeof HostProxyPoster>; post
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("host-bash-executor", () => {
+describe("host-shell-executor", () => {
   afterEach(() => {
     // Clean up any lingering processes
     for (const [, entry] of executorTesting.runningProcesses) {
@@ -65,7 +52,7 @@ describe("host-bash-executor", () => {
   test("executes a command and posts result", async () => {
     const { poster, posts } = capturingPoster();
 
-    hostBashExecutor.handleRequest(
+    bashExecutor.handleRequest(
       { type: "host_bash_request", requestId: "r1", command: "echo hello" },
       poster,
     );
@@ -84,7 +71,7 @@ describe("host-bash-executor", () => {
   test("captures stderr output", async () => {
     const { poster, posts } = capturingPoster();
 
-    hostBashExecutor.handleRequest(
+    bashExecutor.handleRequest(
       { type: "host_bash_request", requestId: "r2", command: "echo err >&2" },
       poster,
     );
@@ -98,7 +85,7 @@ describe("host-bash-executor", () => {
   test("reports non-zero exit code", async () => {
     const { poster, posts } = capturingPoster();
 
-    hostBashExecutor.handleRequest(
+    bashExecutor.handleRequest(
       { type: "host_bash_request", requestId: "r3", command: "exit 42" },
       poster,
     );
@@ -112,7 +99,7 @@ describe("host-bash-executor", () => {
   test("times out and sends SIGTERM then SIGKILL", async () => {
     const { poster, posts } = capturingPoster();
 
-    hostBashExecutor.handleRequest(
+    bashExecutor.handleRequest(
       {
         type: "host_bash_request",
         requestId: "r4",
@@ -133,7 +120,7 @@ describe("host-bash-executor", () => {
   test("cancellation terminates process and suppresses result", async () => {
     const { poster, posts } = capturingPoster();
 
-    hostBashExecutor.handleRequest(
+    bashExecutor.handleRequest(
       { type: "host_bash_request", requestId: "r5", command: "sleep 60" },
       poster,
     );
@@ -141,7 +128,7 @@ describe("host-bash-executor", () => {
     await flush(100);
     expect(executorTesting.runningProcesses.has("r5")).toBe(true);
 
-    hostBashExecutor.handleCancel(
+    bashExecutor.handleCancel(
       { type: "host_bash_cancel", requestId: "r5" },
       poster,
     );
@@ -156,7 +143,7 @@ describe("host-bash-executor", () => {
   test("merges environment variables", async () => {
     const { poster, posts } = capturingPoster();
 
-    hostBashExecutor.handleRequest(
+    bashExecutor.handleRequest(
       {
         type: "host_bash_request",
         requestId: "r6",
@@ -175,7 +162,7 @@ describe("host-bash-executor", () => {
   test("uses specified working directory", async () => {
     const { poster, posts } = capturingPoster();
 
-    hostBashExecutor.handleRequest(
+    bashExecutor.handleRequest(
       {
         type: "host_bash_request",
         requestId: "r7",
@@ -195,7 +182,7 @@ describe("host-bash-executor", () => {
   test("returns error for missing command", async () => {
     const { poster, posts } = capturingPoster();
 
-    hostBashExecutor.handleRequest(
+    bashExecutor.handleRequest(
       { type: "host_bash_request", requestId: "r8" },
       poster,
     );
@@ -205,5 +192,28 @@ describe("host-bash-executor", () => {
     expect(posts().length).toBe(1);
     expect(posts()[0].body.stderr).toBe("Missing command");
     expect(posts()[0].body.exitCode).toBe(1);
+  });
+
+  test("posts an error result when the shell binary is missing", async () => {
+    const { poster, posts } = capturingPoster();
+    const missingShell = createHostShellExecutor({
+      buildSpawn: (command) => ({
+        file: "/nonexistent/path/to/shell",
+        args: ["-Command", command],
+      }),
+    });
+
+    missingShell.handleRequest(
+      { type: "host_bash_request", requestId: "r9", command: "echo hi" },
+      poster,
+    );
+
+    await flush(500);
+
+    expect(posts().length).toBe(1);
+    expect(posts()[0].body.exitCode).toBe(1);
+    expect(posts()[0].body.timedOut).toBe(false);
+    expect(posts()[0].body.stderr).toContain("ENOENT");
+    expect(executorTesting.runningProcesses.has("r9")).toBe(false);
   });
 });
