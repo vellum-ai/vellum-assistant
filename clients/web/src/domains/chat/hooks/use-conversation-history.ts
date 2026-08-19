@@ -42,6 +42,10 @@ import {
   extractWirePendingConfirmation,
   extractWirePendingQuestion,
 } from "@/domains/chat/utils/chat";
+import {
+  decidePendingQuestion,
+  type ReportedQuestion,
+} from "@/domains/chat/pending-question";
 import { mapMessageSurfaces } from "@/domains/chat/utils/map-message-surfaces";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { recordServerSeq } from "@/lib/streaming/server-seq";
@@ -61,6 +65,8 @@ import {
   parsePendingConfirmationData,
 } from "@/domains/chat/utils/send-message-utils";
 import type { AssistantStateKind } from "@/domains/chat/types";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { PendingQuestionState } from "@/types/interaction-ui-types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces";
 import {
@@ -120,6 +126,50 @@ function surfaceContentEqual(a: unknown, b: unknown): boolean {
     return JSON.stringify(a) === JSON.stringify(b);
   } catch {
     return false;
+  }
+}
+
+/**
+ * Bring the ask_question card into agreement with one pending-interactions
+ * read, or fall back to the history marker when the assistant cannot answer.
+ *
+ * The registry read is the only source here that can retire a card. The
+ * history marker it replaces is stamped from the same registry but travels
+ * inside a cacheable `/messages` page, so a conversation reopened from cache
+ * re-raises a prompt that was answered before the switch and nothing ever takes
+ * it down again. See `pending-question.ts`.
+ *
+ * `before` is the card as it stood when the request was issued. Anything that
+ * moved it since (a live `question_request`, the user's own submit) is strictly
+ * newer than this response and keeps its claim; the next committed snapshot
+ * reconciles again.
+ */
+function applyReportedQuestion(params: {
+  reported: ReportedQuestion;
+  before: PendingQuestionState | null;
+  messages: DisplayMessage[];
+}): void {
+  const { reported, before, messages } = params;
+  const interactionStore = useInteractionStore.getState();
+
+  if (reported === undefined) {
+    const wirePendingQuestion = extractWirePendingQuestion(messages);
+    if (wirePendingQuestion && !interactionStore.pendingQuestion) {
+      interactionStore.showQuestion(wirePendingQuestion);
+    }
+    return;
+  }
+
+  const current = interactionStore.pendingQuestion;
+  if (current !== before) {
+    return;
+  }
+
+  const action = decidePendingQuestion({ reported, current });
+  if (action.kind === "raise") {
+    interactionStore.showQuestion(action.question);
+  } else if (action.kind === "retire") {
+    interactionStore.dismissQuestionIfMatches(action.requestId);
   }
 }
 
@@ -277,16 +327,6 @@ export function useConversationHistory({
       }
     }
 
-    // Restore an in-flight ask_question prompt the snapshot carries (same cold
-    // reconnect path). Skipped when a prompt is already active.
-    const wirePendingQuestion = extractWirePendingQuestion(pagination.messages);
-    if (
-      wirePendingQuestion &&
-      !useInteractionStore.getState().pendingQuestion
-    ) {
-      useInteractionStore.getState().showQuestion(wirePendingQuestion);
-    }
-
     // Restore the inline "Connect Claude Code" card the snapshot carries on a
     // failed acp_spawn (persisted `acp_claude_oauth_missing` marker). Without
     // this, a page reload or SSE reconnect wipes the in-memory prompt and the
@@ -408,8 +448,11 @@ export function useConversationHistory({
       useBackgroundTaskStore.getState().seedFromHistory(completions);
     }
 
-    // Restore pending interactions (secrets, confirmations).
+    // Restore pending interactions (secrets, confirmations, questions).
     const requestedConversationId = activeConversationId;
+    // Read before the fetch so the question reconcile below can tell whether
+    // anything moved underneath it while the request was in flight.
+    const questionBeforeFetch = useInteractionStore.getState().pendingQuestion;
     void (async () => {
       try {
         const interactions = await getPendingInteractions(
@@ -422,6 +465,11 @@ export function useConversationHistory({
         ) {
           return;
         }
+        applyReportedQuestion({
+          reported: interactions.pendingQuestion,
+          before: questionBeforeFetch,
+          messages: pagination.messages,
+        });
         const parsed_secret = interactions.pendingSecret
           ? parsePendingSecretState(
               interactions.pendingSecret as Record<string, unknown>,

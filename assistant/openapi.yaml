@@ -23035,6 +23035,51 @@ paths:
                         additionalProperties: {}
                       - type: "null"
                     description: Pending secret request or null
+                  pendingQuestion:
+                    anyOf:
+                      - type: object
+                        properties:
+                          requestId:
+                            type: string
+                          entries:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: string
+                                question:
+                                  type: string
+                                description:
+                                  type: string
+                                options:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      id:
+                                        type: string
+                                      label:
+                                        type: string
+                                      description:
+                                        type: string
+                                    required:
+                                      - id
+                                      - label
+                                    additionalProperties: false
+                                freeTextPlaceholder:
+                                  type: string
+                              required:
+                                - id
+                                - question
+                                - options
+                              additionalProperties: false
+                        required:
+                          - requestId
+                          - entries
+                        additionalProperties: false
+                      - type: "null"
+                    description: Outstanding ask_question prompt or null
                   interactions:
                     type: array
                     items:
