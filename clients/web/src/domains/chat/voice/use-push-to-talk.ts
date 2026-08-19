@@ -248,10 +248,10 @@ export function usePushToTalk(
         const k = event.key;
         const mods = activator.modifiers;
         if (
-          (k === "Control" && mods.includes("control")) ||
-          (k === "Alt" && mods.includes("option")) ||
-          (k === "Shift" && mods.includes("shift")) ||
-          (k === "Meta" && mods.includes("command"))
+          (k === "Control" && !event.ctrlKey && mods.includes("control")) ||
+          (k === "Alt" && !event.altKey && mods.includes("option")) ||
+          (k === "Shift" && !event.shiftKey && mods.includes("shift")) ||
+          (k === "Meta" && !event.metaKey && mods.includes("command"))
         ) {
           cancelHold();
           return;

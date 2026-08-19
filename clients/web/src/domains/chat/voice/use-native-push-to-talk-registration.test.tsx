@@ -60,6 +60,34 @@ test("leaves the Talk control as the sole Fn owner", () => {
   expect(registrations).toHaveLength(0);
 });
 
+test("preserves a legacy Space binding as a focused key activator", async () => {
+  const registrations: Array<PushToTalkActivator | null> = [];
+  window.vellum = {
+    platform: "electron",
+    helper: {
+      hotkey: {
+        setPushToTalk: async (activator: PushToTalkActivator | null) => {
+          registrations.push(activator);
+          return { ok: false, reason: "modifier-only" };
+        },
+        onEvent: () => () => undefined,
+        onRegistrationChange: () => () => undefined,
+      },
+    },
+  } as unknown as typeof window.vellum;
+  localStorage.setItem(LS_PTT_ACTIVATION_KEY, "Space");
+
+  renderHook(() => useNativePushToTalkRegistration());
+
+  await waitFor(() => expect(registrations).toHaveLength(1));
+  expect(registrations[0]).toEqual({
+    kind: "key",
+    label: " ",
+    modifiers: [],
+  });
+  expect(isConfigurablePushToTalkActive()).toBe(false);
+});
+
 test("retries a prior chord after a failed binding change", async () => {
   const registrations: unknown[] = [];
   let registrationListener = (_active: boolean): void => undefined;

@@ -94,6 +94,47 @@ describe("usePushToTalk", () => {
     expect(target.stop).toHaveBeenCalledTimes(1);
   });
 
+  test("keeps a modifier active until both physical sides are released", async () => {
+    localStorage.setItem(
+      LS_PTT_ACTIVATION_KEY,
+      serializeActivator(CTRL_PTT_ACTIVATOR),
+    );
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    renderPushToTalk(target);
+
+    fireEvent.keyDown(window, {
+      key: "Control",
+      code: "ControlLeft",
+      location: 1,
+      ctrlKey: true,
+    });
+    fireEvent.keyDown(window, {
+      key: "Control",
+      code: "ControlRight",
+      location: 2,
+      ctrlKey: true,
+    });
+    await act(async () => {
+      await wait(PTT_HOLD_DELAY_MS + 25);
+    });
+    expect(target.start).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyUp(window, {
+      key: "Control",
+      code: "ControlLeft",
+      location: 1,
+      ctrlKey: true,
+    });
+    expect(target.stop).not.toHaveBeenCalled();
+    fireEvent.keyUp(window, {
+      key: "Control",
+      code: "ControlRight",
+      location: 2,
+      ctrlKey: false,
+    });
+    expect(target.stop).toHaveBeenCalledTimes(1);
+  });
+
   test("stops an active hold when its binding changes", async () => {
     localStorage.setItem(
       LS_PTT_ACTIVATION_KEY,

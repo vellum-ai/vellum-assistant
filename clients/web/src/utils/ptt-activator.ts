@@ -189,6 +189,13 @@ export function parseActivator(
   } catch {
     // fall through
   }
+  if (raw === "Space" || raw.length === 1 || /^[A-Za-z0-9]+$/.test(raw)) {
+    return {
+      kind: "key",
+      label: raw === "Space" ? " " : raw.length === 1 ? raw.toUpperCase() : raw,
+      modifiers: [],
+    };
+  }
   return CTRL_PTT_ACTIVATOR;
 }
 
@@ -286,9 +293,17 @@ export function eventDeactivatesPTT(
     return label === activator.label;
   }
   return (
-    (event.key === "Control" && activator.modifiers.includes("control")) ||
-    (event.key === "Alt" && activator.modifiers.includes("option")) ||
-    (event.key === "Shift" && activator.modifiers.includes("shift")) ||
-    (event.key === "Meta" && activator.modifiers.includes("command"))
+    (event.key === "Control" &&
+      !event.ctrlKey &&
+      activator.modifiers.includes("control")) ||
+    (event.key === "Alt" &&
+      !event.altKey &&
+      activator.modifiers.includes("option")) ||
+    (event.key === "Shift" &&
+      !event.shiftKey &&
+      activator.modifiers.includes("shift")) ||
+    (event.key === "Meta" &&
+      !event.metaKey &&
+      activator.modifiers.includes("command"))
   );
 }
