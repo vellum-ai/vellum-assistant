@@ -24,6 +24,8 @@ import { setConversationKey } from "../../persistence/conversation-key-store.js"
 import { listConversations } from "../../persistence/conversation-queries.js";
 import type { ConversationCreateType } from "../../persistence/conversation-types.js";
 import { getBindingByConversation } from "../../persistence/external-conversation-store.js";
+import { MAX_PERSISTED_MESSAGE_BYTES } from "../../persistence/message-content-cap.js";
+import { pruneOversizedMessages } from "../../persistence/message-content-prune.js";
 import { getLogger } from "../../util/logger.js";
 import { withSqliteRetry } from "../../util/sqlite-retry.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
@@ -130,6 +132,27 @@ async function handleCreateCli({ body = {} }: RouteHandlerArgs) {
 // export (CLI)
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve a CLI-supplied conversation id, accepting an unambiguous id prefix.
+ * `archiveStatus: "all"` lets a prefix resolve an archived row, which the CLI
+ * addresses the same way as a live one.
+ */
+function resolveConversationByIdOrPrefix(id: string) {
+  const exact = getConversation(id);
+  if (exact) {
+    return exact;
+  }
+  const match = listConversations({
+    limit: Number.MAX_SAFE_INTEGER,
+    conversationType: "standard",
+    archiveStatus: "all",
+  }).find((c) => c.id.startsWith(id));
+  if (!match) {
+    throw new NotFoundError(`Conversation not found: ${id}`);
+  }
+  return match;
+}
+
 function handleExportCli({ body = {} }: RouteHandlerArgs) {
   const format = (body.format as string) ?? "md";
   if (format !== "md" && format !== "json") {
@@ -146,22 +169,7 @@ function handleExportCli({ body = {} }: RouteHandlerArgs) {
     conversationId = all[0].id;
   }
 
-  // Support prefix matching. `archiveStatus: "all"` preserves the pre-default
-  // behavior of letting `vellum export <prefix>` resolve an archived row.
-  let conversation = getConversation(conversationId);
-  if (!conversation) {
-    const all = listConversations({
-      limit: Number.MAX_SAFE_INTEGER,
-      conversationType: "standard",
-      archiveStatus: "all",
-    });
-    const match = all.find((c) => c.id.startsWith(conversationId!));
-    if (match) {
-      conversation = match;
-    } else {
-      throw new NotFoundError(`Conversation not found: ${conversationId}`);
-    }
-  }
+  const conversation = resolveConversationByIdOrPrefix(conversationId);
 
   const msgs = getMessages(conversation.id);
   const exportData = {
@@ -198,6 +206,52 @@ async function handleClearCli({ headers = {} }: RouteHandlerArgs) {
     "CLI conversations clear: active conversations torn down",
   );
   return { cleared };
+}
+
+// ---------------------------------------------------------------------------
+// prune-oversized (CLI)
+// ---------------------------------------------------------------------------
+
+const pruneOversizedRequestSchema = z.object({
+  conversationId: z.string().trim().min(1),
+  export: z.boolean().default(true),
+});
+
+const pruneOversizedResponseSchema = z.object({
+  conversationId: z.string(),
+  maxBytes: z.number().int().positive(),
+  scanned: z.number().int().nonnegative(),
+  pruned: z.array(
+    z.object({
+      messageId: z.string(),
+      originalBytes: z.number().int().nonnegative(),
+      prunedBytes: z.number().int().nonnegative(),
+      exportPath: z.string().optional(),
+    }),
+  ),
+});
+
+function handlePruneOversizedCli({
+  body = {},
+  headers = {},
+}: RouteHandlerArgs) {
+  if (headers["x-confirm-destructive"] !== "prune-oversized-messages") {
+    throw new BadRequestError(
+      "POST /v1/conversations/cli/prune-oversized permanently trims oversized message bodies. " +
+        "To confirm, set header X-Confirm-Destructive: prune-oversized-messages",
+    );
+  }
+  const parsed = pruneOversizedRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(parsed.error.issues[0].message);
+  }
+  const conversation = resolveConversationByIdOrPrefix(
+    parsed.data.conversationId,
+  );
+  const result = pruneOversizedMessages(conversation.id, {
+    export: parsed.data.export,
+  });
+  return { ...result, maxBytes: MAX_PERSISTED_MESSAGE_BYTES };
 }
 
 // ---------------------------------------------------------------------------
@@ -427,6 +481,24 @@ export const ROUTES: RouteDefinition[] = [
       cleared: z.number().int(),
     }),
     handler: handleClearCli,
+  },
+  {
+    operationId: "conversation_prune_oversized_cli",
+    endpoint: "conversations/cli/prune-oversized",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
+    summary: "Trim oversized messages in a conversation (CLI)",
+    description:
+      "Trim every message whose stored content exceeds the provider-safe per-message cap, " +
+      "keeping the rows and the conversation. Originals are exported under the workspace " +
+      "unless export is disabled. Requires X-Confirm-Destructive: prune-oversized-messages.",
+    tags: ["conversations"],
+    requestBody: pruneOversizedRequestSchema,
+    responseBody: pruneOversizedResponseSchema,
+    handler: handlePruneOversizedCli,
   },
   {
     operationId: "conversation_slack_detach_cli",

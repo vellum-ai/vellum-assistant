@@ -8133,6 +8133,77 @@ paths:
                 required:
                   - conversations
                 additionalProperties: false
+  /v1/conversations/cli/prune-oversized:
+    post:
+      operationId: conversations_cli_pruneoversized_post
+      summary: Trim oversized messages in a conversation (CLI)
+      description:
+        "Trim every message whose stored content exceeds the provider-safe per-message cap, keeping the rows and
+        the conversation. Originals are exported under the workspace unless export is disabled. Requires
+        X-Confirm-Destructive: prune-oversized-messages."
+      tags:
+        - conversations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                export:
+                  default: true
+                  type: boolean
+              required:
+                - conversationId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  maxBytes:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  scanned:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  pruned:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        messageId:
+                          type: string
+                        originalBytes:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        prunedBytes:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        exportPath:
+                          type: string
+                      required:
+                        - messageId
+                        - originalBytes
+                        - prunedBytes
+                      additionalProperties: false
+                required:
+                  - conversationId
+                  - maxBytes
+                  - scanned
+                  - pruned
+                additionalProperties: false
   /v1/conversations/cli/slack/detach:
     post:
       operationId: conversations_cli_slack_detach_post

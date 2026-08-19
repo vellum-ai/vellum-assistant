@@ -29,6 +29,18 @@ type SlackDetachCliResult = {
   conversationId?: string;
 };
 
+type PruneOversizedCliResult = {
+  conversationId: string;
+  maxBytes: number;
+  scanned: number;
+  pruned: {
+    messageId: string;
+    originalBytes: number;
+    prunedBytes: number;
+    exportPath?: string;
+  }[];
+};
+
 function outputSlackDetachError(message: string, json?: boolean): void {
   if (json) {
     process.stdout.write(JSON.stringify({ ok: false, error: message }) + "\n");
@@ -280,6 +292,65 @@ export function registerConversationsCommand(program: Command): void {
             log.info(`Exported to ${opts.output}`);
           } else {
             process.stdout.write(exported.output);
+          }
+        },
+      );
+
+      // -------------------------------------------------------------------
+      // prune-oversized
+      // -------------------------------------------------------------------
+
+      subcommand(conversations, "prune-oversized").action(
+        async (
+          conversationId: string,
+          opts?: { yes?: boolean; export?: boolean; json?: boolean },
+        ) => {
+          if (!opts?.yes) {
+            log.error(
+              "Error: --yes is required. Pruning permanently trims oversized message bodies.",
+            );
+            process.exitCode = 1;
+            return;
+          }
+
+          const result = await cliIpcCall<PruneOversizedCliResult>(
+            "conversation_prune_oversized_cli",
+            {
+              body: { conversationId, export: opts.export ?? true },
+              headers: {
+                "x-confirm-destructive": "prune-oversized-messages",
+              },
+            },
+          );
+
+          if (!result.ok) {
+            return exitFromIpcResult(result);
+          }
+
+          const prune = result.result!;
+          if (opts.json) {
+            process.stdout.write(
+              JSON.stringify({ ok: true, result: prune }) + "\n",
+            );
+            return;
+          }
+
+          if (prune.pruned.length === 0) {
+            log.info(
+              `No messages over ${prune.maxBytes} bytes in ${prune.conversationId} (${prune.scanned} scanned)`,
+            );
+            return;
+          }
+          log.info(
+            `Trimmed ${prune.pruned.length} of ${prune.scanned} messages in ${prune.conversationId}:`,
+          );
+          for (const message of prune.pruned) {
+            const exported = message.exportPath
+              ? `, original saved to ${message.exportPath}`
+              : "";
+            log.info(
+              `  ${message.messageId}  ${message.originalBytes} -> ${message.prunedBytes} bytes${exported}`,
+            );
           }
         },
       );

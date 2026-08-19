@@ -107,6 +107,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "conversations new",
   "conversations rename",
   "conversations export",
+  "conversations prune-oversized",
   "conversations clear",
   "conversations wake",
   "pending",
@@ -436,6 +437,11 @@ const riskOverrides: AssistantRiskOverride[] = [
     path: "conversations clear",
     risk: "medium",
     reason: "Deletes conversation history",
+  },
+  {
+    path: "conversations prune-oversized",
+    risk: "medium",
+    reason: "Irreversibly trims oversized message bodies in a conversation",
   },
 
   // Mutating assistant state / external side effects

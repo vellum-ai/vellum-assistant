@@ -14,6 +14,7 @@ Examples:
   $ assistant conversations list
   $ assistant conversations new "Project planning"
   $ assistant conversations export
+  $ assistant conversations prune-oversized abc123 --yes
   $ assistant conversations clear`,
   subcommands: [
     {
@@ -287,6 +288,52 @@ Examples:
   $ assistant conversations slack detach --json`,
         },
       ],
+    },
+    {
+      name: "prune-oversized",
+      args: "<conversationId>",
+      description:
+        "Trim messages whose stored body exceeds the provider-safe size cap",
+      options: [
+        {
+          flags: "--yes",
+          description: "Confirm the trim (required)",
+        },
+        {
+          flags: "--no-export",
+          description:
+            "Skip writing each original body to the workspace before trimming",
+        },
+        {
+          flags: "--json",
+          description: "Output result as JSON",
+        },
+      ],
+      helpText: `
+Arguments:
+  conversationId   Conversation ID (or unique prefix). Run
+                   'assistant conversations list' to find IDs.
+
+Providers reject a request carrying a single string over their per-string
+limit (OpenAI: 10485760 bytes), and every turn resends the whole history, so
+one oversized message makes a conversation permanently unsendable. This trims
+the oversized bodies in place so the conversation can send turns again.
+
+Rows and the conversation are kept: only the text payloads of the oversized
+messages are cut, replaced by a marker naming the original byte size. Each
+original body is written to pruned-messages/<conversationId>/<messageId>.txt
+under the workspace first; pass --no-export to skip that copy.
+
+Only text payloads are sliced. A message that is oversized on non-trimmable
+bytes alone (base64 media, block structure) collapses to a single marker
+block instead, since slicing base64 corrupts it rather than shrinking it.
+
+Requires --yes. This action cannot be undone.
+
+Examples:
+  $ assistant conversations prune-oversized abc123 --yes
+  $ assistant conversations prune-oversized abc123 --yes --no-export
+  $ assistant conversations prune-oversized abc123 --yes --json`,
     },
     {
       name: "clear",
