@@ -323,7 +323,9 @@ export function ComposerSettingsMenu({
 
   const handleSelect = useCallback(
     async (preset: ThresholdPreset) => {
-      // Don't act until the real global threshold has loaded.
+      // Don't act until the real global threshold has loaded. `accessLive`
+      // gates the surfaces on this same condition, so nothing reaches here
+      // while it holds; keep the two in step.
       if (serverGlobalInteractive === null) {
         return;
       }
@@ -675,19 +677,27 @@ export function ComposerSettingsMenu({
   // Access-level segment. Two gates, because displaying a level and changing
   // one need different things to have happened:
   //
-  // `accessLive` is the real value, which every mutation needs: `handleSelect`
-  // has to compare against the global threshold to decide between setting an
-  // override and clearing one, so it refuses to act without it.
-  // `accessSettled` also accepts a stored preset from a previous launch, which
-  // is enough to show a level the server actually returned. It is never enough
-  // to act on, so the trigger renders inert until the fetch lands rather than
-  // opening a surface whose selections would be dropped in silence.
+  // `accessLive` is the global threshold, and is the exact condition
+  // `handleSelect` refuses to act without: it compares against that value to
+  // decide between setting a per-conversation override and clearing one. A
+  // conversation override does not stand in for it, so an override that
+  // resolves first must not open the picker.
   //
-  // Neither accepts the `THRESHOLD_PRESETS[1]` fallback, which is stricter than
-  // the server's own default and so must never reach the screen.
+  // `accessSettled` accepts anything the server actually returned: the global
+  // value, an override for this conversation, or a preset stored on a previous
+  // launch. Enough to show a level, never enough to act on, so the trigger
+  // renders inert rather than taking presses it would drop in silence. The
+  // stored preset stops counting once the fetch has failed outright, so a
+  // level nothing can confirm doesn't sit there for the rest of the session.
+  //
+  // None of them accepts the `THRESHOLD_PRESETS[1]` fallback, which is stricter
+  // than the server's own default and so must never reach the screen.
   const AccessIcon = activePreset.icon;
-  const accessLive = globalThresholdsQuery.isSuccess || serverIsOverride;
-  const accessSettled = accessLive || seededPreset !== null;
+  const accessLive = serverGlobalInteractive !== null;
+  const accessSettled =
+    accessLive ||
+    serverIsOverride ||
+    (seededPreset !== null && !globalThresholdsQuery.isError);
   const showAccess = accessSettled && segments !== "profile";
   const showProfile = segments !== "access";
 

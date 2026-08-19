@@ -65,12 +65,15 @@ const getGlobalThresholdsMock = mock(
     interactive: "low",
   }),
 );
+const getConversationOverrideMock = mock(
+  async (..._args: unknown[]): Promise<unknown> => null,
+);
 const setGlobalThresholdsMock = mock(async (..._args: unknown[]) => {});
 const setConversationOverrideMock = mock(async (..._args: unknown[]) => {});
 const deleteConversationOverrideMock = mock(async (..._args: unknown[]) => {});
 mock.module("@/lib/threshold-api", () => ({
   getGlobalThresholds: getGlobalThresholdsMock,
-  getConversationOverride: async () => null,
+  getConversationOverride: getConversationOverrideMock,
   setConversationOverride: setConversationOverrideMock,
   deleteConversationOverride: deleteConversationOverrideMock,
   setGlobalThresholds: setGlobalThresholdsMock,
@@ -388,6 +391,7 @@ beforeEach(() => {
   getGlobalThresholdsMock.mockImplementation(async () => ({
     interactive: "low",
   }));
+  getConversationOverrideMock.mockImplementation(async () => null);
   setGlobalThresholdsMock.mockClear();
   setConversationOverrideMock.mockClear();
   deleteConversationOverrideMock.mockClear();
@@ -1177,6 +1181,69 @@ describe("pills seeded from the last launch", () => {
 
     await waitFor(() => {
       expect(setConversationOverrideMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test("an override arriving first shows its level but stays inert", async () => {
+    // The two threshold fetches are independent, and the per-conversation one
+    // can land first. It names the level to display, but `handleSelect` still
+    // needs the global value to choose between setting an override and
+    // clearing one, so the picker must not open on the override alone.
+    const globalSettle = deferred<{ interactive: string }>();
+    getGlobalThresholdsMock.mockImplementation(() => globalSettle.promise);
+    getConversationOverrideMock.mockImplementation(async () => "high");
+
+    renderMenu();
+
+    const accessTrigger = (await screen.findByLabelText(
+      "Assistant access: Full access",
+    )) as HTMLButtonElement;
+    expect(accessTrigger.textContent).toContain("Full access");
+    expect(accessTrigger.disabled).toBe(true);
+
+    const relaxedRow = screen
+      .getAllByTestId("panel-item")
+      .find((row) => row.textContent?.includes("Relaxed"));
+    await act(async () => {
+      fireEvent.click(relaxedRow!);
+    });
+    expect(setConversationOverrideMock).not.toHaveBeenCalled();
+    expect(deleteConversationOverrideMock).not.toHaveBeenCalled();
+    expect(setGlobalThresholdsMock).not.toHaveBeenCalled();
+
+    // The global value lands: the same pill goes live and the press it would
+    // have dropped now reaches the server.
+    await act(async () => {
+      globalSettle.resolve({ interactive: "low" });
+      await globalSettle.promise;
+    });
+    await waitFor(() => {
+      expect(accessTrigger.disabled).toBe(false);
+    });
+
+    await act(async () => {
+      fireEvent.click(relaxedRow!);
+    });
+    await waitFor(() => {
+      expect(setConversationOverrideMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test("a failed thresholds fetch drops the seeded level instead of holding it", async () => {
+    // Mirrors the profile side: with no answer coming, a stored permission
+    // level would sit on the composer for the rest of the session claiming a
+    // setting the app cannot confirm.
+    seedPillSnapshot({ accessPresetId: "relaxed" });
+    getGlobalThresholdsMock.mockImplementation(async () => {
+      throw new ApiError(500, "gateway unreachable");
+    });
+
+    renderMenu();
+
+    expect(screen.getByLabelText("Assistant access: Relaxed")).toBeTruthy();
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/^Assistant access/)).toBeNull();
     });
   });
 
