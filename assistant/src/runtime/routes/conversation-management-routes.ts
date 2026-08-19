@@ -691,17 +691,16 @@ async function handleRetryLastAssistantTurn({
   const conversation = await getOrCreateConversationInstance(conversationId);
   touchConversation(conversationId);
 
-  // Bind the requesting actor's trust before the turn. A freshly hydrated
-  // conversation has no trust context, and `loadFromDb` under an unset
-  // context filters guardian-provenance history — the re-run would see an
-  // empty transcript.
+  // Resolved before the busy gate so the awaits stay outside the
+  // check-then-claim window below, but bound only once the claim succeeds: a
+  // retry that loses the race is rejected, and a rejected request must not
+  // repoint the conversation's actor at its requester.
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
-  conversation.setTrustContext(
-    await resolveVellumActorTrustContext(actorPrincipalId, {
-      healResetDrift: true,
-    }),
+  const retryTrustContext = await resolveVellumActorTrustContext(
+    actorPrincipalId,
+    { healResetDrift: true },
   );
-  conversation.currentTurnSourceActorPrincipalId =
+  const retrySourceActorPrincipalId =
     await resolveActorPrincipalIdForLocalGuardian(actorPrincipalId);
 
   // Synchronous check-then-claim (no await between them) so a concurrent
@@ -713,6 +712,13 @@ async function handleRetryLastAssistantTurn({
     );
   }
   conversation.setProcessing(true);
+
+  // Bind the requesting actor's trust for the turn we just claimed. A freshly
+  // hydrated conversation has no trust context, and `loadFromDb` under an
+  // unset context filters guardian-provenance history — the re-run would see
+  // an empty transcript.
+  conversation.setTrustContext(retryTrustContext);
+  conversation.currentTurnSourceActorPrincipalId = retrySourceActorPrincipalId;
 
   const requestId = uuidv7();
   const abortController = new AbortController();

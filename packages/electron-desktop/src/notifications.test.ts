@@ -20,10 +20,12 @@ import type { z } from "zod";
  * (resolve on `show`/`failed`/timeout — never optimistic), and the
  * click/action broadcast contract the renderer consumes.
  *
- * `electron`, `./ipc`, `./main-window`, and `./logger` are all mocked so the
- * module can be imported and driven without an Electron runtime. Each test
- * file runs in its own process (see `scripts/run-tests.ts`), so these
- * per-file `mock.module` overrides don't leak.
+ * `electron` and `./presence-runtime` are mocked so the module can be
+ * imported and driven without an Electron runtime, and the per-client seams
+ * (`ensureVisible`, notification factory) are injected through
+ * `configureNotifications`. Each test file runs in its own process (see
+ * `scripts/run-isolated-tests.ts`), so these per-file `mock.module`
+ * overrides don't leak.
  */
 
 // --- Mock: electron (Notification + BrowserWindow) -------------------------
@@ -47,8 +49,10 @@ const constructed: MockNotification[] = [];
 
 class MockNotification {
   readonly options: MockNotificationOptions;
-  private readonly handlers: Record<string, Array<(...args: unknown[]) => void>> =
-    {};
+  private readonly handlers: Record<
+    string,
+    Array<(...args: unknown[]) => void>
+  > = {};
   shown = false;
 
   constructor(options: MockNotificationOptions) {
@@ -99,7 +103,7 @@ mock.module("electron", () => ({
   },
 }));
 
-// --- Mock: ./ipc (capture the registered handler) --------------------------
+// --- Injected runtime seams (IPC registrar + ensureVisible spies) ----------
 
 type HandleRegistration = {
   channel: string;
@@ -116,25 +120,14 @@ const handleMock = mock(
     handleRegistrations.push({ channel, schema, fn });
   },
 );
-mock.module("./ipc", () => ({ handle: handleMock }));
-
-// --- Mock: ./main-window (ensureVisible spy) -------------------------------
-
+const ipc = {
+  handle: handleMock as unknown as import("./ipc").IpcHandle,
+};
+const quietLogger = { warn: () => undefined };
 const ensureVisibleMock = mock(() => Promise.resolve());
-mock.module("./main-window", () => ({ ensureVisible: ensureVisibleMock }));
-
-// --- Mock: ./logger --------------------------------------------------------
-
-mock.module("./logger", () => ({
-  default: {
-    warn: () => undefined,
-    info: () => undefined,
-    error: () => undefined,
-    debug: () => undefined,
-  },
-}));
 
 const {
+  configureNotifications,
   installNotifications,
   NOTIFICATION_CATEGORIES,
   __resetForTesting,
@@ -174,6 +167,11 @@ beforeEach(() => {
   handleMock.mockClear();
   ensureVisibleMock.mockClear();
   at(0);
+  configureNotifications({
+    ipc,
+    ensureVisible: ensureVisibleMock,
+    logger: quietLogger,
+  });
   installNotifications();
 });
 

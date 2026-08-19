@@ -16,6 +16,7 @@ import {
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
 import type {
+  CompanionCardGrowth,
   CompanionCharacter,
   CompanionGrowth,
   CompanionSurfaceState,
@@ -31,6 +32,15 @@ import type {
  * turn "take me back to Vellum" into a one-pixel nudge that does nothing.
  */
 const DRAG_SLOP = 3;
+
+/**
+ * The avatar's box the surface's layout is authored at.
+ *
+ * Matches `BASE_AVATAR_BOX` in `companion-window.ts`. Main publishes the box it
+ * actually sized the window for, and the ratio between the two is the scale:
+ * one number, and the surface below is the same layout multiplied.
+ */
+const BASE_AVATAR_BOX = 44;
 
 /**
  * The companion surface inside its Electron canvas
@@ -55,6 +65,14 @@ const DRAG_SLOP = 3;
  */
 export function CompanionSurfacePage() {
   const [growth, setGrowth] = useState<CompanionGrowth>("right");
+  // Which way the card unfurls, and so which canvas edge the avatar is anchored
+  // to. Main's call: it owns the window position and is the only side that
+  // knows how much room the display has above the surface.
+  const [cardGrowth, setCardGrowth] = useState<CompanionCardGrowth>("up");
+  // The avatar's box in points, which is the surface's whole scale. Main sizes
+  // the window from it, so it arrives with the state rather than being a
+  // setting this window reads for itself.
+  const [avatarBox, setAvatarBox] = useState(BASE_AVATAR_BOX);
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>();
   const [character, setCharacter] = useState<CompanionCharacter | undefined>();
   const [call, setCall] = useState<VoiceActivityState | null>(null);
@@ -95,6 +113,8 @@ export function CompanionSurfacePage() {
   useEffect(() => {
     const apply = (state: CompanionSurfaceState) => {
       setGrowth(state.growth);
+      setCardGrowth(state.cardGrowth);
+      setAvatarBox(state.avatarBox);
       setAvatarSrc(
         state.avatarBase64 === undefined
           ? undefined
@@ -279,82 +299,105 @@ export function CompanionSurfacePage() {
         setInteractive(false);
       }}
     >
-      <CompanionSurface
-        phase={phase}
-        growth={growth}
-        avatarSrc={avatarSrc}
-        character={character}
-        // The creature notices the hand, in every state including mid-call.
-        hovered={hovered}
-        accentHex={accentHex}
-        // The conversation, as far as the card shows it. Held by main and
-        // pushed with the rest of the state, so it survives this window
-        // reloading mid-exchange.
-        //
-        // Nothing at all until this composer has sent something: what main is
-        // holding until then belongs to whatever conversation the app has open,
-        // and showing it would promise that the message about to be typed joins
-        // it, which is exactly what pressing Type no longer does.
-        turns={started ? turns : []}
-        // The assistant's own name in the composer's placeholder. Undefined
-        // rather than empty, so the component's fallback is what fills the gap
-        // before the app's window has published one.
-        assistantName={assistantName === "" ? undefined : assistantName}
-        call={call ?? undefined}
-        // Unlike the turns, this is drawn whether or not the exchange on the
-        // card is this surface's own: the question it answers is whether the
-        // assistant is busy, and it is busy on someone else's conversation just
-        // as much as on this one.
-        working={working}
-        rootRef={pillRef}
-        onSurfaceMouseDown={(event) => {
-          dragRef.current = { x: event.screenX, y: event.screenY };
-          pressOriginRef.current = { x: event.screenX, y: event.screenY };
-          draggedRef.current = false;
+      {/* The surface at whatever size the user picked, as the one layout
+          multiplied rather than a second set of dimensions.
+
+          The box is the base canvas: the window divided by the scale, blown
+          back up about its own top-left corner, so it covers the window exactly
+          and every length inside (the `100%` the surface anchors to, its
+          paddings, its type) resolves in the units the layout was written in.
+          The alternative was scaling forty hard-coded dimensions and keeping
+          them in step with main's arithmetic, which is the drift this avoids
+          rather than manages.
+
+          Nothing else has to know. Hit-testing reads `getBoundingClientRect`,
+          which is post-transform, and the drag is in screen deltas. */}
+      <div
+        className="absolute top-0 left-0 origin-top-left"
+        style={{
+          width: `${(100 * BASE_AVATAR_BOX) / avatarBox}%`,
+          height: `${(100 * BASE_AVATAR_BOX) / avatarBox}%`,
+          transform: `scale(${avatarBox / BASE_AVATAR_BOX})`,
         }}
-        // A press that never became a drag. The window comes forward on the
-        // conversation this surface belongs to; main decides what that means.
-        onAvatarClick={() => {
-          if (draggedRef.current) {
-            return;
-          }
-          activateCompanionApp();
-        }}
-        // The press leaves this window immediately: the session lives in the
-        // renderer holding the chat layout, and this page only asks for one.
-        // What comes back is `call`, once that renderer has a session to
-        // report.
-        onTalk={startCompanionVoice}
-        // Type opens the composer here rather than leaving this window, since
-        // the field it opens is on this surface. What leaves is the message.
-        onType={() => {
-          setTyping(true);
-        }}
-        // Out through main and into whichever renderer holds a conversation to
-        // put it in. **The card stays open**, because this is where the answer
-        // arrives: the turns mirror pushes the sent message back within the
-        // frame and the reply behind it, so the whole exchange reads here
-        // rather than in an app the user deliberately did not go back to.
-        onSubmit={(message) => {
-          // The first message of a composer's life starts the conversation and
-          // the rest continue it. The old tail is dropped on the way out rather
-          // than left to be replaced, so the card never shows the previous
-          // conversation's words underneath the one just sent.
-          if (!started) {
-            setTurns([]);
-            setStarted(true);
-          }
-          submitCompanionMessage(message, !started);
-        }}
-        onCancelTyping={closeComposer}
-        // Out through main and back down into whichever renderer holds the
-        // session. This page has no session to act on: it draws one.
-        onControl={(action, requestId) => {
-          sendVoiceActivityControl(
-            requestId === undefined ? { action } : { action, requestId },
-          );
-        }}
-      />
+      >
+        <CompanionSurface
+          phase={phase}
+          growth={growth}
+          cardGrowth={cardGrowth}
+          avatarSrc={avatarSrc}
+          character={character}
+          // The creature notices the hand, in every state including mid-call.
+          hovered={hovered}
+          accentHex={accentHex}
+          // The conversation, as far as the card shows it. Held by main and
+          // pushed with the rest of the state, so it survives this window
+          // reloading mid-exchange.
+          //
+          // Nothing at all until this composer has sent something: what main is
+          // holding until then belongs to whatever conversation the app has open,
+          // and showing it would promise that the message about to be typed joins
+          // it, which is exactly what pressing Type no longer does.
+          turns={started ? turns : []}
+          // The assistant's own name in the composer's placeholder. Undefined
+          // rather than empty, so the component's fallback is what fills the gap
+          // before the app's window has published one.
+          assistantName={assistantName === "" ? undefined : assistantName}
+          call={call ?? undefined}
+          // Unlike the turns, this is drawn whether or not the exchange on the
+          // card is this surface's own: the question it answers is whether the
+          // assistant is busy, and it is busy on someone else's conversation just
+          // as much as on this one.
+          working={working}
+          rootRef={pillRef}
+          onSurfaceMouseDown={(event) => {
+            dragRef.current = { x: event.screenX, y: event.screenY };
+            pressOriginRef.current = { x: event.screenX, y: event.screenY };
+            draggedRef.current = false;
+          }}
+          // A press that never became a drag. The window comes forward on the
+          // conversation this surface belongs to; main decides what that means.
+          onAvatarClick={() => {
+            if (draggedRef.current) {
+              return;
+            }
+            activateCompanionApp();
+          }}
+          // The press leaves this window immediately: the session lives in the
+          // renderer holding the chat layout, and this page only asks for one.
+          // What comes back is `call`, once that renderer has a session to
+          // report.
+          onTalk={startCompanionVoice}
+          // Type opens the composer here rather than leaving this window, since
+          // the field it opens is on this surface. What leaves is the message.
+          onType={() => {
+            setTyping(true);
+          }}
+          // Out through main and into whichever renderer holds a conversation to
+          // put it in. **The card stays open**, because this is where the answer
+          // arrives: the turns mirror pushes the sent message back within the
+          // frame and the reply behind it, so the whole exchange reads here
+          // rather than in an app the user deliberately did not go back to.
+          onSubmit={(message) => {
+            // The first message of a composer's life starts the conversation and
+            // the rest continue it. The old tail is dropped on the way out rather
+            // than left to be replaced, so the card never shows the previous
+            // conversation's words underneath the one just sent.
+            if (!started) {
+              setTurns([]);
+              setStarted(true);
+            }
+            submitCompanionMessage(message, !started);
+          }}
+          onCancelTyping={closeComposer}
+          // Out through main and back down into whichever renderer holds the
+          // session. This page has no session to act on: it draws one.
+          onControl={(action, requestId) => {
+            sendVoiceActivityControl(
+              requestId === undefined ? { action } : { action, requestId },
+            );
+          }}
+        />
+      </div>
     </div>
   );
 }

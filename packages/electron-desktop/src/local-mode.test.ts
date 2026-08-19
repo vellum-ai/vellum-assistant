@@ -422,6 +422,20 @@ const guardianToken = (assistantId?: unknown): Promise<unknown> =>
     allowedEvent,
     assistantId,
   ) as Promise<unknown>;
+const listDevices = (assistantId?: unknown): Promise<unknown> =>
+  handlers["vellum:localMode:listDevices"](
+    allowedEvent,
+    assistantId,
+  ) as Promise<unknown>;
+const revokeDevice = (
+  assistantId?: unknown,
+  hashedDeviceId?: unknown,
+): Promise<unknown> =>
+  handlers["vellum:localMode:revokeDevice"](
+    allowedEvent,
+    assistantId,
+    hashedDeviceId,
+  ) as Promise<unknown>;
 
 describe("lockfile IPC handlers", () => {
   beforeEach(() => {
@@ -741,6 +755,92 @@ describe("vellum:localMode:retire handler", () => {
     const result = (await retire("asst-1")) as { ok: boolean; error: string };
     expect(result.ok).toBe(false);
     expect(result.error).toBe("disk full");
+    expect(spawnArgs).toHaveLength(0);
+  });
+});
+
+describe("vellum:localMode:listDevices handler", () => {
+  test("dev: spawns `... devices <id> --json` and returns the parsed devices without a status field", async () => {
+    const pending = listDevices("asst-1");
+    await tick();
+    expect(spawnArgs[0]).toEqual([
+      "bun",
+      ["run", devCliEntry, "devices", "asst-1", "--json"],
+    ]);
+    const device = {
+      hashedDeviceId: "hash-1",
+      platform: "ios",
+      issuedAt: 1_000,
+      expiresAt: 2_000,
+      lastUsedAt: 1_500,
+    };
+    lastChild.stdout.emit(
+      "data",
+      Buffer.from(JSON.stringify({ devices: [device] })),
+    );
+    lastChild.emit("close", 0);
+    expect(await pending).toEqual({ ok: true, devices: [device] });
+  });
+
+  test("a non-zero exit resolves to a failure carrying the CLI's stderr", async () => {
+    const pending = listDevices("asst-1");
+    await tick();
+    lastChild.stderr.emit("data", Buffer.from("gateway offline"));
+    lastChild.emit("close", 1);
+    expect(await pending).toEqual({ ok: false, error: "gateway offline" });
+  });
+
+  test("rejects a missing assistant id without spawning", async () => {
+    expect(await listDevices("")).toEqual({
+      ok: false,
+      error: "Missing assistantId",
+    });
+    expect(await listDevices(undefined)).toEqual({
+      ok: false,
+      error: "Missing assistantId",
+    });
+    expect(spawnArgs).toHaveLength(0);
+  });
+});
+
+describe("vellum:localMode:revokeDevice handler", () => {
+  test("dev: spawns `... devices revoke <hash> <id> --yes --json` and reports success on a zero exit", async () => {
+    const pending = revokeDevice("asst-1", "hash-1");
+    await tick();
+    expect(spawnArgs[0]).toEqual([
+      "bun",
+      [
+        "run",
+        devCliEntry,
+        "devices",
+        "revoke",
+        "hash-1",
+        "asst-1",
+        "--yes",
+        "--json",
+      ],
+    ]);
+    lastChild.emit("close", 0);
+    expect(await pending).toEqual({ ok: true });
+  });
+
+  test("a non-zero exit resolves to a failure carrying the CLI's stderr", async () => {
+    const pending = revokeDevice("asst-1", "hash-1");
+    await tick();
+    lastChild.stderr.emit("data", Buffer.from("no such device"));
+    lastChild.emit("close", 1);
+    expect(await pending).toEqual({ ok: false, error: "no such device" });
+  });
+
+  test("rejects missing arguments without spawning", async () => {
+    expect(await revokeDevice(undefined, "hash-1")).toEqual({
+      ok: false,
+      error: "Missing assistantId",
+    });
+    expect(await revokeDevice("asst-1", undefined)).toEqual({
+      ok: false,
+      error: "Missing hashedDeviceId",
+    });
     expect(spawnArgs).toHaveLength(0);
   });
 });

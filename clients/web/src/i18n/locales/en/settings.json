@@ -511,6 +511,9 @@
     "searchPlaceholder": "Search actions…",
     "title": "Action Overrides"
   },
+  "packageSwitchConfirmModal": {
+    "cancel": "Cancel"
+  },
   "pendingPairingRequests": {
     "approveButton": "Approve",
     "denyButton": "Deny",
@@ -518,6 +521,49 @@
     "requestedMeta": "Requested {when} from {ip}",
     "requestedMetaHost": "Requested {when} from this computer",
     "title": "Pairing requests"
+  },
+  "planColumnCard": {
+    "currentPlan": "Current Plan",
+    "includes": "Includes:",
+    "recommended": "Recommended"
+  },
+  "plansPage": {
+    "alreadyOnPlanToast": "You're already on this plan.",
+    "back": "Back",
+    "billedMonthlyCaption": "Billed monthly",
+    "cancelAnytimeFooter": "You can cancel or change your plan anytime you want. To learn more <docsLink>Read our Docs.</docsLink>",
+    "checkoutFailedToast": "Failed to start the upgrade checkout. Please try again.",
+    "downgradeTo": "Downgrade to {name}",
+    "featureComputer": "{machine} Computer",
+    "featureCreditsIncluded": "{amount} in credits included",
+    "featureStorage": "{gib} GB Storage",
+    "foreverCaption": "Forever",
+    "freeFeaturePayAsYouGo": "Pay-as-you-go credits",
+    "freeFeatureSmallComputer": "Small Computer",
+    "freeFeatureStorage": "{gib} GB Storage",
+    "freePriceLabel": "Free",
+    "heading": "Give your assistant more power",
+    "loadingPlansAriaLabel": "Loading plans",
+    "planUpdatedToast": "Plan updated.",
+    "startFreeCta": "Start Free",
+    "subheading": "Choose the level that matches how much you want it to take on."
+  },
+  "privacyPage": {
+    "llmLogRetentionDescription": "How long to keep LLM request and response logs on this device. These logs record the prompts and completions sent to model providers and are used for debugging. Shorter retention improves privacy; longer retention helps troubleshoot issues.",
+    "llmLogRetentionLabel": "LLM Request Log Retention",
+    "retentionDontRetain": "Don't retain",
+    "retentionKeepForever": "Keep forever",
+    "retentionNinetyDays": "90 days",
+    "retentionOneDay": "1 day",
+    "retentionOneHour": "1 hour",
+    "retentionSevenDays": "7 days",
+    "retentionThirtyDays": "30 days",
+    "shareAnalyticsHelper": "Send aggregated product usage data",
+    "shareAnalyticsLabel": "Share Analytics",
+    "shareDiagnosticsHelper": "Send crash reports, conversation traces, and session replay data",
+    "shareDiagnosticsLabel": "Share Diagnostics",
+    "subtitleWithPolicy": "View details about what data we collect and how it's used in our <policyLink>privacy policy</policyLink>.",
+    "title": "Privacy"
   },
   "profileAdvancedParams": {
     "contextWindowLabel": "Context Window",

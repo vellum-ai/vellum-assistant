@@ -35,6 +35,9 @@ project(':capacitor-push-notifications').projectDir = new File('../../node_modul
 include ':capacitor-share'
 project(':capacitor-share').projectDir = new File('../../node_modules/.bun/@capacitor+share@8.0.1+33da1c2fb16abc29/node_modules/@capacitor/share/android')
 
+include ':capawesome-capacitor-file-picker'
+project(':capawesome-capacitor-file-picker').projectDir = new File('../../node_modules/.bun/@capawesome+capacitor-file-picker@8.0.4+33da1c2fb16abc29/node_modules/@capawesome/capacitor-file-picker/android')
+
 include ':sentry-capacitor'
 project(':sentry-capacitor').projectDir = new File('../../node_modules/.bun/@sentry+capacitor@4.1.0+1184c339b098859f/node_modules/@sentry/capacitor/android')
 
