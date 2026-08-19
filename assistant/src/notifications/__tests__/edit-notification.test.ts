@@ -49,7 +49,17 @@ let adapterSupportsUpdate = true;
 
 const messageRewrites: Array<{ messageId: string; content: string }> = [];
 
+/** messageId -> the conversation it belongs to, for the scoped lookup. */
+const messageOwners = new Map<string, string>();
+
 mock.module("../../persistence/conversation-crud.js", () => ({
+  getMessageById: (messageId: string, conversationId?: string) => {
+    const owner = messageOwners.get(messageId);
+    if (!owner || (conversationId && owner !== conversationId)) {
+      return null;
+    }
+    return { id: messageId, conversationId: owner };
+  },
   updateMessageContent: (messageId: string, content: string) => {
     messageRewrites.push({ messageId, content });
   },
@@ -146,6 +156,8 @@ beforeEach(() => {
   renderedCopyPatches.length = 0;
   adapterUpdates.length = 0;
   messageRewrites.length = 0;
+  messageOwners.clear();
+  messageOwners.set("msg-9", "conv-source-1");
   adapterSupportsUpdate = true;
 });
 
@@ -386,6 +398,15 @@ describe("editNotification", () => {
       });
 
       expect(result!.feedItem.summary).toBe("Nightly backup finished");
+      expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("a handle addressing another conversation is refused", async () => {
+      await appendFeedItem(makeItem(OWNED));
+      messageOwners.set("msg-9", "conv-somebody-elses");
+
+      await editNotification({ id: FEED_ITEM_ID, body: "New body" });
+
       expect(messageRewrites).toHaveLength(0);
     });
 

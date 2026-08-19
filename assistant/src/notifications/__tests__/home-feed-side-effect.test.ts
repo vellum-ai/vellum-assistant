@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { FeedItem } from "../../home/feed-types.js";
 import type { NotificationSignal } from "../signal.js";
-import type { NotificationDecision } from "../types.js";
+import type {
+  NotificationDecision,
+  NotificationDeliveryResult,
+} from "../types.js";
 
 // ── Module mocks ───────────────────────────────────────────────────────
 //
@@ -20,6 +23,8 @@ const messageAppends: Array<{
   options?: { skipIndexing?: boolean };
 }> = [];
 const messageRewrites: Array<{ messageId: string; content: string }> = [];
+/** messageId -> the conversation it belongs to, for the scoped lookup. */
+const messageOwners = new Map<string, string>();
 let conversationRow: { conversationType: string } | null = null;
 let conversationLookupShouldThrow = false;
 let messageAppendShouldThrow = false;
@@ -50,6 +55,13 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     }
     messageAppends.push({ conversationId, role, content, options });
     return { id: `msg-${messageAppends.length}` };
+  },
+  getMessageById: (messageId: string, conversationId?: string) => {
+    const owner = messageOwners.get(messageId);
+    if (!owner || (conversationId && owner !== conversationId)) {
+      return null;
+    }
+    return { id: messageId, conversationId: owner };
   },
   updateMessageContent: (messageId: string, content: string) => {
     if (messageRewriteShouldThrow) {
@@ -85,6 +97,19 @@ function makeSignal(
   };
 }
 
+function makeVellumDelivery(
+  overrides: Partial<NotificationDeliveryResult> = {},
+): NotificationDeliveryResult {
+  return {
+    channel: "vellum",
+    destination: "vellum",
+    status: "sent",
+    conversationId: "conv-source-1",
+    messageId: "msg-paired",
+    ...overrides,
+  };
+}
+
 function makeDecision(
   overrides: Partial<NotificationDecision> = {},
 ): NotificationDecision {
@@ -105,6 +130,7 @@ beforeEach(() => {
   conversationLookups.length = 0;
   messageAppends.length = 0;
   messageRewrites.length = 0;
+  messageOwners.clear();
   conversationRow = null;
   conversationLookupShouldThrow = false;
   messageAppendShouldThrow = false;
@@ -292,7 +318,7 @@ describe("writeHomeFeedItemForSignal", () => {
     const item = await writeHomeFeedItemForSignal(
       signal,
       decision,
-      "paired-delivery-conv-id",
+      makeVellumDelivery({ conversationId: "paired-delivery-conv-id" }),
     );
 
     expect(item).not.toBeNull();
@@ -318,7 +344,7 @@ describe("writeHomeFeedItemForSignal", () => {
     const item = await writeHomeFeedItemForSignal(
       signal,
       decision,
-      "paired-delivery-conv-id",
+      makeVellumDelivery({ conversationId: "paired-delivery-conv-id" }),
     );
 
     expect(item).not.toBeNull();
@@ -941,7 +967,7 @@ describe("writeHomeFeedItemForSignal", () => {
       const item = await writeHomeFeedItemForSignal(
         signal,
         decision,
-        "conv-source-1",
+        makeVellumDelivery(),
       );
 
       expect(item?.conversationId).toBe("conv-source-1");
@@ -995,6 +1021,99 @@ describe("writeHomeFeedItemForSignal", () => {
       expect(item?.metadata?.notificationConversationMessageId).toBeUndefined();
     });
 
+    test("takes the paired row when the vellum delivery failed", async () => {
+      // A failed delivery leaves the row pairing wrote unclaimed: the edit
+      // path skips rows that did not send, and a delivery whose row was never
+      // recorded reports failed too.
+      conversationRow = { conversationType: "background" };
+      const signal = makeSignal();
+      const decision = makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: {
+          vellum: { title: "Nightly briefing", body: "Three things today." },
+        },
+      });
+
+      const item = await writeHomeFeedItemForSignal(
+        signal,
+        decision,
+        makeVellumDelivery({ status: "failed", messageId: "msg-paired" }),
+      );
+
+      expect(item?.metadata?.notificationConversationMessageId).toBe(
+        "msg-paired",
+      );
+      // The row already exists, so nothing is written a second time.
+      expect(messageAppends).toHaveLength(0);
+    });
+
+    test("leaves a skipped duplicate delivery to its adapter", async () => {
+      // A duplicate skip carries the earlier row's ids, and that row sent.
+      conversationRow = { conversationType: "background" };
+      const signal = makeSignal();
+      const decision = makeDecision({ selectedChannels: ["vellum"] });
+
+      const item = await writeHomeFeedItemForSignal(
+        signal,
+        makeDecision({
+          ...decision,
+          renderedCopy: {
+            vellum: { title: "Nightly briefing", body: "Three things today." },
+          },
+        }),
+        makeVellumDelivery({ status: "skipped" }),
+      );
+
+      expect(item?.metadata?.notificationConversationMessageId).toBeUndefined();
+      expect(messageAppends).toHaveLength(0);
+    });
+
+    test("strips a producer-supplied handle from the card metadata", async () => {
+      // `contextPayload` reaches the card verbatim, and this key addresses a
+      // row for rewriting, so a producer must not be able to set it.
+      conversationRow = { conversationType: "background" };
+      const signal = makeSignal({
+        contextPayload: {
+          title: "Nightly briefing",
+          notificationConversationMessageId: "msg-somebody-elses",
+        },
+      });
+      const decision = makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: {
+          vellum: { title: "Nightly briefing", body: "Three things today." },
+        },
+      });
+
+      const item = await writeHomeFeedItemForSignal(
+        signal,
+        decision,
+        makeVellumDelivery(),
+      );
+
+      expect(item?.metadata?.notificationConversationMessageId).toBeUndefined();
+    });
+
+    test("a producer-supplied handle never displaces the real one", async () => {
+      conversationRow = { conversationType: "background" };
+      const signal = makeSignal({
+        contextPayload: {
+          title: "Nightly briefing",
+          notificationConversationMessageId: "msg-somebody-elses",
+        },
+      });
+      const decision = makeDecision({
+        selectedChannels: ["telegram"],
+        renderedCopy: {
+          telegram: { title: "Nightly briefing", body: "Three things today." },
+        },
+      });
+
+      const item = await writeHomeFeedItemForSignal(signal, decision);
+
+      expect(item?.metadata?.notificationConversationMessageId).toBe("msg-1");
+    });
+
     test("preserves producer metadata alongside the message handle", async () => {
       conversationRow = { conversationType: "background" };
       const signal = makeSignal({
@@ -1037,6 +1156,8 @@ describe("writeHomeFeedItemForSignal", () => {
     }
 
     test("rewrites the message the card owns", () => {
+      messageOwners.set("msg-9", "conv-source-1");
+
       const rewritten = updateFeedItemConversationMessage(
         makeItem({ notificationConversationMessageId: "msg-9" }),
         "Four things now.",
@@ -1060,7 +1181,31 @@ describe("writeHomeFeedItemForSignal", () => {
       expect(messageRewrites).toHaveLength(0);
     });
 
+    test("refuses a handle addressing a row outside the card's conversation", () => {
+      // Nothing should be able to point the rewrite at an unrelated message.
+      messageOwners.set("msg-9", "conv-somebody-elses");
+
+      const rewritten = updateFeedItemConversationMessage(
+        makeItem({ notificationConversationMessageId: "msg-9" }),
+        "Four things now.",
+      );
+
+      expect(rewritten).toBe(false);
+      expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("refuses a handle whose row no longer exists", () => {
+      const rewritten = updateFeedItemConversationMessage(
+        makeItem({ notificationConversationMessageId: "msg-9" }),
+        "Four things now.",
+      );
+
+      expect(rewritten).toBe(false);
+      expect(messageRewrites).toHaveLength(0);
+    });
+
     test("reports no rewrite when the store write throws", () => {
+      messageOwners.set("msg-9", "conv-source-1");
       messageRewriteShouldThrow = true;
 
       const rewritten = updateFeedItemConversationMessage(

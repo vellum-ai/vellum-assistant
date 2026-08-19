@@ -20,6 +20,7 @@ import { appendFeedItem } from "../home/feed-writer.js";
 import {
   addMessage,
   getConversation,
+  getMessageById,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
@@ -29,7 +30,11 @@ import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import { deriveTitle } from "./copy-composer.js";
 import { readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
-import type { NotificationDecision, RenderedChannelCopy } from "./types.js";
+import type {
+  NotificationDecision,
+  NotificationDeliveryResult,
+  RenderedChannelCopy,
+} from "./types.js";
 
 const log = getLogger("home-feed-side-effect");
 
@@ -37,10 +42,15 @@ const log = getLogger("home-feed-side-effect");
  * Metadata key holding the id of the conversation message this module wrote
  * for a card.
  *
- * Only cards whose body no channel delivery persisted carry it, and it is the
- * handle `updateFeedItemConversationMessage` rewrites on an edit. `metadata`
- * is a free-form record on the wire, so this stays a daemon-side convention
- * and needs no schema field, the same way `scheduleId` rides along below.
+ * Only cards holding a row no delivery adapter will rewrite carry it, and it
+ * is the handle `updateFeedItemConversationMessage` rewrites on an edit.
+ * `metadata` is a free-form record on the wire, so this stays a daemon-side
+ * convention and needs no schema field, the same way `scheduleId` rides along
+ * below.
+ *
+ * Reserved: producer `contextPayload` also lands in `metadata`, so the key is
+ * stripped from it before this module writes its own. A producer able to set
+ * it would otherwise hand an edit an arbitrary message id to overwrite.
  */
 const CONVERSATION_MESSAGE_ID_KEY = "notificationConversationMessageId";
 
@@ -48,16 +58,17 @@ const CONVERSATION_MESSAGE_ID_KEY = "notificationConversationMessageId";
  * Append a `FeedItem` for the given notification signal when the
  * filter criteria pass.
  *
- * `pairedVellumConversationId` is the conversation the broadcaster paired
- * with this signal's vellum delivery, and it carries two meanings here.
+ * `vellumDelivery` is this signal's vellum delivery outcome, and it settles
+ * two questions here.
  *
- * As a navigation target it stands in for a `signal.sourceContextId` that
- * doesn't resolve to a real conversation row, so producers passing a
- * sentinel (heartbeat startup, credential health, watcher emits, scheduler
- * retries-exhausted) still render a "Go to Convo" button.
+ * Its conversation is a navigation target standing in for a
+ * `signal.sourceContextId` that doesn't resolve to a real conversation row,
+ * so producers passing a sentinel (heartbeat startup, credential health,
+ * watcher emits, scheduler retries-exhausted) still render a "Go to Convo"
+ * button.
  *
- * Its absence also means no vellum delivery wrote the notification body into
- * a conversation, which is what the trailing append below acts on.
+ * It also settles which row backs the card and who rewrites it on an edit,
+ * which `resolveOwnedConversationMessageId` works through below.
  *
  * Returns the persisted `FeedItem`, or `null` if the signal does not
  * qualify for home-feed mirroring (non-background origin AND no
@@ -66,10 +77,10 @@ const CONVERSATION_MESSAGE_ID_KEY = "notificationConversationMessageId";
 export async function writeHomeFeedItemForSignal(
   signal: NotificationSignal,
   decision: NotificationDecision,
-  pairedVellumConversationId?: string,
+  vellumDelivery?: NotificationDeliveryResult,
 ): Promise<FeedItem | null> {
   const { mirror, sourceConversationId, sourceScheduleJobId } =
-    resolveHomeFeedMirror(signal, pairedVellumConversationId);
+    resolveHomeFeedMirror(signal, vellumDelivery?.conversationId);
   if (!mirror) {
     return null;
   }
@@ -125,6 +136,9 @@ export async function writeHomeFeedItemForSignal(
     !Array.isArray(signal.contextPayload)
       ? { ...signal.contextPayload }
       : undefined;
+  // Producer payloads reach the card verbatim, and this key addresses a
+  // message row for rewriting, so only this module may set it.
+  delete baseMetadata?.[CONVERSATION_MESSAGE_ID_KEY];
 
   // Link scheduled-run notifications back to their schedule. `notify`-mode
   // jobs put `scheduleId` directly in the context payload; `execute`-mode (and
@@ -135,17 +149,14 @@ export async function writeHomeFeedItemForSignal(
     sourceScheduleJobId ??
     undefined;
 
-  // Written before the card so the card can carry the row's id. An edit has no
-  // delivery row to walk when no channel persisted the body, and rewrites the
-  // row through the card instead.
-  const conversationMessageId =
-    !pairedVellumConversationId && sourceConversationId
-      ? await appendSummaryToFeedTarget(
-          signal,
-          sourceConversationId,
-          resolvedSummary,
-        )
-      : undefined;
+  // Resolved before the card is built so the card can carry the row's id, and
+  // any write it implies lands first.
+  const conversationMessageId = await resolveOwnedConversationMessageId(
+    signal,
+    vellumDelivery,
+    sourceConversationId,
+    resolvedSummary,
+  );
 
   const metadataAdditions: Record<string, unknown> = {
     ...(scheduleId !== undefined ? { scheduleId } : {}),
@@ -188,6 +199,42 @@ export async function writeHomeFeedItemForSignal(
 
   await appendFeedItem(item);
   return item;
+}
+
+/**
+ * Resolve the conversation message this card owns, writing one if the card
+ * would otherwise have no body in the conversation it opens.
+ *
+ * Ownership is exclusive, so exactly one path rewrites a row on an edit and
+ * no row is left with none:
+ *
+ * - A vellum delivery that sent owns its paired row. `editNotification` walks
+ *   the delivery rows and `VellumAdapter.update` rewrites it, so the card
+ *   takes no handle.
+ * - A vellum delivery that failed leaves its paired row behind unclaimed: the
+ *   delivery walk skips any row that did not send, and a delivery whose row
+ *   was never recorded reports failed too. The card takes that row.
+ * - No vellum conversation at all means no channel wrote the body, so the
+ *   card writes it and takes the row.
+ *
+ * A skipped duplicate delivery carries the earlier row's ids, and that row
+ * sent, so its adapter still owns it.
+ */
+async function resolveOwnedConversationMessageId(
+  signal: NotificationSignal,
+  vellumDelivery: NotificationDeliveryResult | undefined,
+  sourceConversationId: string | undefined,
+  summary: string,
+): Promise<string | undefined> {
+  if (vellumDelivery?.conversationId) {
+    return vellumDelivery.status === "failed"
+      ? vellumDelivery.messageId
+      : undefined;
+  }
+  if (!sourceConversationId) {
+    return undefined;
+  }
+  return appendSummaryToFeedTarget(signal, sourceConversationId, summary);
 }
 
 /**
@@ -250,8 +297,9 @@ async function appendSummaryToFeedTarget(
  *
  * The row holds the body, and the feed rewrites its summary only when the
  * patch carries one, so the caller applies this for body edits alone. Returns
- * whether a row was rewritten; a card that owns no message reports false
- * rather than failing the edit.
+ * whether a row was rewritten; a card that owns no message, or whose handle
+ * does not address a row in its own conversation, reports false rather than
+ * failing the edit.
  */
 export function updateFeedItemConversationMessage(
   item: FeedItem,
@@ -259,6 +307,15 @@ export function updateFeedItemConversationMessage(
 ): boolean {
   const messageId = item.metadata?.[CONVERSATION_MESSAGE_ID_KEY];
   if (typeof messageId !== "string" || messageId.length === 0) {
+    return false;
+  }
+  // Scoped to the card's own conversation so the handle can only ever address
+  // a row inside what the card opens, whatever put it in the metadata.
+  if (!item.conversationId || !getMessageById(messageId, item.conversationId)) {
+    log.warn(
+      { feedItemId: item.id, messageId },
+      "Feed item message handle does not address a row in its conversation, leaving it alone",
+    );
     return false;
   }
   try {
