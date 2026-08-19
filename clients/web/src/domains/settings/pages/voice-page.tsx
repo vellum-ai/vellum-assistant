@@ -22,6 +22,7 @@ import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { isElectron } from "@/runtime/is-electron";
+import { useFnRegistrationStore } from "@/stores/fn-registration-store";
 import { useHotkeyRecorder } from "@/domains/settings/keyboard-shortcuts/use-hotkey-recorder";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 
@@ -384,6 +385,9 @@ function VoiceModeShortcutCard() {
    * accelerator and cannot live on that rail.
    */
   const desktopHost = isElectron();
+  // `false` only after an attempt was refused; `null` means none was made.
+  const fnRefused =
+    useFnRegistrationStore((state) => state.registered) === false;
   const [activator, setActivator] = useState<VoiceModeActivator>(() =>
     readVoiceModeActivator(fnConfigurable),
   );
@@ -585,6 +589,16 @@ function VoiceModeShortcutCard() {
               }
             />
           </div>
+
+          {/* An offer the host has already refused. Fn is presented as the
+              recommended binding, so saying nothing would leave the user
+              pressing a key that cannot fire. */}
+          {isFnVoiceModeActivator(activator) && fnRefused && (
+            <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--system-negative-strong)]">
+              <Info className="mt-0.5 h-3 w-3 shrink-0" />
+              <span>{t("voicePage.fnRefusedNote")}</span>
+            </div>
+          )}
 
           {recorder.conflict?.key === TALK_HOTKEY_KEY && (
             <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--system-negative-strong)]">

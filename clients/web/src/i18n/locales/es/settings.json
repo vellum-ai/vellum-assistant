@@ -917,6 +917,7 @@
     "defaultBadge": "Predeterminado",
     "enableVoiceShortcut": "Activar el atajo del modo de voz",
     "fnKeyLabel": "Fn",
+    "fnRefusedNote": "Fn necesita Monitorización de entrada. Concédela en Ajustes del Sistema o define un atajo personalizado.",
     "focusedTabNote": "El atajo solo funciona mientras esta pestaña está enfocada, y los navegadores pueden interceptar algunas combinaciones (p. ej., Ctrl+T) antes de que la página las detecte. Para un atajo que funcione en cualquier lugar, usa la aplicación de escritorio de Vellum.",
     "grantMicrophoneAccessHint": "Concede acceso al micrófono para enumerar tus dispositivos de entrada disponibles.",
     "interruptSensitivityAriaLabel": "Sensibilidad a interrupciones",

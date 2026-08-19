@@ -917,6 +917,7 @@
     "defaultBadge": "Default",
     "enableVoiceShortcut": "Enable voice mode shortcut",
     "fnKeyLabel": "Fn",
+    "fnRefusedNote": "Fn needs Input Monitoring. Grant it in System Settings, or set a custom shortcut.",
     "focusedTabNote": "The shortcut only works while this tab is focused, and browsers may intercept some chords (e.g. Ctrl+T) before the page can see them. For a shortcut that works anywhere, use the Vellum desktop app.",
     "grantMicrophoneAccessHint": "Grant microphone access to list your available input devices.",
     "interruptSensitivityAriaLabel": "Interrupt sensitivity",

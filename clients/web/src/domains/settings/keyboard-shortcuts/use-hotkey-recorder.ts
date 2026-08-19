@@ -98,8 +98,20 @@ export function useHotkeyRecorder(options?: {
         return;
       }
 
-      void setHotkey(recordingKey, accelerator).then(refresh);
-      onBound?.(recordingKey);
+      // Only after the write lands. A newer renderer against an older host
+      // whose catalog predates this command is rejected by main, and settling
+      // an exclusive binding on a write that failed would clear the one that
+      // still works while saving nothing in its place.
+      void setHotkey(recordingKey, accelerator)
+        .then(() => {
+          onBound?.(recordingKey);
+          refresh();
+        })
+        .catch(() => {
+          // The binding is unchanged, so re-read rather than assume: the row
+          // must show what the host actually holds.
+          refresh();
+        });
       stopRecording();
     };
 

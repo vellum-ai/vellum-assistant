@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { useNavigate } from "react-router";
 
 import { isTextEntryElement } from "@/domains/chat/composer-focus";
+import { useFnRegistrationStore } from "@/stores/fn-registration-store";
 import { isElectron } from "@/runtime/is-electron";
 import {
   endLiveVoiceSession,
@@ -58,10 +59,18 @@ export function useVoiceModeHotkey({
   enabled = true,
 }: { enabled?: boolean } = {}): void {
   const navigate = useNavigate();
-  // The registration hook reports whether the host took Fn. Nothing branches
-  // on it any more: a refused Fn simply leaves the global Talk shortcut as the
-  // keyboard way in, which needs no Input Monitoring grant.
-  const [, setFnRegistered] = useState(true);
+  /**
+   * Publish whether the host took Fn, rather than branching on it here.
+   *
+   * There is nothing for this hook to do about a refusal: the chord is the
+   * host's `globalShortcut` now, so there is no second binding to fall back
+   * to, and quietly binding one would be a binding the settings card does not
+   * show. What a refusal needs is to be said out loud, which is the card's
+   * job. See `fn-registration-store`.
+   */
+  const setFnRegistered = useFnRegistrationStore(
+    (state) => state.setRegistered,
+  );
 
   const shouldRegisterFn = useCallback(
     () =>
