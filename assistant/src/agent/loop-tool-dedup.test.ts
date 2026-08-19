@@ -73,7 +73,7 @@ const baseRun = {
   ],
 };
 
-describe("AgentLoop — duplicate tool_use ids", () => {
+describe("AgentLoop: duplicate tool_use ids", () => {
   /** A call the provider emits twice under one id runs a single time. */
   test("executes a call id once when the provider emits it twice", async () => {
     // GIVEN a provider turn carrying the same tool_use id twice
