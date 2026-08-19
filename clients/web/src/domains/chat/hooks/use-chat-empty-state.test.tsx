@@ -43,10 +43,14 @@ const STARTER: ConversationStarter = {
 
 const startersRef = { value: [STARTER] };
 const awaitingStartersRef = { value: false };
+const startersStatusRef: { value: "ready" | "empty" | "generating" } = {
+  value: "ready",
+};
 
 mock.module("@/domains/chat/hooks/use-conversation-starters", () => ({
   useConversationStarters: () => ({
     starters: startersRef.value,
+    status: startersStatusRef.value,
     isAwaitingStarters: awaitingStartersRef.value,
   }),
 }));
@@ -78,6 +82,10 @@ mock.module("@/domains/chat/hooks/use-thread-suggestions", () => ({
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import type { UseChatEmptyStateParams } from "@/domains/chat/hooks/use-chat-empty-state";
+import {
+  loadAssistantProducesStarters,
+  recordAssistantProducesStarters,
+} from "@/domains/chat/utils/starters-availability-storage";
 
 function baseParams(
   overrides: Partial<UseChatEmptyStateParams> = {},
@@ -99,7 +107,9 @@ function baseParams(
 beforeEach(() => {
   flagRef.value = false;
   startersRef.value = [STARTER];
+  startersStatusRef.value = "ready";
   awaitingStartersRef.value = false;
+  localStorage.clear();
   useLiveVoiceStore.getState().reset();
 });
 
@@ -211,88 +221,120 @@ describe("useChatEmptyState startersSlot", () => {
 });
 
 describe("useChatEmptyState starters dock", () => {
-  // The dock is what keeps the composer still while a fresh chat loads. It
-  // is docked and mounted from the first frame, before the daemon has
-  // answered, so the greeting + composer group above it never re-centers
-  // around starters arriving.
+  // The dock is what keeps the composer still while a fresh chat loads: it is
+  // docked and mounted from the first frame, so the greeting + composer group
+  // above it never re-centers around starters arriving. Whether it also holds
+  // the chips' height up front is a separate decision, because holding space
+  // for an assistant that produces no chips only trades one movement for
+  // another. Only an assistant known to produce them reserves.
+  const RESERVE = '[data-slot="conversation-starter-dock-reserve"]';
+
   const dockOf = (container: HTMLElement) =>
     container.querySelector<HTMLElement>(
       '[data-slot="conversation-starter-dock"]',
     );
 
-  test("docks from the first frame, before any starter has arrived", () => {
+  test("a known producer reserves the chips' height before any of them arrives", () => {
+    recordAssistantProducesStarters("a1", true);
     awaitingStartersRef.value = true;
+    startersStatusRef.value = "generating";
     startersRef.value = [];
     const { result } = renderHook(() => useChatEmptyState(baseParams()));
 
     expect(result.current.dockStartersToBottom).toBe(true);
-    expect(result.current.startersSlot).not.toBeUndefined();
+    expect(result.current.startersDockCollapsed).toBe(false);
 
     const { container } = render(<>{result.current.startersSlot}</>);
-    const dock = dockOf(container);
-    expect(dock).not.toBeNull();
-    // Reserved, not collapsed: the space the chips will occupy is already
-    // held, so their arrival moves nothing above the dock.
-    expect(dock?.style.gridTemplateRows).toBe("1fr");
-    expect(dock?.hasAttribute("inert")).toBe(false);
-    expect(
-      container.querySelector(
-        '[data-slot="conversation-starter-dock-reserve"]',
-      ),
-    ).not.toBeNull();
+    expect(dockOf(container)).not.toBeNull();
+    expect(container.querySelector(RESERVE)).not.toBeNull();
     // Nothing readable yet: the reserve is invisible space, not chips.
     expect(
       container.querySelector(`[aria-label="Send: ${STARTER.label}"]`),
     ).toBeNull();
   });
 
-  test("stays docked when no assistant id has resolved yet", () => {
-    // At boot the chat route can render before an assistant id lands. The
-    // starter query is idle there, and a dock that read that as "settled with
-    // nothing" would collapse for a frame and re-expand on the next.
-    awaitingStartersRef.value = false;
+  test("an assistant nothing is known about reserves nothing and starts collapsed", () => {
+    // The fresh-install case. Reserving here would hold ~150px and then hand
+    // it back the moment the daemon answers with an empty list, sliding a
+    // screen that had no reason to move at all.
+    awaitingStartersRef.value = true;
+    startersStatusRef.value = "generating";
     startersRef.value = [];
-    const { result } = renderHook(() =>
-      useChatEmptyState(baseParams({ assistantId: null })),
-    );
-
-    expect(result.current.dockStartersToBottom).toBe(true);
-    const { container } = render(<>{result.current.startersSlot}</>);
-    expect(dockOf(container)?.style.gridTemplateRows).toBe("1fr");
-  });
-
-  test("chips landing fill the reserved dock and become visible", () => {
     const { result } = renderHook(() => useChatEmptyState(baseParams()));
 
+    expect(result.current.dockStartersToBottom).toBe(true);
+    expect(result.current.startersDockCollapsed).toBe(true);
+
     const { container } = render(<>{result.current.startersSlot}</>);
-    const dock = dockOf(container);
-    expect(dock?.style.gridTemplateRows).toBe("1fr");
+    expect(dockOf(container)).not.toBeNull();
+    expect(container.querySelector(RESERVE)).toBeNull();
+  });
+
+  test("the reserve ends when the wait does, whatever ended it", () => {
+    // The wait can end on a settled answer, a failed or paused fetch, or the
+    // deadline on a generation that never lands. Each arrives here the same
+    // way, and none of them may leave a known producer holding space forever.
+    recordAssistantProducesStarters("a1", true);
+    awaitingStartersRef.value = false;
+    startersStatusRef.value = "generating";
+    startersRef.value = [];
+    const { result } = renderHook(() => useChatEmptyState(baseParams()));
+
+    expect(result.current.startersDockCollapsed).toBe(true);
+    const { container } = render(<>{result.current.startersSlot}</>);
+    expect(container.querySelector(RESERVE)).toBeNull();
+  });
+
+  test("chips landing keep the reserve as the dock's sizing floor", () => {
+    // Dropping the floor the moment chips arrive would let a one-line answer
+    // shrink the dock, which moves the group just as surely as growing it.
+    recordAssistantProducesStarters("a1", true);
+    const { result } = renderHook(() => useChatEmptyState(baseParams()));
+
+    expect(result.current.startersDockCollapsed).toBe(false);
+    const { container } = render(<>{result.current.startersSlot}</>);
+    expect(container.querySelector(RESERVE)).not.toBeNull();
     expect(
       container.querySelector(`[aria-label="Send: ${STARTER.label}"]`),
-    ).not.toBeNull();
-    // The reserve stays mounted as the dock's sizing floor.
-    expect(
-      container.querySelector(
-        '[data-slot="conversation-starter-dock-reserve"]',
-      ),
     ).not.toBeNull();
     expect(container.innerHTML).toContain("opacity-100");
   });
 
-  test("a starter query that settles empty collapses the dock instead of dropping it", () => {
-    // Self-hosted assistants and failed fetches land here. The dock stays in
-    // the tree and animates its height away, so the group above re-centers
-    // smoothly rather than snapping.
-    awaitingStartersRef.value = false;
-    startersRef.value = [];
+  test("this launch's own answer does not add a floor under chips already drawn", () => {
+    // The first-ever answer on a brand-new assistant. Recording it must not
+    // feed straight back into the reserve: a floor appearing under chips that
+    // are already laid out pushes the group the floor exists to hold still.
+    // The chips open the dock instead, once, and the next launch reserves.
     const { result } = renderHook(() => useChatEmptyState(baseParams()));
 
-    expect(result.current.dockStartersToBottom).toBe(true);
+    expect(result.current.startersDockCollapsed).toBe(false);
     const { container } = render(<>{result.current.startersSlot}</>);
-    const dock = dockOf(container);
-    expect(dock).not.toBeNull();
-    expect(dock?.style.gridTemplateRows).toBe("0fr");
-    expect(dock?.hasAttribute("inert")).toBe(true);
+    expect(container.querySelector(RESERVE)).toBeNull();
+    expect(
+      container.querySelector(`[aria-label="Send: ${STARTER.label}"]`),
+    ).not.toBeNull();
+    expect(loadAssistantProducesStarters("a1")).toBe(true);
+  });
+
+  test("a settled answer with no chips is remembered too", () => {
+    recordAssistantProducesStarters("a1", true);
+    startersRef.value = [];
+    startersStatusRef.value = "empty";
+    renderHook(() => useChatEmptyState(baseParams()));
+
+    expect(loadAssistantProducesStarters("a1")).toBe(false);
+  });
+
+  test("an unsettled answer leaves the previous one alone", () => {
+    // A wedged generation, a failed fetch, and an offline pause all reach
+    // here with no chips and no terminal status. Forgetting on those would
+    // cost the next launch its reserve over a transient failure.
+    recordAssistantProducesStarters("a1", true);
+    startersRef.value = [];
+    startersStatusRef.value = "generating";
+    renderHook(() => useChatEmptyState(baseParams()));
+
+    expect(loadAssistantProducesStarters("a1")).toBe(true);
   });
 
   test("app editing keeps its chips inline and never docks", () => {
@@ -344,8 +386,13 @@ describe("useChatEmptyState credits upsell card", () => {
     ).not.toBeNull();
   });
 
-  test("showCreditsUpsell with no starters still renders the card alone", () => {
+  test("showCreditsUpsell with no starters still renders the card, riding the dock", () => {
+    // The card shares the starters slot, so with no chips to show it rides
+    // the bottom dock rather than sitting inline under the composer. The dock
+    // must therefore stay expanded: collapsing an empty dock would take the
+    // credit wall down with it.
     startersRef.value = [];
+    startersStatusRef.value = "empty";
     const { result } = renderHook(() =>
       useChatEmptyState(baseParams({ showCreditsUpsell: true })),
     );
@@ -354,6 +401,7 @@ describe("useChatEmptyState credits upsell card", () => {
     expect(
       container.querySelector('[data-slot="credits-upsell-card"]'),
     ).not.toBeNull();
+    expect(result.current.startersDockCollapsed).toBe(false);
   });
 
   test("no card when showCreditsUpsell is false (normal balance, loading, or gated-off billing query)", () => {

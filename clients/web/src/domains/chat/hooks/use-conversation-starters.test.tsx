@@ -14,8 +14,9 @@
  *      provide).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import * as realRQ from "@tanstack/react-query";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type {
@@ -44,6 +45,7 @@ interface UseQueryStub {
   data: ConversationstartersGetResponse | undefined;
   isLoading: boolean;
   isError?: boolean;
+  fetchStatus?: "fetching" | "paused" | "idle";
   refetch: () => Promise<void>;
 }
 
@@ -376,5 +378,70 @@ describe("useConversationStarters isAwaitingStarters", () => {
 
   test("an idle query never waits", () => {
     expect(runHook(null).isAwaitingStarters).toBe(false);
+  });
+
+  test("stops waiting on a fetch the browser paused for being offline", () => {
+    // TanStack's default `networkMode` holds the request while offline: no
+    // load is reported and no error arrives, so `data` stays undefined and
+    // the status keeps falling back to "generating". Nothing else here would
+    // ever end that wait.
+    useQueryStub = {
+      data: undefined,
+      isLoading: false,
+      fetchStatus: "paused",
+      refetch: async () => {},
+    };
+
+    expect(runHook("asst-1").isAwaitingStarters).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Awaiting deadline: a generation that never lands must not pin the reserve
+// ---------------------------------------------------------------------------
+
+describe("useConversationStarters await deadline", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  test("stops waiting once the deadline passes on a generation that never lands", async () => {
+    // The daemon can keep answering "generating" indefinitely. Without a
+    // deadline the empty state's reserved dock holds its space for the life
+    // of the screen.
+    useQueryStub = {
+      data: { starters: [], total: 0, status: "generating" },
+      isLoading: false,
+      refetch: async () => {},
+    };
+
+    const { result } = renderHook(() =>
+      useConversationStarters("asst-1", { awaitDeadlineMs: 10 }),
+    );
+    expect(result.current.isAwaitingStarters).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.isAwaitingStarters).toBe(false);
+    });
+  });
+
+  test("the deadline restarts for a different assistant", async () => {
+    useQueryStub = {
+      data: { starters: [], total: 0, status: "generating" },
+      isLoading: false,
+      refetch: async () => {},
+    };
+
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) =>
+        useConversationStarters(id, { awaitDeadlineMs: 30 }),
+      { initialProps: { id: "asst-1" } },
+    );
+    await waitFor(() => {
+      expect(result.current.isAwaitingStarters).toBe(false);
+    });
+
+    rerender({ id: "asst-2" });
+    expect(result.current.isAwaitingStarters).toBe(true);
   });
 });

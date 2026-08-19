@@ -8,7 +8,7 @@
  * the daemon.
  */
 
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useEffect, useMemo } from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
@@ -32,6 +32,10 @@ import {
   buildEditAppStarters,
 } from "@/domains/chat/utils/edit-app-empty-state";
 import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants";
+import {
+  recordAssistantProducesStarters,
+  useAssistantProducedStartersAtOpen,
+} from "@/domains/chat/utils/starters-availability-storage";
 import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters";
 import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
 import type { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -89,6 +93,13 @@ export interface ChatEmptyStateResult {
    * composer.
    */
   dockStartersToBottom: boolean;
+  /**
+   * True when the docked starters have nothing to show and no reason to hold
+   * space: the query settled with no chips for an assistant that is not known
+   * to produce any. `ChatBody` keeps the dock mounted and collapses it, so a
+   * later answer expands it instead of snapping in.
+   */
+  startersDockCollapsed: boolean;
   renderAvatar: (() => ReactNode) | undefined;
   emptyStatePlaceholder: string;
   /**
@@ -175,16 +186,40 @@ export function useChatEmptyState({
   // polling for data that's never rendered. Also skip it whenever the
   // suggestions library is shown — the daemon GET enqueues starter generation
   // and polls every few seconds for chips the library path never renders.
-  const { starters: conversationStarters, isAwaitingStarters } =
-    useConversationStarters(
-      isEmptyConversation && !showSuggestionLibrary ? assistantId : null,
-    );
+  const startersAssistantId =
+    isEmptyConversation && !showSuggestionLibrary ? assistantId : null;
+  const {
+    starters: conversationStarters,
+    status: startersStatus,
+    isAwaitingStarters,
+  } = useConversationStarters(startersAssistantId);
 
-  // The dock holds its reserved height while chips may still arrive. Before
-  // an assistant id resolves there is no query to be pending, so treat that
-  // window as waiting too: the alternative collapses the dock for a frame
-  // and re-expands it the moment the id lands.
-  const startersAwaiting = assistantId == null || isAwaitingStarters;
+  // Whether this assistant produced chips the last time it answered. The
+  // dock's reserve has to be decided on the first paint, before this launch's
+  // query can say, and reserving for an assistant that turns out to have no
+  // chips is worse than not reserving at all: the dock takes the space and
+  // then gives it back, sliding a screen that would otherwise be still. An
+  // assistant nothing is known about therefore reserves nothing, and its
+  // first-ever chips open the dock instead of landing in it.
+  const assistantProducesStarters =
+    useAssistantProducedStartersAtOpen(assistantId);
+
+  // Remember every settled answer for the next launch. Chips in hand say yes
+  // whatever the daemon is doing next; only the daemon's own terminal
+  // statuses say no, so a failed, paused, or still-generating fetch leaves
+  // the previous answer alone rather than forgetting it.
+  useEffect(() => {
+    if (!startersAssistantId) {
+      return;
+    }
+    if (conversationStarters.length > 0) {
+      recordAssistantProducesStarters(startersAssistantId, true);
+      return;
+    }
+    if (startersStatus === "ready" || startersStatus === "empty") {
+      recordAssistantProducesStarters(startersAssistantId, false);
+    }
+  }, [startersAssistantId, startersStatus, conversationStarters.length]);
 
   const emptyStateProps: ChatEmptyStateProps = {
     greeting: editingApp
@@ -196,6 +231,26 @@ export function useChatEmptyState({
   const emptyStateStarters = editingApp
     ? buildEditAppStarters(editingApp)
     : conversationStarters;
+
+  // Reserve for an assistant known to produce chips, and keep the reserve up
+  // as its own sizing floor once they land so a short answer cannot shrink
+  // the dock either. Everything that can end the wait ends the reserve: chips
+  // arriving, the daemon settling on none, a failed or paused fetch, and the
+  // deadline on a generation that never lands.
+  const startersReserved =
+    isPlainEmptyState &&
+    assistantProducesStarters &&
+    (isAwaitingStarters || emptyStateStarters.length > 0);
+
+  // A dock with neither chips nor a reserve has nothing to show. It stays
+  // mounted and hands its height back through `ChatBody`'s collapse, which
+  // covers the docked column's own padding as well. The credits card rides
+  // this same slot, so a dock holding one is never empty.
+  const startersDockCollapsed =
+    isPlainEmptyState &&
+    !startersReserved &&
+    !showCreditsUpsell &&
+    emptyStateStarters.length === 0;
 
   let startersSlot: ReactNode | undefined;
   let belowFoldSlot: ReactNode | undefined;
@@ -230,12 +285,12 @@ export function useChatEmptyState({
   } else if (isPlainEmptyState) {
     // The chips dock to the bottom of the first viewport in a subtle panel
     // with a muted caption (the Figma's 1×3 row stays a 2×2 grid here). The
-    // dock mounts whether or not chips exist yet and owns its own reserve,
-    // reveal, and collapse.
+    // dock mounts whether or not chips exist yet, so the layout never waits
+    // on the daemon to know its shape.
     startersSlot = (
       <ConversationStarterDock
         starters={emptyStateStarters}
-        isAwaiting={startersAwaiting}
+        isReserving={startersReserved}
         onSelect={onSelectStarter}
       />
     );
@@ -304,6 +359,7 @@ export function useChatEmptyState({
     // composer's position waits on the daemon. Only the app-editing side
     // panel keeps them inline under the composer.
     dockStartersToBottom: showSuggestionLibrary || isPlainEmptyState,
+    startersDockCollapsed,
     renderAvatar,
     emptyStatePlaceholder,
     composerPeekSlot,

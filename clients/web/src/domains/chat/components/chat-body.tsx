@@ -184,6 +184,15 @@ export interface ChatBodyProps {
   dockStartersToBottom?: boolean;
 
   /**
+   * When true, the docked {@link startersSlot} keeps its place in the tree but
+   * collapses to nothing, through the same transition an open soft keyboard
+   * uses. The empty state sets it once its starter query has settled with no
+   * chips to show. The collapse wraps the whole docked column, padding
+   * included, so an empty dock gives back every pixel it was holding.
+   */
+  startersDockCollapsed?: boolean;
+
+  /**
    * Top-center floating row of active background-process overlays (subagents,
    * ACP runs, workflows, background tasks), shown independent of scroll
    * position. The caller builds this from the process registry and passes it
@@ -216,6 +225,7 @@ export function ChatBody({
   pluginPillsSlot,
   belowFoldSlot,
   dockStartersToBottom = false,
+  startersDockCollapsed = false,
   activeProcessOverlaysSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
@@ -294,22 +304,26 @@ export function ChatBody({
   }, [bannerRendered, registerVisibleBanner, unregisterVisibleBanner]);
 
   // Shared treatment for the below-composer extras (the starters dock and
-  // the plugin pills) while the soft keyboard is open: fade out and collapse
+  // the plugin pills) when something should stand down: fade out and collapse
   // the reserved height so the bottom-anchored composer reaches the keyboard
-  // edge. Each stays mounted so dismissing the keyboard restores it without
-  // a remount, and `inert` removes it from the tab order and the
-  // accessibility tree. The inner div clips only while the keyboard is
-  // open: the collapse needs the clip, but at rest it would shave the
-  // keyboard-focus rings that paint outside the cards and buttons inside
+  // edge, or so an empty dock gives its space back. Each stays mounted so the
+  // reason going away restores it without a remount, and `inert` removes it
+  // from the tab order and the accessibility tree. The inner div clips only
+  // while collapsed: the collapse needs the clip, but at rest it would shave
+  // the keyboard-focus rings that paint outside the cards and buttons inside
   // the slot.
-  const renderKeyboardCollapse = (dataSlot: string, children: ReactNode) => (
+  const renderCollapse = (
+    dataSlot: string,
+    collapsed: boolean,
+    children: ReactNode,
+  ) => (
     <div
       data-slot={dataSlot}
-      inert={keyboardOpen || undefined}
-      className={`grid transition-[grid-template-rows,opacity] duration-150${keyboardOpen ? " pointer-events-none opacity-0" : ""}`}
-      style={{ gridTemplateRows: keyboardOpen ? "0fr" : "1fr" }}
+      inert={collapsed || undefined}
+      className={`grid transition-[grid-template-rows,opacity] duration-150${collapsed ? " pointer-events-none opacity-0" : ""}`}
+      style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
     >
-      <div className={`min-h-0${keyboardOpen ? " overflow-hidden" : ""}`}>
+      <div className={`min-h-0${collapsed ? " overflow-hidden" : ""}`}>
         {children}
       </div>
     </div>
@@ -370,8 +384,9 @@ export function ChatBody({
         <StagedQuotesStrip />
         {composerSlot}
         {pluginPillsSlot &&
-          renderKeyboardCollapse(
+          renderCollapse(
             "new-chat-plugins",
+            keyboardOpen,
             <div className="mt-4">{pluginPillsSlot}</div>,
           )}
         {trailingStarters}
@@ -417,8 +432,9 @@ export function ChatBody({
         </div>
         {isDockedEmpty &&
           startersSlot &&
-          renderKeyboardCollapse(
+          renderCollapse(
             "docked-starters",
+            keyboardOpen || startersDockCollapsed,
             <ChatColumn className="pb-3">{startersSlot}</ChatColumn>,
           )}
       </div>

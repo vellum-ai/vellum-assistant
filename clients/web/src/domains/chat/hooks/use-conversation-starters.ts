@@ -7,6 +7,7 @@
  * idle result without making a network call.
  */
 
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { conversationstartersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -20,6 +21,15 @@ import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state
 
 const STALE_TIME_MS = 60_000;
 const POLL_INTERVAL_MS = 3_000;
+
+/**
+ * How long {@link UseConversationStartersResult.isAwaitingStarters} is willing
+ * to answer "chips may still arrive" while the daemon keeps reporting that it
+ * is generating them. A generation that never lands would otherwise pin the
+ * empty state's reserved dock open for the life of the screen, so the wait
+ * gets a deadline and the layout always resolves.
+ */
+export const STARTERS_AWAIT_DEADLINE_MS = 10_000;
 
 const DEFAULT_OFFSET = 0;
 
@@ -37,15 +47,24 @@ export interface UseConversationStartersResult {
   status: ConversationStartersStatus | "idle";
   isLoading: boolean;
   /**
-   * True while there is nothing to render yet and chips may still arrive:
-   * the first fetch is in flight, or the daemon reports it is still
-   * generating them. False once chips land, once the daemon settles on
-   * having none, on a failed fetch, and whenever the query is idle. The
-   * empty state's starter dock holds its reserved height while this is
-   * true and collapses when it goes false with no chips.
+   * True while there is nothing to render yet and chips are worth waiting
+   * for: the first fetch is in flight, or the daemon reports it is still
+   * generating them and the wait is inside
+   * {@link STARTERS_AWAIT_DEADLINE_MS}.
+   *
+   * False once chips land, once the daemon settles on having none, on a
+   * failed fetch, on a fetch the browser has paused for being offline, past
+   * the deadline, and whenever the query is idle. Every one of those is a
+   * state the answer can get stuck in, and the empty state's starter dock
+   * holds reserved height while this is true, so it must always resolve.
    */
   isAwaitingStarters: boolean;
   refetch: () => Promise<void>;
+}
+
+export interface UseConversationStartersOptions {
+  /** Override for {@link STARTERS_AWAIT_DEADLINE_MS}. */
+  awaitDeadlineMs?: number;
 }
 
 const NOOP_REFETCH = async (): Promise<void> => {};
@@ -60,8 +79,11 @@ const IDLE_RESULT: UseConversationStartersResult = {
 
 export function useConversationStarters(
   assistantId: string | null | undefined,
+  options?: UseConversationStartersOptions,
 ): UseConversationStartersResult {
   const enabled = Boolean(assistantId);
+  const awaitDeadlineMs =
+    options?.awaitDeadlineMs ?? STARTERS_AWAIT_DEADLINE_MS;
 
   const query = useQuery({
     ...conversationstartersGetOptions({
@@ -76,12 +98,31 @@ export function useConversationStarters(
     refetchInterval: (q) => shouldPoll(q.state.data?.status),
   });
 
+  const [awaitExpired, setAwaitExpired] = useState(false);
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    setAwaitExpired(false);
+    const timer = setTimeout(() => {
+      setAwaitExpired(true);
+    }, awaitDeadlineMs);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [enabled, assistantId, awaitDeadlineMs]);
+
   if (!enabled) {
     return IDLE_RESULT;
   }
 
   const starters = query.data?.starters ?? [];
   const status = query.data?.status ?? "generating";
+  // A paused fetch is the offline case: TanStack's default `networkMode`
+  // holds the request without ever reporting a load or an error, so the
+  // status stays on its pre-answer fallback and nothing else here would
+  // ever end the wait.
+  const paused = query.fetchStatus === "paused";
 
   return {
     starters,
@@ -90,6 +131,8 @@ export function useConversationStarters(
     isAwaitingStarters:
       starters.length === 0 &&
       !query.isError &&
+      !paused &&
+      !awaitExpired &&
       (query.isLoading || status === "generating" || status === "refreshing"),
     refetch: async () => {
       await query.refetch();

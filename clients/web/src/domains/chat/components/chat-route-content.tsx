@@ -1166,6 +1166,7 @@ export function ChatMainPanel({
     startersSlot,
     belowFoldSlot,
     dockStartersToBottom,
+    startersDockCollapsed,
     renderAvatar,
     emptyStatePlaceholder,
     composerPeekSlot,
@@ -1492,6 +1493,7 @@ export function ChatMainPanel({
       startersSlot={startersSlot}
       belowFoldSlot={belowFoldSlot}
       dockStartersToBottom={dockStartersToBottom}
+      startersDockCollapsed={startersDockCollapsed}
       activeProcessOverlaysSlot={
         hasActiveProcess ? activeProcessOverlays : undefined
       }

@@ -33,6 +33,16 @@ export interface ConversationStarterChipProps {
 export const CONVERSATION_STARTER_CHIP_BOX =
   "min-h-[40px] sm:min-h-[44px] px-3 py-2 sm:px-4 sm:py-2.5 rounded-[12px] text-body-small-lighter sm:text-body-medium-lighter";
 
+/**
+ * The label's line box. The body-type tokens pin `line-height` to 18px, which
+ * is tighter than the glyphs need: `line-clamp`'s overflow clipping cuts
+ * descenders (the "g" in "morning") without real line height. Shared with the
+ * dock's reserved placeholder for the same reason as
+ * {@link CONVERSATION_STARTER_CHIP_BOX}: two reserved lines and two rendered
+ * lines have to measure the same.
+ */
+export const CONVERSATION_STARTER_CHIP_LINE = "leading-normal";
+
 export const ConversationStarterChip = forwardRef<
   HTMLButtonElement,
   ConversationStarterChipProps
@@ -59,10 +69,9 @@ export const ConversationStarterChip = forwardRef<
         "bg-[var(--surface-lift)] [--vbtn-fg:var(--content-secondary)]",
       )}
     >
-      {/* leading-normal: the title-small token is line-height:1, and
-          line-clamp's overflow clipping would cut descenders (the "g" in
-          "morning") without real line height. */}
-      <span className="line-clamp-2 leading-normal">{label}</span>
+      <span className={`line-clamp-2 ${CONVERSATION_STARTER_CHIP_LINE}`}>
+        {label}
+      </span>
     </Button>
   );
 });
