@@ -4,6 +4,7 @@ import { setIngressPublicBaseUrl } from "../config/env.js";
 import { credentialKey } from "../security/credential-key.js";
 
 let mockIsPlatform = true;
+let mockVelayWebhooksEnabled = false;
 let mockPlatformBaseUrl = "";
 let mockPlatformAssistantId = "";
 let mockSecureKeys: Record<string, string> = {};
@@ -18,6 +19,12 @@ const actualEnvRegistry = await import("../config/env-registry.js");
 mock.module("../config/env-registry.js", () => ({
   ...actualEnvRegistry,
   getIsPlatform: () => mockIsPlatform,
+}));
+
+const actualVelayGate = await import("../inbound/velay-webhooks-gate.js");
+mock.module("../inbound/velay-webhooks-gate.js", () => ({
+  ...actualVelayGate,
+  isVelayWebhooksEnabled: () => mockVelayWebhooksEnabled,
 }));
 
 const actualEnv = await import("../config/env.js");
@@ -373,6 +380,7 @@ describe("resolveCallbackUrl resolution order", () => {
 
   beforeEach(() => {
     mockIsPlatform = false;
+    mockVelayWebhooksEnabled = false;
     mockPlatformBaseUrl = "";
     mockPlatformAssistantId = "";
     mockSecureKeys = {};
@@ -408,6 +416,63 @@ describe("resolveCallbackUrl resolution order", () => {
       resolveCallbackUrl(noIngress, "webhooks/twilio/voice", "twilio_voice"),
     ).resolves.toBe(PLATFORM_URL);
     expect(registerCalls).toBe(1);
+  });
+
+  test("velay-webhooks on: a pod with a published ingress URL uses it directly", async () => {
+    mockIsPlatform = true;
+    mockVelayWebhooksEnabled = true;
+    seedPlatformCredentials();
+
+    await expect(
+      resolveCallbackUrl(
+        () => "https://velay.example.com/assistant-1/webhooks/twilio/voice",
+        "webhooks/twilio/voice",
+        "twilio_voice",
+      ),
+    ).resolves.toBe(
+      "https://velay.example.com/assistant-1/webhooks/twilio/voice",
+    );
+    expect(registerCalls).toBe(0);
+  });
+
+  test("velay-webhooks on: a pod with no published URL still registers with the platform", async () => {
+    mockIsPlatform = true;
+    mockVelayWebhooksEnabled = true;
+    seedPlatformCredentials();
+
+    await expect(
+      resolveCallbackUrl(noIngress, "webhooks/twilio/voice", "twilio_voice"),
+    ).resolves.toBe(PLATFORM_URL);
+    expect(registerCalls).toBe(1);
+  });
+
+  test("velay-webhooks on: a pod with ingress disabled falls back instead of throwing", async () => {
+    mockIsPlatform = true;
+    mockVelayWebhooksEnabled = true;
+    seedPlatformCredentials();
+
+    await expect(
+      resolveCallbackUrl(
+        ingressDisabled,
+        "webhooks/twilio/voice",
+        "twilio_voice",
+      ),
+    ).resolves.toBe(PLATFORM_URL);
+    expect(registerCalls).toBe(1);
+  });
+
+  test("velay-webhooks on: self-hosted opt-out still surfaces", async () => {
+    mockVelayWebhooksEnabled = true;
+    seedPlatformCredentials();
+
+    await expect(
+      resolveCallbackUrl(
+        ingressDisabled,
+        "webhooks/twilio/voice",
+        "twilio_voice",
+      ),
+    ).rejects.toThrow("Public ingress is disabled");
+    expect(registerCalls).toBe(0);
   });
 
   test("a configured ingress wins over platform connectivity", async () => {
