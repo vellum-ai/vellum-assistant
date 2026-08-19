@@ -53,11 +53,19 @@ export function OnboardingLayout({
    * wave around the content instead: a thread arcing over the heading, off
    * the edge, and back in under the buttons as the crowd.
    *
-   * `around` spends the top fifth of a narrow screen on that thread and the
-   * bottom third on the crowd, so it is only for steps whose content is a
-   * short centred column. A step that fills more than what is left over runs
-   * its heading straight through the thread and its last control into the
-   * crowd; those keep `beside`.
+   * `around` asks two things of a step, and a step that fails either keeps
+   * `beside`:
+   *
+   * Its content has to be a short centred column. The thread takes the top
+   * fifth and the crowd comes back in on the right at about 0.59 of the
+   * height, sloping down to 0.85 at the left, so a full-width control below
+   * roughly 0.58 lands in the crowd and a heading above 0.2 lands under the
+   * thread. Narrow centred content can sit lower, since the crowd has not
+   * reached the middle yet.
+   *
+   * Its content also has to be bounded. A step rendering a list it does not
+   * cap has no height to check: it fits until a user with enough assistants
+   * arrives, and then it scrolls its cards through both.
    */
   avatarWave?: AvatarWavePlacement;
   /**
