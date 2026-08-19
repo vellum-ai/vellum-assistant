@@ -92,14 +92,8 @@ export function LibraryDetailPage() {
     if (!app) {
       return;
     }
-    const shown = {
-      appId: app.appId,
-      dirName: app.dirName,
-      name: app.name,
-      html: app.html,
-    };
-    useViewerStore.getState().showApp(shown);
-    return () => useViewerStore.getState().releaseApp(shown);
+    useViewerStore.getState().showApp(app);
+    return () => useViewerStore.getState().releaseApp(app);
   }, [app]);
 
   const handleClose = useCallback(() => {
