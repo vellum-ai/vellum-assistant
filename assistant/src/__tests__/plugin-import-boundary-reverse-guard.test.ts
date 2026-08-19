@@ -99,7 +99,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/daemon/handlers/skills.ts",
     "src/daemon/skill-memory-refresh.ts",
     "src/daemon/tool-side-effects.ts",
-    "src/daemon/trust-context.ts",
     "src/home/feed-source-enrichment.ts",
     "src/permissions/checker.ts",
     "src/persistence/conversation-crud.ts",

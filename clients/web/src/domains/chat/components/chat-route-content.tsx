@@ -52,6 +52,7 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { isImageAttachment } from "@/domains/chat/components/chat-attachments/utils";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
@@ -923,12 +924,12 @@ export function ChatMainPanel({
   // Attachment drop zone
   // -------------------------------------------------------------------------
   const handleDroppedFiles = useCallback(
-    (files: FileList | File[]) => {
+    (files: FileList | File[]): File[] => {
       const arr = Array.from(files);
       const allowed =
         !visionGateActive || activeModelSupportsVision
           ? arr
-          : arr.filter((f) => !f.type.startsWith("image/"));
+          : arr.filter((f) => !isImageAttachment(f));
       if (allowed.length < arr.length) {
         useComposerStore.setState({
           attachmentLastError:
@@ -938,6 +939,10 @@ export function ChatMainPanel({
       if (allowed.length > 0) {
         addChatAttachmentFiles(allowed);
       }
+      // What a caller reading one file at a time needs to know: an image
+      // dropped here is never held, so it should not count against whatever
+      // budget that caller is keeping.
+      return allowed;
     },
     [addChatAttachmentFiles, activeModelSupportsVision, visionGateActive],
   );

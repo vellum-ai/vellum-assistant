@@ -8,14 +8,7 @@ import {
   useState,
 } from "react";
 
-import {
-  isTextEntryFocused,
-  requestComposerFocus,
-} from "@/domains/chat/composer-focus";
-import { holdVisibleViewport } from "@/hooks/use-visible-viewport";
-import { hideNativeKeyboard } from "@/runtime/native-keyboard";
-import { isNativeIOS } from "@/runtime/platform-detection";
-import { isPointerCoarse } from "@/utils/pointer";
+import { requestComposerFocus } from "@/domains/chat/composer-focus";
 
 interface UseAttachmentFilePickerOptions {
   /** Receives the picked files. Not called when the picker closes empty. */
@@ -61,18 +54,10 @@ interface UseAttachmentFilePickerResult {
  * completion handlers of both the file menu's display animation and the
  * picker's presentation. The keyboard therefore cannot stay up during the
  * picker, and no input attribute, plugin call or config reaches that decision.
- * `hideNativeKeyboard()` only brings the dismissal forward to the tap, so it
- * reads as part of pressing the button rather than as the picker taking
- * something a beat later.
  *
  * The way back is a DOM focus: `Keyboard.show()` is Android only, while the
  * Capacitor shell disables `keyboardShouldRequireUserInteraction`, so
- * focusing the textarea raises the keyboard with no gesture. Which is also why
- * that focus is gated. It restores a keyboard the picker took; it must not
- * conjure one for a composer that was resting when the plus was pressed, so
- * `openPicker` samples who held focus before the click and the close paths
- * honour the answer. See `alwaysRestoreFocus` for the caller that has to
- * override it.
+ * focusing the textarea raises the keyboard with no gesture.
  *
  * Close signals, in order of precision:
  *
@@ -85,11 +70,6 @@ interface UseAttachmentFilePickerResult {
  *   close signal that also fires on plain app foregrounding, ending the
  *   session while the picker is still on screen.
  *
- * The layout under the picker has none of the keyboard's constraints, so the
- * shell is held at the size the keyboard left it for as long as the picker is
- * up. Letting it collapse would walk the composer down the screen on the way
- * into a picker that then covers where it went, and back up on the way out.
- * The same close paths that restore focus end the hold.
  */
 export function useAttachmentFilePicker({
   onFiles,
@@ -115,13 +95,6 @@ export function useAttachmentFilePicker({
   // Held in a ref so every picker-close path (change, cancel, unmount) can
   // disarm it, not just a window focus event.
   const disarmFocusFallbackRef = useRef<(() => void) | null>(null);
-  // Whether the close paths owe the composer a keyboard, answered when the
-  // picker opens. Restoring focus is only restoring when something had it:
-  // a plus pressed on a resting composer never had a keyboard, and focusing
-  // the textarea on the way out summons one nobody asked for.
-  const shouldRestoreFocusRef = useRef(true);
-  // Release for the shell size held across this picker session.
-  const releaseViewportHoldRef = useRef<(() => void) | null>(null);
 
   const refocusComposer = useCallback(() => {
     // Any picker-close path lands here: disarm the pending focus fallback so it
@@ -176,8 +149,6 @@ export function useAttachmentFilePicker({
       input?.removeEventListener("cancel", onCancel);
       disarmFocusFallbackRef.current?.();
       disarmFocusFallbackRef.current = null;
-      releaseViewportHoldRef.current?.();
-      releaseViewportHoldRef.current = null;
     };
   }, [refocusComposer]);
 

@@ -67,6 +67,18 @@ let mockIsNativeMobile = false;
 // camera and the plus keeps a sheet of its own. Defaults to false, so every
 // other surface exercises the direct picker.
 let mockIsNativeAndroid = false;
+// Whether this shell's build linked the native pickers. False by default, so
+// every other case describes a shell with only the OS chooser.
+let mockNativePickersAvailable = false;
+mock.module(
+  "@/domains/chat/components/chat-attachments/native-attachment-pickers",
+  () => ({
+    nativeAttachmentPickersAvailable: () => mockNativePickersAvailable,
+    pickMediaNative: async () => ({ tooLarge: [], pickFull: [] }),
+    pickFilesNative: async () => ({ tooLarge: [], pickFull: [] }),
+    isPickerDismissal: () => false,
+  }),
+);
 mock.module("@/runtime/platform-detection", () => ({
   isNativeIOS: () => mockIsNativeIOS,
   useIsNativeMobile: () => mockIsNativeMobile,
@@ -264,10 +276,14 @@ mock.module(
       open: boolean;
       onOpenChange: (open: boolean) => void;
       onAttachFiles: (files: File[]) => void;
+      onPickerOpenChange: (open: boolean) => void;
     }) => (
       <div data-testid="add-to-chat-sheet" data-open={String(props.open)}>
         <button type="button" onClick={() => props.onAttachFiles(SHEET_PICK)}>
           sheet-pick
+        </button>
+        <button type="button" onClick={() => props.onPickerOpenChange(true)}>
+          sheet-picker-up
         </button>
       </div>
     ),
@@ -289,6 +305,7 @@ function resetLiveVoiceMocks() {
   mockIsNativeIOS = false;
   mockIsNativeMobile = false;
   mockIsNativeAndroid = false;
+  mockNativePickersAvailable = false;
   mockIsNativePlatform = false;
   mockVoicePhase = "idle";
   mockPreflightVerdict = { status: "ready" };
@@ -1592,6 +1609,20 @@ describe("ChatComposer: the mobile external-models caption", () => {
     expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
   });
 
+  test("a picker the sheet opened holds the caption away", () => {
+    // The sheet closes itself before opening one and the picker takes the web
+    // view's first responder, so neither the composer's focus nor the sheet's
+    // own flag is still true. What the sheet reports is the only thing left
+    // holding the layout, and a native pick lasts until every file has been
+    // read across the bridge.
+    mockNativePickersAvailable = true;
+    const { container, getByText } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    fireEvent.click(getByText("sheet-picker-up"));
+
+    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
+  });
+
   test("blurring back to the body brings the caption back", () => {
     // GIVEN a focused phone composer
     const { container } = renderPhoneComposer(SETTINGS_SLOTS);
@@ -1820,13 +1851,24 @@ describe("ChatComposer: single-row mobile composer", () => {
     expect(addSheet(container)).not.toBeNull();
   });
 
-  test("iOS and the browser get the picker, with no sheet mounted", () => {
-    // GIVEN every mobile surface but the Android shell, where the OS menu
-    // already offers the camera
+  test("a shell with only the OS chooser gets the picker, no sheet", () => {
+    // GIVEN a mobile surface that is neither the Android shell nor a build
+    // holding the native pickers, so a sheet could only raise the OS menu a
+    // second time
     const { container } = renderPhoneComposer();
 
     // THEN nothing of ours stands between the plus and that menu
     expect(addSheet(container)).toBeNull();
+  });
+
+  test("a shell holding the native pickers gets the sheet", () => {
+    // GIVEN a build whose rows can open the photo picker and the document
+    // browser directly, which is the whole reason to show a list of our own
+    mockNativePickersAvailable = true;
+    const { container } = renderPhoneComposer();
+
+    // THEN the plus opens ours rather than the OS chooser
+    expect(addSheet(container)).not.toBeNull();
   });
 
   test("a busy assistant takes the plus away, as it does the paperclip", () => {
