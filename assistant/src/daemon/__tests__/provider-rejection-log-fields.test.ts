@@ -167,6 +167,25 @@ describe("buildProviderRejectionLogFields", () => {
     expect(fields.offendingContentIndex).toBeUndefined();
   });
 
+  test("scrubs secrets out of the upstream body", () => {
+    // GIVEN an upstream body that echoed back a credential
+    const projectKey = `sk-proj-${"A".repeat(48)}`;
+    const error = new ProviderError("API error (400): bad key", "openai", 400, {
+      rawBody: JSON.stringify({
+        error: { message: `Incorrect API key provided: ${projectKey}` },
+        headers: { authorization: "Bearer some-token-value" },
+      }),
+    });
+
+    // WHEN diagnostic log fields are built for it
+    const fields = buildProviderRejectionLogFields(error);
+
+    // THEN the credential never reaches the log record
+    expect(fields.upstreamErrorBody).not.toContain(projectKey);
+    expect(fields.upstreamErrorBody).not.toContain("some-token-value");
+    expect(fields.upstreamErrorBody).toContain("[REDACTED]");
+  });
+
   test("reports a null body for errors that are not provider errors", () => {
     // GIVEN a non-provider error
     const error = new Error("socket hang up");

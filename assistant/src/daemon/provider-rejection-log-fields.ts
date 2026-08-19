@@ -10,6 +10,7 @@
  */
 
 import { ProviderError } from "../util/errors.js";
+import { redactLogString } from "../util/log-redact.js";
 
 /**
  * Ceiling for the logged upstream body. Bodies are already capped at 16 KiB
@@ -94,7 +95,11 @@ export function buildProviderRejectionLogFields(
     return { upstreamErrorBody: null };
   }
 
-  const rawBody = error.rawBody;
+  // The body is arbitrary upstream text under a custom field name, so it is
+  // outside the reach of the pino `err`/`req`/`res` serializers and is scrubbed
+  // here before it reaches the record.
+  const rawBody =
+    error.rawBody === undefined ? undefined : redactLogString(error.rawBody);
   const truncated =
     rawBody !== undefined && rawBody.length > MAX_LOGGED_UPSTREAM_BODY_CHARS;
 
