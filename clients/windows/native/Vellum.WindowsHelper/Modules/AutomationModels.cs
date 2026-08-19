@@ -51,7 +51,7 @@ public sealed record AutomationSnapshot(
 /// </summary>
 public sealed record ObservationResult(
     string Kind, string? Tree, string? Diff, ForegroundApp? ForegroundApp,
-    string SecondaryWindows, Unavailable? Unavailable);
+    string SecondaryWindows, PixelRect? TargetBounds, Unavailable? Unavailable);
 
 public sealed record TreeDiff(
     IReadOnlyList<AutomationNode> Added, IReadOnlyList<AutomationNode> Changed,

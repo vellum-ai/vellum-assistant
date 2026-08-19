@@ -56,20 +56,23 @@ public sealed class AutomationObserver(IAutomationSnapshotSource source, Observa
             _ = sessions.Exchange(conversationId, null, false);
             var reason = snapshot.Unavailable
                 ?? new Unavailable(Unavailable.NoForeground, "No foreground window is available");
-            return new ObservationResult("full", null, null, snapshot.ForegroundApp, windowsJson, reason);
+            return new ObservationResult(
+                "full", null, null, snapshot.ForegroundApp, windowsJson, null, reason);
         }
         var previous = sessions.Exchange(conversationId, snapshot.Tree, mode == "diff");
         if (previous is null)
         {
             var tree = AutomationJson.ToJson(snapshot.Tree);
-            return new ObservationResult("full", tree, null, snapshot.ForegroundApp, windowsJson, null);
+            return new ObservationResult(
+                "full", tree, null, snapshot.ForegroundApp, windowsJson, snapshot.Tree.Bounds, null);
         }
         var currentTree = AutomationJson.ToJson(snapshot.Tree);
         var changes = AutomationTreeDiff.Compute(previous, snapshot.Tree);
         var diff = changes is { Added.Count: 0, Changed.Count: 0, RemovedIds.Count: 0 }
             ? null
             : AutomationJson.ToJson(changes);
-        return new ObservationResult("diff", currentTree, diff, snapshot.ForegroundApp, windowsJson, null);
+        return new ObservationResult(
+            "diff", currentTree, diff, snapshot.ForegroundApp, windowsJson, snapshot.Tree.Bounds, null);
     }
 }
 
@@ -108,11 +111,19 @@ public sealed class UiaSnapshotSource : IAutomationSnapshotSource
 {
     private const int MaxDepth = 12;
     private const int MaxNodes = 2000;
+    private readonly IWindowTargetSource _windows;
+
+    public UiaSnapshotSource()
+        : this(new WindowsWindowTargetSource())
+    {
+    }
+
+    public UiaSnapshotSource(IWindowTargetSource windows) => _windows = windows;
 
     public AutomationSnapshot TakeSnapshot(CancellationToken cancellationToken)
     {
         ProcessDpi.EnsureAwareness();
-        var foreground = ObserverNativeMethods.GetForegroundWindow();
+        var foreground = _windows.GetTargetWindow();
         if (foreground == IntPtr.Zero)
         {
             return new AutomationSnapshot(
@@ -244,8 +255,136 @@ public sealed class UiaSnapshotSource : IAutomationSnapshotSource
 file static class ObserverNativeMethods
 {
     [DllImport("user32.dll")]
+    internal static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+}
+
+public interface IWindowTargetSource
+{
+    IntPtr GetTargetWindow();
+}
+
+public sealed record WindowCandidate(IntPtr Handle, uint ProcessId, bool Visible, bool Minimized);
+
+public static class WindowTargetSelector
+{
+    public static IntPtr Select(
+        WindowCandidate foreground,
+        uint helperProcessId,
+        uint hostProcessId,
+        IReadOnlyList<WindowCandidate> zOrderedWindows)
+    {
+        if (IsTarget(foreground, helperProcessId, hostProcessId))
+        {
+            return foreground.Handle;
+        }
+        return zOrderedWindows
+            .FirstOrDefault(window => IsTarget(window, helperProcessId, hostProcessId))
+            ?.Handle ?? IntPtr.Zero;
+    }
+
+    private static bool IsTarget(WindowCandidate window, uint helperProcessId, uint hostProcessId) =>
+        window.Handle != IntPtr.Zero && window.Visible && !window.Minimized &&
+        window.ProcessId != helperProcessId && window.ProcessId != hostProcessId;
+}
+
+public sealed class WindowsWindowTargetSource : IWindowTargetSource
+{
+    public const string HostProcessIdEnvironmentVariable = "VELLUM_HOST_PID";
+
+    private readonly uint _helperProcessId = (uint)Environment.ProcessId;
+    private readonly uint _hostProcessId = ReadHostProcessId();
+
+    public IntPtr GetTargetWindow()
+    {
+        var foregroundHandle = TargetWindowNativeMethods.GetForegroundWindow();
+        var foreground = Candidate(foregroundHandle);
+        var windows = new List<WindowCandidate>();
+        _ = TargetWindowNativeMethods.EnumWindows((handle, _) =>
+        {
+            if (handle != TargetWindowNativeMethods.GetShellWindow())
+            {
+                windows.Add(Candidate(handle));
+            }
+            return true;
+        }, IntPtr.Zero);
+        var target = WindowTargetSelector.Select(
+            foreground, _helperProcessId, _hostProcessId, windows);
+        if (target != IntPtr.Zero && target != foregroundHandle)
+        {
+            _ = TargetWindowNativeMethods.SetForegroundWindow(target);
+        }
+        return target;
+    }
+
+    private static WindowCandidate Candidate(IntPtr handle)
+    {
+        _ = ObserverNativeMethods.GetWindowThreadProcessId(handle, out var processId);
+        return new WindowCandidate(
+            handle,
+            processId,
+            IsApplicationWindow(handle),
+            TargetWindowNativeMethods.IsIconic(handle));
+    }
+
+    private static bool IsApplicationWindow(IntPtr handle)
+    {
+        if (!TargetWindowNativeMethods.IsWindowVisible(handle))
+        {
+            return false;
+        }
+        var candidate = TargetWindowNativeMethods.GetAncestor(handle, 3);
+        while (true)
+        {
+            var popup = TargetWindowNativeMethods.GetLastActivePopup(candidate);
+            if (popup == candidate)
+            {
+                break;
+            }
+            candidate = popup;
+            if (TargetWindowNativeMethods.IsWindowVisible(candidate))
+            {
+                break;
+            }
+        }
+        return candidate == handle;
+    }
+
+    private static uint ReadHostProcessId() =>
+        uint.TryParse(
+            Environment.GetEnvironmentVariable(HostProcessIdEnvironmentVariable),
+            out var processId)
+            ? processId
+            : 0;
+}
+
+file static class TargetWindowNativeMethods
+{
+    internal delegate bool EnumWindowsCallback(IntPtr hwnd, IntPtr parameter);
+
+    [DllImport("user32.dll")]
+    internal static extern bool EnumWindows(EnumWindowsCallback callback, IntPtr parameter);
+
+    [DllImport("user32.dll")]
     internal static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
-    internal static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+    internal static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr GetLastActivePopup(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr GetShellWindow();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetForegroundWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsIconic(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsWindowVisible(IntPtr hwnd);
 }

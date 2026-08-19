@@ -19,6 +19,7 @@ const {
   COMPUTER_USE_ACTION_EXECUTORS,
   createWindowsHostCuExecutor,
   default: computerUseActionsFeature,
+  protectComputerUseCapture,
 } = await import("./features/computer-use-actions");
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -97,4 +98,27 @@ test("a cancel received before the helper responds drops the result", async () =
   await tick();
 
   expect(postCuResult).not.toHaveBeenCalled();
+});
+
+test("excludes Vellum windows while the helper captures the screen", async () => {
+  const states = [false, true];
+  const windows = states.map((_, index) => ({
+    isContentProtected: () => states[index],
+    setContentProtection: (protectedState: boolean) => {
+      states[index] = protectedState;
+    },
+  }));
+  const helper = protectComputerUseCapture(
+    {
+      call: async () => {
+        expect(states).toEqual([true, true]);
+        return { screenshot: "jpeg" };
+      },
+    },
+    () => windows,
+  );
+
+  await helper.call("cu.perform", {});
+
+  expect(states).toEqual([false, true]);
 });

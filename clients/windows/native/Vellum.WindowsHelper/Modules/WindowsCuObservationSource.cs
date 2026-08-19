@@ -15,7 +15,7 @@ public sealed record ComputerUseCapture(
 
 public interface IComputerUseCaptureSource
 {
-    ComputerUseCapture Capture(CancellationToken cancellationToken);
+    ComputerUseCapture Capture(PixelRect? targetBounds, CancellationToken cancellationToken);
 }
 
 public sealed class WindowsCuObservationSource : ICuObservationSource
@@ -49,7 +49,7 @@ public sealed class WindowsCuObservationSource : ICuObservationSource
         cancellationToken.ThrowIfCancellationRequested();
         var observation = _observer.Observe(
             conversationId, stepNumber > 1 ? "diff" : "full", cancellationToken);
-        var capture = _capture.Capture(cancellationToken);
+        var capture = _capture.Capture(observation.TargetBounds, cancellationToken);
         var result = new Dictionary<string, object?>(StringComparer.Ordinal);
         Add(result, "axTree", observation.Tree);
         Add(result, "axDiff", observation.Diff);
@@ -129,10 +129,11 @@ public sealed class GdiComputerUseCaptureSource(ScreenCaptureService service)
     private const int MaxScreenshotWidth = 960;
     private const int MaxScreenshotHeight = 540;
 
-    public ComputerUseCapture Capture(CancellationToken cancellationToken)
+    public ComputerUseCapture Capture(
+        PixelRect? targetBounds, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var captured = service.CaptureDisplay(null);
+        var captured = service.CaptureDisplay(null, targetBounds);
         if (captured.PngBase64 is null || captured.Bounds is null ||
             captured.WidthPx is null || captured.HeightPx is null)
         {
@@ -142,13 +143,12 @@ public sealed class GdiComputerUseCaptureSource(ScreenCaptureService service)
         {
             var (jpeg, width, height) = ConvertToJpeg(
                 captured.PngBase64, captured.WidthPx.Value, captured.HeightPx.Value);
-            var scale = Math.Max(1, captured.ScalePercent ?? 100);
             return new ComputerUseCapture(
                 jpeg,
                 width,
                 height,
-                (int)Math.Round(captured.Bounds.Width * 100.0 / scale),
-                (int)Math.Round(captured.Bounds.Height * 100.0 / scale),
+                captured.Bounds.Width,
+                captured.Bounds.Height,
                 null);
         }
         catch (Exception ex) when (ex is ArgumentException or ExternalException or FormatException)
