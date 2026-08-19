@@ -594,7 +594,7 @@ describe("the watch session main relays", () => {
   });
 
   /**
-   * A publisher that predates the field, which the schema defaults. Absence is
+   * A publisher that omits the field, which the schema defaults. Absence is
    * the answer "no session", never a drawn indicator over a machine nobody is
    * watching.
    */
