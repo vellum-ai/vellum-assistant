@@ -1051,8 +1051,13 @@ function OverviewBento({
                         : "text-[var(--content-secondary)]"
                     }`}
                   >
+                    {/* The mark's height follows its width, so the full frame
+                        at card width runs past 250px and the card swallows
+                        the tiles below it. The compact frame holds the band
+                        near 110px without shrinking the labels. */}
                     <PersonalitySignature
                       values={signature}
+                      compact
                       className="h-auto w-full"
                     />
                   </span>

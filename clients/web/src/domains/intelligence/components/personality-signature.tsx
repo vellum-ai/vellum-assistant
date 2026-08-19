@@ -27,23 +27,49 @@ import {
 } from "../identity-actions/personality-axes";
 
 const W = 340;
-/**
- * The frame is taller than the mark strictly needs so the signature fills its
- * card rather than floating in the middle of it — the extra height goes to
- * capsule travel and to the gap between the poles, not to dead margin. The
- * label baselines sit the same distance from the top and bottom edges, so a
- * frame that ends flush with the card leaves an even gap at both.
- */
-const H = 226;
-/** The neutral line: where a trait sits when neither pole has been chosen. */
-const MID = 113;
 const PAD_X = 46;
-/** Vertical travel from the neutral line to a pole. */
-const SPAN = 58;
-/** Baselines for the first line of each pole label. */
-const TOP_Y = 15;
-const BOTTOM_Y = 216;
 const LINE_H = 11.5;
+
+interface SignatureFrame {
+  /** viewBox height; the mark's aspect ratio, since the width is fixed. */
+  h: number;
+  /** The neutral line: where a trait sits when neither pole has been chosen. */
+  mid: number;
+  /** Vertical travel from the neutral line to a pole. */
+  span: number;
+  /** Baseline for the first line of a pole label above the rule. */
+  topY: number;
+  /** Baseline for the last line of a pole label below it. */
+  bottomY: number;
+}
+
+/**
+ * The default frame is taller than the mark strictly needs so the signature
+ * fills its card rather than floating in the middle of it: the extra height
+ * goes to capsule travel and to the gap between the poles, not to dead margin.
+ * The label baselines sit the same distance from the top and bottom edges, so
+ * a frame that ends flush with the card leaves an even gap at both.
+ */
+const FULL_FRAME: SignatureFrame = {
+  h: 226,
+  mid: 113,
+  span: 58,
+  topY: 15,
+  bottomY: 216,
+};
+
+/**
+ * Half the height, for a card that gives the mark a band rather than a panel.
+ * Only the vertical metrics shrink: the labels keep their size, so what the
+ * band gives up is capsule travel and not legibility.
+ */
+const COMPACT_FRAME: SignatureFrame = {
+  h: 108,
+  mid: 52,
+  span: 18,
+  topY: 12,
+  bottomY: 96,
+};
 /** Inside this much of neutral a trait reads as unset, not as a lean. */
 const DEAD_ZONE = 5;
 /** Capsule width; also the diameter an unset trait collapses to. */
@@ -61,8 +87,8 @@ function axisValue(values: Record<string, number>, id: string): number {
   return Math.max(0, Math.min(100, n));
 }
 
-function yFor(value: number): number {
-  return MID - ((value - 50) / 50) * SPAN;
+function yFor(value: number, frame: SignatureFrame): number {
+  return frame.mid - ((value - 50) / 50) * frame.span;
 }
 
 /** "Baby Boomer" needs two lines at this size; single words never wrap. */
@@ -73,6 +99,7 @@ function poleLines(label: string): string[] {
 interface PoleLabelProps {
   x: number;
   label: string;
+  frame: SignatureFrame;
   /** Above the rule the label grows downward; below it, upward. */
   above: boolean;
   /** This is the pole the trait was pushed toward. */
@@ -87,13 +114,14 @@ interface PoleLabelProps {
 function PoleLabel({
   x,
   label,
+  frame,
   above,
   leaning,
   neutral,
   magnitude,
 }: PoleLabelProps) {
   const rows = poleLines(label);
-  const y = above ? TOP_Y : BOTTOM_Y - (rows.length - 1) * LINE_H;
+  const y = above ? frame.topY : frame.bottomY - (rows.length - 1) * LINE_H;
   const strong = leaning && !neutral;
   const opacity = neutral
     ? NEUTRAL_LABEL_OPACITY
@@ -121,15 +149,19 @@ function PoleLabel({
 
 interface PersonalitySignatureProps {
   values: Record<string, number>;
+  /** Draw the mark in the short band rather than the full panel. */
+  compact?: boolean;
   className?: string;
 }
 
 export function PersonalitySignature({
   values,
+  compact = false,
   className,
 }: PersonalitySignatureProps) {
   const { t } = useTranslation("intelligence");
   const reduce = useReducedMotion();
+  const frame = compact ? COMPACT_FRAME : FULL_FRAME;
 
   const axes = PERSONALITY_AXES.map((axis) => {
     const value = axisValue(values, axis.id);
@@ -164,7 +196,7 @@ export function PersonalitySignature({
     return () => controls.stop();
   }, [reduce]);
 
-  const ys = axes.map((a) => yFor(50 + (a.value - 50) * grown));
+  const ys = axes.map((a) => yFor(50 + (a.value - 50) * grown, frame));
 
   const ariaLabel = axes
     .map(({ left, right, lean, neutral, magnitude }) => {
@@ -180,16 +212,16 @@ export function PersonalitySignature({
 
   return (
     <svg
-      viewBox={`0 0 ${W} ${H}`}
+      viewBox={`0 0 ${W} ${frame.h}`}
       role="img"
       aria-label={t("personalitySignature.ariaLabel", { summary: ariaLabel })}
       className={className}
     >
       <line
         x1={PAD_X - 14}
-        y1={MID}
+        y1={frame.mid}
         x2={W - PAD_X + 14}
-        y2={MID}
+        y2={frame.mid}
         stroke="currentColor"
         strokeOpacity={0.3}
         strokeWidth={1}
@@ -205,9 +237,9 @@ export function PersonalitySignature({
         <rect
           key={axis.id}
           x={XS[i]! - CAP_W / 2}
-          y={Math.min(MID, ys[i]!) - CAP_W / 2}
+          y={Math.min(frame.mid, ys[i]!) - CAP_W / 2}
           width={CAP_W}
-          height={Math.abs(ys[i]! - MID) + CAP_W}
+          height={Math.abs(ys[i]! - frame.mid) + CAP_W}
           rx={CAP_W / 2}
           fill="var(--card-accent)"
         />
@@ -218,6 +250,7 @@ export function PersonalitySignature({
           <PoleLabel
             x={XS[i]!}
             label={right}
+            frame={frame}
             above
             leaning={lean > 0}
             neutral={neutral}
@@ -226,6 +259,7 @@ export function PersonalitySignature({
           <PoleLabel
             x={XS[i]!}
             label={left}
+            frame={frame}
             above={false}
             leaning={lean < 0}
             neutral={neutral}
