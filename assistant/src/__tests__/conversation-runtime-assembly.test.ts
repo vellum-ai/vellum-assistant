@@ -1524,9 +1524,6 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     seedNowScratchpad("Current focus: fix the bug");
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
       conversationId: FALLBACK_CONVERSATION_ID,
-      // NOW.md is behind the personal-memory gate, so name the actor these
-      // ordering assertions are about. Left unset the injector substitutes
-      // FALLBACK_TURN_TRUST, whose whole contract is to be low-trust.
       trust: GUARDIAN_TRUST_FIXTURE,
     });
 
@@ -1542,9 +1539,6 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     seedNowScratchpad("scratchpad notes");
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
       conversationId: FALLBACK_CONVERSATION_ID,
-      // NOW.md is behind the personal-memory gate, so name the actor these
-      // ordering assertions are about. Left unset the injector substitutes
-      // FALLBACK_TURN_TRUST, whose whole contract is to be low-trust.
       trust: GUARDIAN_TRUST_FIXTURE,
     });
 
@@ -1561,9 +1555,6 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   test("does not inject when the NOW.md file is absent", async () => {
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
       conversationId: FALLBACK_CONVERSATION_ID,
-      // NOW.md is behind the personal-memory gate, so name the actor these
-      // ordering assertions are about. Left unset the injector substitutes
-      // FALLBACK_TURN_TRUST, whose whole contract is to be low-trust.
       trust: GUARDIAN_TRUST_FIXTURE,
     });
 
@@ -1575,9 +1566,6 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     seedNowScratchpad("Current focus: fix the bug");
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
       conversationId: FALLBACK_CONVERSATION_ID,
-      // NOW.md is behind the personal-memory gate, so name the actor these
-      // ordering assertions are about. Left unset the injector substitutes
-      // FALLBACK_TURN_TRUST, whose whole contract is to be low-trust.
       trust: GUARDIAN_TRUST_FIXTURE,
       mode: "minimal",
     });
@@ -3221,7 +3209,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     // should be filtered, and beta (no longer "in context") should appear.
     const { messages: rebuiltResult } = await applyRuntimeInjections(
       postCompactionMessages,
-      { conversationId: FALLBACK_CONVERSATION_ID },
+      makePkbOptions(),
     );
     const rebuiltTexts = extractTexts(rebuiltResult);
     const rebuiltReminder = rebuiltTexts.find(
