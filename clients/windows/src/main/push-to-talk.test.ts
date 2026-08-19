@@ -78,9 +78,13 @@ test("restores the main window binding after a helper restart", async () => {
 
   helper.notificationListener!({ state: "down" });
   helper.stateListener!({ status: "backing-off" });
-  expect(mainSender.send).toHaveBeenLastCalledWith(
+  expect(mainSender.send).toHaveBeenCalledWith(
     "vellum:helper:hotkey:event",
     { kind: "pushToTalk", state: "up" },
+  );
+  expect(mainSender.send).toHaveBeenLastCalledWith(
+    "vellum:helper:hotkey:registration",
+    false,
   );
 
   helper.stateListener!({ status: "running" });
@@ -90,10 +94,28 @@ test("restores the main window binding after a helper restart", async () => {
     method: "hotkey.setPushToTalk",
     params: { activator },
   });
+  expect(mainSender.send).toHaveBeenLastCalledWith(
+    "vellum:helper:hotkey:registration",
+    true,
+  );
 
   expect(await handler!([null], { sender: popoutSender })).toEqual({
     ok: false,
     reason: "Main window owns push-to-talk",
   });
   expect(helper.calls).toHaveLength(2);
+
+  helper.call = mock((method: string, params: unknown) => {
+    helper.calls.push({ method, params });
+    return Promise.resolve({ ok: false, reason: "hook unavailable" });
+  });
+
+  helper.stateListener!({ status: "running" });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  expect(mainSender.send).toHaveBeenLastCalledWith(
+    "vellum:helper:hotkey:registration",
+    false,
+  );
 });

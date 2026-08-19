@@ -88,3 +88,10 @@ export function subscribeToHotkeyEvents(
   }
   return window.vellum!.helper!.hotkey!.onEvent(callback);
 }
+
+export function subscribeToPushToTalkRegistration(
+  callback: (active: boolean) => void,
+): () => void {
+  const subscribe = window.vellum?.helper?.hotkey?.onRegistrationChange;
+  return subscribe ? subscribe(callback) : () => undefined;
+}

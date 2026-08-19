@@ -16,7 +16,9 @@ import {
   supportsConfigurablePushToTalk,
   supportsFnPushToTalk,
   supportsNativePushToTalk,
+  subscribeToPushToTalkRegistration,
 } from "@/runtime/hotkey";
+import { isPopoutWindow } from "@/runtime/popout-window";
 
 function desiredActivator(fnAvailable: boolean): PTTActivator {
   const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
@@ -34,6 +36,10 @@ export function useNativePushToTalkRegistration(): void {
     }
 
     const configurable = supportsConfigurablePushToTalk();
+    if (configurable && isPopoutWindow(window.location.search)) {
+      setConfigurablePushToTalkActive(true);
+      return () => setConfigurablePushToTalkActive(false);
+    }
     const fnAvailable = supportsFnPushToTalk();
     let disposed = false;
     let desired = desiredActivator(fnAvailable);
@@ -88,11 +94,15 @@ export function useNativePushToTalkRegistration(): void {
       LS_PTT_ACTIVATION_KEY,
       updateDesiredRegistration,
     );
+    const unsubscribeRegistration = configurable
+      ? subscribeToPushToTalkRegistration(setConfigurablePushToTalkActive)
+      : () => undefined;
 
     return () => {
       disposed = true;
       setConfigurablePushToTalkActive(false);
       unsubscribeSetting();
+      unsubscribeRegistration();
       void (configurable
         ? setNativePushToTalkActivator(null)
         : setFnPushToTalkEnabled(false));

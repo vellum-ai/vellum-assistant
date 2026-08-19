@@ -150,6 +150,7 @@ export interface VellumBridge {
       setPushToTalk?(
         activator: PushToTalkActivator | null,
       ): Promise<PushToTalkRegistrationResult>;
+      onRegistrationChange?(callback: (active: boolean) => void): () => void;
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
     };
     dictation: {

@@ -7,6 +7,7 @@ import type {
 } from "@vellumai/electron-desktop/capability-registry";
 import {
   HELPER_HOTKEY_EVENT,
+  HELPER_HOTKEY_REGISTRATION_EVENT,
   HELPER_HOTKEY_SET_PTT,
   type HotkeyEvent,
   type PushToTalkActivator,
@@ -57,6 +58,15 @@ const sendState = (state: HotkeyEvent["state"]): void => {
   pressed = state === "down";
 };
 
+const sendRegistrationState = (active: boolean): void => {
+  if (!owner || owner.isDestroyed()) {
+    owner = null;
+    pressed = false;
+    return;
+  }
+  owner.send(HELPER_HOTKEY_REGISTRATION_EVENT, active);
+};
+
 const feature: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "push-to-talk",
   install: () => {
@@ -65,8 +75,11 @@ const feature: CapabilityModule<DesktopCapabilityRegistry> = {
       sendState(state);
     });
     helper.onState((state) => {
-      if (state.status !== "running" && pressed) {
-        sendState("up");
+      if (state.status !== "running") {
+        if (pressed) {
+          sendState("up");
+        }
+        sendRegistrationState(false);
       }
       if (
         state.status === "running" &&
@@ -76,7 +89,12 @@ const feature: CapabilityModule<DesktopCapabilityRegistry> = {
       ) {
         void helper
           .call("hotkey.setPushToTalk", { activator: registeredActivator })
+          .then((value) => {
+            const result = resultSchema.parse(value);
+            sendRegistrationState(result.ok && result.enabled);
+          })
           .catch((error: unknown) => {
+            sendRegistrationState(false);
             log.warn("[push-to-talk] failed to restore binding:", error);
           });
       }

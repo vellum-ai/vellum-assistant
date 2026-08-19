@@ -6,6 +6,7 @@ import type {
 } from "@vellumai/electron-desktop/capability-registry";
 import {
   HELPER_HOTKEY_EVENT,
+  HELPER_HOTKEY_REGISTRATION_EVENT,
   HELPER_HOTKEY_SET_PTT,
   type HotkeyEvent,
   type PushToTalkRegistrationResult,
@@ -22,6 +23,14 @@ const feature: CapabilityModule<BridgeCapabilityRegistry<VellumBridge>> = {
             HELPER_HOTKEY_SET_PTT,
             activator,
           ) as Promise<PushToTalkRegistrationResult>,
+        onRegistrationChange: (callback) => {
+          const handler = (_event: IpcRendererEvent, active: boolean) => {
+            callback(active);
+          };
+          ipcRenderer.on(HELPER_HOTKEY_REGISTRATION_EVENT, handler);
+          return () =>
+            ipcRenderer.off(HELPER_HOTKEY_REGISTRATION_EVENT, handler);
+        },
         onEvent: (callback) => {
           const handler = (_event: IpcRendererEvent, hotkey: HotkeyEvent) => {
             callback(hotkey);
