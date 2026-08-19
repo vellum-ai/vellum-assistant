@@ -48,18 +48,16 @@ interface BaseTransportMetadata {
 }
 
 /**
- * Transport metadata for interfaces that support the full desktop host-proxy
- * set (see `HostProxyInterfaceId` / `supportsHostProxy`). Carries the host
+ * Transport metadata for interfaces that support desktop host-proxy tools
+ * (see `HostProxyInterfaceId` / `supportsHostProxy`). Carries the host
  * environment fields the client reports so the `<workspace>` block renders
  * the user's actual machine rather than a containerized daemon's own OS.
  *
- * Today this variant is populated only by the macOS client, but the shape
- * is capability-keyed (not interface-name-keyed) so future host-capable
- * clients (e.g. a native Linux or Windows desktop) get the same treatment
- * automatically when added to `HostProxyInterfaceId`.
+ * The shape is capability-keyed so each native desktop client gets the same
+ * host-environment treatment through `HostProxyInterfaceId`.
  */
 export interface HostProxyTransportMetadata extends BaseTransportMetadata {
-  /** Interface identifier — restricted to interfaces that support host proxies. */
+  /** Interface identifier restricted to interfaces that support host proxies. */
   interfaceId: HostProxyInterfaceId;
   /** Home directory of the user on the host machine (e.g. `NSHomeDirectory()`). */
   hostHomeDir?: string;

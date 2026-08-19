@@ -24,10 +24,16 @@ import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
  * Subset of the pending-interactions response returned for a single
  * conversation. The full response also carries the cross-conversation
  * `interactions` list, which only the bulk reader below consumes.
+ *
+ * `pendingQuestion` is three-valued and every value is load-bearing: an object
+ * is the outstanding prompt, `null` is the registry positively reporting none,
+ * and `undefined` means the assistant predates the field and cannot answer the
+ * question at all. Only the first two authorize the caller to raise or retire
+ * a card; see `applyReportedQuestion` in `use-conversation-history`.
  */
-type ConversationPendingInteractions = Pick<
+export type ConversationPendingInteractions = Pick<
   PendinginteractionsGetResponse,
-  "pendingConfirmation" | "pendingSecret"
+  "pendingConfirmation" | "pendingSecret" | "pendingQuestion"
 >;
 
 export async function getPendingInteractions(
@@ -87,7 +93,8 @@ export async function listConversationIdsWithPendingInteractions(
 }
 
 export type SubmitSecretResponseResult =
-  { ok: true } | { ok: false; status: number; error: string };
+  | { ok: true }
+  | { ok: false; status: number; error: string };
 
 export async function submitSecretResponse(
   assistantId: string,
