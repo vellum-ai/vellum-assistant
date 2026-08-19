@@ -195,6 +195,16 @@ function findTouch(touches: TouchList, touchId: number): Touch | null {
  * tablet lifted out of a dock, switches to a coarse primary pointer mid-session
  * and must get the gesture then, without waiting for this layout to remount.
  *
+ * Touches inside a sandboxed iframe do not reach this listener, so an inline
+ * app or dynamic page in the thread is a dead spot for the gesture. Recovering
+ * them would mean an invisible layer over the iframe, which for a gesture that
+ * spans the whole screen would mean covering the app outright and blocking
+ * every touch it was rendered for. `mobile-app-overlay` makes the same call for
+ * its own swipe and scopes that gesture to the surrounding chrome;
+ * `EdgeSwipeHitZone` recovers only a 20px strip for the same reason. The
+ * keyboard stays reachable from everywhere else on the screen, and the composer
+ * that raised it is never inside an app frame.
+ *
  * Passive listeners never call `preventDefault()`, so the thread keeps
  * scrolling natively under the gesture. That is deliberate: the swipe rides
  * along with the scroll exactly as `.onDrag` does on a native list.
