@@ -678,6 +678,14 @@ describe("host_bash — spawn error handling", () => {
 // ---------------------------------------------------------------------------
 
 describe("host_bash — proxy delegation", () => {
+  // Under tmpdir so the live-workspace guard accepts it as a workspace.
+  const FAKE_INSTANCE_WS = join(
+    tmpdir(),
+    "vellum-instance",
+    ".vellum",
+    "workspace",
+  );
+
   const ROUTING_ENV_KEYS = [
     "VELLUM_WORKSPACE_DIR",
     "VELLUM_DATA_DIR",
@@ -850,6 +858,9 @@ describe("host_bash — proxy delegation", () => {
     for (const key of ROUTING_ENV_KEYS) {
       delete process.env[key];
     }
+    // With VELLUM_WORKSPACE_DIR unset, loadConfig resolves the real ~/.vellum
+    // fallback (read-only here) — bypass the live-workspace guard for it.
+    process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE = "1";
 
     try {
       const proxyResult: ToolExecutionResult = {
@@ -870,14 +881,15 @@ describe("host_bash — proxy delegation", () => {
         __REVEAL_NONCE: expect.any(String),
       });
     } finally {
+      delete process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE;
       restoreEnv(envSnapshot);
     }
   });
 
   test("propagates daemon routing env vars to proxy for nested assistant CLI calls", async () => {
     const envSnapshot = captureEnv(ROUTING_ENV_KEYS);
-    process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-instance/.vellum/workspace";
-    process.env.VELLUM_DATA_DIR = "/tmp/vellum-instance/.vellum/workspace/data";
+    process.env.VELLUM_WORKSPACE_DIR = FAKE_INSTANCE_WS;
+    process.env.VELLUM_DATA_DIR = join(FAKE_INSTANCE_WS, "data");
     process.env.VELLUM_ENVIRONMENT = "local";
     process.env.INTERNAL_GATEWAY_BASE_URL = "http://127.0.0.1:7830";
 
@@ -896,8 +908,8 @@ describe("host_bash — proxy delegation", () => {
       expect(result).toBe(proxyResult);
       expect(calls.length).toBe(1);
       expect(calls[0].input.env).toEqual({
-        VELLUM_WORKSPACE_DIR: "/tmp/vellum-instance/.vellum/workspace",
-        VELLUM_DATA_DIR: "/tmp/vellum-instance/.vellum/workspace/data",
+        VELLUM_WORKSPACE_DIR: FAKE_INSTANCE_WS,
+        VELLUM_DATA_DIR: join(FAKE_INSTANCE_WS, "data"),
         VELLUM_ENVIRONMENT: "local",
         INTERNAL_GATEWAY_BASE_URL: "http://127.0.0.1:7830",
         __CONVERSATION_ID: "test-conversation",

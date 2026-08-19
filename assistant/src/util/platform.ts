@@ -1,6 +1,6 @@
-import { chmodSync, existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { chmodSync, existsSync, mkdirSync, realpathSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, sep } from "node:path";
 
 import { SEEDS } from "@vellumai/environments";
 
@@ -334,19 +334,98 @@ export function getProcPidPath(name: string): string {
   return join(getProcDir(name), `${name}.pid`);
 }
 
+// --- Live-workspace guard for test processes --------------------------------
+//
+// A test process must never resolve the workspace to a real (non-temp)
+// directory: production code exercised by a test would then read — and
+// destructively write — a live workspace DB. The tmpdir redirection normally
+// comes from the bunfig.toml test preload, but bun only loads bunfig from the
+// cwd: `bun test` run from anywhere else (e.g. a source checkout inside a
+// deployed container's workspace) skips the preload entirely and inherits the
+// ambient VELLUM_WORKSPACE_DIR. That exact gap let a stray `bun test src`
+// execute clearAll() against a production DB (Aug 2026 incident), so the
+// containment assertion lives here, in production code, where it fires no
+// matter how the test process was launched.
+//
+// Containment logic mirrors src/__tests__/assert-not-live-db.ts, which cannot
+// be imported here (production code must not depend on test machinery).
+
+/** Lazily computed: is this process a `bun test` run? */
+let isTestProcess: boolean | undefined;
+
+const validatedTestWorkspaces = new Set<string>();
+
+function canonicalizeForWorkspaceGuard(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    // Path doesn't exist yet — canonicalize the parent instead so symlinked
+    // temp roots (e.g. /tmp → /private/tmp on macOS) still compare correctly.
+    // Containment of the parent implies containment of the child.
+    try {
+      return realpathSync(dirname(p));
+    } catch {
+      return p;
+    }
+  }
+}
+
+function assertTestWorkspaceIsEphemeral(dir: string): void {
+  isTestProcess ??=
+    process.env.NODE_ENV === "test" ||
+    // `bun test` sets NODE_ENV=test only when unset; Bun.main being the test
+    // file itself is the backstop signal that survives a preset NODE_ENV.
+    (typeof Bun !== "undefined" &&
+      /\.(test|spec)\.[cm]?[jt]sx?$/.test(Bun.main));
+  if (!isTestProcess || validatedTestWorkspaces.has(dir)) {
+    return;
+  }
+  // Escape hatch for the rare intentional run against a real workspace.
+  // Deliberately NOT added to tools/terminal/safe-env.ts: a daemon-level
+  // opt-out must not propagate into agent-spawned shells and disarm the
+  // guard for tests run from there.
+  if (process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE === "1") {
+    return;
+  }
+  const rawTmp = tmpdir();
+  const tmpRoot = canonicalizeForWorkspaceGuard(rawTmp);
+  const resolved = canonicalizeForWorkspaceGuard(dir);
+  const within = (p: string, root: string) =>
+    p === root || p.startsWith(root + sep);
+  // Raw-prefix check as fallback: a not-yet-created path several levels below
+  // tmpdir can't be realpath'd, but a literal tmpdir prefix is proof enough —
+  // this guard defends against accidents, not adversarial symlinks.
+  if (!within(resolved, tmpRoot) && !within(dir, rawTmp)) {
+    throw new Error(
+      [
+        `Refusing to use workspace ${dir} (resolves to ${resolved}) in a test process: it is not under the temp directory (${tmpRoot}).`,
+        "",
+        "Tests must only touch an ephemeral workspace — a real one would expose",
+        "a live assistant DB to destructive test fixtures. This usually means",
+        "`bun test` ran from a cwd without the repo bunfig.toml, so the test",
+        "preload that redirects VELLUM_WORKSPACE_DIR to a tmpdir never loaded.",
+        "Run tests from the assistant package root, or set",
+        "VELLUM_TEST_ALLOW_REAL_WORKSPACE=1 to bypass deliberately.",
+      ].join("\n"),
+    );
+  }
+  validatedTestWorkspaces.add(dir);
+}
+
 /**
  * Returns the workspace root for user-facing state.
  *
  * When the VELLUM_WORKSPACE_DIR env var is set, returns that value (used in
  * containerized deployments where the workspace is a separate volume).
  * Otherwise falls back to ~/.vellum/workspace.
+ *
+ * In test processes the resolved directory must live under `os.tmpdir()`
+ * (see the live-workspace guard above); anything else throws.
  */
 export function getWorkspaceDir(): string {
-  const override = getWorkspaceDirOverride();
-  if (override) {
-    return override;
-  }
-  return join(VELLUM_ROOT, "workspace");
+  const dir = getWorkspaceDirOverride() ?? join(VELLUM_ROOT, "workspace");
+  assertTestWorkspaceIsEphemeral(dir);
+  return dir;
 }
 
 /**
