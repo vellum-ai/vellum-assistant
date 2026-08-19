@@ -67,7 +67,10 @@ import {
 import type { AssistantStateKind } from "@/domains/chat/types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { PendingQuestionState } from "@/types/interaction-ui-types";
-import { getPendingInteractions } from "@/domains/chat/api/interactions";
+import {
+  getPendingInteractions,
+  type ConversationPendingInteractions,
+} from "@/domains/chat/api/interactions";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces";
 import {
   conversationHistoryQueryKey,
@@ -454,49 +457,60 @@ export function useConversationHistory({
     // anything moved underneath it while the request was in flight.
     const questionBeforeFetch = useInteractionStore.getState().pendingQuestion;
     void (async () => {
+      // A read that never landed carries no opinion, exactly like an assistant
+      // that predates `pendingQuestion`, so it leaves `reported` undefined and
+      // the question falls back to the history marker. Restoring from the
+      // marker is the whole recovery path on an older assistant, so letting a
+      // transient 5xx swallow it would hide a prompt the turn is still blocked
+      // on. Everything below the question is skipped on failure, which is what
+      // keeps the attention key untouched.
+      let interactions: ConversationPendingInteractions | null = null;
       try {
-        const interactions = await getPendingInteractions(
+        interactions = await getPendingInteractions(
           assistantId,
           requestedConversationId,
         );
-        if (
-          useConversationStore.getState().activeConversationId !==
-          requestedConversationId
-        ) {
-          return;
-        }
-        applyReportedQuestion({
-          reported: interactions.pendingQuestion,
-          before: questionBeforeFetch,
-          messages: pagination.messages,
-        });
-        const parsed_secret = interactions.pendingSecret
-          ? parsePendingSecretState(
-              interactions.pendingSecret as Record<string, unknown>,
-            )
-          : null;
-        if (parsed_secret) {
-          useInteractionStore.getState().showSecret(parsed_secret);
-        }
-        if (
-          interactions.pendingConfirmation &&
-          !useInteractionStore.getState().pendingConfirmation
-        ) {
-          useInteractionStore
-            .getState()
-            .showConfirmation(
-              parsePendingConfirmationData(
-                interactions.pendingConfirmation as Record<string, unknown>,
-              ),
-            );
-        }
-        if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
-          useConversationStore
-            .getState()
-            .removeAttentionConversationId(requestedConversationId);
-        }
       } catch {
-        // Keep attention key on failure.
+        interactions = null;
+      }
+      if (
+        useConversationStore.getState().activeConversationId !==
+        requestedConversationId
+      ) {
+        return;
+      }
+      applyReportedQuestion({
+        reported: interactions?.pendingQuestion,
+        before: questionBeforeFetch,
+        messages: pagination.messages,
+      });
+      if (!interactions) {
+        return;
+      }
+      const parsed_secret = interactions.pendingSecret
+        ? parsePendingSecretState(
+            interactions.pendingSecret as Record<string, unknown>,
+          )
+        : null;
+      if (parsed_secret) {
+        useInteractionStore.getState().showSecret(parsed_secret);
+      }
+      if (
+        interactions.pendingConfirmation &&
+        !useInteractionStore.getState().pendingConfirmation
+      ) {
+        useInteractionStore
+          .getState()
+          .showConfirmation(
+            parsePendingConfirmationData(
+              interactions.pendingConfirmation as Record<string, unknown>,
+            ),
+          );
+      }
+      if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
+        useConversationStore
+          .getState()
+          .removeAttentionConversationId(requestedConversationId);
       }
     })();
     // `pagination.*` other than `dataUpdatedAt` intentionally excluded: they all

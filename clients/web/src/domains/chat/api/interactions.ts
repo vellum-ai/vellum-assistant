@@ -31,7 +31,7 @@ import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
  * question at all. Only the first two authorize the caller to raise or retire
  * a card; see `applyReportedQuestion` in `use-conversation-history`.
  */
-type ConversationPendingInteractions = Pick<
+export type ConversationPendingInteractions = Pick<
   PendinginteractionsGetResponse,
   "pendingConfirmation" | "pendingSecret" | "pendingQuestion"
 >;
@@ -93,7 +93,8 @@ export async function listConversationIdsWithPendingInteractions(
 }
 
 export type SubmitSecretResponseResult =
-  { ok: true } | { ok: false; status: number; error: string };
+  | { ok: true }
+  | { ok: false; status: number; error: string };
 
 export async function submitSecretResponse(
   assistantId: string,

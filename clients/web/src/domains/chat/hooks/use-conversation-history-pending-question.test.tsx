@@ -93,11 +93,17 @@ let reportedInteractions: Record<string, unknown> = {};
 let gate: Promise<void> | null = null;
 let openGate: (() => void) | null = null;
 
+/** When set, the read rejects instead of answering (a 5xx or a dropped network). */
+let readFailure: Error | null = null;
+
 mock.module("@/domains/chat/api/interactions", () => ({
   ...realInteractionsModule,
   getPendingInteractions: async () => {
     if (gate) {
       await gate;
+    }
+    if (readFailure) {
+      throw readFailure;
     }
     return reportedInteractions;
   },
@@ -131,6 +137,7 @@ beforeEach(() => {
   reportedInteractions = {};
   gate = null;
   openGate = null;
+  readFailure = null;
   useInteractionStore.getState().resetAll();
   useConversationStore.setState({ activeConversationId: "conv-A" });
 });
@@ -210,6 +217,44 @@ describe("ask_question restore on a committed snapshot", () => {
         "req-1",
       );
     });
+  });
+
+  test("still restores from the marker when the read fails", async () => {
+    // GIVEN a snapshot carrying a live prompt's marker and a registry read that
+    // rejects (a transient 5xx, or the network dropping). `getPendingInteractions`
+    // throws on both.
+    readFailure = new Error("getPendingInteractions failed: 503");
+
+    // WHEN the snapshot commits
+    renderHistory();
+
+    // THEN the card is still restored. A failed read carries no opinion, and on
+    // an assistant that predates the field the marker is the only recovery path
+    // there is, so swallowing it would hide a prompt the turn is blocked on.
+    await waitFor(() => {
+      expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
+        "req-1",
+      );
+    });
+  });
+
+  test("does not retire a card when the read fails", async () => {
+    // GIVEN a card on screen for a prompt the snapshot no longer carries, and a
+    // failing read
+    currentMessages = [];
+    useInteractionStore
+      .getState()
+      .showQuestion({ requestId: "req-live", entries: ENTRIES });
+    readFailure = new Error("network down");
+
+    // WHEN the snapshot commits
+    renderHistory();
+
+    // THEN the card stays: only a registry that answered may retire one
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
+      "req-live",
+    );
   });
 
   test("leaves a prompt that arrived while the read was in flight", async () => {
