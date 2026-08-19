@@ -113,7 +113,7 @@ describe("usePushToTalk", () => {
       helper: {
         hotkey: {
           setPushToTalk: async () => ({ ok: true, enabled: true }),
-          onEvent: (callback) => {
+          onEvent: (callback: (event: HotkeyEvent) => void) => {
             listener = callback;
             return () => {
               listener = null;
