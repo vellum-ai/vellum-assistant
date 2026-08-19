@@ -251,12 +251,13 @@ export function serializeConversationSummary(params: {
  * for the whole set rather than once per row, so answering a bulk placement
  * costs a fixed number of queries plus one row read each.
  *
- * Ids naming no conversation are dropped, as are the legacy `private` rows,
- * for the reason given on {@link buildConversationDetailResponse}: a row no
- * listing will ever show must not reach a client through a write response
- * either. A caller cannot tell those two cases apart from the result, which
- * is deliberate. The response says where rows are now, and a row that is not
- * in it is one this answer says nothing about.
+ * Ids naming no conversation are dropped, as are the legacy `private` rows:
+ * every listing hides those by type (see `standardListingVisibilitySql`) and
+ * migration cleanup deletes them, while the wire type collapses the value to
+ * `standard`, so serving one would let a client holding a stale id resurrect
+ * a row it can never see listed. A caller cannot tell the two cases apart
+ * from the result, which is deliberate. The response says where rows are now,
+ * and a row that is not in it is one this answer says nothing about.
  */
 export function buildConversationSummaries(
   conversationIds: readonly string[],
@@ -290,36 +291,18 @@ export function buildConversationSummaries(
 
 /**
  * Build a full conversation detail response from a conversation ID.
- * Returns null if the conversation doesn't exist, or if it is a legacy
- * `private` row: every listing hides those by type (see
- * `standardListingVisibilitySql`) and migration cleanup deletes them, and the
- * wire type collapses the value to `standard`, so serving one by id would let
- * a client that only holds a stale id (a persisted last-viewed conversation)
- * resurrect a row it can never see listed.
+ *
+ * The one-row shape of {@link buildConversationSummaries}, and it delegates
+ * rather than repeating the hydration: a summary field or a visibility rule
+ * added to one path has to reach the other, and two copies of the pipeline
+ * are how they stop agreeing.
+ *
+ * Returns null when the conversation does not exist, and for the same reason
+ * when it is a legacy `private` row.
  */
 export function buildConversationDetailResponse(
   conversationId: string,
 ): { conversation: ReturnType<typeof serializeConversationSummary> } | null {
-  const conversation = getConversation(conversationId);
-  if (!conversation || conversation.conversationType === "private") {
-    return null;
-  }
-
-  const bindings = getBindingsForConversations([conversation.id]);
-  const attentionStates = getAttentionStateByConversationIds([conversation.id]);
-  const displayMeta = getDisplayMetaForConversations([conversation.id]);
-  const parentCache = new Map<string, ConversationRow | null>();
-
-  return {
-    conversation: serializeConversationSummary({
-      conversation,
-      binding: bindings.get(conversation.id),
-      attentionState: attentionStates.get(conversation.id),
-      displayMeta: displayMeta.get(conversation.id),
-      parentCache,
-      // Checks in-memory flag first (hot path), falls back to the
-      // persisted `processing_started_at` column for cold conversations.
-      isProcessing: isConversationProcessing(conversation.id),
-    }),
-  };
+  const [conversation] = buildConversationSummaries([conversationId]);
+  return conversation ? { conversation } : null;
 }
