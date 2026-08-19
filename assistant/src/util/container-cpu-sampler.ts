@@ -193,41 +193,46 @@ export function getCachedContainerCpuPercentOrNull(): number | null {
 }
 
 /**
- * Duration-weighted mean of per-tick percents. Each tick's percent covers
- * the wall time its delta spanned, so a delayed tick (covering more time)
- * must weigh proportionally more than an on-schedule one; an equal-weight
- * mean would let the shorter interval skew the reading.
+ * Duration-weighted mean of per-tick percents over the window starting at
+ * `windowStartMs`. Each tick's percent covers the wall time its delta
+ * spanned (ending at `at`), so a delayed tick must weigh proportionally
+ * more than an on-schedule one, and only the part of a tick's interval
+ * that overlaps the window may contribute: a long delayed tick ending just
+ * inside the window would otherwise import load that predates it.
  */
 export function computeDurationWeightedMeanPercent(
-  samples: readonly { percent: number; elapsedMs: number }[],
+  samples: readonly { at: number; percent: number; elapsedMs: number }[],
+  windowStartMs: number,
 ): number | null {
   let weightedSum = 0;
-  let totalElapsedMs = 0;
+  let totalOverlapMs = 0;
   for (const sample of samples) {
-    if (sample.elapsedMs > 0) {
-      weightedSum += sample.percent * sample.elapsedMs;
-      totalElapsedMs += sample.elapsedMs;
+    const intervalStart = sample.at - sample.elapsedMs;
+    const overlapMs = sample.at - Math.max(intervalStart, windowStartMs);
+    if (overlapMs > 0) {
+      weightedSum += sample.percent * overlapMs;
+      totalOverlapMs += overlapMs;
     }
   }
-  if (totalElapsedMs <= 0) {
+  if (totalOverlapMs <= 0) {
     return null;
   }
-  return Math.round((weightedSum / totalElapsedMs) * 100) / 100;
+  return Math.round((weightedSum / totalOverlapMs) * 100) / 100;
 }
 
 /**
  * Duration-weighted mean of the per-tick percents recorded within the
  * trailing `windowMs`, rounded to 2 decimal places, or null when no tick
- * landed in the window. Coarser-cadence consumers use this instead of the
+ * overlaps the window. Coarser-cadence consumers use this instead of the
  * instantaneous cache so a short spike aligned with their cadence cannot
  * read as sustained load.
  */
 export function getAverageContainerCpuPercentOrNull(
   windowMs: number,
 ): number | null {
-  const cutoff = Date.now() - windowMs;
   return computeDurationWeightedMeanPercent(
-    _recentSamples.filter((sample) => sample.at >= cutoff),
+    _recentSamples,
+    Date.now() - windowMs,
   );
 }
 

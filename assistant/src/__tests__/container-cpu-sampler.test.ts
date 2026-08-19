@@ -62,24 +62,64 @@ describe("computeDurationWeightedMeanPercent", () => {
     // 25s at 80% then 5s at 100% is 83.33% of the half minute, not the 90%
     // an equal-weight mean would report.
     expect(
-      computeDurationWeightedMeanPercent([
-        { percent: 80, elapsedMs: 25_000 },
-        { percent: 100, elapsedMs: 5_000 },
-      ]),
+      computeDurationWeightedMeanPercent(
+        [
+          { at: 25_000, percent: 80, elapsedMs: 25_000 },
+          { at: 30_000, percent: 100, elapsedMs: 5_000 },
+        ],
+        0,
+      ),
     ).toBe(83.33);
     // Equal durations degrade to the plain mean.
     expect(
-      computeDurationWeightedMeanPercent([
-        { percent: 40, elapsedMs: 5_000 },
-        { percent: 60, elapsedMs: 5_000 },
-      ]),
+      computeDurationWeightedMeanPercent(
+        [
+          { at: 5_000, percent: 40, elapsedMs: 5_000 },
+          { at: 10_000, percent: 60, elapsedMs: 5_000 },
+        ],
+        0,
+      ),
     ).toBe(50);
   });
 
-  test("returns null without any positive-duration samples", () => {
-    expect(computeDurationWeightedMeanPercent([])).toBeNull();
+  test("clips a delayed tick's contribution to its overlap with the window", () => {
+    // A 25s CPU-bound stall at 100% ends 1s into the window; only that 1s
+    // may count. With 29s of idle at 10% after it, the window reads 13%,
+    // not the 52.8% an unclipped duration weighting would report.
     expect(
-      computeDurationWeightedMeanPercent([{ percent: 50, elapsedMs: 0 }]),
+      computeDurationWeightedMeanPercent(
+        [
+          { at: 1_000, percent: 100, elapsedMs: 25_000 },
+          { at: 30_000, percent: 10, elapsedMs: 29_000 },
+        ],
+        0,
+      ),
+    ).toBe(13);
+    // A tick entirely before the window contributes nothing.
+    expect(
+      computeDurationWeightedMeanPercent(
+        [
+          { at: -1_000, percent: 100, elapsedMs: 5_000 },
+          { at: 10_000, percent: 20, elapsedMs: 10_000 },
+        ],
+        0,
+      ),
+    ).toBe(20);
+  });
+
+  test("returns null without any overlapping samples", () => {
+    expect(computeDurationWeightedMeanPercent([], 0)).toBeNull();
+    expect(
+      computeDurationWeightedMeanPercent(
+        [{ at: 5_000, percent: 50, elapsedMs: 0 }],
+        0,
+      ),
+    ).toBeNull();
+    expect(
+      computeDurationWeightedMeanPercent(
+        [{ at: -1_000, percent: 50, elapsedMs: 5_000 }],
+        0,
+      ),
     ).toBeNull();
   });
 });
