@@ -45,6 +45,33 @@ export function canActOnPrivilegedDocuments(actor: {
 }
 
 /**
+ * Channels whose actors see personal memory regardless of trust class. The
+ * `vellum` first-party console is the operator's own surface rather than an
+ * external contact channel, mirroring {@link PRIVILEGED_DOCUMENT_CHANNELS}.
+ */
+const PERSONAL_MEMORY_CHANNELS = new Set<string>(["vellum"]);
+
+/**
+ * Whether personal-memory content (memory pages, PKB, matched v3 card
+ * sections, the v2 static block) may be surfaced to an actor.
+ *
+ * True when the trust class grants it, when the request arrived on a personal
+ * memory channel, or when no channel is present at all -- a resolved actor
+ * always carries one, so its absence means no actor was resolved, which is how
+ * local/native turns arrive.
+ */
+export function canSeePersonalMemory(actor: {
+  trustClass: RawTrustClass;
+  executionChannel?: string;
+}): boolean {
+  return (
+    resolveCapabilities(actor.trustClass).canAccessMemory ||
+    actor.executionChannel == null ||
+    PERSONAL_MEMORY_CHANNELS.has(actor.executionChannel)
+  );
+}
+
+/**
  * Whether an archive-by-sender invocation is authorized. Any one of a surface
  * action, a task-batch authorization, or an explicit prompt approval suffices.
  * Absent those, the actor's own `user_approved` flag only counts when its trust

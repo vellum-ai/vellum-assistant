@@ -515,47 +515,57 @@ export function ComposerSettingsMenu({
   // the mobile SectionLabel. Closes the popover/sheet, then opens the modal.
   // Disabled until `profilesLoaded` — opening the modal with empty profile
   // data would let a duplicate name overwrite an existing profile.
-  const quickAddButton = (
+  const quickAddControl = (
+    <Button
+      variant="ghost"
+      size="compact"
+      iconOnly={<Plus className="h-3.5 w-3.5" />}
+      aria-label="New Profile"
+      disabled={!profilesLoaded}
+      aria-disabled={!profilesLoaded}
+      onClick={() => {
+        if (!profilesLoaded) {
+          return;
+        }
+        setProfileOpen(false);
+        setCompactOpen(false);
+        // Claimed after the open call, not before: taking the modal over
+        // releases whoever held it, and that release must not land on top of
+        // this claim.
+        openProfileQuickAdd({
+          existingNames: existingProfileNames,
+          onClosed: () => setQuickAddOpen(false),
+          onCreated: (name, _label) => {
+            // ProfileQuickAddProvider already wrote the full PATCH response
+            // (merged config including the new profile's provider/model/etc.)
+            // to the shared config query cache via configGetSetQueryData.
+            // No cache write needed here, just autoselect the new profile.
+            void handleProfileSelect(name).then((selected) => {
+              if (!selected) {
+                toast.error(t("chat:composerSettingsMenu.profileSwitchFailed"));
+              }
+            });
+          },
+        });
+        setQuickAddOpen(true);
+      }}
+    />
+  );
+
+  // The tooltip is a hover affordance, so the touch presentation goes without
+  // it. Radix opens a tooltip on focus as well as hover, and the bottom sheet
+  // autofocuses its first tabbable element, which is this button: on a phone
+  // the label appeared unbidden every time the sheet rose, clipped against the
+  // right edge of the screen. The button's `aria-label` carries the same words,
+  // so nothing is lost by dropping it here.
+  const quickAddButton = isTouchMobile ? (
+    quickAddControl
+  ) : (
     <Tooltip
       content={profilesLoaded ? "New Profile" : "Loading profiles…"}
       side="top"
     >
-      <Button
-        variant="ghost"
-        size="compact"
-        iconOnly={<Plus className="h-3.5 w-3.5" />}
-        aria-label="New Profile"
-        disabled={!profilesLoaded}
-        aria-disabled={!profilesLoaded}
-        onClick={() => {
-          if (!profilesLoaded) {
-            return;
-          }
-          setProfileOpen(false);
-          setCompactOpen(false);
-          // Claimed after the open call, not before: taking the modal over
-          // releases whoever held it, and that release must not land on top of
-          // this claim.
-          openProfileQuickAdd({
-            existingNames: existingProfileNames,
-            onClosed: () => setQuickAddOpen(false),
-            onCreated: (name, _label) => {
-              // ProfileQuickAddProvider already wrote the full PATCH response
-              // (merged config including the new profile's provider/model/etc.)
-              // to the shared config query cache via configGetSetQueryData.
-              // No cache write needed here — just autoselect the new profile.
-              void handleProfileSelect(name).then((selected) => {
-                if (!selected) {
-                  toast.error(
-                    t("chat:composerSettingsMenu.profileSwitchFailed"),
-                  );
-                }
-              });
-            },
-          });
-          setQuickAddOpen(true);
-        }}
-      />
+      {quickAddControl}
     </Tooltip>
   );
 

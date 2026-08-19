@@ -7,7 +7,7 @@
 import type { ChannelConversationType } from "@vellumai/gateway-client";
 
 import { isHttpAuthDisabled } from "../config/env.js";
-import { shouldExposePersonalMemory } from "../plugins/defaults/memory/substrate/static-context.js";
+import { canSeePersonalMemory } from "../runtime/effective-capabilities.js";
 import type { TrustClass } from "../runtime/trust-class.js";
 import type { TrustContext } from "./trust-context-types.js";
 
@@ -67,21 +67,26 @@ export function resolveTrustClass(
  * Whether personal-memory content may be surfaced for the actor described by
  * `trustContext`: the gate admits guardian-class actors and internal/local
  * flows (including turns with no trust context), and blocks remote untrusted
- * actors — see {@link shouldExposePersonalMemory} for the rationale.
+ * actors.
  *
  * This is THE personal-memory trust gate. Every surface that exposes private
  * user content — the v2 dynamic/static `<memory>` layers, PKB context, NOW.md,
  * memory-v3 cards/spotlight, and the `loadFromDb` rehydration of persisted
  * memory blocks — must call this one helper so the exposure rule cannot drift
- * between copies. It folds in {@link resolveTrustClass} so the dev-bypass
- * (HTTP auth disabled → guardian) applies uniformly at every call site.
+ * between copies.
+ *
+ * The trust-context binding lives here; the policy itself is
+ * {@link canSeePersonalMemory}, alongside the other capability-plus-context
+ * compositions. This adapter folds in {@link resolveTrustClass} so the
+ * dev-bypass (HTTP auth disabled → guardian) applies uniformly at every call
+ * site.
  */
 export function isPersonalMemoryAllowed(
   trustContext: TrustContext | undefined,
 ): boolean {
-  return shouldExposePersonalMemory({
-    sourceChannel: trustContext?.sourceChannel,
-    isTrustedActor: resolveTrustClass(trustContext) === "guardian",
+  return canSeePersonalMemory({
+    trustClass: resolveTrustClass(trustContext),
+    executionChannel: trustContext?.sourceChannel,
   });
 }
 

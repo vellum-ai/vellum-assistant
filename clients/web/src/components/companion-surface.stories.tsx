@@ -87,6 +87,10 @@ const meta: Meta<StoryArgs> = {
       control: "inline-radio",
       options: ["right", "left"],
     },
+    cardGrowth: {
+      control: "inline-radio",
+      options: ["up", "down"],
+    },
     accentHex: { control: "color" },
     glow: { control: "boolean" },
   },
@@ -269,6 +273,44 @@ export const Typing: Story = {
 /** The card before anything has been said. */
 export const TypingEmpty: Story = {
   args: { phase: "typing", assistantName: "Ziggy", turns: [] },
+};
+
+/**
+ * The card at the top of a display, where it has to unfurl downward.
+ *
+ * The vertical twin of `AgainstTheRightEdge`, and the fix for JARVIS-1548. The
+ * host's canvas reserves the card's height on whichever side it grows into, and
+ * macOS will not put a window frame above the top of the work area, so an
+ * avatar that always reserved that height *above* itself could not be dragged
+ * into the top of the screen at all. It stopped 270pt short, for no reason the
+ * user could see.
+ *
+ * **Set `cardGrowth` to `up` to see the shape this replaces.** The card runs
+ * straight off the top of the stage. The avatar holds its line either way,
+ * which is the property this protects, exactly as the horizontal flip does.
+ */
+export const AgainstTheTopEdge: Story = {
+  args: {
+    phase: "typing",
+    cardGrowth: "down",
+    assistantName: "Ziggy",
+    turns: [
+      { role: "user", text: "what did the deploy do" },
+      {
+        role: "assistant",
+        text: "Rolled back on its own after the health check failed twice, then went through clean at 09:31.",
+      },
+    ],
+  },
+  decorators: [
+    (Story) => (
+      // The avatar's own line, pinned near the top of the stage with the screen
+      // ending just above it.
+      <div className="absolute top-0 left-1/2 h-11 w-11 -translate-x-1/2">
+        <Story />
+      </div>
+    ),
+  ],
 };
 
 /**

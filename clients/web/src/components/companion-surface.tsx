@@ -17,6 +17,7 @@ import type {
   Ref,
 } from "react";
 
+import { COMPANION_NEAR_EDGE } from "@vellumai/ipc-contract";
 import type {
   CompanionCharacter,
   CompanionTurn,
@@ -91,6 +92,20 @@ export type CompanionSurfacePhase =
  * that knows which display it is on.
  */
 export type CompanionSurfaceGrowth = "right" | "left";
+
+/**
+ * Which way the typing card unfurls out of the composer row, which holds the
+ * line the pill occupied.
+ *
+ * `up` is where the surface normally opens: it lives by the Dock, where a card
+ * growing downward would grow off the bottom of the screen. `down` is what it
+ * flips to near the top of a display, and the reason it has to exist at all is
+ * the host's, not the layout's: macOS refuses to place a window frame above
+ * the top of the work area, so an avatar that always reserved the card's height
+ * above itself could never be dragged into the top of the screen at all
+ * (JARVIS-1548). Main decides, for the same reason it decides the other one.
+ */
+export type CompanionSurfaceCardGrowth = "up" | "down";
 
 /** Fallback accent, used until the assistant's own avatar colour is known. */
 const DEFAULT_ACCENT = "#5eead4";
@@ -248,6 +263,11 @@ export interface CompanionSurfaceProps {
   /** Which way the pill grows. See {@link CompanionSurfaceGrowth}. */
   growth?: CompanionSurfaceGrowth;
   /**
+   * Which way the card grows, and with it which edge of the canvas the avatar
+   * is anchored to. See {@link CompanionSurfaceCardGrowth}.
+   */
+  cardGrowth?: CompanionSurfaceCardGrowth;
+  /**
    * The pill's own element.
    *
    * The Electron host needs to hit-test the pointer against the pill rather
@@ -347,6 +367,7 @@ export function CompanionSurface({
   onHoverStart,
   onHoverEnd,
   growth = "right",
+  cardGrowth = "up",
   rootRef,
   onSurfaceMouseDown,
   spotlight,
@@ -406,12 +427,12 @@ export function CompanionSurface({
         ? 0
         : (contentWidth ?? FALLBACK_WIDTHS[phase] - AVATAR_BOX) + INNER_GAP);
 
-  // **The avatar never moves.** It is pinned to the centre of the canvas, which
-  // is the spot the host positions this window around, and the body runs off
-  // one side of it. Growing from the pill's centre instead would slide the
-  // mascot to a different x-position in every state, so the surface would read
-  // as a series of different objects rather than one object changing shape, and
-  // the user's eye and cursor would have no fixed target to aim at.
+  // **The avatar never moves.** It holds one spot in the canvas, which is the
+  // spot the host positions this window around, and the body runs off one side
+  // of it. Growing from the pill's centre instead would slide the mascot to a
+  // different x-position in every state, so the surface would read as a series
+  // of different objects rather than one object changing shape, and the user's
+  // eye and cursor would have no fixed target to aim at.
   //
   // Each direction therefore fixes the avatar's own edge to the centre and lets
   // the body run the other way. Growing left also reverses the row, because the
@@ -421,16 +442,30 @@ export function CompanionSurface({
       ? { right: "50%", marginRight: -(AVATAR_BOX / 2) }
       : { left: "50%", marginLeft: -(AVATAR_BOX / 2) };
 
+  // The vertical half of the same idea, against a canvas that is *not*
+  // symmetric about the avatar. The card's height is reserved on whichever side
+  // it grows into, so the avatar sits `COMPANION_NEAR_EDGE` from the other
+  // edge, and that edge is the one worth anchoring to: `100%` names the canvas
+  // without this side having to know how tall main made it.
+  const anchor: CSSProperties =
+    cardGrowth === "up"
+      ? { top: `calc(100% - ${COMPANION_NEAR_EDGE}px)` }
+      : { top: COMPANION_NEAR_EDGE };
+
   const style: CSSProperties = {
     width,
     ...placement,
+    ...anchor,
     // The composer row holds the line the pill occupied and the conversation
-    // stacks upward off it, so the avatar never moves when Type is pressed and
-    // never moves again as turns arrive. It is also the only direction that
-    // works where this surface lives: parked by the Dock, a card growing down
-    // grows off the bottom of the screen.
+    // stacks off it, so the avatar never moves when Type is pressed and never
+    // moves again as turns arrive. Which way it stacks is the host's call:
+    // parked by the Dock a card growing down would grow off the bottom of the
+    // screen, and at the top of the display a card growing up has nowhere to be
+    // (see `CompanionSurfaceCardGrowth`).
     transform: typing
-      ? `translateY(calc(-100% + ${AVATAR_BOX / 2}px))`
+      ? cardGrowth === "up"
+        ? `translateY(calc(-100% + ${AVATAR_BOX / 2}px))`
+        : `translateY(-${AVATAR_BOX / 2}px)`
       : "translateY(-50%)",
     // Settles rather than overshoots. A surface on screen all day should not
     // bounce every time the pointer crosses it.
@@ -443,14 +478,19 @@ export function CompanionSurface({
     // press, so everything that is not a button can be grabbed, which at rest
     // means the avatar and when expanded means the pill around the controls.
     <div
-      className={`absolute top-1/2 cursor-grab transition-[width] duration-300 will-change-[width] active:cursor-grabbing ${
+      className={`absolute cursor-grab transition-[width] duration-300 will-change-[width] active:cursor-grabbing ${
         typing
-          ? "flex flex-col rounded-[22px]"
+          ? // The composer row is the column's last child, so a card growing
+            // downward reverses the column for the same reason a pill growing
+            // leftward reverses the row: the row that holds the avatar's line
+            // has to end up against the avatar, and the turns stack away from
+            // it.
+            `flex rounded-[22px] ${cardGrowth === "up" ? "flex-col" : "flex-col-reverse"}`
           : "flex h-11 items-center rounded-full"
       } ${
         // The avatar is the row's first child, so growing leftward means
-        // reversing the row rather than repositioning it. The card is a column
-        // and grows upward instead, so it never wants this.
+        // reversing the row rather than repositioning it. The card is a column,
+        // so it never wants this.
         growth === "left" && !typing ? "flex-row-reverse" : ""
       }`}
       style={style}

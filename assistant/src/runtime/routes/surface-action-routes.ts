@@ -37,26 +37,25 @@ const log = getLogger("surface-action-routes");
 
 /**
  * Resolve trust context for the actor principal from the gateway guardian
- * binding and set it on the conversation. A vellum principal is the guardian or
- * nobody, so the mapper yields guardian or unknown. Resolution (including the
- * dev-bypass principal translation and the mutating reset-drift repair) lives
- * in the shared {@link resolveVellumActorTrustContext} so the surface content
- * route's read-only requester scoping cannot drift from it.
+ * binding, and return it for the caller to attribute this action with. A vellum
+ * principal is the guardian or nobody, so the mapper yields guardian or
+ * unknown. Resolution (including the dev-bypass principal translation and the
+ * mutating reset-drift repair) lives in the shared
+ * {@link resolveVellumActorTrustContext} so the surface content route's
+ * read-only requester scoping cannot drift from it.
+ *
+ * Resolution only: the requester travels to `handleSurfaceAction` as an
+ * argument, and the conversation's slot is stamped there, at the point the
+ * click is committed to starting a turn. Stamping here instead would repoint
+ * the actor of a turn already in flight, or of a turn that starts between this
+ * call and the dispatch.
  */
-async function applyTrustContext(
-  conversation: {
-    setTrustContext?(ctx: TrustContext): void;
-  },
+async function resolveRequesterTrustContext(
   actorPrincipalId: string | undefined,
-): Promise<void> {
-  if (!conversation.setTrustContext) {
-    return;
-  }
-  conversation.setTrustContext(
-    await resolveVellumActorTrustContext(actorPrincipalId, {
-      healResetDrift: true,
-    }),
-  );
+): Promise<TrustContext> {
+  return resolveVellumActorTrustContext(actorPrincipalId, {
+    healResetDrift: true,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +153,8 @@ async function handleSurfaceAction({
   }
 
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
-  await applyTrustContext(conversation, actorPrincipalId);
+  const requesterTrustContext =
+    await resolveRequesterTrustContext(actorPrincipalId);
 
   // Translate dev-bypass → real guardian so the surface turn's principal matches
   // the SSE host-proxy client's registered principal; otherwise CU/app-control
@@ -170,6 +170,7 @@ async function handleSurfaceAction({
       actionId,
       data,
       resolvedActorPrincipalId,
+      requesterTrustContext,
     );
     const result =
       raw && typeof raw === "object" && "accepted" in raw
