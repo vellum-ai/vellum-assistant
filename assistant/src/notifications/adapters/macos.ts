@@ -21,6 +21,7 @@
 import type { AssistantEvent } from "../../api/index.js";
 import type { InterfaceId } from "../../channels/types.js";
 import { updateMessageContent } from "../../persistence/conversation-crud.js";
+import { publishConversationMessagesChanged } from "../../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   ChannelAdapter,
@@ -169,6 +170,9 @@ export class VellumAdapter implements ChannelAdapter {
     }
     try {
       updateMessageContent(delivery.messageId, patch.body);
+      if (delivery.conversationId) {
+        publishConversationMessagesChanged(delivery.conversationId);
+      }
       log.info(
         { deliveryId: delivery.deliveryId, messageId: delivery.messageId },
         "Vellum notification conversation message updated",

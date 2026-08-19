@@ -193,6 +193,7 @@ async function updateChannelDeliveries(
           deliveryId: delivery.id,
           destination: delivery.destination,
           messageId: delivery.messageId,
+          conversationId: delivery.conversationId,
         },
         patch,
       );

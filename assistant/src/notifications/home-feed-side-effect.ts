@@ -24,6 +24,7 @@ import {
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { normalizeTitle, stripMarkdown } from "../util/short-title.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
@@ -272,6 +273,7 @@ async function appendSummaryToFeedTarget(
     const message = await addMessage(conversationId, "assistant", summary, {
       skipIndexing: true,
     });
+    publishConversationMessagesChanged(conversationId);
     log.info(
       {
         signalId: signal.signalId,
@@ -342,6 +344,7 @@ export function updateFeedItemConversationMessage(
       return false;
     }
     updateMessageContent(messageId, body);
+    publishConversationMessagesChanged(item.conversationId);
     log.info(
       { feedItemId: item.id, messageId },
       "Rewrote the conversation message behind an edited feed item",

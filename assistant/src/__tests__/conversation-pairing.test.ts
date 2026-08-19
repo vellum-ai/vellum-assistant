@@ -47,6 +47,14 @@ const getConversationMock = mock((id: string) => {
   return mockExistingConversations[id] ?? null;
 });
 
+const messagesInvalidated: string[] = [];
+
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  publishConversationMessagesChanged: (conversationId: string) => {
+    messagesInvalidated.push(conversationId);
+  },
+}));
+
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
@@ -144,6 +152,7 @@ describe("pairDeliveryWithConversation", () => {
   beforeEach(() => {
     createConversationMock.mockClear();
     addMessageMock.mockClear();
+    messagesInvalidated.length = 0;
     getConversationMock.mockClear();
     getBindingByChannelChatMock.mockClear();
     upsertOutboundBindingMock.mockClear();
@@ -904,6 +913,9 @@ describe("pairDeliveryWithConversation", () => {
     const [conversationId, role] = addMessageMock.mock.calls[0]!;
     expect(conversationId).toBe("conv-producer");
     expect(role).toBe("assistant");
+    // `addMessage` publishes the metadata tag alone, so a client holding this
+    // conversation open needs the messages tag to refetch the transcript.
+    expect(messagesInvalidated).toContain("conv-producer");
   });
 
   test("appended notification body skips indexing", async () => {

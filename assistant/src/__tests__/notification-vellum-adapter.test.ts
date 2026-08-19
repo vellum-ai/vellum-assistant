@@ -16,6 +16,14 @@ mock.module("../persistence/conversation-crud.js", () => ({
   updateMessageContent: updateMessageContentMock,
 }));
 
+const messagesInvalidated: string[] = [];
+
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  publishConversationMessagesChanged: (conversationId: string) => {
+    messagesInvalidated.push(conversationId);
+  },
+}));
+
 import type { AssistantEvent } from "../api/index.js";
 import { VellumAdapter } from "../notifications/adapters/macos.js";
 import type {
@@ -177,13 +185,19 @@ describe("VellumAdapter update", () => {
   beforeEach(() => {
     updateMessageContentMock.mockClear();
     updateMessageContentShouldThrow = false;
+    messagesInvalidated.length = 0;
   });
 
   test("rewrites the persisted conversation message with the new body", async () => {
     const { adapter } = captureBroadcast();
 
     const result = await adapter.update!(
-      { deliveryId: "delivery-1", destination: "vellum", messageId: "msg-1" },
+      {
+        deliveryId: "delivery-1",
+        destination: "vellum",
+        messageId: "msg-1",
+        conversationId: "conv-1",
+      },
       { title: "Daily Briefing", body: "Revised briefing text." },
     );
 
@@ -194,6 +208,23 @@ describe("VellumAdapter update", () => {
       "msg-1",
       "Revised briefing text.",
     ]);
+    // A client holding the conversation open refetches on this tag alone.
+    expect(messagesInvalidated).toEqual(["conv-1"]);
+  });
+
+  test("rewrites without a conversation to invalidate", async () => {
+    // Deliveries recorded before the pairing carried a conversation have none
+    // to name, and the rewrite still stands on its own.
+    const { adapter } = captureBroadcast();
+
+    const result = await adapter.update!(
+      { deliveryId: "delivery-1", destination: "vellum", messageId: "msg-1" },
+      { body: "Revised briefing text." },
+    );
+
+    expect(result.success).toBe(true);
+    expect(updateMessageContentMock).toHaveBeenCalledTimes(1);
+    expect(messagesInvalidated).toHaveLength(0);
   });
 
   test("leaves the message untouched on a title-only edit", async () => {

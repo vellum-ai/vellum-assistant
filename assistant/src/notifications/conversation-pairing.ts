@@ -30,6 +30,7 @@ import {
   getBindingByChannelChat,
   upsertOutboundBinding,
 } from "../persistence/external-conversation-store.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
@@ -518,6 +519,11 @@ async function appendBodyToSourceConversation(
   const message = await addMessage(existing.id, "assistant", messageContent, {
     skipIndexing: true,
   });
+  // `addMessage` projects attention metadata alone, so a client with this
+  // conversation open needs the messages tag to refetch the transcript. A
+  // notification the user taps through to has every chance of landing on an
+  // already-open conversation.
+  publishConversationMessagesChanged(existing.id);
 
   log.info(
     {

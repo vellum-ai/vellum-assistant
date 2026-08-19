@@ -32,6 +32,13 @@ let messageRewriteShouldThrow = false;
 let messageLookupShouldThrow = false;
 
 let feedItemSchemaShouldReject = false;
+const messagesInvalidated: string[] = [];
+
+mock.module("../../runtime/sync/resource-sync-events.js", () => ({
+  publishConversationMessagesChanged: (conversationId: string) => {
+    messagesInvalidated.push(conversationId);
+  },
+}));
 
 mock.module("../../home/feed-types.js", () => ({
   feedItemSchema: {
@@ -154,6 +161,7 @@ beforeEach(() => {
   messageRewriteShouldThrow = false;
   messageLookupShouldThrow = false;
   feedItemSchemaShouldReject = false;
+  messagesInvalidated.length = 0;
 });
 
 describe("writeHomeFeedItemForSignal", () => {
@@ -944,6 +952,9 @@ describe("writeHomeFeedItemForSignal", () => {
         options: { skipIndexing: true },
       });
       expect(item?.metadata?.notificationConversationMessageId).toBe("msg-1");
+      // A client with the conversation open refetches only on the messages
+      // tag; `addMessage` publishes the metadata tag alone.
+      expect(messagesInvalidated).toEqual(["conv-source-1"]);
     });
 
     test("writes exactly the summary the card renders", async () => {
@@ -1042,6 +1053,7 @@ describe("writeHomeFeedItemForSignal", () => {
       expect(item).toBeNull();
       expect(appendCalls).toHaveLength(0);
       expect(messageAppends).toHaveLength(0);
+      expect(messagesInvalidated).toHaveLength(0);
     });
 
     test("a failed message write leaves the persisted feed item intact", async () => {
@@ -1269,6 +1281,7 @@ describe("writeHomeFeedItemForSignal", () => {
       expect(messageRewrites).toEqual([
         { messageId: "msg-9", content: "Four things now." },
       ]);
+      expect(messagesInvalidated).toEqual(["conv-source-1"]);
     });
 
     test("reports no rewrite when the card owns no message", () => {
