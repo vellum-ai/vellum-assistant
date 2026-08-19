@@ -35,11 +35,14 @@ export interface ChannelTransport {
     payload: ChannelReplyPayload,
   ): Promise<ChannelDeliveryResult>;
 
-  /** Send a typing indicator. Routed when `payload.chatAction === "typing"`. */
-  sendTyping?(
-    ctx: CallbackContext,
-    payload: ChannelReplyPayload,
-  ): Promise<ChannelDeliveryResult>;
+  /**
+   * Show that the assistant is working, in whatever form the channel has.
+   *
+   * Takes the place and nothing else, because that is all it needs. A channel
+   * without the affordance omits the method, so implementing it is the whole
+   * of declaring the capability.
+   */
+  typing?(ctx: CallbackContext, chatId: string): Promise<ChannelDeliveryResult>;
 
   /** Add an emoji reaction. Routed when `payload.reaction` is set. */
   sendReaction?(

@@ -20,6 +20,7 @@ import {
 } from "../../../contacts/guardian-delivery-reader.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
+import { sendChannelTyping } from "../../../messaging/providers/index.js";
 import {
   getSiblingStreamedReplyTs,
   linkMessage,
@@ -168,11 +169,7 @@ export function processChannelMessageInBackground(
       ? replyCallbackUrl
       : undefined;
     const stopTypingHeartbeat = typingCallbackUrl
-      ? startTelegramTypingHeartbeat(
-          typingCallbackUrl,
-          externalChatId,
-          assistantId,
-        )
+      ? startTelegramTypingHeartbeat(typingCallbackUrl, externalChatId)
       : undefined;
 
     const slackThinkingStatus = createSlackThinkingStatusController({
@@ -419,7 +416,6 @@ function shouldEmitTelegramTyping(
 function startTelegramTypingHeartbeat(
   callbackUrl: string,
   chatId: string,
-  assistantId?: string,
 ): () => void {
   let active = true;
   let inFlight = false;
@@ -429,11 +425,7 @@ function startTelegramTypingHeartbeat(
       return;
     }
     inFlight = true;
-    void deliverChannelReply(callbackUrl, {
-      chatId,
-      chatAction: "typing",
-      assistantId,
-    })
+    void sendChannelTyping(callbackUrl, chatId)
       .catch((err) => {
         log.debug(
           { err, chatId },

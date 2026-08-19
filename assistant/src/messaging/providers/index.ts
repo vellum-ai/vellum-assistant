@@ -45,6 +45,24 @@ export function getTransportForCallback(
   return channel ? TRANSPORTS[channel] : undefined;
 }
 
+/**
+ * Show that the assistant is working on the channel this callback addresses.
+ *
+ * Resolves to nothing when the channel has no such affordance, which is the
+ * ordinary case rather than a failure: the indicator is decoration, and a
+ * channel that cannot show one is not degraded by its absence.
+ */
+export async function sendChannelTyping(
+  callbackUrl: string,
+  chatId: string,
+): Promise<ChannelDeliveryResult> {
+  const transport = getTransportForCallback(callbackUrl);
+  if (!transport?.typing) {
+    return { ok: true };
+  }
+  return transport.typing(callbackContext(callbackUrl), chatId);
+}
+
 function callbackContext(callbackUrl: string): CallbackContext {
   const params: Record<string, string> = {};
   try {
@@ -98,9 +116,6 @@ export async function deliverDirect(
   }
   if (payload.assistantThreadStatus && transport.setThreadStatus) {
     return transport.setThreadStatus(ctx, payload);
-  }
-  if (payload.chatAction === "typing" && transport.sendTyping) {
-    return transport.sendTyping(ctx, payload);
   }
   return transport.deliver(ctx, payload);
 }
