@@ -24,6 +24,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import type { IpcEnvelope } from "@vellumai/ipc-server-utils";
 import { IpcFrameReader, writeMessage } from "@vellumai/ipc-server-utils";
 
+import { runInPluginContext } from "../plugins/plugin-execution-context.js";
 import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
 import {
   evictRouteSourceTree,
@@ -126,26 +127,46 @@ async function handleInvoke(
     evictRouteSourceTree(sourceRootForHandler(params.filePath));
     lastHandlerMtime.set(params.filePath, params.mtimeMs);
   }
-  const mod = await importRouteModule(params.filePath);
 
-  const handler = mod[params.method];
-  if (typeof handler !== "function") {
-    const allowed = HTTP_METHODS.filter((m) => typeof mod[m] === "function");
+  // A plugin's own routes execute as that plugin, matching the daemon's
+  // in-thread path, so plugin-scoped host APIs a handler reaches
+  // (`resolveCredential`, `indexDocument`) scope to the owning plugin rather
+  // than falling through to their unscoped branch. The context covers the
+  // import as well as the call: a route module can reach a scoped API at
+  // evaluation time, and it is imported once per mtime.
+  const serve = async (): Promise<
+    { ok: true; response: Response } | { ok: false; allowed: string[] }
+  > => {
+    const mod = await importRouteModule(params.filePath);
+    const handler = mod[params.method];
+    if (typeof handler !== "function") {
+      return {
+        ok: false,
+        allowed: HTTP_METHODS.filter((m) => typeof mod[m] === "function"),
+      };
+    }
+    const request = reconstructRequest(params, body);
+    const response = (await (handler as (req: Request) => unknown)(
+      request,
+    )) as Response;
+    return { ok: true, response };
+  };
+  const outcome = await (params.pluginName
+    ? runInPluginContext(params.pluginName, serve)
+    : serve());
+
+  if (!outcome.ok) {
     replyResult(
       socket,
       id,
       405,
-      allowed.length ? [["allow", allowed.join(", ")]] : [],
+      outcome.allowed.length ? [["allow", outcome.allowed.join(", ")]] : [],
       null,
     );
     return;
   }
 
-  const request = reconstructRequest(params, body);
-  const response = (await (handler as (req: Request) => unknown)(
-    request,
-  )) as Response;
-
+  const { response } = outcome;
   const buffer = new Uint8Array(await response.arrayBuffer());
   const headers: [string, string][] = [];
   response.headers.forEach((value, name) => {

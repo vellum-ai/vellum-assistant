@@ -14,6 +14,9 @@ export * from "./schemas";
 export {
   type ElectronHostOS,
   type LocalConnectImportResult,
+  type LocalListDevicesResult,
+  type LocalPairedDeviceRecord,
+  type LocalRevokeDeviceResult,
   type LocalUpgradeOptions,
   type LocalWakeOptions,
   type VellumBridge,

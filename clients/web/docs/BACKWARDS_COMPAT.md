@@ -254,6 +254,18 @@ with the code they protect:
   pre-0.8.8 positional arrays (`textSegments`, `thinkingSegments`,
   `toolCalls`, `surfaces`, `attachments`, `contentOrder`) when an assistant
   omits `contentBlocks`, so the renderer only ever deals with one shape.
+- **Cold-boot landing's one-row read**:
+  `src/domains/chat/utils/landing-conversation.ts` asks
+  `GET /v1/conversations?foregroundOnly=true&limit=1` for the newest
+  conversation the user can open. An assistant that predates the parameter
+  ignores it and answers 200 with the newest row of the unfiltered listing,
+  the "silent superset" that normally forces a version gate. Here the client
+  can tell: it asked for a foreground row, so a returned row that fails
+  `isStoredConversationSelectable` proves the filter was not applied, and the
+  landing falls back to paging the unfiltered list itself. A gate would also
+  be read before the identity fetch hydrates the version on most cold boots
+  and send them all down the paged path. The paged fallback is the legacy
+  branch: delete it once no supported assistant predates the parameter.
 - **Electron / Capacitor bridge** — `src/runtime/is-electron.ts` declares
   `window.vellum` with **optional capability groups** (`helper?`,
   `featureFlags?`, `diagnostics?`, …). Consumers guard on presence

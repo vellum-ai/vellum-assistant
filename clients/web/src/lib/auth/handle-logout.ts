@@ -7,6 +7,7 @@ import {
   isLocalAssistant,
   isLocalClient,
 } from "@/lib/local-mode";
+import { clearCompanionWorking } from "@/runtime/companion-surface";
 import { setAssistantName } from "@/runtime/identity";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useAuthStore } from "@/stores/auth-store";
@@ -31,6 +32,11 @@ export async function handleLogout(navigate: NavigateFunction): Promise<void> {
     // without this, Electron main keeps titling the signed-out window, tray,
     // and About panel with the previous assistant's name. No-op off Electron.
     setAssistantName("");
+    // And for the same reason, stop the companion surface claiming a turn is
+    // in flight. Signing out mid-turn would otherwise leave its working ring
+    // travelling over a signed-out app, since the surface is opened by a flag
+    // and the tray preference rather than by the window that was publishing.
+    clearCompanionWorking();
     hardNavigate(routes.account.login);
   }
 }

@@ -151,6 +151,13 @@ function applyTransportMetadata(
  *
  * Handles provider setup, rate limiting, system prompt, memory policy,
  * and conversation hydration.
+ *
+ * The in-memory Conversation snapshots the tool registry at construction.
+ * An empty snapshot is an empty tool list on the wire for the life of the
+ * instance, so the create path initializes the registry before that
+ * constructor runs. A hit in `findConversation` already has its snapshot.
+ * `initializeTools` is idempotent: a process that already initialized at
+ * boot awaits the settled promise.
  */
 export async function getOrCreateConversation(
   conversationId: string,
@@ -227,6 +234,9 @@ export async function getOrCreateConversation(
 
       const systemPrompt = await resolveInitialSystemPrompt(storedOptions);
       const maxTokens = storedOptions?.maxResponseTokens;
+
+      const { initializeTools } = await import("../tools/registry.js");
+      await initializeTools();
 
       const newConversation = new Conversation(
         conversationId,

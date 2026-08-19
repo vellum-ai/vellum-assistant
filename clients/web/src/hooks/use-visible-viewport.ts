@@ -74,6 +74,51 @@ let anticipatedKeyboardHeight = 0;
 // this height is what that event looks like from here.
 let anticipationViewportHeight = 0;
 
+// The viewport reading pinned across a native picker session, or `null` when
+// nothing is holding it. iOS presents a document/photo picker by taking first
+// responder off the web view, which dismisses the soft keyboard, and the
+// keyboard cannot stay up under a modal that owns the responder. What it can
+// avoid is the shell resizing behind that picker: the composer would ride the
+// keyboard down on the way in and back up on the way out, twice per attachment,
+// with the picker covering the space either way.
+let heldViewport: VisibleViewport | null = null;
+// Depth rather than a flag: the composer's picker and the attachments strip's
+// each own a session of their own, and a release from one must not answer for
+// the other.
+let viewportHoldDepth = 0;
+
+/**
+ * Pin the current viewport reading until the returned release is called, so a
+ * transition the user is not looking at cannot resize the shell. Holds nothing
+ * unless a keyboard is actually up, since there is no collapse to sit out
+ * otherwise, and the release is idempotent.
+ */
+export function holdVisibleViewport(): () => void {
+  if (viewportHoldDepth === 0 && typeof window !== "undefined") {
+    const current = readVisibleViewport();
+    heldViewport =
+      current && current.keyboardHeight >= KEYBOARD_OPEN_THRESHOLD_PX
+        ? current
+        : null;
+  }
+  viewportHoldDepth += 1;
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    viewportHoldDepth -= 1;
+    if (viewportHoldDepth > 0) {
+      return;
+    }
+    heldViewport = null;
+    for (const notify of viewportUpdaters) {
+      notify();
+    }
+  };
+}
+
 // State updaters of the mounted `useVisibleViewport` consumers. One native
 // subscription feeds all of them, so the listener count stays flat as the shell
 // and the mobile overlays each mount their own copy of the hook, and a repeated
@@ -140,6 +185,16 @@ export function readVisibleViewport(): VisibleViewport | null {
     // Rebasing the reference invalidates any height announced against the old
     // one, so anticipation goes with it rather than outliving its baseline.
     anticipatedKeyboardHeight = 0;
+    // A rotation resizes the viewport on its own account, and a height held
+    // against the orientation the device has left describes nothing. The hold
+    // is dropped rather than ended, so the release that owns it still balances.
+    heldViewport = null;
+  }
+
+  // Held readings answer before the measurement, and after the rotation reset
+  // so they cannot outlive the orientation they were taken in.
+  if (heldViewport) {
+    return heldViewport;
   }
 
   // Update the reference whenever the viewport grows (keyboard dismissed,

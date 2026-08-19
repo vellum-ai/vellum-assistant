@@ -11,7 +11,11 @@ import { ArrowRight } from "lucide-react";
 import { Button } from "@vellumai/design-library/components/button";
 
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
-import { ONBOARDING_STEP_CONTENT } from "@/domains/onboarding/onboarding-step-layout";
+import {
+  ONBOARDING_DARK_SURFACE,
+  ONBOARDING_STEP_CONTENT,
+} from "@/domains/onboarding/onboarding-step-layout";
+import { usePublishPageSurface } from "@/stores/page-surface-store";
 import { useTranslation } from "@/i18n";
 
 interface ExistingAssistantStepProps {
@@ -31,6 +35,9 @@ export function ExistingAssistantStep({
   onBack,
 }: ExistingAssistantStepProps) {
   const { t } = useTranslation("onboarding");
+  // The screen owns the whole viewport, so the shell paints its safe-area
+  // strips to match. See `page-surface-store`.
+  usePublishPageSurface(ONBOARDING_DARK_SURFACE);
   const name = assistantName?.trim() || "";
   const hasName = name.length > 0;
 

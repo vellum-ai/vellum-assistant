@@ -44,6 +44,7 @@ import {
   type RenderedSlackTranscriptMessage,
   renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
+import { isGuardianCardRow } from "../notifications/approval-card-data.js";
 import {
   getMessages as defaultGetMessages,
   type MessageRow,
@@ -1513,10 +1514,16 @@ export function loadSlackChronologicalContext(
     allRows,
     options.trustClass,
   );
+  // Applied after the compaction boundary, never before it: that filter
+  // indexes into the row list when no watermark is set, so dropping rows
+  // earlier would shift what it cuts. Same rule and same ordering constraint
+  // as `Conversation.loadFromDb` -- Slack builds the provider history from
+  // rows rather than `this.messages`, so a rule applied only there would
+  // exempt this channel entirely.
   const rows = filterRowsAfterSlackCompactionBoundary(
     messageRowsToSlackTranscriptRows(scopedRows),
     options,
-  );
+  ).filter((row) => !isGuardianCardRow(row.content));
   return assembleSlackChronologicalContext(rows, capabilities, {
     contextSummary: resolveCapabilities(options.trustClass).canAccessMemory
       ? options.contextSummary

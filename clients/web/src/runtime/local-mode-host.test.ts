@@ -16,6 +16,8 @@ const {
   retireLocalAssistantHost,
   unpairAssistantHost,
   connectImportHost,
+  listPairedDevicesHost,
+  revokePairedDeviceHost,
   upgradeLocalAssistantHost,
   wakeLocalAssistantHost,
   getLocalAssistantStatusHost,
@@ -489,6 +491,119 @@ describe("connectImportHost", () => {
       ok: false,
       error:
         "Connecting a paired assistant is not supported by this app version",
+    });
+  });
+});
+
+describe("listPairedDevicesHost", () => {
+  const devices = [
+    {
+      hashedDeviceId: "hash-1",
+      platform: "ios",
+      issuedAt: 1,
+      expiresAt: 2,
+      lastUsedAt: null,
+    },
+  ];
+
+  test("web/dev host POSTs the assistant id to the devices middleware", async () => {
+    const fetchMock = mock(async () => ({
+      json: async () => ({ ok: true, devices }),
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await listPairedDevicesHost("a-1")).toEqual({ ok: true, devices });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("/assistant/__local/devices");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ assistantId: "a-1" });
+  });
+
+  test("web/dev host surfaces the host's structured refusal", async () => {
+    globalThis.fetch = mock(async () => ({
+      json: async () => ({ ok: false, error: "No such assistant" }),
+    })) as unknown as typeof fetch;
+
+    expect(await listPairedDevicesHost("a-1")).toEqual({
+      ok: false,
+      error: "No such assistant",
+    });
+  });
+
+  test("Electron host lists through the bridge and never touches fetch", async () => {
+    const listDevices = mock(async () => ({ ok: true, devices }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ listDevices });
+
+    expect(await listPairedDevicesHost("a-1")).toEqual({ ok: true, devices });
+    expect(listDevices).toHaveBeenCalledWith("a-1");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("older Electron shell without the listDevices channel reports an unsupported failure", async () => {
+    setElectronBridge({});
+
+    expect(await listPairedDevicesHost("a-1")).toEqual({
+      ok: false,
+      error: "Device management is not supported by this app version",
+    });
+  });
+});
+
+describe("revokePairedDeviceHost", () => {
+  test("web/dev host POSTs the assistant and hashed device ids to the devices-revoke middleware", async () => {
+    const fetchMock = mock(async () => ({ json: async () => ({ ok: true }) }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await revokePairedDeviceHost("a-1", "hash-1")).toEqual({ ok: true });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("/assistant/__local/devices-revoke");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      assistantId: "a-1",
+      hashedDeviceId: "hash-1",
+    });
+  });
+
+  test("web/dev host surfaces the host's structured refusal", async () => {
+    globalThis.fetch = mock(async () => ({
+      json: async () => ({ ok: false, error: "Device not found" }),
+    })) as unknown as typeof fetch;
+
+    expect(await revokePairedDeviceHost("a-1", "hash-1")).toEqual({
+      ok: false,
+      error: "Device not found",
+    });
+  });
+
+  test("Electron host revokes through the bridge and never touches fetch", async () => {
+    const revokeDevice = mock(async () => ({ ok: true }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ revokeDevice });
+
+    expect(await revokePairedDeviceHost("a-1", "hash-1")).toEqual({ ok: true });
+    expect(revokeDevice).toHaveBeenCalledWith("a-1", "hash-1");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("older Electron shell without the revokeDevice channel reports an unsupported failure", async () => {
+    setElectronBridge({});
+
+    expect(await revokePairedDeviceHost("a-1", "hash-1")).toEqual({
+      ok: false,
+      error: "Device management is not supported by this app version",
     });
   });
 });

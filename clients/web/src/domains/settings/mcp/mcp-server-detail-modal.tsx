@@ -6,15 +6,41 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 
+import { useTranslation } from "@/i18n";
+
 type AuthType = "none" | "bearer" | "api-key";
 
-const AUTH_OPTIONS: { value: AuthType; label: string }[] = [
-  { value: "none", label: "None" },
-  { value: "bearer", label: "Bearer Token" },
-  { value: "api-key", label: "API Key" },
-];
+type SettingsTranslate = ReturnType<
+  typeof useTranslation<"settings">
+>["t"];
+
+const AUTH_OPTION_VALUES: AuthType[] = ["none", "bearer", "api-key"];
 
 const RISK_LEVELS = ["low", "medium", "high"] as const;
+
+function authOptionLabel(authType: AuthType, t: SettingsTranslate): string {
+  switch (authType) {
+    case "none":
+      return t("mcpServerDetailModal.authNone");
+    case "bearer":
+      return t("mcpServerDetailModal.authBearerToken");
+    case "api-key":
+      return t("mcpServerDetailModal.authApiKey");
+  }
+}
+
+function riskLevelLabel(level: string, t: SettingsTranslate): string {
+  switch (level) {
+    case "low":
+      return t("mcpServerDetailModal.riskLow");
+    case "medium":
+      return t("mcpServerDetailModal.riskMedium");
+    case "high":
+      return t("mcpServerDetailModal.riskHigh");
+    default:
+      return level;
+  }
+}
 
 interface McpServerDetailModalProps {
   server: McpServerEntry | null;
@@ -39,6 +65,7 @@ export function McpServerDetailModal({
   onSave,
   isPending,
 }: McpServerDetailModalProps) {
+  const { t } = useTranslation("settings");
   const [riskLevel, setRiskLevel] = useState("medium");
   const [authType, setAuthType] = useState<AuthType>("none");
   const [bearerToken, setBearerToken] = useState("");
@@ -127,7 +154,10 @@ export function McpServerDetailModal({
         <Modal.Header icon={Cable}>
           <Modal.Title>{server.id}</Modal.Title>
           <Modal.Description>
-            {server.transport.type} transport &middot; {server.status}
+            {t("mcpServerDetailModal.description", {
+              transport: server.transport.type,
+              status: server.status,
+            })}
           </Modal.Description>
         </Modal.Header>
 
@@ -138,7 +168,7 @@ export function McpServerDetailModal({
                 className="text-body-small-default text-[var(--content-secondary)]"
                 htmlFor="mcp-risk"
               >
-                Default risk level
+                {t("mcpServerDetailModal.defaultRiskLevel")}
               </label>
               <select
                 id="mcp-risk"
@@ -148,7 +178,7 @@ export function McpServerDetailModal({
               >
                 {RISK_LEVELS.map((level) => (
                   <option key={level} value={level}>
-                    {level.charAt(0).toUpperCase() + level.slice(1)}
+                    {riskLevelLabel(level, t)}
                   </option>
                 ))}
               </select>
@@ -159,13 +189,13 @@ export function McpServerDetailModal({
                 {server.hasOAuth ? (
                   <div className="flex items-center gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2">
                     <span className="text-body-small-default text-[var(--content-secondary)]">
-                      Authentication
+                      {t("mcpServerDetailModal.authentication")}
                     </span>
                     <span className="rounded-full bg-[var(--surface-lift)] px-2 py-0.5 text-label-small-default text-[var(--content-default)]">
-                      OAuth
+                      {t("mcpServerDetailModal.oauthBadge")}
                     </span>
                     <span className="text-body-small-default text-[var(--content-tertiary)]">
-                      — managed via OAuth flow
+                      {t("mcpServerDetailModal.oauthManagedHint")}
                     </span>
                   </div>
                 ) : null}
@@ -176,7 +206,7 @@ export function McpServerDetailModal({
                       className="text-body-small-default text-[var(--content-secondary)]"
                       htmlFor="mcp-detail-auth"
                     >
-                      Authentication
+                      {t("mcpServerDetailModal.authentication")}
                     </label>
                     <select
                       id="mcp-detail-auth"
@@ -184,9 +214,9 @@ export function McpServerDetailModal({
                       onChange={(e) => setAuthType(e.target.value as AuthType)}
                       className="w-full rounded-md border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-medium-default text-[var(--content-default)] outline-none focus:ring-2 focus:ring-[var(--ring)]"
                     >
-                      {AUTH_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
+                      {AUTH_OPTION_VALUES.map((value) => (
+                        <option key={value} value={value}>
+                          {authOptionLabel(value, t)}
                         </option>
                       ))}
                     </select>
@@ -199,7 +229,7 @@ export function McpServerDetailModal({
                       className="text-body-small-default text-[var(--content-secondary)]"
                       htmlFor="mcp-detail-bearer"
                     >
-                      Bearer token
+                      {t("mcpServerDetailModal.bearerToken")}
                     </label>
                     <Input
                       id="mcp-detail-bearer"
@@ -208,8 +238,8 @@ export function McpServerDetailModal({
                       onChange={(e) => setBearerToken(e.target.value)}
                       placeholder={
                         server.hasStaticAuth && server.authType === "bearer"
-                          ? "••••••••  (leave blank to keep current)"
-                          : "tok_..."
+                          ? t("mcpServerDetailModal.bearerTokenPlaceholderKeep")
+                          : t("mcpServerDetailModal.bearerTokenPlaceholder")
                       }
                       fullWidth
                     />
@@ -223,14 +253,16 @@ export function McpServerDetailModal({
                         className="text-body-small-default text-[var(--content-secondary)]"
                         htmlFor="mcp-detail-apikey-header"
                       >
-                        Header name
+                        {t("mcpServerDetailModal.headerName")}
                       </label>
                       <Input
                         id="mcp-detail-apikey-header"
                         type="text"
                         value={apiKeyHeader}
                         onChange={(e) => setApiKeyHeader(e.target.value)}
-                        placeholder="X-API-Key"
+                        placeholder={t(
+                          "mcpServerDetailModal.headerNamePlaceholder",
+                        )}
                         fullWidth
                       />
                     </div>
@@ -239,7 +271,7 @@ export function McpServerDetailModal({
                         className="text-body-small-default text-[var(--content-secondary)]"
                         htmlFor="mcp-detail-apikey-value"
                       >
-                        API key
+                        {t("mcpServerDetailModal.apiKey")}
                       </label>
                       <Input
                         id="mcp-detail-apikey-value"
@@ -248,8 +280,8 @@ export function McpServerDetailModal({
                         onChange={(e) => setApiKeyValue(e.target.value)}
                         placeholder={
                           server.hasStaticAuth && server.authType === "api-key"
-                            ? "••••••••  (leave blank to keep current)"
-                            : "sk_..."
+                            ? t("mcpServerDetailModal.apiKeyPlaceholderKeep")
+                            : t("mcpServerDetailModal.apiKeyPlaceholder")
                         }
                         fullWidth
                       />
@@ -262,24 +294,27 @@ export function McpServerDetailModal({
             {toolsSummary && toolsSummary.tools.length > 0 ? (
               <div className="space-y-2">
                 <h3 className="text-body-medium-default text-[var(--content-default)]">
-                  Registered tools ({toolsSummary.toolCount})
+                  {t("mcpServerDetailModal.registeredToolsHeading", {
+                    count: toolsSummary.toolCount,
+                  })}
                 </h3>
                 <p className="text-body-small-default text-[var(--content-tertiary)]">
-                  Total estimated token overhead: ~
-                  {toolsSummary.estimatedTokens.toLocaleString()} tokens
+                  {t("mcpServerDetailModal.tokenOverhead", {
+                    count: toolsSummary.estimatedTokens.toLocaleString(),
+                  })}
                 </p>
                 <div className="max-h-64 overflow-y-auto rounded-lg border border-[var(--border-base)]">
                   <table className="w-full text-body-small-default">
                     <thead>
                       <tr className="border-b border-[var(--border-base)] bg-[var(--surface-base)]">
                         <th className="px-3 py-2 text-left font-medium text-[var(--content-secondary)]">
-                          Tool
+                          {t("mcpServerDetailModal.tableTool")}
                         </th>
                         <th className="px-3 py-2 text-left font-medium text-[var(--content-secondary)]">
-                          Description
+                          {t("mcpServerDetailModal.tableDescription")}
                         </th>
                         <th className="px-3 py-2 text-right font-medium text-[var(--content-secondary)]">
-                          Tokens
+                          {t("mcpServerDetailModal.tableTokens")}
                         </th>
                       </tr>
                     </thead>
@@ -293,10 +328,13 @@ export function McpServerDetailModal({
                             {tool.name}
                           </td>
                           <td className="max-w-xs truncate px-3 py-2 text-[var(--content-tertiary)]">
-                            {tool.description || "\u2014"}
+                            {tool.description ||
+                              t("mcpServerDetailModal.emptyDescription")}
                           </td>
                           <td className="px-3 py-2 text-right text-[var(--content-tertiary)]">
-                            ~{tool.estimatedTokens.toLocaleString()}
+                            {t("mcpServerDetailModal.toolEstimatedTokens", {
+                              count: tool.estimatedTokens.toLocaleString(),
+                            })}
                           </td>
                         </tr>
                       ))}
@@ -310,10 +348,12 @@ export function McpServerDetailModal({
 
         <Modal.Footer>
           <Button variant="ghost" onClick={handleClose} disabled={isPending}>
-            Cancel
+            {t("mcpServerDetailModal.cancel")}
           </Button>
           <Button variant="primary" onClick={handleSave} disabled={isPending}>
-            {isPending ? "Saving..." : "Save"}
+            {isPending
+              ? t("mcpServerDetailModal.saving")
+              : t("mcpServerDetailModal.save")}
           </Button>
         </Modal.Footer>
       </Modal.Content>

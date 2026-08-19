@@ -20,6 +20,8 @@ import {
   isActiveAssistant,
   isPairedLockfileEntry,
   PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
+  runDevicesList,
+  runDevicesRevoke,
   runHatch,
   runRetire,
   runSleep,
@@ -103,6 +105,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       );
       server.middlewares.use(sleepMiddleware(baseDir));
       server.middlewares.use(wakeMiddleware(baseDir));
+      server.middlewares.use(devicesMiddleware(baseDir));
       const upgradingLocalAssistantIds = new Set<string>();
       server.middlewares.use(
         upgradeMiddleware(
@@ -712,6 +715,80 @@ function wakeMiddleware(baseDir: string): Connect.NextHandleFunction {
           );
         },
       );
+    });
+  };
+}
+
+// Paired-device management via the CLI (`vellum devices … --json`). POST-only
+// (the renderer's postLocalCommand always POSTs); run-helper results respond
+// 200 with `ok` discriminating success so all hosts share one wire shape.
+function devicesMiddleware(baseDir: string): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    const isRevoke =
+      req.url === "/assistant/__local/devices-revoke" ||
+      req.url === "/__local/devices-revoke";
+    if (
+      !isRevoke &&
+      req.url !== "/assistant/__local/devices" &&
+      req.url !== "/__local/devices"
+    ) {
+      return next();
+    }
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    void readJsonBody(req).then((body) => {
+      if (!body) {
+        respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
+        return;
+      }
+
+      const assistantId = body.assistantId;
+      if (typeof assistantId !== "string" || !assistantId) {
+        respondJson(res, 400, { ok: false, error: "Missing assistantId" });
+        return;
+      }
+
+      let revokeHash: string | null = null;
+      if (isRevoke) {
+        const hashedDeviceId = body.hashedDeviceId;
+        if (typeof hashedDeviceId !== "string" || !hashedDeviceId) {
+          respondJson(res, 400, { ok: false, error: "Missing hashedDeviceId" });
+          return;
+        }
+        revokeHash = hashedDeviceId;
+      }
+
+      let invocation: CliInvocation;
+      try {
+        invocation = resolveDevCliInvocation(baseDir, import.meta.url);
+      } catch (err) {
+        respondJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
+
+      if (revokeHash !== null) {
+        void runDevicesRevoke(invocation, assistantId, revokeHash).then(
+          (result) => {
+            respondJson(res, 200, result);
+          },
+        );
+        return;
+      }
+      void runDevicesList(invocation, assistantId).then((result) => {
+        respondJson(res, 200, result);
+      });
     });
   };
 }

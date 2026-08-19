@@ -16,6 +16,7 @@ import {
   listCredentialMetadata,
 } from "./metadata-store.js";
 import type { CredentialInjectionTemplate } from "./policy-types.js";
+import { parseServiceFieldRef } from "./ref-parse.js";
 
 export interface ResolvedCredential {
   credentialId: string;
@@ -95,18 +96,11 @@ export function resolveCredentialRef(
   }
 
   // Try as service/field
-  const slashIndex = ref.indexOf("/");
-  if (slashIndex <= 0 || slashIndex >= ref.length - 1) {
+  const parsed = parseServiceFieldRef(ref);
+  if (!parsed) {
     return undefined;
   }
-  // Reject refs with more than one slash (e.g. "fal/api/key")
-  if (ref.indexOf("/", slashIndex + 1) !== -1) {
-    return undefined;
-  }
-
-  const service = ref.slice(0, slashIndex);
-  const field = ref.slice(slashIndex + 1);
-  return resolveByServiceField(service, field);
+  return resolveByServiceField(parsed.service, parsed.field);
 }
 
 /**

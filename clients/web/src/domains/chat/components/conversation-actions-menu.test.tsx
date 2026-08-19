@@ -293,12 +293,14 @@ describe("renderConversationMenuItems", () => {
   test("renders Copy conversation ID in both variants when wired", () => {
     for (const variant of ["sidebar", "header"] as const) {
       const html = renderToStaticMarkup(
-        <>{renderConversationMenuItems({
-          Primitive: Menu as unknown as ConversationMenuPrimitive,
-          t,
-          variant,
-          onCopyConversationId: () => {},
-        })}</>,
+        <>
+          {renderConversationMenuItems({
+            Primitive: Menu as unknown as ConversationMenuPrimitive,
+            t,
+            variant,
+            onCopyConversationId: () => {},
+          })}
+        </>,
       );
       expect(html).toContain("Copy conversation ID");
     }
@@ -306,11 +308,13 @@ describe("renderConversationMenuItems", () => {
 
   test("omits Copy conversation ID when not wired", () => {
     const html = renderToStaticMarkup(
-      <>{renderConversationMenuItems({
-        Primitive: Menu as unknown as ConversationMenuPrimitive,
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
-        onRename: () => {},
-      })}</>,
+          onRename: () => {},
+        })}
+      </>,
     );
     expect(html).not.toContain("Copy conversation ID");
   });
@@ -475,6 +479,37 @@ describe("renderConversationMenuItems — mark read/unread exclusivity", () => {
     );
     expect(html).toContain("Mark as read");
     expect(html).not.toContain("Mark as unread");
+  });
+});
+
+describe("renderConversationMenuItems: read-state iconography", () => {
+  // The glyph names the conversation's current state: a conversation offering
+  // "Mark as read" is unread, so it shows the sealed envelope. `lucide-mail`
+  // is a prefix of `lucide-mail-open`, so that case rules the open glyph out
+  // explicitly.
+  function menuHtml(props: Parameters<typeof renderConversationMenuItems>[0]) {
+    return renderToStaticMarkup(<>{renderConversationMenuItems(props)}</>);
+  }
+
+  test("an unread conversation shows the sealed envelope", () => {
+    const html = menuHtml({
+      Primitive: Menu as unknown as ConversationMenuPrimitive,
+      t,
+      onMarkRead: () => {},
+    });
+    expect(html).toContain("Mark as read");
+    expect(html).toContain('lucide-mail"');
+    expect(html).not.toContain("lucide-mail-open");
+  });
+
+  test("a read conversation shows the opened envelope", () => {
+    const html = menuHtml({
+      Primitive: Menu as unknown as ConversationMenuPrimitive,
+      t,
+      onMarkUnread: () => {},
+    });
+    expect(html).toContain("Mark as unread");
+    expect(html).toContain("lucide-mail-open");
   });
 });
 

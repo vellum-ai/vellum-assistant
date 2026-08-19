@@ -43,6 +43,10 @@ describe("adapter factory", () => {
       useNativeWebSearch: false,
     });
     expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
+    expect(
+      (adapter as unknown as { omitToolChoiceWhenReasoning: boolean })
+        .omitToolChoiceWhenReasoning,
+    ).toBe(true);
   });
 
   test("openai-compatible round-trips thinking as reasoning_content", () => {

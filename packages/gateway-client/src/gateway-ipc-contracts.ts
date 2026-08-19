@@ -63,11 +63,16 @@ export type TrustRulesListIpcParams = z.infer<
   typeof TrustRulesListIpcParamsSchema
 >;
 
+/** The three risk levels a trust rule can set and a registry default can carry. */
+export const RISK_LEVEL_VALUES = ["low", "medium", "high"] as const;
+export type RiskLevelValue = (typeof RISK_LEVEL_VALUES)[number];
+export const RiskLevelValueSchema = z.enum(RISK_LEVEL_VALUES);
+
 export const TrustRuleSchema = z.object({
   id: z.string(),
   tool: z.string(),
   pattern: z.string(),
-  risk: z.enum(["low", "medium", "high"]),
+  risk: RiskLevelValueSchema,
   description: z.string(),
   origin: z.enum(["default", "user_defined"]),
   userModified: z.boolean(),
@@ -340,4 +345,164 @@ export const GetGuardianContactIpcResponseSchema = z.object({
 
 export type GetGuardianContactIpcResponse = z.infer<
   typeof GetGuardianContactIpcResponseSchema
+>;
+
+// ── classify_risk ────────────────────────────────────────────────────────────
+// Risk classification is gateway-owned; the assistant sends one request per
+// tool invocation and reads the whole answer back. The gateway validates the
+// request against `ClassifyRiskIpcParamsSchema`; the assistant validates the
+// response against `ClassifyRiskIpcResponseSchema` and fails closed on a
+// mismatch.
+
+/** A classified risk; `unknown` is the classifier's own "not in registry". */
+export const ClassifiedRiskSchema = z.enum([...RISK_LEVEL_VALUES, "unknown"]);
+export type ClassifiedRisk = z.infer<typeof ClassifiedRiskSchema>;
+
+/** How a risk was determined: a user trust rule, the registry, or neither. */
+export const RiskMatchTypeSchema = z.enum(["user_rule", "registry", "unknown"]);
+export type RiskMatchType = z.infer<typeof RiskMatchTypeSchema>;
+
+/**
+ * File classifier context the assistant pre-resolves (it owns the workspace
+ * filesystem) so the gateway can classify file tools without assistant path
+ * helpers. Directories are canonicalized (symlinks resolved) by the sender.
+ */
+export const ClassifyRiskFileContextSchema = z.object({
+  protectedDir: z.string(),
+  deprecatedDir: z.string(),
+  hooksDir: z.string(),
+  pluginsDir: z.string().optional(),
+  toolsDir: z.string().optional(),
+  routesDir: z.string().optional(),
+  workflowsDir: z.string().optional(),
+  /** Monitoring data dir: the sentinel lives here, writes are code-injection risk. */
+  monitoringDir: z.string().optional(),
+  actorTokenSigningKeyPath: z.string(),
+  skillSourceDirs: z.array(z.string()),
+});
+export type ClassifyRiskFileContext = z.infer<
+  typeof ClassifyRiskFileContextSchema
+>;
+
+/** Skill metadata the assistant pre-resolves for skill-load classification. */
+export const ClassifyRiskSkillMetadataSchema = z.object({
+  skillId: z.string(),
+  selector: z.string(),
+  versionHash: z.string(),
+  transitiveHash: z.string().optional(),
+  hasInlineExpansions: z.boolean(),
+  isDynamic: z.boolean(),
+});
+export type ClassifyRiskSkillMetadata = z.infer<
+  typeof ClassifyRiskSkillMetadataSchema
+>;
+
+export const ClassifyRiskIpcParamsSchema = z.object({
+  tool: z.string().min(1),
+  command: z.string().optional(),
+  url: z.string().optional(),
+  path: z.string().optional(),
+  /**
+   * The file tool's target path with symlinks resolved by the assistant. The
+   * gateway's security escalation prefix checks use it so a symlink cannot
+   * mask a write into a protected directory; falls back to lexical resolution
+   * of `path` when absent.
+   */
+  resolvedPath: z.string().optional(),
+  /**
+   * The sandbox file tool's working directory with symlinks resolved. Paired
+   * with `resolvedPath` for the workspace-boundary check so a symlinked
+   * workspace prefix (macOS `/var` → `/private/var`) does not read as an
+   * escape. Absent for host tools.
+   */
+  resolvedWorkingDir: z.string().optional(),
+  skill: z.string().optional(),
+  mode: z.string().optional(),
+  script: z.string().optional(),
+  workingDir: z.string().optional(),
+  allowPrivateNetwork: z.boolean().optional(),
+  networkMode: z.string().optional(),
+  isContainerized: z.boolean().optional(),
+  workspaceRoot: z.string().optional(),
+  fileContext: ClassifyRiskFileContextSchema.optional(),
+  skillMetadata: ClassifyRiskSkillMetadataSchema.optional(),
+  /**
+   * The tool's registry default risk, for tools with no dedicated classifier.
+   * The gateway answers with it (`matchType: "registry"`); absent, the tool is
+   * unknown and answers `medium`.
+   */
+  registryDefaultRisk: RiskLevelValueSchema.optional(),
+  /** Number of credential references attached to this tool invocation. */
+  credentialRefCount: z.number().int().nonnegative().optional(),
+  /**
+   * For `host_file_transfer` to_sandbox: the workspace-side destination path
+   * and the sandbox working directory it resolves against, so a transfer that
+   * lands an executable file in a code-injection sink (tools, routes, hooks,
+   * plugins, skills) escalates even though `path` carries the host-side source.
+   */
+  transferSandboxDestPath: z.string().optional(),
+  transferSandboxWorkingDir: z.string().optional(),
+  /** `transferSandboxDestPath` with symlinks resolved by the assistant. */
+  resolvedTransferDestPath: z.string().optional(),
+});
+export type ClassifyRiskIpcParams = z.infer<typeof ClassifyRiskIpcParamsSchema>;
+
+/** Regex ladder shown when the user saves a classification (display only). */
+export const RiskPatternScopeOptionSchema = z.object({
+  pattern: z.string(),
+  label: z.string(),
+});
+export type RiskPatternScopeOption = z.infer<
+  typeof RiskPatternScopeOptionSchema
+>;
+
+/** Minimatch ladder for the "always allow" prompt option (what a rule matches). */
+export const RiskAllowlistOptionSchema = z.object({
+  label: z.string(),
+  description: z.string(),
+  pattern: z.string(),
+});
+export type RiskAllowlistOption = z.infer<typeof RiskAllowlistOptionSchema>;
+
+/** Directory ladder for filesystem operations; `scope` is a path glob or `everywhere`. */
+export const RiskDirectoryScopeOptionSchema = z.object({
+  scope: z.string(),
+  label: z.string(),
+});
+export type RiskDirectoryScopeOption = z.infer<
+  typeof RiskDirectoryScopeOptionSchema
+>;
+
+export const RiskDangerousPatternSchema = z.object({
+  type: z.string(),
+  description: z.string(),
+  text: z.string(),
+});
+export type RiskDangerousPattern = z.infer<typeof RiskDangerousPatternSchema>;
+
+export const ClassifyRiskIpcResponseSchema = z.object({
+  risk: ClassifiedRiskSchema,
+  reason: z.string(),
+  matchType: RiskMatchTypeSchema,
+  scopeOptions: z.array(RiskPatternScopeOptionSchema),
+  allowlistOptions: z.array(RiskAllowlistOptionSchema).optional(),
+  actionKeys: z.array(z.string()).optional(),
+  commandCandidates: z.array(z.string()).optional(),
+  dangerousPatterns: z.array(RiskDangerousPatternSchema).optional(),
+  opaqueConstructs: z.boolean().optional(),
+  isComplexSyntax: z.boolean().optional(),
+  sandboxAutoApprove: z.boolean().optional(),
+  /**
+   * Lexically-resolved path arguments from sandbox-auto-approve-eligible bash
+   * segments. The gateway has no filesystem access; the assistant resolves
+   * these through symlinks and revokes `sandboxAutoApprove` if any escapes
+   * the workspace.
+   */
+  sandboxPathArgs: z.array(z.string()).optional(),
+  directoryScopeOptions: z.array(RiskDirectoryScopeOptionSchema).optional(),
+  /** Fully resolved filesystem path arguments, for directory-scoped rule matching. */
+  resolvedPaths: z.array(z.string()).optional(),
+});
+export type ClassifyRiskIpcResponse = z.infer<
+  typeof ClassifyRiskIpcResponseSchema
 >;

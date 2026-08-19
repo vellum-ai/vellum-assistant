@@ -350,17 +350,17 @@ export interface VoiceActivityStart extends VoiceActivityContent {
 }
 
 /**
- * What the surface's own renderer receives: everything the session sent, plus
- * `startedAt`, which main stamps.
+ * What the surface's own renderer receives, which is exactly what the session
+ * sent.
  *
- * `startedAt` is main's rather than the sender's because the surface is a
- * separate renderer that can load, reload, or be recreated mid-session, and an
- * elapsed clock anchored in either renderer would restart when that happened.
+ * The same shape as {@link VoiceActivityStart} under a name that says which end
+ * is holding it: a `start` is an event a renderer publishes, and this is the
+ * session main keeps and pushes down. Main once added `startedAt` here to
+ * anchor an elapsed clock outside a renderer that can reload mid-session, and
+ * dropped it with the clock (JARVIS-1546): a timestamp nothing reads is a
+ * timestamp that quietly rots.
  */
-export interface VoiceActivityState extends VoiceActivityStart {
-  /** Epoch ms when main first saw this session. */
-  startedAt: number;
-}
+export type VoiceActivityState = VoiceActivityStart;
 
 /**
  * What a control on the session surface asks of the session.
@@ -607,6 +607,85 @@ export const COMPANION_GROWTHS = ["right", "left"] as const;
 export type CompanionGrowth = (typeof COMPANION_GROWTHS)[number];
 
 /**
+ * Which way the typing card grows out of the composer row, which holds the line
+ * the pill occupied.
+ *
+ * The vertical half of {@link CompanionGrowth}, decided the same way and for a
+ * sharper reason. macOS refuses to place a window frame above the top of the
+ * work area, so the canvas cannot hang off the top of the display the way it
+ * hangs off the bottom. With the avatar pinned to the canvas's centre the
+ * avatar could therefore never get closer to the top of the screen than half
+ * the canvas, which fences it out of the top of the display entirely.
+ *
+ * So the avatar's offset inside the canvas is not fixed: `up` puts it low in
+ * the canvas with the card's height reserved above it, `down` puts it high with
+ * that height reserved below. Main picks from the room the display actually
+ * has, and the avatar still does not move: the canvas moves around it.
+ *
+ * `up` is the shape the surface is designed around, since it lives by the Dock
+ * where a card growing downward would grow off the bottom of the screen.
+ */
+export const COMPANION_CARD_GROWTHS = ["up", "down"] as const;
+
+export type CompanionCardGrowth = (typeof COMPANION_CARD_GROWTHS)[number];
+
+/**
+ * How big the companion is drawn, as a named step rather than a number.
+ *
+ * Named rather than free, because the avatar's box is not a style: it is the
+ * geometry both sides of the bridge agree on, and everything derives from it:
+ * the pill's reach, the card's height, and the canvas sized to hold the largest
+ * state. A continuous scale would be a layout nobody had ever looked at; four
+ * steps are four layouts, each checkable in Storybook.
+ *
+ * `large` is the default. `small` is the size the surface's layout is authored
+ * at, which every other step scales from.
+ */
+export const COMPANION_SIZES = ["small", "medium", "large", "huge"] as const;
+
+export type CompanionSize = (typeof COMPANION_SIZES)[number];
+
+/** The avatar's box in points, per named size. The scale is this over `small`. */
+export const COMPANION_SIZE_BOXES: Record<CompanionSize, number> = {
+  small: 44,
+  medium: 66,
+  large: 88,
+  huge: 110,
+};
+
+/** What the surface is drawn at when nothing has been chosen. */
+export const DEFAULT_COMPANION_SIZE: CompanionSize = "large";
+
+/**
+ * The avatar's box the companion's layout is authored at, and the size every
+ * other length in that layout is stated in.
+ *
+ * The scale is the box in {@link COMPANION_SIZE_BOXES} over this one. The
+ * renderer draws at this size and scales the whole surface by that factor, so
+ * the two processes never hold two sets of dimensions.
+ */
+export const COMPANION_BASE_AVATAR_BOX = COMPANION_SIZE_BOXES.small;
+
+/** Room the pill's shadow paints outside its box, at the base size. */
+export const COMPANION_BASE_CANVAS_PAD = 24;
+
+/**
+ * How far the avatar's centre sits from the canvas edge the card does *not*
+ * grow into: its own half-box, plus the shadow's room.
+ *
+ * **The cross-process invariant.** Main places the window by it and the
+ * renderer anchors the avatar by it, so the two agreeing is what makes the
+ * avatar appear where the window was put. Derived once here rather than on each
+ * side, because two copies of this formula drifting is the avatar drawn
+ * somewhere other than where main believes it is.
+ *
+ * The far edge is however far away the canvas is, which neither side has to
+ * state: `100%` names the canvas in the renderer, and main sizes it.
+ */
+export const COMPANION_NEAR_EDGE =
+  COMPANION_BASE_AVATAR_BOX / 2 + COMPANION_BASE_CANVAS_PAD;
+
+/**
  * The assistant's character, as the three trait ids it is composed from.
  *
  * Structurally the fields of the web layer's `CharacterTraits` that
@@ -655,11 +734,41 @@ export interface CompanionContext {
   assistantName: string;
   /** The conversation's tail, most recent last. */
   turns: CompanionTurn[];
+  /**
+   * Whether a turn is in flight right now.
+   *
+   * The surface has the tail of the conversation but no idea whether it is
+   * still being written: the last turn on a finished exchange and the last turn
+   * on one the assistant is still working through are the same rows. This is
+   * the difference, and it is what the surface draws its working ring from.
+   *
+   * Published rather than inferred for the same reason the turns are. The turn
+   * lives in the window that owns the conversation, and a surface guessing from
+   * the shape of the tail would be wrong in both directions: a user message with
+   * no reply yet is not proof of a live turn, and an assistant message already
+   * on screen is no proof the turn behind it has ended.
+   */
+  working: boolean;
 }
 
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
   growth: CompanionGrowth;
+  /**
+   * Which way the typing card unfurls, and with it where the avatar sits inside
+   * the canvas. See {@link CompanionCardGrowth}: main owns the window position,
+   * so main is the only side that can decide this.
+   */
+  cardGrowth: CompanionCardGrowth;
+  /**
+   * The avatar's box in points, which is the whole of the surface's scale.
+   *
+   * One number rather than the named size, because the name is a lookup both
+   * sides would then have to hold the same copy of. Everything the surface
+   * draws derives from this, so the renderer scales itself by this over the
+   * size the layout is authored at. See {@link COMPANION_SIZE_BOXES}.
+   */
+  avatarBox: number;
   /**
    * The assistant's display name, for the composer's placeholder.
    *
@@ -678,6 +787,14 @@ export interface CompanionSurfaceState {
    * the app at all.
    */
   turns: CompanionTurn[];
+  /**
+   * Whether a turn is in flight, as the window holding it last reported.
+   *
+   * What the surface turns into a signal a glance can read, so the assistant
+   * being busy does not have to be inferred from the words on the card. See
+   * {@link CompanionContext.working}.
+   */
+  working: boolean;
   /**
    * The character to render live, or `undefined` when there is none to
    * compose. See {@link CompanionCharacter}; `avatarBase64` is the fallback.

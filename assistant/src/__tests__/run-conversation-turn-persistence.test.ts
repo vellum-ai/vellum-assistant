@@ -110,9 +110,12 @@ function holdTheTurnOpen(): void {
 // gate it never opened.
 afterEach(() => releaseGate?.());
 
+const providerCalls: { tools?: { name: string }[] }[] = [];
+
 const provider: Provider = {
   name: "scripted",
   async sendMessage(messages, options): Promise<ProviderResponse> {
+    providerCalls.push({ tools: options?.tools });
     await gate;
     return scriptedProvider.sendMessage(messages, options);
   },
@@ -169,6 +172,7 @@ function resetDb(): void {
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM conversations");
   broadcasts.length = 0;
+  providerCalls.length = 0;
 }
 
 describe("runConversationTurn persistence", () => {
@@ -399,12 +403,32 @@ describe("runConversationTurn channel binding", () => {
     expect(metadataOf(rows[0])).toMatchObject({
       userMessageChannel: "plugin",
       assistantMessageChannel: "plugin",
+      userMessageInterface: "plugin",
+      assistantMessageInterface: "plugin",
     });
     expect(rows[1].role).toBe("assistant");
     expect(metadataOf(rows[1])).toMatchObject({
       userMessageChannel: "plugin",
       assistantMessageChannel: "plugin",
+      userMessageInterface: "plugin",
+      assistantMessageInterface: "plugin",
     });
+  });
+
+  test("puts core tools on the wire for a plugin-channel turn", async () => {
+    // Plugin-driven iMessage turns are non-interactive, so host tools stay
+    // off, but sandbox tools (bash, web_search, ...) have to remain on the
+    // request. Missing them is what makes the model dump `to=bash code:`
+    // into the SMS as prose. The create path initializes the registry
+    // before constructing the Conversation that snapshots it.
+    await runConversationTurn({
+      channel: CHANNEL,
+      content: [{ type: "text", text: "hello" }],
+    });
+
+    const names = providerCalls[0]?.tools?.map((tool) => tool.name) ?? [];
+    expect(names.length).toBeGreaterThan(0);
+    expect(names).toContain("bash");
   });
 
   test("a queued turn carries its own channel rather than inheriting one", async () => {
@@ -441,6 +465,8 @@ describe("runConversationTurn channel binding", () => {
     expect(metadataOf(userRows(conversationId)[1])).toMatchObject({
       userMessageChannel: "plugin",
       assistantMessageChannel: "plugin",
+      userMessageInterface: "plugin",
+      assistantMessageInterface: "plugin",
     });
   }, 20_000);
 
@@ -466,7 +492,7 @@ describe("runConversationTurn channel binding", () => {
       userMessageChannel: "vellum",
       assistantMessageChannel: "vellum",
     });
-  });
+  }, 20_000);
 
   test("keeps a known sender when a later turn omits it", async () => {
     // A plugin that knows only the chat coordinates this time is silent about

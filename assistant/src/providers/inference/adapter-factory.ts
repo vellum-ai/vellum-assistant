@@ -145,6 +145,9 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       // Replay thinking as `reasoning_content` so DeepSeek-compatible
       // thinking-mode endpoints accept follow-up requests that include tools.
       assistantReasoningField: "reasoning_content",
+      // Custom OpenAI-compatible endpoints may front strict reasoning
+      // models (DeepSeek thinking) that 400 on any explicit tool_choice.
+      omitToolChoiceWhenReasoning: true,
       ...(baseURL ? { baseURL } : {}),
     }),
   minimax: ({ apiKey, model, streamTimeoutMs }) =>
