@@ -34,6 +34,11 @@ import {
 import { conversationsByIdInferenceprofilePut } from "@/generated/daemon/sdk.gen";
 import { useComposerCompact } from "@/domains/chat/components/chat-composer/composer-compact";
 import { preventPressFocusTransfer } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
+import {
+  saveComposerPillAccessPreset,
+  saveComposerPillProfileLabel,
+  useComposerPillSnapshot,
+} from "@/domains/chat/utils/composer-pill-storage";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import {
@@ -160,6 +165,17 @@ export function ComposerSettingsMenu({
     conversationProfileOverride ?? globalActiveProfile;
   const profilesLoaded = configQuery.isSuccess;
 
+  // What the pills displayed the last time these fetches settled, read during
+  // render so a relaunch paints both of them in the first frame. Display only:
+  // it never feeds a mutation. See `composer-pill-storage`.
+  const pillSnapshot = useComposerPillSnapshot(assistantId);
+  const seededPreset = useMemo(
+    () =>
+      THRESHOLD_PRESETS.find((p) => p.id === pillSnapshot.accessPresetId) ??
+      null,
+    [pillSnapshot.accessPresetId],
+  );
+
   const serverGlobalInteractive =
     globalThresholdsQuery.data?.interactive ?? null;
   const serverThresholdOverride = conversationThresholdQuery.data ?? null;
@@ -170,8 +186,10 @@ export function ComposerSettingsMenu({
     if (serverGlobalInteractive !== null) {
       return presetFromThreshold(serverGlobalInteractive);
     }
-    return THRESHOLD_PRESETS[1]!;
-  }, [serverThresholdOverride, serverGlobalInteractive]);
+    // `THRESHOLD_PRESETS[1]` is stricter than the server's own no-row default,
+    // so it is only ever a placeholder for a pill the gate below keeps hidden.
+    return seededPreset ?? THRESHOLD_PRESETS[1]!;
+  }, [serverThresholdOverride, serverGlobalInteractive, seededPreset]);
   const serverIsOverride = serverThresholdOverride !== null;
 
   // ---------------------------------------------------------------------------
@@ -499,6 +517,40 @@ export function ComposerSettingsMenu({
     return entry ? profilePickerLabel(entry) : null;
   }, [orderedProfileEntries, profileActiveKey]);
 
+  // The label the trigger renders. Until the config fetch settles it stands in
+  // with the last launch's, which is the assistant's own default profile and so
+  // right for every conversation that doesn't override it; the rest reconcile
+  // silently when the fetch lands. Once config has answered, its label is the
+  // only one, so a profile that was renamed or removed can't linger.
+  const displayProfileLabel =
+    activeProfileLabel ?? (profilesLoaded ? null : pillSnapshot.profileLabel);
+
+  // Record what each pill settled on for the next launch. Keyed off the global
+  // values, not the per-conversation effective ones, so a conversation-scoped
+  // override can't become the seed every other conversation opens with.
+  useEffect(() => {
+    if (serverGlobalInteractive === null) {
+      return;
+    }
+    saveComposerPillAccessPreset(
+      assistantId,
+      presetFromThreshold(serverGlobalInteractive).id,
+    );
+  }, [assistantId, serverGlobalInteractive]);
+
+  useEffect(() => {
+    if (!globalActiveProfile) {
+      return;
+    }
+    const entry = orderedProfileEntries.find(
+      (e) => e.name === globalActiveProfile,
+    );
+    if (!entry) {
+      return;
+    }
+    saveComposerPillProfileLabel(assistantId, profilePickerLabel(entry));
+  }, [assistantId, globalActiveProfile, orderedProfileEntries]);
+
   // Quick-add is owned by the top-level ProfileQuickAddProvider (chat must not
   // import settings directly — see local/no-cross-domain-imports). The provider
   // renders the ProfileEditorModal in create mode, persists the new profile,
@@ -575,9 +627,13 @@ export function ComposerSettingsMenu({
 
   // Access-level segment: gate on a settled fetch (or an active override) so the
   // trigger never flashes the `THRESHOLD_PRESETS[1]` fallback before the real
-  // value loads.
+  // value loads. A stored preset from a previous launch counts as settled for
+  // display, since it is a value the server actually returned.
   const AccessIcon = activePreset.icon;
-  const accessSettled = globalThresholdsQuery.isSuccess || serverIsOverride;
+  const accessSettled =
+    globalThresholdsQuery.isSuccess ||
+    serverIsOverride ||
+    seededPreset !== null;
   const showAccess = accessSettled && segments !== "profile";
   const showProfile = segments !== "access";
 
@@ -701,48 +757,38 @@ export function ComposerSettingsMenu({
   // `accessLabel`: an aria-label overrides the visible text, so it has to carry
   // the selection a labelled trigger shows, or the name says nothing about it
   // and voice control can't reach the control by what it reads.
-  const profileLabel = activeProfileLabel
-    ? `Model profile: ${activeProfileLabel}`
+  const profileLabel = displayProfileLabel
+    ? `Model profile: ${displayProfileLabel}`
     : "Model profile";
   // min-w-0 + truncate keeps a long label from pushing the composer's action
   // buttons off-screen on narrow viewports. leading-snug: text-body-small-default
   // is line-height:1, so truncate clips descenders (e.g. the "g" in profile
-  // names).
+  // names). The fade carries a first-run label into a trigger that started
+  // without one, so it arrives rather than pops.
   const profileLabelText = (
-    <span className="max-w-[10rem] truncate leading-snug">
-      {activeProfileLabel}
+    <span className="max-w-[10rem] animate-[fadeIn_var(--anim-fast)_var(--anim-ease-out)] truncate leading-snug motion-reduce:animate-none">
+      {displayProfileLabel}
     </span>
   );
+  // One Button across both states so the label arriving is a change inside a
+  // live element rather than a swap of one element for another: the fade below
+  // only plays because the pill it lands in is the same node.
   const profileTrigger = isMobile ? (
-    activeProfileLabel ? (
-      <Button
-        variant="ghost"
-        aria-label={profileLabel}
-        title={profileLabel}
-        className={pillClass}
-        // Match the access pill: hold the composer's focus for the sheet's
-        // click, and only on the touch presentation that opens that way.
-        onMouseDown={isTouchMobile ? preventPressFocusTransfer : undefined}
-      >
-        <span aria-hidden="true" className={pillIconClass}>
-          <Sparkles />
-        </span>
-        {profileLabelText}
-      </Button>
-    ) : (
-      <Button
-        variant="ghost"
-        aria-label={profileLabel}
-        title={profileLabel}
-        className={pillIconOnlyClass}
-        onMouseDown={isTouchMobile ? preventPressFocusTransfer : undefined}
-      >
-        <span aria-hidden="true" className={pillIconClass}>
-          <SlidersHorizontal />
-        </span>
-      </Button>
-    )
-  ) : activeProfileLabel ? (
+    <Button
+      variant="ghost"
+      aria-label={profileLabel}
+      title={profileLabel}
+      className={displayProfileLabel ? pillClass : pillIconOnlyClass}
+      // Match the access pill: hold the composer's focus for the sheet's
+      // click, and only on the touch presentation that opens that way.
+      onMouseDown={isTouchMobile ? preventPressFocusTransfer : undefined}
+    >
+      <span aria-hidden="true" className={pillIconClass}>
+        {displayProfileLabel ? <Sparkles /> : <SlidersHorizontal />}
+      </span>
+      {displayProfileLabel ? profileLabelText : null}
+    </Button>
+  ) : displayProfileLabel ? (
     <Button
       variant="ghost"
       leftIcon={<Sparkles className="h-3.5 w-3.5 shrink-0" />}
@@ -847,7 +893,7 @@ export function ComposerSettingsMenu({
     // the profile section below it is reachable either way.
     const activeSummary = [
       accessSettled ? activePreset.label : null,
-      activeProfileLabel,
+      displayProfileLabel,
     ]
       .filter(Boolean)
       .join(" · ");

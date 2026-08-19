@@ -55,8 +55,15 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 }));
 
 // --- threshold-api (mount-time access-level fetches) -------------------------
+// A `mock()` rather than a plain stub so the boot-seed cases can hold the
+// global-thresholds fetch open and observe what the pill renders meanwhile.
+const getGlobalThresholdsMock = mock(
+  async (_assistantId: string): Promise<{ interactive: unknown }> => ({
+    interactive: 50,
+  }),
+);
 mock.module("@/lib/threshold-api", () => ({
-  getGlobalThresholds: async () => ({ interactive: 50 }),
+  getGlobalThresholds: getGlobalThresholdsMock,
   getConversationOverride: async () => null,
   setConversationOverride: async () => {},
   deleteConversationOverride: async () => {},
@@ -272,6 +279,32 @@ import { ComposerSettingsMenu } from "@/domains/chat/components/composer-setting
 // the pending-profile stash from it.
 import { useConversationStore } from "@/stores/conversation-store";
 import { ApiError } from "@/utils/api-errors";
+import { clearUserScopedOverrides } from "@/utils/typed-storage";
+
+/** The key the composer seeds its pills from on the next launch. */
+const PILL_SNAPSHOT_KEY = "vellum:composerPills:assistant-1";
+
+function seedPillSnapshot(snapshot: {
+  accessPresetId?: string;
+  profileLabel?: string;
+}) {
+  localStorage.setItem(PILL_SNAPSHOT_KEY, JSON.stringify(snapshot));
+}
+
+/** Hold the gateway's threshold fetch open for the length of a test. */
+function hangGlobalThresholds() {
+  getGlobalThresholdsMock.mockImplementation(() => new Promise(() => {}));
+}
+
+/**
+ * Let the fetches a first-frame assertion deliberately raced settle inside
+ * `act`, so their state updates land before the test tears the tree down.
+ */
+async function settleMountFetches() {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
 
 /** The config payload most cases mount against: one profile, "Smart". */
 const SMART_CONFIG = {
@@ -343,12 +376,19 @@ beforeEach(() => {
   conversationsByIdGetMock.mockClear();
   toastSuccess.mockClear();
   toastError.mockClear();
+  getGlobalThresholdsMock.mockImplementation(async () => ({ interactive: 50 }));
   useConversationStore.getState().reset();
+  // The menu writes the settled pill labels here for the next launch, so a
+  // mounted test leaves a seed behind that the next one would boot from.
+  localStorage.clear();
+  clearUserScopedOverrides();
 });
 
 afterEach(() => {
   cleanup();
   useConversationStore.getState().reset();
+  localStorage.clear();
+  clearUserScopedOverrides();
 });
 
 describe("Model Profile quick-add", () => {
@@ -915,6 +955,174 @@ describe("mobile pill triggers", () => {
   });
 });
 
+describe("pills seeded from the last launch", () => {
+  beforeEach(() => {
+    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
+    configGetMock.mockImplementation(async () => ({ data: SMART_CONFIG }));
+    conversationsByIdGetMock.mockImplementation(async () => ({
+      data: { conversation: { inferenceProfile: null } },
+    }));
+  });
+
+  test("paints both pills labelled on the very first render", async () => {
+    // Nothing has answered yet: the config fetch is daemon-proxied and slow on
+    // boot, and the thresholds fetch is held open here to stand for the same
+    // window. Both pills still have to be readable in the first frame.
+    seedPillSnapshot({ accessPresetId: "relaxed", profileLabel: "Balanced" });
+    hangGlobalThresholds();
+    configGetMock.mockImplementation(() => new Promise(() => {}));
+
+    renderMenu();
+
+    const accessTrigger = screen.getByLabelText("Assistant access: Relaxed");
+    expect(accessTrigger.textContent).toContain("Relaxed");
+    const profileTrigger = screen.getByLabelText("Model profile: Balanced");
+    expect(profileTrigger.textContent).toContain("Balanced");
+
+    await settleMountFetches();
+  });
+
+  test("reconciles to the server's answer without unmounting the pill", async () => {
+    // The seed is a display stand-in, so a stale label must give way silently
+    // once the real fetches land, in the same element the fade plays in.
+    seedPillSnapshot({ accessPresetId: "relaxed", profileLabel: "Balanced" });
+
+    renderMenu();
+
+    const profileTrigger = screen.getByLabelText("Model profile: Balanced");
+    expect(
+      screen.getByLabelText("Assistant access: Relaxed").textContent,
+    ).toContain("Relaxed");
+
+    await waitFor(() => {
+      expect(profileTrigger.textContent).toContain("Smart");
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText("Assistant access: Conservative"),
+      ).toBeTruthy();
+    });
+    // Same node throughout: the label swapped inside the pill rather than the
+    // pill being replaced.
+    expect(screen.getByLabelText("Model profile: Smart")).toBe(profileTrigger);
+  });
+
+  test("an unrecognized stored preset leaves the access pill hidden", async () => {
+    // The un-fetched fallback preset names a stricter level than the server's
+    // own default, so a seed that no longer maps to a preset has to fall back
+    // to showing nothing rather than to that fallback.
+    seedPillSnapshot({ accessPresetId: "wide-open", profileLabel: "Balanced" });
+    hangGlobalThresholds();
+    configGetMock.mockImplementation(() => new Promise(() => {}));
+
+    renderMenu();
+
+    expect(screen.queryByLabelText(/^Assistant access/)).toBeNull();
+    expect(screen.getByLabelText("Model profile: Balanced")).toBeTruthy();
+
+    await settleMountFetches();
+  });
+
+  test("records what each pill settled on for the next launch", async () => {
+    renderMenu();
+
+    await waitFor(() => {
+      const stored = JSON.parse(
+        localStorage.getItem(PILL_SNAPSHOT_KEY) ?? "{}",
+      ) as { accessPresetId?: string; profileLabel?: string };
+      expect(stored.accessPresetId).toBe("conservative");
+      expect(stored.profileLabel).toBe("Smart");
+    });
+  });
+
+  test("a conversation override is not what the next launch boots from", async () => {
+    // The seed stands in for every conversation the assistant opens, so it
+    // tracks the global default rather than one thread's override.
+    conversationsByIdGetMock.mockImplementation(async () => ({
+      data: { conversation: { inferenceProfile: "quality" } },
+    }));
+    configGetMock.mockImplementation(async () => ({
+      data: {
+        llm: {
+          profileOrder: ["smart", "quality"],
+          profiles: {
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+            quality: {
+              label: "Quality",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+          },
+          activeProfile: "smart",
+        },
+      },
+    }));
+
+    renderMenu();
+
+    const profileTrigger = await screen.findByLabelText(
+      "Model profile: Quality",
+    );
+    expect(profileTrigger.textContent).toContain("Quality");
+    const stored = JSON.parse(
+      localStorage.getItem(PILL_SNAPSHOT_KEY) ?? "{}",
+    ) as { profileLabel?: string };
+    expect(stored.profileLabel).toBe("Smart");
+  });
+
+  test("first run, with nothing stored, still holds the pill's shape", async () => {
+    hangGlobalThresholds();
+    configGetMock.mockImplementation(() => new Promise(() => {}));
+
+    renderMenu();
+
+    // No seed to show, so the access pill stays hidden rather than naming a
+    // level the server never returned.
+    expect(screen.queryByLabelText(/^Assistant access/)).toBeNull();
+    const profileTrigger = screen.getByLabelText("Model profile");
+    expect(profileTrigger.textContent).toBe("");
+    const pillClass = profileTrigger.getAttribute("class") ?? "";
+    expect(pillClass).toContain("h-8");
+    expect(pillClass).toContain("w-8");
+
+    await settleMountFetches();
+  });
+
+  test("the label fades into the pill the icon-only state already mounted", async () => {
+    // The genuine first run has no seed, so the label does arrive late. It has
+    // to land inside the same button, or there is nothing to transition.
+    const configSettle = deferred<{ data: unknown }>();
+    configGetMock.mockImplementation(() => configSettle.promise);
+
+    renderMenu();
+
+    const profileTrigger = screen.getByLabelText("Model profile");
+    expect(profileTrigger.textContent).toBe("");
+
+    await act(async () => {
+      configSettle.resolve({ data: SMART_CONFIG });
+      await configSettle.promise;
+    });
+
+    await waitFor(() => {
+      expect(profileTrigger.textContent).toContain("Smart");
+    });
+    expect(screen.getByLabelText("Model profile: Smart")).toBe(profileTrigger);
+    const labelSpan = profileTrigger.querySelector(
+      'span:not([aria-hidden="true"])',
+    );
+    expect(labelSpan?.getAttribute("class")).toContain("animate-[fadeIn_");
+    expect(labelSpan?.getAttribute("class")).toContain(
+      "motion-reduce:animate-none",
+    );
+  });
+});
+
 describe("open-state reporting across the quick-add and unmount", () => {
   test("stays open while the quick-add modal it launched is up", async () => {
     // The modal renders outside the composer, and opening it closes the sheet
@@ -1024,6 +1232,23 @@ describe("compact composer collapse", () => {
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenLastCalledWith(false);
     });
+  });
+
+  test("summarizes the seeded pills before either fetch lands", async () => {
+    // The hamburger carries the same two values in its title, so it seeds from
+    // the same snapshot rather than announcing an empty selection on boot.
+    seedPillSnapshot({ accessPresetId: "relaxed", profileLabel: "Balanced" });
+    hangGlobalThresholds();
+    configGetMock.mockImplementation(() => new Promise(() => {}));
+
+    renderMenu({ compact: true, props: { segments: "access" } });
+
+    const trigger = screen.getByLabelText("Assistant access and model profile");
+    expect(trigger.getAttribute("title")).toBe(
+      "Assistant access and model profile: Relaxed · Balanced",
+    );
+
+    await settleMountFetches();
   });
 
   test("stays split when the composer is wide", async () => {
