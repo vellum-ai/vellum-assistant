@@ -19,9 +19,11 @@ const messageAppends: Array<{
   content: string;
   options?: { skipIndexing?: boolean };
 }> = [];
+const messageRewrites: Array<{ messageId: string; content: string }> = [];
 let conversationRow: { conversationType: string } | null = null;
 let conversationLookupShouldThrow = false;
 let messageAppendShouldThrow = false;
+let messageRewriteShouldThrow = false;
 
 mock.module("../../home/feed-writer.js", () => ({
   appendFeedItem: async (item: FeedItem) => {
@@ -49,10 +51,16 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     messageAppends.push({ conversationId, role, content, options });
     return { id: `msg-${messageAppends.length}` };
   },
+  updateMessageContent: (messageId: string, content: string) => {
+    if (messageRewriteShouldThrow) {
+      throw new Error("simulated message rewrite failure");
+    }
+    messageRewrites.push({ messageId, content });
+  },
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-const { writeHomeFeedItemForSignal } =
+const { updateFeedItemConversationMessage, writeHomeFeedItemForSignal } =
   await import("../home-feed-side-effect.js");
 
 // ── Test fixtures ──────────────────────────────────────────────────────
@@ -96,9 +104,11 @@ beforeEach(() => {
   appendCalls.length = 0;
   conversationLookups.length = 0;
   messageAppends.length = 0;
+  messageRewrites.length = 0;
   conversationRow = null;
   conversationLookupShouldThrow = false;
   messageAppendShouldThrow = false;
+  messageRewriteShouldThrow = false;
 });
 
 describe("writeHomeFeedItemForSignal", () => {
@@ -888,6 +898,7 @@ describe("writeHomeFeedItemForSignal", () => {
         content: "Three things today.",
         options: { skipIndexing: true },
       });
+      expect(item?.metadata?.notificationConversationMessageId).toBe("msg-1");
     });
 
     test("writes exactly the summary the card renders", async () => {
@@ -935,6 +946,7 @@ describe("writeHomeFeedItemForSignal", () => {
 
       expect(item?.conversationId).toBe("conv-source-1");
       expect(messageAppends).toHaveLength(0);
+      expect(item?.metadata?.notificationConversationMessageId).toBeUndefined();
     });
 
     test("skips the append when a sentinel source context leaves no target", async () => {
@@ -980,6 +992,83 @@ describe("writeHomeFeedItemForSignal", () => {
       expect(item).not.toBeNull();
       expect(appendCalls).toHaveLength(1);
       expect(messageAppends).toHaveLength(0);
+      expect(item?.metadata?.notificationConversationMessageId).toBeUndefined();
+    });
+
+    test("preserves producer metadata alongside the message handle", async () => {
+      conversationRow = { conversationType: "background" };
+      const signal = makeSignal({
+        contextPayload: { title: "Nightly briefing", scheduleId: "sched-7" },
+      });
+      const decision = makeDecision({
+        selectedChannels: ["telegram"],
+        renderedCopy: {
+          telegram: { title: "Nightly briefing", body: "Three things today." },
+        },
+      });
+
+      const item = await writeHomeFeedItemForSignal(signal, decision);
+
+      expect(item?.metadata).toMatchObject({
+        title: "Nightly briefing",
+        scheduleId: "sched-7",
+        notificationConversationMessageId: "msg-1",
+      });
+    });
+  });
+
+  describe("updateFeedItemConversationMessage", () => {
+    function makeItem(metadata?: Record<string, unknown>): FeedItem {
+      return {
+        id: "notif:sig-test-1",
+        type: "notification",
+        priority: 50,
+        title: "Nightly briefing",
+        summary: "Three things today.",
+        timestamp: "2026-08-19T00:00:00.000Z",
+        createdAt: "2026-08-19T00:00:00.000Z",
+        status: "new",
+        category: "scheduling",
+        noteworthy: false,
+        fromAssistant: false,
+        conversationId: "conv-source-1",
+        ...(metadata ? { metadata } : {}),
+      };
+    }
+
+    test("rewrites the message the card owns", () => {
+      const rewritten = updateFeedItemConversationMessage(
+        makeItem({ notificationConversationMessageId: "msg-9" }),
+        "Four things now.",
+      );
+
+      expect(rewritten).toBe(true);
+      expect(messageRewrites).toEqual([
+        { messageId: "msg-9", content: "Four things now." },
+      ]);
+    });
+
+    test("reports no rewrite when the card owns no message", () => {
+      // The vellum-delivered case: the delivery row carries the handle and
+      // the adapter rewrites it, so there is nothing to do here.
+      const rewritten = updateFeedItemConversationMessage(
+        makeItem({ scheduleId: "sched-7" }),
+        "Four things now.",
+      );
+
+      expect(rewritten).toBe(false);
+      expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("reports no rewrite when the store write throws", () => {
+      messageRewriteShouldThrow = true;
+
+      const rewritten = updateFeedItemConversationMessage(
+        makeItem({ notificationConversationMessageId: "msg-9" }),
+        "Four things now.",
+      );
+
+      expect(rewritten).toBe(false);
     });
   });
 });

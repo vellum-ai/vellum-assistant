@@ -47,6 +47,18 @@ mock.module("../deliveries-store.js", () => ({
 const adapterUpdates: Array<{ title?: string; body?: string }> = [];
 let adapterSupportsUpdate = true;
 
+const messageRewrites: Array<{ messageId: string; content: string }> = [];
+
+mock.module("../../persistence/conversation-crud.js", () => ({
+  updateMessageContent: (messageId: string, content: string) => {
+    messageRewrites.push({ messageId, content });
+  },
+  // Pulled in by `home-feed-side-effect`, which this module imports for the
+  // owned-message rewrite. The write paths never run under an edit.
+  addMessage: async () => ({ id: "msg-unused" }),
+  getConversation: () => null,
+}));
+
 mock.module("../emit-signal.js", () => ({
   getBroadcaster: () => ({
     getAdapter: () =>
@@ -133,6 +145,7 @@ beforeEach(() => {
   deliveryRows = [];
   renderedCopyPatches.length = 0;
   adapterUpdates.length = 0;
+  messageRewrites.length = 0;
   adapterSupportsUpdate = true;
 });
 
@@ -326,5 +339,62 @@ describe("editNotification", () => {
 
     expect(result!.channels).toEqual([]);
     expect(adapterUpdates).toHaveLength(0);
+  });
+
+  describe("a card that owns its conversation message", () => {
+    // Signals no channel delivered a body for carry the message id on the
+    // feed item, so the rewrite hangs off the card rather than a delivery row.
+    const OWNED = {
+      conversationId: "conv-source-1",
+      metadata: { notificationConversationMessageId: "msg-9" },
+    };
+
+    test("a body edit rewrites the owned message", async () => {
+      await appendFeedItem(makeItem(OWNED));
+
+      const result = await editNotification({
+        id: FEED_ITEM_ID,
+        body: "Backup finished, 3 volumes",
+      });
+
+      expect(result).not.toBeNull();
+      expect(messageRewrites).toEqual([
+        { messageId: "msg-9", content: "Backup finished, 3 volumes" },
+      ]);
+    });
+
+    test("the rewrite runs even when the signal recorded no deliveries", async () => {
+      await appendFeedItem(makeItem(OWNED));
+      decisionRow = null;
+
+      await editNotification({
+        id: FEED_ITEM_ID,
+        body: "Backup finished, 3 volumes",
+      });
+
+      expect(messageRewrites).toHaveLength(1);
+    });
+
+    test("a title-only edit leaves the owned message alone", async () => {
+      // The feed keeps its summary on a title-only patch, and the message
+      // holds the body, so rewriting it would put the two out of step.
+      await appendFeedItem(makeItem(OWNED));
+
+      const result = await editNotification({
+        id: FEED_ITEM_ID,
+        title: "Backup finished early",
+      });
+
+      expect(result!.feedItem.summary).toBe("Nightly backup finished");
+      expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("a card owning no message is untouched by a body edit", async () => {
+      await appendFeedItem(makeItem());
+
+      await editNotification({ id: FEED_ITEM_ID, body: "New body" });
+
+      expect(messageRewrites).toHaveLength(0);
+    });
   });
 });

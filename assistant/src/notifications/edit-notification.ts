@@ -22,6 +22,7 @@ import {
   updateDeliveryRenderedCopy,
 } from "./deliveries-store.js";
 import { getBroadcaster } from "./emit-signal.js";
+import { updateFeedItemConversationMessage } from "./home-feed-side-effect.js";
 import { nonEmpty } from "./notification-utils.js";
 import type { NotificationChannel } from "./types.js";
 
@@ -110,6 +111,15 @@ export async function editNotification(
   const shouldUpdateChannels = title !== undefined || params.body !== undefined;
   if (!shouldUpdateChannels) {
     return { feedItem, channels: [] };
+  }
+
+  // Cards whose body no channel delivery persisted own their conversation
+  // message directly, so that rewrite hangs off the feed item rather than the
+  // delivery walk below and runs even for a signal that recorded no
+  // deliveries at all. Body edits only: a title-only patch leaves the feed
+  // summary alone, and the row holds the body.
+  if (params.body !== undefined) {
+    updateFeedItemConversationMessage(feedItem, params.body);
   }
 
   const signalId = feedItemIdToSignalId(feedItemId);

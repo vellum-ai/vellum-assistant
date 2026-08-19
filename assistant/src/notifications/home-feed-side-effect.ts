@@ -20,6 +20,7 @@ import { appendFeedItem } from "../home/feed-writer.js";
 import {
   addMessage,
   getConversation,
+  updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { getLogger } from "../util/logger.js";
@@ -31,6 +32,17 @@ import type { NotificationSignal } from "./signal.js";
 import type { NotificationDecision, RenderedChannelCopy } from "./types.js";
 
 const log = getLogger("home-feed-side-effect");
+
+/**
+ * Metadata key holding the id of the conversation message this module wrote
+ * for a card.
+ *
+ * Only cards whose body no channel delivery persisted carry it, and it is the
+ * handle `updateFeedItemConversationMessage` rewrites on an edit. `metadata`
+ * is a free-form record on the wire, so this stays a daemon-side convention
+ * and needs no schema field, the same way `scheduleId` rides along below.
+ */
+const CONVERSATION_MESSAGE_ID_KEY = "notificationConversationMessageId";
 
 /**
  * Append a `FeedItem` for the given notification signal when the
@@ -123,9 +135,27 @@ export async function writeHomeFeedItemForSignal(
     sourceScheduleJobId ??
     undefined;
 
+  // Written before the card so the card can carry the row's id. An edit has no
+  // delivery row to walk when no channel persisted the body, and rewrites the
+  // row through the card instead.
+  const conversationMessageId =
+    !pairedVellumConversationId && sourceConversationId
+      ? await appendSummaryToFeedTarget(
+          signal,
+          sourceConversationId,
+          resolvedSummary,
+        )
+      : undefined;
+
+  const metadataAdditions: Record<string, unknown> = {
+    ...(scheduleId !== undefined ? { scheduleId } : {}),
+    ...(conversationMessageId
+      ? { [CONVERSATION_MESSAGE_ID_KEY]: conversationMessageId }
+      : {}),
+  };
   const metadata =
-    scheduleId !== undefined
-      ? { ...(baseMetadata ?? {}), scheduleId }
+    Object.keys(metadataAdditions).length > 0
+      ? { ...(baseMetadata ?? {}), ...metadataAdditions }
       : baseMetadata;
 
   const item: FeedItem = {
@@ -157,17 +187,12 @@ export async function writeHomeFeedItemForSignal(
   }
 
   await appendFeedItem(item);
-
-  if (!pairedVellumConversationId && sourceConversationId) {
-    await appendSummaryToFeedTarget(signal, sourceConversationId, item.summary);
-  }
-
   return item;
 }
 
 /**
  * Write the card's own summary into the conversation its "Go to Convo"
- * button opens.
+ * button opens, returning the id of the row written.
  *
  * That button targets the producing conversation whatever the routing, but
  * only the vellum delivery writes a notification body into a conversation
@@ -184,14 +209,14 @@ export async function writeHomeFeedItemForSignal(
  *
  * Indexing is skipped for parity with the other notification write paths:
  * notification copy is delivery audit, not conversational memory. Failures
- * are logged rather than thrown, so a message write cannot undo a card that
- * is already on disk.
+ * are logged rather than thrown, so a conversation write cannot cost the
+ * user a card; the card just goes out without a rewritable row.
  */
 async function appendSummaryToFeedTarget(
   signal: NotificationSignal,
   conversationId: string,
   summary: string,
-): Promise<void> {
+): Promise<string | undefined> {
   try {
     const message = await addMessage(conversationId, "assistant", summary, {
       skipIndexing: true,
@@ -204,11 +229,51 @@ async function appendSummaryToFeedTarget(
       },
       "Appended notification body to the feed item's conversation",
     );
+    return message.id;
   } catch (err) {
     log.warn(
       { err, signalId: signal.signalId, conversationId },
       "Failed to append notification body to the feed item's conversation",
     );
+    return undefined;
+  }
+}
+
+/**
+ * Rewrite the conversation message a card owns, keeping an edited card and
+ * the conversation it opens in step.
+ *
+ * Notification edits reach conversation content through the delivery rows the
+ * broadcaster recorded, which is how the vellum adapter rewrites what it
+ * paired. A card whose body this module wrote has no such row to walk, so it
+ * carries the message id itself and this is the matching update path.
+ *
+ * The row holds the body, and the feed rewrites its summary only when the
+ * patch carries one, so the caller applies this for body edits alone. Returns
+ * whether a row was rewritten; a card that owns no message reports false
+ * rather than failing the edit.
+ */
+export function updateFeedItemConversationMessage(
+  item: FeedItem,
+  body: string,
+): boolean {
+  const messageId = item.metadata?.[CONVERSATION_MESSAGE_ID_KEY];
+  if (typeof messageId !== "string" || messageId.length === 0) {
+    return false;
+  }
+  try {
+    updateMessageContent(messageId, body);
+    log.info(
+      { feedItemId: item.id, messageId },
+      "Rewrote the conversation message owned by an edited feed item",
+    );
+    return true;
+  } catch (err) {
+    log.error(
+      { err, feedItemId: item.id, messageId },
+      "Failed to rewrite the conversation message owned by an edited feed item",
+    );
+    return false;
   }
 }
 
