@@ -335,6 +335,7 @@ export function AssistantNavItem({
     !collapsed && !navTourActive ? trailingAction : undefined;
   const activeExpansion =
     !collapsed && !navTourActive ? (expansion ?? null) : null;
+  const pillGapClass = pillTrailingAction ? "gap-[12px]" : undefined;
 
   const avatarImage =
     uploadedAvatarUrl !== null ? (
@@ -420,6 +421,7 @@ export function AssistantNavItem({
               active={active}
               onSelect={onSelect}
               trailingAction={pillTrailingAction}
+              className={pillGapClass}
               data-tour-id="assistant-page"
             />
           ))
@@ -558,6 +560,7 @@ export function AssistantNavItem({
         active={active}
         onSelect={onSelect}
         trailingAction={pillTrailingAction}
+        className={pillGapClass}
         data-tour-id="assistant-page"
       />
     </span>

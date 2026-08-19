@@ -137,6 +137,12 @@ describe("AssistantNavItem switcher slots", () => {
   test("a trailing action renders inside the expanded pill", () => {
     const html = renderWithSlots({ trailingAction: TRAILING });
     expect(html).toContain('data-testid="switcher-chevron"');
+    expect(html).toContain("gap-[12px]");
+  });
+
+  test("without a trailing action the pill keeps its default gap", () => {
+    const html = renderWithSlots();
+    expect(html).not.toContain("gap-[12px]");
   });
 
   test("the collapsed tile has no slot for the trailing action", () => {
