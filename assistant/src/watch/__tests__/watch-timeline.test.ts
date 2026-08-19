@@ -17,6 +17,7 @@ import {
   purgeWatchTimelineForConversation,
   readWatchScreenshot,
   renderWatchTimeline,
+  sweepOrphanedWatchTimelineEntries,
   WATCH_SCREENSHOT_MIME,
 } from "../watch-timeline.js";
 
@@ -530,6 +531,94 @@ describe("watch timeline", () => {
     expect(renderWatchTimeline(second.sessionId).totalEntries).toBe(0);
     for (const id of entryIds) {
       expect(readWatchScreenshot(id as string)).toBeNull();
+    }
+  });
+});
+
+describe("watch timeline orphan sweep", () => {
+  /**
+   * Delete the conversation row without going through `deleteConversation`,
+   * which purges the timeline on its way out. This is the state a purge that
+   * failed after the row was committed as deleted leaves behind, and the state
+   * a crash between the two writes leaves behind.
+   */
+  function orphanConversation(conversationId: string): void {
+    getSqlite()
+      .query("DELETE FROM conversations WHERE id = ?")
+      .run(conversationId);
+  }
+
+  test("sweeps entries whose conversation is gone, frames included", () => {
+    // Drain anything earlier tests orphaned so the count below is this
+    // session's rows and nothing else.
+    sweepOrphanedWatchTimelineEntries();
+
+    const { sessionId, conversationId } = newSession();
+    appendObservation(sessionId, {
+      conversationId,
+      atMs: 1_000,
+      observation: { axTree: "window Mail", screenshot: SCREENSHOT_BASE64 },
+      attachScreenshot: true,
+    });
+    appendNarration(sessionId, {
+      conversationId,
+      atMs: 2_000,
+      text: "filing it here",
+    });
+    const [entryId] = renderWatchTimeline(sessionId).screenshotEntryIds;
+    expect(readWatchScreenshot(entryId as string)).not.toBeNull();
+
+    orphanConversation(conversationId);
+
+    expect(sweepOrphanedWatchTimelineEntries()).toBe(2);
+    expect(renderWatchTimeline(sessionId).totalEntries).toBe(0);
+    expect(readWatchScreenshot(entryId as string)).toBeNull();
+  });
+
+  test("leaves entries whose conversation still exists", () => {
+    sweepOrphanedWatchTimelineEntries();
+
+    const live = newSession();
+    const orphaned = newSession();
+    appendNarration(live.sessionId, {
+      conversationId: live.conversationId,
+      atMs: 1_000,
+      text: "still here",
+    });
+    appendNarration(orphaned.sessionId, {
+      conversationId: orphaned.conversationId,
+      atMs: 1_000,
+      text: "conversation deleted",
+    });
+
+    orphanConversation(orphaned.conversationId);
+
+    expect(sweepOrphanedWatchTimelineEntries()).toBe(1);
+    expect(renderWatchTimeline(orphaned.sessionId).totalEntries).toBe(0);
+    expect(renderWatchTimeline(live.sessionId).totalEntries).toBe(1);
+  });
+
+  test("reports nothing swept when there is nothing to sweep", () => {
+    sweepOrphanedWatchTimelineEntries();
+
+    expect(sweepOrphanedWatchTimelineEntries()).toBe(0);
+  });
+
+  test("reports nothing swept rather than throwing when the table is gone", () => {
+    const sqlite = getSqlite();
+    sqlite
+      .query(
+        "ALTER TABLE watch_timeline_entries RENAME TO watch_timeline_entries_hidden",
+      )
+      .run();
+    try {
+      expect(sweepOrphanedWatchTimelineEntries()).toBe(0);
+    } finally {
+      sqlite
+        .query(
+          "ALTER TABLE watch_timeline_entries_hidden RENAME TO watch_timeline_entries",
+        )
+        .run();
     }
   });
 });

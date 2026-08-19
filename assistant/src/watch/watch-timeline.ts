@@ -34,11 +34,25 @@
  * already gone. An append therefore either finishes before the purge, and is
  * swept by it, or starts after it and is refused by
  * {@link conversationStillExists}.
+ *
+ * A purge that never ran is not permanent. Nothing cascades into this table, so
+ * a failed purge or a crash between the conversation delete and the purge would
+ * otherwise strand frames of the user's screen for good;
+ * {@link sweepOrphanedWatchTimelineEntries} deletes entries whose conversation
+ * is gone, and reclaims them on a later maintenance pass.
  */
 
 import { randomUUID } from "node:crypto";
 
-import { count, desc, eq, type SQL, sql } from "drizzle-orm";
+import {
+  count,
+  desc,
+  eq,
+  inArray,
+  notExists,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 
 import { escapeAxTreeContent } from "../context/outbound-sanitize.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -724,4 +738,63 @@ export function purgeWatchTimelineForConversation(
  */
 export function purgeAllWatchTimelines(): number {
   return purgeEntries(undefined);
+}
+
+/**
+ * Entries one sweep pass removes.
+ *
+ * A session runs to hundreds of entries, so a pass covers several whole
+ * sessions of residue while the statements it issues stay bounded rather than
+ * scaling with however large a backlog grew. Anything past the bound is left
+ * for the next pass.
+ */
+const MAX_SWEEP_ENTRIES = 5_000;
+
+/**
+ * Delete timeline entries whose conversation is no longer in the store and
+ * return how many went.
+ *
+ * This is the recovery path for a purge that did not happen.
+ * {@link purgeWatchTimelineForConversation} runs after the `conversations` row
+ * is already committed as deleted, so its caller reports a completed delete
+ * even when the purge fails, and a crash between those two writes leaves the
+ * same residue. Nothing cascades into this table, so without a sweep either
+ * case keeps narration, AX trees, and screenshots of the user for as long as
+ * the database lives.
+ *
+ * Two bounded statements rather than one anti-join `DELETE`: a `LIMIT`ed select
+ * picks a page of orphan ids, then the delete matches them by primary key.
+ * Conversation ids are never reused, so a row the select called an orphan is
+ * still one by the time the delete runs.
+ *
+ * Best-effort and idempotent. It runs from database maintenance, which has
+ * nothing useful to do with a failure, so a failing statement logs and reports
+ * nothing swept and the next pass tries again; a second run over swept rows
+ * finds none.
+ */
+export function sweepOrphanedWatchTimelineEntries(): number {
+  try {
+    const db = getDb();
+    const orphanIds = db
+      .select({ id: watchTimelineEntries.id })
+      .from(watchTimelineEntries)
+      .where(
+        notExists(
+          db
+            .select({ id: conversations.id })
+            .from(conversations)
+            .where(eq(conversations.id, watchTimelineEntries.conversationId)),
+        ),
+      )
+      .limit(MAX_SWEEP_ENTRIES)
+      .all()
+      .map((row) => row.id);
+    if (orphanIds.length === 0) {
+      return 0;
+    }
+    return purgeEntries(inArray(watchTimelineEntries.id, orphanIds));
+  } catch (err) {
+    log.warn({ err }, "Failed to sweep orphaned watch timeline entries");
+    return 0;
+  }
 }
