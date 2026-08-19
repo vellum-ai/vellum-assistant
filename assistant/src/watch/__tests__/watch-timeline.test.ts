@@ -16,6 +16,7 @@ import {
   createConversation,
   getMessages,
 } from "../../persistence/conversation-crud.js";
+import { isHiddenMessageMetadata } from "../../persistence/conversation-types.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import type { Message } from "../../providers/types.js";
 import { appendNarration, appendObservation } from "../watch-timeline.js";
@@ -311,6 +312,36 @@ describe("watch timeline", () => {
         expect(texts[index]).not.toContain("<ax_tree_omitted />");
       }
 
+      expect(session.calls).toHaveLength(0);
+    } finally {
+      session.dispose();
+    }
+  });
+
+  test("persists every entry hidden, so only the agent side reads it", async () => {
+    const session = startSession("Watch timeline hidden");
+    try {
+      await appendNarration(session.id, { text: "opening it", atMs: 1_000 });
+      await appendObservation(session.id, {
+        observation: { axTree: "Window: Invoices" },
+        atMs: 2_000,
+      });
+
+      // `getMessages` is the LLM-side loader and does not filter, so the retro
+      // reads the whole timeline.
+      const rows = getMessages(session.id);
+      expect(rows).toHaveLength(2);
+
+      // The list-messages route filters on exactly this predicate, so a row
+      // carrying it never reaches the chat transcript.
+      for (const row of rows) {
+        const metadata = JSON.parse(row.metadata as string) as Record<
+          string,
+          unknown
+        >;
+        expect(isHiddenMessageMetadata(metadata)).toBe(true);
+        expect(metadata.watchSession).toBe(true);
+      }
       expect(session.calls).toHaveLength(0);
     } finally {
       session.dispose();

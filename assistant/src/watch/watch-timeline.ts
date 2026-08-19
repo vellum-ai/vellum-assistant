@@ -13,6 +13,10 @@
  * sentence the user is halfway through saying, over and over, during a session
  * whose whole premise is that the assistant stays silent.
  *
+ * Silence extends to the transcript. Every row is persisted `hidden`, the
+ * flag the list-messages route filters on and the LLM-side loader ignores, so
+ * the retro reads the whole timeline while the user's chat shows none of it.
+ *
  * Ordering is the property the retro depends on and the one that arrival order
  * does not give for free: a narration final and the observation it triggered
  * are two independent async writes. Two things hold it. Appends are serialized
@@ -39,7 +43,6 @@ import type { Conversation } from "../daemon/conversation.js";
 import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
-import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("watch-timeline");
@@ -241,17 +244,24 @@ async function persistEntry(
         scripted: true,
         skipIndexing: true,
         metadata: {
+          // The row is agent context, never a chat bubble. `hidden` is the
+          // flag the list-messages route filters on while the LLM-side
+          // loader (`getMessages`) reads straight past it, which is exactly
+          // what a timeline entry needs: the retro sees the whole session,
+          // the transcript shows none of it. Without it every observation
+          // renders as a user bubble full of raw AX markup, in a session
+          // whose premise is that the assistant stays silent.
+          hidden: true,
           watchSession: true,
           watchEntry: entry.kind,
           watchAtMs: entry.atMs,
         },
       });
 
-      // No turn will announce the row, so anything rendering the conversation
-      // has to be told to refetch. Unlike a live-voice photo there is no echo
-      // broadcast: a session is silent by design, and echoing raw AX trees
-      // into an open thread is the opposite of that.
-      publishConversationMessagesChanged(conversationId);
+      // No messages-changed invalidation and no echo broadcast. The row is
+      // hidden, so a refetch returns the same visible transcript it already
+      // had, and a session's worth of them is a refetch per observation for
+      // no rendered change.
 
       return { ok: true, messageId: persisted.id };
     } finally {

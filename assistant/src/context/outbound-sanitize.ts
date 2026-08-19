@@ -297,21 +297,69 @@ const MEDIA_STRIPPED_NOTE =
   "[Media (image/audio) was captured and shown previously, binary data removed to save context.]";
 
 /**
- * Index of the last user message that is a watch timeline entry carrying
- * media, or -1 when there is none. The watch-side counterpart of
- * {@link lastToolResultUserMessageIndex}: the entry this points at keeps its
- * screenshot, every marked entry above it loses one.
+ * Stands in for a watch screenshot dropped to stay inside
+ * {@link MAX_WATCH_SCREENSHOTS_IN_HISTORY}.
+ *
+ * Worded separately from {@link MEDIA_STRIPPED_NOTE}, which asserts the model
+ * saw the media once. A watch entry runs no turn, so no model ever did: the
+ * first sanitization of a session is also the first time any of its
+ * screenshots are offered to one. Telling the model it has already seen an
+ * image it has not is a false claim about its own history.
  */
-function lastWatchEntryMediaIndex(history: Message[]): number {
+const WATCH_MEDIA_DROPPED_NOTE =
+  "[A screenshot was captured at this moment and omitted to bound context. It was never shown to the model.]";
+
+/**
+ * How many of a watch session's screenshots survive sanitization.
+ *
+ * A bound is required: the entries run no turn, so nothing between them trims
+ * anything, and a half-hour session at the caller's chosen cadence would
+ * otherwise send every frame on every later request.
+ *
+ * Four, because the ceiling this budget draws on is Anthropic's many-image
+ * threshold. Past twenty images in one request a stricter per-image dimension
+ * cap applies, and a full-screen retina screenshot exceeds it, so a request
+ * over the threshold is rejected outright rather than merely large. Watch
+ * screenshots are not the only images in that request (the current
+ * tool-result turn's media and the user's own attachments count too), so the
+ * watch share is a fifth of the ceiling rather than all of it. Four still
+ * spans a session: the caller only attaches frames it judged worth an image,
+ * so the retrospective gets a spread of moments instead of a single one.
+ *
+ * Raising it trades that headroom for more visual evidence, and nothing else
+ * reads the number.
+ */
+const MAX_WATCH_SCREENSHOTS_IN_HISTORY = 4;
+
+/**
+ * Indices of the watch timeline entries whose media survives, newest first
+ * until {@link MAX_WATCH_SCREENSHOTS_IN_HISTORY} screenshots are accounted
+ * for. The watch-side counterpart of {@link lastToolResultUserMessageIndex}:
+ * an entry in this set keeps its screenshot, every marked entry outside it
+ * loses one.
+ *
+ * Entries are retained whole, and the budget counts media blocks rather than
+ * messages, so an entry carrying several images spends several of the four.
+ */
+function retainedWatchMediaIndices(history: Message[]): Set<number> {
+  const retained = new Set<number>();
+  let kept = 0;
   for (let i = history.length - 1; i >= 0; i--) {
-    if (
-      isWatchEntryMessage(history[i]) &&
-      history[i].content.some(isMediaBlock)
-    ) {
-      return i;
+    if (kept >= MAX_WATCH_SCREENSHOTS_IN_HISTORY) {
+      break;
     }
+    const message = history[i];
+    if (!isWatchEntryMessage(message)) {
+      continue;
+    }
+    const mediaCount = message.content.filter(isMediaBlock).length;
+    if (mediaCount === 0) {
+      continue;
+    }
+    retained.add(i);
+    kept += mediaCount;
   }
-  return -1;
+  return retained;
 }
 
 /**
@@ -330,7 +378,7 @@ function stripWatchEntryMedia(message: Message): Message {
     ...message,
     content: message.content.map((block) =>
       isMediaBlock(block)
-        ? { type: "text" as const, text: MEDIA_STRIPPED_NOTE }
+        ? { type: "text" as const, text: WATCH_MEDIA_DROPPED_NOTE }
         : block,
     ),
   };
@@ -339,30 +387,40 @@ function stripWatchEntryMedia(message: Message): Message {
 /**
  * Strip media blocks from everywhere they accumulate: the `tool_result` blocks
  * of every user message but the most recent one carrying tool results, and the
- * watch timeline entries above the most recent entry carrying media. Each
- * image is seen once by the LLM on the turn it was captured, then replaced
- * with a text placeholder on subsequent turns.
+ * watch timeline entries beyond the newest
+ * {@link MAX_WATCH_SCREENSHOTS_IN_HISTORY} carrying media.
  *
- * A watch session is the more urgent of the two. Its entries run no turn, so a
- * multi-minute session accumulates screenshots with nothing in between to
- * compact them, and the retrospective at the end reads the whole session at
- * once.
+ * The two arms are bounded on different reasoning. A tool result's media was
+ * shown to the model on the turn that produced it, so one copy is enough and
+ * only the current turn's needs to survive. A watch entry runs no turn, so its
+ * screenshots have been seen by nobody when the first sanitization reaches
+ * them: keeping only the newest would delete the session's visual evidence
+ * before the retrospective ever read it, which is why a window of entries
+ * survives rather than one, and why a dropped entry carries
+ * {@link WATCH_MEDIA_DROPPED_NOTE} rather than the "shown previously" note.
+ *
+ * A watch session is also the more urgent of the two to bound. Its entries run
+ * no turn, so a multi-minute session accumulates screenshots with nothing in
+ * between to compact them, and the retrospective at the end reads the whole
+ * session at once.
  *
  * Media on an unmarked user message is left alone: that is a file the user
  * attached, and dropping it would rewrite what they sent.
  */
 function stripOldMediaBlocks(history: Message[]): Message[] {
   const lastToolResultUserIdx = lastToolResultUserMessageIndex(history);
-  const lastWatchMediaIdx = lastWatchEntryMediaIndex(history);
+  const retainedWatchMedia = retainedWatchMediaIndices(history);
 
   return history.map((msg, idx) => {
     if (msg.role !== "user") {
       return msg;
     }
 
-    // Keep the most recent entry of each kind intact (the current turn).
-    const watchStripped =
-      idx === lastWatchMediaIdx ? msg : stripWatchEntryMedia(msg);
+    // Watch entries inside the retention window keep their screenshots; the
+    // most recent tool-result message is the current turn and keeps its own.
+    const watchStripped = retainedWatchMedia.has(idx)
+      ? msg
+      : stripWatchEntryMedia(msg);
     if (idx === lastToolResultUserIdx) {
       return watchStripped;
     }
@@ -406,8 +464,9 @@ function stripOldMediaBlocks(history: Message[]): Message[] {
  * the pre-send transforms applied to every request that carries conversation
  * history:
  * - {@link stripOldMediaBlocks} drops accumulated screenshot/audio bytes from
- *   older tool results and older watch timeline entries: the model saw the
- *   media on the turn it was captured.
+ *   older tool results (the model saw that media on the turn it was captured)
+ *   and from watch timeline entries beyond the newest few, which run no turn
+ *   and so keep a bounded window of unseen screenshots for the retrospective.
  *   Beyond context bloat, unstripped history can carry enough images to cross
  *   Anthropic's many-image threshold, where a stricter per-image dimension
  *   cap applies and a single large screenshot rejects the whole request.
