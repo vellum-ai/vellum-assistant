@@ -1,8 +1,10 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
+  organizationsBillingAutoTopUpConfirmSetupIntentCreateMutation,
   organizationsBillingAutoTopUpRetrieveOptions,
   organizationsBillingAutoTopUpRetrieveQueryKey,
+  organizationsBillingAutoTopUpRetrieveSetQueryData,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 
@@ -56,5 +58,44 @@ export function usePaymentMethodSavedPoll(): () => Promise<void> {
         setTimeout(resolve, PM_SAVED_POLL_INTERVAL_MS),
       );
     }
+  };
+}
+
+/**
+ * Confirm-first version of the follow-up above. The confirm endpoint persists
+ * the card and returns the same payload as the config GET, with brand and
+ * last4 filled in, so seeding the cache from it makes the saved card visible
+ * without waiting on the `setup_intent.succeeded` webhook.
+ *
+ * The poll stays as the fallback: servers that predate the endpoint (older
+ * self-hosted deployments) reject the call, and a transient failure still
+ * leaves the webhook as the durable writer.
+ */
+export function usePaymentMethodSavedSync(): (args: {
+  setupIntentId: string | null;
+}) => Promise<void> {
+  const queryClient = useQueryClient();
+  const pollPaymentMethodSaved = usePaymentMethodSavedPoll();
+  const { mutateAsync: confirmSetupIntent } = useMutation(
+    organizationsBillingAutoTopUpConfirmSetupIntentCreateMutation(),
+  );
+
+  return async ({ setupIntentId }) => {
+    if (setupIntentId != null) {
+      try {
+        const config = await confirmSetupIntent({
+          body: { setup_intent_id: setupIntentId },
+        });
+        organizationsBillingAutoTopUpRetrieveSetQueryData(
+          queryClient,
+          undefined,
+          config,
+        );
+        return;
+      } catch {
+        // fall through to the poll below
+      }
+    }
+    await pollPaymentMethodSaved();
   };
 }
