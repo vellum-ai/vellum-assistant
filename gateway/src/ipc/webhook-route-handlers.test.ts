@@ -23,6 +23,12 @@ mock.module("../feature-flag-resolver.js", () => ({
 }));
 
 import {
+  ListWebhookRoutesIpcResponseSchema,
+  RegisterWebhookRouteIpcResponseSchema,
+  UnregisterWebhookRouteIpcResponseSchema,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
+
+import {
   getGatewayDb,
   initGatewayDb,
   resetGatewayDb,
@@ -118,6 +124,32 @@ describe("register_webhook_route", () => {
       register({ path: "/webhooks/../admin", type: "telegram" }),
     ).toThrow();
     expect(list()).toEqual({ routes: [] });
+  });
+});
+
+describe("shared IPC contract", () => {
+  it("answers every method in the shape the daemon parses", () => {
+    flagEnabled = false;
+    expect(
+      RegisterWebhookRouteIpcResponseSchema.safeParse(
+        register({ path: PATH, type: "telegram" }),
+      ).success,
+    ).toBe(true);
+
+    flagEnabled = true;
+    expect(
+      RegisterWebhookRouteIpcResponseSchema.safeParse(
+        register({ path: PATH, type: "telegram", source: "bot-1" }),
+      ).success,
+    ).toBe(true);
+    expect(ListWebhookRoutesIpcResponseSchema.safeParse(list()).success).toBe(
+      true,
+    );
+    expect(
+      UnregisterWebhookRouteIpcResponseSchema.safeParse(
+        unregister({ path: PATH }),
+      ).success,
+    ).toBe(true);
   });
 });
 

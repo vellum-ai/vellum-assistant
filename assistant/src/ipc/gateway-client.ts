@@ -14,13 +14,17 @@ import {
   type ClassifyRiskIpcParams,
   type ClassifyRiskIpcResponse,
   ClassifyRiskIpcResponseSchema,
+  ListWebhookRoutesIpcResponseSchema,
+  type RegisterWebhookRouteIpcParams,
+  RegisterWebhookRouteIpcResponseSchema,
+  UnregisterWebhookRouteIpcResponseSchema,
+  type WebhookIngressRoute,
 } from "@vellumai/gateway-client";
 import {
   ipcCall as packageIpcCall,
   IpcCallError,
   PersistentIpcClient as PackagePersistentIpcClient,
 } from "@vellumai/gateway-client/ipc-client";
-import { z } from "zod";
 
 import { getLogger } from "../util/logger.js";
 import { abortableSleep, computeRetryDelay } from "../util/retry.js";
@@ -150,78 +154,86 @@ export async function ipcGetVelayStatus(): Promise<VelayTunnelStatus | null> {
 // Webhook ingress route registry
 // ---------------------------------------------------------------------------
 
-const WebhookIngressRouteSchema = z.object({
-  path: z.string(),
-  type: z.string(),
-  source: z.string().nullable(),
-  match: z.literal("exact"),
-  createdAt: z.number(),
-  lastRegisteredAt: z.number(),
-});
+/**
+ * Why a webhook-route call failed.
+ *
+ * `no_response` means nothing came back. The one-shot IPC transport answers a
+ * missing gateway and a gateway-side refusal the same way, with no result, so
+ * both land here. `invalid_response` means the gateway answered but the answer
+ * does not match the shared contract, so the two sides have drifted.
+ */
+export type WebhookRouteIpcFailureReason = "no_response" | "invalid_response";
 
-const RegisterWebhookRouteResultSchema = z.union([
-  z.object({ disabled: z.literal(true) }),
-  z.object({ disabled: z.literal(false), route: WebhookIngressRouteSchema }),
-]);
+export type IpcRegisterWebhookRouteResult =
+  | { ok: true; disabled: true }
+  | { ok: true; disabled: false; route: WebhookIngressRoute }
+  | { ok: false; reason: WebhookRouteIpcFailureReason };
 
-export type WebhookIngressRoute = z.infer<typeof WebhookIngressRouteSchema>;
-export type RegisterWebhookRouteResult = z.infer<
-  typeof RegisterWebhookRouteResultSchema
->;
+export type IpcUnregisterWebhookRouteResult =
+  | { ok: true; removed: boolean }
+  | { ok: false; reason: WebhookRouteIpcFailureReason };
 
-export interface RegisterWebhookRouteInput {
-  /** Exact subpath, leading slash included, under `/webhooks/`. */
-  path: string;
-  type: string;
-  source?: string | null;
+export type IpcListWebhookRoutesResult =
+  | { ok: true; routes: WebhookIngressRoute[] }
+  | { ok: false; reason: WebhookRouteIpcFailureReason };
+
+function webhookRouteFailure(
+  method: string,
+  result: unknown,
+  detail: Record<string, unknown> = {},
+): { ok: false; reason: WebhookRouteIpcFailureReason } {
+  const reason: WebhookRouteIpcFailureReason =
+    result === undefined ? "no_response" : "invalid_response";
+  log.warn({ ...detail, result, reason }, `${method}: gateway call failed`);
+  return { ok: false, reason };
 }
 
 /**
  * Claim a webhook subpath on the gateway.
  *
- * A `disabled` result means the gateway is not serving its own webhooks, so
- * the caller should fall back to platform callback registration. Returns
- * `null` when the gateway is unreachable or rejected the path.
+ * A `disabled` result is a normal answer, not a failure: the gateway is not
+ * serving its own webhooks and the caller should fall back to platform
+ * callback registration. A failure carries the reason it failed so a caller
+ * that also falls back can log the two apart.
  */
 export async function ipcRegisterWebhookRoute(
-  input: RegisterWebhookRouteInput,
-): Promise<RegisterWebhookRouteResult | null> {
+  input: RegisterWebhookRouteIpcParams,
+): Promise<IpcRegisterWebhookRouteResult> {
   const result = await ipcCall("register_webhook_route", { ...input });
-  const parsed = RegisterWebhookRouteResultSchema.safeParse(result);
+  const parsed = RegisterWebhookRouteIpcResponseSchema.safeParse(result);
   if (!parsed.success) {
-    log.warn(
-      { result, path: input.path },
-      "ipcRegisterWebhookRoute: unusable gateway response",
-    );
-    return null;
+    return webhookRouteFailure("ipcRegisterWebhookRoute", result, {
+      path: input.path,
+    });
   }
-  return parsed.data;
+  return parsed.data.disabled
+    ? { ok: true, disabled: true }
+    : { ok: true, disabled: false, route: parsed.data.route };
 }
 
 /**
- * Drop a webhook subpath from the gateway registry. Resolves to whether a
- * route was removed, or `null` when the gateway is unreachable.
+ * Drop a webhook subpath from the gateway registry. A successful call reports
+ * whether a route was actually removed.
  */
 export async function ipcUnregisterWebhookRoute(
   path: string,
-): Promise<boolean | null> {
+): Promise<IpcUnregisterWebhookRouteResult> {
   const result = await ipcCall("unregister_webhook_route", { path });
-  const parsed = z.object({ removed: z.boolean() }).safeParse(result);
-  return parsed.success ? parsed.data.removed : null;
+  const parsed = UnregisterWebhookRouteIpcResponseSchema.safeParse(result);
+  if (!parsed.success) {
+    return webhookRouteFailure("ipcUnregisterWebhookRoute", result, { path });
+  }
+  return { ok: true, removed: parsed.data.removed };
 }
 
-/**
- * List every webhook subpath the gateway currently answers, or `null` when
- * the gateway is unreachable.
- */
-export async function ipcListWebhookRoutes(): Promise<
-  WebhookIngressRoute[] | null
-> {
+/** List every webhook subpath the gateway currently answers. */
+export async function ipcListWebhookRoutes(): Promise<IpcListWebhookRoutesResult> {
   const result = await ipcCall("list_webhook_routes");
-  const parsed = z
-    .object({ routes: z.array(WebhookIngressRouteSchema) })
-    .safeParse(result);
-  return parsed.success ? parsed.data.routes : null;
+  const parsed = ListWebhookRoutesIpcResponseSchema.safeParse(result);
+  if (!parsed.success) {
+    return webhookRouteFailure("ipcListWebhookRoutes", result);
+  }
+  return { ok: true, routes: parsed.data.routes };
 }
 
 // classify_risk is an idempotent, side-effect-free read, so a transient gateway

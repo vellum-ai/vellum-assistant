@@ -5,46 +5,35 @@
  * answers from outside. Only registration is gated on `velay-webhooks`;
  * revocation and inspection stay available so an operator can always see and
  * remove what was claimed while the flag was on.
+ *
+ * The request and response shapes are the shared contract in
+ * `@vellumai/gateway-client`, which the daemon reads the other end of.
  */
 
-import { z } from "zod";
+import {
+  type ListWebhookRoutesIpcResponse,
+  RegisterWebhookRouteIpcParamsSchema,
+  type RegisterWebhookRouteIpcResponse,
+  UnregisterWebhookRouteIpcParamsSchema,
+  type UnregisterWebhookRouteIpcResponse,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import {
   listWebhookIngressRoutes,
   registerWebhookIngressRoute,
   unregisterWebhookIngressRoute,
-  type WebhookIngressRoute,
 } from "../db/webhook-ingress-route-store.js";
 import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 import { ipcRoute, type IpcRoute } from "./server.js";
 
 const VELAY_WEBHOOKS_FLAG_KEY = "velay-webhooks";
 
-const RegisterWebhookRouteSchema = z.object({
-  path: z.string().min(1),
-  type: z.string().min(1),
-  source: z.string().nullish(),
-});
-
-const UnregisterWebhookRouteSchema = z.object({
-  path: z.string().min(1),
-});
-
-/**
- * A refusal is a normal result rather than an error: the daemon reads
- * `disabled` as "this assistant is not serving its own webhooks" and falls
- * back to the platform's callback routes.
- */
-type RegisterWebhookRouteResult =
-  | { disabled: true }
-  | { disabled: false; route: WebhookIngressRoute };
-
 export function createWebhookRouteRoutes(): IpcRoute[] {
   return [
     ipcRoute({
       method: "register_webhook_route",
-      schema: RegisterWebhookRouteSchema,
-      handler: (params): RegisterWebhookRouteResult => {
+      schema: RegisterWebhookRouteIpcParamsSchema,
+      handler: (params): RegisterWebhookRouteIpcResponse => {
         if (!isFeatureFlagEnabled(VELAY_WEBHOOKS_FLAG_KEY)) {
           return { disabled: true };
         }
@@ -53,14 +42,16 @@ export function createWebhookRouteRoutes(): IpcRoute[] {
     }),
     ipcRoute({
       method: "unregister_webhook_route",
-      schema: UnregisterWebhookRouteSchema,
-      handler: (params) => ({
+      schema: UnregisterWebhookRouteIpcParamsSchema,
+      handler: (params): UnregisterWebhookRouteIpcResponse => ({
         removed: unregisterWebhookIngressRoute(params.path),
       }),
     }),
     {
       method: "list_webhook_routes",
-      handler: () => ({ routes: listWebhookIngressRoutes() }),
+      handler: (): ListWebhookRoutesIpcResponse => ({
+        routes: listWebhookIngressRoutes(),
+      }),
     },
   ];
 }
