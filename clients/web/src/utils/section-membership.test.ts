@@ -37,6 +37,7 @@ import {
   matchesSectionFilter,
   patchAffectsMembership,
   reconcileSectionMembership,
+  sectionFiltersHolding,
 } from "@/utils/section-membership";
 
 const ASSISTANT_ID = "asst-1";
@@ -604,6 +605,144 @@ describe("reconcileSectionMembership", () => {
         )
         ?.conversations.map((c) => c.conversationId),
     ).toEqual(["c1"]);
+  });
+
+  test("a destination no cache claims is reported for refetch", () => {
+    /* A group with no conversations has no section index row, so the sidebar
+       never rendered it and nothing ever mounted its query. The walk sees no
+       cache to place the row in and would report only the section it left,
+       while `ensureSectionInIndex` reveals that section immediately and its
+       first fetch races the move that caused it. The daemon suppresses sync
+       echo to the client that made the change, so this key is the only thing
+       that re-drives the section the row was just filed into. */
+    const row = conversation({ conversationId: "c1" });
+    const client = seed([[CHATS, [row]]]);
+
+    const keys = reconcileSectionMembership(client, ASSISTANT_ID, {
+      ...row,
+      groupId: "group-uuid",
+    });
+
+    expect(keys).toContainEqual(conversationListQueryKey(ASSISTANT_ID, CUSTOM));
+    // Named, not minted: a cache holding this one row would read as the
+    // whole section.
+    expect(
+      client.getQueryData(conversationListQueryKey(ASSISTANT_ID, CUSTOM)),
+    ).toBeUndefined();
+  });
+
+  test("the first pin reports Pinned when no Pinned cache exists", () => {
+    const row = conversation({ conversationId: "c1" });
+    const client = seed([[CHATS, [row]]]);
+
+    const keys = reconcileSectionMembership(client, ASSISTANT_ID, {
+      ...row,
+      isPinned: true,
+      groupId: "system:pinned",
+    });
+
+    expect(keys).toContainEqual(conversationListQueryKey(ASSISTANT_ID, PINNED));
+  });
+
+  test("an unpinned channel row names the section in either view", () => {
+    /* Unpinning a channel's only conversation returns it to a channel
+       section that emptied out while it was pinned. Which section renders it
+       depends on the view mode, which this layer does not know, so both are
+       named; a key no query holds invalidates nothing. */
+    const row = conversation({
+      conversationId: "c1",
+      isPinned: true,
+      groupId: "system:pinned",
+      originChannel: "slack",
+    });
+    const client = seed([[PINNED, [row]]]);
+
+    const keys = reconcileSectionMembership(client, ASSISTANT_ID, {
+      ...row,
+      isPinned: false,
+      groupId: "system:all",
+    });
+
+    expect(keys).toContainEqual(conversationListQueryKey(ASSISTANT_ID, CHATS));
+    expect(keys).toContainEqual(conversationListQueryKey(ASSISTANT_ID, SLACK));
+  });
+
+  test("a section the walk claimed is not also named from the row", () => {
+    /* The loaded destination decides for itself, deliberate skips included.
+       Only a row that no loaded section holds falls through to the fields,
+       or every field patch would name a section to refetch. */
+    const row = conversation({ conversationId: "c1" });
+    const client = seed([[CHATS, [row]]]);
+
+    const keys = reconcileSectionMembership(client, ASSISTANT_ID, {
+      ...row,
+      surfacedAt: 5,
+    });
+
+    expect(keys).toEqual([]);
+  });
+
+  test("an archived row names no destination", () => {
+    /* It belongs to no section, so the only thing left to reconcile is the
+       one it left. Naming a destination anyway would refetch a section to be
+       told the row is not in it. */
+    const row = conversation({ conversationId: "c1" });
+    const client = seed([[CHATS, [row]]]);
+
+    const keys = reconcileSectionMembership(client, ASSISTANT_ID, {
+      ...row,
+      archivedAt: 99,
+    });
+
+    expect(keys).toEqual([conversationListQueryKey(ASSISTANT_ID, CHATS)]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sectionFiltersHolding
+// ---------------------------------------------------------------------------
+
+describe("sectionFiltersHolding", () => {
+  test("pinned wins over every other axis", () => {
+    expect(
+      sectionFiltersHolding(
+        conversation({
+          isPinned: true,
+          groupId: "group-uuid",
+          originChannel: "slack",
+        }),
+      ),
+    ).toEqual([PINNED]);
+  });
+
+  test("a custom group is the whole answer, whatever the channel", () => {
+    expect(
+      sectionFiltersHolding(
+        conversation({ groupId: "group-uuid", originChannel: "slack" }),
+      ),
+    ).toEqual([CUSTOM]);
+  });
+
+  test("an unattributed row reads as native, like the daemon's COALESCE", () => {
+    expect(sectionFiltersHolding(conversation())).toEqual([
+      CHATS,
+      NATIVE_CHATS,
+    ]);
+  });
+
+  test("a channel this schema predates names no channel section", () => {
+    /* Nothing could key a section by it either: the query parameter is a
+       closed set, so sending it would fail the refetch being named. */
+    expect(
+      sectionFiltersHolding(conversation({ originChannel: "carrier-pigeon" })),
+    ).toEqual([CHATS]);
+  });
+
+  test("a row no section can hold has no destination", () => {
+    expect(sectionFiltersHolding(conversation({ archivedAt: 99 }))).toEqual([]);
+    expect(
+      sectionFiltersHolding(conversation({ conversationType: "background" })),
+    ).toEqual([]);
   });
 });
 

@@ -114,6 +114,20 @@ type _Exhaustive =
     : never;
 
 /**
+ * Whether the daemon's `originChannel` parameter accepts this id.
+ *
+ * The check {@link ORIGIN_CHANNELS} exists for: a channel id read off a row
+ * is a plain string, and the query parameter is a closed set, so an id this
+ * client's schema predates must not be sent. Lives beside the list it tests
+ * so the two cannot drift.
+ */
+export function isOriginChannel(
+  channelId: string | null | undefined,
+): channelId is NonNullable<OriginChannel> {
+  return (ORIGIN_CHANNELS as readonly string[]).includes(channelId ?? "");
+}
+
+/**
  * Group filter accepted by `GET /v1/conversations?groupId=`. Derived from the
  * generated query type rather than restated, so a schema change surfaces
  * here as a type error.

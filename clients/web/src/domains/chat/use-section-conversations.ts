@@ -32,12 +32,11 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { loadMoreConversations } from "@/utils/conversation-cache-mutations";
 import {
   NATIVE_ORIGIN_CHANNEL,
-  ORIGIN_CHANNELS,
   SYSTEM_ALL_GROUP_ID,
   SYSTEM_PINNED_GROUP_ID,
   drainConversationList,
+  isOriginChannel,
   type ConversationListPage,
-  type OriginChannel,
 } from "@/utils/conversation-list-fetchers";
 import {
   type ConversationListFilter,
@@ -107,20 +106,6 @@ function sectionFilter(
           }
         : null;
   }
-}
-
-/**
- * Whether the daemon's `originChannel` parameter accepts this id.
- *
- * A section's `channelId` is whatever `origin_channel` the loaded rows carried,
- * so it is a plain string; the query parameter is a closed set. An id outside
- * it (a channel this client's schema predates) keeps that section on its
- * derived rows rather than sending a value the server would reject.
- */
-function isOriginChannel(
-  channelId: string,
-): channelId is NonNullable<OriginChannel> {
-  return (ORIGIN_CHANNELS as readonly string[]).includes(channelId);
 }
 
 /** What a section renders and how it pages; see {@link useSectionConversations}. */

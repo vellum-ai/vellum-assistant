@@ -27,6 +27,7 @@ import {
   NATIVE_ORIGIN_CHANNEL,
   SYSTEM_ALL_GROUP_ID,
   SYSTEM_PINNED_GROUP_ID,
+  isOriginChannel,
   sidebarSectionsQueryKey,
   type ConversationListPage,
   type SidebarIndexSection,
@@ -35,6 +36,7 @@ import {
   type ConversationListFilter,
   conversationListFilterOf,
   conversationListPrefix,
+  conversationListQueryKey,
   isSectionFilter,
 } from "@/utils/conversation-list-keys";
 import { insertIntoWindow } from "@/utils/conversation-order";
@@ -196,7 +198,7 @@ export function matchesSectionFilter(
  * section.
  *
  * The returned keys are what a caller needs to reconcile narrowly, and they
- * are of two kinds:
+ * are of three kinds:
  *
  * 1. Sections this write moved the row between. A move touches at most the
  *    one it left and the one it joined, so invalidating those beats
@@ -207,6 +209,11 @@ export function matchesSectionFilter(
  *    the prefix so an in-flight response cannot land on top of them) leaves an
  *    observer with nothing and no pending request, and a settle scoped to the
  *    sections that changed would never re-drive it.
+ * 3. The row's destination, when no cache the walk saw claims it (see
+ *    {@link sectionFiltersHolding}). Kinds 1 and 2 are both found by walking
+ *    the cache, which answers only for sections something has already
+ *    rendered; a section hidden because it was empty is precisely the one a
+ *    placement fills and the one the walk cannot see.
  *
  * @see {@link https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientgetqueriesdata}
  */
@@ -321,6 +328,53 @@ export function ensureSectionInIndex(
   ]);
 }
 
+/**
+ * The section filters that hold `conversation`, whether or not those caches
+ * exist yet.
+ *
+ * Derived from the row's own fields, the axes the daemon aggregates on, so a
+ * placement can name its destination without depending on which caches
+ * happen to be resident. The membership pass below can only speak for caches
+ * the query client already holds, and the destination a placement most needs
+ * reconciled is the one guaranteed absent: an empty section has no index row,
+ * so the sidebar never rendered it, so nothing ever mounted its query. Moving
+ * a conversation into an empty group lands exactly there, and
+ * {@link ensureSectionInIndex} then makes that section appear while the write
+ * that fills it is still in flight, so its first fetch can answer from before
+ * the move.
+ *
+ * An ungrouped row names two filters because the two sidebar views ask for it
+ * differently: flat Chats constrains the group axis alone, while the grouped
+ * view splits the same rows into per-channel sections. Naming a filter no
+ * query holds costs nothing, and naming one short leaves a stale section.
+ *
+ * A row no section can hold names none: {@link isSidebarVisible} is the same
+ * gate the sections themselves are filtered by, so an archived or private row
+ * has no destination to reconcile.
+ */
+export function sectionFiltersHolding(
+  conversation: Conversation,
+): ConversationListFilter[] {
+  if (!isSidebarVisible(conversation)) {
+    return [];
+  }
+  if (isConversationPinned(conversation)) {
+    return [{ groupId: SYSTEM_PINNED_GROUP_ID }];
+  }
+  const groupId = conversation.groupId;
+  if (isCustomGroupId(groupId)) {
+    return [{ groupId }];
+  }
+  const channel = conversation.originChannel ?? NATIVE_ORIGIN_CHANNEL;
+  const filters: ConversationListFilter[] = [{ groupId: SYSTEM_ALL_GROUP_ID }];
+  /* A channel this client's schema predates cannot be a section: nothing can
+     key a query by a value the daemon would reject. */
+  if (isOriginChannel(channel)) {
+    filters.push({ groupId: SYSTEM_ALL_GROUP_ID, originChannel: channel });
+  }
+  return filters;
+}
+
 export function reconcileSectionMembership(
   queryClient: QueryClient,
   assistantId: string | null,
@@ -330,6 +384,11 @@ export function reconcileSectionMembership(
     return [];
   }
   const needsRefetch: (readonly unknown[])[] = [];
+  /* Whether any cache this pass walked is a section the row now belongs to.
+     False means the row was placed somewhere no cache is holding, which the
+     walk cannot report on its own: a section with no cache entry is absent
+     from `entries` entirely rather than present and empty. */
+  let claimed = false;
   const entries = queryClient.getQueriesData<ConversationListPage>({
     queryKey: conversationListPrefix(assistantId),
   });
@@ -340,6 +399,11 @@ export function reconcileSectionMembership(
     if (!filter || !isSectionFilter(filter)) {
       continue;
     }
+    /* A property of the row and the filter, so it is known for an unresolved
+       cache too: that section is already being asked about below, and it is
+       still the section holding this row. */
+    const belongs = matchesSectionFilter(conversation, filter);
+    claimed ||= belongs;
     if (!page) {
       needsRefetch.push(queryKey);
       continue;
@@ -349,7 +413,6 @@ export function reconcileSectionMembership(
     const index = rows.findIndex(
       (c) => c.conversationId === conversation.conversationId,
     );
-    const belongs = matchesSectionFilter(conversation, filter);
 
     if (belongs === (index !== -1)) {
       /* Membership agrees. The row is still replaced in place when it is a
@@ -389,6 +452,19 @@ export function reconcileSectionMembership(
       });
     }
     needsRefetch.push(queryKey);
+  }
+
+  /* Nothing loaded claims the row, so its destination is named from the row
+     itself. A section with no cache is one nothing has rendered, and a
+     section hidden while empty is exactly that, so this is the one case the
+     walk above is structurally unable to see. Keys named here can be for
+     caches that do not exist yet; invalidating those is a no-op, and by the
+     time a settle runs the section the placement revealed has usually
+     mounted one. */
+  if (!claimed) {
+    for (const filter of sectionFiltersHolding(conversation)) {
+      needsRefetch.push(conversationListQueryKey(assistantId, filter));
+    }
   }
 
   return needsRefetch;
