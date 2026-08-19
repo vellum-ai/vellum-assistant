@@ -145,7 +145,7 @@
       "scope": "client",
       "key": "fork-from-message",
       "label": "Fork from Message",
-      "description": "Show the 'Fork from here' option in message overflow menus",
+      "description": "Show the fork affordance: 'Fork from here' on messages and 'Fork Conversation' in the thread menu. Staff-only: the client also requires the viewer to be Vellum staff, so enabling this for a non-staff account still shows nothing.",
       "defaultEnabled": false
     },
     {

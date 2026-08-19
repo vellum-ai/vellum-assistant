@@ -37,7 +37,9 @@ import type { Conversation } from "@/types/conversation-types";
 
 export interface UseChatHeaderRegistrationOptions {
   assetsRefreshKey: number;
-  handleForkConversationFromMenu: () => void;
+  /** Forks through the latest persisted message. Omitted unless the viewer
+   *  passes the staff + `fork-from-message` gate, which drops the menu item. */
+  handleForkConversationFromMenu?: () => void;
   handleOpenInNewWindow: (conversation: Conversation) => void;
   handleInspectConversation: (conversation: Conversation) => void;
   handleCopyConversation: () => void;
@@ -122,7 +124,7 @@ export function useChatHeaderRegistration({
       channelHeaderLabel,
       channelHeaderChannelId,
       channelSourceLinkHref,
-      onForkConversation: handleForkConversationFromMenu,
+      onForkConversation: handleForkConversationFromMenu ?? null,
       onOpenInNewWindow: handleOpenInNewWindow,
       onInspect: handleInspectConversation,
       onCopyConversation: messages.length > 0 ? handleCopyConversation : null,
