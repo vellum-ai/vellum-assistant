@@ -2467,7 +2467,7 @@ export function getMessages(conversationId: string): MessageRow[] {
  * offsets until the target is reached (capped at a reasonable maximum to bound
  * scan cost).
  */
-export function selectSlackMetaCandidateMetadata(
+export function selectProviderMetaCandidateMetadata(
   conversationId: string,
   limit: number,
   offset = 0,
@@ -2482,10 +2482,14 @@ export function selectSlackMetaCandidateMetadata(
         lineageFilter(conversationId),
         opts?.includeFlatLegacy
           ? or(
+              like(messages.metadata, '%"providerMeta"%'),
               like(messages.metadata, '%"slackMeta"%'),
               like(messages.metadata, '%"source":"slack"%'),
             )
-          : like(messages.metadata, '%"slackMeta"%'),
+          : or(
+              like(messages.metadata, '%"providerMeta"%'),
+              like(messages.metadata, '%"slackMeta"%'),
+            ),
       ),
     )
     .orderBy(asc(messages.createdAt))
