@@ -2,11 +2,10 @@ import { z } from "zod";
 
 export const MemoryRetrospectiveConfigSchema = z
   .object({
-    // This kill switch exists only because conversation forking is expensive:
-    // a fork full-copies the source conversation (messages + attachments), so
-    // on a large conversation the retrospective's write burst can lock the
-    // SQLite table against other writers. Until forking is referential, an
-    // operator needs a way to stop retrospectives without turning off memory.
+    // Operator kill switch for the retrospective pass, kept so retrospectives
+    // can be stopped without turning off memory as a whole. A fork copies the
+    // review window rather than the whole conversation, so its write burst is
+    // proportional to the turns under review rather than to conversation size.
     enabled: z
       .boolean({ error: "memory.retrospective.enabled must be a boolean" })
       .default(true)
@@ -21,7 +20,7 @@ export const MemoryRetrospectiveConfigSchema = z
       })
       .default("cloning")
       .describe(
-        "How a retrospective's fork of the source conversation is materialized. `cloning` (default) full-copies the source conversation's messages and attachments into the fork. `reference` makes the fork referential: it holds only its own messages and reads the source's through `fork_parent_message_id`, so a fork costs a single row instead of a full copy of the conversation.",
+        "How a retrospective's fork of the source conversation is materialized. `cloning` (default) copies the reviewed window's messages and attachments into the fork. `reference` makes the fork referential: it holds only its own messages and reads the source's through `fork_parent_message_id`. Referential forks cannot carry a lower bound, because the lineage resolver bounds an ancestor segment from above only, so a fork taken for a review window is always cloned and this setting does not affect it. It exists to avoid the write burst of copying a whole conversation, which a windowed copy does not incur.",
       ),
 
     timeThresholdMs: z

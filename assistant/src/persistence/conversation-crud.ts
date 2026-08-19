@@ -1903,13 +1903,17 @@ export async function forkConversationForRetrospective(params: {
   // how a fork is materialized is a workspace-wide storage decision, and a
   // per-call override would let two callers disagree about it on the same
   // workspace.
+  // A window bound and referential forking are mutually exclusive by
+  // construction. The lineage resolver bounds an ancestor segment from above
+  // only, so a referential fork cannot honor a lower bound and would render
+  // the source's whole visible tail. Referential forking exists to avoid the
+  // write burst of copying a large conversation, and a bounded copy does not
+  // have that burst, so the bound wins: a bounded fork is always cloned.
   const isReferential =
+    windowStartMessageId == null &&
     getConfig().memory.retrospective.forkStrategy === "reference";
   // A referential fork copies nothing: its inherited window is read back
-  // through `forkParentMessageId` by the lineage resolver. That resolver
-  // bounds an ancestor segment from above only, so `windowStartMessageId`
-  // does not apply here and a referential retrospective fork still renders
-  // the source's whole visible tail.
+  // through `forkParentMessageId` by the lineage resolver.
   const rowsToCopy = isReferential
     ? []
     : messagesToCopy.filter((message) => !hiddenRowIds.has(message.id));

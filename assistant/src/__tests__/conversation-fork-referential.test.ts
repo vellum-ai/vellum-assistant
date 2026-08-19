@@ -150,6 +150,24 @@ describe("referential forking", () => {
     expect(fork.forkParentMessageId).not.toBeNull();
   });
 
+  test("a window-bounded fork is cloned even under the reference strategy", async () => {
+    const source = await seedSource("Launch");
+    const rows = getMessages(source.id);
+
+    setForkStrategy("reference");
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: rows.at(-1)!.id,
+      windowStartMessageId: rows[2]!.id,
+    });
+
+    // The lineage resolver bounds an ancestor segment from above only, so a
+    // referential fork cannot honor a lower bound and would render the whole
+    // visible tail. The bound wins and the fork is cloned.
+    expect(fork.forkStrategy).toBeNull();
+    expect(ownedRowCount(fork.id)).toBe(2);
+  });
+
   test("reads the source's history through the fork pointer", async () => {
     const source = await seedSource("Launch");
 
