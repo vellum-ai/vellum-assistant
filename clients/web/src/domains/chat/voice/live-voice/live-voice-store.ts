@@ -38,10 +38,12 @@ import { createSelectors } from "@/utils/create-selectors";
  * - `idle` — no session (or a finished one cleaned up).
  * - `connecting` — minting a token / opening the socket, before `ready`.
  * - `listening` — mic is capturing and streaming PCM to the server.
- * - `transcribing` — the user's utterance closed; waiting on the final
+ * - `transcribing`: the user's utterance closed; waiting on the final
  *   transcript. Set by server VAD's `utterance_end` in hands-free and by the
- *   turn-boundary `ptt_release` frame in manual mode. Carries no wording of its
- *   own; see {@link LIVE_VOICE_STATE_LABELS}.
+ *   turn-boundary `ptt_release` frame in manual mode. Distinct from `thinking`
+ *   because it stamps end-of-speech latency and gates the
+ *   `utterance_discarded` return to `listening`, though the two share a label
+ *   (see {@link LIVE_VOICE_STATE_LABELS}).
  * - `thinking` — server is generating the assistant response.
  * - `speaking` — TTS audio is queued/playing.
  * - `ending` — graceful teardown in progress.
@@ -67,19 +69,13 @@ export type LiveVoiceSessionState =
  * small label. `idle`/`failed` map to an empty label — hosts unmount their
  * voice UI in those states.
  *
- * `transcribing` deliberately shares `thinking`'s wording rather than having
- * its own (JARVIS-1559). {@link toVoiceAvatarVisual} already collapses the two,
- * so a distinct label left the avatar animating thinking and the eyes caption
- * reading "Thinking" while the label beside them said "Transcribing…", for a
- * window that is usually under a second and that offers the user nothing to do
- * with the distinction. Mapped here rather than in {@link liveVoiceSurfaceLabel}
- * so the phase has no wording of its own on any surface: the session pill and
- * the composer's voice bar read this table directly and would otherwise keep
- * the split alive.
- *
- * The phase itself stays. It stamps end-of-speech latency and gates the
- * `utterance_discarded` return to `listening`, so collapsing the *state* would
- * break both.
+ * `transcribing` and `thinking` share one label (JARVIS-1559).
+ * `toVoiceAvatarVisual` collapses both phases to a single visual, so wording
+ * unique to `transcribing` puts two words for one phase on screen at once,
+ * across a window that is usually under a second and that offers the user
+ * nothing to act on. The pairing belongs in this table rather than in
+ * {@link liveVoiceSurfaceLabel}: the session pill and the composer's voice bar
+ * read the table directly, so it is the only layer every surface shares.
  */
 export const LIVE_VOICE_STATE_LABELS: Record<LiveVoiceSessionState, string> = {
   idle: "",
