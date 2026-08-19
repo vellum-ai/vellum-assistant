@@ -33,7 +33,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { ChannelId } from "../channels/types.js";
 import type { SkillSummary } from "../config/skills.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
@@ -46,16 +45,11 @@ export interface AdvisorContextSources {
   allowedToolNames?: ReadonlySet<string>;
   /**
    * Trust class of the turn's actor, from the per-turn `ToolContext.trustClass`
-   * snapshot. Gates (with {@link sourceChannel}) the personal-memory surfaces.
+   * snapshot. Gates the personal-memory surfaces, evaluated exactly as the
+   * injectors do and off the same per-turn snapshot rather than the mutable
+   * live conversation trust.
    */
   trustClass: TrustClass;
-  /**
-   * Channel the turn originates on, from the per-turn `ToolContext.executionChannel`
-   * snapshot. Combined with {@link trustClass} to evaluate personal-memory
-   * access exactly as the injectors do, off the same per-turn snapshot rather
-   * than the mutable live conversation trust.
-   */
-  sourceChannel?: string;
   /**
    * Per-chat plugin scope from `ToolContext.enabledPluginSet`: `null` means no
    * restriction; otherwise plugin-owned skills outside the set are omitted
@@ -263,18 +257,13 @@ export async function buildWorkspaceTree(
  */
 async function personalMemoryAllowedForAdvisor(
   trustClass: TrustClass,
-  sourceChannel: string | undefined,
 ): Promise<boolean> {
   try {
     const { isPersonalMemoryAllowed } =
       await import("../daemon/trust-context.js");
-    // `isPersonalMemoryAllowed` reads only `sourceChannel` + `trustClass`; build
-    // a minimal trust context from the per-turn snapshot. The channel may be
-    // absent (local/internal turns), which the gate treats as non-remote.
-    const snapshot = {
-      sourceChannel: sourceChannel as ChannelId | undefined,
-      trustClass,
-    } as TrustContext;
+    // The gate decides from the trust class alone, so the per-turn snapshot's
+    // class is the whole input.
+    const snapshot = { trustClass } as TrustContext;
     return isPersonalMemoryAllowed(snapshot);
   } catch {
     return false;
@@ -318,12 +307,7 @@ async function buildWorkspaceSection(
   // toggle) the runtime injectors use, evaluated off the per-turn trust
   // snapshot, so a low-risk advisor consult cannot forward private content the
   // main agent would never receive.
-  if (
-    await personalMemoryAllowedForAdvisor(
-      sources.trustClass,
-      sources.sourceChannel,
-    )
-  ) {
+  if (await personalMemoryAllowedForAdvisor(sources.trustClass)) {
     try {
       const [{ readNowScratchpad }, { getConfig }] = await Promise.all([
         import("../daemon/now-scratchpad.js"),
