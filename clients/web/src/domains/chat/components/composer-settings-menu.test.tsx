@@ -55,19 +55,25 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 }));
 
 // --- threshold-api (mount-time access-level fetches) -------------------------
-// A `mock()` rather than a plain stub so the boot-seed cases can hold the
-// global-thresholds fetch open and observe what the pill renders meanwhile.
+// Mocks rather than plain stubs: the boot-seed cases hold the global-thresholds
+// fetch open to observe what the pill renders meanwhile, and assert that a
+// press in that window reaches no mutation. `"low"` is a real `RiskThreshold`
+// and maps to the Conservative preset, which is the label the rest of the file
+// expects the access trigger to settle on.
 const getGlobalThresholdsMock = mock(
   async (_assistantId: string): Promise<{ interactive: unknown }> => ({
-    interactive: 50,
+    interactive: "low",
   }),
 );
+const setGlobalThresholdsMock = mock(async (..._args: unknown[]) => {});
+const setConversationOverrideMock = mock(async (..._args: unknown[]) => {});
+const deleteConversationOverrideMock = mock(async (..._args: unknown[]) => {});
 mock.module("@/lib/threshold-api", () => ({
   getGlobalThresholds: getGlobalThresholdsMock,
   getConversationOverride: async () => null,
-  setConversationOverride: async () => {},
-  deleteConversationOverride: async () => {},
-  setGlobalThresholds: async () => {},
+  setConversationOverride: setConversationOverrideMock,
+  deleteConversationOverride: deleteConversationOverrideMock,
+  setGlobalThresholds: setGlobalThresholdsMock,
 }));
 
 // --- profile quick-add controller (top-level) --------------------------------
@@ -277,6 +283,7 @@ import { ComposerCompactProvider } from "@/domains/chat/components/chat-composer
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 // Real store (not mocked) — the component reads the draft conversation id and
 // the pending-profile stash from it.
+import { loadComposerPillSnapshot } from "@/domains/chat/utils/composer-pill-storage";
 import { useConversationStore } from "@/stores/conversation-store";
 import { ApiError } from "@/utils/api-errors";
 import { clearUserScopedOverrides } from "@/utils/typed-storage";
@@ -376,7 +383,12 @@ beforeEach(() => {
   conversationsByIdGetMock.mockClear();
   toastSuccess.mockClear();
   toastError.mockClear();
-  getGlobalThresholdsMock.mockImplementation(async () => ({ interactive: 50 }));
+  getGlobalThresholdsMock.mockImplementation(async () => ({
+    interactive: "low",
+  }));
+  setGlobalThresholdsMock.mockClear();
+  setConversationOverrideMock.mockClear();
+  deleteConversationOverrideMock.mockClear();
   useConversationStore.getState().reset();
   // The menu writes the settled pill labels here for the next launch, so a
   // mounted test leaves a seed behind that the next one would boot from.
@@ -1028,12 +1040,48 @@ describe("pills seeded from the last launch", () => {
     renderMenu();
 
     await waitFor(() => {
-      const stored = JSON.parse(
-        localStorage.getItem(PILL_SNAPSHOT_KEY) ?? "{}",
-      ) as { accessPresetId?: string; profileLabel?: string };
+      const stored = loadComposerPillSnapshot("assistant-1");
       expect(stored.accessPresetId).toBe("conservative");
       expect(stored.profileLabel).toBe("Smart");
     });
+  });
+
+  test("maps the server's threshold onto the preset it actually names", async () => {
+    // "medium" is Relaxed, and is also the gateway's own no-row default, so
+    // getting this mapping wrong is what the seed exists to avoid.
+    getGlobalThresholdsMock.mockImplementation(async () => ({
+      interactive: "medium",
+    }));
+
+    renderMenu();
+
+    await waitFor(() => {
+      expect(loadComposerPillSnapshot("assistant-1").accessPresetId).toBe(
+        "relaxed",
+      );
+    });
+    expect(
+      await screen.findByLabelText("Assistant access: Relaxed"),
+    ).toBeTruthy();
+  });
+
+  test("stores nothing for a threshold it can't name", async () => {
+    // Version skew between the gateway and the web app: an unrecognized
+    // threshold resolves to the conservative preset for display, and freezing
+    // that into the seed would boot every later launch on a stricter level than
+    // the server holds.
+    getGlobalThresholdsMock.mockImplementation(async () => ({
+      interactive: "paranoid",
+    }));
+
+    renderMenu();
+
+    await waitFor(() => {
+      expect(loadComposerPillSnapshot("assistant-1").profileLabel).toBe(
+        "Smart",
+      );
+    });
+    expect(loadComposerPillSnapshot("assistant-1").accessPresetId).toBeNull();
   });
 
   test("a conversation override is not what the next launch boots from", async () => {
@@ -1069,10 +1117,101 @@ describe("pills seeded from the last launch", () => {
       "Model profile: Quality",
     );
     expect(profileTrigger.textContent).toContain("Quality");
-    const stored = JSON.parse(
-      localStorage.getItem(PILL_SNAPSHOT_KEY) ?? "{}",
-    ) as { profileLabel?: string };
-    expect(stored.profileLabel).toBe("Smart");
+    expect(loadComposerPillSnapshot("assistant-1").profileLabel).toBe("Smart");
+  });
+
+  test("the seeded access pill is inert until the real value lands", async () => {
+    // `handleSelect` needs the global threshold to decide between setting an
+    // override and clearing one, so it refuses to act without it. A pill that
+    // looked live in that window would take a press, close its surface, and
+    // send nothing, which on a failed fetch never resolves itself.
+    seedPillSnapshot({ accessPresetId: "relaxed" });
+    hangGlobalThresholds();
+
+    renderMenu();
+
+    const accessTrigger = screen.getByLabelText(
+      "Assistant access: Relaxed",
+    ) as HTMLButtonElement;
+    expect(accessTrigger.textContent).toContain("Relaxed");
+    expect(accessTrigger.disabled).toBe(true);
+
+    // Reaching a row anyway (the compact hamburger opens one without passing
+    // through this trigger) must still not mutate anything.
+    const relaxedRow = screen
+      .getAllByTestId("panel-item")
+      .find((row) => row.textContent?.includes("Relaxed"));
+    await act(async () => {
+      fireEvent.click(relaxedRow!);
+    });
+
+    expect(setGlobalThresholdsMock).not.toHaveBeenCalled();
+    expect(setConversationOverrideMock).not.toHaveBeenCalled();
+    expect(deleteConversationOverrideMock).not.toHaveBeenCalled();
+
+    await settleMountFetches();
+  });
+
+  test("the access pill goes live once the fetch lands", async () => {
+    // The other half of the gate: the inert state has to end, or the seed has
+    // traded one broken control for another.
+    seedPillSnapshot({ accessPresetId: "relaxed" });
+
+    renderMenu();
+
+    await waitFor(() => {
+      const accessTrigger = screen.getByLabelText(
+        "Assistant access: Conservative",
+      ) as HTMLButtonElement;
+      expect(accessTrigger.disabled).toBe(false);
+    });
+
+    const relaxedRow = screen
+      .getAllByTestId("panel-item")
+      .find((row) => row.textContent?.includes("Relaxed"));
+    await act(async () => {
+      fireEvent.click(relaxedRow!);
+    });
+
+    await waitFor(() => {
+      expect(setConversationOverrideMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test("the seeded profile pill offers nothing to select before config lands", async () => {
+    // The profile picker's selection handler bails while the config fetch is
+    // unsettled. Nothing is swallowed only because there is nothing to press:
+    // the seed names a label, it does not invent a list to pick from.
+    seedPillSnapshot({ profileLabel: "Balanced" });
+    configGetMock.mockImplementation(() => new Promise(() => {}));
+
+    renderMenu();
+
+    expect(screen.getByLabelText("Model profile: Balanced")).toBeTruthy();
+    expect(
+      screen
+        .queryAllByTestId("panel-item")
+        .filter((row) => row.textContent?.includes("Balanced")),
+    ).toHaveLength(0);
+    expect(inferenceprofilePut).not.toHaveBeenCalled();
+
+    await settleMountFetches();
+  });
+
+  test("a failed config fetch drops the seeded label instead of holding it", async () => {
+    // With no answer coming, the stale label would sit there for the life of
+    // the session claiming a selection the app cannot confirm.
+    seedPillSnapshot({ profileLabel: "Balanced" });
+    configGetMock.mockImplementation(async () => {
+      throw new ApiError(500, "daemon unreachable");
+    });
+
+    renderMenu();
+
+    expect(screen.getByLabelText("Model profile: Balanced")).toBeTruthy();
+
+    const profileTrigger = await screen.findByLabelText("Model profile");
+    expect(profileTrigger.textContent).toBe("");
   });
 
   test("first run, with nothing stored, still holds the pill's shape", async () => {
@@ -1247,6 +1386,28 @@ describe("compact composer collapse", () => {
     expect(trigger.getAttribute("title")).toBe(
       "Assistant access and model profile: Relaxed · Balanced",
     );
+
+    await settleMountFetches();
+  });
+
+  test("holds the seeded access rows inert until the real value lands", async () => {
+    // The hamburger reaches the access rows without passing through the pill
+    // that the split layout disables, so the rows carry the gate themselves.
+    seedPillSnapshot({ accessPresetId: "relaxed" });
+    hangGlobalThresholds();
+
+    renderMenu({ compact: true, props: { segments: "access" } });
+
+    const relaxedRow = screen
+      .getAllByTestId("menu-item")
+      .find((row) => row.textContent?.includes("Relaxed"));
+    expect((relaxedRow as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(relaxedRow!);
+    });
+    expect(setGlobalThresholdsMock).not.toHaveBeenCalled();
+    expect(setConversationOverrideMock).not.toHaveBeenCalled();
 
     await settleMountFetches();
   });
