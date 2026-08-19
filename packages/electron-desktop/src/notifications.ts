@@ -3,21 +3,21 @@ import { z } from "zod";
 
 import {
   NOTIFICATION_CATEGORIES,
+  NOTIFICATIONS_ACTION,
+  NOTIFICATIONS_SHOW,
   type NotificationCategory,
   type NotificationActionEvent,
   type ShowNotificationPayload,
   showNotificationPayloadSchema,
 } from "@vellumai/ipc-contract";
 
-import { handle } from "./ipc";
-import { ensureVisible } from "./main-window";
-import log from "./logger";
+import type { IpcHandle } from "./ipc";
 
 /**
- * macOS native notifications with category-based action buttons.
+ * Desktop native notifications with category-based action buttons.
  *
- * Uses `electron.Notification` in the main process — NOT the renderer's
- * Web Notification API — because:
+ * By default this uses `electron.Notification` in the main process, NOT the
+ * renderer's Web Notification API, because:
  *
  *   1. Main-process `Notification` supports `actions` (macOS action
  *      buttons). The renderer's Web Notification API does not.
@@ -41,6 +41,58 @@ import log from "./logger";
  */
 
 // ---------------------------------------------------------------------------
+// Per-client runtime seams
+// ---------------------------------------------------------------------------
+
+/**
+ * The slice of `electron.Notification` this module drives. Clients whose OS
+ * needs a different delivery path (e.g. Windows toasts posted by the native
+ * helper for action-button support) provide a `create` factory returning an
+ * adapter with this shape; events map 1:1 onto Electron's notification
+ * events so the ack and routing logic stays shared.
+ */
+export interface NotificationLike {
+  on(event: "click", listener: () => void): void;
+  on(event: "action", listener: (event: unknown, index: number) => void): void;
+  on(event: "show", listener: () => void): void;
+  on(event: "failed", listener: (event: unknown, error: string) => void): void;
+  show(): void;
+}
+
+export interface NotificationCreateOptions {
+  title: string;
+  body: string;
+  silent: boolean;
+  actions: CategoryAction[];
+}
+
+export interface NotificationsRuntime {
+  /** The client's sender-validated IPC registrar. */
+  ipc: { handle: IpcHandle };
+  /** Bring the app's main window to front on click/action. */
+  ensureVisible: () => void | Promise<void>;
+  /** Defaults to `console`. */
+  logger?: { warn: (...args: unknown[]) => void };
+  /** Defaults to `electron.Notification.isSupported`. */
+  isSupported?: () => boolean;
+  /** Defaults to constructing an `electron.Notification`. */
+  create?: (options: NotificationCreateOptions) => NotificationLike;
+}
+
+let runtime: NotificationsRuntime | null = null;
+
+export const configureNotifications = (next: NotificationsRuntime): void => {
+  runtime = next;
+};
+
+const requireRuntime = (): NotificationsRuntime => {
+  if (!runtime) {
+    throw new Error("Notifications are not configured");
+  }
+  return runtime;
+};
+
+// ---------------------------------------------------------------------------
 // Notification categories
 // ---------------------------------------------------------------------------
 
@@ -54,7 +106,7 @@ import log from "./logger";
  */
 export { NOTIFICATION_CATEGORIES, type NotificationCategory };
 
-interface CategoryAction {
+export interface CategoryAction {
   type: "button";
   text: string;
 }
@@ -111,8 +163,7 @@ export type { NotificationActionEvent };
 const recentNotifications = new Map<string, number>();
 
 const dedupKey = (payload: ShowNotificationPayload): string =>
-  payload.deliveryId ??
-  `${payload.category}:${payload.title}:${payload.body}`;
+  payload.deliveryId ?? `${payload.category}:${payload.title}:${payload.body}`;
 
 const isCoolingDown = (payload: ShowNotificationPayload): boolean => {
   const key = dedupKey(payload);
@@ -180,7 +231,7 @@ const broadcastAction = (event: NotificationActionEvent): void => {
     if (win.isDestroyed()) {
       continue;
     }
-    win.webContents.send("vellum:notifications:action", event);
+    win.webContents.send(NOTIFICATIONS_ACTION, event);
   }
 };
 
@@ -189,8 +240,11 @@ interface ShowResult {
   errorMessage?: string;
 }
 
-const showNotification = (payload: ShowNotificationPayload): Promise<ShowResult> => {
-  if (!Notification.isSupported()) {
+const showNotification = (
+  payload: ShowNotificationPayload,
+): Promise<ShowResult> => {
+  const { ensureVisible, isSupported, create, logger } = requireRuntime();
+  if (!(isSupported ?? Notification.isSupported)()) {
     return Promise.resolve({
       success: false,
       errorMessage: "Notifications not supported",
@@ -206,7 +260,9 @@ const showNotification = (payload: ShowNotificationPayload): Promise<ShowResult>
 
   const actions = CATEGORY_ACTIONS[payload.category];
 
-  const notif = new Notification({
+  const notif: NotificationLike = (
+    create ?? ((options) => new Notification(options))
+  )({
     title: payload.title,
     body: payload.body,
     silent: false,
@@ -228,7 +284,7 @@ const showNotification = (payload: ShowNotificationPayload): Promise<ShowResult>
     broadcastAction({ kind: "click", ...baseMeta });
   });
 
-  notif.on("action", (_event: Electron.Event, index: number) => {
+  notif.on("action", (_event: unknown, index: number) => {
     void ensureVisible();
     const actionDef = actions[index];
     broadcastAction({
@@ -271,7 +327,7 @@ const showNotification = (payload: ShowNotificationPayload): Promise<ShowResult>
 
     notif.on("failed", (_event, error) => {
       // Electron delivers the `failed` error as a string description.
-      log.warn("[notifications] Notification failed:", error);
+      (logger ?? console).warn("[notifications] Notification failed:", error);
       settle({ success: false, errorMessage: error });
     });
 
@@ -286,10 +342,8 @@ const showNotification = (payload: ShowNotificationPayload): Promise<ShowResult>
 let pruneTimer: NodeJS.Timeout | null = null;
 
 export const installNotifications = (): void => {
-  handle(
-    "vellum:notifications:show",
-    showPayloadSchema,
-    ([payload]) => showNotification(payload),
+  requireRuntime().ipc.handle(NOTIFICATIONS_SHOW, showPayloadSchema, ([payload]) =>
+    showNotification(payload),
   );
 
   pruneTimer = setInterval(pruneStaleEntries, PRUNE_INTERVAL_MS);

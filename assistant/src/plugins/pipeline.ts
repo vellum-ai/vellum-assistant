@@ -25,7 +25,10 @@ import { getHookEntriesFor } from "../hooks/registry.js";
 import type { BaseHookContext } from "../hooks/types.js";
 import { type HookName, HOOKS } from "../plugin-api/constants.js";
 import { getLogger } from "../util/logger.js";
-import { runInPluginContext } from "./plugin-execution-context.js";
+import {
+  runInPluginContext,
+  runOutsidePluginContext,
+} from "./plugin-execution-context.js";
 import type { HookEntry } from "./types.js";
 
 // ─── Hook runner ────────────────────────────────────────────────────────────
@@ -355,12 +358,15 @@ export async function runHook<TInput extends object>(
     };
     try {
       // Mark the contributing plugin as in context so host APIs the hook
-      // reaches (e.g. resolveCredential) can scope to it. Standalone workspace
-      // hooks are not plugins and establish no context.
+      // reaches (e.g. resolveCredential) can scope to it. A standalone
+      // workspace hook is not a plugin, and runs with the context explicitly
+      // cleared rather than merely unset: the turn may have been started by a
+      // plugin (a route handler calling `runConversationTurn`), and this hook
+      // must not inherit that plugin's identity.
       const invokeHook =
         owner.kind === "plugin"
           ? () => runInPluginContext(owner.id, () => fn(draft))
-          : () => fn(draft);
+          : () => runOutsidePluginContext(() => fn(draft));
       const result = await callWithTimeout(
         invokeHook,
         HOOK_TIMEOUT_MS,

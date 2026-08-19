@@ -604,6 +604,26 @@
     "qrCodeTitle": "Código QR de emparejamiento de dispositivo",
     "singleUse": "Uso único."
   },
+  "pairedDevicesSection": {
+    "hostRevokeDisabledTitle": "Esta es la credencial de este equipo; revocarla dejaría al anfitrión sin acceso al asistente.",
+    "meta": "Emparejado {paired} · Último uso {lastUsed}",
+    "revoke": "Revocar",
+    "revokeConfirmLabel": "Revocar",
+    "revokeConfirmMessage": "El dispositivo {platform} {deviceId} pierde el acceso a este asistente. Sus tokens de acceso se invalidan de inmediato; ese dispositivo debe emparejarse de nuevo desde este equipo para volver a conectarse.",
+    "revokeConfirmTitle": "¿Revocar este dispositivo?",
+    "thisMachine": " · Este equipo",
+    "title": "Dispositivos emparejados ({count})",
+    "unknownDate": "desconocido",
+    "unknownPlatform": "Desconocido"
+  },
+  "pendingPairingRequests": {
+    "approveButton": "Aprobar",
+    "denyButton": "Denegar",
+    "instruction": "Un dispositivo está pidiendo usar este asistente. Aprueba una solicitud solo después de confirmar que su código coincide con el que muestra el dispositivo solicitante.",
+    "requestedMeta": "Solicitado {when} desde {ip}",
+    "requestedMetaHost": "Solicitado {when} desde este equipo",
+    "title": "Solicitudes de vinculación"
+  },
   "planColumnCard": {
     "currentPlan": "Plan actual",
     "includes": "Incluye:",
@@ -1018,6 +1038,11 @@
   "useDaemonConfig": {
     "assistantNotReadyToast": "El asistente no está listo. Inténtalo de nuevo.",
     "saveApiKeyFailedToast": "No se pudo guardar la clave de API de {providerName}. Inténtalo de nuevo."
+  },
+  "usePendingPairingRequests": {
+    "actionErrorFallback": "Algo salió mal. Inténtalo de nuevo.",
+    "denyAlreadyApproved": "Esta solicitud ya se había aprobado en otro lugar, así que la denegación no tuvo efecto y el dispositivo ya está vinculado.",
+    "pollErrorFallback": "Algo salió mal al comprobar las solicitudes de vinculación."
   },
   "useProfileSave": {
     "createdToast": "Perfil \"{name}\" creado"

@@ -22,6 +22,11 @@ import {
   hasAnyGroupMenuAction,
   renderGroupMenuItemsAsPanelItems,
 } from "@/domains/chat/components/group-actions-menu";
+import { fixedT } from "@/i18n";
+
+// The renderers take a namespace-bound `t`, the same thing
+// `useTranslation("chat")` hands their component callers.
+const t = fixedT("chat");
 
 const allActions = {
   onMarkAllRead: () => {},
@@ -146,6 +151,7 @@ describe("renderGroupMenuItemsAsPanelItems", () => {
           },
           hasUnreadConversations: false,
           onClose: () => {},
+          t,
         }),
       ),
     );

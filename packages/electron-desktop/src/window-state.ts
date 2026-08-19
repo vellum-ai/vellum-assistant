@@ -1,6 +1,12 @@
 import { BrowserWindow, screen, type Rectangle } from "electron";
 import Store from "electron-store";
 
+import {
+  COMPANION_SIZES,
+  DEFAULT_COMPANION_SIZE,
+  type CompanionSize,
+} from "@vellumai/ipc-contract";
+
 /**
  * Window-geometry persistence. Kept in its own `electron-store` instance
  * (`window-state.json`) so it doesn't collide with the renderer-facing
@@ -33,6 +39,11 @@ interface StoreSchema {
   // before any renderer loads. Optional: absent means shown, so the flag
   // records only the opt-out (see `readCompanionHidden`).
   companionHidden?: boolean;
+  // Which named size the companion surface is drawn at. A main-process concern
+  // for the same reason the opt-out is: the window is built at a size derived
+  // from this before any renderer loads. Optional: absent means the default
+  // (see `readCompanionSize`).
+  companionSize?: CompanionSize;
 }
 
 let instance: Store<StoreSchema> | null = null;
@@ -90,6 +101,29 @@ export const writeCompanionHidden = (hidden: boolean): void => {
     return;
   }
   store().set("companionHidden", hidden);
+};
+
+/**
+ * Which named size the companion surface is drawn at.
+ *
+ * Validated on the way out rather than trusted. This file is a JSON store a
+ * user can edit and an older build can have written, and the value indexes a
+ * table of geometry, and an unknown one would size the window from `undefined`
+ * put a canvas of `NaN` on screen.
+ */
+export const readCompanionSize = (): CompanionSize => {
+  const stored = store().get("companionSize");
+  return stored !== undefined && COMPANION_SIZES.includes(stored)
+    ? stored
+    : DEFAULT_COMPANION_SIZE;
+};
+
+/** Persist the companion's size. No-op when unchanged, as the opt-out is. */
+export const writeCompanionSize = (size: CompanionSize): void => {
+  if (readCompanionSize() === size) {
+    return;
+  }
+  store().set("companionSize", size);
 };
 
 /**

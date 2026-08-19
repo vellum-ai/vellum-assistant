@@ -1828,6 +1828,13 @@ export interface ProcessMessageOptions {
   /** JWT-verified committer principal for turn-scoped host-proxy authorization. */
   sourceActorPrincipalId?: string;
   /**
+   * The actor this turn is being started for. Stamped onto the conversation
+   * before history is scoped, so the run hydrates as its committer rather
+   * than as whoever last left the resting slot set. Callers with no actor of
+   * their own (internal dispatch) omit it and the resting actor stands.
+   */
+  trustContext?: TrustContext;
+  /**
    * True when this turn was auto-sent on the user's behalf rather than typed
    * (see `PersistMessageOptions.scripted`). Forwarded to persistence so the
    * turn is excluded from activation counts. Defaults to false. A caller
@@ -1873,7 +1880,11 @@ export async function processMessage(
     sourceActorPrincipalId,
     scripted,
     metadata: callerMetadata,
+    trustContext: committingTrustContext,
   } = options;
+  if (committingTrustContext) {
+    conversation.setTrustContext(committingTrustContext);
+  }
   await conversation.ensureActorScopedHistory();
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.

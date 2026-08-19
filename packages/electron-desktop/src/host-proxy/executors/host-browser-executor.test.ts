@@ -1,37 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Stubs — must precede the executor import
-// ---------------------------------------------------------------------------
-
-const MOCK_DEVICE_ID = "test-device-00000000-0000-0000-0000-000000000000";
-mock.module("@vellumai/electron-desktop/device-id", () => ({
-  getDeviceId: () => MOCK_DEVICE_ID,
-  resetDeviceIdCache: () => {},
-}));
-
-mock.module("electron-log/main", () => {
-  const noop = () => {};
-  return {
-    default: {
-      info: noop,
-      warn: noop,
-      error: noop,
-      debug: noop,
-      initialize: noop,
-      transports: {
-        file: {
-          maxSize: 0,
-          fileName: "",
-          format: "",
-          getFile: () => ({ path: "" }),
-        },
-      },
-    },
-  };
-});
-
-// ---------------------------------------------------------------------------
 // Mock fetch at the global level
 // ---------------------------------------------------------------------------
 
@@ -119,7 +88,9 @@ Object.assign(globalThis.WebSocket, {
   CLOSED: 3,
 });
 
-const { HostBrowserExecutor, __testing } = await import("./host-browser-executor");
+const { HostBrowserExecutor, __testing } = await import(
+  "./host-browser-executor"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -153,7 +124,7 @@ function capturingPoster() {
         results.push(payload);
         return true;
       },
-    } as unknown as import("@vellumai/electron-desktop/host-proxy/poster").HostProxyPoster,
+    } as unknown as import("../poster").HostProxyPoster,
   };
 }
 
@@ -457,7 +428,7 @@ describe("HostBrowserExecutor", () => {
       // Cancel before the request even starts executing
       executor.handleCancel(
         { type: "host_browser_cancel", requestId: "r1" },
-        {} as import("@vellumai/electron-desktop/host-proxy/poster").HostProxyPoster,
+        {} as import("../poster").HostProxyPoster,
       );
 
       const { poster, results } = capturingPoster();

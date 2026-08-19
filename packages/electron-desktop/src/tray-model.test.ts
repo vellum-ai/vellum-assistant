@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import type { CompanionSize } from "@vellumai/ipc-contract";
 import type { Lockfile } from "@vellumai/local-mode/contract";
 
 // Tray stub: records constructions, event listeners, and image swaps.
@@ -96,6 +97,8 @@ let watchedLockfile: {
 let featureFlags: Record<string, boolean> | null = null;
 let companionHidden = false;
 const setCompanionSurfaceVisibleMock = mock((_visible: boolean) => undefined);
+let companionSize: CompanionSize = "large";
+const setCompanionSizeMock = mock((_size: CompanionSize) => undefined);
 
 const dispatchToMainMock = mock((_command: unknown) => undefined);
 
@@ -182,6 +185,8 @@ beforeEach(() => {
     onboardingActive: () => false,
     openComponentGallery: () => undefined,
     removePairedLabel: "Remove from this Mac\u2026",
+    companionSize: () => companionSize,
+    setCompanionSize: setCompanionSizeMock,
     setCompanionVisible: setCompanionSurfaceVisibleMock,
   });
   trays.length = 0;
@@ -191,7 +196,9 @@ beforeEach(() => {
   watchedLockfile = { assistants: [], activeAssistant: null };
   featureFlags = null;
   companionHidden = false;
+  companionSize = "large";
   setCompanionSurfaceVisibleMock.mockClear();
+  setCompanionSizeMock.mockClear();
   dispatchToMainMock.mockClear();
   buildFromTemplateMock.mockClear();
   statusFramesMock.mockClear();
@@ -531,7 +538,9 @@ describe("floating companion toggle", () => {
     label?: string;
     type?: string;
     checked?: boolean;
+    enabled?: boolean;
     click?: (item: { checked: boolean }) => void;
+    submenu?: MenuItem[];
   };
 
   const popCompanionItem = (): MenuItem | undefined => {
@@ -543,6 +552,19 @@ describe("floating companion toggle", () => {
     const calls = buildFromTemplateMock.mock.calls;
     const template = calls[calls.length - 1]?.[0] as MenuItem[];
     return template.find((i) => i.label === "Show Floating Companion");
+  };
+
+  /**
+   * The size picker, which lives beside the toggle and is gated with it: with
+   * the surface off there is nothing to size.
+   */
+  const popSizeItem = (): MenuItem | undefined => {
+    featureFlags = { "companion-surface": true };
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const calls = buildFromTemplateMock.mock.calls;
+    const template = calls[calls.length - 1]?.[0] as MenuItem[];
+    return template.find((i) => i.label === "Companion Size");
   };
 
   test("renders as a checked checkbox while the surface is shown", () => {
@@ -564,6 +586,58 @@ describe("floating companion toggle", () => {
     expect(setCompanionSurfaceVisibleMock).toHaveBeenLastCalledWith(false);
     item?.click?.({ checked: true });
     expect(setCompanionSurfaceVisibleMock).toHaveBeenLastCalledWith(true);
+  });
+
+  /**
+   * Named steps rather than a slider (JARVIS-1549). The avatar's box is the
+   * geometry both processes derive from, so the sizes are a fixed set of
+   * layouts and the menu is where one is chosen.
+   */
+  test("offers a size for each named step", () => {
+    expect(popSizeItem()?.submenu?.map((i) => i.label)).toEqual([
+      "Small",
+      "Medium",
+      "Large",
+      "Huge",
+    ]);
+  });
+
+  test("marks the size in effect, since radio items have to show one", () => {
+    companionSize = "medium";
+    const checked = popSizeItem()
+      ?.submenu?.filter((i) => i.checked)
+      .map((i) => i.label);
+    expect(checked).toEqual(["Medium"]);
+  });
+
+  test("renders the sizes as one radio group", () => {
+    expect(popSizeItem()?.submenu?.every((i) => i.type === "radio")).toBe(true);
+  });
+
+  test("applies the size that was picked", () => {
+    popSizeItem()?.submenu?.[3]?.click?.({ checked: true });
+    expect(setCompanionSizeMock).toHaveBeenLastCalledWith("huge");
+  });
+
+  /**
+   * Disabled rather than dropped while the surface is hidden. The size is still
+   * something the companion has, and an item that comes and goes with the
+   * checkbox above it reads as a bug rather than as a state.
+   */
+  test("stands down while the surface is hidden, without disappearing", () => {
+    companionHidden = true;
+    const item = popSizeItem();
+    expect(item).toBeDefined();
+    expect(item?.enabled).toBe(false);
+  });
+
+  test("is absent entirely for someone the surface is off for", () => {
+    featureFlags = {};
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const calls = buildFromTemplateMock.mock.calls;
+    const template = calls[calls.length - 1]?.[0] as MenuItem[];
+    expect(template.find((i) => i.label === "Companion Size")).toBeUndefined();
   });
 });
 

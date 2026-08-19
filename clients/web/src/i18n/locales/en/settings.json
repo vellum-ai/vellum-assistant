@@ -604,6 +604,26 @@
     "qrCodeTitle": "Device pairing QR code",
     "singleUse": "Single-use."
   },
+  "pairedDevicesSection": {
+    "hostRevokeDisabledTitle": "This is this machine's own credential; revoking it would lock the host out of the assistant.",
+    "meta": "Paired {paired} · Last used {lastUsed}",
+    "revoke": "Revoke",
+    "revokeConfirmLabel": "Revoke",
+    "revokeConfirmMessage": "The {platform} device {deviceId} loses access to this assistant. Its access tokens are invalidated immediately; that device must be paired again from this machine to reconnect.",
+    "revokeConfirmTitle": "Revoke this device?",
+    "thisMachine": " · This machine",
+    "title": "Paired devices ({count})",
+    "unknownDate": "unknown",
+    "unknownPlatform": "Unknown"
+  },
+  "pendingPairingRequests": {
+    "approveButton": "Approve",
+    "denyButton": "Deny",
+    "instruction": "A device is asking to use this assistant. Approve a request only after confirming its code matches the one shown on the requesting device.",
+    "requestedMeta": "Requested {when} from {ip}",
+    "requestedMetaHost": "Requested {when} from this computer",
+    "title": "Pairing requests"
+  },
   "planColumnCard": {
     "currentPlan": "Current Plan",
     "includes": "Includes:",
@@ -1018,6 +1038,11 @@
   "useDaemonConfig": {
     "assistantNotReadyToast": "Assistant not ready. Please try again.",
     "saveApiKeyFailedToast": "Failed to save {providerName} API key. Please try again."
+  },
+  "usePendingPairingRequests": {
+    "actionErrorFallback": "Something went wrong. Try again.",
+    "denyAlreadyApproved": "This request was already approved somewhere else, so the deny didn't take effect and the device is now paired.",
+    "pollErrorFallback": "Something went wrong while checking for pairing requests."
   },
   "useProfileSave": {
     "createdToast": "Profile \"{name}\" created"

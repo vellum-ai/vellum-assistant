@@ -26,6 +26,7 @@ process.env.GATEWAY_SECURITY_DIR = join(testDir, "protected");
 
 import {
   installIpcMock,
+  lastIpcParams,
   mockIpcResponse,
 } from "./helpers/gateway-classify-mock.js";
 installIpcMock();
@@ -43,7 +44,7 @@ mockIpcResponse("get_global_thresholds", {
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────
 
-import { check, generateAllowlistOptions } from "../permissions/checker.js";
+import { check, classifyRisk } from "../permissions/checker.js";
 import { _clearGlobalCacheForTesting } from "../permissions/gateway-threshold-reader.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
@@ -230,43 +231,34 @@ describe("inline-command skill_load permissions", () => {
 
   // ── Allowlist options ────────────────────────────────────────────────
 
-  describe("allowlist options", () => {
-    test("dynamic skill allowlist options use skill_load_dynamic: namespace", async () => {
+  describe("skill metadata sent to the gateway", () => {
+    // The gateway picks the `skill_load_dynamic:` namespace off these flags,
+    // so what the daemon reads from disk decides which rule namespace a user
+    // can save into.
+    test("a skill with inline expansions is sent as dynamic", async () => {
       ensureSkillsDir();
       writeDynamicSkill("dynamic-opts", "Dynamic Opts Skill");
 
-      const options = await generateAllowlistOptions("skill_load", {
-        skill: "dynamic-opts",
-      });
+      await classifyRisk("skill_load", { skill: "dynamic-opts" });
 
-      expect(options.length).toBeGreaterThanOrEqual(1);
-      // All options should use skill_load_dynamic: prefix
-      for (const option of options) {
-        expect(option.pattern).toMatch(/^skill_load_dynamic:/);
-      }
-
-      // Should have an any-version option
-      const anyVersionOption = options.find(
-        (o) => o.pattern === "skill_load_dynamic:dynamic-opts",
-      );
-      expect(anyVersionOption).toBeDefined();
-      expect(anyVersionOption!.description).toBe("This skill (any version)");
+      const metadata = lastIpcParams("classify_risk")?.skillMetadata as
+        | { hasInlineExpansions: boolean; isDynamic: boolean }
+        | undefined;
+      expect(metadata?.hasInlineExpansions).toBe(true);
+      expect(metadata?.isDynamic).toBe(true);
     });
 
-    test("plain skill allowlist options use skill_load: namespace", async () => {
+    test("a plain skill is not sent as dynamic", async () => {
       ensureSkillsDir();
       writePlainSkill("plain-opts", "Plain Opts Skill");
 
-      const options = await generateAllowlistOptions("skill_load", {
-        skill: "plain-opts",
-      });
+      await classifyRisk("skill_load", { skill: "plain-opts" });
 
-      expect(options.length).toBeGreaterThanOrEqual(1);
-      // Should use skill_load: prefix, not skill_load_dynamic:
-      for (const option of options) {
-        expect(option.pattern).toMatch(/^skill_load:/);
-        expect(option.pattern).not.toMatch(/^skill_load_dynamic:/);
-      }
+      const metadata = lastIpcParams("classify_risk")?.skillMetadata as
+        | { hasInlineExpansions: boolean; isDynamic: boolean }
+        | undefined;
+      expect(metadata?.hasInlineExpansions).toBe(false);
+      expect(metadata?.isDynamic).toBe(false);
     });
   });
 });
