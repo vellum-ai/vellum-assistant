@@ -21459,6 +21459,10 @@ paths:
                                     anyOf:
                                       - type: number
                                       - type: "null"
+                                  inactiveFileBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
                                   kernelBytes:
                                     anyOf:
                                       - type: number
@@ -21482,6 +21486,7 @@ paths:
                                 required:
                                   - anonBytes
                                   - fileBytes
+                                  - inactiveFileBytes
                                   - kernelBytes
                                   - slabReclaimableBytes
                                   - slabUnreclaimableBytes
