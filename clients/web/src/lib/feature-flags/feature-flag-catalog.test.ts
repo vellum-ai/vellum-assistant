@@ -23,11 +23,13 @@ describe("feature flag catalog", () => {
     expect(ASSISTANT_FLAG_DEFAULTS.selfIntroGreeting).toBe(false);
   });
 
-  test("exposes collapse assistant intermediates as a client flag defaulted off", () => {
-    expect(CLIENT_FLAG_DEFAULTS.collapseAssistantIntermediates).toBe(false);
-    expect(
-      "collapseAssistantIntermediates" in ASSISTANT_FLAG_DEFAULTS,
-    ).toBe(false);
+  test("does not expose GA collapsed assistant intermediates as a feature flag", () => {
+    expect("collapseAssistantIntermediates" in CLIENT_FLAG_DEFAULTS).toBe(
+      false,
+    );
+    expect("collapseAssistantIntermediates" in ASSISTANT_FLAG_DEFAULTS).toBe(
+      false,
+    );
   });
 
   test("exposes the activation flow experiment as a client string flag", () => {

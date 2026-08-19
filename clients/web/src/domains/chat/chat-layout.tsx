@@ -47,14 +47,13 @@ import {
   EDGE_SWIPE_EASING,
   EDGE_SWIPE_SLIDE_MS,
 } from "@/hooks/edge-swipe-motion";
-import { useEdgeSwipeDrawer } from "@/hooks/use-edge-swipe-drawer";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useMobileDrawerStore } from "@/stores/mobile-drawer-store";
-import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking";
 import { useChatLayoutDrawer } from "@/domains/chat/hooks/use-chat-layout-drawer";
+import { useChatLayoutDrawerGestures } from "@/domains/chat/hooks/use-chat-layout-drawer-gestures";
 import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-shortcuts";
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
@@ -448,15 +447,10 @@ export function ChatLayout({
 
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
-  // True while a left-edge swipe is dragging the drawer in from off-screen but
-  // has not yet committed open; keeps the panel mounted so its transform can
-  // track the finger before `drawerOpen` flips.
-  const [drawerDragging, setDrawerDragging] = useState<boolean>(false);
 
   useEffect(() => {
     if (!isMobile) {
       setDrawerOpen(false);
-      setDrawerDragging(false);
     }
   }, [isMobile]);
 
@@ -497,23 +491,6 @@ export function ChatLayout({
   const voiceRoomVisible = useIsVoiceRoomVisible();
 
   const drawerVisible = isMobile && drawerOpen;
-
-  // Publish for surfaces that render outside this tree and would otherwise
-  // paint over the drawer; see `mobile-drawer-store`. Mirrors the same
-  // condition the drawer itself mounts on, so the two can't disagree.
-  //
-  // Layout effect, not passive: a passive effect runs after the browser can
-  // paint, so the drawer's first frame would go up with the store still
-  // reporting false and the peek still portaled over it. Publishing before
-  // paint means the two never disagree on screen.
-  const drawerPresented = drawerVisible || drawerDragging;
-  const setDrawerPresented = useMobileDrawerStore.use.setPresented();
-  useLayoutEffect(() => {
-    setDrawerPresented(drawerPresented);
-    return () => {
-      setDrawerPresented(false);
-    };
-  }, [drawerPresented, setDrawerPresented]);
 
   const toggleSidebar = useCallback(() => {
     // The tour forces the rail expanded; a toggle would only flip the
@@ -560,34 +537,41 @@ export function ChatLayout({
     onClose: closeDrawer,
   });
 
-  // Swipe-to-open-menu: track the drawer in from the left edge, committing open
-  // past threshold. Suppressed whenever a back-swipe owner is active (a pushed
-  // page under this layout) so a single left-edge swipe resolves to exactly one
-  // action — back-navigation on detail pages, open-menu at the stack root.
-  // Also suppressed while a swipe-action row is revealed anywhere under the
-  // layout (e.g. a library card showing Pin/Delete): swiping the open row back
-  // toward centre must close it, matching the iOS table-row model where the
-  // open row owns the gesture and the enclosing container yields.
-  const backSwipeOwnerCount = useEdgeSwipeArbiterStore.use.backOwnerCount();
-  const openRowCount = useEdgeSwipeArbiterStore.use.openRowCount();
-  useEdgeSwipeDrawer({
+  // Swipe-to-open from the left edge and swipe-to-close on the panel, plus the
+  // presence the closing slide needs. See the hook for where each gesture
+  // yields and why the panel outlives `drawerOpen`.
+  const drawerGestures = useChatLayoutDrawerGestures({
     panelRef: drawerRef,
-    enabled:
-      isMobile &&
-      !drawerOpen &&
-      backSwipeOwnerCount === 0 &&
-      openRowCount === 0,
-    onDragStart: () => setDrawerDragging(true),
+    isMobile,
+    open: drawerOpen,
     onOpen: () => {
       // Same as the button path: swiping the drawer in over a focused
       // composer must blur it so iOS dismisses the soft keyboard, otherwise
       // the drawer slides in behind a raised keyboard and looks stuck.
       (document.activeElement as HTMLElement | null)?.blur();
       setDrawerOpen(true);
-      setDrawerDragging(false);
     },
-    onSettle: () => setDrawerDragging(false),
+    onClose: closeDrawer,
   });
+
+  // Publish for surfaces that render outside this tree and would otherwise
+  // paint over the drawer; see `mobile-drawer-store`. Mirrors the same
+  // condition the drawer itself mounts on, so the two can't disagree: the
+  // panel is still on screen through its closing slide, so the peek stays
+  // parked until the slide ends.
+  //
+  // Layout effect, not passive: a passive effect runs after the browser can
+  // paint, so the drawer's first frame would go up with the store still
+  // reporting false and the peek still portaled over it. Publishing before
+  // paint means the two never disagree on screen.
+  const drawerPresented = isMobile && drawerGestures.present;
+  const setDrawerPresented = useMobileDrawerStore.use.setPresented();
+  useLayoutEffect(() => {
+    setDrawerPresented(drawerPresented);
+    return () => {
+      setDrawerPresented(false);
+    };
+  }, [drawerPresented, setDrawerPresented]);
 
   const activeConversationId = useConversationStore.use.activeConversationId();
   const processingConversationIds =
@@ -1099,15 +1083,36 @@ export function ChatLayout({
               `<main>`'s box instead of the viewport, and sealed below the
               room by its parent's tier: the menu button read as dead. Out
               here its z-40 sorts against the room directly. */}
-          {drawerVisible || drawerDragging ? (
+          {drawerGestures.present ? (
             <div
               ref={drawerRef}
               className="fixed inset-0"
               style={{
                 zIndex: 40,
-                transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
-                transition: `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`,
+                // The close drag rides on the open resting transform, so the
+                // panel tracks the finger from where it sits. Releasing short
+                // returns it here under the standard transition; releasing past
+                // the threshold flips `drawerOpen`, and the same transition
+                // carries it the rest of the way out while the panel stays
+                // mounted for the slide.
+                transform: drawerOpen
+                  ? `translateX(${drawerGestures.dragOffset}px)`
+                  : "translateX(-100%)",
+                transition: drawerGestures.isDragging
+                  ? "none"
+                  : `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`,
+                // Vertical panning stays native for the menu's scrollport while
+                // the horizontal axis belongs to this gesture.
+                touchAction: "pan-y",
+                // A panel on its way out still covers the viewport for the
+                // length of the slide. Let taps through to the page it is
+                // uncovering rather than swallowing them.
+                pointerEvents: drawerGestures.exiting ? "none" : undefined,
               }}
+              onTouchStart={drawerGestures.onTouchStart}
+              onTouchMove={drawerGestures.onTouchMove}
+              onTouchEnd={drawerGestures.onTouchEnd}
+              onTouchCancel={drawerGestures.onTouchCancel}
               role="dialog"
               aria-modal="true"
               aria-label="Navigation"

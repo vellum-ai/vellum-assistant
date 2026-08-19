@@ -4,29 +4,27 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
-import { useTranslation } from "@/i18n";
+import { currentLocale, useTranslation, type TFunction } from "@/i18n";
 
 import { usePairedDevices } from "./use-paired-devices";
-
-type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
 
 function shortHash(hashedDeviceId: string): string {
   return hashedDeviceId.slice(0, 12);
 }
 
-function platformLabel(platform: string, t: SettingsTranslate): string {
+function platformLabel(t: TFunction<"settings">, platform: string): string {
   return platform
     ? platform.charAt(0).toUpperCase() + platform.slice(1)
-    : t("pairedDevicesSection.unknownPlatform");
+    : t("pairedDevicesSection.platformUnknown");
 }
 
 function formatDeviceDate(
+  t: TFunction<"settings">,
   epochMs: number | null,
-  t: SettingsTranslate,
 ): string {
   return epochMs === null
-    ? t("pairedDevicesSection.unknownDate")
-    : new Date(epochMs).toLocaleDateString();
+    ? t("pairedDevicesSection.dateUnknown")
+    : new Date(epochMs).toLocaleDateString(currentLocale());
 }
 
 interface PairedDevicesSectionProps {
@@ -75,7 +73,7 @@ export function PairedDevicesSection({
                 >
                   <div className="flex min-w-0 flex-col">
                     <span className="text-body-medium-default text-[var(--content-secondary)]">
-                      {platformLabel(device.platform, t)}{" "}
+                      {platformLabel(t, device.platform)}{" "}
                       <span
                         className="font-mono text-[var(--content-tertiary)]"
                         title={device.hashedDeviceId}
@@ -84,14 +82,14 @@ export function PairedDevicesSection({
                       </span>
                       {device.isCurrentHost && (
                         <span className="text-[var(--content-tertiary)]">
-                          {t("pairedDevicesSection.thisMachine")}
+                          {` · ${t("pairedDevicesSection.thisMachine")}`}
                         </span>
                       )}
                     </span>
                     <span className="text-body-medium-default text-[var(--content-tertiary)]">
-                      {t("pairedDevicesSection.meta", {
-                        paired: formatDeviceDate(device.issuedAt, t),
-                        lastUsed: formatDeviceDate(device.lastUsedAt, t),
+                      {t("pairedDevicesSection.datesLine", {
+                        paired: formatDeviceDate(t, device.issuedAt),
+                        lastUsed: formatDeviceDate(t, device.lastUsedAt),
                       })}
                     </span>
                   </div>
@@ -107,7 +105,7 @@ export function PairedDevicesSection({
                     }
                     onClick={() => controller.requestRevoke(device)}
                   >
-                    {t("pairedDevicesSection.revoke")}
+                    {t("pairedDevicesSection.revokeButton")}
                   </Button>
                 </div>
               ))}
@@ -117,13 +115,13 @@ export function PairedDevicesSection({
       </Collapsible.Root>
       <ConfirmDialog
         open={confirmTarget !== null}
-        title={t("pairedDevicesSection.revokeConfirmTitle")}
+        title={t("pairedDevicesSection.confirmTitle")}
         message={
           confirmTarget && (
             <>
-              {t("pairedDevicesSection.revokeConfirmMessage", {
-                platform: platformLabel(confirmTarget.platform, t),
-                deviceId: shortHash(confirmTarget.hashedDeviceId),
+              {t("pairedDevicesSection.confirmMessage", {
+                platform: platformLabel(t, confirmTarget.platform),
+                hash: shortHash(confirmTarget.hashedDeviceId),
               })}
               {controller.revokeError && (
                 <span className="mt-2 block text-[var(--system-negative-strong)]">
@@ -133,7 +131,7 @@ export function PairedDevicesSection({
             </>
           )
         }
-        confirmLabel={t("pairedDevicesSection.revokeConfirmLabel")}
+        confirmLabel={t("pairedDevicesSection.revokeButton")}
         destructive
         isPending={controller.isRevoking}
         onConfirm={controller.confirmRevoke}

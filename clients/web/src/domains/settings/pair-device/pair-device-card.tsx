@@ -29,19 +29,22 @@ import { usePairDevice } from "./use-pair-device";
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
  * pairing routes ({@link useSupportsRemoteWebPairing}). The client-scoped
  * `web-remote-ingress` flag decides only whether this card renders; it gates
- * no pairing functionality.
+ * no pairing functionality. The client-scoped `paired-devices-ui` flag decides
+ * only whether the paired-devices list + revoke section renders inside the
+ * card; revocation itself stays available via `vellum devices` on the host.
  */
 export function PairDeviceCard() {
   const { t } = useTranslation("settings");
   const target = resolvePairDeviceTarget();
   const supported = useSupportsRemoteWebPairing();
   const webRemoteIngressOn = useClientFeatureFlagStore.use.webRemoteIngress();
+  const pairedDevicesUIOn = useClientFeatureFlagStore.use.pairedDevicesUI();
   const pair = usePairDevice(target?.base ?? null, target?.ingressUrl ?? null);
   // Bumped when the pending-request flow pairs a device, so the device list
   // below refetches without waiting for a live-code poll.
   const [devicesRevalidateKey, setDevicesRevalidateKey] = useState(0);
   const { copy, copied } = useCopyToClipboard({
-    errorMessage: t("pairDeviceCard.copyFailed"),
+    errorMessage: t("pairDeviceCard.copyError"),
   });
 
   if (!target || !supported || !webRemoteIngressOn) {
@@ -57,17 +60,16 @@ export function PairDeviceCard() {
   const showNoTunnelGuidance =
     pair.prefillSource === "none" && pair.publicBaseUrl.trim() === "";
   const buttonLabel = isMinting
-    ? t("pairDeviceCard.generating")
+    ? t("pairDeviceCard.generateButtonMinting")
     : isReady
-      ? t("pairDeviceCard.generateNewCode")
-      : t("pairDeviceCard.generatePairingQr");
+      ? t("pairDeviceCard.generateButtonRegenerate")
+      : t("pairDeviceCard.generateButton");
 
   return (
     <DetailCard
       title={t("pairDeviceCard.title")}
       subtitle={t("pairDeviceCard.subtitle", {
-        assistantName:
-          target.assistantName ?? t("pairDeviceCard.thisAssistant"),
+        name: target.assistantName ?? t("pairDeviceCard.subtitleFallbackName"),
       })}
     >
       <div className="flex flex-col gap-4">
@@ -83,8 +85,8 @@ export function PairDeviceCard() {
             placeholder={t("pairDeviceCard.publicUrlPlaceholder")}
             helperText={
               prefilledFromTunnel
-                ? t("pairDeviceCard.helperTextFromTunnel")
-                : t("pairDeviceCard.helperTextManual")
+                ? t("pairDeviceCard.publicUrlHelperTunnel")
+                : t("pairDeviceCard.publicUrlHelper")
             }
             value={pair.publicBaseUrl}
             errorText={pair.inputError ?? undefined}
@@ -128,11 +130,15 @@ export function PairDeviceCard() {
           onApproved={() => setDevicesRevalidateKey((key) => key + 1)}
         />
 
-        {/* Poll while a code is live so an externally claimed pairing shows up. */}
-        <PairedDevicesSection
-          pollWhilePairing={isReady && !pair.expired}
-          revalidateKey={devicesRevalidateKey}
-        />
+        {/* Poll while a code is live so an externally claimed pairing shows up.
+            Gating at the render site also keeps the host `vellum devices`
+            fetch from ever firing while the flag is off. */}
+        {pairedDevicesUIOn && (
+          <PairedDevicesSection
+            pollWhilePairing={isReady && !pair.expired}
+            revalidateKey={devicesRevalidateKey}
+          />
+        )}
       </div>
     </DetailCard>
   );

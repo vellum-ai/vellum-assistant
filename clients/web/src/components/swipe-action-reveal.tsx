@@ -145,6 +145,11 @@ export const SwipeActionReveal = forwardRef<
   return (
     <div
       ref={ref}
+      // Marks a row that owns horizontal drags, so an enclosing panel gesture
+      // can stand down over it. The mobile drawer's swipe-to-close reads this
+      // to leave a row's own swipe actions alone. Only the armed branch carries
+      // it: with no actions there is nothing to yield to.
+      data-slot="swipe-action-row"
       className={cn("relative overflow-hidden", className)}
       // Spread injected props first so our swipe-specific touch handlers
       // take precedence if there is ever a key collision.
