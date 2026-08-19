@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { InternalError, UnprocessableEntityError } from "../errors.js";
 
 let isPlatform = false;
+let velayWebhooksEnabled = false;
 let config: Record<string, unknown> = {};
 let platformContextEnabled = false;
 let registerCallbackRouteError: Error | undefined;
@@ -35,6 +36,12 @@ mock.module("../../../config/loader.js", () => ({
   getConfig: () => config,
 }));
 
+const actualVelayGate = await import("../../../inbound/velay-webhooks-gate.js");
+mock.module("../../../inbound/velay-webhooks-gate.js", () => ({
+  ...actualVelayGate,
+  isVelayWebhooksEnabled: () => velayWebhooksEnabled,
+}));
+
 mock.module("../../../inbound/platform-callback-registration.js", () => ({
   registerCallbackRoute: registerCallbackRouteMock,
   resolvePlatformCallbackRegistrationContext: async () => ({
@@ -59,6 +66,7 @@ const register = (body: Record<string, unknown>) =>
 describe("webhooks_register callback URL resolution", () => {
   beforeEach(() => {
     isPlatform = false;
+    velayWebhooksEnabled = false;
     config = {};
     platformContextEnabled = false;
     registerCallbackRouteError = undefined;
@@ -93,6 +101,45 @@ describe("webhooks_register callback URL resolution", () => {
       "telegram",
       undefined,
     );
+  });
+
+  test("velay-webhooks on: a pod with a published ingress URL uses it directly", async () => {
+    isPlatform = true;
+    velayWebhooksEnabled = true;
+    platformContextEnabled = true;
+    config = {
+      ingress: { publicBaseUrl: "https://velay.vellum.ai/assistant-123" },
+    };
+
+    expect(await register({ type: "telegram" })).toEqual({
+      callbackUrl: "https://velay.vellum.ai/assistant-123/webhooks/telegram",
+      type: "telegram",
+      path: "webhooks/telegram",
+      mode: "self-hosted",
+    });
+    expect(registerCallbackRouteMock).not.toHaveBeenCalled();
+  });
+
+  test("velay-webhooks on: a pod with no published URL still registers with the platform", async () => {
+    isPlatform = true;
+    velayWebhooksEnabled = true;
+    platformContextEnabled = true;
+
+    expect(await register({ type: "telegram" })).toMatchObject({
+      callbackUrl: "https://gateway.vellum.ai/assistant-123/webhooks/telegram",
+      mode: "platform",
+    });
+  });
+
+  test("velay-webhooks on: a pod with ingress disabled falls back to the platform", async () => {
+    isPlatform = true;
+    velayWebhooksEnabled = true;
+    platformContextEnabled = true;
+    config = { ingress: { enabled: false } };
+
+    expect(await register({ type: "telegram" })).toMatchObject({
+      mode: "platform",
+    });
   });
 
   test("disconnected local assistant uses the configured publicBaseUrl", async () => {
