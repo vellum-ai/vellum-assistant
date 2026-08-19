@@ -13,7 +13,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Brain,
-  CalendarClock,
+  Calendar,
   ChevronRight,
   FolderOpen,
   LayoutGrid,
@@ -71,7 +71,7 @@ import { PersonalitySignature } from "./personality-signature";
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
   personality: Sparkles,
-  schedules: CalendarClock,
+  schedules: Calendar,
   superpowers: Zap,
   memory: Brain,
   library: LayoutGrid,
@@ -995,7 +995,7 @@ function OverviewBento({
                 to={schedulesSection.to}
                 className="flex w-full cursor-pointer items-center gap-2 p-4 transition-all duration-150 hover:bg-[var(--card-hover)] active:scale-[0.98]"
               >
-                <CalendarClock
+                <Calendar
                   className="h-6 w-6 shrink-0 text-[var(--content-default)]"
                   aria-hidden
                 />
