@@ -95,6 +95,14 @@ const main = async (): Promise<void> => {
   ] as const) {
     assertExists(path.join(resources, relative), label);
   }
+  const packagedBun = path.join(resources, "cli-runtime", "bun.exe");
+  const bunVersion = spawnSync(packagedBun, ["--version"], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (bunVersion.status !== 0 || !bunVersion.stdout.trim()) {
+    fail(`Packaged Bun runtime failed to execute for ${arch}`);
+  }
   assertRegistered("HKCU\\Software\\Classes\\.vellum");
 
   console.log(`Launching ${appExe}`);

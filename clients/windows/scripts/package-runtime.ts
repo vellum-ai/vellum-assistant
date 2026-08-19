@@ -1,4 +1,4 @@
-import { copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -15,6 +15,11 @@ const windowsDir = path.resolve(import.meta.dir, "..");
 const repoRoot = path.resolve(windowsDir, "..", "..");
 const outputDir = path.join(windowsDir, "resources", "cli-runtime");
 const releaseChannel = process.env.VELLUM_ENVIRONMENT || "local";
+const targetArch = process.env.ELECTRON_TARGET_ARCH ?? process.arch;
+if (targetArch !== "x64" && targetArch !== "arm64") {
+  throw new Error(`Unsupported Windows runtime architecture: ${targetArch}`);
+}
+const compileTarget = `bun-windows-${targetArch}`;
 const readPackageVersion = async (packageDir: string): Promise<string> => {
   const manifest = (await Bun.file(
     path.join(repoRoot, packageDir, "package.json"),
@@ -110,7 +115,7 @@ const targets: readonly RuntimeTarget[] = [
   },
 ];
 for (const { name, entry, externals, defines } of targets) {
-  const args = ["build", "--compile"];
+  const args = ["build", "--compile", `--target=${compileTarget}`];
   for (const external of externals ?? []) {
     args.push("--external", external);
   }
@@ -131,18 +136,20 @@ for (const { name, entry, externals, defines } of targets) {
     throw new Error(`Failed to compile ${name} (exit ${build.status}).`);
   }
 }
-const versionCheck = spawnSync(
-  path.join(outputDir, "assistant.exe"),
-  ["--version"],
-  { encoding: "utf8", windowsHide: true },
-);
-if (
-  versionCheck.status !== 0 ||
-  versionCheck.stdout.trim() !== assistantVersion
-) {
-  throw new Error(
-    `Packaged assistant version check failed: expected ${assistantVersion}, got ${versionCheck.stdout.trim() || "no output"}.`,
+if (targetArch === process.arch) {
+  const versionCheck = spawnSync(
+    path.join(outputDir, "assistant.exe"),
+    ["--version"],
+    { encoding: "utf8", windowsHide: true },
   );
+  if (
+    versionCheck.status !== 0 ||
+    versionCheck.stdout.trim() !== assistantVersion
+  ) {
+    throw new Error(
+      `Packaged assistant version check failed: expected ${assistantVersion}, got ${versionCheck.stdout.trim() || "no output"}.`,
+    );
+  }
 }
 for (const [source, name] of [
   ["assistant/src/prompts/templates", "templates"],
@@ -186,8 +193,15 @@ if (pluginApiShim.status !== 0) {
     `Failed to package the plugin API shim (exit ${pluginApiShim.status}).`,
   );
 }
-copyFileSync(process.execPath, path.join(outputDir, "bun.exe"));
+const targetBunExecutable =
+  targetArch === process.arch
+    ? process.execPath
+    : process.env.BUN_TARGET_EXECUTABLE;
+if (!targetBunExecutable || !existsSync(targetBunExecutable)) {
+  throw new Error(`The ${targetArch} Bun runtime executable is missing.`);
+}
+copyFileSync(targetBunExecutable, path.join(outputDir, "bun.exe"));
 await Bun.write(
   path.join(outputDir, "runtime.json"),
-  `${JSON.stringify({ version: appVersion, bunVersion, releaseChannel })}\n`,
+  `${JSON.stringify({ version: appVersion, bunVersion, releaseChannel, architecture: targetArch })}\n`,
 );

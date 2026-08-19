@@ -16,6 +16,7 @@ jobs:
       run:
         working-directory: clients/windows
     env:
+      BUN_VERSION: '1.3.11'
       ELECTRON_TARGET_ARCH: ${{ matrix.arch }}
     steps:
       - name: Checkout
@@ -24,7 +25,19 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: '1.3.11'
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Download arm64 Bun runtime
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'bun-windows-aarch64.zip'
+          $destination = Join-Path $env:RUNNER_TEMP 'bun-windows-aarch64'
+          Invoke-WebRequest "https://github.com/oven-sh/bun/releases/download/bun-v$env:BUN_VERSION/bun-windows-aarch64.zip" -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force
+          $bunExe = Get-ChildItem $destination -Recurse -Filter 'bun.exe' | Select-Object -First 1
+          if (-not $bunExe) { throw 'arm64 bun.exe not found' }
+          "BUN_TARGET_EXECUTABLE=$($bunExe.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Setup .NET
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
