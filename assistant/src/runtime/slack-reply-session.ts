@@ -200,7 +200,11 @@ export function createSlackReplySession(params: {
   const imageBlocks = (
     text: string,
   ):
-    | NonNullable<Parameters<typeof deliverChannelReply>[1]["blocks"]>
+    | NonNullable<
+        NonNullable<
+          Parameters<typeof deliverChannelReply>[1]["slack"]
+        >["blocks"]
+      >
     | undefined => {
     const blocks = renderSlackBlocks(text)?.filter(
       (block) => block.type === "image",
@@ -225,20 +229,22 @@ export function createSlackReplySession(params: {
         const result = await deliverChannelReply(replyCallbackUrl, {
           chatId,
           assistantId,
-          slackStream: {
-            action: "start",
-            threadTs,
-            markdownText: firstChunk,
-            // The task display mode is fixed for the stream's lifetime at
-            // start, while a `task_progress` surface usually appears only
-            // after the first text flush has opened the stream. Plan mode
-            // only affects how task chunks render, so a stream that never
-            // carries tasks still reads as a plain message.
-            taskDisplayMode: "plan" as const,
-            ...(title ? { planTitle: title } : {}),
-            ...(tasks ? { tasks } : {}),
-            ...(recipientUserId ? { recipientUserId } : {}),
-            ...(recipientTeamId ? { recipientTeamId } : {}),
+          slack: {
+            stream: {
+              action: "start",
+              threadTs,
+              markdownText: firstChunk,
+              // The task display mode is fixed for the stream's lifetime at
+              // start, while a `task_progress` surface usually appears only
+              // after the first text flush has opened the stream. Plan mode
+              // only affects how task chunks render, so a stream that never
+              // carries tasks still reads as a plain message.
+              taskDisplayMode: "plan" as const,
+              ...(title ? { planTitle: title } : {}),
+              ...(tasks ? { tasks } : {}),
+              ...(recipientUserId ? { recipientUserId } : {}),
+              ...(recipientTeamId ? { recipientTeamId } : {}),
+            },
           },
         });
         if (result.ok && result.ts) {
@@ -290,12 +296,14 @@ export function createSlackReplySession(params: {
           await deliverChannelReply(replyCallbackUrl, {
             chatId,
             assistantId,
-            slackStream: {
-              action: "append",
-              streamTs,
-              markdownText: chunk,
-              ...(title ? { planTitle: title } : {}),
-              ...(tasks ? { tasks } : {}),
+            slack: {
+              stream: {
+                action: "append",
+                streamTs,
+                markdownText: chunk,
+                ...(title ? { planTitle: title } : {}),
+                ...(tasks ? { tasks } : {}),
+              },
             },
           });
           confirmedLength += chunk.length;
@@ -319,11 +327,13 @@ export function createSlackReplySession(params: {
           await deliverChannelReply(replyCallbackUrl, {
             chatId,
             assistantId,
-            slackStream: {
-              action: "append",
-              streamTs,
-              ...(title ? { planTitle: title } : {}),
-              tasks,
+            slack: {
+              stream: {
+                action: "append",
+                streamTs,
+                ...(title ? { planTitle: title } : {}),
+                tasks,
+              },
             },
           });
           deliveredProgressKey = key;
@@ -453,13 +463,15 @@ export function createSlackReplySession(params: {
           await deliverChannelReply(replyCallbackUrl, {
             chatId,
             assistantId,
-            slackStream: {
-              action: "stop",
-              streamTs,
-              ...(remaining.length > 0 ? { markdownText: remaining } : {}),
-              ...(blocks ? { blocks } : {}),
-              ...(title ? { planTitle: title } : {}),
-              ...(tasks ? { tasks } : {}),
+            slack: {
+              stream: {
+                action: "stop",
+                streamTs,
+                ...(remaining.length > 0 ? { markdownText: remaining } : {}),
+                ...(blocks ? { blocks } : {}),
+                ...(title ? { planTitle: title } : {}),
+                ...(tasks ? { tasks } : {}),
+              },
             },
           });
           confirmedLength = clean.length;

@@ -3,6 +3,8 @@
  * the conversational approval engine when an approvalConversationGenerator is
  * available. Classifies natural language and responds conversationally.
  */
+import { ephemeralTo } from "@vellumai/gateway-client";
+
 import type { ChannelId } from "../../../channels/types.js";
 import { getLogger } from "../../../util/logger.js";
 import { runApprovalConversationTurn } from "../../approval-conversation-turn.js";
@@ -98,8 +100,10 @@ export async function handleGuardianTextEngineDecision(
       };
       const ephemeral = slackEphemeralUserId(sourceChannel, actorExternalId);
       if (ephemeral) {
-        keepPendingPayload.ephemeral = true;
-        keepPendingPayload.user = ephemeral;
+        keepPendingPayload.slack = ephemeralTo(
+          ephemeral,
+          keepPendingPayload.slack,
+        );
       }
       await deliverChannelReply(replyCallbackUrl, keepPendingPayload);
     } catch (err) {
@@ -133,8 +137,7 @@ export async function handleGuardianTextEngineDecision(
       };
       const ephemeral = slackEphemeralUserId(sourceChannel, actorExternalId);
       if (ephemeral) {
-        decisionPayload.ephemeral = true;
-        decisionPayload.user = ephemeral;
+        decisionPayload.slack = ephemeralTo(ephemeral, decisionPayload.slack);
       }
       await deliverChannelReply(replyCallbackUrl, decisionPayload);
     } catch (err) {

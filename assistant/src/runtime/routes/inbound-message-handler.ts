@@ -6,6 +6,7 @@
  * messages reach this handler.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
+import { ephemeralTo } from "@vellumai/gateway-client";
 import {
   ADMISSION_POLICY_DEFAULT,
   type AdmissionPolicy,
@@ -908,8 +909,10 @@ export async function handleChannelInbound({
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
       if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.ephemeral = true;
-        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+        replyPayload.slack = ephemeralTo(
+          (canonicalSenderId ?? rawSenderId)!,
+          replyPayload.slack,
+        );
       }
       try {
         await deliverChannelReply(replyCallbackUrl, replyPayload);
@@ -970,8 +973,10 @@ export async function handleChannelInbound({
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
       if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.ephemeral = true;
-        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+        replyPayload.slack = ephemeralTo(
+          (canonicalSenderId ?? rawSenderId)!,
+          replyPayload.slack,
+        );
       }
       try {
         await deliverChannelReply(replyCallbackUrl, replyPayload);
@@ -1196,7 +1201,7 @@ export async function handleChannelInbound({
         deliverChannelReply(replyCallbackUrl, {
           chatId: conversationExternalId,
           text: "This approval request has been resolved.",
-          messageTs: approvalMessageTs,
+          slack: { messageTs: approvalMessageTs },
           assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         }).catch((err) => {
           log.error(

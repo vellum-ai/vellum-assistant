@@ -11,6 +11,7 @@ import type {
   SourceMetadata,
   TrustVerdict,
 } from "@vellumai/gateway-client";
+import { ephemeralTo } from "@vellumai/gateway-client";
 
 import type { VerificationSessionWire } from "../../../channels/gateway-verification-sessions.js";
 import {
@@ -597,8 +598,10 @@ export async function enforceIngressAcl(
           };
           // On Slack, send as ephemeral so only the requester sees the rejection
           if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-            replyPayload.ephemeral = true;
-            replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+            replyPayload.slack = ephemeralTo(
+              (canonicalSenderId ?? rawSenderId)!,
+              replyPayload.slack,
+            );
           }
           try {
             await deliverChannelReply(replyCallbackUrl, replyPayload);
@@ -852,8 +855,10 @@ export async function enforceIngressAcl(
               sourceChannel === "slack" &&
               (canonicalSenderId ?? rawSenderId)
             ) {
-              inactiveReplyPayload.ephemeral = true;
-              inactiveReplyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+              inactiveReplyPayload.slack = ephemeralTo(
+                (canonicalSenderId ?? rawSenderId)!,
+                inactiveReplyPayload.slack,
+              );
             }
             try {
               await deliverChannelReply(replyCallbackUrl, inactiveReplyPayload);
@@ -892,8 +897,10 @@ export async function enforceIngressAcl(
             assistantId,
           };
           if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-            denyPayload.ephemeral = true;
-            denyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+            denyPayload.slack = ephemeralTo(
+              (canonicalSenderId ?? rawSenderId)!,
+              denyPayload.slack,
+            );
           }
           try {
             await deliverChannelReply(replyCallbackUrl, denyPayload);

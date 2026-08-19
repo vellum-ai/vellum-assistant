@@ -276,7 +276,7 @@ export async function handleApprovalInterception(
           deliverChannelReply(replyCallbackUrl, {
             chatId: conversationExternalId,
             text: `${statusEmoji} ${statusLabel}`,
-            messageTs: approvalMessageTs,
+            slack: { messageTs: approvalMessageTs },
             assistantId,
           }).catch((err) => {
             log.error(
@@ -398,8 +398,7 @@ function editStaleSlackApprovalMessage(params: {
   deliverChannelReply(params.replyCallbackUrl, {
     chatId: params.chatId,
     text: statusText,
-    blocks,
-    messageTs: params.messageTs,
+    slack: { blocks, messageTs: params.messageTs },
     assistantId: params.assistantId,
   }).catch((err) => {
     log.error(

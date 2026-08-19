@@ -9,6 +9,8 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
+import { ephemeralTo } from "@vellumai/gateway-client";
+
 import {
   listGuardianRequestsOrEmpty,
   listPendingRequestsByDestinationOrEmpty,
@@ -198,8 +200,10 @@ export async function handleGuardianReplyIntercept(
       // On Slack, send guardian management replies (disambiguation, pending
       // request lists, etc.) as ephemeral so only the guardian sees them.
       if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        routerReplyPayload.ephemeral = true;
-        routerReplyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+        routerReplyPayload.slack = ephemeralTo(
+          (canonicalSenderId ?? rawSenderId)!,
+          routerReplyPayload.slack,
+        );
       }
       try {
         await deliverChannelReply(replyCallbackUrl, routerReplyPayload);

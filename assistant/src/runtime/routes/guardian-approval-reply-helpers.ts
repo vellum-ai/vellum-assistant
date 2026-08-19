@@ -3,6 +3,7 @@
  * identity mismatch notices, reminders, etc.) that were duplicated across
  * guardian-approval-interception.ts.
  */
+import { ephemeralTo } from "@vellumai/gateway-client";
 import type pino from "pino";
 
 import type { ChannelId } from "../../channels/types.js";
@@ -75,8 +76,7 @@ async function composeAndDeliver(
     assistantId,
   };
   if (ephemeralUserId) {
-    payload.ephemeral = true;
-    payload.user = ephemeralUserId;
+    payload.slack = ephemeralTo(ephemeralUserId, payload.slack);
   }
   await deliverChannelReply(replyCallbackUrl, payload);
 }

@@ -2,6 +2,8 @@
  * Periodic retry sweep for failed channel inbound events.
  */
 
+import { ephemeralTo } from "@vellumai/gateway-client";
+
 import type { AssistantEvent } from "../api/index.js";
 import {
   type ChannelId,
@@ -334,8 +336,10 @@ export async function sweepFailedEvents(
           assistantId,
         };
         if (sourceChannel === "slack" && requesterExternalUserId) {
-          replyPayload.ephemeral = true;
-          replyPayload.user = requesterExternalUserId;
+          replyPayload.slack = ephemeralTo(
+            requesterExternalUserId,
+            replyPayload.slack,
+          );
         }
         try {
           await deliverChannelReply(replyCallbackUrl, replyPayload);

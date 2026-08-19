@@ -153,10 +153,12 @@ describe("Slack sub-operation selection", () => {
     await deliverDirect(
       `${BASE}/deliver/slack`,
       payload({
-        assistantThreadStatus: {
-          channel: "C1",
-          threadTs: "1700.5",
-          status: "is thinking",
+        slack: {
+          assistantThreadStatus: {
+            channel: "C1",
+            threadTs: "1700.5",
+            status: "is thinking",
+          },
         },
       }),
     );
@@ -177,7 +179,7 @@ describe("Slack sub-operation selection", () => {
       `${BASE}/deliver/slack?threadTs=1700.5`,
       payload({
         text: "ignored while streaming",
-        slackStream: { action: "start", threadTs: "1700.5" },
+        slack: { stream: { action: "start", threadTs: "1700.5" } },
       }),
     );
     expect(slack.sendSlackStreamOp).toHaveBeenCalledTimes(1);
@@ -260,7 +262,7 @@ describe("capability gating across channels", () => {
       `${BASE}/deliver/discord`,
       payload({
         text: "hi",
-        slackStream: { action: "start", threadTs: "1700.5" },
+        slack: { stream: { action: "start", threadTs: "1700.5" } },
       }),
     );
     expect(discord.sendDiscordReply).toHaveBeenCalledTimes(1);

@@ -16,6 +16,7 @@
  */
 
 import type { CreateOutboundSessionIpcResponse } from "@vellumai/gateway-client";
+import { ephemeralTo } from "@vellumai/gateway-client";
 
 import { answerCall } from "../calls/call-domain.js";
 import type {
@@ -198,8 +199,7 @@ function buildRequesterChannelNotice(params: {
     shouldUseEphemeral(params.channel, params.requesterChatId) &&
     params.requesterExternalUserId
   ) {
-    payload.ephemeral = true;
-    payload.user = params.requesterExternalUserId;
+    payload.slack = ephemeralTo(params.requesterExternalUserId, payload.slack);
   }
   return payload;
 }
@@ -1316,8 +1316,10 @@ const accessRequestResolver: GuardianRequestResolver = {
           ) &&
           ctx.actor.actorExternalUserId
         ) {
-          codePayload.ephemeral = true;
-          codePayload.user = ctx.actor.actorExternalUserId;
+          codePayload.slack = ephemeralTo(
+            ctx.actor.actorExternalUserId,
+            codePayload.slack,
+          );
         }
         await deliverChannelReply(
           guardianInBandContext.replyCallbackUrl,
@@ -1547,8 +1549,10 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
             shouldUseEphemeral(request.sourceChannel ?? "", requesterChatId) &&
             request.requesterExternalUserId
           ) {
-            grantDenialPayload.ephemeral = true;
-            grantDenialPayload.user = request.requesterExternalUserId;
+            grantDenialPayload.slack = ephemeralTo(
+              request.requesterExternalUserId,
+              grantDenialPayload.slack,
+            );
           }
           await deliverChannelReply(
             channelDeliveryContext.replyCallbackUrl,
@@ -1646,8 +1650,10 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
           shouldUseEphemeral(request.sourceChannel ?? "", requesterChatId) &&
           request.requesterExternalUserId
         ) {
-          grantApprovalPayload.ephemeral = true;
-          grantApprovalPayload.user = request.requesterExternalUserId;
+          grantApprovalPayload.slack = ephemeralTo(
+            request.requesterExternalUserId,
+            grantApprovalPayload.slack,
+          );
         }
         await deliverChannelReply(
           channelDeliveryContext.replyCallbackUrl,

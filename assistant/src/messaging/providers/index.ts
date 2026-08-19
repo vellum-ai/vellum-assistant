@@ -90,13 +90,13 @@ export async function deliverDirect(
   }
 
   const ctx = callbackContext(callbackUrl);
-  if (payload.slackStream && transport.streamReply) {
+  if (payload.slack?.stream && transport.streamReply) {
     return transport.streamReply(ctx, payload);
   }
   if (payload.reaction && transport.sendReaction) {
     return transport.sendReaction(ctx, payload);
   }
-  if (payload.assistantThreadStatus && transport.setThreadStatus) {
+  if (payload.slack?.assistantThreadStatus && transport.setThreadStatus) {
     return transport.setThreadStatus(ctx, payload);
   }
   if (payload.chatAction === "typing" && transport.sendTyping) {

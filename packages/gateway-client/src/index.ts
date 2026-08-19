@@ -27,9 +27,13 @@ export {
   ChannelDeliveryResultSchema,
   ChannelReplyPayloadSchema,
   PermissionRequestDetailsSchema,
+} from "./outbound-contract.js";
+export {
+  ephemeralTo,
+  SlackReplyExtrasSchema,
   SlackStreamOpSchema,
   SlackStreamTaskSchema,
-} from "./outbound-contract.js";
+} from "./slack-reply.js";
 
 export type {
   ApprovalActionOption,
@@ -38,9 +42,12 @@ export type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
   PermissionRequestDetails,
+} from "./outbound-contract.js";
+export type {
+  SlackReplyExtras,
   SlackStreamOp,
   SlackStreamTask,
-} from "./outbound-contract.js";
+} from "./slack-reply.js";
 
 // Inbound contract (gateway → daemon) — Zod schemas + derived types
 export {

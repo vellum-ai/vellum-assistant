@@ -146,6 +146,13 @@ export async function deliverRenderedReplyViaCallback(
     onMessageTs,
   } = params;
 
+  // Slack's per-message coordinates. `undefined` when none apply, so a payload
+  // for another channel carries no empty Slack object.
+  const slackExtras = (
+    ts: string | undefined,
+  ): { ephemeral?: boolean; user?: string; messageTs?: string } | undefined =>
+    ephemeral || user || ts ? { ephemeral, user, messageTs: ts } : undefined;
+
   const deliverableSegments = toDeliverableTextSegments(
     textSegments,
     fallbackText,
@@ -167,9 +174,7 @@ export async function deliverRenderedReplyViaCallback(
           chatId,
           attachments: replyAttachments,
           assistantId,
-          ephemeral,
-          user,
-          messageTs,
+          slack: slackExtras(messageTs),
         },
       );
       if (result.ts) {
@@ -187,9 +192,7 @@ export async function deliverRenderedReplyViaCallback(
           chatId,
           attachments: replyAttachments,
           assistantId,
-          ephemeral,
-          user,
-          messageTs,
+          slack: slackExtras(messageTs),
         },
       );
       const deliveredTs = result.ts ?? messageTs;
@@ -220,9 +223,7 @@ export async function deliverRenderedReplyViaCallback(
         useBlocks: true,
         attachments: isLastSegment ? replyAttachments : undefined,
         assistantId,
-        ephemeral,
-        user,
-        messageTs: isFirstSegment ? currentMessageTs : undefined,
+        slack: slackExtras(isFirstSegment ? currentMessageTs : undefined),
       },
     );
 

@@ -16,19 +16,20 @@ export const slackTransport: ChannelTransport = {
   channel: "slack",
 
   async deliver(ctx, payload) {
-    const { chatId, text, attachments, blocks } = payload;
+    const { chatId, text, attachments } = payload;
+    const slack = payload.slack;
     const threadTs = ctx.params.threadTs;
 
     let sentTs: string | undefined;
     if (text) {
       const result = await sendSlackReply(chatId, text, {
         threadTs,
-        blocks,
+        blocks: slack?.blocks,
         approval: payload.approval,
         useBlocks: payload.useBlocks,
-        ephemeral: payload.ephemeral,
-        user: payload.user,
-        messageTs: payload.messageTs,
+        ephemeral: slack?.ephemeral,
+        user: slack?.user,
+        messageTs: slack?.messageTs,
       });
       sentTs = result.ts;
     } else if (payload.approval) {
@@ -69,7 +70,7 @@ export const slackTransport: ChannelTransport = {
   },
 
   async setThreadStatus(_ctx, payload) {
-    const status = payload.assistantThreadStatus;
+    const status = payload.slack?.assistantThreadStatus;
     if (!status) {
       return { ok: true };
     }
@@ -83,7 +84,7 @@ export const slackTransport: ChannelTransport = {
   },
 
   async streamReply(_ctx, payload) {
-    const op = payload.slackStream;
+    const op = payload.slack?.stream;
     if (!op) {
       return { ok: true };
     }

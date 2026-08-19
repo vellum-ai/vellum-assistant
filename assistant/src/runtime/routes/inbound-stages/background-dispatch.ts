@@ -716,11 +716,13 @@ function setSlackThinkingStatus(
   let statusPromise = deliverChannelReply(callbackUrl, {
     chatId,
     assistantId,
-    assistantThreadStatus: {
-      channel: chatId,
-      threadTs,
-      status: getRandomSlackThinkingStatus(),
-      ...(loadingMessages ? { loadingMessages } : {}),
+    slack: {
+      assistantThreadStatus: {
+        channel: chatId,
+        threadTs,
+        status: getRandomSlackThinkingStatus(),
+        ...(loadingMessages ? { loadingMessages } : {}),
+      },
     },
   }).catch((err) => {
     log.debug({ err, chatId, threadTs }, "Failed to set Slack thinking status");
@@ -734,13 +736,15 @@ function setSlackThinkingStatus(
       deliverChannelReply(callbackUrl, {
         chatId,
         assistantId,
-        assistantThreadStatus: {
-          channel: chatId,
-          threadTs,
-          status: getRandomSlackThinkingStatus(),
-          ...(nextLoadingMessages
-            ? { loadingMessages: nextLoadingMessages }
-            : {}),
+        slack: {
+          assistantThreadStatus: {
+            channel: chatId,
+            threadTs,
+            status: getRandomSlackThinkingStatus(),
+            ...(nextLoadingMessages
+              ? { loadingMessages: nextLoadingMessages }
+              : {}),
+          },
         },
       }).catch((err) => {
         log.debug(
@@ -761,10 +765,12 @@ function setSlackThinkingStatus(
       deliverChannelReply(callbackUrl, {
         chatId,
         assistantId,
-        assistantThreadStatus: {
-          channel: chatId,
-          threadTs,
-          status: "",
+        slack: {
+          assistantThreadStatus: {
+            channel: chatId,
+            threadTs,
+            status: "",
+          },
         },
       }).catch((err) => {
         log.debug(
