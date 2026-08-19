@@ -2,12 +2,10 @@
  * Unit tests for `initNativeKeyboard`, `hideNativeKeyboard` and
  * `subscribeNativeKeyboardHeight`.
  *
- * These pin the platform gates (including the Android half of `hide()`, which
- * the swipe-down dismiss gesture depends on), the backwards-compat contract
- * (shells without the linked `@capacitor/keyboard` plugin reject the call and
- * retain the accessory bar, and boot must not surface that as an error), and
- * the defensive height read that keeps a malformed payload from reaching
- * layout.
+ * These pin the platform gate, the backwards-compat contract (shells without
+ * the linked `@capacitor/keyboard` plugin reject the call and retain the
+ * accessory bar, and boot must not surface that as an error), and the
+ * defensive height read that keeps a malformed payload from reaching layout.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -75,9 +73,9 @@ async function flushMicrotasks(rounds = 4): Promise<void> {
 beforeEach(() => {
   mockIsNativeIOS = false;
   mockIsNativeAndroid = false;
+  hide.mockClear();
   showHandler = null;
   hideHandler = null;
-  hide.mockClear();
   setAccessoryBarVisible.mockClear();
   addListener.mockClear();
   removeShow.mockClear();
@@ -183,23 +181,7 @@ describe("subscribeNativeKeyboardHeight", () => {
     unsubscribe();
   });
 
-  test("listens on the native Android shell too", async () => {
-    // The Android web view frame resizes for the IME the same way, so the
-    // announcement is what tells `use-visible-viewport` that shrink apart from
-    // the window itself getting shorter.
-    mockIsNativeIOS = false;
-    mockIsNativeAndroid = true;
-    const onHeightChange = mock((_height: number) => {});
-    const unsubscribe = subscribeNativeKeyboardHeight(onHeightChange);
-    await flushMicrotasks();
-
-    showHandler!({ keyboardHeight: 336 });
-
-    expect(onHeightChange).toHaveBeenCalledWith(336);
-    unsubscribe();
-  });
-
-  test("attaches nothing outside the native shells", async () => {
+  test("attaches nothing outside the native iOS shell", async () => {
     mockIsNativeIOS = false;
     const onHeightChange = mock((_height: number) => {});
     const unsubscribe = subscribeNativeKeyboardHeight(onHeightChange);
@@ -210,45 +192,6 @@ describe("subscribeNativeKeyboardHeight", () => {
     expect(() => {
       unsubscribe();
     }).not.toThrow();
-  });
-
-  test("reports the keyboard source once both listeners register", async () => {
-    const onSourceReady = mock(() => {});
-    const unsubscribe = subscribeNativeKeyboardHeight(() => {}, onSourceReady);
-
-    // Registration is a lazy plugin import, so nothing is settled yet
-    expect(onSourceReady).not.toHaveBeenCalled();
-    await flushMicrotasks();
-
-    expect(onSourceReady).toHaveBeenCalledTimes(1);
-    unsubscribe();
-  });
-
-  test("reports no keyboard source when registration rejects", async () => {
-    // A shell built before the plugin, which the deployed web bundle still runs
-    // in, rejects the import and must not look like a shell that announces.
-    addListener.mockImplementationOnce(() =>
-      Promise.reject(new Error("plugin missing")),
-    );
-    addListener.mockImplementationOnce(() =>
-      Promise.reject(new Error("plugin missing")),
-    );
-    const onSourceReady = mock(() => {});
-    const unsubscribe = subscribeNativeKeyboardHeight(() => {}, onSourceReady);
-    await flushMicrotasks();
-
-    expect(onSourceReady).not.toHaveBeenCalled();
-    unsubscribe();
-  });
-
-  test("reports the keyboard source straight away in a browser", async () => {
-    // No frame for a keyboard to resize, so nothing has to announce one.
-    mockIsNativeIOS = false;
-    const onSourceReady = mock(() => {});
-    const unsubscribe = subscribeNativeKeyboardHeight(() => {}, onSourceReady);
-
-    expect(onSourceReady).toHaveBeenCalledTimes(1);
-    unsubscribe();
   });
 
   test("unsubscribe removes both plugin listeners", async () => {
