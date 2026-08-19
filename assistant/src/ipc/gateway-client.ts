@@ -20,6 +20,7 @@ import {
   IpcCallError,
   PersistentIpcClient as PackagePersistentIpcClient,
 } from "@vellumai/gateway-client/ipc-client";
+import { z } from "zod";
 
 import { getLogger } from "../util/logger.js";
 import { abortableSleep, computeRetryDelay } from "../util/retry.js";
@@ -143,6 +144,84 @@ export async function ipcGetVelayStatus(): Promise<VelayTunnelStatus | null> {
     connected: obj.connected,
     publicUrl: typeof obj.publicUrl === "string" ? obj.publicUrl : null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Webhook ingress route registry
+// ---------------------------------------------------------------------------
+
+const WebhookIngressRouteSchema = z.object({
+  path: z.string(),
+  type: z.string(),
+  source: z.string().nullable(),
+  match: z.literal("exact"),
+  createdAt: z.number(),
+  lastRegisteredAt: z.number(),
+});
+
+const RegisterWebhookRouteResultSchema = z.union([
+  z.object({ disabled: z.literal(true) }),
+  z.object({ disabled: z.literal(false), route: WebhookIngressRouteSchema }),
+]);
+
+export type WebhookIngressRoute = z.infer<typeof WebhookIngressRouteSchema>;
+export type RegisterWebhookRouteResult = z.infer<
+  typeof RegisterWebhookRouteResultSchema
+>;
+
+export interface RegisterWebhookRouteInput {
+  /** Exact subpath, leading slash included, under `/webhooks/`. */
+  path: string;
+  type: string;
+  source?: string | null;
+}
+
+/**
+ * Claim a webhook subpath on the gateway.
+ *
+ * A `disabled` result means the gateway is not serving its own webhooks, so
+ * the caller should fall back to platform callback registration. Returns
+ * `null` when the gateway is unreachable or rejected the path.
+ */
+export async function ipcRegisterWebhookRoute(
+  input: RegisterWebhookRouteInput,
+): Promise<RegisterWebhookRouteResult | null> {
+  const result = await ipcCall("register_webhook_route", { ...input });
+  const parsed = RegisterWebhookRouteResultSchema.safeParse(result);
+  if (!parsed.success) {
+    log.warn(
+      { result, path: input.path },
+      "ipcRegisterWebhookRoute: unusable gateway response",
+    );
+    return null;
+  }
+  return parsed.data;
+}
+
+/**
+ * Drop a webhook subpath from the gateway registry. Resolves to whether a
+ * route was removed, or `null` when the gateway is unreachable.
+ */
+export async function ipcUnregisterWebhookRoute(
+  path: string,
+): Promise<boolean | null> {
+  const result = await ipcCall("unregister_webhook_route", { path });
+  const parsed = z.object({ removed: z.boolean() }).safeParse(result);
+  return parsed.success ? parsed.data.removed : null;
+}
+
+/**
+ * List every webhook subpath the gateway currently answers, or `null` when
+ * the gateway is unreachable.
+ */
+export async function ipcListWebhookRoutes(): Promise<
+  WebhookIngressRoute[] | null
+> {
+  const result = await ipcCall("list_webhook_routes");
+  const parsed = z
+    .object({ routes: z.array(WebhookIngressRouteSchema) })
+    .safeParse(result);
+  return parsed.success ? parsed.data.routes : null;
 }
 
 // classify_risk is an idempotent, side-effect-free read, so a transient gateway
