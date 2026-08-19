@@ -16,6 +16,8 @@ import type {
 /** Number of most-recent AX tree snapshots to keep in conversation history. */
 const MAX_AX_TREES_IN_HISTORY = 2;
 
+/** Opening marker every AX tree snapshot is wrapped in. */
+const AX_TREE_OPEN = "<ax-tree>";
 /** Regex that matches the `<ax-tree>...</ax-tree>` markers. */
 const AX_TREE_PATTERN = /<ax-tree>[\s\S]*?<\/ax-tree>/g;
 const AX_TREE_PLACEHOLDER = "<ax_tree_omitted />";
@@ -32,6 +34,27 @@ export function escapeAxTreeContent(content: string): string {
 }
 
 /**
+ * Whether a user content block carries an `<ax-tree>` snapshot.
+ *
+ * Two block shapes do. A computer-use step returns its tree in a
+ * `tool_result`. A watch session (`src/watch/watch-timeline.ts`) writes each
+ * observation as a plain user message and so carries its tree in a `text`
+ * block — and it needs bounding for the same reason and more urgently, since a
+ * session is minutes of observations with no turn between them to compact.
+ *
+ * Assistant messages stay out of scope either way: a model that writes the
+ * marker into its own reply is discussing it, not snapshotting a screen.
+ */
+function hasAxTreeSnapshot(block: ContentBlock): boolean {
+  if (block.type === "tool_result") {
+    return (
+      typeof block.content === "string" && block.content.includes(AX_TREE_OPEN)
+    );
+  }
+  return block.type === "text" && block.text.includes(AX_TREE_OPEN);
+}
+
+/**
  * Returns a shallow copy of `messages` where all but the most recent
  * `MAX_AX_TREES_IN_HISTORY` `<ax-tree>` blocks have been replaced with a
  * short placeholder.  This keeps the conversation context small so that
@@ -41,7 +64,7 @@ export function escapeAxTreeContent(content: string): string {
  * contain multiple tool_result blocks each with their own AX tree snapshot.
  */
 export function compactAxTreeHistory(messages: Message[]): Message[] {
-  // Collect (messageIndex, blockIndex) for every tool_result block with <ax-tree>
+  // Collect (messageIndex, blockIndex) for every user block with <ax-tree>
   const axBlocks: Array<{ msgIdx: number; blockIdx: number }> = [];
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
@@ -49,12 +72,7 @@ export function compactAxTreeHistory(messages: Message[]): Message[] {
       continue;
     }
     for (let j = 0; j < msg.content.length; j++) {
-      const block = msg.content[j];
-      if (
-        block.type === "tool_result" &&
-        typeof block.content === "string" &&
-        block.content.includes("<ax-tree>")
-      ) {
+      if (hasAxTreeSnapshot(msg.content[j])) {
         axBlocks.push({ msgIdx: i, blockIdx: j });
       }
     }
@@ -83,17 +101,22 @@ export function compactAxTreeHistory(messages: Message[]): Message[] {
     return {
       ...msg,
       content: msg.content.map((block, j) => {
-        if (
-          toStrip.has(`${idx}:${j}`) &&
-          block.type === "tool_result" &&
-          typeof block.content === "string"
-        ) {
+        if (!toStrip.has(`${idx}:${j}`)) {
+          return block;
+        }
+        if (block.type === "tool_result" && typeof block.content === "string") {
           return {
             ...block,
             content: block.content.replace(
               AX_TREE_PATTERN,
               AX_TREE_PLACEHOLDER,
             ),
+          };
+        }
+        if (block.type === "text") {
+          return {
+            ...block,
+            text: block.text.replace(AX_TREE_PATTERN, AX_TREE_PLACEHOLDER),
           };
         }
         return block;

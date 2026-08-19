@@ -23,6 +23,7 @@
 
 import { v7 as uuidv7 } from "uuid";
 
+import { waitForConversationIdle } from "../daemon/conversation-idle.js";
 import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import {
@@ -40,14 +41,11 @@ const log = getLogger("live-voice-photo");
 /**
  * How long to wait for an in-flight turn before giving up on a photo.
  *
- * Persisting takes the conversation's processing lock, which a running turn
- * holds for as long as it runs, tools included. The wait is generous because
- * the alternative is dropping a photo the user watched themselves take, and
- * the photo is not urgent: nothing is blocked on it except the next thing they
- * say.
+ * Generous, because the alternative is dropping a photo the user watched
+ * themselves take, and the photo is not urgent: nothing is blocked on it
+ * except the next thing they say.
  */
 const PROCESSING_WAIT_MS = 30_000;
-const PROCESSING_POLL_MS = 100;
 
 const PHOTO_MESSAGE_CONTENT = "here's a photo:";
 
@@ -73,20 +71,6 @@ function resolvePhotoAttachments(attachmentIds: string[]) {
     data: a.dataBase64,
     ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
   }));
-}
-
-/** Resolve once the conversation is not mid-turn, or false on timeout. */
-async function waitForIdle(conversation: {
-  isProcessing: () => boolean;
-}): Promise<boolean> {
-  const deadline = Date.now() + PROCESSING_WAIT_MS;
-  while (conversation.isProcessing()) {
-    if (Date.now() >= deadline) {
-      return false;
-    }
-    await new Promise((resolve) => setTimeout(resolve, PROCESSING_POLL_MS));
-  }
-  return true;
 }
 
 /**
@@ -116,7 +100,7 @@ export async function persistLiveVoicePhoto(
     // A turn holds the lock for its whole run. Waiting rather than queueing:
     // the conversation's queue drains into a turn, which is the one thing this
     // must not cause.
-    if (!(await waitForIdle(conversation))) {
+    if (!(await waitForConversationIdle(conversation, PROCESSING_WAIT_MS))) {
       log.warn(
         { conversationId, attachmentId },
         "Live-voice photo timed out waiting for the conversation to go idle",
