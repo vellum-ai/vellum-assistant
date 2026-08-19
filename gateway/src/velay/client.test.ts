@@ -1492,10 +1492,10 @@ describe("proactive tunnel refresh", () => {
 });
 
 describe("advertised path rules", () => {
-  async function registerTunnel(sockets: FakeWebSocket[]): Promise<void> {
-    sockets[0].readyState = WS_OPEN;
-    sockets[0].emit("open");
-    sendFrame(sockets[0], {
+  async function registerTunnel(socket: FakeWebSocket): Promise<void> {
+    socket.readyState = WS_OPEN;
+    socket.emit("open");
+    sendFrame(socket, {
       type: VELAY_FRAME_TYPES.registered,
       assistant_id: "asst-123",
       public_url: "https://velay-public.example.test",
@@ -1539,7 +1539,7 @@ describe("advertised path rules", () => {
 
     client.start();
     await flushPromises();
-    await registerTunnel(sockets);
+    await registerTunnel(sockets[0]);
     expect(delays).toEqual([]);
 
     client.requestRulesRefresh("first");
@@ -1582,7 +1582,7 @@ describe("advertised path rules", () => {
 
     client.start();
     await flushPromises();
-    await registerTunnel(sockets);
+    await registerTunnel(sockets[0]);
 
     client.requestRulesRefresh("webhook-routes-changed");
     callbacks[0]();
@@ -1615,13 +1615,64 @@ describe("advertised path rules", () => {
     registeredWebhookPaths = ["/webhooks/plugins/example/realtime"];
     client.start();
     await flushPromises();
-    await registerTunnel(sockets);
+    await registerTunnel(sockets[0]);
 
     expect(JSON.parse(headerValue(sockets[0]) as string)).toEqual([
       ...VELAY_STATIC_ALLOWED_PATHS,
       "^/webhooks/plugins/example/realtime$",
     ]);
     expect(delays).toEqual([]);
+    await client.stop();
+  });
+
+  test("refreshes the reconnected tunnel when a reconnect races the debounce", async () => {
+    velayWebhooksEnabled = true;
+    registeredWebhookPaths = ["/webhooks/telegram"];
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    const client = makeClient({
+      sockets,
+      reconnectDelays: delays,
+      timerCallbacks: callbacks,
+    });
+
+    client.start();
+    await flushPromises();
+    await registerTunnel(sockets[0]);
+
+    client.requestRulesRefresh("first change");
+    expect(delays).toEqual([5000]);
+
+    // The tunnel drops and reconnects before the debounce fires, so the
+    // replacement socket already advertises the first change.
+    sockets[0].readyState = WS_CLOSED;
+    sockets[0].emit("close", { code: 1006, reason: "" });
+    await flushPromises();
+    callbacks[1]();
+    await flushPromises();
+    expect(sockets).toHaveLength(2);
+    await registerTunnel(sockets[1]);
+
+    // A second change lands after the replacement connected, so only a
+    // refresh of that socket can advertise it.
+    registeredWebhookPaths = ["/webhooks/telegram", "/webhooks/stripe"];
+    client.requestRulesRefresh("second change");
+
+    callbacks[0]();
+    await flushPromises();
+    expect(sockets[1].closes).toEqual([
+      { code: 1000, reason: "proactive tunnel refresh" },
+    ]);
+
+    callbacks[callbacks.length - 1]();
+    await flushPromises();
+    expect(sockets).toHaveLength(3);
+    expect(JSON.parse(headerValue(sockets[2]) as string)).toEqual([
+      ...VELAY_STATIC_ALLOWED_PATHS,
+      "^/webhooks/telegram$",
+      "^/webhooks/stripe$",
+    ]);
     await client.stop();
   });
 });

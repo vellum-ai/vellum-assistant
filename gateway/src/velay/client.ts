@@ -199,16 +199,19 @@ export class VelayTunnelClient {
    * Reconnect so Velay sees the current path rules. Only a live tunnel needs
    * this: the next connect reads the registry itself, so a client that is
    * stopped or disconnected already picks the change up. Deferred while the
-   * tunnel is busy, the same way the load-balancer refresh is.
+   * tunnel is busy, the same way the load-balancer refresh is. The socket to
+   * refresh is resolved when the debounce fires rather than captured when it
+   * is armed, so a reconnect during the debounce window still advertises the
+   * rules that landed after it connected.
    */
   requestRulesRefresh(reason: string): void {
-    const ws = this.ws;
-    if (!this.running || !ws || this.rulesRefreshTimer) {
+    if (!this.running || !this.ws || this.rulesRefreshTimer) {
       return;
     }
     this.rulesRefreshTimer = this.timerApi.setTimeout(() => {
       this.rulesRefreshTimer = null;
-      if (!this.running || this.ws !== ws) {
+      const ws = this.ws;
+      if (!this.running || !ws) {
         return;
       }
       if (this.isTunnelBusy()) {
