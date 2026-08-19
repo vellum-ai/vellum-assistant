@@ -94,7 +94,8 @@ function setupIntentIdFromClientSecret(
  *     in-page when the PM doesn't need 3DS, and otherwise redirects to
  *     `window.location.href` (so the user lands back on the current
  *     settings page).
- *  5. On success, toast + `onSavedOptimistic({ setupIntentId })` + `onClose()`.
+ *  5. On success, `onSavedOptimistic({ setupIntentId })`, then toast +
+ *     `onClose()` once the saved card has settled.
  */
 export function AutoTopUpPaymentMethodModal({
   open,
@@ -182,14 +183,14 @@ export function AutoTopUpPaymentMethodModal({
             >
               <SetupCardForm
                 onSuccess={async () => {
-                  toast.success("Payment method saved.");
-                  // Await the parent's optimistic refetch before closing so
-                  // the next render reads fresh auto-top-up data. Without
-                  // the await, `onClose()` fires immediately and the user
-                  // briefly sees stale PM copy.
+                  // Await the parent's follow-up before toasting or closing:
+                  // the toast must not claim success while the saved card is
+                  // still settling, and closing early would briefly show
+                  // stale PM copy.
                   await onSavedOptimistic({
                     setupIntentId: setupIntentIdFromClientSecret(clientSecret),
                   });
+                  toast.success("Payment method saved.");
                   onClose();
                 }}
                 onCancel={onClose}
