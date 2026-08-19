@@ -7,16 +7,19 @@
  * (a paired entry is session-free, a local entry needs a local client, and
  * everything else needs the platform session). The gate reuses the flag pair
  * `useGatedSelectedAssistantId` honors, multi-platform-assistant or
- * assistant-switcher, and closes in gateway-auth mode, where the selection is
- * not this client's to change. Unlike that hook it does not require an org
- * id: a flag-on local client with two local assistants must still switch,
- * and `assistantsValidForOrg` passes org-less entries regardless.
+ * assistant-switcher, but deliberately deviates from it twice: it closes
+ * only in remote-gateway mode (a served single-assistant session, where the
+ * selection is not this client's to change) rather than in every
+ * gateway-authenticated session, since a local or paired session holds a
+ * gateway token too and is exactly where local switching works; and it does
+ * not require an org id, since a flag-on local client with two local
+ * assistants must still switch and `assistantsValidForOrg` passes org-less
+ * entries regardless.
  */
 
 import { useMemo } from "react";
 
-import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
-import { isLocalClient } from "@/lib/local-mode";
+import { isLocalClient, isRemoteGatewayMode } from "@/lib/local-mode";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useRequestOrganizationId } from "@/stores/organization-store";
@@ -44,7 +47,7 @@ export function useSwitchableAssistants(): SwitchableAssistants {
   const localClient = isLocalClient();
 
   const gateOpen =
-    (multiPlatformAssistant || assistantSwitcher) && !isGatewayAuthMode();
+    (multiPlatformAssistant || assistantSwitcher) && !isRemoteGatewayMode();
 
   const assistants = useMemo(
     () =>

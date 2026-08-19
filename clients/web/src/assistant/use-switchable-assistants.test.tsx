@@ -11,17 +11,14 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
 let localClient = false;
+let remoteGatewayMode = false;
 mock.module("@/lib/local-mode", () => ({
   isLocalClient: () => localClient,
+  isRemoteGatewayMode: () => remoteGatewayMode,
   isLocalAssistant: (a: { cloud?: string }) =>
     a.cloud === "local" || a.cloud === "docker",
   isPairedAssistant: (a: { cloud?: string }) => a.cloud === "paired",
   isPlatformAssistant: (a: { cloud?: string }) => a.cloud === "vellum",
-}));
-
-let gatewayAuthMode = false;
-mock.module("@/lib/auth/gateway-session", () => ({
-  isGatewayAuthMode: () => gatewayAuthMode,
 }));
 
 let organizationId: string | null = "org-1";
@@ -68,7 +65,7 @@ function run() {
 
 beforeEach(() => {
   localClient = false;
-  gatewayAuthMode = false;
+  remoteGatewayMode = false;
   organizationId = "org-1";
   hasPlatformSession = true;
   seed([]);
@@ -104,8 +101,8 @@ describe("useSwitchableAssistants gate", () => {
     expect(run().canSwitch).toBe(true);
   });
 
-  test("gateway-auth mode closes it", () => {
-    gatewayAuthMode = true;
+  test("remote-gateway mode closes it", () => {
+    remoteGatewayMode = true;
     seed([platform("a1"), platform("a2")]);
 
     expect(run().canSwitch).toBe(false);
