@@ -68,6 +68,7 @@ export function useNativePushToTalkRegistration(): void {
             setConfigurablePushToTalkActive(ok && next.kind !== "off");
           }
           if (!ok) {
+            appliedKey = null;
             return;
           }
           appliedKey = nextKey;

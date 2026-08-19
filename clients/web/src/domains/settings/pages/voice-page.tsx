@@ -57,7 +57,8 @@ import {
 } from "@/utils/voice-input-device";
 import {
   canConfigureFnPushToTalk,
-  supportsNativePushToTalk,
+  isConfigurablePushToTalkActive,
+  subscribeToConfigurablePushToTalk,
 } from "@/runtime/hotkey";
 import { routes } from "@/utils/routes";
 import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
@@ -383,6 +384,13 @@ function MicrophoneCard() {
 function PushToTalkCard() {
   const { t } = useTranslation("settings");
   const fnPushToTalkConfigurable = canConfigureFnPushToTalk();
+  const [nativePushToTalkActive, setNativePushToTalkActive] = useState(
+    isConfigurablePushToTalkActive,
+  );
+  useEffect(
+    () => subscribeToConfigurablePushToTalk(setNativePushToTalkActive),
+    [],
+  );
   const [activator, setActivator] = useState<PTTActivator>(() => {
     const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
     return raw
@@ -402,7 +410,8 @@ function PushToTalkCard() {
   );
 
   const pttEnabled = activator.kind !== "off";
-  const showFocusedTabNote = pttEnabled && !supportsNativePushToTalk();
+  const showFocusedTabNote =
+    pttEnabled && !fnPushToTalkConfigurable && !nativePushToTalkActive;
 
   const selectActivator = useCallback((next: PTTActivator) => {
     setActivator(next);

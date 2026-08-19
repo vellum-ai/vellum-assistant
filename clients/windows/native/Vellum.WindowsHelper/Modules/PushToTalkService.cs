@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.Channels;
 using Vellum.WindowsHelper.Rpc;
 
 namespace Vellum.WindowsHelper.Modules;
@@ -13,9 +14,17 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
 
     private readonly object _gate = new();
     private readonly PushToTalkChordTracker _tracker = new();
+    private readonly Channel<string> _events = Channel.CreateUnbounded<string>(
+        new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    private readonly Task _outputTask;
     private Timer? _holdTimer;
     private long _holdGeneration;
     private GlobalKeyboardHook? _hook;
+
+    public PushToTalkService()
+    {
+        _outputTask = DrainEventsAsync();
+    }
 
     public IReadOnlyCollection<string> Methods { get; } = [SetMethod];
 
@@ -57,6 +66,14 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
     public void Dispose()
     {
         Disable();
+        _events.Writer.TryComplete();
+        try
+        {
+            _outputTask.GetAwaiter().GetResult();
+        }
+        catch (IOException)
+        {
+        }
     }
 
     private void Disable()
@@ -141,7 +158,7 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
         _holdTimer = null;
     }
 
-    private static void Emit(PushToTalkTransition transition)
+    private void Emit(PushToTalkTransition transition)
     {
         var state = transition switch
         {
@@ -153,12 +170,20 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
         {
             return;
         }
-        RpcOutput.WriteLine(JsonSerializer.Serialize(new
+        _events.Writer.TryWrite(state);
+    }
+
+    private async Task DrainEventsAsync()
+    {
+        await foreach (var state in _events.Reader.ReadAllAsync())
         {
-            jsonrpc = "2.0",
-            method = EventMethod,
-            @params = new { state },
-        }));
+            await RpcOutput.WriteLineAsync(JsonSerializer.Serialize(new
+            {
+                jsonrpc = "2.0",
+                method = EventMethod,
+                @params = new { state },
+            }));
+        }
     }
 
     private static bool TryPlanChord(
@@ -215,15 +240,10 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
         }
     }
 
-    private static ushort ResolveModifier(string modifier) => modifier.ToLowerInvariant() switch
-    {
-        "control" => 0x11,
-        "shift" => 0x10,
-        "option" => 0x12,
-        "command" => 0x5B,
-        "function" => throw new ArgumentException("Fn is unavailable on Windows"),
-        _ => throw new ArgumentException($"Unsupported modifier: {modifier}"),
-    };
+    private static ushort ResolveModifier(string modifier) =>
+        modifier.Equals("function", StringComparison.OrdinalIgnoreCase)
+            ? throw new ArgumentException("Fn is unavailable on Windows")
+            : KeyPlanner.ResolveModifier(modifier, commandAsWindowsKey: true);
 
     private static readonly JsonSerializerOptions JsonOptions =
         new() { PropertyNameCaseInsensitive = true };

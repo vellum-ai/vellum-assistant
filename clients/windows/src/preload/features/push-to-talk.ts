@@ -15,7 +15,7 @@ import {
 const feature: CapabilityModule<BridgeCapabilityRegistry<VellumBridge>> = {
   id: "push-to-talk",
   install: (bridge) => {
-    bridge.contribute("helper", {
+    bridge.contributePartial("helper", {
       hotkey: {
         setPushToTalk: (activator) =>
           ipcRenderer.invoke(

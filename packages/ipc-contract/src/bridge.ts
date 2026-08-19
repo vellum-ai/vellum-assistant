@@ -141,10 +141,10 @@ export interface VellumBridge {
     setShareDiagnostics(enabled: boolean): void;
   };
   helper: {
-    ping?(): Promise<"pong">;
-    getState?(): Promise<HelperState>;
-    restart?(): Promise<HelperRestartResult>;
-    onState?(callback: (state: HelperState) => void): () => void;
+    ping(): Promise<"pong">;
+    getState(): Promise<HelperState>;
+    restart(): Promise<HelperRestartResult>;
+    onState(callback: (state: HelperState) => void): () => void;
     hotkey: {
       fnPushToTalk?(enable: boolean): Promise<FnPushToTalkResult>;
       setPushToTalk?(
@@ -152,7 +152,7 @@ export interface VellumBridge {
       ): Promise<PushToTalkRegistrationResult>;
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
     };
-    dictation?: {
+    dictation: {
       setPartials(
         enable: boolean,
         deviceName?: string,
