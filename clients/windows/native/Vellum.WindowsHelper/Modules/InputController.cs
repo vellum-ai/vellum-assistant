@@ -322,9 +322,9 @@ public sealed class InputController : IRpcModule, IInputController
             {
                 return action;
             }
-            var point = await source.TranslateScreenPointAsync(
+            var screenPoint = await source.TranslateScreenPointAsync(
                 conversationId, new CuPoint(x, y), cancellationToken);
-            return action with { X = point.X, Y = point.Y };
+            return action with { X = screenPoint.X, Y = screenPoint.Y };
         }
         if (action.ElementId is null)
         {
@@ -335,13 +335,13 @@ public sealed class InputController : IRpcModule, IInputController
             throw new InvalidOperationException(
                 $"Element {action.ElementId} cannot be resolved because screen observation is unavailable");
         }
-        var point = await source.ResolveElementCenterAsync(action.ElementId.Value, cancellationToken);
-        if (point is null)
+        var elementPoint = await source.ResolveElementCenterAsync(action.ElementId.Value, cancellationToken);
+        if (elementPoint is null)
         {
             throw new InvalidOperationException(
                 $"Element {action.ElementId} was not found in the current window");
         }
-        return action with { X = point.X, Y = point.Y };
+        return action with { X = elementPoint.X, Y = elementPoint.Y };
     }
 
     private static async Task<string> ExecuteAsync(CuAction action, CancellationToken cancellationToken)
