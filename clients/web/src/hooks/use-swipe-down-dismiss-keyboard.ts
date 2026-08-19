@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { hideNativeKeyboard } from "@/runtime/native-keyboard";
+import { CARET_SURFACE_SELECTOR, ownsCaretDrag } from "@/utils/caret-surface";
 import { usePointerCoarse } from "@/utils/pointer";
 
 // ---------------------------------------------------------------------------
@@ -26,15 +27,6 @@ const DEADZONE_PX = 10;
  * drawer) rather than a downward swipe, so it is abandoned.
  */
 const HORIZONTAL_ESCAPE_RATIO = 0.7;
-
-/**
- * Elements that own a vertical drag for their own text interaction: dragging
- * inside a text field or contenteditable places the caret and extends the
- * selection. Putting the keyboard away mid-selection would fight the user, so
- * gestures that begin here never arm.
- */
-const EDITABLE_SELECTOR =
-  'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
 /**
  * Rendered transcript message text, which is selectable so quote-reply can
@@ -72,13 +64,10 @@ export function ownsVerticalTextDrag(
   target: EventTarget | null,
   hasLiveSelection: boolean,
 ): boolean {
-  if (!(target instanceof Element)) {
-    return false;
-  }
-  if (target.closest(EDITABLE_SELECTOR) !== null) {
+  if (ownsCaretDrag(target)) {
     return true;
   }
-  return hasLiveSelection && target.closest(SELECTABLE_TEXT_SELECTOR) !== null;
+  return hasLiveSelection && startsOnSelectableText(target);
 }
 
 /**
@@ -145,7 +134,7 @@ export function blurFocusedEditable(): boolean {
   if (!(active instanceof HTMLElement)) {
     return false;
   }
-  if (!active.matches(EDITABLE_SELECTOR)) {
+  if (!active.matches(CARET_SURFACE_SELECTOR)) {
     return false;
   }
   active.blur();
