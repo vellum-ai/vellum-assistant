@@ -368,6 +368,73 @@ describe("reconcileTelegramWebhook", () => {
     expect((calls[2].body as any).secret_token).toBe("test-webhook-secret");
   });
 
+  test("includes callback_base_url when a platform pod has an ingress URL in config", async () => {
+    const calls: { method: string; body: unknown }[] = [];
+    process.env.IS_PLATFORM = "true";
+    process.env.IS_CONTAINERIZED = "true";
+    const caches = makeCaches({
+      ingressUrl: "https://velay.example.com",
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "ast-managed-key",
+      platformAssistantId: "11111111-2222-4333-8444-555555555555",
+    });
+
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        if (
+          url ===
+          "https://platform.example.com/v1/internal/gateway/callback-routes/register/"
+        ) {
+          const body = init?.body ? JSON.parse(init.body as string) : null;
+          calls.push({ method: "registerCallbackRoute", body });
+          return new Response(
+            JSON.stringify({
+              callback_url:
+                "https://platform.example.com/v1/gateway/callbacks/11111111-2222-4333-8444-555555555555/webhooks/telegram/",
+            }),
+            {
+              status: 201,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+        if (url.includes("/getWebhookInfo")) {
+          calls.push({ method: "getWebhookInfo", body: null });
+          return makeTelegramResponse({
+            url: "",
+            has_custom_certificate: false,
+            pending_update_count: 0,
+          });
+        }
+        if (url.includes("/setWebhook")) {
+          const body = init?.body ? JSON.parse(init.body as string) : null;
+          calls.push({ method: "setWebhook", body });
+          return makeTelegramResponse(true);
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    );
+
+    await reconcileTelegramWebhook(caches);
+
+    expect(calls[0].method).toBe("registerCallbackRoute");
+    expect(calls[0].body).toEqual({
+      assistant_id: "11111111-2222-4333-8444-555555555555",
+      callback_path: "webhooks/telegram",
+      type: "telegram",
+      callback_base_url: "https://velay.example.com",
+    });
+    expect((calls[2].body as { url: string }).url).toBe(
+      "https://platform.example.com/v1/gateway/callbacks/11111111-2222-4333-8444-555555555555/webhooks/telegram/",
+    );
+  });
+
   test("deregisters the webhook instead of using the managed callback fallback when ingress is explicitly disabled", async () => {
     const calls: string[] = [];
     const caches = makeCaches({
