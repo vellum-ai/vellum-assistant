@@ -183,7 +183,23 @@ describe("subscribeNativeKeyboardHeight", () => {
     unsubscribe();
   });
 
-  test("attaches nothing outside the native iOS shell", async () => {
+  test("listens on the native Android shell too", async () => {
+    // The Android web view frame resizes for the IME the same way, so the
+    // announcement is what tells `use-visible-viewport` that shrink apart from
+    // the window itself getting shorter.
+    mockIsNativeIOS = false;
+    mockIsNativeAndroid = true;
+    const onHeightChange = mock((_height: number) => {});
+    const unsubscribe = subscribeNativeKeyboardHeight(onHeightChange);
+    await flushMicrotasks();
+
+    showHandler!({ keyboardHeight: 336 });
+
+    expect(onHeightChange).toHaveBeenCalledWith(336);
+    unsubscribe();
+  });
+
+  test("attaches nothing outside the native shells", async () => {
     mockIsNativeIOS = false;
     const onHeightChange = mock((_height: number) => {});
     const unsubscribe = subscribeNativeKeyboardHeight(onHeightChange);

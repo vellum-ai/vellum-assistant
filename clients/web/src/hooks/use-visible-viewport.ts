@@ -76,14 +76,13 @@ let anticipatedKeyboardHeight = 0;
 // this height is what that event looks like from here.
 let anticipationViewportHeight = 0;
 
-// Whether the shell has announced a keyboard state at all, and whether the last
-// one it announced was a keyboard coming up. The shells that resize their web
-// view frame for the keyboard are the ones where that resize is otherwise
-// indistinguishable from the window itself getting shorter, and they are also
-// the ones that announce, so their announcement settles it. A shell that has
-// announced nothing yet leaves both `false`, and `isTextEntryFocused` answers
-// in its place.
-let nativeKeyboardAnnounced = false;
+// Whether the last thing the shell announced was a keyboard coming up. The
+// shells that resize their web view frame for the keyboard are the ones where
+// that resize is otherwise indistinguishable from the window itself getting
+// shorter, and they are exactly the shells that announce (see the
+// `isNativeMobile` gate on `subscribeNativeKeyboardHeight`), so the
+// announcement is what separates the two. Stays `false` in a browser, where the
+// keyboard leaves `window.innerHeight` alone and there is nothing to separate.
 let nativeKeyboardVisible = false;
 
 // The viewport reading pinned across a native picker session, or `null` when
@@ -157,7 +156,6 @@ function addViewportUpdater(update: () => void): () => void {
       (keyboardHeight) => {
         anticipatedKeyboardHeight = keyboardHeight;
         anticipationViewportHeight = window.visualViewport?.height ?? 0;
-        nativeKeyboardAnnounced = true;
         nativeKeyboardVisible = keyboardHeight > 0;
         for (const notify of viewportUpdaters) {
           notify();
@@ -174,25 +172,8 @@ function addViewportUpdater(update: () => void): () => void {
     unsubscribeNativeKeyboard?.();
     unsubscribeNativeKeyboard = null;
     anticipatedKeyboardHeight = 0;
-    nativeKeyboardAnnounced = false;
     nativeKeyboardVisible = false;
   };
-}
-
-/**
- * Whether focus sits in something a soft keyboard can be up for. A `select`
- * counts: its picker occludes the viewport the same way on mobile.
- */
-function isTextEntryFocused(): boolean {
-  const active = document.activeElement;
-  if (
-    active instanceof HTMLInputElement ||
-    active instanceof HTMLTextAreaElement ||
-    active instanceof HTMLSelectElement
-  ) {
-    return true;
-  }
-  return active instanceof HTMLElement && active.isContentEditable;
 }
 
 /**
@@ -205,9 +186,11 @@ function isTextEntryFocused(): boolean {
  * has, and every reading from then on reports the difference as a keyboard that
  * never goes away.
  *
- * A keyboard is left alone either way: the shells whose frame the keyboard does
- * resize announce it, and where nothing announces, the keyboard cannot be up
- * without a focused text entry.
+ * A real keyboard is the one shrink to leave alone, and the announcement is the
+ * whole test: a shell that resizes its frame for the keyboard says so first,
+ * and a browser, which never announces, does not shrink the window for a
+ * keyboard in the first place. Focus is deliberately not consulted, since a
+ * hardware keyboard holds the composer focused with nothing on screen.
  *
  * Driven by the `window` resize listener alone. Running it on every viewport
  * read would rebase onto a frame the keyboard still owns, since a dismissal
@@ -217,7 +200,7 @@ function rebaseReferenceForWindowResize(): void {
   if (window.innerHeight >= referenceInnerHeight) {
     return;
   }
-  if (nativeKeyboardAnnounced ? nativeKeyboardVisible : isTextEntryFocused()) {
+  if (nativeKeyboardVisible) {
     return;
   }
   referenceInnerHeight = window.innerHeight;

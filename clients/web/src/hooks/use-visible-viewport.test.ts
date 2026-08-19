@@ -472,22 +472,38 @@ describe("window resizes", () => {
     expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
   });
 
-  test("leaves the reference alone while a focused text entry could hold a keyboard", () => {
-    // GIVEN a shell that announces nothing (mobile web, the Android shell) with
-    // the composer focused
+  test("rebases with the composer focused when no keyboard was announced", () => {
+    // GIVEN a composer holding focus with nothing announced, which is what a
+    // hardware keyboard on a tablet looks like: focus with no soft keyboard
     renderHook(() => useVisibleViewport());
     const composer = document.createElement("textarea");
     document.body.appendChild(composer);
     composer.focus();
 
-    // WHEN the window shrinks under it, which is what an opening keyboard looks
-    // like on a shell that resizes its web view for the IME
+    // WHEN split view shortens the window under it
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    // THEN focus is not mistaken for a keyboard, so the shorter window still
+    // becomes the reference and the gesture stays disarmed
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(0);
+    expect(viewport?.height).toBe(RESIZED_HEIGHT);
+    composer.remove();
+  });
+
+  test("leaves the reference alone once the keyboard is announced away again", () => {
+    // GIVEN a shell whose keyboard opened and closed, so it has announced
+    // before but reports nothing up now
+    renderHook(() => useVisibleViewport());
+    announce(KEYBOARD_HEIGHT);
+    announce(0);
+
+    // WHEN a later keyboard shrinks the frame with its own announcement
+    announce(KEYBOARD_HEIGHT);
     resizeWindowTo(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
 
-    // THEN the shrink is left to the measurement rather than erasing a keyboard
-    // nothing was there to announce
+    // THEN the reference still survives it
     expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
-    composer.remove();
   });
 
   test("ignores a window that grew, which the reference already tracks", () => {

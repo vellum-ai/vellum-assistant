@@ -74,17 +74,23 @@ function readKeyboardHeight(reported: unknown): number {
 }
 
 /**
- * Subscribe to the iOS keyboard height as the keyboard animation starts.
+ * Subscribe to the native keyboard height as the keyboard animation starts.
  *
  * `keyboardWillShow` fires synchronously inside the plugin's native
  * `onKeyboardWillShow`, ahead of the web view frame resize the plugin defers
  * (see `docs/CAPACITOR.md` § "Linking a plugin runs its native `load()`"), so
  * reading the height here is what lets layout follow the keyboard as it
  * animates rather than a beat after it lands. `keyboardWillHide` carries no
- * payload and means height `0`.
+ * payload and means height `0`. Android announces the same pair off its window
+ * insets, in CSS pixels (`Keyboard.java` divides the IME height by the display
+ * density), so both shells report a height layout can use directly.
  *
- * Off the native iOS shell there is no keyboard to hear from, so the gate
- * returns a no-op unsubscribe and the plugin is never imported.
+ * The gate is `isNativeMobile()` because the shells that announce a keyboard
+ * are exactly the shells whose web view frame the keyboard resizes, and
+ * `use-visible-viewport.ts` has no other way to tell that resize apart from the
+ * window itself getting shorter. In a browser the keyboard leaves
+ * `window.innerHeight` alone, so there is nothing to hear from and the gate
+ * returns a no-op unsubscribe with the plugin never imported.
  *
  * Show and hide are one source, so they share a single subscription: one plugin
  * import, and one warning if this shell has no keyboard plugin to give.
@@ -92,7 +98,7 @@ function readKeyboardHeight(reported: unknown): number {
 export function subscribeNativeKeyboardHeight(
   onHeightChange: (keyboardHeight: number) => void,
 ): () => void {
-  if (!isNativeIOS()) {
+  if (!isNativeMobile()) {
     return () => {};
   }
 
