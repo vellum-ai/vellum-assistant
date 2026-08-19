@@ -5,35 +5,37 @@ mock.module("electron", () => ({
   screen: { getCursorScreenPoint: () => ({ x: 0, y: 0 }) },
 }));
 
-const { CURSOR_HOVER_POLL_MS, createCursorHoverForwarder } =
+const { CURSOR_HOVER_POLL_MS, createCursorHoverPoller } =
   await import("./dictation-overlay-window");
 
 type Rect = { x: number; y: number; width: number; height: number };
 
 const OVERLAY_BOUNDS: Rect = { x: 100, y: 50, width: 480, height: 160 };
+// The Stop control, window-relative: x 400..420, y 20..40 on screen
+// 500..520 x 70..90.
+const STOP_REGION: Rect = { x: 400, y: 20, width: 20, height: 20 };
 
 const createHarness = () => {
   const state = {
     cursor: { x: 0, y: 0 },
     bounds: OVERLAY_BOUNDS as Rect | null,
+    region: STOP_REGION as Rect | null,
     interactive: false,
-    moves: [] as Array<{ x: number; y: number }>,
-    leaves: 0,
+    toggles: [] as boolean[],
     intervals: 0,
     intervalMs: null as number | null,
     cleared: 0,
   };
   let tick: (() => void) | null = null;
 
-  const forwarder = createCursorHoverForwarder({
+  const poller = createCursorHoverPoller({
     getCursor: () => state.cursor,
     getOverlayBounds: () => state.bounds,
+    getHitRegion: () => state.region,
     isInteractive: () => state.interactive,
-    sendMouseMove: (point) => {
-      state.moves.push(point);
-    },
-    sendMouseLeave: () => {
-      state.leaves += 1;
+    setInteractive: (interactive) => {
+      state.interactive = interactive;
+      state.toggles.push(interactive);
     },
     setInterval: (callback, ms) => {
       state.intervals += 1;
@@ -47,89 +49,79 @@ const createHarness = () => {
     },
   });
 
-  return { forwarder, state, tick: () => tick?.() };
+  return { poller, state, tick: () => tick?.() };
 };
 
-describe("createCursorHoverForwarder", () => {
-  test("forwards window-relative moves while the cursor is inside the overlay", () => {
+describe("createCursorHoverPoller", () => {
+  test("makes the overlay interactive only while the cursor is over the Stop region", () => {
     const h = createHarness();
-    h.forwarder.start();
+    h.poller.start();
     expect(h.state.intervalMs).toBe(CURSOR_HOVER_POLL_MS);
 
-    h.state.cursor = { x: 120, y: 60 };
+    h.state.cursor = { x: 110, y: 60 };
     h.tick();
-    h.state.cursor = { x: 579, y: 209 };
-    h.tick();
+    expect(h.state.toggles).toEqual([]);
 
-    expect(h.state.moves).toEqual([
-      { x: 20, y: 10 },
-      { x: 479, y: 159 },
-    ]);
-    expect(h.state.leaves).toBe(0);
+    h.state.cursor = { x: 510, y: 80 };
+    h.tick();
+    expect(h.state.toggles).toEqual([true]);
+
+    h.state.cursor = { x: 530, y: 80 };
+    h.tick();
+    expect(h.state.toggles).toEqual([true, false]);
   });
 
-  test("sends a single leave when the cursor exits the overlay", () => {
+  test("does not re-toggle while the hover state is unchanged", () => {
     const h = createHarness();
-    h.forwarder.start();
+    h.poller.start();
 
-    h.state.cursor = { x: 120, y: 60 };
+    h.state.cursor = { x: 510, y: 80 };
     h.tick();
-    h.state.cursor = { x: 700, y: 60 };
     h.tick();
     h.tick();
 
-    expect(h.state.moves).toHaveLength(1);
-    expect(h.state.leaves).toBe(1);
+    expect(h.state.toggles).toEqual([true]);
   });
 
-  test("does not re-deliver moves while the cursor is stationary", () => {
+  test("stays click-through while no Stop region is reported", () => {
     const h = createHarness();
-    h.forwarder.start();
+    h.state.region = null;
+    h.poller.start();
 
-    h.state.cursor = { x: 120, y: 60 };
-    h.tick();
-    h.tick();
-    h.state.cursor = { x: 121, y: 60 };
+    h.state.cursor = { x: 510, y: 80 };
     h.tick();
 
-    expect(h.state.moves).toEqual([
-      { x: 20, y: 10 },
-      { x: 21, y: 10 },
-    ]);
+    expect(h.state.toggles).toEqual([]);
   });
 
-  test("stays quiet while the cursor has never entered the overlay", () => {
+  test("drops interactivity when the region is cleared under the cursor", () => {
     const h = createHarness();
-    h.forwarder.start();
+    h.poller.start();
 
-    h.state.cursor = { x: 0, y: 0 };
+    h.state.cursor = { x: 510, y: 80 };
     h.tick();
+    h.state.region = null;
     h.tick();
 
-    expect(h.state.moves).toHaveLength(0);
-    expect(h.state.leaves).toBe(0);
+    expect(h.state.toggles).toEqual([true, false]);
   });
 
-  test("pauses while interactive, then leaves once the pointer moves away", () => {
+  test("respects interactivity the renderer set on its own", () => {
     const h = createHarness();
-    h.forwarder.start();
+    h.poller.start();
 
-    h.state.cursor = { x: 120, y: 60 };
-    h.tick();
+    // Real mouse events reached the page and it asked for interactivity;
+    // a cursor inside the region must not produce a redundant toggle.
     h.state.interactive = true;
+    h.state.cursor = { x: 510, y: 80 };
     h.tick();
-    expect(h.state.moves).toHaveLength(1);
 
-    // The page drops interactivity after the pointer has already left.
-    h.state.interactive = false;
-    h.state.cursor = { x: 700, y: 60 };
-    h.tick();
-    expect(h.state.leaves).toBe(1);
+    expect(h.state.toggles).toEqual([]);
   });
 
   test("stops itself once the overlay window is gone", () => {
     const h = createHarness();
-    h.forwarder.start();
+    h.poller.start();
 
     h.state.bounds = null;
     h.tick();
@@ -139,13 +131,13 @@ describe("createCursorHoverForwarder", () => {
 
   test("start is idempotent and stop clears the timer", () => {
     const h = createHarness();
-    h.forwarder.start();
-    h.forwarder.start();
+    h.poller.start();
+    h.poller.start();
     expect(h.state.intervals).toBe(1);
 
-    h.forwarder.stop();
+    h.poller.stop();
     expect(h.state.cleared).toBe(1);
-    h.forwarder.start();
+    h.poller.start();
     expect(h.state.intervals).toBe(2);
   });
 });

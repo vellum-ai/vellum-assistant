@@ -41,7 +41,6 @@ const makeWindow = () => {
       isDestroyed: () => destroyed,
       on: () => undefined,
       send: mock(() => undefined),
-      sendInputEvent: mock(() => undefined),
     },
     close: mock(() => emit("closed")),
     emit,
@@ -188,21 +187,21 @@ describe("Windows auxiliary windows", () => {
     expect(window.isDestroyed()).toBe(true);
   });
 
-  test("polls the cursor and synthesizes hover moves into the click-through overlay", async () => {
+  test("polls the cursor against the reported Stop region and unlocks clicks", async () => {
     // Native forward:true mouse-move delivery is unreliable on Windows
-    // (electron/electron#33281); the overlay must receive synthetic moves so
-    // its Stop button hit-test can run. The mocked cursor sits at the
-    // window's origin, i.e. inside the overlay canvas.
+    // (electron/electron#33281), so main hit-tests the cursor against the
+    // Stop region the overlay page reports. The mocked cursor sits at the
+    // window's origin; a region covering it must flip the window
+    // interactive.
     onListeners.get("vellum:dictationOverlay:setState")?.([
       { kind: "recording", transcription: "" },
     ]);
+    onListeners.get("vellum:dictationOverlay:setHitRegion")?.([
+      { x: 0, y: 0, width: 24, height: 24 },
+    ]);
     const { window } = created[0]!;
     await new Promise((resolve) => setTimeout(resolve, 120));
-    expect(window.webContents.sendInputEvent).toHaveBeenCalledWith({
-      type: "mouseMove",
-      x: 0,
-      y: 0,
-    });
+    expect(window.setIgnoreMouseEvents).toHaveBeenCalledWith(false);
     onListeners.get("vellum:dictationOverlay:setState")?.([
       { kind: "dismiss" },
     ]);

@@ -4,10 +4,12 @@ import { z } from "zod";
 import {
   DICTATION_OVERLAY_GET_STATE,
   DICTATION_OVERLAY_REQUEST_STOP,
+  DICTATION_OVERLAY_SET_HIT_REGION,
   DICTATION_OVERLAY_SET_INTERACTIVE,
   DICTATION_OVERLAY_SET_STATE,
   DICTATION_OVERLAY_STATE_EVENT,
   DICTATION_OVERLAY_STOP_REQUESTED,
+  type DictationOverlayHitRegion,
   type DictationOverlayMessage,
   type DictationOverlayState,
 } from "@vellumai/ipc-contract";
@@ -67,19 +69,26 @@ export const DONE_HIDE_MS = 800;
 /** How long error states stay up — mirrors the recording store's 3 s. */
 export const ERROR_HIDE_MS = 3000;
 
-export type { DictationOverlayMessage, DictationOverlayState };
+export type {
+  DictationOverlayHitRegion,
+  DictationOverlayMessage,
+  DictationOverlayState,
+};
 
 export interface DictationOverlayWindowDependencies {
   closeOnHide?: boolean;
   /**
-   * Poll the cursor from main and synthesize hover events into the overlay
-   * renderer. Windows workaround: Electron's native mouse-move forwarding
+   * Poll the cursor from main and hit-test it against the renderer-reported
+   * Stop region. Windows workaround: Electron's native mouse-move forwarding
    * for click-through windows (`setIgnoreMouseEvents(true, { forward:
    * true })`) relies on a low-level mouse hook that stops delivering while
-   * a non-Electron window has focus (electron/electron#33281) — exactly the
-   * push-to-talk posture. Without the moves the page never sees the pointer
-   * reach the Stop button, never asks to become interactive, and the click
-   * falls through to the app behind.
+   * a non-Electron window has focus (electron/electron#33281), which is
+   * exactly the push-to-talk posture. Without the moves the page never sees
+   * the pointer reach the Stop button, never asks to become interactive,
+   * and the click falls through to the app behind. Synthesizing the moves
+   * via `webContents.sendInputEvent` is no fix either: it requires the
+   * window to be focused, and this window is deliberately unfocusable. So
+   * main does the hover hit-test itself and toggles interactivity directly.
    */
   pollCursorForHover?: boolean;
   handle: IpcHandle;
@@ -103,6 +112,13 @@ const dictationOverlayMessageSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("error"), message: z.string() }),
   z.object({ kind: z.literal("dismiss") }),
 ]);
+
+const dictationOverlayHitRegionSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number().min(0),
+  height: z.number().min(0),
+});
 
 export type DictationOverlayDeps = {
   showOverlay: () => void;
@@ -174,7 +190,7 @@ export const createDictationOverlayController = (
 
 export const CURSOR_HOVER_POLL_MS = 50;
 
-export type CursorHoverForwarderDeps = {
+export type CursorHoverPollerDeps = {
   getCursor: () => { x: number; y: number };
   /** Overlay window bounds in screen coordinates, or null once it is gone. */
   getOverlayBounds: () => {
@@ -183,36 +199,32 @@ export type CursorHoverForwarderDeps = {
     width: number;
     height: number;
   } | null;
+  /** The Stop control's rect in window-relative CSS pixels, if reported. */
+  getHitRegion: () => DictationOverlayHitRegion | null;
   isInteractive: () => boolean;
-  /** Synthesize a mouse move at window-relative coordinates. */
-  sendMouseMove: (point: { x: number; y: number }) => void;
-  sendMouseLeave: () => void;
+  setInteractive: (interactive: boolean) => void;
   setInterval: (callback: () => void, ms: number) => unknown;
   clearInterval: (handle: unknown) => void;
 };
 
 /**
  * Stand-in for Electron's broken mouse-move forwarding on Windows (see
- * `pollCursorForHover`): while the overlay is click-through, watch the
- * cursor and synthesize the moves the native hook should have delivered,
- * plus one leave event when the cursor exits. The page's own hit-test then
- * decides interactivity exactly as it does on macOS. Paused while the
- * overlay is interactive — real input reaches the page then.
+ * `pollCursorForHover`): while the overlay is up, watch the cursor and
+ * hit-test it against the Stop region the renderer reported, toggling the
+ * window's interactivity from main. The renderer cannot run this hit-test
+ * itself there: the forwarded mouse moves never arrive, and synthesized
+ * input events are ignored by unfocused windows.
  */
-export const createCursorHoverForwarder = (
-  deps: CursorHoverForwarderDeps,
+export const createCursorHoverPoller = (
+  deps: CursorHoverPollerDeps,
 ): { start: () => void; stop: () => void } => {
   let timer: unknown = null;
-  let wasInside = false;
-  let lastMove: { x: number; y: number } | null = null;
 
   const stop = (): void => {
     if (timer !== null) {
       deps.clearInterval(timer);
       timer = null;
     }
-    wasInside = false;
-    lastMove = null;
   };
 
   const tick = (): void => {
@@ -221,42 +233,30 @@ export const createCursorHoverForwarder = (
       stop();
       return;
     }
-    if (deps.isInteractive()) {
-      // The pointer is over the Stop control; when the page drops
-      // interactivity again the next tick resumes from "inside" so an
-      // immediate exit still produces a leave event.
-      wasInside = true;
-      lastMove = null;
-      return;
+    const region = deps.getHitRegion();
+    let inside = false;
+    if (region) {
+      const cursor = deps.getCursor();
+      const left = bounds.x + region.x;
+      const top = bounds.y + region.y;
+      inside =
+        cursor.x >= left &&
+        cursor.x < left + region.width &&
+        cursor.y >= top &&
+        cursor.y < top + region.height;
     }
-    const cursor = deps.getCursor();
-    const inside =
-      cursor.x >= bounds.x &&
-      cursor.x < bounds.x + bounds.width &&
-      cursor.y >= bounds.y &&
-      cursor.y < bounds.y + bounds.height;
-    if (inside) {
-      const move = { x: cursor.x - bounds.x, y: cursor.y - bounds.y };
-      // A stationary cursor needs no re-delivery.
-      if (move.x !== lastMove?.x || move.y !== lastMove?.y) {
-        deps.sendMouseMove(move);
-      }
-      lastMove = move;
-    } else {
-      if (wasInside) {
-        deps.sendMouseLeave();
-      }
-      lastMove = null;
+    // Only toggle on change; the renderer's own setInteractive messages
+    // (real mouse events, once the window is interactive) stay in charge
+    // between ticks.
+    if (inside !== deps.isInteractive()) {
+      deps.setInteractive(inside);
     }
-    wasInside = inside;
   };
 
   const start = (): void => {
     if (timer !== null) {
       return;
     }
-    wasInside = false;
-    lastMove = null;
     timer = deps.setInterval(tick, CURSOR_HOVER_POLL_MS);
   };
 
@@ -290,6 +290,7 @@ const broadcastStopRequested = (): void => {
 };
 
 let overlayInteractive = false;
+let overlayHitRegion: DictationOverlayHitRegion | null = null;
 
 const setOverlayInteractive = (interactive: boolean): void => {
   const win = getFloatingWindow(OVERLAY_KIND);
@@ -304,24 +305,12 @@ const setOverlayInteractive = (interactive: boolean): void => {
   }
 };
 
-const hoverForwarder = createCursorHoverForwarder({
+const hoverPoller = createCursorHoverPoller({
   getCursor: () => screen.getCursorScreenPoint(),
   getOverlayBounds: () => getFloatingWindow(OVERLAY_KIND)?.getBounds() ?? null,
+  getHitRegion: () => overlayHitRegion,
   isInteractive: () => overlayInteractive,
-  sendMouseMove: ({ x, y }) => {
-    getFloatingWindow(OVERLAY_KIND)?.webContents.sendInputEvent({
-      type: "mouseMove",
-      x,
-      y,
-    });
-  },
-  sendMouseLeave: () => {
-    getFloatingWindow(OVERLAY_KIND)?.webContents.sendInputEvent({
-      type: "mouseLeave",
-      x: 0,
-      y: 0,
-    });
-  },
+  setInteractive: setOverlayInteractive,
   setInterval: (callback, ms) => setInterval(callback, ms),
   clearInterval: (handle) =>
     clearInterval(handle as ReturnType<typeof setInterval>),
@@ -376,14 +365,16 @@ const showOverlay = (): void => {
   // A (re)shown window starts click-through regardless of what the last
   // session left behind.
   overlayInteractive = false;
+  overlayHitRegion = null;
   if (configuration.get().pollCursorForHover) {
-    hoverForwarder.start();
+    hoverPoller.start();
   }
 };
 
 const hideOverlay = (): void => {
   latestState = null;
-  hoverForwarder.stop();
+  overlayHitRegion = null;
+  hoverPoller.stop();
   const win = getFloatingWindow(OVERLAY_KIND);
   if (win) {
     setOverlayInteractive(false);
@@ -448,6 +439,14 @@ export const installDictationOverlay = (
     z.tuple([z.boolean()]),
     ([interactive]) => {
       setOverlayInteractive(interactive);
+    },
+  );
+
+  on(
+    DICTATION_OVERLAY_SET_HIT_REGION,
+    z.tuple([dictationOverlayHitRegionSchema.nullable()]),
+    ([region]) => {
+      overlayHitRegion = region;
     },
   );
 

@@ -10,6 +10,7 @@ import {
 import {
   getDictationOverlayState,
   requestDictationOverlayStop,
+  setDictationOverlayHitRegion,
   setDictationOverlayInteractive,
   subscribeToDictationOverlayState,
 } from "@/runtime/dictation-overlay";
@@ -60,6 +61,30 @@ export function DictationOverlayPage() {
     }
     interactiveRef.current = false;
     setDictationOverlayInteractive(false);
+  }, [state?.kind]);
+
+  // Tell main where the Stop control sits so it can hit-test the cursor
+  // itself on platforms where forwarded mouse moves never reach this
+  // click-through window (Windows). The pill's top row is static for the
+  // whole recording state, so one measurement per session is enough.
+  useEffect(() => {
+    if (state?.kind !== "recording") {
+      return;
+    }
+    const button = stopButtonRef.current;
+    if (!button) {
+      return;
+    }
+    const rect = button.getBoundingClientRect();
+    setDictationOverlayHitRegion({
+      x: rect.left,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height,
+    });
+    return () => {
+      setDictationOverlayHitRegion(null);
+    };
   }, [state?.kind]);
 
   if (!state) {

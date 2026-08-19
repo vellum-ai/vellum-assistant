@@ -26,6 +26,7 @@ import type {
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
+  DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
@@ -75,6 +76,7 @@ export type {
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
+  DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
@@ -305,6 +307,7 @@ declare global {
         requestStop(): void;
         onStopRequested(callback: () => void): () => void;
         setInteractive(interactive: boolean): void;
+        setHitRegion?(region: DictationOverlayHitRegion | null): void;
       };
       notifications?: {
         show(
@@ -332,7 +335,9 @@ declare global {
         update(content: VoiceActivityContent): void;
         end(): void;
         control(control: VoiceActivityControl): void;
-        onControl(callback: (control: VoiceActivityControl) => void): () => void;
+        onControl(
+          callback: (control: VoiceActivityControl) => void,
+        ): () => void;
       };
       companion?: {
         getState(): Promise<CompanionSurfaceState | null>;

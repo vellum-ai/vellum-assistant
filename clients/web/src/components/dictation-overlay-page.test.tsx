@@ -6,12 +6,17 @@ import type { DictationOverlayState } from "@/runtime/is-electron";
 let currentState: DictationOverlayState | null = null;
 const requestStopMock = mock(() => undefined);
 const setInteractiveMock = mock((_interactive: boolean) => undefined);
+const setHitRegionMock = mock(
+  (_region: { x: number; y: number; width: number; height: number } | null) =>
+    undefined,
+);
 
 mock.module("@/runtime/dictation-overlay", () => ({
   getDictationOverlayState: async () => currentState,
   subscribeToDictationOverlayState: () => () => undefined,
   requestDictationOverlayStop: requestStopMock,
   setDictationOverlayInteractive: setInteractiveMock,
+  setDictationOverlayHitRegion: setHitRegionMock,
 }));
 
 const { DictationOverlayPage } = await import("./dictation-overlay-page");
@@ -21,6 +26,7 @@ afterEach(() => {
   currentState = null;
   requestStopMock.mockClear();
   setInteractiveMock.mockClear();
+  setHitRegionMock.mockClear();
 });
 
 describe("DictationOverlayPage", () => {
@@ -89,6 +95,23 @@ describe("DictationOverlayPage", () => {
 
     expect(setInteractiveMock.mock.calls).toContainEqual([true]);
     expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+  });
+
+  test("reports the stop control's hit region while recording and clears it on teardown", async () => {
+    currentState = {
+      kind: "recording",
+      transcription: "",
+      audioLevel: 0.5,
+    };
+
+    const { getByLabelText, unmount } = render(<DictationOverlayPage />);
+    await waitFor(() => getByLabelText("Stop recording"));
+
+    expect(setHitRegionMock).toHaveBeenCalled();
+    expect(setHitRegionMock.mock.calls.at(-1)?.[0]).not.toBeNull();
+
+    unmount();
+    expect(setHitRegionMock.mock.calls.at(-1)).toEqual([null]);
   });
 
   test("does not render the stop control after recording ends", async () => {
