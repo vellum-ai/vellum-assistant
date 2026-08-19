@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -133,9 +133,7 @@ const main = async (): Promise<void> => {
   const uninstaller = path.join(installDir, `Uninstall ${productName}.exe`);
   assertExists(uninstaller, "Uninstaller");
   console.log(`Uninstalling via ${uninstaller}`);
-  // `_?=` keeps the uninstaller in place so it runs synchronously and
-  // reports a real exit code; the leftover copy is removed below.
-  runVerbatim(uninstaller, `/S _?=${installDir}`);
+  runVerbatim(uninstaller, "/S");
 
   for (let waited = 0; waited < 30_000; waited += 1_000) {
     if (!existsSync(appExe) && !existsSync(resources)) {
@@ -147,7 +145,6 @@ const main = async (): Promise<void> => {
     fail("Uninstall left the application binaries behind");
   }
   assertExists(logFile, "Preserved session data (userData)");
-  rmSync(installDir, { recursive: true, force: true });
   console.log(`Package smoke passed for ${arch}`);
 };
 
