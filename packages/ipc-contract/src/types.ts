@@ -68,7 +68,7 @@ export type VellumCommand =
   | { kind: "startVoice" }
   /**
    * Turn a watch session on or off, the way the companion surface's Watch
-   * asks.
+   * option asks.
    *
    * One command for both edges rather than a start and a stop: the surface
    * draws a single toggle, and the window that owns the session is the only
@@ -768,9 +768,9 @@ export interface CompanionContext {
    * Whether a watch session is running, when the publisher knows.
    *
    * Optional here, and defaulted in `companionContextSchema`, because a
-   * publisher built before the toggle existed has nothing to report and the
-   * honest answer for it is that no session of its is running. Publishers that
-   * do run sessions always send it.
+   * publisher that runs no watch session has nothing to report, and an omitted
+   * value reads as no session of its running. Publishers that do run sessions
+   * always send it.
    */
   watching?: boolean;
 }
@@ -832,11 +832,11 @@ export interface CompanionSurfaceState {
    *
    * Optional, and absence means not watching. Read it as `watching === true`
    * rather than for truthiness: every state that is not a positive answer is
-   * the answer "no session", including a surface whose main process predates
-   * this field. The same bargain `companion-window.ts` makes for the surface
-   * flag, and for the same reason -- not knowing has to read as not running,
-   * because the alternative is drawing a capture indicator over a machine that
-   * is not being captured.
+   * the answer "no session", including a state pushed by a main process that
+   * tracks no watch sessions. The same bargain `companion-window.ts` makes for
+   * the surface flag, and for the same reason: not knowing has to read as not
+   * running, because the alternative is drawing a capture indicator over a
+   * machine that is not being captured.
    */
   watching?: boolean;
   /**
