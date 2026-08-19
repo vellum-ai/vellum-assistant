@@ -40,7 +40,9 @@ function notifyChanged(): void {
 /**
  * Consecutive dots inside a segment are part of a name, so only a segment that
  * is exactly `..` is traversal. The path is percent-decoded first because a
- * consumer downstream may decode before it splits the path on slashes.
+ * consumer downstream may decode before it splits the path on slashes. A
+ * decoded backslash is refused outright because a URL parser treats it as a
+ * separator, which would turn `/webhooks/foo%5c..%5cadmin` into `/webhooks/admin`.
  */
 function hasTraversalSegment(path: string): boolean {
   let decoded: string;
@@ -49,7 +51,7 @@ function hasTraversalSegment(path: string): boolean {
   } catch {
     return true;
   }
-  return decoded.split("/").includes("..");
+  return decoded.includes("\\") || decoded.split("/").includes("..");
 }
 
 /**

@@ -143,6 +143,8 @@ describe("registerWebhookIngressRoute", () => {
       "/webhooks/telegram?token=x",
       "/webhooks/telegram#frag",
       "/webhooks/telegram\\..\\etc",
+      "/webhooks/foo%5c..%5cadmin",
+      "/webhooks/foo%5Cbar",
       "/webhooks/tele gram",
       "/webhooks/telegram\n",
       "/webhooks/tele\tgram",
