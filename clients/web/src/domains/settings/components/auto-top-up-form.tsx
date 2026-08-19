@@ -181,8 +181,8 @@ export function AutoTopUpForm({
 
   return (
     <div className="mt-4">
-      <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-[10rem] flex-1">
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="w-full max-w-full sm:w-[200px]">
           <Input
             type="number"
             step="1"
@@ -195,7 +195,7 @@ export function AutoTopUpForm({
             fullWidth
           />
         </div>
-        <div className="min-w-[10rem] flex-1">
+        <div className="w-full max-w-full sm:w-[200px]">
           <Input
             type="number"
             step="1"
@@ -208,7 +208,7 @@ export function AutoTopUpForm({
             fullWidth
           />
         </div>
-        <div className="min-w-[10rem] flex-1">
+        <div className="w-full max-w-full sm:w-[200px]">
           <Input
             type="number"
             step="1"
