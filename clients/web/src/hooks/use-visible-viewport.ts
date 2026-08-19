@@ -171,6 +171,14 @@ function addViewportUpdater(update: () => void): () => void {
       },
       () => {
         keyboardSourceReady = true;
+        // A resize that arrived while these listeners were registering was
+        // skipped for want of this answer, and no other event revisits it.
+        if (!rebaseReferenceForWindowResize()) {
+          return;
+        }
+        for (const notify of viewportUpdaters) {
+          notify();
+        }
       },
     );
   }
@@ -209,18 +217,24 @@ function addViewportUpdater(update: () => void): () => void {
  * before the plugin, rebasing would swallow the keyboard's own frame resize and
  * leave the composer behind it.
  *
- * Driven by the `window` resize listener alone. Running it on every viewport
- * read would rebase onto a frame the keyboard still owns, since a dismissal
- * announces its `0` and notifies consumers before the frame grows back.
+ * Driven by the `window` resize listener, and once more when the keyboard
+ * source reports in, which is the resize deferred during registration getting
+ * its second look. Never on a plain viewport read: that would rebase onto a
+ * frame the keyboard still owns, since a dismissal announces its `0` and
+ * notifies consumers before the frame grows back.
+ *
+ * Reports whether the reference moved, so the readiness path wakes consumers
+ * only when there is something new for them to read.
  */
-function rebaseReferenceForWindowResize(): void {
+function rebaseReferenceForWindowResize(): boolean {
   if (window.innerHeight >= referenceInnerHeight) {
-    return;
+    return false;
   }
   if (!keyboardSourceReady || nativeKeyboardVisible) {
-    return;
+    return false;
   }
   referenceInnerHeight = window.innerHeight;
+  return true;
 }
 
 /**

@@ -20,6 +20,9 @@ let announceKeyboardHeight: ((keyboardHeight: number) => void) | null = null;
 // Whether the stubbed shell reports a keyboard source, as one with the plugin
 // linked does and one built before it never does.
 let stubReportsKeyboardSource = true;
+// Held so a test can let registration land after the fact, the way a lazy
+// plugin import does.
+let reportKeyboardSource: (() => void) | null = null;
 
 const subscribeNativeKeyboardHeight = mock(
   (
@@ -27,11 +30,13 @@ const subscribeNativeKeyboardHeight = mock(
     onSourceReady?: () => void,
   ) => {
     announceKeyboardHeight = onHeightChange;
+    reportKeyboardSource = onSourceReady ?? null;
     if (stubReportsKeyboardSource) {
       onSourceReady?.();
     }
     return () => {
       announceKeyboardHeight = null;
+      reportKeyboardSource = null;
     };
   },
 );
@@ -528,6 +533,30 @@ describe("window resizes", () => {
     // THEN the reference survives, because rebasing here would swallow the
     // keyboard and leave the composer behind it
     expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+  });
+
+  test("revisits a resize that landed while the source was registering", () => {
+    // GIVEN a shell whose plugin listeners are still registering, which is a
+    // lazy import away on every boot
+    stubReportsKeyboardSource = false;
+    renderHook(() => useVisibleViewport());
+
+    // WHEN the window is shortened before that registration lands
+    resizeWindowTo(RESIZED_HEIGHT);
+    expect(readVisibleViewport()?.keyboardHeight).toBe(
+      REFERENCE_HEIGHT - RESIZED_HEIGHT,
+    );
+
+    // AND the source reports in, with no second resize to prompt another look
+    act(() => {
+      reportKeyboardSource!();
+    });
+
+    // THEN the deferred shrink is settled rather than left standing as a
+    // keyboard for the rest of the session
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(0);
+    expect(viewport?.height).toBe(RESIZED_HEIGHT);
   });
 
   test("ignores a window that grew, which the reference already tracks", () => {
