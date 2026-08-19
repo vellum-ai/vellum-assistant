@@ -212,6 +212,45 @@ describe("subscribeNativeKeyboardHeight", () => {
     }).not.toThrow();
   });
 
+  test("reports the keyboard source once both listeners register", async () => {
+    const onSourceReady = mock(() => {});
+    const unsubscribe = subscribeNativeKeyboardHeight(() => {}, onSourceReady);
+
+    // Registration is a lazy plugin import, so nothing is settled yet
+    expect(onSourceReady).not.toHaveBeenCalled();
+    await flushMicrotasks();
+
+    expect(onSourceReady).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  test("reports no keyboard source when registration rejects", async () => {
+    // A shell built before the plugin, which the deployed web bundle still runs
+    // in, rejects the import and must not look like a shell that announces.
+    addListener.mockImplementationOnce(() =>
+      Promise.reject(new Error("plugin missing")),
+    );
+    addListener.mockImplementationOnce(() =>
+      Promise.reject(new Error("plugin missing")),
+    );
+    const onSourceReady = mock(() => {});
+    const unsubscribe = subscribeNativeKeyboardHeight(() => {}, onSourceReady);
+    await flushMicrotasks();
+
+    expect(onSourceReady).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  test("reports the keyboard source straight away in a browser", async () => {
+    // No frame for a keyboard to resize, so nothing has to announce one.
+    mockIsNativeIOS = false;
+    const onSourceReady = mock(() => {});
+    const unsubscribe = subscribeNativeKeyboardHeight(() => {}, onSourceReady);
+
+    expect(onSourceReady).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
   test("unsubscribe removes both plugin listeners", async () => {
     const onHeightChange = mock((_height: number) => {});
     const unsubscribe = subscribeNativeKeyboardHeight(onHeightChange);

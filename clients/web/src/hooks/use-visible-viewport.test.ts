@@ -17,10 +17,19 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 let announceKeyboardHeight: ((keyboardHeight: number) => void) | null = null;
+// Whether the stubbed shell reports a keyboard source, as one with the plugin
+// linked does and one built before it never does.
+let stubReportsKeyboardSource = true;
 
 const subscribeNativeKeyboardHeight = mock(
-  (onHeightChange: (keyboardHeight: number) => void) => {
+  (
+    onHeightChange: (keyboardHeight: number) => void,
+    onSourceReady?: () => void,
+  ) => {
     announceKeyboardHeight = onHeightChange;
+    if (stubReportsKeyboardSource) {
+      onSourceReady?.();
+    }
     return () => {
       announceKeyboardHeight = null;
     };
@@ -88,6 +97,7 @@ beforeEach(() => {
     value: () => ({ matches: isPortraitStub }) as MediaQueryList,
   });
   isPortraitStub = true;
+  stubReportsKeyboardSource = true;
   setInnerHeight(REFERENCE_HEIGHT);
   subscribeNativeKeyboardHeight.mockClear();
   stubViewport();
@@ -503,6 +513,20 @@ describe("window resizes", () => {
     resizeWindowTo(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
 
     // THEN the reference still survives it
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+  });
+
+  test("keeps the reference on a shell that reports no keyboard source", () => {
+    // GIVEN a shell built before `@capacitor/keyboard`, which the deployed web
+    // bundle still runs in, so nothing will ever announce its keyboard
+    stubReportsKeyboardSource = false;
+    renderHook(() => useVisibleViewport());
+
+    // WHEN that shell resizes its own web view for the soft keyboard
+    resizeWindowTo(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+
+    // THEN the reference survives, because rebasing here would swallow the
+    // keyboard and leave the composer behind it
     expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
   });
 

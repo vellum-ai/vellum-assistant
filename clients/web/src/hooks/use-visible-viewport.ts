@@ -85,6 +85,14 @@ let anticipationViewportHeight = 0;
 // keyboard leaves `window.innerHeight` alone and there is nothing to separate.
 let nativeKeyboardVisible = false;
 
+// Whether a soft keyboard in this runtime would reach us at all: the plugin
+// listeners registered, or there is no shell whose frame a keyboard resizes.
+// A shell built before `@capacitor/keyboard`, or one whose registration
+// rejected, leaves this `false`, and its own frame resizes must not be read as
+// the window getting shorter. The web bundle is deployed ahead of installed
+// shells, so that shell is a version we still run in.
+let keyboardSourceReady = false;
+
 // The viewport reading pinned across a native picker session, or `null` when
 // nothing is holding it. iOS presents a document/photo picker by taking first
 // responder off the web view, which dismisses the soft keyboard, and the
@@ -161,6 +169,9 @@ function addViewportUpdater(update: () => void): () => void {
           notify();
         }
       },
+      () => {
+        keyboardSourceReady = true;
+      },
     );
   }
 
@@ -173,6 +184,7 @@ function addViewportUpdater(update: () => void): () => void {
     unsubscribeNativeKeyboard = null;
     anticipatedKeyboardHeight = 0;
     nativeKeyboardVisible = false;
+    keyboardSourceReady = false;
   };
 }
 
@@ -192,6 +204,11 @@ function addViewportUpdater(update: () => void): () => void {
  * keyboard in the first place. Focus is deliberately not consulted, since a
  * hardware keyboard holds the composer focused with nothing on screen.
  *
+ * That test only holds while there is something to announce with, so a runtime
+ * that has not reported a keyboard source keeps its reference: on a shell built
+ * before the plugin, rebasing would swallow the keyboard's own frame resize and
+ * leave the composer behind it.
+ *
  * Driven by the `window` resize listener alone. Running it on every viewport
  * read would rebase onto a frame the keyboard still owns, since a dismissal
  * announces its `0` and notifies consumers before the frame grows back.
@@ -200,7 +217,7 @@ function rebaseReferenceForWindowResize(): void {
   if (window.innerHeight >= referenceInnerHeight) {
     return;
   }
-  if (nativeKeyboardVisible) {
+  if (!keyboardSourceReady || nativeKeyboardVisible) {
     return;
   }
   referenceInnerHeight = window.innerHeight;
