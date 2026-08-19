@@ -47,9 +47,6 @@ const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
 /** Gates the desktop-attended suppression below, on by default. */
 const DESKTOP_PRESENCE_FLAG = "desktop-presence-suppression" as const;
 
-/** Gates the web-focused suppression below, on by default. */
-const WEB_PRESENCE_FLAG = "web-presence-suppression" as const;
-
 /**
  * Collapse whitespace runs ahead of the sanitizers' truncation: blank lines and
  * list indentation would otherwise eat into the copy's length budget.
@@ -261,7 +258,6 @@ export async function emitAssistantReplyNotification(params: {
     // A turn sent from another surface still needs its push while a web tab
     // sits open on an unrelated conversation.
     const webFocused =
-      isAssistantFeatureFlagEnabled(WEB_PRESENCE_FLAG) &&
       isWebOriginatedUserMessage(initiatingMetadata) &&
       readWebConversationFocused(conversationId, rlog);
 

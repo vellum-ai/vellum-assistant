@@ -29,10 +29,11 @@ const log = getLogger("web-presence");
 
 /**
  * Bounds how long suppression can outlive a tab closing or losing network
- * without a final report. Shorter than desktop presence's 90s window because
- * web presence has no periodic re-report today — the web client reports on
- * mount, visibility change, and conversation focus change only (see
- * `clients/web/src/hooks/use-web-presence-report.ts`), not on a timer.
+ * without a final report. The web client re-reports on mount, visibility
+ * change, conversation focus change, and a periodic heartbeat while visible
+ * (see `clients/web/src/hooks/use-web-presence-report.ts`), so this only
+ * needs to tolerate a couple of dropped heartbeats, same as desktop
+ * presence's 90s/30s pair.
  */
 export const WEB_PRESENCE_STALE_AFTER_MS = 60_000;
 
