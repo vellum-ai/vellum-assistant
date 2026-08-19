@@ -425,6 +425,63 @@ describe("ProviderCreateForm submit sequence", () => {
       name: "ollama-personal",
       provider: "ollama",
       auth: { type: "none" },
+      base_url: null,
+    });
+  });
+
+  test("Ollama create form shows an optional Base URL field", async () => {
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "self_hosted" },
+    });
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="ollama"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    expect(
+      getInputByPlaceholder("http://127.0.0.1:11434/v1"),
+    ).toBeDefined();
+    expect(document.body.textContent).toContain(
+      "Leave blank to use the local Ollama default, or enter a remote or non-default host.",
+    );
+  });
+
+  test("Ollama create posts a filled Base URL", async () => {
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "self_hosted" },
+    });
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="ollama"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.change(getInputByPlaceholder("http://127.0.0.1:11434/v1"), {
+      target: { value: "http://192.168.1.50:11434/v1" },
+    });
+    fireEvent.click(getButton("Add"));
+
+    await waitFor(() => {
+      expect(createConnectionCalls.length).toBe(1);
+    });
+    expect(createConnectionCalls[0].body).toMatchObject({
+      name: "ollama-personal",
+      provider: "ollama",
+      auth: { type: "none" },
+      base_url: "http://192.168.1.50:11434/v1",
     });
   });
 

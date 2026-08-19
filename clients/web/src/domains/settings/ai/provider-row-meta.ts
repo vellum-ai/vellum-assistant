@@ -40,15 +40,19 @@ export function isDefaultProviderId(
  * host plus what it serves, e.g. "api.x.ai · 2 models" or
  * "127.0.0.1:1234 · keyless".
  */
-function customProviderMeta(conn: ProviderConnection): string {
-  let host = conn.baseUrl ?? "";
-  try {
-    if (conn.baseUrl) {
-      host = new URL(conn.baseUrl).host;
-    }
-  } catch {
-    // Keep the raw value when it isn't a parseable URL.
+function connectionHost(conn: ProviderConnection): string | null {
+  if (!conn.baseUrl) {
+    return null;
   }
+  try {
+    return new URL(conn.baseUrl).host;
+  } catch {
+    return conn.baseUrl;
+  }
+}
+
+function customProviderMeta(conn: ProviderConnection): string {
+  const host = connectionHost(conn) ?? "";
   const parts: string[] = [];
   if (host) {
     parts.push(host);
@@ -90,6 +94,12 @@ export function providerRowMeta(conn: ProviderConnection): string {
     return customProviderMeta(conn);
   }
   const parts: string[] = [];
+  if (conn.provider === "ollama") {
+    const host = connectionHost(conn);
+    if (host) {
+      parts.push(host);
+    }
+  }
   // A subscription connection hard-routes to the Codex endpoint, which
   // serves only the Codex model set; counting the full catalog would
   // advertise models the connection cannot dispatch. The row's models come

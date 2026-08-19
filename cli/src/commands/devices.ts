@@ -13,12 +13,17 @@
  * that runs the assistant (server side).
  */
 
+import { createHash } from "node:crypto";
+
+import type { DeviceRecord } from "@vellumai/local-mode";
+
 import {
   type AssistantEntry,
   formatAssistantReference,
   getAssistantDisplayName,
   resolveTargetAssistant,
 } from "../lib/assistant-config";
+import { computeDeviceId } from "../lib/guardian-token.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import {
   CLI_INTERFACE_ID,
@@ -29,14 +34,6 @@ import {
   confirmAction,
 } from "../lib/confirm-action.js";
 import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
-
-interface DeviceRecord {
-  hashedDeviceId: string;
-  platform: string;
-  issuedAt: number | null;
-  expiresAt: number | null;
-  lastUsedAt: number | null;
-}
 
 function printUsage(): void {
   console.log(`vellum devices [beta] - List and revoke devices paired to a local assistant
@@ -51,6 +48,7 @@ ARGUMENTS:
 
 OPTIONS:
     --yes              Skip the interactive confirmation prompt when revoking (for automation)
+    --json             Print machine-readable JSON on stdout (revoke requires --yes)
 
 Lists the devices paired to a local (host-side) assistant, or revokes one by its
 hashed id. Runs on the machine that hosts the assistant — paired connections
@@ -98,13 +96,28 @@ function resolveLoopbackBase(entry: AssistantEntry): string {
   return base.replace(/\/+$/, "");
 }
 
+/**
+ * The hashed device id the gateway stores for THIS machine's own guardian
+ * credential (`leaseGuardianToken` registers it device-bound as
+ * sha256(deviceId)). It shows up in `/v1/devices` next to remotely paired
+ * devices; revoking it locks this host out of its own assistant until
+ * guardian repair.
+ */
+function currentHostHashedDeviceId(): string {
+  return createHash("sha256").update(computeDeviceId()).digest("hex");
+}
+
 /** Format an epoch-ms timestamp as ISO, or a placeholder when absent. */
 function formatTimestamp(ms: number | null, absent: string): string {
   if (typeof ms !== "number" || !Number.isFinite(ms)) return absent;
   return new Date(ms).toISOString();
 }
 
-async function listDevices(entry: AssistantEntry, base: string): Promise<void> {
+async function listDevices(
+  entry: AssistantEntry,
+  base: string,
+  jsonOutput: boolean,
+): Promise<void> {
   const displayName = getAssistantDisplayName(entry);
 
   let response: Response;
@@ -130,7 +143,17 @@ async function listDevices(entry: AssistantEntry, base: string): Promise<void> {
   }
 
   const body = (await response.json()) as { devices?: DeviceRecord[] };
-  const devices = body.devices ?? [];
+  const hostHash = currentHostHashedDeviceId();
+  const devices = (body.devices ?? []).map((device) =>
+    device.hashedDeviceId === hostHash
+      ? { ...device, isCurrentHost: true as const }
+      : device,
+  );
+
+  if (jsonOutput) {
+    console.log(JSON.stringify({ devices }));
+    return;
+  }
 
   if (devices.length === 0) {
     console.log(`No devices are paired to ${displayName}.`);
@@ -147,6 +170,11 @@ async function listDevices(entry: AssistantEntry, base: string): Promise<void> {
     console.log(
       `    last used:  ${formatTimestamp(device.lastUsedAt, "never")}`,
     );
+    if (device.isCurrentHost) {
+      console.log(
+        "    this machine's host credential; revoking locks this host out until guardian repair",
+      );
+    }
     console.log("");
   }
   console.log(
@@ -159,14 +187,34 @@ async function revokeDevice(
   base: string,
   hashedDeviceId: string,
   yes: boolean,
+  jsonOutput: boolean,
 ): Promise<void> {
   const displayName = getAssistantDisplayName(entry);
 
-  // Print the resolved identity before acting (cli/AGENTS.md).
-  console.log("Device to revoke:");
-  console.log(`  Assistant: ${formatAssistantReference(entry)}`);
-  console.log(`  Device:    ${hashedDeviceId}`);
-  console.log("");
+  if (jsonOutput && !yes) {
+    console.error(
+      "Error: --json requires --yes; the revoke confirmation prompt would corrupt JSON stdout.",
+    );
+    process.exit(1);
+  }
+
+  // Print the resolved identity before acting (cli/AGENTS.md). In --json mode
+  // it goes to stderr so stdout stays a single JSON document.
+  const printIdentity = jsonOutput ? console.error : console.log;
+  printIdentity("Device to revoke:");
+  printIdentity(`  Assistant: ${formatAssistantReference(entry)}`);
+  printIdentity(`  Device:    ${hashedDeviceId}`);
+  printIdentity("");
+
+  // Warn (don't block; recoverable via guardian repair) when the target is
+  // this machine's own host credential. --json is app-driven; the UI disables
+  // the host row, so the warning stays out of automation transcripts.
+  if (!jsonOutput && hashedDeviceId === currentHostHashedDeviceId()) {
+    console.error(
+      "Warning: this is this machine's own host credential. Revoking it locks this host out of the assistant until guardian repair.",
+    );
+    console.error("");
+  }
 
   if (!yes) {
     if (!canPromptForConfirmation()) {
@@ -211,18 +259,32 @@ async function revokeDevice(
     process.exit(1);
   }
 
+  if (jsonOutput) {
+    console.log(
+      JSON.stringify({
+        ok: true,
+        hashedDeviceId,
+        assistantId: entry.assistantId,
+      }),
+    );
+    return;
+  }
+
   console.log(
     `Revoked device ${hashedDeviceId} from ${displayName}. Its tokens are invalidated; that machine must re-pair to reconnect.`,
   );
 }
 
 export async function devices(): Promise<void> {
-  const args = process.argv.slice(3);
+  const rawArgs = process.argv.slice(3);
 
-  if (args.includes("--help") || args.includes("-h")) {
+  if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
     printUsage();
     return;
   }
+
+  const jsonOutput = rawArgs.includes("--json");
+  const args = rawArgs.filter((a) => a !== "--json");
 
   if (args[0] === "revoke") {
     const rest = args.slice(1);
@@ -237,12 +299,12 @@ export async function devices(): Promise<void> {
     const nameArg = positionals.slice(1).join(" ") || undefined;
     const entry = resolveTargetAssistant(nameArg);
     const base = resolveLoopbackBase(entry);
-    await revokeDevice(entry, base, hashedDeviceId, yes);
+    await revokeDevice(entry, base, hashedDeviceId, yes, jsonOutput);
     return;
   }
 
   const nameArg = parseAssistantTargetArg(args, []);
   const entry = resolveTargetAssistant(nameArg);
   const base = resolveLoopbackBase(entry);
-  await listDevices(entry, base);
+  await listDevices(entry, base, jsonOutput);
 }
