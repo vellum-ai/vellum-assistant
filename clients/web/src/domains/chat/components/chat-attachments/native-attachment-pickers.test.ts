@@ -20,6 +20,11 @@ let mockFiles: unknown[] = [];
 const readPaths: string[] = [];
 /** The plain bytes a path holds; the mock below serves ranges out of it. */
 let mockContent: (path: string) => string = () => "";
+/**
+ * A path's length for the tests that need a genuinely large file, served a
+ * slice at a time so nothing ever builds the whole thing as a string.
+ */
+let mockContentLength: (path: string) => number | null = () => null;
 let mockReadError: (path: string) => Error | null = () => null;
 let mockPlatform = "web";
 
@@ -73,6 +78,14 @@ mock.module("@capacitor/filesystem", () => ({
       }
       // One character stands in for one byte, which holds for the ASCII these
       // tests use and keeps the slicing arithmetic the same as the real one's.
+      const synthetic = mockContentLength(path);
+      if (synthetic !== null) {
+        const end =
+          length < 0 ? synthetic : Math.min(synthetic, offset + length);
+        return Promise.resolve({
+          data: btoa("a".repeat(Math.max(0, end - offset))),
+        });
+      }
       const whole = mockContent(path);
       const end = length < 0 ? whole.length : offset + length;
       return Promise.resolve({ data: btoa(whole.slice(offset, end)) });
@@ -131,6 +144,7 @@ function reset() {
   deletedPaths.length = 0;
   mockStat = () => 0;
   mockContent = () => "";
+  mockContentLength = () => null;
   mockReadError = () => null;
   mockPlatform = "web";
   lastPickMediaOptions = "unset";
@@ -544,19 +558,14 @@ describe("native pickers: unknown sizes", () => {
     expect(sink.files[0]?.size).toBe(5);
   });
 
-  test("abandons an unknown-size file that outgrows what is left", async () => {
-    // The first entry claims the whole allowance, so the second has nothing to
-    // spend. With no size to refuse it in advance, the read has to notice.
+  test("abandons an unknown-size file that outgrows the limit mid-read", async () => {
+    // Nothing can refuse this entry in advance, so the read is what has to
+    // notice. It gives up on the slice that crosses the limit rather than
+    // assembling a file it was always going to turn away.
     reset();
-    mockContent = () => "x";
     mockStat = () => new Error("stat failed");
+    mockContentLength = () => 60 * MB;
     mockFiles = [
-      {
-        path: "/claimed.jpg",
-        name: "claimed.jpg",
-        mimeType: "image/jpeg",
-        size: 100 * MB,
-      },
       {
         path: "/unknown.bin",
         name: "unknown.bin",
@@ -568,11 +577,10 @@ describe("native pickers: unknown sizes", () => {
     const sink = collector();
     const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
 
-    expect(sink.files).toHaveLength(1);
-    expect(pickFull).toEqual(["unknown.bin"]);
-    expect(tooLarge).toEqual([]);
-    // Refused on the first slice, not after swallowing the whole file.
-    expect(readPaths).toEqual(["/claimed.jpg", "/unknown.bin"]);
+    expect(sink.files).toEqual([]);
+    expect(tooLarge).toEqual(["unknown.bin"]);
+    expect(pickFull).toEqual([]);
+    expect(readPaths.length).toBeLessThan((60 * MB) / READ_SLICE_BYTES);
   });
 });
 
@@ -580,37 +588,33 @@ describe("native pickers: spending the allowance", () => {
   test("stops reading once one pick has taken its whole allowance", async () => {
     // Every file here passes on its own. Per-file checks alone therefore do
     // not bound a multi-select, because the composer holds each one it has
-    // been handed while its upload runs.
+    // been handed while its upload runs. The bytes are real rather than
+    // claimed, since what a pick has spent is what it has actually read.
     reset();
-    mockContent = () => "x";
+    mockContentLength = () => 51 * MB;
     mockFiles = [
       {
-        path: "/1.bin",
-        name: "1.bin",
-        mimeType: "application/octet-stream",
-        size: 45 * MB,
+        path: "/1.jpg",
+        name: "1.jpg",
+        mimeType: "image/jpeg",
+        size: 51 * MB,
       },
       {
-        path: "/2.bin",
-        name: "2.bin",
-        mimeType: "application/octet-stream",
-        size: 45 * MB,
-      },
-      {
-        path: "/3.bin",
-        name: "3.bin",
-        mimeType: "application/octet-stream",
-        size: 45 * MB,
+        path: "/2.jpg",
+        name: "2.jpg",
+        mimeType: "image/jpeg",
+        size: 51 * MB,
       },
     ];
 
     const sink = collector();
     const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
 
-    // 100 MB of allowance, so the third never gets read.
-    expect(readPaths).toEqual(["/1.bin", "/2.bin"]);
-    expect(sink.files).toHaveLength(2);
-    expect(pickFull).toEqual(["3.bin"]);
+    // 100 MB of allowance, so the second never gets read.
+    expect(readPaths).not.toContain("/2.jpg");
+    expect(sink.files).toHaveLength(1);
+    expect(sink.files[0]?.size).toBe(51 * MB);
+    expect(pickFull).toEqual(["2.jpg"]);
     expect(tooLarge).toEqual([]);
   });
 });
@@ -645,6 +649,35 @@ describe("native pickers: aggregate budget", () => {
     expect(sink.files).toHaveLength(1);
     expect(sink.files[0]?.size).toBe(READ_SLICE_BYTES);
     expect(pickFull).toEqual(["next.jpg"]);
+    expect(tooLarge).toEqual([]);
+  });
+
+  test("charges what an overstated entry actually read", async () => {
+    // A size above the truth spends allowance on bytes the pick never held.
+    // The second entry fits alongside a one-byte file and is attached only if
+    // the first was charged for what it delivered rather than what it claimed.
+    reset();
+    mockContent = () => "x";
+    mockFiles = [
+      {
+        path: "/overstated.bin",
+        name: "overstated.bin",
+        mimeType: "application/octet-stream",
+        size: 45 * MB,
+      },
+      {
+        path: "/next.jpg",
+        name: "next.jpg",
+        mimeType: "image/jpeg",
+        size: 97 * MB,
+      },
+    ];
+
+    const sink = collector();
+    const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
+
+    expect(sink.files).toHaveLength(2);
+    expect(pickFull).toEqual([]);
     expect(tooLarge).toEqual([]);
   });
 });
@@ -684,6 +717,8 @@ describe("native pickers: files the composer turns away", () => {
     // the next valid file with a batch message that is not true of it.
     reset();
     mockContent = () => "x";
+    mockContentLength = (path) =>
+      path === "/big.jpg" ? READ_SLICE_BYTES : null;
     mockFiles = [
       {
         path: "/big.jpg",
@@ -692,29 +727,33 @@ describe("native pickers: files the composer turns away", () => {
         size: 80 * MB,
       },
       {
-        path: "/notes.pdf",
-        name: "notes.pdf",
-        mimeType: "application/pdf",
-        size: 30 * MB,
+        path: "/next.jpg",
+        name: "next.jpg",
+        mimeType: "image/jpeg",
+        size: 97 * MB,
       },
     ];
 
     const sink = discarder();
     const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
 
-    // Both were read and offered; 80 + 30 would have overrun the allowance
-    // had the refused image been charged for.
+    // Both were read and offered. The second claims all but a slice of the
+    // allowance, so it survives only because the dropped image spent none.
     expect(sink.files.map((file) => file.name)).toEqual([
       "big.jpg",
-      "notes.pdf",
+      "next.jpg",
     ]);
     expect(pickFull).toEqual([]);
     expect(tooLarge).toEqual([]);
   });
 
   test("still charges the files it does keep", async () => {
+    // The same selection as above, kept rather than dropped, which is the one
+    // difference that leaves the second entry nothing to spend.
     reset();
     mockContent = () => "x";
+    mockContentLength = (path) =>
+      path === "/big.jpg" ? READ_SLICE_BYTES : null;
     mockFiles = [
       {
         path: "/big.jpg",
@@ -723,10 +762,10 @@ describe("native pickers: files the composer turns away", () => {
         size: 80 * MB,
       },
       {
-        path: "/notes.pdf",
-        name: "notes.pdf",
-        mimeType: "application/pdf",
-        size: 30 * MB,
+        path: "/next.jpg",
+        name: "next.jpg",
+        mimeType: "image/jpeg",
+        size: 97 * MB,
       },
     ];
 
@@ -734,7 +773,7 @@ describe("native pickers: files the composer turns away", () => {
     const { tooLarge, pickFull } = await pickFilesNative(sink.onFile);
 
     expect(sink.files.map((file) => file.name)).toEqual(["big.jpg"]);
-    expect(pickFull).toEqual(["notes.pdf"]);
+    expect(pickFull).toEqual(["next.jpg"]);
     expect(tooLarge).toEqual([]);
   });
 });

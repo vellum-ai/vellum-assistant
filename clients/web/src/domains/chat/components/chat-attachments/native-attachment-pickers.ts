@@ -376,16 +376,17 @@ async function readPicked(
           refuse(file.name, read.refused);
           continue;
         }
-        // Charged only if the composer kept it, and then the larger of what
-        // the entry claimed and what it delivered. A size below the truth
-        // would otherwise let a pick hold well past the allowance, since
-        // nothing else here counts the difference, and one above the truth
-        // keeps a claim already spent against it.
+        // Charged only if the composer kept it, and then for the bytes that
+        // arrived rather than the size that was claimed. The allowance bounds
+        // what a pick holds, and what it holds is this file, so a claim on
+        // either side of the truth would spend the wrong number: one below it
+        // lets a pick run past the ceiling, one above it turns away a later
+        // file that would have fit.
         const kept = onFile(
           new File(read.parts, file.name, { type: mimeType }),
         );
         if (kept) {
-          readSoFar += Math.max(size ?? 0, read.bytes);
+          readSoFar += read.bytes;
         }
       } finally {
         if (file.path) {
