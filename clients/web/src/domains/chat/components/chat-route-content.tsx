@@ -1139,11 +1139,15 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Resource pressure banner (localStorage-backed dismiss/cooldown)
   // -------------------------------------------------------------------------
+  // The slot stays mounted even while yielding to the disk banner so its
+  // in-memory dismissal fallback (for failed storage writes) survives the
+  // disk episode; it hides its own output via `hidden`.
   const resourcePressureBannerSlot = (
     <ResourcePressureBannerSlot
       resourcePressure={resourcePressure}
       assistantId={assistantId}
       assistantStateKind={assistantState.kind}
+      hidden={diskPressureBannerVisible}
     />
   );
 
@@ -1398,9 +1402,7 @@ export function ChatMainPanel({
             // visible. Acknowledgement-required and cleanup modes are never
             // dismissible, so disk always wins there; a dismissed or
             // suppressed warning hands the space to the resource banner.
-            resourcePressureBanner={
-              diskPressureBannerVisible ? null : resourcePressureBannerSlot
-            }
+            resourcePressureBanner={resourcePressureBannerSlot}
             showMissingApiKeyBanner={error?.code === "PROVIDER_NOT_CONFIGURED"}
             onOpenAiSettings={pushToAiSettings}
             onDismissApiKeyError={handleDismissApiKeyError}

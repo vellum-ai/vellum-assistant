@@ -55,6 +55,13 @@ export interface ResourcePressureBannerSlotProps {
   assistantId: string | null;
   /** `"active"` for platform-hosted assistants that have an upgrade path. */
   assistantStateKind: string;
+  /**
+   * Render nothing while true (disk-pressure precedence). The slot stays
+   * MOUNTED so its in-memory dismissal fallback (used when storage writes
+   * fail) survives the disk episode; unmounting would discard it and let a
+   * dismissed banner reappear once the disk banner clears.
+   */
+  hidden?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,6 +72,7 @@ export function ResourcePressureBannerSlot({
   resourcePressure,
   assistantId,
   assistantStateKind,
+  hidden = false,
 }: ResourcePressureBannerSlotProps) {
   const navigate = useNavigate();
   const isNativeAndroid = useIsNativeAndroid();
@@ -177,7 +185,11 @@ export function ResourcePressureBannerSlot({
     [dismissedUntilKey, suppressedKey],
   );
 
-  if (resourcePressure.mode !== "warning" || !resourcePressure.status) {
+  if (
+    hidden ||
+    resourcePressure.mode !== "warning" ||
+    !resourcePressure.status
+  ) {
     return null;
   }
   if (suppressed || cooldownActive) {

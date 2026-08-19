@@ -43,16 +43,13 @@ mock.module("@/utils/local-settings", () => ({
   },
 }));
 
-const { ResourcePressureBannerSlot } = await import(
-  "@/domains/chat/components/resource-pressure-banner-slot"
-);
+const { ResourcePressureBannerSlot } =
+  await import("@/domains/chat/components/resource-pressure-banner-slot");
 const { routes } = await import("@/utils/routes");
-const { getResourcePressureMonitorMode } = await import(
-  "@/assistant/resource-pressure"
-);
+const { getResourcePressureMonitorMode } =
+  await import("@/assistant/resource-pressure");
 
-const DISMISSED_UNTIL_KEY =
-  "vellum:resourcePressureDismissedUntil:assistant-1";
+const DISMISSED_UNTIL_KEY = "vellum:resourcePressureDismissedUntil:assistant-1";
 const SUPPRESSED_KEY = "vellum:resourcePressureSuppressed:assistant-1";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -91,6 +88,7 @@ function slot(
   status: ResourcePressureStatus | null,
   assistantStateKind = "active",
   assistantId: string | null = "assistant-1",
+  hidden = false,
 ) {
   return (
     <MemoryRouter>
@@ -98,6 +96,7 @@ function slot(
         resourcePressure={monitorResult(status)}
         assistantId={assistantId}
         assistantStateKind={assistantStateKind}
+        hidden={hidden}
       />
     </MemoryRouter>
   );
@@ -332,12 +331,30 @@ describe("ResourcePressureBannerSlot", () => {
     expect(localStorage.getItem(SUPPRESSED_KEY)).toBeNull();
   });
 
+  test("hidden renders nothing even while elevated", () => {
+    render(slot(elevatedStatus, "active", "assistant-1", true));
+
+    expect(queryBanner()).toBeNull();
+  });
+
+  test("a failed-write dismissal survives yielding to the disk banner", () => {
+    failStorageWrites = true;
+    const view = render(slot(elevatedStatus));
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(queryBanner()).toBeNull();
+
+    // Yield to a disk banner (slot stays mounted, hidden), then take the
+    // space back: the in-memory dismissal fallback must still hold.
+    view.rerender(slot(elevatedStatus, "active", "assistant-1", true));
+    view.rerender(slot(elevatedStatus, "active", "assistant-1", false));
+    expect(queryBanner()).toBeNull();
+  });
+
   test("permanent suppress persists and always hides the banner", () => {
     render(slot(elevatedStatus));
 
-    fireEvent.click(
-      screen.getByRole("checkbox", { name: "Don't show again" }),
-    );
+    fireEvent.click(screen.getByRole("checkbox", { name: "Don't show again" }));
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
 
     expect(queryBanner()).toBeNull();
