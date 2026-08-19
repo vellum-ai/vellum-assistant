@@ -52,6 +52,7 @@ interface MetaCatalogProvider {
   supportsPlatformAuth?: boolean;
   defaultModel: string;
   models: MetaCatalogModel[];
+  codexSubscriptionModels?: string[];
 }
 
 interface MetaCatalog {
@@ -118,6 +119,13 @@ describe("parity with meta/llm-provider-catalog.json", () => {
   const webProviderIds = (
     Object.keys(MODELS_BY_PROVIDER) as LlmProviderId[]
   ).filter((id) => id !== "openai-compatible");
+
+  test("CODEX_SUBSCRIPTION_MODEL_IDS matches the meta catalog's export", () => {
+    const openai = metaProvidersById.get("openai");
+    expect(new Set(openai?.codexSubscriptionModels)).toEqual(
+      new Set(CODEX_SUBSCRIPTION_MODEL_IDS),
+    );
+  });
 
   test("vellum is a picker-only entry: absent from the catalogs by design", () => {
     // The Vellum entry is the managed routing identity, not a provider with

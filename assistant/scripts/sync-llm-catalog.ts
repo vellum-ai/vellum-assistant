@@ -29,6 +29,7 @@ import {
   PROVIDER_CATALOG,
   type ProviderCatalogEntry,
 } from "../src/providers/model-catalog.js";
+import { CODEX_SUBSCRIPTION_MODEL_IDS } from "../src/providers/openai/codex-models.js";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const OUTPUT_PATHS = [join(ROOT, "meta/llm-provider-catalog.json")] as const;
@@ -117,6 +118,12 @@ function projectProvider(entry: ProviderCatalogEntry): Record<string, unknown> {
   }
   projected.defaultModel = entry.defaultModel;
   projected.models = entry.models.map(projectModel);
+  // Which of this provider's models the ChatGPT Codex subscription endpoint
+  // serves — exported so out-of-repo consumers (e.g. the platform's
+  // model-liveness probe) read the allowlist instead of mirroring it.
+  if (entry.id === "openai") {
+    projected.codexSubscriptionModels = [...CODEX_SUBSCRIPTION_MODEL_IDS];
+  }
   // NOTE: `apiKeyUrl` intentionally omitted — clients use
   // `credentialsGuide.url` instead. Daemon callers still read it from
   // PROVIDER_CATALOG directly.

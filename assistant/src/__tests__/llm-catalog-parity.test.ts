@@ -7,6 +7,7 @@ import {
   isModelInCatalog,
   PROVIDER_CATALOG,
 } from "../providers/model-catalog.js";
+import { CODEX_SUBSCRIPTION_MODEL_IDS } from "../providers/openai/codex-models.js";
 import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
 import { resolvePricing, resolvePricingForUsage } from "../util/pricing.js";
 
@@ -81,6 +82,7 @@ interface ClientCatalogEntry {
   supportsPlatformAuth?: boolean;
   defaultModel: string;
   models: ClientCatalogModel[];
+  codexSubscriptionModels?: string[];
 }
 
 interface ClientCatalog {
@@ -220,6 +222,15 @@ describe("LLM catalog parity: daemon vs client", () => {
         `defaultModel "${entry.defaultModel}" not in models for provider "${entry.id}"`,
       ).toBe(true);
     }
+  });
+
+  test("openai entry's codexSubscriptionModels matches the daemon allowlist", () => {
+    const json = loadClientCatalog();
+    const openai = json.providers.find((p) => p.id === "openai");
+    expect(openai).toBeDefined();
+    expect(new Set(openai?.codexSubscriptionModels)).toEqual(
+      new Set(CODEX_SUBSCRIPTION_MODEL_IDS),
+    );
   });
 
   test("cache pricing rates are positive when defined", () => {
