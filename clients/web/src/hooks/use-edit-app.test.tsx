@@ -30,8 +30,7 @@ let viewerSnapshot: ReturnType<typeof useViewerStore.getState>;
 let conversationSnapshot: ReturnType<typeof useConversationStore.getState>;
 let selectionSnapshot: ReturnType<typeof useResolvedAssistantsStore.getState>;
 
-const openAppMock = mock((_appId: string) => undefined);
-const setLoadedAppMock = mock((_app: OpenedAppState) => undefined);
+const showAppMock = mock((_app: OpenedAppState) => undefined);
 const enterAppEditingMock = mock(() => undefined);
 const minimizeAppMock = mock(() => undefined);
 const setEditingConversationIdMock = mock((_id: string | null) => undefined);
@@ -73,27 +72,26 @@ beforeEach(() => {
   selectionSnapshot = useResolvedAssistantsStore.getState();
 
   mobileRef.current = false;
-  openAppMock.mockReset();
-  setLoadedAppMock.mockReset();
+  showAppMock.mockReset();
   enterAppEditingMock.mockReset();
   minimizeAppMock.mockReset();
   setEditingConversationIdMock.mockReset();
   window.sessionStorage.clear();
 
   // Seed the per-app edit conversation so the resolved id is deterministic
-  // (otherwise the hook mints a random UUID).
+  // (otherwise the hook mints a fresh draft key).
   setEditChatConversationId("asst-1", APP.appId, CONV_ID);
 
   useViewerStore.setState({
     activeAppId: null,
     openedAppState: null,
-    openApp: openAppMock,
-    setLoadedApp: setLoadedAppMock,
+    showApp: showAppMock,
     enterAppEditing: enterAppEditingMock,
     minimizeApp: minimizeAppMock,
   });
   useConversationStore.setState({
     activeConversationId: null,
+    draftConversationIds: new Set(),
     setEditingConversationId:
       setEditingConversationIdMock as unknown as typeof conversationSnapshot.setEditingConversationId,
   });
@@ -118,7 +116,7 @@ describe("useEditApp", () => {
     act(() => result.current(APP));
 
     // THEN nothing happens — no viewer mutation, binding, or navigation
-    expect(openAppMock).not.toHaveBeenCalled();
+    expect(showAppMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).not.toHaveBeenCalled();
     expect(currentPath()).toBe(LIBRARY_PATH);
@@ -133,13 +131,30 @@ describe("useEditApp", () => {
 
     // THEN the app is loaded, bound to its edit conversation, the split
     // view opens, and we navigate to that conversation
-    expect(openAppMock).toHaveBeenCalledWith(APP.appId);
-    expect(setLoadedAppMock).toHaveBeenCalledWith(APP);
+    expect(showAppMock).toHaveBeenCalledWith(APP);
     expect(setEditingConversationIdMock).toHaveBeenCalledWith(CONV_ID);
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
     // Desktop uses the split view, not the mobile minimized strip.
     expect(minimizeAppMock).not.toHaveBeenCalled();
     expect(currentPath()).toBe(routes.conversation(CONV_ID));
+  });
+
+  test("mints the edit conversation as a draft when the app has none yet", () => {
+    // GIVEN this app has no edit conversation from an earlier visit
+    window.sessionStorage.clear();
+    const { result } = renderHook(() => useEditApp(), { wrapper });
+
+    // WHEN the user clicks Edit
+    act(() => result.current(APP));
+
+    // THEN the minted key is registered as a draft, which is what lets the
+    // split's chat pane paint an empty thread straight away instead of the
+    // skeleton it holds while a real conversation's history loads
+    const mintedId = setEditingConversationIdMock.mock.calls[0]?.[0];
+    expect(typeof mintedId).toBe("string");
+    expect(
+      useConversationStore.getState().draftConversationIds.has(mintedId!),
+    ).toBe(true);
   });
 
   test("on a mobile viewport, binds the edit conversation, navigates, and minimizes the app to the chat strip (no split)", () => {
@@ -169,8 +184,7 @@ describe("useEditApp", () => {
     act(() => result.current(APP));
 
     // THEN it doesn't reload the app, just opens the split edit view
-    expect(openAppMock).not.toHaveBeenCalled();
-    expect(setLoadedAppMock).not.toHaveBeenCalled();
+    expect(showAppMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
     expect(currentPath()).toBe(routes.conversation(CONV_ID));
   });

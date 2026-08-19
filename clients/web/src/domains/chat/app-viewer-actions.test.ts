@@ -26,6 +26,7 @@ afterEach(() => {
   useConversationStore.setState({
     activeConversationId: null,
     editingConversationId: null,
+    draftConversationIds: new Set(),
   });
 });
 
@@ -132,13 +133,24 @@ describe("handleAppViewerAction — set_view", () => {
     expect(useViewerStore.getState().mainView).toBe("app");
   });
 
-  it("'split' is a no-op with no active conversation", () => {
+  it("'split' starts a conversation when none is open, and lands on it", () => {
     useConversationStore.setState({ activeConversationId: null });
     useViewerStore.setState({ mainView: "app", openedAppState: SAMPLE_APP });
+    const ctx = makeCtx(false);
 
-    handleAppViewerAction(makeCtx(false), "set_view", { view: "split" });
+    handleAppViewerAction(ctx, "set_view", { view: "split" });
 
-    expect(useViewerStore.getState().mainView).toBe("app");
+    // The app is beside a usable chat rather than left full-width, and the
+    // fresh key is selected, routed to, and marked as the draft it is.
+    const conversations = useConversationStore.getState();
+    const startedId = conversations.activeConversationId;
+    expect(startedId).toBeTruthy();
+    expect(useViewerStore.getState().mainView).toBe("app-editing");
+    expect(conversations.editingConversationId).toBe(startedId);
+    expect(conversations.draftConversationIds.has(startedId!)).toBe(true);
+    expect(ctx.navigate.mock.calls[0][0]).toBe(
+      `/assistant/conversations/${startedId}`,
+    );
   });
 });
 

@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useConversationStore } from "@/stores/conversation-store";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useViewerStore, type OpenedAppState } from "@/stores/viewer-store";
 import {
   getEditChatConversationId,
@@ -42,15 +43,20 @@ export function useEditApp(): (app: OpenedAppState) => void {
       if (!assistantId) {
         return;
       }
+      // A conversation minted here has no server row until its first send, so
+      // it is registered as a draft like every other client-minted key: that
+      // is what tells the transcript to paint an empty thread rather than the
+      // skeleton it holds while a real conversation's history loads. The send
+      // closes the loop, clearing the draft mark and repointing this app's
+      // stored id at the server-assigned one.
       const convId =
         getEditChatConversationId(assistantId, app.appId) ??
-        crypto.randomUUID();
+        createDraftConversationId();
       setEditChatConversationId(assistantId, app.appId, convId);
 
       const viewer = useViewerStore.getState();
       if (viewer.activeAppId !== app.appId || !viewer.openedAppState) {
-        viewer.openApp(app.appId);
-        viewer.setLoadedApp(app);
+        viewer.showApp(app);
       }
       useConversationStore.getState().setEditingConversationId(convId);
       if (isMobile) {

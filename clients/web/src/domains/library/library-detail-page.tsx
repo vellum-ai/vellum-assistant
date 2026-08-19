@@ -13,6 +13,7 @@ import { AppViewerContainer } from "@/components/app-viewer-container";
 import { appsByIdOpenPost } from "@/generated/daemon/sdk.gen";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useDeployStore } from "@/stores/deploy-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
@@ -81,6 +82,25 @@ export function LibraryDetailPage() {
       requestRef.current = null;
     };
   }, [assistantId, appId]);
+
+  // This route draws the app itself, so it announces the loaded one to the
+  // viewer store for as long as it shows it. Selecting a conversation in the
+  // sidebar reads that answer to decide between landing the conversation
+  // beside the app and dismissing the app for it, so without this the app is
+  // invisible to the choice and gets dismissed.
+  useEffect(() => {
+    if (!app) {
+      return;
+    }
+    const shown = {
+      appId: app.appId,
+      dirName: app.dirName,
+      name: app.name,
+      html: app.html,
+    };
+    useViewerStore.getState().showApp(shown);
+    return () => useViewerStore.getState().releaseApp(shown);
+  }, [app]);
 
   const handleClose = useCallback(() => {
     void navigate(routes.library.root);

@@ -454,9 +454,9 @@ export interface ViewerActions {
   setIntelligenceTab: (tab: IntelligenceTab) => void;
 
   // --- App viewer ---
-  openApp: (appId: string) => void;
+  showApp: (app: OpenedAppState) => void;
+  releaseApp: (app: OpenedAppState) => void;
   loadApp: (assistantId: string, appId: string) => Promise<void>;
-  setLoadedApp: (app: OpenedAppState) => void;
   handleAppLoadFailed: () => void;
   closeApp: () => void;
   toggleAppMinimized: () => void;
@@ -639,13 +639,50 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   // --- App viewer ---
 
-  openApp: (appId) => {
+  /**
+   * Put an app the caller already holds on screen, full-width.
+   *
+   * The synchronous counterpart to {@link loadApp}: the HTML is in hand, so
+   * there is no pending frame and `openedAppState` is never null.
+   *
+   * A surface that draws an app itself calls this too, because this store is
+   * where the rest of the app asks whether an app is on screen: the
+   * side-by-side layout when a conversation is selected, and the
+   * `visible_app:` line the daemon adds to each turn's context.
+   */
+  showApp: (app) => {
     set({
       mainView: "app",
-      activeAppId: appId,
-      openedAppState: null,
+      activeAppId: app.appId,
+      openedAppState: app,
       isAppMinimized: false,
     });
+  },
+
+  /**
+   * Take back a {@link showApp}, unless the app has been taken over.
+   *
+   * A surface that shows an app for as long as it is mounted calls this as
+   * it unmounts, unconditionally. Two takeovers are recognised, and only
+   * those two leave the app up:
+   *
+   * - **Another publisher.** Anything that has since shown a different app,
+   *   or reloaded this one, published its own object, so the departing
+   *   surface is no longer describing what is on screen.
+   * - **The split.** `app-editing` is a hand-off to the chat route, which
+   *   is exactly what selecting a conversation beside an app asks for, so
+   *   closing the app here would undo the move that caused it.
+   *
+   * Every other exit clears the app, including a narrow viewport dropping
+   * back to chat: the app is off screen either way, and leaving the id set
+   * would keep marking it as the open one in the sidebar.
+   */
+  releaseApp: (app) => {
+    const state = get();
+    if (state.openedAppState !== app || state.mainView === "app-editing") {
+      return;
+    }
+    state.closeApp();
   },
 
   loadApp: async (assistantId, appId) => {
@@ -685,10 +722,6 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       }
       set({ mainView: "chat", activeAppId: null, openedAppState: null });
     }
-  },
-
-  setLoadedApp: (app) => {
-    set({ openedAppState: app });
   },
 
   handleAppLoadFailed: () => {

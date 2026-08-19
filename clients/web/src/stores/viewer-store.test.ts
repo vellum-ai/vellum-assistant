@@ -118,25 +118,66 @@ describe("setIntelligenceTab", () => {
 // App viewer
 // ---------------------------------------------------------------------------
 
-describe("openApp", () => {
-  it("sets activeAppId, clears openedAppState, switches to app view, resets minimized", () => {
+describe("showApp", () => {
+  it("puts the app on screen full-width, with no pending frame", () => {
     useViewerStore.setState({
-      openedAppState: SAMPLE_APP,
       isAppMinimized: true,
     });
-    getState().openApp("app-2");
+    getState().showApp(SAMPLE_APP);
     const state = getState();
     expect(state.mainView).toBe("app");
-    expect(state.activeAppId).toBe("app-2");
-    expect(state.openedAppState).toBeNull();
+    expect(state.activeAppId).toBe(SAMPLE_APP.appId);
+    expect(state.openedAppState).toBe(SAMPLE_APP);
     expect(state.isAppMinimized).toBe(false);
   });
 });
 
-describe("setLoadedApp", () => {
-  it("sets the opened app state", () => {
-    getState().setLoadedApp(SAMPLE_APP);
-    expect(getState().openedAppState).toBe(SAMPLE_APP);
+describe("releaseApp", () => {
+  it("closes the app it was given", () => {
+    getState().showApp(SAMPLE_APP);
+    getState().releaseApp(SAMPLE_APP);
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeAppId).toBeNull();
+    expect(state.openedAppState).toBeNull();
+  });
+
+  it("leaves an app the caller no longer owns, even under the same id", () => {
+    // A reload of the same app publishes its own object, so the surface that
+    // showed the previous one is no longer describing what is on screen.
+    getState().showApp(SAMPLE_APP);
+    const reloaded = { ...SAMPLE_APP, html: "<h1>newer</h1>" };
+    getState().showApp(reloaded);
+
+    getState().releaseApp(SAMPLE_APP);
+
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.openedAppState).toBe(reloaded);
+  });
+
+  it("clears an app the viewer already dropped back to chat", () => {
+    // A narrow viewport takes the app off screen rather than splitting, and
+    // the id left behind would keep marking it as the open one in the sidebar.
+    getState().showApp(SAMPLE_APP);
+    getState().setMainView("chat");
+
+    getState().releaseApp(SAMPLE_APP);
+
+    const state = getState();
+    expect(state.activeAppId).toBeNull();
+    expect(state.openedAppState).toBeNull();
+  });
+
+  it("leaves the app in the side-by-side layout", () => {
+    getState().showApp(SAMPLE_APP);
+    getState().enterAppEditing();
+
+    getState().releaseApp(SAMPLE_APP);
+
+    const state = getState();
+    expect(state.mainView).toBe("app-editing");
+    expect(state.openedAppState).toBe(SAMPLE_APP);
   });
 });
 

@@ -720,9 +720,9 @@ describe("postChatMessage visibleAppId payload", () => {
   }
 
   function openApp(appId: string): void {
-    const viewer = useViewerStore.getState();
-    viewer.openApp(appId);
-    viewer.setLoadedApp({ appId, name: "Grocery List", html: "<h1>hi</h1>" });
+    useViewerStore
+      .getState()
+      .showApp({ appId, name: "Grocery List", html: "<h1>hi</h1>" });
   }
 
   test("omits visibleAppId when no app is in view", async () => {
