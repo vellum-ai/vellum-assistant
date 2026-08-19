@@ -29,6 +29,10 @@ import {
 } from "../../../persistence/conversation-crud.js";
 import { getDb, getSqliteFrom } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
+import {
+  MAX_PERSISTED_MESSAGE_BYTES,
+  messageContentBytes,
+} from "../../../persistence/message-content-cap.js";
 import type { ContentBlock } from "../../../providers/types.js";
 import { recoverInflightContent } from "../inflight-content.js";
 
@@ -108,6 +112,33 @@ describe("recoverInflightContent — folding stranded rows", () => {
       textBlock("streamed"),
     ]);
   });
+
+  test("caps an oversized delta file as it folds it inline", async () => {
+    /**
+     * Tests that the fold cannot land a body no provider accepts: a row this
+     * step writes is replayed on every later turn of its conversation.
+     */
+
+    // GIVEN a stranded row whose delta file holds a 50 MB block
+    const { messageId, writer } = await reserveInflight();
+    appendInflightSnapshot(
+      writer,
+      [textBlock("S".repeat(50_000_000))],
+      1,
+      rlog,
+    );
+    backdateDeltaFile(writer.absPath);
+
+    // WHEN recovery folds it
+    recoverInflightContent({ minAgeMs: 0 });
+
+    // THEN the finalized row sits under the persisted cap
+    const row = rawRow(messageId);
+    expect(row.finalized).toBe(1);
+    expect(messageContentBytes(row.content)).toBeLessThanOrEqual(
+      MAX_PERSISTED_MESSAGE_BYTES,
+    );
+  }, 60_000);
 
   test("folds a never-flushed in-flight row to empty content", async () => {
     const { conversationId, messageId, writer } = await reserveInflight();

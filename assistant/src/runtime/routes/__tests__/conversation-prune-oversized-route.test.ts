@@ -236,13 +236,32 @@ describe("POST /v1/conversations/cli/prune-oversized", () => {
 
     // WHEN it is pruned by id prefix
     const result = (await pruneRoute.handler({
-      body: { conversationId: conversationId.slice(0, 8) },
+      body: { conversationId: conversationId.slice(0, 20) },
       headers: CONFIRM,
     })) as PruneResult;
 
     // THEN the full conversation is resolved and pruned
     expect(result.conversationId).toBe(conversationId);
     expect(result.pruned[0]!.messageId).toBe(oversizedId);
+  });
+
+  test("rejects a prefix that matches more than one conversation", async () => {
+    /** Pruning the wrong conversation is not recoverable, so ambiguity fails. */
+
+    // GIVEN two conversations sharing an id prefix
+    const prefix = "aaaaaaaa-0000-0000-0000-00000000000";
+    await createConversation({ id: `${prefix}1`, title: "Scanner one" });
+    await createConversation({ id: `${prefix}2`, title: "Scanner two" });
+
+    // WHEN the shared prefix is pruned
+    const call = () =>
+      pruneRoute.handler({
+        body: { conversationId: prefix },
+        headers: CONFIRM,
+      });
+
+    // THEN the route refuses and names the candidates
+    expect(call).toThrow(/matches 2 conversations/);
   });
 
   test("rejects an unknown conversation id", async () => {

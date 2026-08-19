@@ -22,7 +22,9 @@ import { and, count, eq, gt, sql } from "drizzle-orm";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { updateMessageContent } from "./conversation-crud.js";
+import { rebuildConversationDiskViewFromDbState } from "./conversation-disk-view.js";
 import { getDb } from "./db-connection.js";
+import { enqueueLexicalIndexForMessage } from "./job-handlers/message-lexical.js";
 import {
   capPersistedMessageContent,
   MAX_PERSISTED_MESSAGE_BYTES,
@@ -109,12 +111,22 @@ export function pruneOversizedMessages(
       messageId: row.id,
     });
     updateMessageContent(row.id, capped);
+    // `updateMessageContent` is a CRUD primitive that leaves search state
+    // alone, so the trimmed row's lexical point would keep serving the body
+    // this command reports as gone.
+    enqueueLexicalIndexForMessage(row.id);
     pruned.push({
       messageId: row.id,
       originalBytes,
       prunedBytes: messageContentBytes(capped),
       ...(exportPath ? { exportPath } : {}),
     });
+  }
+  if (pruned.length > 0) {
+    // The append-only disk view still holds the untrimmed body, and workspace
+    // recovery reads that view back into the database, so replay it from the
+    // pruned state.
+    rebuildConversationDiskViewFromDbState(conversationId);
   }
   log.info(
     { conversationId, scanned, prunedCount: pruned.length },

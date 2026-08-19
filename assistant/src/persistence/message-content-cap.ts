@@ -55,6 +55,7 @@ export type MessageContentCapSource =
   | "insert"
   | "update"
   | "finalize"
+  | "recovery"
   | "prune";
 
 export interface MessageContentCapContext {
@@ -98,9 +99,15 @@ export function capPersistedMessageContent(
     return content;
   }
   const originalBytes = messageContentBytes(content);
-  const trimmed = trimBlocksToCap(resolveMessageContentBlocks(content));
+  const blocks = resolveMessageContentBlocks(content);
+  let trimmed = trimBlocksToCap(blocks);
+  if (trimmed === undefined && dropRichToolResultBlocks(blocks) > 0) {
+    // The oversized bytes sat in media a tool result carried alongside its
+    // text, which is optional: dropping it keeps the result itself sliceable.
+    trimmed = trimBlocksToCap(blocks);
+  }
   const capped =
-    trimmed?.content ?? JSON.stringify([collapsedBlock(originalBytes)]);
+    trimmed?.content ?? JSON.stringify(collapsedBlocks(blocks, originalBytes));
   log.warn(
     {
       conversationId: ctx.conversationId,
@@ -153,11 +160,69 @@ function trimBlocksToCap(
   return undefined;
 }
 
-function collapsedBlock(originalBytes: number): ContentBlock {
-  return {
-    type: "text",
-    text: `[dropped at persistence: this message body was ${originalBytes} bytes, over the ${MAX_PERSISTED_MESSAGE_BYTES}-byte single-message cap, and held no text that could be trimmed to fit]`,
-  };
+/**
+ * Strip the rich `contentBlocks` a tool result carries alongside its text.
+ * Those blocks hold media whose bytes cannot be sliced, and the field is
+ * optional, so dropping it shrinks the row without invalidating the result.
+ * Returns how many blocks were stripped.
+ */
+function dropRichToolResultBlocks(blocks: ContentBlock[]): number {
+  let dropped = 0;
+  for (const block of blocks) {
+    if (block.type === "tool_result" && block.contentBlocks !== undefined) {
+      delete block.contentBlocks;
+      dropped++;
+    }
+  }
+  return dropped;
+}
+
+/**
+ * Stand-in content for a row with nothing safe to slice.
+ *
+ * Tool identity survives the collapse: a `tool_result` keeps its
+ * `tool_use_id` and a `tool_use` keeps its id and name, because a message
+ * that loses one half of a pairing is rejected by the providers on every
+ * later turn, which is the failure this cap exists to prevent. Everything
+ * else becomes a single marker naming the original size.
+ */
+function collapsedBlocks(
+  blocks: ContentBlock[],
+  originalBytes: number,
+): ContentBlock[] {
+  const marker = collapsedMarker(originalBytes);
+  const toolBlocks: ContentBlock[] = [];
+  for (const block of blocks) {
+    if (block.type === "tool_result") {
+      toolBlocks.push({
+        type: "tool_result",
+        tool_use_id: block.tool_use_id,
+        content: marker,
+        ...(block.is_error === true ? { is_error: true } : {}),
+      });
+    } else if (block.type === "tool_use") {
+      toolBlocks.push({
+        type: "tool_use",
+        id: block.id,
+        name: block.name,
+        input: {},
+      });
+    }
+  }
+  if (toolBlocks.length === 0) {
+    return [{ type: "text", text: marker }];
+  }
+  // A `tool_result` carries its own marker, and providers want the results at
+  // the head of the message, so no sibling text block is added there. A
+  // `tool_use` has no text field, so the marker precedes it.
+  if (toolBlocks[0].type === "tool_result") {
+    return toolBlocks;
+  }
+  return [{ type: "text", text: marker }, ...toolBlocks];
+}
+
+function collapsedMarker(originalBytes: number): string {
+  return `[dropped at persistence: this message body was ${originalBytes} bytes, over the ${MAX_PERSISTED_MESSAGE_BYTES}-byte single-message cap, and held no text that could be trimmed to fit]`;
 }
 
 /** A block field holding a trimmable string payload. */
@@ -192,6 +257,10 @@ function collectTrimmableFields(blocks: ContentBlock[]): TrimmableField[] {
           push(block.content, (next) => {
             block.content = next;
           });
+        }
+        // Rich blocks a tool result carries hold trimmable text of their own.
+        if (block.contentBlocks) {
+          fields.push(...collectTrimmableFields(block.contentBlocks));
         }
         break;
       case "file":

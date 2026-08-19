@@ -217,4 +217,79 @@ describe("capPersistedMessageContent", () => {
       },
     ]);
   });
+
+  test("keeps a tool result whose oversized bytes sit in its rich blocks", () => {
+    /** Rich blocks are optional, so dropping them saves the result itself. */
+
+    // GIVEN a tool result carrying its text plus an oversized image
+    const content = JSON.stringify([
+      {
+        type: "tool_result",
+        tool_use_id: "toolu_1",
+        content: "scan complete",
+        contentBlocks: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: "A".repeat(FIFTY_MB),
+            },
+          },
+        ],
+      },
+    ]);
+
+    // WHEN it is capped
+    const capped = cap(content);
+
+    // THEN it fits the cap
+    expect(messageContentBytes(capped)).toBeLessThanOrEqual(
+      MAX_PERSISTED_MESSAGE_BYTES,
+    );
+
+    // AND the result keeps its pairing and its own text, without the media
+    expect(blocksOf(capped)).toEqual([
+      {
+        type: "tool_result",
+        tool_use_id: "toolu_1",
+        content: "scan complete",
+      },
+    ]);
+  });
+
+  test("keeps tool identity when a collapse is the only option", () => {
+    /**
+     * A message that loses one half of a tool pairing is rejected on every
+     * later turn, which is the failure the cap exists to prevent.
+     */
+
+    // GIVEN a tool result oversized on bytes that cannot be sliced at all
+    const content = JSON.stringify([
+      {
+        type: "tool_result",
+        tool_use_id: "toolu_1",
+        content: { opaque: "A".repeat(FIFTY_MB) },
+        is_error: true,
+      },
+    ]);
+
+    // WHEN it is capped
+    const capped = cap(content);
+
+    // THEN the result still carries the id its tool_use is paired with
+    expect(messageContentBytes(capped)).toBeLessThanOrEqual(
+      MAX_PERSISTED_MESSAGE_BYTES,
+    );
+    expect(blocksOf(capped)).toEqual([
+      {
+        type: "tool_result",
+        tool_use_id: "toolu_1",
+        content: expect.stringContaining(
+          "over the 8000000-byte single-message cap",
+        ) as unknown as string,
+        is_error: true,
+      },
+    ]);
+  });
 });

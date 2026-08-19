@@ -133,24 +133,37 @@ async function handleCreateCli({ body = {} }: RouteHandlerArgs) {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve a CLI-supplied conversation id, accepting an unambiguous id prefix.
- * `archiveStatus: "all"` lets a prefix resolve an archived row, which the CLI
- * addresses the same way as a live one.
+ * Resolve a CLI-supplied conversation id, accepting an id prefix that matches
+ * exactly one conversation. `archiveStatus: "all"` lets a prefix resolve an
+ * archived row, which the CLI addresses the same way as a live one.
+ *
+ * A prefix matching several conversations is an error rather than a pick, so a
+ * destructive command cannot land on whichever row the listing happened to
+ * return first.
  */
 function resolveConversationByIdOrPrefix(id: string) {
   const exact = getConversation(id);
   if (exact) {
     return exact;
   }
-  const match = listConversations({
+  const matches = listConversations({
     limit: Number.MAX_SAFE_INTEGER,
     conversationType: "standard",
     archiveStatus: "all",
-  }).find((c) => c.id.startsWith(id));
-  if (!match) {
+  }).filter((c) => c.id.startsWith(id));
+  if (matches.length === 0) {
     throw new NotFoundError(`Conversation not found: ${id}`);
   }
-  return match;
+  if (matches.length > 1) {
+    throw new BadRequestError(
+      `Conversation id ${id} matches ${matches.length} conversations: ` +
+        `${matches
+          .slice(0, 5)
+          .map((c) => c.id)
+          .join(", ")}. Pass a longer prefix or the full id.`,
+    );
+  }
+  return matches[0];
 }
 
 function handleExportCli({ body = {} }: RouteHandlerArgs) {
