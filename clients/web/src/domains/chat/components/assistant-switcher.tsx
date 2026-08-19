@@ -16,7 +16,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { cn, toast } from "@vellumai/design-library";
 
@@ -53,10 +53,35 @@ export function AssistantSwitcher({
   const reduce = useReducedMotion();
   const listId = useId();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  /* Toggling swaps the tree holding the focused chevron (pill vs card),
+     which unmounts it and drops keyboard focus on the document. Every
+     user-driven toggle bumps this request, and the effect re-anchors focus
+     on whichever chevron the commit mounted. A counter rather than a flag
+     keyed on `expanded`: the collapse racing a mid-switch publication (the
+     auto-collapse below) leaves `expanded` unchanged by the time the
+     success path runs, and a flag would then wait, stale, to steal focus
+     from an unrelated background collapse. */
+  const chevronRef = useRef<HTMLButtonElement | null>(null);
+  const [chevronFocusRequest, setChevronFocusRequest] = useState(0);
+  const requestChevronFocus = () => {
+    setChevronFocusRequest((count) => count + 1);
+  };
+  useEffect(() => {
+    if (chevronFocusRequest === 0) {
+      return;
+    }
+    chevronRef.current?.focus();
+  }, [chevronFocusRequest]);
 
   /* A completed switch, a shrinking list, and the rail collapsing all fold
      the card away: the pill (or the rail's tile) is the only resting state.
-     Skipped on mount so `defaultExpanded` survives its first render. */
+     Skipped on mount so `defaultExpanded` survives its first render. When
+     the fold is the target assistant publishing mid-switch it carries the
+     focus handoff a user toggle gets; a background fold never steals
+     focus. */
+  const switchingIdRef = useRef<string | null>(null);
   const mounted = useRef(false);
   useEffect(() => {
     if (!mounted.current) {
@@ -64,27 +89,10 @@ export function AssistantSwitcher({
       return;
     }
     setExpanded(false);
-  }, [assistantId, canSwitch, collapsed]);
-
-  /* Toggling swaps the tree holding the focused chevron (pill vs card),
-     which unmounts it and drops keyboard focus on the document. Re-anchor
-     focus on the counterpart chevron after a user-initiated toggle; the
-     auto-collapse effect above must never steal focus, so it leaves the
-     flag unset. */
-  const chevronRef = useRef<HTMLButtonElement | null>(null);
-  const focusChevronAfterToggle = useRef(false);
-  useEffect(() => {
-    if (!focusChevronAfterToggle.current) {
-      return;
+    if (switchingIdRef.current !== null) {
+      requestChevronFocus();
     }
-    focusChevronAfterToggle.current = false;
-    chevronRef.current?.focus();
-  }, [expanded]);
-
-  const setExpandedWithFocus = (next: boolean) => {
-    focusChevronAfterToggle.current = true;
-    setExpanded(next);
-  };
+  }, [assistantId, canSwitch, collapsed]);
 
   if (!canSwitch || collapsed) {
     return <AssistantNavItem {...props} />;
@@ -98,6 +106,7 @@ export function AssistantSwitcher({
       return;
     }
     setSwitchingId(assistant.id);
+    switchingIdRef.current = assistant.id;
     /* Leave the old assistant's conversation behind BEFORE the connect, not
        after it resolves: every connect path publishes the selection before
        its promise finishes, and the loader gives an explicit URL
@@ -109,11 +118,13 @@ export function AssistantSwitcher({
        chooser screen navigates to. */
     const previousConversationId =
       useConversationStore.getState().activeConversationId;
+    const previousPath = `${location.pathname}${location.search}${location.hash}`;
     useConversationStore.getState().setActiveConversationId(null);
     void navigate(routes.assistant, { replace: true });
     try {
       await switchToResolvedAssistant(assistant);
-      setExpandedWithFocus(false);
+      setExpanded(false);
+      requestChevronFocus();
       /* The old assistant's loader may have landed somewhere while the
          connect was in flight; sweep again so the new assistant resolves
          its own landing from a clean slate. */
@@ -122,20 +133,21 @@ export function AssistantSwitcher({
         void navigate(routes.assistant, { replace: true });
       }
     } catch (error) {
-      /* A failed connect leaves the previous assistant selected; put its
-         conversation back too. */
+      /* A failed connect leaves the previous assistant selected; put back
+         whatever route the switch was attempted from (a conversation, the
+         identity page, documents), not a conversation URL invented from the
+         store id, which persists across non-chat routes. */
       if (previousConversationId !== null) {
         useConversationStore
           .getState()
           .setActiveConversationId(previousConversationId);
-        void navigate(routes.conversation(previousConversationId), {
-          replace: true,
-        });
       }
+      void navigate(previousPath, { replace: true });
       captureError(error, { context: "assistantSwitcher.switch" });
       toast.error(t("assistantSwitcher.switchFailed"));
     } finally {
       setSwitchingId(null);
+      switchingIdRef.current = null;
     }
   };
 
@@ -146,7 +158,10 @@ export function AssistantSwitcher({
     <button
       ref={chevronRef}
       type="button"
-      onClick={() => setExpandedWithFocus(!expanded)}
+      onClick={() => {
+        setExpanded(!expanded);
+        requestChevronFocus();
+      }}
       aria-expanded={expanded}
       aria-controls={expanded ? listId : undefined}
       aria-label={
@@ -181,7 +196,10 @@ export function AssistantSwitcher({
         name={label}
         isCurrent
         disabled={switching}
-        onSelect={() => setExpandedWithFocus(false)}
+        onSelect={() => {
+          setExpanded(false);
+          requestChevronFocus();
+        }}
         trailingAction={chevronButton}
       />
       <motion.div

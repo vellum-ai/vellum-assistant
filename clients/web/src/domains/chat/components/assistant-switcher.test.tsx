@@ -30,9 +30,15 @@ const OTHER: ResolvedAssistant = {
 };
 
 const navigateMock = mock((_to: string, _opts?: { replace?: boolean }) => {});
+const LOCATION = {
+  pathname: "/assistant/conversations/conv-old",
+  search: "",
+  hash: "",
+};
 mock.module("react-router", () => ({
   ...reactRouter,
   useNavigate: () => navigateMock,
+  useLocation: () => LOCATION,
 }));
 
 let switchable: { assistants: ResolvedAssistant[]; canSwitch: boolean } = {
@@ -200,9 +206,42 @@ describe("AssistantSwitcher expanded card", () => {
     expect(useConversationStore.getState().activeConversationId).toBe(
       "conv-old",
     );
+    /* The route the switch was attempted from comes back, not a
+       conversation URL invented from the store id. */
     expect(navigateMock.mock.calls.at(-1)).toEqual([
-      routes.conversation("conv-old"),
+      LOCATION.pathname,
       { replace: true },
     ]);
+  });
+
+  test("a mid-switch assistant publication still hands focus to the chevron", async () => {
+    let resolveSwitch: () => void = () => {};
+    switchMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSwitch = resolve;
+        }),
+    );
+    const { getByLabelText, queryByLabelText, rerender } = renderSwitcher();
+
+    fireEvent.click(getByLabelText("Switch assistant"));
+    fireEvent.click(getByLabelText("Switch to Bob"));
+
+    /* The selection publishes before the connect resolves: the new active
+       assistant re-renders the switcher and auto-collapses the card. */
+    rerender(
+      <AssistantSwitcher
+        assistantId="a2"
+        label="Bob"
+        active={false}
+        onSelect={() => {}}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(queryByLabelText("Hide assistants")).toBeNull();
+      expect(document.activeElement).toBe(getByLabelText("Switch assistant"));
+    });
+    resolveSwitch();
   });
 });

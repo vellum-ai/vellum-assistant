@@ -30,12 +30,13 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
-/* `AssistantSwitcher` (inside `SideMenuBuiltInNav`) navigates after a
-   successful switch, and its hook runs on every sidebar render; these tests
-   mount no router, so hand it a no-op. */
+/* `AssistantSwitcher` (inside `SideMenuBuiltInNav`) reads the route and
+   navigates after a successful switch, and its hooks run on every sidebar
+   render; these tests mount no router, so hand it no-ops. */
 mock.module("react-router", () => ({
   ...reactRouter,
   useNavigate: () => () => {},
+  useLocation: () => ({ pathname: "/assistant", search: "", hash: "" }),
 }));
 
 // The sidebar owns its Background/Scheduled lazy queries; stub both so static
