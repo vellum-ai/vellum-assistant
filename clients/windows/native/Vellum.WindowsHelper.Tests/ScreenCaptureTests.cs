@@ -29,6 +29,11 @@ public static class ScreenCaptureTests
             backend.LastCaptured == Secondary.Bounds,
             "mixed DPI displays keep physical bounds, negative origins, and their own scale");
 
+        var routed = new ScreenCaptureService(backend).CaptureDisplay(
+            null, new PixelRect(-1800, 0, 800, 600));
+        Check(routed.Bounds == Secondary.Bounds,
+            "computer use captures the display containing the target window");
+
         var missing = await InvokeAsync(module, new { displayId = 9 });
         Check(missing.GetProperty("unavailable").GetProperty("code").GetString() == Unavailable.NotFound,
             "unknown displays report not_found");
@@ -39,13 +44,13 @@ public static class ScreenCaptureTests
             "capture failures return structured capture_denied");
 
         var computerUse = new GdiComputerUseCaptureSource(
-            new ScreenCaptureService(new ImageBackend())).Capture(CancellationToken.None);
+            new ScreenCaptureService(new ImageBackend())).Capture(null, CancellationToken.None);
         Check(computerUse.JpegBase64?.StartsWith("/9j/", StringComparison.Ordinal) == true,
             "computer use emits JPEG data");
         Check(computerUse is { ScreenshotWidthPx: 810, ScreenshotHeightPx: 540 },
             "computer-use screenshots fit the observation budget");
-        Check(computerUse is { ScreenWidthPt: 960, ScreenHeightPt: 640 },
-            "computer use preserves logical display dimensions");
+        Check(computerUse is { ScreenWidthPt: 1200, ScreenHeightPt: 800 },
+            "computer use advertises the physical input coordinate space");
 
         Console.WriteLine("Screen capture tests passed");
     }

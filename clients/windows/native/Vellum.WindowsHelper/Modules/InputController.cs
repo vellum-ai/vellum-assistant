@@ -132,12 +132,6 @@ internal static partial class NativeInput
     private static partial uint SendInput(uint count, Input[] inputs, int size);
     [LibraryImport("user32.dll")]
     private static partial int GetSystemMetrics(int index);
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool SetProcessDpiAwarenessContext(nint context);
-
-    static NativeInput() => _ = SetProcessDpiAwarenessContext(-4); // per-monitor v2
-
     private static void Send(Input input)
     {
         if (SendInput(1, [input], Marshal.SizeOf<Input>()) != 1)
@@ -164,6 +158,7 @@ internal static partial class NativeInput
 
     public static void MoveTo(double x, double y)
     {
+        ProcessDpi.EnsureAwareness();
         var left = GetSystemMetrics(76);
         var top = GetSystemMetrics(77);
         var width = Math.Max(1, GetSystemMetrics(78));

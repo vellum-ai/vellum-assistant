@@ -25,7 +25,9 @@ public static class WindowsCuObservationSourceTests
         Check(first.GetValueOrDefault("screenshot") as string == "jpeg",
             "observation includes a JPEG screenshot");
         Check((int?)first.GetValueOrDefault("screenWidthPt") == 1920,
-            "observation includes logical screen dimensions");
+            "observation includes input-space screen dimensions");
+        Check(capture.LastTargetBounds == new PixelRect(0, 0, 100, 40),
+            "screen capture follows the observed target display");
 
         var center = await source.ResolveElementCenterAsync(7, CancellationToken.None);
         Check(center == new CuPoint(70, 50), "element ids resolve to physical-pixel centers");
@@ -91,10 +93,13 @@ public static class WindowsCuObservationSourceTests
     private sealed class FakeCaptureSource : IComputerUseCaptureSource
     {
         public required ComputerUseCapture Result { get; set; }
+        public PixelRect? LastTargetBounds { get; private set; }
 
-        public ComputerUseCapture Capture(CancellationToken cancellationToken)
+        public ComputerUseCapture Capture(
+            PixelRect? targetBounds, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            LastTargetBounds = targetBounds;
             return Result;
         }
     }

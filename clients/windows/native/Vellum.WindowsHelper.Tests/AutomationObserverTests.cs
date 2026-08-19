@@ -8,11 +8,28 @@ public static class AutomationObserverTests
     public static async ValueTask RunAsync()
     {
         TestStableIdsAndDiff();
+        TestWindowTargetSelection();
         await TestFullThenDiffAsync();
         await TestSessionIsolationAndExpiryAsync();
         await TestUnavailableAsync();
         await TestCancellationAsync();
         Console.WriteLine("Automation observer tests passed");
+    }
+
+    private static void TestWindowTargetSelection()
+    {
+        var helper = new WindowCandidate(new IntPtr(1), 10, true, false);
+        var host = new WindowCandidate(new IntPtr(2), 20, true, false);
+        var target = new WindowCandidate(new IntPtr(3), 30, true, false);
+        Check(
+            WindowTargetSelector.Select(host, 10, 20, [helper, host, target]) == target.Handle,
+            "host focus selects the topmost non-host window");
+        Check(
+            WindowTargetSelector.Select(target, 10, 20, [host]) == target.Handle,
+            "non-host foreground windows stay selected");
+        Check(
+            WindowTargetSelector.Select(host, 10, 20, [target with { Minimized = true }]) == IntPtr.Zero,
+            "minimized windows are not selected");
     }
 
     private static void TestStableIdsAndDiff()

@@ -7,7 +7,7 @@
 
 import { join } from "node:path";
 
-import { app } from "electron";
+import { app, BrowserWindow } from "electron";
 
 import {
   capabilityToken,
@@ -53,13 +53,74 @@ export const getSharedCuHelper = (): NativeSidecarClient => {
     resolveExecutablePath: getWindowsHelperPath,
     logger: log,
     responseTimeoutMs: CU_HELPER_TIMEOUT_MS,
+    spawnEnv: {
+      VELLUM_HOST_PID: String(process.pid),
+    },
   });
   return sharedHelper;
+};
+
+type ContentProtectionWindow = Pick<
+  BrowserWindow,
+  "isContentProtected" | "setContentProtection"
+>;
+
+export const protectComputerUseCapture = (
+  helper: CuHelperClient,
+  getWindows: () => ContentProtectionWindow[],
+): CuHelperClient => {
+  let activeCalls = 0;
+  let protectedWindows: ContentProtectionWindow[] = [];
+  return {
+    call: async (method, params) => {
+      activeCalls += 1;
+      if (activeCalls === 1) {
+        const windows = getWindows().filter(
+          (window) => !window.isContentProtected(),
+        );
+        try {
+          for (const window of windows) {
+            window.setContentProtection(true);
+            protectedWindows.push(window);
+          }
+        } catch (error) {
+          for (const window of protectedWindows) {
+            window.setContentProtection(false);
+          }
+          protectedWindows = [];
+          activeCalls -= 1;
+          throw error;
+        }
+      }
+      try {
+        return await helper.call(method, params);
+      } finally {
+        activeCalls -= 1;
+        if (activeCalls === 0) {
+          for (const window of protectedWindows) {
+            window.setContentProtection(false);
+          }
+          protectedWindows = [];
+        }
+      }
+    },
+  };
+};
+
+let protectedSharedHelper: CuHelperClient | null = null;
+
+const getProtectedSharedCuHelper = (): CuHelperClient => {
+  protectedSharedHelper ??= protectComputerUseCapture(
+    getSharedCuHelper(),
+    () => BrowserWindow.getAllWindows(),
+  );
+  return protectedSharedHelper;
 };
 
 export const shutdownSharedCuHelper = (): void => {
   sharedHelper?.shutdown();
   sharedHelper = null;
+  protectedSharedHelper = null;
 };
 
 export interface WindowsCuExecutorDeps {
@@ -72,7 +133,7 @@ export const createWindowsHostCuExecutor = (
   const { helper } = deps;
   return createCuHelperProxyExecutor({
     logger: log,
-    resolveHelper: helper ? () => helper : getSharedCuHelper,
+    resolveHelper: helper ? () => helper : getProtectedSharedCuHelper,
   });
 };
 

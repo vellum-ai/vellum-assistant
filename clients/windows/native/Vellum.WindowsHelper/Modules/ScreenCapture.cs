@@ -24,12 +24,22 @@ public interface IScreenCaptureBackend
 
 public sealed class ScreenCaptureService(IScreenCaptureBackend backend)
 {
-    public CaptureResult CaptureDisplay(int? displayId)
+    public CaptureResult CaptureDisplay(int? displayId, PixelRect? targetBounds = null)
     {
         var displays = backend.GetDisplays();
-        var display = displayId is { } id
-            ? displays.FirstOrDefault(candidate => candidate.Id == id)
-            : displays.FirstOrDefault(candidate => candidate.Primary) ?? displays.FirstOrDefault();
+        DisplayInfo? display;
+        if (displayId is { } id)
+        {
+            display = displays.FirstOrDefault(candidate => candidate.Id == id);
+        }
+        else if (targetBounds is { } target)
+        {
+            display = displays.FirstOrDefault(candidate => ContainsCenter(candidate.Bounds, target));
+        }
+        else
+        {
+            display = displays.FirstOrDefault(candidate => candidate.Primary) ?? displays.FirstOrDefault();
+        }
         if (display is null)
         {
             var reason = new Unavailable(Unavailable.NotFound, "The requested display was not found");
@@ -46,6 +56,14 @@ public sealed class ScreenCaptureService(IScreenCaptureBackend backend)
             return new CaptureResult(null, null, null, null, null,
                 new Unavailable(Unavailable.CaptureDenied, "The display could not be captured"));
         }
+    }
+
+    private static bool ContainsCenter(PixelRect display, PixelRect target)
+    {
+        var x = target.X + target.Width / 2.0;
+        var y = target.Y + target.Height / 2.0;
+        return x >= display.X && x < display.X + display.Width &&
+            y >= display.Y && y < display.Y + display.Height;
     }
 }
 
