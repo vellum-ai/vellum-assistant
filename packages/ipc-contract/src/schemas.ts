@@ -109,4 +109,7 @@ export const companionContextSchema = z.object({
   // honest answer for a publisher that cannot report a turn is that it is not
   // reporting one.
   working: z.boolean().default(false),
+  // Defaulted for the same reason `working` is: a publisher that runs no watch
+  // session has nothing to report, and staying silent is its truthful answer.
+  watching: z.boolean().default(false),
 });
