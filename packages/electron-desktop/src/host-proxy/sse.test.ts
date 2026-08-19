@@ -490,6 +490,67 @@ describe("HostProxySseClient", () => {
     expect(capturedHeaders["X-Vellum-Interface-Id"]).toBe("macos");
   });
 
+  test("retries with compatibility headers when the interface is rejected", async () => {
+    const capturedInterfaces: string[] = [];
+    const { stream } = controllableStream();
+    const fakeFetch: typeof globalThis.fetch = (async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const headers = init?.headers as Record<string, string>;
+      capturedInterfaces.push(headers["X-Vellum-Interface-Id"]!);
+      if (capturedInterfaces.length === 1) {
+        return new Response(null, { status: 400 });
+      }
+      return new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }) as unknown as typeof globalThis.fetch;
+
+    client = new HostProxySseClient({
+      eventsUrl: "https://platform.vellum.ai/v1/assistants/asst-123/events",
+      authHeaders: () => ({ "X-Session-Token": "session-token" }),
+      clientHeaders: () => ({ "X-Vellum-Interface-Id": "windows" }),
+      fallbackClientHeaders: () => ({
+        "X-Vellum-Interface-Id": "macos",
+      }),
+      fetch: fakeFetch,
+    });
+    client.connect();
+    await flush(50);
+
+    expect(capturedInterfaces).toEqual(["windows", "macos"]);
+    expect(client.isConnected).toBe(true);
+  });
+
+  test("does not use compatibility headers for authentication failures", async () => {
+    const capturedInterfaces: string[] = [];
+    const fakeFetch: typeof globalThis.fetch = (async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const headers = init?.headers as Record<string, string>;
+      capturedInterfaces.push(headers["X-Vellum-Interface-Id"]!);
+      return new Response(null, { status: 401 });
+    }) as unknown as typeof globalThis.fetch;
+
+    client = new HostProxySseClient({
+      eventsUrl: "https://platform.vellum.ai/v1/assistants/asst-123/events",
+      authHeaders: () => ({ "X-Session-Token": "session-token" }),
+      clientHeaders: () => ({ "X-Vellum-Interface-Id": "windows" }),
+      fallbackClientHeaders: () => ({
+        "X-Vellum-Interface-Id": "macos",
+      }),
+      fetch: fakeFetch,
+    });
+    client.connect();
+    await flush(50);
+
+    expect(capturedInterfaces).toEqual(["windows"]);
+    expect(client.isConnected).toBe(false);
+  });
+
   // -- Chunked data handling ----------------------------------------------
 
   test("handles data split across multiple chunks", async () => {

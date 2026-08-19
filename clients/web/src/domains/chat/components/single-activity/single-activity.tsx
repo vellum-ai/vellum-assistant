@@ -27,8 +27,11 @@
  * (label + trailing chevron, no leading glyph) and toggle
  * the shared tool-detail side drawer — clicking an already-open link closes it
  * (toggle). The trailing `ChevronRight` signals "opens a drawer" (vs the card's
- * expand-in-place up/down chevron). Consistent padding lets the active highlight
- * fill behind the content without shifting layout.
+ * expand-in-place up/down chevron), and it is an affordance rather than a
+ * status: it fades in on hover / keyboard focus, or stays lit while this row's
+ * drawer is open, so a settled run of rows reads as labels instead of a column
+ * of glyphs. Consistent padding lets the active highlight fill behind the
+ * content without shifting layout.
  *
  * This is the single-step counterpart to `MultiActivityGroup`, which renders a
  * contiguous run of interleaved thinking + tool steps as one combined card.
@@ -309,8 +312,12 @@ export function SingleActivity(props: SingleActivityProps) {
           view.label
         )}
       </span>
+      {/* The chevron is an affordance, not a status: it appears when the row is
+          reachable (hover / keyboard focus) or already showing its drawer, so a
+          settled run of rows reads as labels instead of a column of glyphs.
+          Faded rather than unmounted so the label never shifts. */}
       <ChevronRight
-        className="size-3.5 shrink-0 text-[var(--content-tertiary)]"
+        className="size-3.5 shrink-0 text-[var(--content-tertiary)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[active=true]:opacity-100 motion-reduce:transition-none"
         aria-hidden
       />
     </button>

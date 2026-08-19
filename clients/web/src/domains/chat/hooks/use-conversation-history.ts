@@ -42,6 +42,10 @@ import {
   extractWirePendingConfirmation,
   extractWirePendingQuestion,
 } from "@/domains/chat/utils/chat";
+import {
+  decidePendingQuestion,
+  type ReportedQuestion,
+} from "@/domains/chat/pending-question";
 import { mapMessageSurfaces } from "@/domains/chat/utils/map-message-surfaces";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { recordServerSeq } from "@/lib/streaming/server-seq";
@@ -61,7 +65,12 @@ import {
   parsePendingConfirmationData,
 } from "@/domains/chat/utils/send-message-utils";
 import type { AssistantStateKind } from "@/domains/chat/types";
-import { getPendingInteractions } from "@/domains/chat/api/interactions";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { PendingQuestionState } from "@/types/interaction-ui-types";
+import {
+  getPendingInteractions,
+  type ConversationPendingInteractions,
+} from "@/domains/chat/api/interactions";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces";
 import {
   conversationHistoryQueryKey,
@@ -123,6 +132,50 @@ function surfaceContentEqual(a: unknown, b: unknown): boolean {
   }
 }
 
+/**
+ * Bring the ask_question card into agreement with one pending-interactions
+ * read, or fall back to the history marker when the assistant cannot answer.
+ *
+ * The registry read is the only source here that can retire a card. The
+ * history marker it replaces is stamped from the same registry but travels
+ * inside a cacheable `/messages` page, so a conversation reopened from cache
+ * re-raises a prompt that was answered before the switch and nothing ever takes
+ * it down again. See `pending-question.ts`.
+ *
+ * `before` is the card as it stood when the request was issued. Anything that
+ * moved it since (a live `question_request`, the user's own submit) is strictly
+ * newer than this response and keeps its claim; the next committed snapshot
+ * reconciles again.
+ */
+function applyReportedQuestion(params: {
+  reported: ReportedQuestion;
+  before: PendingQuestionState | null;
+  messages: DisplayMessage[];
+}): void {
+  const { reported, before, messages } = params;
+  const interactionStore = useInteractionStore.getState();
+
+  if (reported === undefined) {
+    const wirePendingQuestion = extractWirePendingQuestion(messages);
+    if (wirePendingQuestion && !interactionStore.pendingQuestion) {
+      interactionStore.showQuestion(wirePendingQuestion);
+    }
+    return;
+  }
+
+  const current = interactionStore.pendingQuestion;
+  if (current !== before) {
+    return;
+  }
+
+  const action = decidePendingQuestion({ reported, current });
+  if (action.kind === "raise") {
+    interactionStore.showQuestion(action.question);
+  } else if (action.kind === "retire") {
+    interactionStore.dismissQuestionIfMatches(action.requestId);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -142,6 +195,16 @@ export function useConversationHistory({
       !!assistantId &&
       !!activeConversationId,
   });
+
+  /**
+   * Bumped once per committed-snapshot reconcile so a read that is overtaken
+   * by a newer one applies nothing. The card-identity guard below cannot cover
+   * this: two reads issued before either lands both capture the same
+   * `questionBeforeFetch`, so an older response arriving last still matches and
+   * would re-raise a prompt the newer read already saw resolved. Ordering is
+   * not a property of the responses, so it has to be tracked here.
+   */
+  const reconcileGenerationRef = useRef(0);
 
   const setIsLoadingHistory = useChatSessionStore.use.setIsLoadingHistory();
   const setTranscriptPagination =
@@ -277,16 +340,6 @@ export function useConversationHistory({
       }
     }
 
-    // Restore an in-flight ask_question prompt the snapshot carries (same cold
-    // reconnect path). Skipped when a prompt is already active.
-    const wirePendingQuestion = extractWirePendingQuestion(pagination.messages);
-    if (
-      wirePendingQuestion &&
-      !useInteractionStore.getState().pendingQuestion
-    ) {
-      useInteractionStore.getState().showQuestion(wirePendingQuestion);
-    }
-
     // Restore the inline "Connect Claude Code" card the snapshot carries on a
     // failed acp_spawn (persisted `acp_claude_oauth_missing` marker). Without
     // this, a page reload or SSE reconnect wipes the in-memory prompt and the
@@ -408,20 +461,51 @@ export function useConversationHistory({
       useBackgroundTaskStore.getState().seedFromHistory(completions);
     }
 
-    // Restore pending interactions (secrets, confirmations).
+    // Restore pending interactions (secrets, confirmations, questions).
     const requestedConversationId = activeConversationId;
+    // Read before the fetch so the question reconcile below can tell whether
+    // anything moved underneath it while the request was in flight.
+    const questionBeforeFetch = useInteractionStore.getState().pendingQuestion;
+    const generation = ++reconcileGenerationRef.current;
     void (async () => {
+      // A read that never landed carries no opinion, exactly like an assistant
+      // that predates `pendingQuestion`, so it leaves `reported` undefined and
+      // the question falls back to the history marker. Restoring from the
+      // marker is the whole recovery path on an older assistant, so letting a
+      // transient 5xx swallow it would hide a prompt the turn is still blocked
+      // on. Everything below the question is skipped on failure, which is what
+      // keeps the attention key untouched.
+      let interactions: ConversationPendingInteractions | null = null;
       try {
-        const interactions = await getPendingInteractions(
+        interactions = await getPendingInteractions(
           assistantId,
           requestedConversationId,
         );
-        if (
-          useConversationStore.getState().activeConversationId !==
-          requestedConversationId
-        ) {
-          return;
-        }
+      } catch {
+        interactions = null;
+      }
+      // Superseded by a newer reconcile: that read describes the registry at a
+      // later moment, so this one has nothing to say about any kind, not just
+      // the question. Checked before the conversation guard because a switch
+      // bumps the generation too.
+      if (reconcileGenerationRef.current !== generation) {
+        return;
+      }
+      if (
+        useConversationStore.getState().activeConversationId !==
+        requestedConversationId
+      ) {
+        return;
+      }
+      applyReportedQuestion({
+        reported: interactions?.pendingQuestion,
+        before: questionBeforeFetch,
+        messages: pagination.messages,
+      });
+      if (!interactions) {
+        return;
+      }
+      try {
         const parsed_secret = interactions.pendingSecret
           ? parsePendingSecretState(
               interactions.pendingSecret as Record<string, unknown>,
@@ -442,13 +526,27 @@ export function useConversationHistory({
               ),
             );
         }
-        if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
+        // A question parks the turn on the user exactly like a secret or a
+        // confirmation does, and the rest of the attention machinery already
+        // treats it that way: the bulk listing counts every kind, and the
+        // `interaction_resolved` clear is gated on a set that names `question`.
+        // Leaving it out here dropped the key for a conversation that was still
+        // waiting, until a sweep put it back. `undefined` (an assistant that
+        // cannot report questions) reads as "nothing outstanding" and clears as
+        // it always has.
+        if (
+          !interactions.pendingSecret &&
+          !interactions.pendingConfirmation &&
+          !interactions.pendingQuestion
+        ) {
           useConversationStore
             .getState()
             .removeAttentionConversationId(requestedConversationId);
         }
       } catch {
-        // Keep attention key on failure.
+        // Unchanged from before this reconcile existed: a payload the secret /
+        // confirmation parsers choke on leaves both prompts and the attention
+        // key as they are, rather than rejecting inside a void async block.
       }
     })();
     // `pagination.*` other than `dataUpdatedAt` intentionally excluded: they all

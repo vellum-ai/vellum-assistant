@@ -47,7 +47,7 @@ export function WelcomeScreenShell({
   fillsViewport?: boolean;
 }) {
   const content = (
-    <OnboardingLayout showAvatarWave animateAvatarWaveIn={animateAvatarWaveIn}>
+    <OnboardingLayout avatarWave="around" animateAvatarWaveIn={animateAvatarWaveIn}>
       <div className="mx-auto flex min-h-full w-full max-w-xl flex-col items-center px-6 pb-40 text-[var(--content-default)] md:pb-0">
         <div className="flex flex-1 flex-col items-center justify-center">
           {children}
@@ -167,8 +167,16 @@ export function AuthWelcomeScreen({
         </p>
       )}
 
+      {/*
+        A failed handoff is the one thing that grows this column, and the wrap
+        composition has about a button's worth of room under it on a 640-tall
+        phone before the returning crowd. Spend the gap above the buttons on
+        the message rather than adding to the column: the error sits next to
+        what it is about either way, and the buttons stay clear of the crowd
+        through a message long enough to wrap three times.
+      */}
       <div
-        className="mt-15 flex w-full max-w-sm flex-col gap-3"
+        className={`${error ? "mt-4" : "mt-15"} flex w-full max-w-sm flex-col gap-3`}
         style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
       >
         <Button

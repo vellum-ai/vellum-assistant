@@ -26,7 +26,7 @@ export function StartScreen() {
   const navigate = useNavigate();
 
   return (
-    <OnboardingLayout showAvatarWave>
+    <OnboardingLayout avatarWave="around">
       <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center px-6 pb-40 md:min-h-full md:pb-6 text-[var(--content-default)]">
         <div className="flex flex-1 flex-col items-center justify-center">
           <h1

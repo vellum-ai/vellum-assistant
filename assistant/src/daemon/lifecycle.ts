@@ -98,6 +98,7 @@ import {
   registerMessagingProviders,
   registerWatcherProviders,
 } from "./providers-setup.js";
+import { startResourcePressureGuardForLifecycle } from "./resource-pressure-guard-lifecycle.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { broadcastDaemonStatus } from "./status.js";
 
@@ -700,6 +701,7 @@ export async function runDaemon(): Promise<void> {
 
   startUsageTelemetryReporter();
   startDiskPressureGuardForLifecycle();
+  startResourcePressureGuardForLifecycle();
   startOrphanReaper();
   startEventLoopWatchdog();
 

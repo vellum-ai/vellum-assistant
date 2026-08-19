@@ -9,18 +9,24 @@ public sealed record CuVerifyResult(CuVerdict Verdict, string? Reason = null);
 public sealed record CuAction(
     string Type,
     double? X = null, double? Y = null,
+    long? ElementId = null,
     string? Text = null, string? Key = null,
     string? ScrollDirection = null, int? ScrollAmount = null,
     int? WaitDurationMs = null, string? AppName = null, string? Script = null);
 
-// Seam to the UI Automation observation module (PR 19). Until composition
-// registers a source, observation is explicitly unavailable, not silently
-// empty; element-id resolution is that module's own concern.
+// Seam to UI Automation observation and element targeting.
 public interface ICuObservationSource
 {
     Task<IReadOnlyDictionary<string, object?>> ObserveAsync(
         string conversationId, int stepNumber, CancellationToken cancellationToken);
+
+    Task<CuPoint?> ResolveElementCenterAsync(long elementId, CancellationToken cancellationToken);
+
+    Task<CuPoint> TranslateScreenPointAsync(
+        string conversationId, CuPoint point, CancellationToken cancellationToken);
 }
+
+public sealed record CuPoint(double X, double Y);
 
 public static class ObservationSeams
 {

@@ -86,7 +86,6 @@ export function isPersonalMemoryAllowed(
 ): boolean {
   return canSeePersonalMemory({
     trustClass: resolveTrustClass(trustContext),
-    executionChannel: trustContext?.sourceChannel,
   });
 }
 

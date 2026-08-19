@@ -21,6 +21,10 @@ import {
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import {
+  sendChannelTyping,
+  supportsChannelTyping,
+} from "../../../messaging/providers/index.js";
+import {
   getSiblingStreamedReplyTs,
   linkMessage,
   storeInboundSlackMetadata,
@@ -161,19 +165,10 @@ export function processChannelMessageInBackground(
   // `channel-turn-admission.ts` for why channel turns defer rather than route
   // through the SSE-oriented conversation queue.
   void withChannelTurnAdmission(conversationId, async () => {
-    const typingCallbackUrl = shouldEmitTelegramTyping(
-      sourceChannel,
-      replyCallbackUrl,
-    )
-      ? replyCallbackUrl
-      : undefined;
-    const stopTypingHeartbeat = typingCallbackUrl
-      ? startTelegramTypingHeartbeat(
-          typingCallbackUrl,
-          externalChatId,
-          assistantId,
-        )
-      : undefined;
+    const stopTypingHeartbeat =
+      replyCallbackUrl && supportsChannelTyping(replyCallbackUrl)
+        ? startTypingHeartbeat(replyCallbackUrl, externalChatId)
+        : undefined;
 
     const slackThinkingStatus = createSlackThinkingStatusController({
       sourceChannel,
@@ -387,40 +382,23 @@ export function processChannelMessageInBackground(
 // ---------------------------------------------------------------------------
 
 /**
- * How often the typing status is re-sent while a turn runs.
+ * How often the working indicator is re-sent while a turn runs.
  *
- * `sendChatAction` sets a status that expires on its own after a few seconds,
- * and the Bot API offers no stop/start pair to hold one open, so showing
- * typing across a multi-second turn means re-sending on a timer. The interval
- * has to stay under that expiry or the indicator blinks off between beats;
- * anyone changing it should check the current window first.
+ * Every channel that has one expires it after a few seconds and offers no
+ * start/stop pair to hold it open, so showing it across a multi-second turn
+ * means re-sending on a timer. The interval has to stay under the shortest
+ * expiry of any channel that implements `typing`: Telegram is about five
+ * seconds, Discord about ten. Anyone changing it should check the current
+ * windows first.
  *
- * No explicit stop is needed on the delivery path: Telegram clears the status
- * as soon as the bot sends a message.
+ * No explicit stop is needed: both clear the indicator when the bot posts.
  *
  * https://core.telegram.org/bots/api#sendchataction
+ * https://discord.com/developers/docs/resources/channel#trigger-typing-indicator
  */
-const TELEGRAM_TYPING_INTERVAL_MS = 4_000;
+const TYPING_INTERVAL_MS = 4_000;
 
-function shouldEmitTelegramTyping(
-  sourceChannel: ChannelId,
-  replyCallbackUrl?: string,
-): boolean {
-  if (sourceChannel !== "telegram" || !replyCallbackUrl) {
-    return false;
-  }
-  try {
-    return new URL(replyCallbackUrl).pathname.endsWith("/deliver/telegram");
-  } catch {
-    return replyCallbackUrl.endsWith("/deliver/telegram");
-  }
-}
-
-function startTelegramTypingHeartbeat(
-  callbackUrl: string,
-  chatId: string,
-  assistantId?: string,
-): () => void {
+function startTypingHeartbeat(callbackUrl: string, chatId: string): () => void {
   let active = true;
   let inFlight = false;
 
@@ -429,11 +407,7 @@ function startTelegramTypingHeartbeat(
       return;
     }
     inFlight = true;
-    void deliverChannelReply(callbackUrl, {
-      chatId,
-      chatAction: "typing",
-      assistantId,
-    })
+    void sendChannelTyping(callbackUrl, chatId)
       .catch((err) => {
         log.debug(
           { err, chatId },
@@ -447,7 +421,7 @@ function startTelegramTypingHeartbeat(
 
   emitTyping();
 
-  const interval = setInterval(emitTyping, TELEGRAM_TYPING_INTERVAL_MS);
+  const interval = setInterval(emitTyping, TYPING_INTERVAL_MS);
   (interval as { unref?: () => void }).unref?.();
 
   return () => {

@@ -9,6 +9,7 @@ import {
   organizationsBillingTopUpsCheckoutSessionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { useTranslation } from "@/i18n";
 import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
@@ -63,6 +64,7 @@ interface AddCreditsModalProps {
 }
 
 function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
+  const { t } = useTranslation();
   const { pathname } = useLocation();
   const [searchParams] = useSearchParams();
   const returnPath = searchParams.toString()
@@ -193,7 +195,7 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
               className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
               onClick={() => onOpenChange(false)}
             >
-              Configure Automatic Top-Ups
+              {t("addCreditsModal.configureAutoReload")}
               <ChevronRight className="size-4" />
             </Link>
 

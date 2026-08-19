@@ -117,8 +117,7 @@
   },
   "chatComposer": {
     "addToChat": "Añadir al chat",
-    "askAssistantPlaceholder": "Pregunta a {assistantName}",
-    "disclaimer": "Vellum usa modelos de IA externos y puede cometer errores"
+    "askAssistantPlaceholder": "Pregunta a {assistantName}"
   },
   "compactionTab": {
     "compactedMessages": "{count} compactados",

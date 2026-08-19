@@ -166,7 +166,7 @@ export function PrivacyScreen() {
   ]);
 
   return (
-    <OnboardingLayout showAvatarWave>
+    <OnboardingLayout avatarWave="beside">
       <div
         className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "px-6 py-16"} text-[var(--content-default)]`}
       >

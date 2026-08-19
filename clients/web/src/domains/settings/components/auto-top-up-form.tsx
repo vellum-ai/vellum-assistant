@@ -2,7 +2,6 @@ import { useState, type ChangeEvent } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
-import { Notice } from "@vellumai/design-library/components/notice";
 
 export interface AutoTopUpFormValues {
   threshold_usd: string;
@@ -14,17 +13,9 @@ export interface AutoTopUpFormProps {
   initialValues?: AutoTopUpFormValues;
   submitting: boolean;
   serverErrors: Record<string, string>;
-  /**
-   * Announce that saving will apply the default daily credit limit. Set while
-   * the user is turning auto top-up on and the org has no daily limit yet.
-   */
-  showDefaultDailyLimitNote?: boolean;
   onSave: (values: AutoTopUpFormValues) => void;
   onCancel: () => void;
 }
-
-/** Mirrors the backend `BILLING_DEFAULT_DAILY_CREDIT_LIMIT_USD` default. */
-const DEFAULT_DAILY_CREDIT_LIMIT_USD = 25;
 
 export type AutoTopUpFormErrors = Partial<
   Record<keyof AutoTopUpFormValues, string>
@@ -123,7 +114,6 @@ export function AutoTopUpForm({
   initialValues = DEFAULTS,
   submitting,
   serverErrors,
-  showDefaultDailyLimitNote = false,
   onSave,
   onCancel,
 }: AutoTopUpFormProps) {
@@ -191,8 +181,8 @@ export function AutoTopUpForm({
 
   return (
     <div className="mt-4">
-      <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-[10rem] flex-1">
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="w-full max-w-full sm:w-[200px]">
           <Input
             type="number"
             step="1"
@@ -205,7 +195,7 @@ export function AutoTopUpForm({
             fullWidth
           />
         </div>
-        <div className="min-w-[10rem] flex-1">
+        <div className="w-full max-w-full sm:w-[200px]">
           <Input
             type="number"
             step="1"
@@ -218,12 +208,11 @@ export function AutoTopUpForm({
             fullWidth
           />
         </div>
-        <div className="min-w-[10rem] flex-1">
+        <div className="w-full max-w-full sm:w-[200px]">
           <Input
             type="number"
             step="1"
             label="Monthly spending cap"
-            helperText="Pauses auto top-ups for the rest of the month once spending reaches this amount. Manual purchases also count toward the total. Leave empty for no limit."
             value={values.monthly_cap_usd}
             onChange={onChange("monthly_cap_usd")}
             onBlur={onBlur("monthly_cap_usd")}
@@ -253,17 +242,6 @@ export function AutoTopUpForm({
           </Button>
         </div>
       </div>
-
-      {showDefaultDailyLimitNote && (
-        <Notice
-          tone="info"
-          className="mt-3"
-          data-testid="auto-top-up-default-daily-limit-note"
-        >
-          A default daily credit limit of ${DEFAULT_DAILY_CREDIT_LIMIT_USD} per
-          day will be applied. You can adjust it under Daily credit limit.
-        </Notice>
-      )}
     </div>
   );
 }

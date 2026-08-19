@@ -132,12 +132,6 @@ internal static partial class NativeInput
     private static partial uint SendInput(uint count, Input[] inputs, int size);
     [LibraryImport("user32.dll")]
     private static partial int GetSystemMetrics(int index);
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool SetProcessDpiAwarenessContext(nint context);
-
-    static NativeInput() => _ = SetProcessDpiAwarenessContext(-4); // per-monitor v2
-
     private static void Send(Input input)
     {
         if (SendInput(1, [input], Marshal.SizeOf<Input>()) != 1)
@@ -164,6 +158,7 @@ internal static partial class NativeInput
 
     public static void MoveTo(double x, double y)
     {
+        ProcessDpi.EnsureAwareness();
         var left = GetSystemMetrics(76);
         var top = GetSystemMetrics(77);
         var width = Math.Max(1, GetSystemMetrics(78));
@@ -274,11 +269,20 @@ public sealed class InputController : IRpcModule, IInputController
             return await Finish(null, null, note: false);
         }
 
-        // Element-id targets need the observation module to resolve coordinates.
+        try
+        {
+            action = await ResolveElementCoordinatesAsync(
+                action, ObservationSeams.CuSource, cancellationToken, conversationId);
+        }
+        catch (InvalidOperationException error)
+        {
+            return await Finish(null, error.Message);
+        }
+
         if (action.Type is "click" or "double_click" or "right_click" &&
             (action.X is null || action.Y is null))
         {
-            return await Finish(null, "Coordinates are required; element-id resolution arrives with the observation module");
+            return await Finish(null, "Coordinates or a valid element_id are required");
         }
 
         var verdict = verifier.Verify(action);
@@ -302,6 +306,42 @@ public sealed class InputController : IRpcModule, IInputController
         {
             return await Finish(null, err.Message, SettleDelayMs);
         }
+    }
+
+    public static async Task<CuAction> ResolveElementCoordinatesAsync(
+        CuAction action, ICuObservationSource? source, CancellationToken cancellationToken,
+        string conversationId = "")
+    {
+        if (action.Type is not ("click" or "double_click" or "right_click" or "scroll"))
+        {
+            return action;
+        }
+        if (action is { X: double x, Y: double y })
+        {
+            if (source is null)
+            {
+                return action;
+            }
+            var screenPoint = await source.TranslateScreenPointAsync(
+                conversationId, new CuPoint(x, y), cancellationToken);
+            return action with { X = screenPoint.X, Y = screenPoint.Y };
+        }
+        if (action.ElementId is null)
+        {
+            return action;
+        }
+        if (source is null)
+        {
+            throw new InvalidOperationException(
+                $"Element {action.ElementId} cannot be resolved because screen observation is unavailable");
+        }
+        var elementPoint = await source.ResolveElementCenterAsync(action.ElementId.Value, cancellationToken);
+        if (elementPoint is null)
+        {
+            throw new InvalidOperationException(
+                $"Element {action.ElementId} was not found in the current window");
+        }
+        return action with { X = elementPoint.X, Y = elementPoint.Y };
     }
 
     private static async Task<string> ExecuteAsync(CuAction action, CancellationToken cancellationToken)
@@ -360,7 +400,7 @@ public sealed class InputController : IRpcModule, IInputController
                 throw new NotSupportedException(
                     "run_applescript is not supported on Windows; use click, type, and key actions instead");
             case "drag" or "open_app":
-                // Drag pointer paths and app launching arrive with the observation module.
+                // Drag pointer paths and app launching are not implemented.
                 throw new NotSupportedException($"{action.Type} is not yet available on Windows");
             default:
                 throw new InvalidOperationException($"Unsupported action: {action.Type}");
@@ -427,6 +467,7 @@ public sealed class InputController : IRpcModule, IInputController
             type,
             X: JsonInput.GetDouble(input, "x"),
             Y: JsonInput.GetDouble(input, "y"),
+            ElementId: JsonInput.GetLong(input, "element_id"),
             Text: JsonInput.GetString(input, "text"),
             Key: JsonInput.GetString(input, "key"),
             ScrollDirection: JsonInput.GetString(input, "direction") ?? JsonInput.GetString(input, "scroll_direction"),
@@ -454,4 +495,11 @@ public static class JsonInput
 
     public static int? GetInt(JsonElement? element, string name) =>
         GetDouble(element, name) is double parsed ? (int)parsed : null;
+
+    public static long? GetLong(JsonElement? element, string name) =>
+        element is { ValueKind: JsonValueKind.Object } value &&
+        value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.Number &&
+        property.TryGetInt64(out var parsed)
+            ? parsed
+            : null;
 }

@@ -54,6 +54,7 @@ import type {
   SystemPermissionStatus,
   SystemPermissionsState,
   TextInsertionResult,
+  TitleBarOverlayTheme,
   UpdateState,
   UpdateStatus,
   VellumCommand,
@@ -262,6 +263,7 @@ declare global {
       mainWindow: {
         ensureVisible(): Promise<void>;
         setOnboarding(active: boolean): Promise<void>;
+        setTitleBarOverlay?(colors: TitleBarOverlayTheme): Promise<void>;
       };
       power: {
         onEvent(callback: (event: PowerEvent) => void): () => void;

@@ -3,6 +3,8 @@ import {
   IDENTITY_NAME,
   MAIN_WINDOW_ENSURE_VISIBLE,
   MAIN_WINDOW_SET_ONBOARDING,
+  MAIN_WINDOW_SET_TITLE_BAR_OVERLAY,
+  type TitleBarOverlayTheme,
 } from "@vellumai/ipc-contract";
 
 interface WindowState {
@@ -35,6 +37,7 @@ interface WindowStub {
   maximize: ReturnType<typeof mock>;
   restore: ReturnType<typeof mock>;
   setTitle: ReturnType<typeof mock>;
+  setTitleBarOverlay: ReturnType<typeof mock>;
   show: ReturnType<typeof mock>;
   isDestroyed: () => boolean;
   isFocused: () => boolean;
@@ -101,6 +104,7 @@ const createWindowMock = mock(
         state.minimized = false;
       }),
       setTitle: mock(() => undefined),
+      setTitleBarOverlay: mock(() => undefined),
       show: mock(() => {
         state.visible = true;
       }),
@@ -130,6 +134,27 @@ mock.module("./windows.client", () => ({ createWindow: createWindowMock }));
 mock.module("./logger", () => ({
   default: { error: () => undefined },
 }));
+/**
+ * Windows' own light/dark setting and the app's override of it, which is what
+ * Chromium washes the caption buttons from.
+ */
+const nativeThemeStub: {
+  themeSource: "system" | "light" | "dark";
+  shouldUseDarkColorsForSystemIntegratedUI: boolean;
+  readonly shouldUseDarkColors: boolean;
+} = {
+  themeSource: "system",
+  shouldUseDarkColorsForSystemIntegratedUI: false,
+  get shouldUseDarkColors() {
+    return nativeThemeStub.themeSource === "system"
+      ? nativeThemeStub.shouldUseDarkColorsForSystemIntegratedUI
+      : nativeThemeStub.themeSource === "dark";
+  },
+};
+
+/** The override in force, read through a call so cases assert unnarrowed. */
+const themeSource = (): string => nativeThemeStub.themeSource;
+
 mock.module("electron", () => ({
   app: {
     isPackaged: false,
@@ -138,6 +163,7 @@ mock.module("electron", () => ({
     },
   },
   BrowserWindow: class {},
+  nativeTheme: nativeThemeStub,
   shell: { openExternal: () => Promise.resolve() },
 }));
 
@@ -151,21 +177,35 @@ let restoredBounds: {
 } = { width: 1280, height: 800 };
 const trackMock = mock(() => undefined);
 const writeOnboardingActiveMock = mock((_active: boolean) => undefined);
+let persistedOverlayTheme: TitleBarOverlayTheme | null = null;
+const writeTitleBarOverlayThemeMock = mock(
+  (_theme: TitleBarOverlayTheme) => undefined,
+);
 
 mock.module("@vellumai/electron-desktop/window-state", () => ({
   restoreBounds: () => restoredBounds,
   track: trackMock,
   writeOnboardingActive: writeOnboardingActiveMock,
+  readTitleBarOverlayTheme: () => persistedOverlayTheme,
+  writeTitleBarOverlayTheme: writeTitleBarOverlayThemeMock,
 }));
 
-const invokeHandlers = new Map<string, (args: unknown[]) => unknown>();
+/** The sender identity `ipcMain.handle` hands a privileged handler. */
+interface InvokeEventStub {
+  sender: unknown;
+}
+
+const invokeHandlers = new Map<
+  string,
+  (args: unknown[], event: InvokeEventStub) => unknown
+>();
 const eventHandlers = new Map<string, (args: unknown[]) => void>();
 
 mock.module("./ipc.client", () => ({
   handle: (
     channel: string,
     _schema: unknown,
-    handler: (args: unknown[]) => unknown,
+    handler: (args: unknown[], event: InvokeEventStub) => unknown,
   ) => {
     invokeHandlers.set(channel, handler);
   },
@@ -201,8 +241,12 @@ beforeEach(() => {
   invokeHandlers.clear();
   eventHandlers.clear();
   restoredBounds = { width: 1280, height: 800 };
+  persistedOverlayTheme = null;
+  nativeThemeStub.themeSource = "system";
+  nativeThemeStub.shouldUseDarkColorsForSystemIntegratedUI = false;
   trackMock.mockClear();
   writeOnboardingActiveMock.mockClear();
+  writeTitleBarOverlayThemeMock.mockClear();
 });
 
 afterEach(destroyWindows);
@@ -276,7 +320,11 @@ describe("Windows main window", () => {
     expect(invokeHandlers.has(MAIN_WINDOW_SET_ONBOARDING)).toBe(true);
     expect(eventHandlers.has(IDENTITY_NAME)).toBe(true);
 
-    invokeHandlers.get(MAIN_WINDOW_SET_ONBOARDING)?.([true]);
+    expect(invokeHandlers.has(MAIN_WINDOW_SET_TITLE_BAR_OVERLAY)).toBe(true);
+
+    invokeHandlers.get(MAIN_WINDOW_SET_ONBOARDING)?.([true], {
+      sender: constructed[0]?.webContents,
+    });
     expect(writeOnboardingActiveMock).toHaveBeenCalledWith(true);
 
     eventHandlers.get(IDENTITY_NAME)?.(["  Alice  "]);
@@ -298,6 +346,162 @@ describe("Windows main window", () => {
       "vellum:command",
       { kind: "openSettings" },
     );
+  });
+
+  test("opens on the persisted overlay colors so launch is themed", () => {
+    /**
+     * The overlay's colors are constructor options, so a launch that ignored
+     * the persisted pair would draw the system caption colors until the
+     * renderer reported its theme.
+     */
+    // GIVEN a renderer published the velvet theme on a past launch
+    persistedOverlayTheme = {
+      color: "#121214",
+      symbolColor: "#F6F5F4",
+      colorScheme: "dark",
+    };
+
+    // WHEN the window is created
+    void ensureVisible();
+
+    // THEN the caption buttons are built in those colors, at the title bar's
+    // own height
+    expect(constructed[0]?.options.titleBarOverlay).toEqual({
+      color: "#121214",
+      symbolColor: "#F6F5F4",
+      height: 44,
+    });
+  });
+
+  test("repaints the caption buttons when the renderer changes theme", () => {
+    /**
+     * Tests that a theme change reaches the native overlay, which no
+     * stylesheet can.
+     */
+    // GIVEN a running window
+    installMainWindow();
+
+    // WHEN its renderer publishes the dark theme
+    invokeHandlers.get(MAIN_WINDOW_SET_TITLE_BAR_OVERLAY)?.(
+      [{ color: "#17191C", symbolColor: "#F6F5F4", colorScheme: "dark" }],
+      { sender: constructed[0]?.webContents },
+    );
+
+    // THEN the live window is repainted, keeping the title bar's height
+    expect(constructed[0]?.setTitleBarOverlay).toHaveBeenCalledWith({
+      color: "#17191C",
+      symbolColor: "#F6F5F4",
+      height: 44,
+    });
+    // AND the theme is persisted for the next launch's constructor
+    expect(writeTitleBarOverlayThemeMock).toHaveBeenCalledWith({
+      color: "#17191C",
+      symbolColor: "#F6F5F4",
+      colorScheme: "dark",
+    });
+  });
+
+  test("puts the native scheme on the app's so the buttons react to the pointer", () => {
+    /**
+     * Chromium draws a caption button's hover and press wash from the native
+     * frame's scheme rather than from the overlay color, so a dark title bar
+     * under a light system scheme is washed in black on black and the buttons
+     * look inert.
+     */
+    // GIVEN a running window on a machine set to light mode
+    nativeThemeStub.shouldUseDarkColorsForSystemIntegratedUI = false;
+    installMainWindow();
+
+    // WHEN its renderer publishes a dark theme
+    invokeHandlers.get(MAIN_WINDOW_SET_TITLE_BAR_OVERLAY)?.(
+      [{ color: "#17191C", symbolColor: "#F6F5F4", colorScheme: "dark" }],
+      { sender: constructed[0]?.webContents },
+    );
+
+    // THEN the native scheme is overridden to dark, putting the wash on the
+    // light side of the surface it lands on
+    expect(themeSource()).toBe("dark");
+  });
+
+  test("leaves the native scheme following the OS when the two agree", () => {
+    /**
+     * Tests that a theme matching the machine's own setting keeps the renderer
+     * on `prefers-color-scheme: system`, which the override would pin.
+     */
+    // GIVEN a running window on a machine set to dark mode
+    nativeThemeStub.shouldUseDarkColorsForSystemIntegratedUI = true;
+    installMainWindow();
+
+    // WHEN its renderer publishes a dark theme
+    invokeHandlers.get(MAIN_WINDOW_SET_TITLE_BAR_OVERLAY)?.(
+      [{ color: "#17191C", symbolColor: "#F6F5F4", colorScheme: "dark" }],
+      { sender: constructed[0]?.webContents },
+    );
+
+    // THEN no override is installed
+    expect(themeSource()).toBe("system");
+  });
+
+  test("reads the machine's scheme through an override already in force", () => {
+    /**
+     * Tests that the override is lifted rather than latched: once one is in
+     * force `shouldUseDarkColors` reports the override, so a light theme on a
+     * light machine has to be recognized as needing none.
+     */
+    // GIVEN a light-mode machine an earlier dark theme overrode to dark
+    nativeThemeStub.shouldUseDarkColorsForSystemIntegratedUI = false;
+    nativeThemeStub.themeSource = "dark";
+    installMainWindow();
+
+    // WHEN its renderer publishes a light theme
+    invokeHandlers.get(MAIN_WINDOW_SET_TITLE_BAR_OVERLAY)?.(
+      [{ color: "#F6F5F4", symbolColor: "#24292E", colorScheme: "light" }],
+      { sender: constructed[0]?.webContents },
+    );
+
+    // THEN the override is released back to the machine's own setting
+    expect(themeSource()).toBe("system");
+  });
+
+  test("opens on the persisted scheme so the first hover reacts", () => {
+    /**
+     * The scheme is applied alongside the overlay's constructor colors so the
+     * window is built with the wash already on the right side of its surface.
+     */
+    // GIVEN a light-mode machine and a persisted dark theme
+    nativeThemeStub.shouldUseDarkColorsForSystemIntegratedUI = false;
+    persistedOverlayTheme = {
+      color: "#121214",
+      symbolColor: "#F6F5F4",
+      colorScheme: "dark",
+    };
+
+    // WHEN the window is created
+    void ensureVisible();
+
+    // THEN the native scheme is overridden before the renderer loads
+    expect(themeSource()).toBe("dark");
+  });
+
+  test("ignores overlay colors from other windows", () => {
+    /**
+     * Tests that only the window wearing the overlay can color it. Auxiliary
+     * windows run the same renderer bundle: the offscreen theme-stage window
+     * applies arbitrary workspace tokens for screenshots, and painting or
+     * persisting those would leak a staged palette onto the visible window.
+     */
+    // GIVEN a running window
+    installMainWindow();
+
+    // WHEN some other window's renderer publishes a theme
+    invokeHandlers.get(MAIN_WINDOW_SET_TITLE_BAR_OVERLAY)?.(
+      [{ color: "#e8a04c", symbolColor: "#17191C", colorScheme: "light" }],
+      { sender: { staged: true } },
+    );
+
+    // THEN the overlay keeps its colors, and none are persisted
+    expect(constructed[0]?.setTitleBarOverlay).not.toHaveBeenCalled();
+    expect(writeTitleBarOverlayThemeMock).not.toHaveBeenCalled();
   });
 
   test("hides on close and allows close while quitting", () => {

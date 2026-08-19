@@ -1,10 +1,20 @@
 {
+  "addCreditsModal": {
+    "configureAutoReload": "Configure Auto-Reload"
+  },
   "notFound": {
     "badge": "Error 404",
     "title": "Page not found",
     "body": "The page you're looking for doesn't exist or may have moved.",
     "backToAssistant": "Back to your assistant",
     "goBack": "Go back"
+  },
+  "resourcePressureBanner": {
+    "title": "Resource utilization is high",
+    "body": "Your assistant has been using elevated resources for an extended period, upgrade to power up your assistant.",
+    "bodyNoUpgrade": "Your assistant has been using elevated resources for an extended period.",
+    "upgrade": "Upgrade",
+    "dontShowAgain": "Don't show again"
   },
   "sectionActionsButton": {
     "ariaLabel": "{name} actions"

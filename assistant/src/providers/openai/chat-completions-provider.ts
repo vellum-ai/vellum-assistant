@@ -166,10 +166,11 @@ export interface OpenAIChatCompletionsProviderOptions {
   assistantReasoningField?: "reasoning" | "reasoning_content";
   /** Backfill a non-empty placeholder for assistant turns that would otherwise
    *  serialize with neither `content` nor `tool_calls` (e.g. reasoning-only
-   *  turns). Off by default; enabled for OpenRouter, whose downstream providers
-   *  (e.g. DeepSeek) reject such messages with `Invalid assistant message:
-   *  content or tool_calls must be set`. See {@link
-   *  EMPTY_ASSISTANT_TURN_PLACEHOLDER}. */
+   *  turns, or a Stop mid-stream before any text). Off by default; enabled for
+   *  OpenRouter, Vercel AI Gateway, LiteLLM, and custom `openai-compatible`
+   *  endpoints, whose downstream providers (e.g. DeepSeek, vLLM, Portkey)
+   *  reject such messages with `Invalid assistant message: content or
+   *  tool_calls must be set`. See {@link EMPTY_ASSISTANT_TURN_PLACEHOLDER}. */
   backfillEmptyAssistantContent?: boolean;
   /** Present object-typed tool params to the model as JSON-string params and
    *  decode them back to objects on the response. Works around models whose
@@ -1197,10 +1198,12 @@ export class OpenAIChatCompletionsProvider implements Provider {
     }
 
     // An assistant message must carry `content` or `tool_calls`. A turn with
-    // neither (e.g. reasoning-only) would serialize to null/empty content with
-    // no tool calls, which strict OpenAI-compatible backends reject. Reasoning
-    // lives in a separate field and does not satisfy this constraint. Scoped to
-    // providers that need it (OpenRouter) via `backfillEmptyAssistantContent`.
+    // neither (e.g. reasoning-only, or a Stop before any text) would serialize
+    // to null/empty content with no tool calls, which strict OpenAI-compatible
+    // backends reject. Reasoning lives in a separate field and does not
+    // satisfy this constraint. Scoped to providers that need it (OpenRouter,
+    // Vercel AI Gateway, LiteLLM, openai-compatible) via
+    // `backfillEmptyAssistantContent`.
     if (
       this.backfillEmptyAssistantContent &&
       !result.tool_calls &&

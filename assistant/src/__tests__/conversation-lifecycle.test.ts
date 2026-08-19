@@ -652,14 +652,12 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[2].content).toEqual([{ type: "text", text: "Tail" }]);
   });
 
-  test("internal-channel trusted_contact view still rehydrates memoryV2StaticBlock", async () => {
-    // Rehydration keys on `sourceChannel`, not `trustClass`: injection uses
-    // `shouldExposePersonalMemory`, which exposes personal memory whenever
-    // `sourceChannel === "vellum"` regardless of actor trust class. So a
-    // trusted_contact view arriving over the internal `"vellum"` channel
-    // rehydrates `memoryV2StaticBlock`. The rehydrate gate must match
-    // injection so a daemon-restart reload of the same conversation produces
-    // an identical prefix.
+  test("internal-channel trusted_contact view does not rehydrate memoryV2StaticBlock", async () => {
+    // Rehydration keys on the actor, not the surface: a trusted_contact is
+    // denied personal memory on the internal `"vellum"` channel exactly as it
+    // is on a remote one. Injection and rehydration share
+    // `canSeePersonalMemory`, so a daemon-restart reload of the same
+    // conversation produces an identical prefix.
     mockConversation = defaultConv();
     mockDbMessages = [
       {
@@ -697,13 +695,8 @@ describe("loadFromDb metadata injection rehydration", () => {
     const messages = conversation.getMessages();
 
     expect(messages).toHaveLength(3);
-    expect(messages[0].content).toEqual([
-      {
-        type: "text",
-        text: "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
-      },
-      { type: "text", text: "First" },
-    ]);
+    // The persisted block stays out: the console is a surface, not an actor.
+    expect(messages[0].content).toEqual([{ type: "text", text: "First" }]);
   });
 
   test("rehydration order matches injection-time order for the full personal-memory set", async () => {
@@ -1047,12 +1040,14 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[2].content).toEqual([{ type: "text", text: "Tail" }]);
   });
 
-  test("ensureActorScopedHistory reloads when sourceChannel changes within the same trust class", async () => {
-    // Regression: cache invalidation previously keyed only on trust class.
-    // `loadFromDb` gates `memoryV2StaticBlock` rehydration on `sourceChannel`
-    // via `shouldExposePersonalMemory`, so a same-trust-class reuse from a
-    // different channel (e.g. internal `vellum` → remote channel) must
-    // re-run `loadFromDb` or stale personal-memory exposure persists.
+  test("ensureActorScopedHistory reloads when the actor's memory visibility changes", async () => {
+    // Reuse of a resident conversation by a different actor must re-run
+    // `loadFromDb`, or the incoming actor inherits the previous actor's
+    // transcript with its personal-memory blocks still spliced in.
+    //
+    // Driven by a trust-class change rather than a channel change: personal
+    // memory is keyed on the actor, so two channels at the same class are the
+    // same view and reloading between them would prove nothing.
     mockConversation = defaultConv();
     mockDbMessages = [
       {
@@ -1080,10 +1075,9 @@ describe("loadFromDb metadata injection rehydration", () => {
     ];
 
     const conversation = makeConversation();
-    // First load: internal channel, trusted_contact actor → personal memory
-    // exposed via `shouldExposePersonalMemory({sourceChannel: "vellum", ...})`.
+    // First load: guardian actor → personal memory exposed.
     conversation.setTrustContext({
-      trustClass: "trusted_contact",
+      trustClass: "guardian",
       sourceChannel: "vellum",
     });
     await conversation.ensureActorScopedHistory();
@@ -1095,8 +1089,8 @@ describe("loadFromDb metadata injection rehydration", () => {
       { type: "text", text: "First" },
     ]);
 
-    // Reuse with the same trust class but a remote channel. The cache must
-    // invalidate and trigger a reload that strips the personal-memory block.
+    // Reuse by a contact. The cache must invalidate and trigger a reload that
+    // strips the personal-memory block.
     conversation.setTrustContext({
       trustClass: "trusted_contact",
       sourceChannel: "telegram",

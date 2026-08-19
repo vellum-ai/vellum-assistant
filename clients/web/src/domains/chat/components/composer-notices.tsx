@@ -49,6 +49,12 @@ export interface ComposerNoticesProps {
   diskPressureBanner?: ReactNode | null;
 
   /**
+   * Pre-rendered resource-pressure banner from the chat page, or `null`
+   * when resource pressure is inactive or yielding to disk pressure.
+   */
+  resourcePressureBanner?: ReactNode | null;
+
+  /**
    * Pre-rendered provider-billing banner, or `null` when no billing
    * banner should be shown. Passed as a slot because billing-banner
    * visibility depends on multiple data sources (plan, usage, provider).
@@ -87,6 +93,7 @@ export function ComposerNotices({
   onOpenMicSettings,
   onOpenTextInsertionSettings,
   diskPressureBanner,
+  resourcePressureBanner,
   billingBannerSlot,
   showMissingApiKeyBanner,
   onOpenAiSettings,
@@ -143,10 +150,11 @@ export function ComposerNotices({
           </Notice>
         </div>
       )}
-      {/* Rendered bare: the slot is always a truthy element and decides for
+      {/* Rendered bare: each slot is always a truthy element and decides for
           itself whether it has a banner, so a wrapper here would stand in the
-          stack even when it renders nothing. It brings its own spacing. */}
+          stack even when it renders nothing. Each brings its own spacing. */}
       {diskPressureBanner}
+      {resourcePressureBanner}
       {billingBannerSlot}
       {showMissingApiKeyBanner && (
         <div className="mb-2">

@@ -47,6 +47,14 @@ const getConversationMock = mock((id: string) => {
   return mockExistingConversations[id] ?? null;
 });
 
+const messagesInvalidated: string[] = [];
+
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  publishConversationMessagesChanged: (conversationId: string) => {
+    messagesInvalidated.push(conversationId);
+  },
+}));
+
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
@@ -144,6 +152,7 @@ describe("pairDeliveryWithConversation", () => {
   beforeEach(() => {
     createConversationMock.mockClear();
     addMessageMock.mockClear();
+    messagesInvalidated.length = 0;
     getConversationMock.mockClear();
     getBindingByChannelChatMock.mockClear();
     upsertOutboundBindingMock.mockClear();
@@ -868,6 +877,183 @@ describe("pairDeliveryWithConversation", () => {
     expect(result.createdNewConversation).toBe(false);
     expect(createConversationMock).not.toHaveBeenCalled();
     expect(addMessageMock).not.toHaveBeenCalled();
+  });
+
+  // ── Passive default: body appended to the producing conversation ───
+  //
+  // The home feed points "Go to Conversation" at `sourceContextId`, so the
+  // body has to land there for that button to open something that contains
+  // the notification the user tapped.
+
+  test("passive vellum signal appends the body to the producing conversation", async () => {
+    mockExistingConversations["conv-producer"] = {
+      id: "conv-producer",
+      source: "schedule",
+      title: "Daily Briefing Delivery",
+    };
+    const signal = makeSignal({
+      requiresConversation: undefined,
+      sourceContextId: "conv-producer",
+    });
+    const copy = makeCopy({ body: "Daily Briefing for Tuesday." });
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      copy,
+    );
+
+    expect(result.conversationId).toBe("conv-producer");
+    expect(result.messageId).toBe("msg-001");
+    expect(result.createdNewConversation).toBe(false);
+    expect(result.conversationFallbackUsed).toBe(false);
+    // Appending must never mint a sidebar entry.
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).toHaveBeenCalledTimes(1);
+    const [conversationId, role] = addMessageMock.mock.calls[0]!;
+    expect(conversationId).toBe("conv-producer");
+    expect(role).toBe("assistant");
+    // `addMessage` publishes the metadata tag alone, so a client holding this
+    // conversation open needs the messages tag to refetch the transcript.
+    expect(messagesInvalidated).toContain("conv-producer");
+  });
+
+  test("appends for a foreground producer the home feed will not mirror", async () => {
+    // `resolveHomeFeedMirror` declines a signal that is neither
+    // `assistant_tool`, nor flagged async-background, nor produced by a
+    // background-typed conversation, so no card is written for this one. The
+    // append is deliberately not gated on that: the vellum banner still
+    // deep-links to this conversation, and the client suppresses the banner
+    // entirely when the user is already viewing it, leaving the transcript as
+    // the only place the notification can land.
+    mockExistingConversations["conv-foreground"] = {
+      id: "conv-foreground",
+      source: "user",
+      title: "An ordinary chat",
+    };
+    const signal = makeSignal({
+      requiresConversation: undefined,
+      sourceChannel: "plugin",
+      sourceContextId: "conv-foreground",
+      attentionHints: {
+        requiresAction: false,
+        urgency: "medium",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+    });
+    const copy = makeCopy({ body: "Something you asked to watch changed." });
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      copy,
+    );
+
+    expect(result.conversationId).toBe("conv-foreground");
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).toHaveBeenCalledTimes(1);
+    expect(messagesInvalidated).toContain("conv-foreground");
+  });
+
+  test("appended notification body skips indexing", async () => {
+    mockExistingConversations["conv-producer"] = {
+      id: "conv-producer",
+      source: "schedule",
+      title: null,
+    };
+    const signal = makeSignal({
+      requiresConversation: undefined,
+      sourceContextId: "conv-producer",
+    });
+
+    await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      makeCopy(),
+    );
+
+    const options = addMessageMock.mock.calls[0]![3] as {
+      skipIndexing?: boolean;
+    };
+    expect(options.skipIndexing).toBe(true);
+  });
+
+  test("passive vellum signal appends regardless of the producing conversation's source", async () => {
+    // The reuse_existing branch requires a source match; appending to the
+    // producing conversation does not, since the row already exists and the
+    // feed links to it either way.
+    mockExistingConversations["conv-producer"] = {
+      id: "conv-producer",
+      source: "user",
+      title: null,
+    };
+    const signal = makeSignal({
+      requiresConversation: undefined,
+      sourceContextId: "conv-producer",
+      conversationMetadata: { source: "notification" },
+    });
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      makeCopy(),
+    );
+
+    expect(result.conversationId).toBe("conv-producer");
+    expect(createConversationMock).not.toHaveBeenCalled();
+  });
+
+  test("passive vellum signal with a sentinel sourceContextId appends nothing", async () => {
+    // Producers pass job ids, call session ids and `access-req-*` strings
+    // here. Those resolve to no row, which matches the feed hiding the button.
+    const signal = makeSignal({
+      requiresConversation: undefined,
+      sourceContextId: "job-1234",
+    });
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      makeCopy(),
+    );
+
+    expect(result.conversationId).toBeNull();
+    expect(result.messageId).toBeNull();
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).not.toHaveBeenCalled();
+  });
+
+  test("passive vellum signal appends to the producer, not the reuse_existing target", async () => {
+    mockExistingConversations["conv-producer"] = {
+      id: "conv-producer",
+      source: "schedule",
+      title: null,
+    };
+    mockExistingConversations["conv-hinted"] = {
+      id: "conv-hinted",
+      source: "notification",
+      title: null,
+    };
+    const signal = makeSignal({
+      requiresConversation: undefined,
+      sourceContextId: "conv-producer",
+    });
+    const conversationAction: ConversationAction = {
+      action: "reuse_existing",
+      conversationId: "conv-hinted",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      makeCopy(),
+      { conversationAction },
+    );
+
+    expect(result.conversationId).toBe("conv-producer");
+    expect(addMessageMock).toHaveBeenCalledTimes(1);
+    expect(addMessageMock.mock.calls[0]![0]).toBe("conv-producer");
   });
 
   // ── conversationMetadata.conversationType override ─────────────────

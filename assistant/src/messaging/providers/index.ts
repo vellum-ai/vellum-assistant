@@ -45,6 +45,34 @@ export function getTransportForCallback(
   return channel ? TRANSPORTS[channel] : undefined;
 }
 
+/**
+ * Show that the assistant is working on the channel this callback addresses.
+ *
+ * Resolves to nothing when the channel has no such affordance, which is the
+ * ordinary case rather than a failure: the indicator is decoration, and a
+ * channel that cannot show one is not degraded by its absence.
+ */
+/**
+ * Whether the channel this callback addresses can show a working indicator.
+ *
+ * Asks the transport rather than the channel id, so a channel that gains the
+ * method starts being asked without a caller being told about it.
+ */
+export function supportsChannelTyping(callbackUrl: string): boolean {
+  return getTransportForCallback(callbackUrl)?.typing !== undefined;
+}
+
+export async function sendChannelTyping(
+  callbackUrl: string,
+  chatId: string,
+): Promise<ChannelDeliveryResult> {
+  const transport = getTransportForCallback(callbackUrl);
+  if (!transport?.typing) {
+    return { ok: true };
+  }
+  return transport.typing(callbackContext(callbackUrl), chatId);
+}
+
 function callbackContext(callbackUrl: string): CallbackContext {
   const params: Record<string, string> = {};
   try {
@@ -74,9 +102,9 @@ export function isDirectDelivery(callbackUrl: string): boolean {
  * Deliver a channel reply directly to the provider API, bypassing the gateway
  * HTTP proxy. Callers MUST check `isDirectDelivery()` first.
  *
- * Sub-operations (reaction, thread status, typing) route to the transport's
- * optional method when both the payload field and the method are present;
- * otherwise the reply is delivered as text / approval / attachments.
+ * Sub-operations (reaction, thread status) route to the transport's optional
+ * method when both the payload field and the method are present; otherwise
+ * the reply is delivered as text / approval / attachments.
  */
 export async function deliverDirect(
   callbackUrl: string,
@@ -98,9 +126,6 @@ export async function deliverDirect(
   }
   if (payload.assistantThreadStatus && transport.setThreadStatus) {
     return transport.setThreadStatus(ctx, payload);
-  }
-  if (payload.chatAction === "typing" && transport.sendTyping) {
-    return transport.sendTyping(ctx, payload);
   }
   return transport.deliver(ctx, payload);
 }

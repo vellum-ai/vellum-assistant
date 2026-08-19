@@ -12,6 +12,7 @@ type SavedState = {
 let savedWindows: Record<string, SavedState> = {};
 let savedOnboardingActive: boolean | undefined = undefined;
 let savedCompanionHidden: boolean | undefined = undefined;
+let savedTitleBarOverlay: unknown = undefined;
 let workArea = { x: 0, y: 0, width: 1920, height: 1080 };
 const storeSetMock = mock((_key: string, _value: unknown) => {});
 
@@ -26,6 +27,7 @@ mock.module("electron-store", () => ({
       // when the key is absent.
       if (key === "onboardingActive") return savedOnboardingActive ?? fallback;
       if (key === "companionHidden") return savedCompanionHidden ?? fallback;
+      if (key === "titleBarOverlay") return savedTitleBarOverlay ?? fallback;
       if (key === "windows") return savedWindows;
       return fallback;
     }
@@ -50,8 +52,10 @@ const {
   track,
   readCompanionHidden,
   readOnboardingActive,
+  readTitleBarOverlayTheme,
   writeCompanionHidden,
   writeOnboardingActive,
+  writeTitleBarOverlayTheme,
 } = await import("./window-state");
 
 const DEFAULTS = { width: 800, height: 600 };
@@ -79,6 +83,7 @@ beforeEach(() => {
   savedWindows = {};
   savedOnboardingActive = undefined;
   savedCompanionHidden = undefined;
+  savedTitleBarOverlay = undefined;
   workArea = { x: 0, y: 0, width: 1920, height: 1080 };
   storeSetMock.mockClear();
 });
@@ -354,5 +359,84 @@ describe("companion surface visibility flag", () => {
 
     writeCompanionHidden(true);
     expect(storeSetMock).toHaveBeenCalledWith("companionHidden", true);
+  });
+});
+
+describe("windows title-bar overlay theme", () => {
+  const DARK_OVERLAY = {
+    color: "#17191C",
+    symbolColor: "#F6F5F4",
+    colorScheme: "dark",
+  } as const;
+  const VELVET_OVERLAY = {
+    color: "#121214",
+    symbolColor: "#F6F5F4",
+    colorScheme: "dark",
+  } as const;
+
+  test("an absent theme leaves the overlay on its system colors", () => {
+    // GIVEN nothing has been persisted
+
+    // WHEN the theme is read
+    const theme = readTitleBarOverlayTheme();
+
+    // THEN there is nothing to override the system caption colors with
+    expect(theme).toBeNull();
+  });
+
+  test("a persisted theme is returned for the next window's construction", () => {
+    // GIVEN a renderer published the dark theme on a past launch
+    savedTitleBarOverlay = DARK_OVERLAY;
+
+    // WHEN the theme is read
+    const theme = readTitleBarOverlayTheme();
+
+    // THEN it comes back as stored, scheme included
+    expect(theme).toEqual(DARK_OVERLAY);
+  });
+
+  test("a value that is not a pair of CSS colors is discarded", () => {
+    // GIVEN a hand-edited store file holding something unparseable
+    savedTitleBarOverlay = {
+      color: "not a color",
+      symbolColor: 42,
+      colorScheme: "dark",
+    };
+
+    // WHEN the theme is read
+    const theme = readTitleBarOverlayTheme();
+
+    // THEN the overlay falls back to the system colors rather than carrying a
+    // string Chromium's color parser would silently ignore
+    expect(theme).toBeNull();
+  });
+
+  test("a theme written by a build that predates the scheme is discarded", () => {
+    // GIVEN colors an older build persisted without the scheme they came from
+    savedTitleBarOverlay = { color: "#17191C", symbolColor: "#F6F5F4" };
+
+    // WHEN the theme is read
+    const theme = readTitleBarOverlayTheme();
+
+    // THEN the launch opens on the system colors rather than on a dark overlay
+    // whose caption buttons would not wash on hover
+    expect(theme).toBeNull();
+  });
+
+  test("writeTitleBarOverlayTheme skips persisting an unchanged theme", () => {
+    // GIVEN the dark theme is already persisted
+    savedTitleBarOverlay = DARK_OVERLAY;
+
+    // WHEN the same theme is re-asserted, then a different one is
+    writeTitleBarOverlayTheme(DARK_OVERLAY);
+    expect(storeSetMock).not.toHaveBeenCalled();
+    writeTitleBarOverlayTheme(VELVET_OVERLAY);
+
+    // THEN only the change reaches the store
+    expect(storeSetMock).toHaveBeenCalledTimes(1);
+    expect(storeSetMock).toHaveBeenCalledWith(
+      "titleBarOverlay",
+      VELVET_OVERLAY,
+    );
   });
 });

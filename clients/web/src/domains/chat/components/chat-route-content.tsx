@@ -41,7 +41,11 @@ import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
 import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-detection";
 import type { SendChatMessageOptions } from "@/domains/chat/hooks/use-send-message";
-import { DiskPressureBannerSlot } from "@/domains/chat/components/disk-pressure-banner-slot";
+import {
+  DiskPressureBannerSlot,
+  useDiskPressureBannerVisibility,
+} from "@/domains/chat/components/disk-pressure-banner-slot";
+import { ResourcePressureBannerSlot } from "@/domains/chat/components/resource-pressure-banner-slot";
 import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge";
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
@@ -136,6 +140,7 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 
 import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
+import type { UseResourcePressureMonitorResult } from "@/assistant/use-resource-pressure-monitor";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
 import {
@@ -201,6 +206,9 @@ export interface ChatMainPanelProps {
   // Disk pressure (single instance lives in ActiveChatView; passed down to
   // avoid duplicate polling intervals and bus subscriptions)
   diskPressure: UseDiskPressureMonitorResult;
+
+  // Resource pressure (single instance, same reasoning as disk pressure)
+  resourcePressure: UseResourcePressureMonitorResult;
 
   // Upward signals to ActiveChatView local state
   setRefreshEpoch: Dispatch<SetStateAction<number>>;
@@ -283,6 +291,7 @@ export function ChatMainPanel({
   handleInspectMessage,
   historyPagination,
   diskPressure,
+  resourcePressure,
   setRefreshEpoch,
   inputRef,
   sanitizedMessagesRef,
@@ -1115,11 +1124,35 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Disk pressure banner (localStorage-backed dismiss/suppress)
   // -------------------------------------------------------------------------
+  // One visibility instance is shared between the slot and the precedence
+  // gate below, so the gate tracks what the slot actually renders even when
+  // a dismissal's storage write fails and no cross-instance notification
+  // fires.
+  const diskPressureVisibility = useDiskPressureBannerVisibility(
+    diskPressure,
+    assistantId,
+  );
+  const diskPressureBannerVisible = diskPressureVisibility.visibleMode !== null;
   const diskPressureBannerSlot = (
     <DiskPressureBannerSlot
       diskPressure={diskPressure}
+      visibility={diskPressureVisibility}
+      assistantStateKind={assistantState.kind}
+    />
+  );
+
+  // -------------------------------------------------------------------------
+  // Resource pressure banner (localStorage-backed dismiss/cooldown)
+  // -------------------------------------------------------------------------
+  // The slot stays mounted even while yielding to the disk banner so its
+  // in-memory dismissal fallback (for failed storage writes) survives the
+  // disk episode; it hides its own output via `hidden`.
+  const resourcePressureBannerSlot = (
+    <ResourcePressureBannerSlot
+      resourcePressure={resourcePressure}
       assistantId={assistantId}
       assistantStateKind={assistantState.kind}
+      hidden={diskPressureBannerVisible}
     />
   );
 
@@ -1368,6 +1401,13 @@ export function ChatMainPanel({
               ) : null
             }
             diskPressureBanner={diskPressureBannerSlot}
+            // A storage warning is actionable-critical and must not stack
+            // with or compete against an upsell banner, so the resource
+            // slot yields whenever the disk-pressure banner is actually
+            // visible. Acknowledgement-required and cleanup modes are never
+            // dismissible, so disk always wins there; a dismissed or
+            // suppressed warning hands the space to the resource banner.
+            resourcePressureBanner={resourcePressureBannerSlot}
             showMissingApiKeyBanner={error?.code === "PROVIDER_NOT_CONFIGURED"}
             onOpenAiSettings={pushToAiSettings}
             onDismissApiKeyError={handleDismissApiKeyError}

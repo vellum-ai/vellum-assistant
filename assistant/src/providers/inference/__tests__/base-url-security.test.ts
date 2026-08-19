@@ -174,6 +174,16 @@ describe("resolveAuth defense-in-depth", () => {
     }
   });
 
+  test("preserves baseUrl for ollama none-auth", async () => {
+    const result = await resolveAuth({ type: "none" }, "ollama", {
+      baseUrl: "http://192.168.1.50:11434/v1",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok && result.resolved.kind === "none") {
+      expect(result.resolved.baseUrl).toBe("http://192.168.1.50:11434/v1");
+    }
+  });
+
   test("handles null baseUrl gracefully for any provider", async () => {
     const result = await resolveAuth(
       { type: "api_key", credential: "cred-test" },

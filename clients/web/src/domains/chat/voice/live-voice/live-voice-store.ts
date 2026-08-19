@@ -94,15 +94,24 @@ export function liveVoiceStateLabel(
 }
 
 /**
- * The label a *surface* shows for a session — {@link liveVoiceStateLabel} plus
- * the audio-aware `speaking` remap.
+ * The label a *surface* shows for a session: {@link liveVoiceStateLabel} plus
+ * the two remaps that keep the words true of what is actually happening.
  *
  * `speaking` stays set across a mid-turn tool run: the assistant spoke an ack,
  * then went silent while a tool runs. Announcing "Speaking…" while nothing is
  * audible is wrong for the room's caption, wrong for its screen-reader
  * announcement, and wrong for the Dynamic Island (JARVIS-1279). Every surface
- * that renders session activity calls this — the voice room and the iOS Live
- * Activity mirror — so the island always reads exactly what the room reads.
+ * that renders session activity calls this, the voice room and the iOS Live
+ * Activity mirror, so the island always reads exactly what the room reads.
+ *
+ * `listening` is the same problem through the microphone: the session holds
+ * that phase while the mic is muted, so the surface claims to be listening
+ * beside a mute button that says it is not. Muted is a state rather than an
+ * activity, so it takes no ellipsis where the phases do.
+ *
+ * Only `listening` is remapped. Muting the microphone does not make the
+ * assistant stop thinking or speaking, and relabelling those would trade one
+ * false statement for another.
  *
  * {@link liveVoiceStateLabel} stays the lower layer for callers that have no
  * audio signal to consult.
@@ -111,7 +120,11 @@ export function liveVoiceSurfaceLabel(
   state: LiveVoiceSessionState,
   reconnecting: boolean,
   assistantAudioActive: boolean,
+  muted: boolean,
 ): string {
+  if (state === "listening" && muted) {
+    return "Muted";
+  }
   return liveVoiceStateLabel(
     state === "speaking" && !assistantAudioActive ? "thinking" : state,
     reconnecting,

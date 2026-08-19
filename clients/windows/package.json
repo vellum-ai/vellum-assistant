@@ -6,7 +6,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "setup": "node node_modules/electron/install.js",
-    "dev": "bun run install:all && bun scripts/dev.ts",
+    "dev": "bun scripts/dev.ts",
     "dev:standalone": "bun run install:all && concurrently --kill-others --names web,electron --prefix-colors blue,green \"bun run dev:web\" \"bun run dev:electron\"",
     "dev:electron-only": "bun run install:all && electron-vite dev",
     "dev:electron-local-web": "bun scripts/dev-electron-local-web.ts",

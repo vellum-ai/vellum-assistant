@@ -42,6 +42,7 @@ import type {
   SystemPermissionStateItem,
   SystemPermissionsState,
   TextInsertionResult,
+  TitleBarOverlayTheme,
   UpdateState,
   VellumCommand,
   VoiceActivityContent,
@@ -282,6 +283,13 @@ export interface VellumBridge {
   mainWindow: {
     ensureVisible(): Promise<void>;
     setOnboarding(active: boolean): Promise<void>;
+    /**
+     * Paint the native caption buttons in the active theme's colors. Windows
+     * only: the title-bar overlay is a Windows and Linux surface, and macOS
+     * draws traffic lights the system themes itself, so the macOS preload
+     * does not expose this.
+     */
+    setTitleBarOverlay?(colors: TitleBarOverlayTheme): Promise<void>;
   };
   power: {
     onEvent(callback: (event: PowerEvent) => void): () => void;

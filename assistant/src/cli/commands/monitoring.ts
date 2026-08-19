@@ -56,6 +56,7 @@ interface LatestSample {
   memoryStat: {
     anonBytes: number | null;
     fileBytes: number | null;
+    inactiveFileBytes: number | null;
     kernelBytes: number | null;
     slabReclaimableBytes: number | null;
     slabUnreclaimableBytes: number | null;

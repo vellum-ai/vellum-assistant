@@ -12,6 +12,7 @@ mock.module("electron", () => ({
       }
     },
   },
+  BrowserWindow: { getAllWindows: () => [] },
   safeStorage: {
     isEncryptionAvailable: () => false,
     encryptString: (value: string) => Buffer.from(value),

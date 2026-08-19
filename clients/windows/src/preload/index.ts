@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
 import type {
   AppVersionInfo,
+  TitleBarOverlayTheme,
   VellumBridge,
   VellumCommand,
 } from "@vellumai/ipc-contract";
@@ -47,6 +48,11 @@ const coreBridge: WindowsCoreBridge = {
       ipcRenderer.invoke(
         "vellum:mainWindow:setOnboarding",
         active,
+      ) as Promise<void>,
+    setTitleBarOverlay: (theme: TitleBarOverlayTheme): Promise<void> =>
+      ipcRenderer.invoke(
+        "vellum:mainWindow:setTitleBarOverlay",
+        theme,
       ) as Promise<void>,
   },
 };
