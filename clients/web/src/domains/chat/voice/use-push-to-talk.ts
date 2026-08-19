@@ -88,6 +88,15 @@ function isActivatorInput(
   return modifier !== undefined && activator.modifiers.includes(modifier);
 }
 
+function shouldClaimActivatorInput(
+  event: KeyboardEvent,
+  activator: PTTActivator,
+): boolean {
+  return !(
+    activator.kind === "key" && isEditableTarget(event.target)
+  ) && isActivatorInput(event, activator);
+}
+
 /**
  * Play a short activation blip via the Web Audio API to provide audible
  * feedback when PTT recording starts. Standalone helper to avoid coupling
@@ -221,7 +230,7 @@ export function usePushToTalk(
       if (activator.kind === "off") {
         return;
       }
-      if (isActivatorInput(event, activator)) {
+      if (shouldClaimActivatorInput(event, activator)) {
         event.preventDefault();
       }
       if (event.repeat) {
@@ -272,7 +281,7 @@ export function usePushToTalk(
       if (activator.kind === "off") {
         return;
       }
-      if (isActivatorInput(event, activator)) {
+      if (shouldClaimActivatorInput(event, activator)) {
         event.preventDefault();
       }
 

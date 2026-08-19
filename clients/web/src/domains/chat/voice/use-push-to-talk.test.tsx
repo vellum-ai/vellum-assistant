@@ -125,7 +125,7 @@ describe("usePushToTalk", () => {
     renderPushToTalk(target);
     const textarea = focusedTextarea();
 
-    fireEvent.keyDown(textarea, { key: "k" });
+    expect(fireEvent.keyDown(textarea, { key: "k" })).toBe(true);
 
     await act(async () => {
       await wait(PTT_HOLD_DELAY_MS + 25);
