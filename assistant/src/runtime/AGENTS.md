@@ -168,6 +168,35 @@ Identifiers and plumbing notes:
 - Guardian request records live in the gateway-owned `guardian_requests` table (and their `guardian_request_deliveries`); the daemon reads/writes them through the `channels/gateway-guardian-requests.ts` client.
 - Legacy in-turn interception (`routes/guardian-approval-interception.ts` + the approval prompt watcher) still serves a guardian's own tool-approval prompts mid-turn, resolving via `conversation.handleConfirmationResponse(requestId, decision)`. It is a legacy rail — the reply router runs first; converge new work on the pipeline.
 
+### Message metadata vocabulary
+
+Five differently-scoped things are called metadata on the channel path. They
+nest, so a name that fits two of them reads as one concept to the next person.
+Counterpart to the gateway's Channel Identity Vocabulary, which covers the
+wire side.
+
+- **`sourceMetadata`** is the gateway to daemon **wire** field on an inbound
+  payload (`SourceMetadataSchema`, `packages/gateway-client`). It describes
+  the event in flight: provider ids, the trust verdict, the admission policy.
+  It is not stored.
+- **`messages.metadata`** is the stored **envelope** on a row, validated by
+  `messageMetadataSchema` (`persistence/conversation-crud.ts`). Everything
+  below is a key inside it.
+- **`buildChannelMetadata`** (`routes/channel-metadata.ts`) builds that
+  envelope for a turn: provenance, `userMessageChannel`, interfaces,
+  attachments. It is the whole bag, not a key in it.
+- **`providerMeta`** is one key inside the envelope: what the row is in its
+  provider's conversation, in terms no provider owns (`chatId`, `messageId`,
+  `threadId`, `eventKind`, `reaction.targetMessageId`). Any channel can write
+  it, including one this repo has no code for, and the channel-agnostic
+  readers go through `readProviderMetadata`.
+- **`slackMeta`** is Slack's own version of that key, predating `providerMeta`
+  and carrying fields no other channel has an equivalent for (file markers,
+  timezone labels). It is mapped onto `providerMeta` on read, never rewritten.
+
+A channel added from here writes `providerMeta` and needs no adapter. Reach
+for a per-provider key only for fields that are genuinely that provider's.
+
 ### Channel verification: gateway-owned
 
 Verification SESSION state (sessions, secrets, rate limits, validate+consume) AND the channel-verified OUTCOME (status / verifiedAt / verifiedVia) are both gateway-owned. The gateway holds the `channel_verification_sessions` + `channel_guardian_rate_limits` tables (`gateway/src/db/session-store.ts`) and mints all secrets in `gateway/src/verification/session-service.ts`; the daemon holds no session or rate-limit state (its legacy tables were dropped by gateway data migration m0014).
