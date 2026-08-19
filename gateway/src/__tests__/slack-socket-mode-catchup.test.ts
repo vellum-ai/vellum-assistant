@@ -625,6 +625,49 @@ describe("replayMissedEvents", () => {
     }
   });
 
+  test("recovers a missed unmentioned thread_broadcast from an active thread", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    client.ws = ws;
+
+    store.setLastSeenTsIfGreater("1700000000.000000");
+    store.trackThread("1700000000.000000", "CROUTED01", 24 * 60 * 60 * 1_000);
+
+    fetchMock = mock(async (input) => {
+      const url = String(input);
+      if (url.includes("conversations.replies")) {
+        return makeHistoryResponse([
+          {
+            type: "message",
+            subtype: "thread_broadcast",
+            user: "U-reply",
+            text: "also sending this to the channel",
+            ts: "1700000065.000000",
+            thread_ts: "1700000000.000000",
+          },
+        ]);
+      }
+      return makeHistoryResponse([]);
+    });
+
+    try {
+      await client.replayMissedEvents(ws);
+      await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe(
+        "replay:CROUTED01:1700000065.000000",
+      );
+      expect(emitted[0].event.message.content).toBe(
+        "also sending this to the channel",
+      );
+      expect(emitted[0].threadTs).toBe("1700000000.000000");
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("recovers a missed @-mention in a thread the bot posted to first (JARVIS-1086)", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];

@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -9,6 +11,8 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 import { resolvePairDeviceTarget } from "./pair-device-client";
 import { PairDeviceReady } from "./pair-device-ready";
+import { PairedDevicesSection } from "./paired-devices-section";
+import { PendingPairingRequests } from "./pending-pairing-requests";
 import { usePairDevice } from "./use-pair-device";
 
 /**
@@ -16,7 +20,9 @@ import { usePairDevice } from "./use-pair-device";
  * commands —
  * the UI equivalent of `vellum pair --qr`. It mints and auto-approves a
  * device-code challenge against the host's loopback gateway and renders the
- * https pair URL as a QR with a copyable link and expiry countdown.
+ * https pair URL as a QR with a copyable link and expiry countdown. It also
+ * hosts the approval list for pairing requests minted elsewhere
+ * ({@link PendingPairingRequests}).
  *
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
@@ -29,6 +35,9 @@ export function PairDeviceCard() {
   const supported = useSupportsRemoteWebPairing();
   const webRemoteIngressOn = useClientFeatureFlagStore.use.webRemoteIngress();
   const pair = usePairDevice(target?.base ?? null, target?.ingressUrl ?? null);
+  // Bumped when the pending-request flow pairs a device, so the device list
+  // below refetches without waiting for a live-code poll.
+  const [devicesRevalidateKey, setDevicesRevalidateKey] = useState(0);
   const { copy, copied } = useCopyToClipboard({
     errorMessage: "Could not copy the pairing address.",
   });
@@ -112,6 +121,17 @@ export function PairDeviceCard() {
             onCopy={copy}
           />
         )}
+
+        <PendingPairingRequests
+          base={target.base}
+          onApproved={() => setDevicesRevalidateKey((key) => key + 1)}
+        />
+
+        {/* Poll while a code is live so an externally claimed pairing shows up. */}
+        <PairedDevicesSection
+          pollWhilePairing={isReady && !pair.expired}
+          revalidateKey={devicesRevalidateKey}
+        />
       </div>
     </DetailCard>
   );

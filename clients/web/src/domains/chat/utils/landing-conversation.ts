@@ -5,12 +5,21 @@
  * A cold load with nothing selected (no conversation in the URL, no
  * in-memory selection, no draft) resumes the last-viewed conversation if it
  * is still selectable, else lands on the newest selectable foreground
- * conversation. The last-viewed row is read by id; the newest is the first
- * selectable row of the foreground list's page one, read through the app's
+ * conversation. The last-viewed row is read by id; the newest is one row
+ * from the daemon (`limit=1`, `foregroundOnly=true`), read through the app's
  * own page fetcher so nothing lands in the query cache under the list prefix
  * (every `conversationsGet` key is a list cache to the prefix scanners, and
  * this read is not one). Neither waits on the drained foreground list, whose
  * length grows with the account and whose readers are elsewhere.
+ *
+ * An assistant that predates `foregroundOnly` ignores it and answers with
+ * the newest row of the unfiltered listing, which may be a background run.
+ * That is detectable: the row was asked for as foreground, so one that fails
+ * the client's selectability rule proves the filter was not applied, and the
+ * newest-row search then pages through the unfiltered list itself
+ * ({@link walkForNewestSelectable}). No version gate: the response carries
+ * the evidence, and a gate read before the identity fetch hydrates would
+ * send every cold boot down the paged path.
  *
  * The drained list is still consulted when it already holds rows (a warm
  * cache from an earlier mount), because reading it costs nothing; the same
@@ -35,6 +44,7 @@ import type { Conversation } from "@/types/conversation-types";
 import {
   CONVERSATION_LIST_PAGE_SIZE,
   type ConversationListPage,
+  fetchNewestForegroundConversation,
   listConversationsFirstPage,
   listConversationsPage,
 } from "@/utils/conversation-list-fetchers";
@@ -102,7 +112,7 @@ function newerOf(
 }
 
 /**
- * How far past page one the newest-row search looks: the 200 newest rows.
+ * How far past page one the paged search looks: the 200 newest rows.
  * Beyond that the landing is the assistant itself (a new chat is one click
  * away), so cold boot stays bounded on an account whose newest rows are all
  * background runs filed in custom groups, rather than scanning to the first
@@ -114,11 +124,11 @@ const LANDING_MAX_PAGES = 4;
  * The newest selectable foreground conversation's id.
  *
  * Reads the drained foreground cache when it already holds rows (free), else
- * page one of the foreground list, and later pages only while page one held
- * no selectable row and the server has more, up to {@link LANDING_MAX_PAGES}:
- * the route's standard listing admits background runs filed in custom
- * groups, so the first row is not always a chat. One request in the
- * ordinary case, never more than four.
+ * asks the daemon for its newest foreground row and takes it. A row that is
+ * not selectable means the assistant ignored `foregroundOnly` (it predates
+ * the parameter), so the search pages through the unfiltered list instead
+ * ({@link walkForNewestSelectable}). One request against a current
+ * assistant; against an older one, that request plus the paged search.
  */
 async function fetchLatestForegroundId(
   queryClient: QueryClient,
@@ -130,6 +140,27 @@ async function fetchLatestForegroundId(
   if (cached && cached.conversations.length > 0) {
     return firstSelectable(cached.conversations)?.conversationId ?? null;
   }
+  const newest = await fetchNewestForegroundConversation(assistantId);
+  if (newest === null) {
+    return null;
+  }
+  if (isStoredConversationSelectable(newest)) {
+    return newest.conversationId;
+  }
+  return walkForNewestSelectable(assistantId);
+}
+
+/**
+ * The newest selectable row of the unfiltered foreground list, found by
+ * paging: page one, and later pages only while page one held no selectable
+ * row and the server has more, up to {@link LANDING_MAX_PAGES}. The
+ * standard listing admits background runs filed in custom groups, so the
+ * first row is not always a chat. For assistants that do not filter to
+ * foreground rows themselves.
+ */
+async function walkForNewestSelectable(
+  assistantId: string,
+): Promise<string | null> {
   const first = await listConversationsFirstPage(assistantId, {}, "landing");
   /* An unfiltered page one is the paginated window plus every pinned row
      the daemon appends beyond it, sorted together by recency. An appended

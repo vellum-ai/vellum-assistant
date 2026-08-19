@@ -1,36 +1,11 @@
 import { t } from "@/i18n";
-
-const RELATIVE_FORMATTER =
-  typeof Intl !== "undefined" && "RelativeTimeFormat" in Intl
-    ? new Intl.RelativeTimeFormat(undefined, { style: "long", numeric: "auto" })
-    : null;
-
-const UNITS: Array<{ unit: Intl.RelativeTimeFormatUnit; ms: number }> = [
-  { unit: "year", ms: 365 * 24 * 60 * 60 * 1000 },
-  { unit: "month", ms: 30 * 24 * 60 * 60 * 1000 },
-  { unit: "week", ms: 7 * 24 * 60 * 60 * 1000 },
-  { unit: "day", ms: 24 * 60 * 60 * 1000 },
-  { unit: "hour", ms: 60 * 60 * 1000 },
-  { unit: "minute", ms: 60 * 1000 },
-  { unit: "second", ms: 1000 },
-];
+import { formatRelativeTime as formatRelativeTimeFromNow } from "@/lib/relative-time";
 
 export function formatRelativeTime(epochMs: number): string {
-  const diff = epochMs - Date.now();
-  const absDiff = Math.abs(diff);
-  if (absDiff < 30_000) {
+  if (Math.abs(epochMs - Date.now()) < 30_000) {
     return t("memoryFormat.justNow", { ns: "intelligence" });
   }
-  if (!RELATIVE_FORMATTER) {
-    return new Date(epochMs).toLocaleString();
-  }
-  for (const { unit, ms } of UNITS) {
-    if (absDiff >= ms || unit === "second") {
-      const value = Math.round(diff / ms);
-      return RELATIVE_FORMATTER.format(value, unit);
-    }
-  }
-  return RELATIVE_FORMATTER.format(Math.round(diff / 1000), "second");
+  return formatRelativeTimeFromNow(epochMs);
 }
 
 export function formatAbsoluteDate(epochMs: number): string {

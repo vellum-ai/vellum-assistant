@@ -46,7 +46,9 @@ catch (InvalidOperationException)
 
 Console.WriteLine("Native helper registry tests passed");
 
+await Vellum.WindowsHelper.Tests.InputControllerTests.RunAsync();
 await TextInsertionTests.RunAsync();
+await NotificationServiceTests.RunAsync();
 
 static void Assert(bool condition)
 {

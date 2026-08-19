@@ -219,6 +219,7 @@ export function isPinnedInjectedFilter(
     (filter.archiveStatus === undefined || filter.archiveStatus === "active") &&
     filter.originChannel === undefined &&
     filter.groupId === undefined &&
-    filter.needsAttention === undefined
+    filter.needsAttention === undefined &&
+    filter.foregroundOnly === undefined
   );
 }

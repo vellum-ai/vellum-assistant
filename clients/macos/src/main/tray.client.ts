@@ -24,6 +24,8 @@ import {
 import { acceleratorOption } from "./commands.client";
 import {
   isCompanionSurfaceEnabled,
+  readCompanionSurfaceSize,
+  setCompanionSurfaceSize,
   setCompanionSurfaceVisible,
 } from "./companion-window";
 import { getWatchedLockfile } from "./lockfile-watcher.client";
@@ -49,6 +51,7 @@ export const installTray = (handlers: TrayHandlers): void => {
     accelerator: acceleratorOption,
     companionEnabled: isCompanionSurfaceEnabled,
     companionHidden: readCompanionHidden,
+    companionSize: readCompanionSurfaceSize,
     dispatch: dispatchToMain,
     featureEnabled: (flag) => readSetting("featureFlags")?.[flag] === true,
     getLockfile: getWatchedLockfile,
@@ -58,6 +61,7 @@ export const installTray = (handlers: TrayHandlers): void => {
       void shell.openExternal("http://localhost:6007");
     },
     removePairedLabel: "Remove from this Mac…",
+    setCompanionSize: setCompanionSurfaceSize,
     setCompanionVisible: setCompanionSurfaceVisible,
   });
   installSharedTray(handlers);

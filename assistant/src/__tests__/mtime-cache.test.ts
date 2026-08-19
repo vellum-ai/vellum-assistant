@@ -38,6 +38,7 @@ import {
   reconcilePluginSourcesNow,
   resetPluginCacheForTests,
 } from "../plugins/mtime-cache.js";
+import { resetPluginRegistryForTests } from "../plugins/registry.js";
 import { getSourceVersionsPath } from "../plugins/source-versions.js";
 import {
   __resetRegistryForTesting,
@@ -157,6 +158,7 @@ beforeEach(() => {
   // The registry pulls plugin tools via loadPluginTools(); clear its side
   // (tools + pulled fingerprints) so registrations never leak across tests.
   __resetRegistryForTesting();
+  resetPluginRegistryForTests();
 });
 
 afterAll(() => {

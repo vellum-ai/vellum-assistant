@@ -148,6 +148,9 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       // or a reasoning-only turn. Same guard as OpenRouter and Vercel AI
       // Gateway.
       backfillEmptyAssistantContent: true,
+      // Custom OpenAI-compatible endpoints may front strict reasoning
+      // models (DeepSeek thinking) that 400 on any explicit tool_choice.
+      omitToolChoiceWhenReasoning: true,
       ...(baseURL ? { baseURL } : {}),
     }),
   minimax: ({ apiKey, model, streamTimeoutMs }) =>

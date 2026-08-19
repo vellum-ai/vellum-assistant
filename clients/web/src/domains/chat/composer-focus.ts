@@ -60,6 +60,18 @@ function isTextEntryElement(element: Element | null): boolean {
   return Boolean(element?.closest(TEXT_ENTRY_SELECTOR));
 }
 
+/**
+ * Whether focus currently sits in something the soft keyboard serves. Exported
+ * so callers deciding whether they are owed a keyboard back share this
+ * selector rather than growing one of their own.
+ */
+export function isTextEntryFocused(): boolean {
+  if (typeof document === "undefined") {
+    return false;
+  }
+  return isTextEntryElement(document.activeElement);
+}
+
 function isKeyboardActivationElement(element: Element | null): boolean {
   return Boolean(element?.closest("a[href], button, summary"));
 }

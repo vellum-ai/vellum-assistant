@@ -5,5 +5,8 @@
     "body": "La página que buscas no existe o puede haberse movido.",
     "backToAssistant": "Volver a tu asistente",
     "goBack": "Atrás"
+  },
+  "sectionActionsButton": {
+    "ariaLabel": "Acciones de {name}"
   }
 }

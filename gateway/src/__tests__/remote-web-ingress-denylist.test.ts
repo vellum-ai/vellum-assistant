@@ -77,6 +77,9 @@ describe("remote web ingress denylist", () => {
       "/v1/guardian/reset-bootstrap",
       "/v1/pair",
       "/v1/remote-web/pairing-challenge",
+      "/v1/remote-web/pairing-requests",
+      "/v1/remote-web/pairing-requests/approve",
+      "/v1/remote-web/pairing-requests/deny",
       "/v1/remote-web/pairing-token",
       "/v1/remote-web/pairing-verification",
     ]);

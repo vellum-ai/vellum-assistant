@@ -18,6 +18,7 @@ import {
 
 import { HostProxySseClient, type HostProxySseMessage } from "./sse";
 import { HostProxyPoster, type PresenceState } from "./poster";
+import { setHostProxyExecutorLogger } from "./executors/logger";
 
 // ---------------------------------------------------------------------------
 // Executor interface
@@ -784,6 +785,7 @@ export function installHostProxyBridge(
   runtime: HostProxyRuntime,
 ): () => void {
   hostRuntime = runtime;
+  setHostProxyExecutorLogger(runtime.logger);
   executors.clear();
   for (const [kind, executor] of Object.entries(runtime.executors)) {
     if (executor) {

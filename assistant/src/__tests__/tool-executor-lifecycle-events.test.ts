@@ -6,9 +6,11 @@ import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 let checkerDecision: "allow" | "prompt" | "deny" = "allow";
 let checkerReason = "allowed";
 let checkerRisk = "low";
+let classifyThrow: Error | null = null;
 let promptDecision: "allow" | "deny" = "allow";
 let fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
 let toolThrow: Error | null = null;
+let grantConsumeOk = false;
 
 // ── audit-terminal captures ───────────────────────────────
 // The executor and its permission/approval collaborators no longer emit
@@ -86,13 +88,38 @@ mock.module("../platform/consent-cache.js", () => ({
 
 mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => false,
-  classifyRisk: async () => ({ level: checkerRisk }),
+  // Mirrors the real classifier's two failure modes: it throws on an aborted
+  // signal before doing anything, and it throws when the gateway is
+  // unreachable.
+  classifyRisk: async (
+    _name: string,
+    _input: Record<string, unknown>,
+    _workingDir?: string,
+    _preParsed?: unknown,
+    _manifestOverride?: unknown,
+    signal?: AbortSignal,
+  ) => {
+    signal?.throwIfAborted();
+    if (classifyThrow) {
+      throw classifyThrow;
+    }
+    return { level: checkerRisk };
+  },
   check: async () => ({ decision: checkerDecision, reason: checkerReason }),
-  generateAllowlistOptions: () => [
-    { label: "exact", description: "exact", pattern: "exact" },
-  ],
   generateScopeOptions: () => [{ label: "/tmp", scope: "/tmp" }],
-  getCachedAssessment: () => undefined,
+}));
+
+// The scoped-grant consume the gate performs for a sensitive tool invoked by
+// an unknown actor. `mintGrantFromDecision` is stubbed only so the module's
+// other importer links; nothing here mints.
+mock.module("../approvals/approval-primitive.js", () => ({
+  consumeGrantForInvocation: async () =>
+    grantConsumeOk
+      ? { ok: true, grant: { id: "grant-1" } }
+      : { ok: false, reason: "no_match" },
+  mintGrantFromDecision: async () => {
+    throw new Error("mintGrantFromDecision should not be called");
+  },
 }));
 
 mock.module("../persistence/conversation-crud.js", () => ({
@@ -255,9 +282,11 @@ describe("ToolExecutor audit terminals", () => {
     checkerDecision = "allow";
     checkerReason = "allowed";
     checkerRisk = "low";
+    classifyThrow = null;
     promptDecision = "allow";
     fakeToolResult = { content: "ok", isError: false };
     toolThrow = null;
+    grantConsumeOk = false;
     executedCaptures.length = 0;
     errorCaptures.length = 0;
     deniedCaptures.length = 0;
@@ -785,5 +814,103 @@ describe("ToolExecutor audit terminals", () => {
     expect(promptedCaptures).toEqual(["file_edit"]);
     expect(executedCaptures).toHaveLength(1);
     expect(executedCaptures[0].toolName).toBe("file_edit");
+  });
+
+  // ── audit riskLevel on rows the permission check never produces ─────────
+  // The classifier runs before the pre-execution gates, so a gate denial, a
+  // gate error, and a grant-consumed execution all record the call's real
+  // risk rather than a placeholder (LUM-3159).
+
+  test("a gate-denied call records the classified risk, not a placeholder", async () => {
+    checkerRisk = "high";
+    const executor = new ToolExecutor(makePrompter());
+
+    // Verification control-plane paths are guardian-only; an unknown actor is
+    // denied by the gate before any permission check.
+    const result = await executor.execute(
+      "bash",
+      { command: "curl http://host/v1/channel-verification-sessions" },
+      makeContext({ trustClass: "unknown" }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(deniedCaptures).toHaveLength(1);
+    expect(deniedCaptures[0].riskLevel).toBe("high");
+    expect(deniedCaptures[0].wasPrompted).toBe(false);
+  });
+
+  test("a gate-errored call records the classified risk", async () => {
+    checkerRisk = "medium";
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute("unknown_tool", { test: true }, makeContext());
+
+    expect(errorCaptures).toHaveLength(1);
+    expect(errorCaptures[0].errorMessage).toContain("Unknown tool");
+    expect(errorCaptures[0].riskLevel).toBe("medium");
+  });
+
+  test("a grant-consumed execution records the classified risk", async () => {
+    checkerRisk = "high";
+    grantConsumeOk = true;
+    const executor = new ToolExecutor(makePrompter());
+
+    // A sensitive tool from an unknown actor routes through the scoped-grant
+    // consume; a consumed grant skips the permission check entirely, so this
+    // is the one executed row whose risk the permission check never supplies.
+    const result = await executor.execute(
+      "file_write",
+      { path: "/tmp/project/out.txt", content: "x" },
+      makeContext({ trustClass: "unknown" }),
+    );
+
+    expect(result).toMatchObject({
+      isError: false,
+      approvalReason: "grant_scoped_consumed",
+    });
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].decision).toBe("allow");
+    expect(executedCaptures[0].riskLevel).toBe("high");
+  });
+
+  test("a call whose classification never completes records 'unclassified', not 'low'", async () => {
+    classifyThrow = new Error("gateway unreachable");
+    const executor = new ToolExecutor(makePrompter());
+
+    // Gate error path: the row says the risk was never assessed.
+    await executor.execute("unknown_tool", { test: true }, makeContext());
+    expect(errorCaptures).toHaveLength(1);
+    expect(errorCaptures[0].riskLevel).toBe("unclassified");
+
+    // Past the gates, the permission check still requires a classification
+    // and fails closed; that error row is likewise honest about the risk.
+    errorCaptures.length = 0;
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(executedCaptures).toHaveLength(0);
+    expect(errorCaptures).toHaveLength(1);
+    expect(errorCaptures[0].errorMessage).toContain("gateway unreachable");
+    expect(errorCaptures[0].riskLevel).toBe("unclassified");
+  });
+
+  test("a call aborted before it starts records 'unclassified' on its cancelled row", async () => {
+    checkerRisk = "high";
+    const executor = new ToolExecutor(makePrompter());
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await executor.execute(
+      "bash",
+      { command: "rm -rf /tmp" },
+      makeContext({ signal: controller.signal }),
+    );
+
+    expect(result).toEqual({ content: "Cancelled", isError: true });
+    expect(errorCaptures).toHaveLength(1);
+    expect(errorCaptures[0].riskLevel).toBe("unclassified");
   });
 });

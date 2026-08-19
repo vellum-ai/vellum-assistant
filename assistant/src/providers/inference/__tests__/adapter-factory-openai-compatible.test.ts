@@ -68,6 +68,10 @@ describe("adapter factory", () => {
       useNativeWebSearch: false,
     });
     expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
+    expect(
+      (adapter as unknown as { omitToolChoiceWhenReasoning: boolean })
+        .omitToolChoiceWhenReasoning,
+    ).toBe(true);
   });
 
   test("backfills placeholder content after an aborted empty assistant turn", async () => {

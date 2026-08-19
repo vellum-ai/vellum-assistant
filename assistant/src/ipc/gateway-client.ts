@@ -11,15 +11,16 @@
  */
 
 import {
+  type ClassifyRiskIpcParams,
+  type ClassifyRiskIpcResponse,
+  ClassifyRiskIpcResponseSchema,
+} from "@vellumai/gateway-client";
+import {
   ipcCall as packageIpcCall,
   IpcCallError,
   PersistentIpcClient as PackagePersistentIpcClient,
 } from "@vellumai/gateway-client/ipc-client";
 
-import type {
-  ClassificationResult,
-  ClassifyRiskParams,
-} from "../permissions/ipc-risk-types.js";
 import { getLogger } from "../util/logger.js";
 import { abortableSleep, computeRetryDelay } from "../util/retry.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
@@ -173,37 +174,29 @@ const CLASSIFY_RISK_ATTEMPT_TIMEOUT_MS = 1_500; // per-attempt cap (< 5s default
  * When a `signal` is supplied, retries stop as soon as it aborts.
  */
 export async function ipcClassifyRisk(
-  params: ClassifyRiskParams,
+  params: ClassifyRiskIpcParams,
   signal?: AbortSignal,
-): Promise<ClassificationResult | undefined> {
+): Promise<ClassifyRiskIpcResponse | undefined> {
   for (let attempt = 0; ; attempt++) {
     try {
       const result = await ipcCallPersistent(
         "classify_risk",
-        params as unknown as Record<string, unknown>,
+        params,
         CLASSIFY_RISK_ATTEMPT_TIMEOUT_MS,
       );
 
-      // Returned-but-malformed responses are deterministic, not transient:
+      // A returned-but-malformed response is deterministic, not transient:
       // fail closed immediately (no retry).
-      if (!result || typeof result !== "object" || Array.isArray(result)) {
+      const parsed = ClassifyRiskIpcResponseSchema.safeParse(result);
+      if (!parsed.success) {
         log.warn(
-          { result },
-          "ipcClassifyRisk: gateway returned non-object response",
+          { result, issues: parsed.error.issues },
+          "ipcClassifyRisk: gateway response does not match the classify_risk contract",
         );
         return undefined;
       }
 
-      const obj = result as Record<string, unknown>;
-      if (typeof obj.risk !== "string") {
-        log.warn(
-          { result },
-          "ipcClassifyRisk: gateway response missing 'risk' field",
-        );
-        return undefined;
-      }
-
-      return result as ClassificationResult;
+      return parsed.data;
     } catch (err) {
       // A structured gateway error means the gateway was reachable and
       // deterministically rejected the request — not a transient blip.

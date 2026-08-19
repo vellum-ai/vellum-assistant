@@ -145,7 +145,20 @@ function uploadLimitLabel(file: File): string {
   return isAutoResizableImage(file) ? "100 MB" : "50 MB";
 }
 
-function canQueueFile(file: File): boolean {
+/**
+ * Whether an attachment is small enough to queue.
+ *
+ * Not a flat cap: an image this store will downscale on the way up is allowed
+ * a larger source than one it has to send as-is.
+ *
+ * Takes the fields rather than a `File` so a caller holding only a picker's
+ * metadata can ask the same question before it has any bytes. The native
+ * pickers do exactly that, and read a file only once this has passed, so the
+ * two paths cannot drift into reading what the store would then reject.
+ */
+export function canQueueFile(
+  file: Pick<File, "name" | "type" | "size">,
+): boolean {
   if (file.size <= MAX_ATTACHMENT_BYTES) {
     return true;
   }

@@ -759,7 +759,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T19:19:58.000Z"
+      "updatedAt": "2026-08-18T22:07:54.000Z"
     },
     {
       "id": "public-ingress",
@@ -1112,7 +1112,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-18T17:38:12.000Z"
+      "updatedAt": "2026-08-18T17:59:07.000Z"
     },
     {
       "id": "vellum-memory-v3-migration",

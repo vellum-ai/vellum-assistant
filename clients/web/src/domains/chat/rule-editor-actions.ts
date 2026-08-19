@@ -311,9 +311,9 @@ export function handleOpenRuleEditorForToolCall(
   // Cancel any previous suggestion fetch.
   useRuleEditorStore.getState().abortSuggestion();
 
-  // Only `riskAllowlistOptions` (minimatch globs) are valid save-path
-  // patterns. `riskScopeOptions` are regex-flavored, display-only and
-  // must NOT be persisted as trust rules.
+  // Only `riskAllowlistOptions` are valid save-path patterns: a trust rule is
+  // matched by exact string, and these are minted for that. `riskScopeOptions`
+  // are display-only and must NOT be persisted as trust rules.
   const resolvedAllowlistOptions: AllowlistOption[] =
     context.allowlistOptions.length > 0 ? context.allowlistOptions : [];
 

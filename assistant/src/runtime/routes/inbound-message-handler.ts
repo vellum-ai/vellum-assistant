@@ -417,9 +417,10 @@ export async function handleChannelInbound({
   // 👍 never triggers a verification handshake or an access-request
   // notification, and a stranger's reaction creates no conversation/binding.
   // The interceptor drops strangers, records known contacts' reactions as
-  // transcript signals, and routes a guardian's reaction on an approval card
-  // through the guardian decision pipeline. Reactions never drive an
-  // agent turn.
+  // transcript signals in the conversation of the reacted message, and routes
+  // a guardian's reaction on an approval card through the guardian decision
+  // pipeline. Reactions never mint a conversation and never drive an agent
+  // turn.
   if (isSlackReactionEvent(body)) {
     return handleSlackReactionIntercept({
       callbackData: body.callbackData!,
@@ -433,7 +434,6 @@ export async function handleChannelInbound({
       actorUsername: body.actorUsername,
       replyCallbackUrl: body.replyCallbackUrl,
       sourceMetadata: body.sourceMetadata,
-      slackChannelName,
       approvalConversationGenerator,
     });
   }

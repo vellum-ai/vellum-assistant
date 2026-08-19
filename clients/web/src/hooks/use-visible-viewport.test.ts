@@ -31,7 +31,7 @@ mock.module("@/runtime/native-keyboard", () => ({
   subscribeNativeKeyboardHeight,
 }));
 
-const { readVisibleViewport, useVisibleViewport } =
+const { holdVisibleViewport, readVisibleViewport, useVisibleViewport } =
   await import("@/hooks/use-visible-viewport");
 
 const REFERENCE_HEIGHT = 800;
@@ -124,6 +124,102 @@ describe("readVisibleViewport", () => {
     expect(viewport?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
     expect(viewport?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
     expect(viewport?.offsetTop).toBe(40);
+  });
+});
+
+describe("holdVisibleViewport", () => {
+  test("pins the shell at the keyboard's size while a picker is up", () => {
+    // GIVEN a keyboard-open viewport, the state the composer is in when the
+    // plus is pressed
+    stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT, offsetTop: 40 });
+    const release = holdVisibleViewport();
+
+    // WHEN iOS resigns the web view's first responder to present the picker,
+    // which dismisses the keyboard and grows the viewport back
+    stubViewport({ height: REFERENCE_HEIGHT, offsetTop: 0 });
+
+    // THEN the reading stays where the keyboard left it, so the shell does not
+    // walk the composer down the screen behind a picker covering that space
+    const held = readVisibleViewport();
+    expect(held?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+    expect(held?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+    expect(held?.offsetTop).toBe(40);
+
+    // AND the release hands the shell back to the measurement
+    release();
+    expect(readVisibleViewport()?.keyboardHeight).toBe(0);
+    expect(readVisibleViewport()?.height).toBe(REFERENCE_HEIGHT);
+  });
+
+  test("holds nothing when no keyboard was up to collapse", () => {
+    // GIVEN a desktop or an unfocused composer, where the picker costs the
+    // layout nothing
+    stubViewport({ height: REFERENCE_HEIGHT });
+    const release = holdVisibleViewport();
+
+    // WHEN the viewport moves for reasons of its own
+    stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT });
+
+    // THEN the measurement is still authoritative
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+    release();
+  });
+
+  test("one picker's release leaves another's hold standing", () => {
+    // GIVEN two pickers holding at once, as the composer's plus and the
+    // attachments strip each own a session of their own
+    stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT });
+    const releaseFirst = holdVisibleViewport();
+    const releaseSecond = holdVisibleViewport();
+    stubViewport({ height: REFERENCE_HEIGHT });
+
+    // WHEN one of them closes
+    releaseFirst();
+
+    // THEN the other still has the shell
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+
+    // AND only the last release gives it back
+    releaseSecond();
+    expect(readVisibleViewport()?.keyboardHeight).toBe(0);
+  });
+
+  test("a repeated release cannot unbalance the depth", () => {
+    // GIVEN a released hold
+    stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT });
+    const release = holdVisibleViewport();
+    release();
+
+    // WHEN the same release runs again, as a close path and an unmount both
+    // reaching for it would
+    release();
+
+    // THEN a later hold still works, rather than starting from a negative depth
+    stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT });
+    const next = holdVisibleViewport();
+    stubViewport({ height: REFERENCE_HEIGHT });
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+    next();
+  });
+
+  test("a rotation drops the hold rather than pinning the old orientation", () => {
+    // GIVEN a portrait hold taken while the keyboard was up
+    stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT });
+    const release = holdVisibleViewport();
+
+    // WHEN the device turns, which resizes the viewport on its own account
+    isPortraitStub = false;
+    setInnerHeight(LANDSCAPE_HEIGHT);
+    stubViewport({ height: LANDSCAPE_HEIGHT });
+
+    // THEN the landscape measurement answers, not a portrait height that
+    // describes nothing on this screen
+    expect(readVisibleViewport()?.height).toBe(LANDSCAPE_HEIGHT);
+    expect(readVisibleViewport()?.keyboardHeight).toBe(0);
+
+    // AND the release that owns it still balances
+    release();
+    expect(readVisibleViewport()?.height).toBe(LANDSCAPE_HEIGHT);
   });
 });
 

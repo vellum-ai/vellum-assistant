@@ -5,14 +5,10 @@ import {
   recordRemoteWebPairingVerificationFailure,
   type RemoteWebPairingVerificationRateLimit,
 } from "../../remote-web/pairing-verification-rate-limit-store.js";
-import { enforceLoopbackOnly } from "../loopback-guard.js";
-import { readLimitedBody } from "../read-limited-body.js";
+import { enforceLoopbackOnly, errorResponse } from "../loopback-guard.js";
+import { methodNotAllowed, readJsonStringField } from "../route-helpers.js";
 
 const MAX_VERIFICATION_BODY_BYTES = 256;
-
-function jsonError(code: string, message: string, status: number): Response {
-  return Response.json({ error: { code, message } }, { status });
-}
 
 function rateLimitedResponse(
   rateLimit: RemoteWebPairingVerificationRateLimit,
@@ -43,10 +39,7 @@ export async function handleVerifyRemoteWebPairingChallenge(
   clientIp: string,
 ): Promise<Response> {
   if (req.method !== "POST") {
-    return new Response("method not allowed", {
-      status: 405,
-      headers: { Allow: "POST" },
-    });
+    return methodNotAllowed("POST");
   }
 
   const guardError = enforceLoopbackOnly(
@@ -62,39 +55,15 @@ export async function handleVerifyRemoteWebPairingChallenge(
     return rateLimitedResponse(rateLimitedBeforeBodyRead);
   }
 
-  const rawBody = await readLimitedBody(req, MAX_VERIFICATION_BODY_BYTES);
-  if (rawBody.status === "too_large") {
-    return failedAttemptResponse(
-      clientIp,
-      jsonError("PAYLOAD_TOO_LARGE", "request body too large", 413),
-    );
-  }
-  if (rawBody.status === "unreadable") {
-    return failedAttemptResponse(
-      clientIp,
-      jsonError("BAD_REQUEST", "failed to read request body", 400),
-    );
-  }
-
-  let userCode: string | null = null;
-  try {
-    const body = JSON.parse(rawBody.text) as { userCode?: unknown };
-    userCode =
-      typeof body.userCode === "string" && body.userCode.trim()
-        ? body.userCode
-        : null;
-  } catch {
-    return failedAttemptResponse(
-      clientIp,
-      jsonError("BAD_REQUEST", "invalid JSON body", 400),
-    );
-  }
-
-  if (!userCode) {
-    return failedAttemptResponse(
-      clientIp,
-      jsonError("BAD_REQUEST", "userCode is required", 400),
-    );
+  // Body/JSON/field failures count as failed attempts for the per-client
+  // rate limiter.
+  const userCode = await readJsonStringField(
+    req,
+    MAX_VERIFICATION_BODY_BYTES,
+    "userCode",
+  );
+  if (userCode instanceof Response) {
+    return failedAttemptResponse(clientIp, userCode);
   }
 
   const rateLimitedBeforeCodeCheck =
@@ -107,13 +76,13 @@ export async function handleVerifyRemoteWebPairingChallenge(
   if (result.status === "invalid") {
     return failedAttemptResponse(
       clientIp,
-      jsonError("INVALID_USER_CODE", "invalid pairing code", 404),
+      errorResponse("INVALID_USER_CODE", "invalid pairing code", 404),
     );
   }
   if (result.status === "expired") {
     return failedAttemptResponse(
       clientIp,
-      jsonError("EXPIRED_USER_CODE", "pairing code expired", 410),
+      errorResponse("EXPIRED_USER_CODE", "pairing code expired", 410),
     );
   }
 
