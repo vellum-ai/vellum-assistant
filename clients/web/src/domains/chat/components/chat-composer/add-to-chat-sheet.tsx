@@ -1,5 +1,5 @@
 import { BottomSheet, toast } from "@vellumai/design-library";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera,
   File as FileIcon,
@@ -119,6 +119,29 @@ export function AddToChatSheet({
     ...RESTORE_FOCUS,
   });
 
+  // Read through a ref for the same reason `useAttachmentFilePicker` does:
+  // a pick outlives the render that started it, and this callback carries the
+  // assistant the files are queued against and the vision support they are
+  // filtered by. A native pick settles only once every file has been read
+  // across the bridge, so a model or assistant that changes in between would
+  // otherwise send the rest of the selection where it no longer belongs.
+  const onAttachFilesRef = useRef(onAttachFiles);
+  useEffect(() => {
+    onAttachFilesRef.current = onAttachFiles;
+  }, [onAttachFiles]);
+
+  /**
+   * Hands one picked file over and answers whether it was kept.
+   *
+   * Only an explicit empty answer frees the allowance. A caller that says
+   * nothing is taken to have kept the file, which is the safe direction:
+   * silence cannot uncap the budget.
+   */
+  const attachPickedFile = useCallback((file: File): boolean => {
+    const kept = onAttachFilesRef.current([file]);
+    return kept === undefined || kept.length > 0;
+  }, []);
+
   // A native pick has no element behind it to watch, so its span is held
   // here. The input rows carry their own, which is what `pickerUp` folds in.
   const [nativePickInFlight, setNativePickInFlight] = useState(false);
@@ -148,13 +171,7 @@ export function AddToChatSheet({
         // Handed on one at a time rather than collected: the picker reads the
         // next file only after this one has left it, so a multi-select never
         // sits decoded in the picker all at once.
-        const { tooLarge, pickFull } = await pick((file) => {
-          // Only an explicit empty answer frees the allowance. A caller that
-          // says nothing is taken to have kept the file, which is the safe
-          // direction: silence cannot uncap the budget.
-          const kept = onAttachFiles([file]);
-          return kept === undefined || kept.length > 0;
-        });
+        const { tooLarge, pickFull } = await pick(attachPickedFile);
         // Refused by the picker, so the composer never sees them and cannot
         // report them itself. The two reasons are told apart because a file
         // turned away for the company it was picked with attaches fine on its

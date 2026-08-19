@@ -242,6 +242,57 @@ describe("AddToChatSheet: holding the composer up", () => {
   });
 });
 
+describe("AddToChatSheet: a pick that outlives its render", () => {
+  test("delivers to the attach callback the composer holds now", async () => {
+    // The callback carries the assistant the files are queued against and the
+    // vision support they are filtered by, and a native pick settles only once
+    // every file has been read across the bridge. A selection that started
+    // before a model or assistant changed still belongs to the one in front of
+    // the user when it lands.
+    mockNativePickersAvailable = true;
+    const first = new File(["x"], "before.jpg", { type: "image/jpeg" });
+    const second = new File(["y"], "after.jpg", { type: "image/jpeg" });
+    let deliverSecond: (() => void) | undefined;
+    mockPickMedia = async (onFile) => {
+      onFile(first);
+      await new Promise<void>((resolve) => {
+        deliverSecond = () => {
+          onFile(second);
+          resolve();
+        };
+      });
+      return EMPTY_PICK;
+    };
+
+    const stale = mock((files: FileList | File[]) => Array.from(files));
+    const live = mock((files: FileList | File[]) => Array.from(files));
+    const { rerender } = renderSheet({ onAttachFiles: stale });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Photo Library"));
+    });
+
+    // WHEN the composer swaps the callback mid-pick, as a model change does
+    await act(async () => {
+      rerender(
+        <AddToChatSheet
+          open
+          onOpenChange={() => {}}
+          onAttachFiles={live}
+          onPickerOpenChange={() => {}}
+        />,
+      );
+    });
+    await act(async () => {
+      deliverSecond?.();
+    });
+
+    // THEN the rest of the selection goes to the new one, not the captured one
+    expect(stale.mock.calls.map((call) => call[0])).toEqual([[first]]);
+    expect(live.mock.calls.map((call) => call[0])).toEqual([[second]]);
+  });
+});
+
 describe("AddToChatSheet: native pickers", () => {
   test("the photo row opens the photo library and attaches what it returns", async () => {
     // GIVEN a shell whose photo library hands back one image
