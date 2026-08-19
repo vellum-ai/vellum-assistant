@@ -2,8 +2,9 @@ import { useState, type ReactNode } from "react";
 
 import { PortalContainerProvider } from "@vellumai/design-library/utils/portal-container";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { isElectron } from "@/runtime/is-electron";
-import { AvatarWave } from "./avatar-wave";
+import { AvatarWave, WRAP_WAVE_MIN_HEIGHT_QUERY } from "./avatar-wave";
 import { CreatureFooter } from "./creature-footer";
 
 /** See {@link OnboardingLayout}'s `avatarWave` prop. */
@@ -75,12 +76,17 @@ export function OnboardingLayout({
   // `hidden md:block` class) keeps the wave's canvas and its animation loop
   // from mounting at all on the layout that would not show them.
   const isMobile = useIsMobile();
+  // A viewport can be narrow enough to have no column to spare and still be
+  // too short to wrap: a phone in landscape, or a small window. See
+  // `WRAP_WAVE_MIN_HEIGHT_QUERY`. Those fall through to the footer.
+  const isTallEnoughToWrap = useMediaQuery(WRAP_WAVE_MIN_HEIGHT_QUERY);
   // The desktop shell runs its own compact, top-aligned onboarding flow in a
   // window that has neither half a screen to give to decoration nor the
   // centred column the wrap composition goes around, so it keeps the footer.
   const electron = isElectron();
   const columnWave = avatarWave !== "none" && !isMobile && !electron;
-  const wrapWave = avatarWave === "around" && isMobile && !electron;
+  const wrapWave =
+    avatarWave === "around" && isMobile && isTallEnoughToWrap && !electron;
 
   const content = (
     <div className="flex-1 overflow-y-auto">

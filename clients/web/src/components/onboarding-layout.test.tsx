@@ -3,10 +3,16 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 let mobile = false;
 let electron = false;
+let tallEnough = true;
 
 mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => mobile,
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+}));
+mock.module("@/hooks/use-media-query", () => ({
+  // The layout asks exactly one media query of its own: the wrap
+  // composition's minimum height.
+  useMediaQuery: () => tallEnough,
 }));
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => electron,
@@ -17,6 +23,7 @@ mock.module("./avatar-wave", () => ({
   AvatarWave: ({ variant = "column" }: { variant?: string }) => (
     <div data-testid={`wave-${variant}`} />
   ),
+  WRAP_WAVE_MIN_HEIGHT_QUERY: "(min-height: 600px)",
 }));
 mock.module("./creature-footer", () => ({
   CreatureFooter: () => <div data-testid="creature-footer" />,
@@ -28,6 +35,7 @@ afterEach(() => {
   cleanup();
   mobile = false;
   electron = false;
+  tallEnough = true;
 });
 
 const renderLayout = (
@@ -73,6 +81,25 @@ describe("OnboardingLayout avatar wave placement", () => {
     expect(screen.getByTestId("wave-wrap")).toBeTruthy();
     expect(screen.queryByTestId("wave-column")).toBeNull();
     expect(screen.queryByTestId("creature-footer")).toBeNull();
+  });
+
+  test("falls `around` back to the footer on a viewport too short to wrap", () => {
+    // A phone in landscape: narrow enough to have no column to spare, too
+    // short to hold a thread above the content and a crowd below it.
+    mobile = true;
+    tallEnough = false;
+    renderLayout("around");
+    expect(screen.queryByTestId("wave-wrap")).toBeNull();
+    expect(screen.queryByTestId("wave-column")).toBeNull();
+    expect(screen.getByTestId("creature-footer")).toBeTruthy();
+  });
+
+  test("keeps a short viewport off the wrap wave, not off the column one", () => {
+    // Height only gates the wrap composition; a short desktop window still
+    // has a column beside the content.
+    tallEnough = false;
+    renderLayout("around");
+    expect(screen.getByTestId("wave-column")).toBeTruthy();
   });
 
   test("keeps the desktop shell on the footer either way", () => {

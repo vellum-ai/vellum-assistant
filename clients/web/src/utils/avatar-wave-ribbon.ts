@@ -44,14 +44,39 @@ export interface WaveItem {
  * size relative to the run of screen they have to fill.
  */
 export interface RelativeRibbonPoint {
-  /** Centerline x, as a fraction of the box width. Outside 0–1 is off screen. */
+  /** Centerline x, as a fraction of the box width. Outside 0-1 is off screen. */
   fx: number;
   /** Centerline y, as a fraction of the box height. */
   fy: number;
   /** Ribbon width, as a fraction of the box width. */
   fw: number;
-  /** Avatar size here, as a fraction of the box height. */
+  /** Avatar size here, as a fraction of {@link ribbonSizingHeight}. */
   fs: number;
+}
+
+/**
+ * Least ratio of height to width a relative ribbon will size its avatars
+ * against. Portrait phones run from about 1.7 to 2.2, so this only bites on
+ * a box far wider than the composition was authored for.
+ */
+const MIN_SIZE_ASPECT = 1.3;
+
+/**
+ * The height a relative ribbon sizes its avatars against, which is the box's
+ * own height until the box gets wide for its height.
+ *
+ * Size follows the height because that is the axis the composition is
+ * authored against, but a row holds `w / s` avatars and `w` follows the
+ * width, so the count in one row goes as width over height and the number of
+ * rows goes as height over size. Together the whole crowd grows with the
+ * box's area over its size squared: hand the same ribbon a box twice as wide
+ * for its height and it packs several times the avatars, each one smaller,
+ * and every one of them is simulated and drawn again on every frame. Holding
+ * the sizing height to the box's aspect scales a wide box's avatars up
+ * instead of multiplying them, which keeps the crowd's cost flat.
+ */
+export function ribbonSizingHeight(width: number, height: number): number {
+  return Math.max(height, width * MIN_SIZE_ASPECT);
 }
 
 /**
@@ -64,11 +89,12 @@ export function resolveRibbon(
   width: number,
   height: number,
 ): RibbonPoint[] {
+  const sizingHeight = ribbonSizingHeight(width, height);
   return points.map((p) => ({
     x: p.fx * width,
     y: p.fy * height,
     w: p.fw * width,
-    s: p.fs * height,
+    s: p.fs * sizingHeight,
   }));
 }
 

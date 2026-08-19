@@ -4,6 +4,7 @@ import {
   buildRibbonWave,
   mulberry32,
   resolveRibbon,
+  ribbonSizingHeight,
   type RelativeRibbonPoint,
   type RibbonPoint,
 } from "@/utils/avatar-wave-ribbon";
@@ -103,8 +104,23 @@ const WRAP_RIBBON: RelativeRibbonPoint[] = [
   { fx: 0.5, fy: 1.07, fw: 1.8, fs: 0.1224 },
 ];
 
-/** {@link MAX_AVATAR_SIZE}'s counterpart, against the screen height. */
+/**
+ * {@link MAX_AVATAR_SIZE}'s counterpart, against the same height the ribbon
+ * sizes its avatars from. Reading it off the raw height instead would undo
+ * {@link ribbonSizingHeight} on exactly the boxes it exists for: the cap
+ * would clip the scaled-up avatars back down, and the crowd would go back to
+ * packing itself several times over.
+ */
 const WRAP_MAX_AVATAR_FRACTION = 0.135;
+
+/**
+ * Shortest box the wrap composition is offered on. It holds the top fifth
+ * for the thread and the bottom third for the crowd, so a shorter box has
+ * nowhere left to put the content between them, and the heading ends up
+ * under the thread whatever the step. Below this the layout falls back to
+ * the creature footer.
+ */
+export const WRAP_WAVE_MIN_HEIGHT_QUERY = "(min-height: 600px)";
 
 const REPEL_RADIUS = 170;
 const REPEL_PUSH = 70;
@@ -356,7 +372,7 @@ export function AvatarWave({
         ? buildRibbonWave(
             resolveRibbon(WRAP_RIBBON, width, height),
             SEED,
-            height * WRAP_MAX_AVATAR_FRACTION,
+            ribbonSizingHeight(width, height) * WRAP_MAX_AVATAR_FRACTION,
           )
         : buildRibbonWave(COLUMN_RIBBON, SEED, MAX_AVATAR_SIZE);
 

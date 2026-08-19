@@ -4,6 +4,7 @@ import {
   buildRibbonWave,
   mulberry32,
   resolveRibbon,
+  ribbonSizingHeight,
   type RelativeRibbonPoint,
   type RibbonPoint,
 } from "@/utils/avatar-wave-ribbon";
@@ -142,5 +143,54 @@ describe("resolveRibbon", () => {
 
   it("returns an empty ribbon unchanged", () => {
     expect(resolveRibbon([], 390, 844)).toEqual([]);
+  });
+
+  it("sizes a wide box's avatars off the held height, not its own", () => {
+    const [head] = resolveRibbon(RELATIVE, 800, 400);
+    // 800 * 1.3 = 1040, so the avatars are sized as if the box were that
+    // tall rather than shrinking to fit 400.
+    expect(head!.s).toBeCloseTo(0.02 * 1040, 5);
+    // Position is untouched: only the size basis is held.
+    expect(head!.y).toBeCloseTo(0.1 * 400, 5);
+  });
+});
+
+describe("ribbonSizingHeight", () => {
+  it("is the box's own height on every portrait phone", () => {
+    for (const [w, h] of [
+      [320, 568],
+      [375, 667],
+      [390, 844],
+      [430, 932],
+    ]) {
+      expect(ribbonSizingHeight(w!, h!)).toBe(h!);
+    }
+  });
+
+  it("holds a box that is wide for its height to its aspect", () => {
+    expect(ribbonSizingHeight(667, 375)).toBeCloseTo(667 * 1.3, 5);
+    expect(ribbonSizingHeight(767, 600)).toBeCloseTo(767 * 1.3, 5);
+  });
+
+  it("keeps the crowd's cost flat across aspect ratios", () => {
+    // Sizing avatars off the raw height packs the same ribbon by area: a box
+    // wide for its height fills it with several times as many, far smaller
+    // avatars, every one of which is simulated and drawn on every frame.
+    // Landscape used to reach ~1,100 against ~140 in portrait.
+    const count = (w: number, h: number) =>
+      buildRibbonWave(
+        resolveRibbon(RELATIVE, w, h),
+        1,
+        ribbonSizingHeight(w, h) * 0.135,
+      ).length;
+    const portrait = count(390, 844);
+    for (const [w, h] of [
+      [667, 375],
+      [767, 400],
+      [767, 600],
+      [720, 750],
+    ]) {
+      expect(count(w!, h!)).toBeLessThan(portrait * 4);
+    }
   });
 });
