@@ -356,8 +356,6 @@ export function getProcPidPath(name: string): string {
 /** Lazily computed: is this process a `bun test` run? */
 let isTestProcess: boolean | undefined;
 
-const validatedTestPaths = new Set<string>();
-
 /**
  * Resolve symlinks in the deepest existing ancestor of `p`, then re-append
  * the not-yet-created tail. This keeps the containment check honest both for
@@ -389,7 +387,7 @@ function assertTestPathIsEphemeral(dir: string): void {
     // file itself is the backstop signal that survives a preset NODE_ENV.
     (typeof Bun !== "undefined" &&
       /\.(test|spec)\.[cm]?[jt]sx?$/.test(Bun.main));
-  if (!isTestProcess || validatedTestPaths.has(dir)) {
+  if (!isTestProcess) {
     return;
   }
   // Escape hatch for the rare intentional run against a real workspace.
@@ -415,7 +413,6 @@ function assertTestPathIsEphemeral(dir: string): void {
       ].join("\n"),
     );
   }
-  validatedTestPaths.add(dir);
 }
 
 /**

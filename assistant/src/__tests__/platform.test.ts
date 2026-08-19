@@ -27,9 +27,14 @@ const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 // This file characterizes path resolution itself (including the ~/.vellum
 // fallback and literal override paths) without reading or writing those
 // locations, so the live-workspace guard is deliberately bypassed.
+const originalAllowRealWorkspace = process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE;
 process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE = "1";
 afterAll(() => {
-  delete process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE;
+  if (originalAllowRealWorkspace === undefined) {
+    delete process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE;
+  } else {
+    process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE = originalAllowRealWorkspace;
+  }
 });
 const originalVellumEnvironment = process.env.VELLUM_ENVIRONMENT;
 const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
