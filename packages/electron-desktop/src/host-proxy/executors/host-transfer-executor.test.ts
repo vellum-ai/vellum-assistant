@@ -1,44 +1,11 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// ---------------------------------------------------------------------------
-// Stubs — must precede the executor import
-// ---------------------------------------------------------------------------
-
-mock.module("electron-log/main", () => {
-  const noop = () => {};
-  return {
-    default: {
-      info: noop,
-      warn: noop,
-      error: noop,
-      debug: noop,
-      initialize: noop,
-      transports: {
-        file: {
-          maxSize: 0,
-          fileName: "",
-          format: "",
-          getFile: () => ({ path: "" }),
-        },
-      },
-    },
-  };
-});
-
-const MOCK_DEVICE_ID = "test-device-00000000-0000-0000-0000-000000000000";
-mock.module("@vellumai/electron-desktop/device-id", () => ({
-  getDeviceId: () => MOCK_DEVICE_ID,
-  resetDeviceIdCache: () => {},
-}));
-
-const { HostProxyPoster } = await import("@vellumai/electron-desktop/host-proxy/poster");
-const { hostTransferExecutor, __testing } = await import(
-  "./host-transfer-executor"
-);
+import { HostProxyPoster } from "../poster";
+import { hostTransferExecutor, __testing } from "./host-transfer-executor";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -90,7 +57,7 @@ function capturingPoster(opts: {
       if (pullData.length === 0) {
         return new Response(null, { status: 404 });
       }
-      return new Response(pullData, { status: 200 });
+      return new Response(new Uint8Array(pullData), { status: 200 });
     }
 
     // PUT transfer content (push)
