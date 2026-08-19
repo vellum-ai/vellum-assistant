@@ -99,6 +99,7 @@ public sealed class DictationSessionManager(
             }
             catch (DictationUnavailableException err)
             {
+                NotifyStartFailure(err.Message);
                 return new { enabled = false, reason = err.Message };
             }
             engine.Partial += text => IfCurrent(generation, () =>
@@ -128,6 +129,7 @@ public sealed class DictationSessionManager(
                     _engine = null;
                     engine.Dispose();
                 }
+                NotifyStartFailure(err.Message);
                 return new { enabled = false, reason = err.Message };
             }
             if (!ReferenceEquals(_engine, engine))
@@ -164,6 +166,10 @@ public sealed class DictationSessionManager(
         _engine?.Dispose();
         _engine = null;
     }
+
+    private void NotifyStartFailure(string message) =>
+        notify("dictation.error",
+            new { message, onDevice = true, willRetryServer = false });
 
     private void IfCurrent(int generation, Action action)
     {

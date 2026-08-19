@@ -101,10 +101,13 @@ public static class DictationServiceTests
         Assert(!events.Any(e => e.Json.Contains("stale", StringComparison.Ordinal)));
         Assert(events.Any(e => e.Json.Contains("fresh", StringComparison.Ordinal)));
 
-        // Start failure reports a reason instead of a live session.
+        // A failed replacement reports a reason and settles the displaced owner.
+        events.Clear();
         engine = new FakeEngine { StartError = new Exception("audio device unavailable") };
         Assert(Json(manager.SetPartials(true, false, 16000))
             .Contains("audio device unavailable", StringComparison.Ordinal));
+        Assert(events.Any(e => e.Method == "dictation.error" &&
+            e.Json.Contains("audio device unavailable", StringComparison.Ordinal)));
 
         Console.WriteLine("Dictation tests passed");
     }
