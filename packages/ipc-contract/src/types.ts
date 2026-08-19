@@ -67,6 +67,21 @@ export type VellumCommand =
    */
   | { kind: "startVoice" }
   /**
+   * Turn a watch session on or off, the way the companion surface's Watch
+   * asks.
+   *
+   * One command for both edges rather than a start and a stop: the surface
+   * draws a single toggle, and the window that owns the session is the only
+   * side that knows which edge a press is. A press that lands while a session
+   * is running ends that session.
+   *
+   * Like `startVoice`, this does not raise the app. The user reached for a
+   * floating surface precisely because they are working somewhere else, and
+   * here that work is the subject: raising the app would cover the very thing
+   * the session exists to observe.
+   */
+  | { kind: "toggleWatch" }
+  /**
    * Send what the user typed on the companion surface, the way its Type option
    * asks.
    *
@@ -749,6 +764,15 @@ export interface CompanionContext {
    * on screen is no proof the turn behind it has ended.
    */
   working: boolean;
+  /**
+   * Whether a watch session is running, when the publisher knows.
+   *
+   * Optional here, and defaulted in `companionContextSchema`, because a
+   * publisher built before the toggle existed has nothing to report and the
+   * honest answer for it is that no session of its is running. Publishers that
+   * do run sessions always send it.
+   */
+  watching?: boolean;
 }
 
 /** What main tells the companion renderer. */
@@ -795,6 +819,18 @@ export interface CompanionSurfaceState {
    * {@link CompanionContext.working}.
    */
   working: boolean;
+  /**
+   * Whether a watch session is running, from the toggle until it ends.
+   *
+   * Pushed by the window that owns the session for the same reason
+   * {@link CompanionSurfaceState.working} is: the session lives in the app's
+   * window and the surface is only where it was asked for. Held here rather
+   * than kept in the surface's own renderer for the same reason the turns are,
+   * and with more riding on it: the surface can reload mid-session, and a
+   * screen being read with nothing on screen saying so is a capture the user
+   * has no way to stop.
+   */
+  watching: boolean;
   /**
    * The character to render live, or `undefined` when there is none to
    * compose. See {@link CompanionCharacter}; `avatarBase64` is the fallback.
