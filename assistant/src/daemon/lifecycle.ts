@@ -62,7 +62,7 @@ import {
   getWorkspaceDir,
 } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
-import { sweepOrphanedWatchTimelineEntries } from "../watch/watch-timeline.js";
+import { drainOrphanedWatchTimelineEntries } from "../watch/watch-timeline.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
 import { ensureByokDefaultProfiles } from "../workspace/byok-default-profile-ensure.js";
@@ -391,10 +391,11 @@ export async function runDaemon(): Promise<void> {
     // the database lives. Startup is the pass every install gets: the periodic
     // pass runs from database maintenance on the memory plugin's jobs worker,
     // which an install with that plugin disabled or `memory.enabled: false`
-    // never starts. Bounded per pass and best-effort inside the sweep, which
-    // reports zero rather than throwing.
+    // never starts, so this is the only sweep that install's residue sees and
+    // it drains rather than taking one page. Best-effort inside the sweep,
+    // which reports zero rather than throwing.
     try {
-      const sweptWatchEntries = sweepOrphanedWatchTimelineEntries();
+      const sweptWatchEntries = drainOrphanedWatchTimelineEntries();
       if (sweptWatchEntries > 0) {
         log.info(
           { sweptWatchEntries },

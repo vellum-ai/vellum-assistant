@@ -798,3 +798,43 @@ export function sweepOrphanedWatchTimelineEntries(): number {
     return 0;
   }
 }
+
+/**
+ * How many pages one drain will take before it stops.
+ *
+ * A ceiling on the work a single drain can do, not on the backlog it expects:
+ * at {@link MAX_SWEEP_ENTRIES} a page this covers half a million rows, far past
+ * any plausible residue. It exists so a page that reports rows swept without
+ * shrinking the orphan set cannot spin, and whatever a capped drain leaves is
+ * picked up by the next one.
+ */
+const MAX_SWEEP_PASSES = 100;
+
+/**
+ * Sweep until a pass comes back short, and return everything it removed.
+ *
+ * {@link sweepOrphanedWatchTimelineEntries} is deliberately one page, which is
+ * what the periodic maintenance pass wants: bounded work on a tick that has
+ * other things to do. Startup wants the opposite. It runs once, and on an
+ * install where database maintenance never runs (it is driven by the memory
+ * plugin's jobs worker, so a disabled plugin or `memory.enabled: false` stops
+ * it), a single page is the only sweep the residue will ever see. A backlog
+ * larger than one page would then keep narration, AX trees, and screenshots of
+ * the user for the life of the database, which is the outcome the sweep exists
+ * to prevent.
+ *
+ * A short page means the orphan set is exhausted, so the drain stops there
+ * rather than paying for a pass that finds nothing. A failing page reports zero
+ * and ends the drain; the next startup tries again.
+ */
+export function drainOrphanedWatchTimelineEntries(): number {
+  let total = 0;
+  for (let pass = 0; pass < MAX_SWEEP_PASSES; pass += 1) {
+    const swept = sweepOrphanedWatchTimelineEntries();
+    total += swept;
+    if (swept < MAX_SWEEP_ENTRIES) {
+      break;
+    }
+  }
+  return total;
+}

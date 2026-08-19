@@ -5,7 +5,7 @@ import { describe, expect, mock, test } from "bun:test";
 /**
  * The watch-timeline sweep's startup contract.
  *
- * `sweepOrphanedWatchTimelineEntries` is the recovery path for a purge that
+ * `drainOrphanedWatchTimelineEntries` is the recovery path for a purge that
  * did not happen, and the rows it reclaims hold narration, AX trees, and
  * screenshots of the user's screen. Database maintenance runs it on a periodic
  * cadence from the memory plugin's jobs worker, so an install with that plugin
@@ -28,7 +28,7 @@ describe("lifecycle watch-timeline sweep wiring", () => {
   test("lifecycle sweeps orphaned entries on the DB-ready startup path", () => {
     const source = readFileSync(LIFECYCLE_PATH, "utf8");
 
-    const sweepIndex = source.indexOf("sweepOrphanedWatchTimelineEntries()");
+    const sweepIndex = source.indexOf("drainOrphanedWatchTimelineEntries()");
     expect(sweepIndex).toBeGreaterThan(-1);
 
     // `startRuntimeHttpServerBackgroundSweeps()` is the point where lifecycle

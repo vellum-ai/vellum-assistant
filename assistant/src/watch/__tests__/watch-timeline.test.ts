@@ -13,6 +13,7 @@ import {
   DEFAULT_MAX_AX_TREES,
   DEFAULT_MAX_ENTRIES,
   DEFAULT_MAX_RENDER_BYTES,
+  drainOrphanedWatchTimelineEntries,
   purgeAllWatchTimelines,
   purgeWatchTimelineForConversation,
   readWatchScreenshot,
@@ -547,6 +548,51 @@ describe("watch timeline orphan sweep", () => {
       .query("DELETE FROM conversations WHERE id = ?")
       .run(conversationId);
   }
+
+  test("drains a backlog larger than one sweep page", () => {
+    // A single sweep is deliberately one page. Startup drains, because on an
+    // install where database maintenance never runs it is the only pass the
+    // residue will ever see.
+    drainOrphanedWatchTimelineEntries();
+
+    const { sessionId, conversationId } = newSession();
+    const PAGE = 5_000;
+    // More than two pages on purpose: with a single leftover page, a `drain`
+    // that never looped would still clear the remainder in its one sweep and
+    // the test would pass without exercising the loop at all.
+    const TOTAL = PAGE * 2 + 25;
+    const sqlite = getSqlite();
+    const insert = sqlite.query(
+      "INSERT INTO watch_timeline_entries (id, session_id, conversation_id, at_ms, kind, text, created_at) VALUES (?, ?, ?, ?, 'narration', ?, ?)",
+    );
+    sqlite.exec("BEGIN");
+    for (let i = 0; i < TOTAL; i += 1) {
+      insert.run(`drain-${i}`, sessionId, conversationId, i, "step", i);
+    }
+    sqlite.exec("COMMIT");
+    orphanConversation(conversationId);
+
+    // One page, and the remainder is still there: this is what a single
+    // startup sweep would have left behind for good.
+    expect(sweepOrphanedWatchTimelineEntries()).toBe(PAGE);
+    expect(
+      sqlite
+        .query(
+          "SELECT count(*) AS n FROM watch_timeline_entries WHERE conversation_id = ?",
+        )
+        .get(conversationId) as { n: number },
+    ).toEqual({ n: TOTAL - PAGE });
+
+    // The drain finishes the job, which takes two more pages.
+    expect(drainOrphanedWatchTimelineEntries()).toBe(TOTAL - PAGE);
+    expect(
+      sqlite
+        .query(
+          "SELECT count(*) AS n FROM watch_timeline_entries WHERE conversation_id = ?",
+        )
+        .get(conversationId) as { n: number },
+    ).toEqual({ n: 0 });
+  });
 
   test("sweeps entries whose conversation is gone, frames included", () => {
     // Drain anything earlier tests orphaned so the count below is this
