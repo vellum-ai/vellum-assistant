@@ -7,6 +7,7 @@ import {
   popupMenuBarMenu,
   type MenuBarEntry,
 } from "@/runtime/menu";
+import { useTitleBarStore } from "@/stores/title-bar-store";
 
 // Edit and Window carry only stock role items (undo/copy/minimize...) whose
 // shortcuts everyone knows; hiding them keeps the bar short. Their items stay
@@ -26,6 +27,8 @@ const HIDDEN_MENU_IDS = new Set(["edit", "window"]);
  * Mounted in both title-bar surfaces: `ChatLayoutHeader` (the inline title
  * bar on chat routes) and `WindowDragRegion` (the fallback strip everywhere
  * else), so the menus survive navigation to routes without the chat layout.
+ * Full-screen shells with their own chrome (settings) suppress it through
+ * the title-bar store.
  *
  * Self-gating: renders nothing until the shell reports its menus. Off
  * Electron, on macOS (whose menu bar the system draws), and on shells that
@@ -34,6 +37,7 @@ const HIDDEN_MENU_IDS = new Set(["edit", "window"]);
  */
 export function WindowsMenuBar() {
   const { t } = useTranslation();
+  const suppressed = useTitleBarStore.use.windowsMenuBarSuppressed();
   const [entries, setEntries] = useState<MenuBarEntry[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -49,7 +53,7 @@ export function WindowsMenuBar() {
     };
   }, []);
 
-  if (entries.length === 0) {
+  if (suppressed || entries.length === 0) {
     return null;
   }
 
