@@ -17,6 +17,7 @@ import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-
 import { BillingSectionHeader } from "@/domains/settings/components/billing-section-header";
 import { PaymentMethodRow } from "@/domains/settings/components/payment-method-row";
 import { usePaymentMethodSavedPoll } from "@/domains/settings/hooks/use-payment-method-saved-poll";
+import { useTranslation } from "@/i18n";
 
 /**
  * Settings → Billing "Payment Methods" section. Card management lives here;
@@ -24,6 +25,7 @@ import { usePaymentMethodSavedPoll } from "@/domains/settings/hooks/use-payment-
  * section), which reacts to removals via the shared config query.
  */
 export function PaymentMethodsCard() {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const configQuery = useQuery(organizationsBillingAutoTopUpRetrieveOptions());
   const removeMutation = useMutation(
@@ -80,14 +82,14 @@ export function PaymentMethodsCard() {
     if (configQuery.isLoading) {
       return (
         <p className="mt-4 text-body-medium-lighter text-[var(--content-tertiary)]">
-          Loading…
+          {t("paymentMethodsCard.loading")}
         </p>
       );
     }
     if (configQuery.isError || config == null) {
       return (
         <div className="mt-4">
-          <Notice tone="error">Failed to load payment methods.</Notice>
+          <Notice tone="error">{t("paymentMethodsCard.loadError")}</Notice>
         </div>
       );
     }
@@ -97,7 +99,7 @@ export function PaymentMethodsCard() {
           className="mt-4 text-body-medium-lighter text-[var(--content-tertiary)]"
           data-testid="payment-methods-empty"
         >
-          No payment method on file
+          {t("paymentMethodsCard.empty")}
         </p>
       );
     }
@@ -117,15 +119,15 @@ export function PaymentMethodsCard() {
   return (
     <Card padding="md" data-testid="payment-methods-card">
       <BillingSectionHeader
-        title="Payment Methods"
-        subtitle="Payment methods linked to your account."
+        title={t("paymentMethodsCard.title")}
+        subtitle={t("paymentMethodsCard.subtitle")}
         actions={
           <Button
             variant="outlined"
             onClick={() => setPmModalOpen(true)}
             data-testid="payment-methods-add"
           >
-            Add Payment Method
+            {t("paymentMethodsCard.addButton")}
           </Button>
         }
       />
@@ -138,17 +140,21 @@ export function PaymentMethodsCard() {
           className="mt-4"
           data-testid="auto-top-up-remove-error"
         >
-          Failed to remove the payment method. Please try again.
+          {t("paymentMethodsCard.removeError")}
         </Notice>
       )}
 
       <ConfirmDialog
         open={confirmingRemove}
-        title="Remove payment method?"
-        message="Removing your card will turn off auto-reload."
-        confirmLabel={removeMutation.isPending ? "Removing…" : "Remove"}
+        title={t("paymentMethodsCard.removeConfirmTitle")}
+        message={t("paymentMethodsCard.removeConfirmMessage")}
+        confirmLabel={
+          removeMutation.isPending
+            ? t("paymentMethodsCard.removeConfirmPending")
+            : t("paymentMethodsCard.removeConfirmConfirm")
+        }
         isPending={removeMutation.isPending}
-        cancelLabel="Keep card"
+        cancelLabel={t("paymentMethodsCard.removeConfirmCancel")}
         destructive
         onConfirm={handleConfirmRemove}
         onCancel={() => setConfirmingRemove(false)}

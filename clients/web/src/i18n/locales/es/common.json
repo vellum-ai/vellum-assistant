@@ -1,4 +1,7 @@
 {
+  "addCreditsModal": {
+    "configureAutoReload": "Configurar la recarga automática"
+  },
   "notFound": {
     "badge": "Error 404",
     "title": "Página no encontrada",

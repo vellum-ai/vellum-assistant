@@ -13,6 +13,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useResumeDailyLimit } from "@/hooks/use-daily-limit-skip";
 import { useScrollToAnchor } from "@/hooks/use-scroll-to-anchor";
+import { useTranslation } from "@/i18n";
 import { dailyResetTimePhrase } from "@/utils/daily-reset-time";
 import { formatUsd } from "@/utils/format-usd";
 import { Button } from "@vellumai/design-library/components/button";
@@ -65,6 +66,7 @@ export function validateDailyLimit(raw: string): string | undefined {
  * both so the summary's `daily_limit_reached`/`daily_spend_usd` stay in sync.
  */
 export function DailyCreditLimitCard() {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const limitQuery = useQuery(
     organizationsBillingDailyCreditLimitRetrieveOptions(),
@@ -228,7 +230,7 @@ export function DailyCreditLimitCard() {
           disabled={
             updateMutation.isPending || (hasLimit && requiredByAutoTopUp)
           }
-          label="Daily Credit Limit"
+          label={t("dailyCreditLimitCard.toggleLabel")}
         />
 
         {requiredByAutoTopUp && (
@@ -236,7 +238,7 @@ export function DailyCreditLimitCard() {
             className="text-body-small-default text-[var(--content-tertiary)]"
             data-testid="daily-credit-limit-required-note"
           >
-            A daily credit limit is required while auto-reload is enabled.
+            {t("dailyCreditLimitCard.requiredNote")}
           </p>
         )}
 

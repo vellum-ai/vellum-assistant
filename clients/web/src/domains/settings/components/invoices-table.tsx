@@ -26,6 +26,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { stripeScaleDigits } from "@vellumai/service-contracts/stripe-currency";
 
+import { useTranslation } from "@/i18n";
 import { BillingSectionHeader } from "./billing-section-header";
 
 const EMPTY_RESPONSE: InvoiceListResponse = { invoices: [], has_more: false };
@@ -89,6 +90,7 @@ function downloadPdf(url: string): void {
 }
 
 export function InvoicesTable() {
+  const { t } = useTranslation("settings");
   const [expanded, setExpanded] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
@@ -208,7 +210,7 @@ export function InvoicesTable() {
     <Card padding="md">
       <div className="flex flex-col gap-4">
         <BillingSectionHeader
-          title="Invoices"
+          title={t("invoicesTable.title")}
           actions={
             <>
               {expanded && invoices.length > 0 && (
@@ -256,7 +258,9 @@ export function InvoicesTable() {
                 }}
                 data-testid="invoices-toggle"
               >
-                {expanded ? "Hide Invoices" : "Show Invoices"}
+                {expanded
+                  ? t("invoicesTable.hideButton")
+                  : t("invoicesTable.showButton")}
               </Button>
             </>
           }

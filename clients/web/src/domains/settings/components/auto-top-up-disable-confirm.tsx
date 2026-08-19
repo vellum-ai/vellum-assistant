@@ -1,5 +1,7 @@
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
+import { useTranslation } from "@/i18n";
+
 export interface AutoTopUpDisableConfirmProps {
   open: boolean;
   confirming: boolean;
@@ -18,11 +20,12 @@ export function AutoTopUpDisableConfirm({
   onCancel,
   onConfirm,
 }: AutoTopUpDisableConfirmProps) {
+  const { t } = useTranslation("settings");
   return (
     <ConfirmDialog
       open={open}
-      title="Disable auto-reload?"
-      message="Auto-reload will stop. Any saved payment method stays on file."
+      title={t("autoTopUpDisableConfirm.title")}
+      message={t("autoTopUpDisableConfirm.message")}
       confirmLabel={confirming ? "Disabling…" : "Disable"}
       cancelLabel="Keep enabled"
       destructive

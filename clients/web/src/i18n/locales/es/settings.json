@@ -7,6 +7,21 @@
   "aiProviderPicker": {
     "defaultEntryMeta": "Predeterminado"
   },
+  "autoTopUpCard": {
+    "connectCardBanner": "La recarga automática requiere vincular una tarjeta de crédito.",
+    "disableError": "No se pudo desactivar la recarga automática. Inténtalo de nuevo.",
+    "loadError": "No se pudo cargar la configuración de la recarga automática.",
+    "toggleLabel": "Activar recarga automática",
+    "updateError": "No se pudo guardar la configuración de la recarga automática. Inténtalo de nuevo."
+  },
+  "autoTopUpDisableConfirm": {
+    "message": "La recarga automática se detendrá. Los métodos de pago guardados se conservarán.",
+    "title": "¿Desactivar la recarga automática?"
+  },
+  "autoTopUpForm": {
+    "capHelper": "Pausa la recarga automática durante el resto del mes cuando el gasto alcanza este importe. Las compras manuales también cuentan para el total. Déjalo vacío para no fijar límite.",
+    "defaultDailyLimitNote": "Se aplicará un límite diario de créditos predeterminado de {amount} al día. Puedes ajustarlo en Límite diario de créditos."
+  },
   "billingOnboardingModal": {
     "backgroundConfirmContinue": "Continuar",
     "backgroundConfirmKeepWaiting": "Seguir esperando",
@@ -21,6 +36,14 @@
     "loadingBilling": "Cargando facturación…",
     "platformLoginNotice": "Inicia sesión en la plataforma Vellum para administrar la facturación y el uso.",
     "usageTab": "Uso"
+  },
+  "billingPanel": {
+    "addCreditsButton": "Añadir créditos",
+    "balanceLabel": "Créditos",
+    "earnCreditsButton": "Gana créditos gratis",
+    "lowBalanceToggle": "Alerta personalizada de saldo bajo",
+    "subtitle": "Resumen rápido de tus saldos y otros datos",
+    "title": "Créditos"
   },
   "billingStatusHandler": {
     "successToast": "¡Pago recibido! Tu saldo de créditos se actualizará en breve.",
@@ -165,6 +188,10 @@
     "genericDescriptor": "Selecciona potencia de CPU, RAM y almacenamiento personalizados. O añade algunos tokens.",
     "prompt": "¿Necesitas algo más adaptado a tus necesidades?",
     "title": "Plan personalizado"
+  },
+  "dailyCreditLimitCard": {
+    "requiredNote": "Se requiere un límite diario de créditos mientras la recarga automática está activada.",
+    "toggleLabel": "Límite diario de créditos"
   },
   "developerPage": {
     "sectionsAriaLabel": "Secciones de desarrollador",
@@ -326,6 +353,11 @@
     "tabMcp": "MCP",
     "tabOAuth": "OAuth",
     "tipBanner": "<tip>Consejo:</tip> Puedes habilitar integraciones mencionándolas en el chat."
+  },
+  "invoicesTable": {
+    "hideButton": "Ocultar facturas",
+    "showButton": "Mostrar facturas",
+    "title": "Facturas"
   },
   "languageModelCard": {
     "defaultProviderUnavailable": "Tu proveedor predeterminado no está disponible.",
@@ -561,6 +593,20 @@
     "revokeButton": "Revocar",
     "thisMachine": "Este equipo",
     "title": "Dispositivos vinculados ({count})"
+  },
+  "paymentMethodsCard": {
+    "addButton": "Añadir método de pago",
+    "empty": "No hay ningún método de pago guardado",
+    "loadError": "No se pudieron cargar los métodos de pago.",
+    "loading": "Cargando…",
+    "removeConfirmCancel": "Conservar tarjeta",
+    "removeConfirmConfirm": "Eliminar",
+    "removeConfirmMessage": "Al eliminar tu tarjeta se desactivará la recarga automática.",
+    "removeConfirmPending": "Eliminando…",
+    "removeConfirmTitle": "¿Eliminar el método de pago?",
+    "removeError": "No se pudo eliminar el método de pago. Inténtalo de nuevo.",
+    "subtitle": "Métodos de pago vinculados a tu cuenta.",
+    "title": "Métodos de pago"
   },
   "pendingPairingRequests": {
     "approveButton": "Aprobar",

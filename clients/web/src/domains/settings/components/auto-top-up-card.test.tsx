@@ -353,6 +353,105 @@ describe("AutoTopUpCard enable gate", () => {
     expect(form()).toBeNull();
   });
 
+  test("a card saved via the Payment Methods section continues a pending enable into the form", async () => {
+    const config: AutoTopUpConfigResponse = {
+      ...DISABLED_CONFIG,
+      enabled: false,
+      has_payment_method: false,
+      disabled_due_to_repeated_failures: false,
+    };
+    const client = makeClient(config);
+    const { container, getByLabelText } = render(wrap(config, "/", client));
+
+    // Let the mount-time background refetch settle so it cannot overwrite the
+    // card-appeared write below.
+    await waitFor(() => {
+      if (client.isFetching() > 0) {
+        throw new Error("config refetch still in flight");
+      }
+    });
+
+    // Toggle on with no card: the add-card gate shows, no form.
+    fireEvent.click(getByLabelText("Enable auto-reload"));
+    expect(
+      container.querySelector('[data-testid="auto-top-up-save-button"]'),
+    ).toBeNull();
+
+    // Simulate the card arriving through the Payment Methods section: its
+    // poll refreshes the shared config query.
+    const withCard: AutoTopUpConfigResponse = {
+      ...DISABLED_CONFIG,
+      enabled: false,
+      has_payment_method: true,
+      payment_method_brand: "visa",
+      payment_method_last4: "4242",
+      stripe_payment_method_updated_at: "2026-08-19T00:00:00Z",
+    };
+    retrieveResponse = withCard;
+    client.setQueryData(
+      organizationsBillingAutoTopUpRetrieveQueryKey(),
+      withCard,
+    );
+
+    // The pending enable continues into the configure form; the toggle stays
+    // visually on (still pendingEnable until Save persists).
+    await waitFor(() => {
+      if (
+        !container.querySelector('[data-testid="auto-top-up-save-button"]')
+      ) {
+        throw new Error("form did not open after the card appeared");
+      }
+    });
+    expect(
+      getByLabelText("Enable auto-reload").getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+
+  test("clearing the declines cutoff with a fresh card continues a pending enable into the form", async () => {
+    // Toggle-on while cut off gates the flow even though the declined card is
+    // on file. Once a fresh card lands (backend clears the flag), the pending
+    // enable continues into the form.
+    const cutOff: AutoTopUpConfigResponse = {
+      ...DISABLED_CONFIG,
+      enabled: false,
+      has_payment_method: true,
+      disabled_due_to_repeated_failures: true,
+    };
+    retrieveResponse = { ...cutOff };
+    const client = makeClient(cutOff);
+    const { container, getByLabelText } = render(wrap(cutOff, "/", client));
+
+    await waitFor(() => {
+      if (client.isFetching() > 0) {
+        throw new Error("config refetch still in flight");
+      }
+    });
+
+    fireEvent.click(getByLabelText("Enable auto-reload"));
+    expect(
+      container.querySelector('[data-testid="auto-top-up-save-button"]'),
+    ).toBeNull();
+
+    const freshCard: AutoTopUpConfigResponse = {
+      ...cutOff,
+      disabled_due_to_repeated_failures: false,
+      stripe_payment_method_updated_at: "2026-08-19T00:00:00Z",
+    };
+    retrieveResponse = freshCard;
+    client.setQueryData(
+      organizationsBillingAutoTopUpRetrieveQueryKey(),
+      freshCard,
+    );
+
+    await waitFor(() => {
+      if (
+        !container.querySelector('[data-testid="auto-top-up-save-button"]')
+      ) {
+        throw new Error("form did not open after the cutoff cleared");
+      }
+    });
+  });
+
   test("the no-payment-method banner shows the connect-card notice without the ACTION placeholder", () => {
     // The banner renders the connect-a-card copy and only a dismiss control —
     // never the Figma component's empty actions-slot "ACTION" placeholder.

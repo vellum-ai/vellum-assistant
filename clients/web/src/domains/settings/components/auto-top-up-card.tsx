@@ -28,6 +28,7 @@ import {
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import { usePaymentMethodSavedPoll } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import { extractDrfFieldErrors } from "@/domains/settings/utils/drf-errors";
+import { useTranslation } from "@/i18n";
 
 type Mode = "view" | "form";
 
@@ -107,6 +108,7 @@ function SummaryChip({
  *   amount, monthly cap) + Save.
  */
 export function AutoTopUpCard() {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const configQuery = useQuery(organizationsBillingAutoTopUpRetrieveOptions());
   // Drives the "we'll apply the default daily limit" note in the enable form:
@@ -132,17 +134,6 @@ export function AutoTopUpCard() {
   const [showAddPm, setShowAddPm] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [pmModalOpen, setPmModalOpen] = useState(false);
-
-  // Auto-dismiss the no-PM gate once a PM appears (e.g. after the user saves
-  // one via `AutoTopUpPaymentMethodModal` below). Declared before the
-  // early-return branches to satisfy rules-of-hooks; reads through
-  // `configQuery.data` since `config` isn't bound until after the
-  // loading/error guards below.
-  useEffect(() => {
-    if (showAddPm && configQuery.data?.has_payment_method) {
-      setShowAddPm(false);
-    }
-  }, [showAddPm, configQuery.data?.has_payment_method]);
 
   // Removing the card (in `PaymentMethodsCard`) disables auto-reload
   // server-side, so when the shared config's PM goes away, leave the add-card
@@ -196,6 +187,32 @@ export function AutoTopUpCard() {
     enterFormMode();
   };
 
+  // Auto-dismiss the no-PM gate once a USABLE PM appears (saved via this
+  // card's modal below, via the Payment Methods section, or discovered by a
+  // background refetch). When the enable flow is still pending and the server
+  // config is still disabled, continue into the configure form: without this,
+  // a card saved from the other section would strand an on-looking toggle
+  // with no form and no persisted enable. "Usable" excludes the
+  // repeated-declines cutoff, where the declined card is still on file but
+  // re-enabling with it must stay gated; the backend clears the flag once a
+  // fresh PM is attached, and that transition is what fires this. Declared
+  // before the early-return branches to satisfy rules-of-hooks; reads through
+  // `configQuery.data` since `config` isn't bound until after the
+  // loading/error guards below.
+  const gateHasPaymentMethod = configQuery.data?.has_payment_method === true;
+  const gateEnabled = configQuery.data?.enabled === true;
+  const gateCutOff =
+    configQuery.data?.disabled_due_to_repeated_failures === true;
+  useEffect(() => {
+    if (showAddPm && gateHasPaymentMethod && !gateCutOff) {
+      setShowAddPm(false);
+      if (pendingEnable && !gateEnabled) {
+        enterFormMode();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `enterFormMode` is recreated per render; the guards above make re-runs no-ops
+  }, [showAddPm, pendingEnable, gateHasPaymentMethod, gateEnabled, gateCutOff]);
+
   // Arriving with `?configure_top_up=1` (deeplinked from the Add Credits
   // modal) replays the toggle-on path once, then strips the param. Never
   // mutates the server; persistence still requires Save. Must sit before the
@@ -237,7 +254,7 @@ export function AutoTopUpCard() {
   if (configQuery.isError || !configQuery.data) {
     return (
       <div data-testid="auto-top-up-card">
-        <Notice tone="error">Failed to load auto-reload configuration.</Notice>
+        <Notice tone="error">{t("autoTopUpCard.loadError")}</Notice>
       </div>
     );
   }
@@ -452,7 +469,7 @@ export function AutoTopUpCard() {
         <Toggle
           checked={toggleChecked}
           onChange={handleToggleChange}
-          label="Enable auto-reload"
+          label={t("autoTopUpCard.toggleLabel")}
         />
       </div>
 
@@ -538,7 +555,7 @@ export function AutoTopUpCard() {
                     variant="body-medium-default"
                     className="truncate text-[var(--system-mid-strong)]"
                   >
-                    Auto-reload requires you to connect a credit card.
+                    {t("autoTopUpCard.connectCardBanner")}
                   </Typography>
                 </div>
                 <button
@@ -573,7 +590,7 @@ export function AutoTopUpCard() {
           className="mt-4"
           data-testid="auto-top-up-update-error"
         >
-          Failed to save auto-reload settings. Please try again.
+          {t("autoTopUpCard.updateError")}
         </Notice>
       )}
 
@@ -583,7 +600,7 @@ export function AutoTopUpCard() {
           className="mt-4"
           data-testid="auto-top-up-disable-error"
         >
-          Failed to disable auto-reload. Please try again.
+          {t("autoTopUpCard.disableError")}
         </Notice>
       )}
 

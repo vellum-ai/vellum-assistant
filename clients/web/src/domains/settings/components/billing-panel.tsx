@@ -15,6 +15,7 @@ import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { StatSquare } from "@vellumai/design-library/components/stat-square";
 import { Toggle } from "@vellumai/design-library/components/toggle";
+import { useTranslation } from "@/i18n";
 import { BillingSectionHeader } from "./billing-section-header";
 import {
   DAILY_CREDIT_LIMIT_ANCHOR_ID,
@@ -43,6 +44,7 @@ function formatCreditsShort(value: string): string {
 }
 
 export function BillingPanel() {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery(
@@ -106,8 +108,8 @@ export function BillingPanel() {
 
   const creditsHeader = (
     <BillingSectionHeader
-      title="Credits"
-      subtitle="Quick overview of your balances and other things"
+      title={t("billingPanel.title")}
+      subtitle={t("billingPanel.subtitle")}
       actions={
         <>
           <Button
@@ -116,7 +118,7 @@ export function BillingPanel() {
             onClick={() => setReferralOpen(true)}
             data-testid="earn-credits-button"
           >
-            Earn Free Credits
+            {t("billingPanel.earnCreditsButton")}
           </Button>
           <Button
             variant="primary"
@@ -124,7 +126,7 @@ export function BillingPanel() {
             disabled={isLoading || !summary}
             data-testid="add-credits-button"
           >
-            Add Credits
+            {t("billingPanel.addCreditsButton")}
           </Button>
         </>
       }
@@ -145,7 +147,7 @@ export function BillingPanel() {
         <StatSquare
           icon={<Coins className="h-4 w-4" aria-hidden />}
           value={<span data-testid="effective-balance">{display}</span>}
-          label="Credits"
+          label={t("billingPanel.balanceLabel")}
           tone={effectiveNeg ? "negative" : "default"}
         />
       </div>
@@ -211,7 +213,7 @@ export function BillingPanel() {
             <Toggle
               checked={lowBalanceExpanded}
               onChange={setLowBalanceExpanded}
-              label="Custom Low Balance Alert"
+              label={t("billingPanel.lowBalanceToggle")}
             />
             {lowBalanceExpanded && <LowBalanceAlertCard />}
           </div>

@@ -7,6 +7,21 @@
   "aiProviderPicker": {
     "defaultEntryMeta": "Default"
   },
+  "autoTopUpCard": {
+    "connectCardBanner": "Auto-reload requires you to connect a credit card.",
+    "disableError": "Failed to disable auto-reload. Please try again.",
+    "loadError": "Failed to load auto-reload configuration.",
+    "toggleLabel": "Enable auto-reload",
+    "updateError": "Failed to save auto-reload settings. Please try again."
+  },
+  "autoTopUpDisableConfirm": {
+    "message": "Auto-reload will stop. Any saved payment method stays on file.",
+    "title": "Disable auto-reload?"
+  },
+  "autoTopUpForm": {
+    "capHelper": "Pauses auto-reload for the rest of the month once spending reaches this amount. Manual purchases also count toward the total. Leave empty for no limit.",
+    "defaultDailyLimitNote": "A default daily credit limit of {amount} per day will be applied. You can adjust it under Daily Credit Limit."
+  },
   "billingOnboardingModal": {
     "backgroundConfirmContinue": "Continue",
     "backgroundConfirmKeepWaiting": "Keep waiting",
@@ -21,6 +36,14 @@
     "loadingBilling": "Loading billing…",
     "platformLoginNotice": "Log in to the Vellum platform to manage billing and usage.",
     "usageTab": "Usage"
+  },
+  "billingPanel": {
+    "addCreditsButton": "Add Credits",
+    "balanceLabel": "Credits",
+    "earnCreditsButton": "Earn Free Credits",
+    "lowBalanceToggle": "Custom Low Balance Alert",
+    "subtitle": "Quick overview of your balances and other things",
+    "title": "Credits"
   },
   "billingStatusHandler": {
     "successToast": "Payment received! Your credit balance will update shortly.",
@@ -165,6 +188,10 @@
     "genericDescriptor": "Select custom CPU power, Ram and Storage. Or just throw in some tokens.",
     "prompt": "Need something more tailored to your needs?",
     "title": "Custom Plan"
+  },
+  "dailyCreditLimitCard": {
+    "requiredNote": "A daily credit limit is required while auto-reload is enabled.",
+    "toggleLabel": "Daily Credit Limit"
   },
   "developerPage": {
     "sectionsAriaLabel": "Developer sections",
@@ -326,6 +353,11 @@
     "tabMcp": "MCP",
     "tabOAuth": "OAuth",
     "tipBanner": "<tip>Tip:</tip> You can enable integrations by mentioning them in chat."
+  },
+  "invoicesTable": {
+    "hideButton": "Hide Invoices",
+    "showButton": "Show Invoices",
+    "title": "Invoices"
   },
   "languageModelCard": {
     "defaultProviderUnavailable": "Your default provider is not available.",
@@ -561,6 +593,20 @@
     "revokeButton": "Revoke",
     "thisMachine": "This machine",
     "title": "Paired devices ({count})"
+  },
+  "paymentMethodsCard": {
+    "addButton": "Add Payment Method",
+    "empty": "No payment method on file",
+    "loadError": "Failed to load payment methods.",
+    "loading": "Loading…",
+    "removeConfirmCancel": "Keep card",
+    "removeConfirmConfirm": "Remove",
+    "removeConfirmMessage": "Removing your card will turn off auto-reload.",
+    "removeConfirmPending": "Removing…",
+    "removeConfirmTitle": "Remove payment method?",
+    "removeError": "Failed to remove the payment method. Please try again.",
+    "subtitle": "Payment methods linked to your account.",
+    "title": "Payment Methods"
   },
   "pendingPairingRequests": {
     "approveButton": "Approve",

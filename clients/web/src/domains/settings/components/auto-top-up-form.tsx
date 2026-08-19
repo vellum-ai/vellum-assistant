@@ -4,6 +4,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 
+import { useTranslation } from "@/i18n";
+
 export interface AutoTopUpFormValues {
   threshold_usd: string;
   amount_usd: string;
@@ -127,6 +129,7 @@ export function AutoTopUpForm({
   onSave,
   onCancel,
 }: AutoTopUpFormProps) {
+  const { t } = useTranslation("settings");
   const [values, setValues] = useState<AutoTopUpFormValues>(initialValues);
   const [touched, setTouched] = useState<
     Record<keyof AutoTopUpFormValues, boolean>
@@ -223,7 +226,7 @@ export function AutoTopUpForm({
             type="number"
             step="1"
             label="Monthly spending cap"
-            helperText="Pauses auto-reload for the rest of the month once spending reaches this amount. Manual purchases also count toward the total. Leave empty for no limit."
+            helperText={t("autoTopUpForm.capHelper")}
             value={values.monthly_cap_usd}
             onChange={onChange("monthly_cap_usd")}
             onBlur={onBlur("monthly_cap_usd")}
@@ -260,8 +263,9 @@ export function AutoTopUpForm({
           className="mt-3"
           data-testid="auto-top-up-default-daily-limit-note"
         >
-          A default daily credit limit of ${DEFAULT_DAILY_CREDIT_LIMIT_USD} per
-          day will be applied. You can adjust it under Daily Credit Limit.
+          {t("autoTopUpForm.defaultDailyLimitNote", {
+            amount: `$${DEFAULT_DAILY_CREDIT_LIMIT_USD}`,
+          })}
         </Notice>
       )}
     </div>
