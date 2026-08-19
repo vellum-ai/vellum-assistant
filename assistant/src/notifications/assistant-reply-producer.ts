@@ -25,10 +25,12 @@ import {
 import {
   isMacOriginatedUserMessage,
   isReplyPushIneligibleUserMessage,
+  isWebOriginatedUserMessage,
   resolveConversationKind,
 } from "../persistence/conversation-types.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
 import { isDesktopAttended } from "../runtime/desktop-presence.js";
+import { isWebConversationFocused } from "../runtime/web-presence.js";
 import { safeParseRecord } from "../util/json.js";
 import { emitNotificationSignal } from "./emit-signal.js";
 import {
@@ -44,6 +46,9 @@ const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
 
 /** Gates the desktop-attended suppression below, on by default. */
 const DESKTOP_PRESENCE_FLAG = "desktop-presence-suppression" as const;
+
+/** Gates the web-focused suppression below, on by default. */
+const WEB_PRESENCE_FLAG = "web-presence-suppression" as const;
 
 /**
  * Collapse whitespace runs ahead of the sanitizers' truncation: blank lines and
@@ -125,6 +130,27 @@ function readDesktopAttended(rlog: pino.Logger): boolean {
     return isDesktopAttended();
   } catch (err) {
     rlog.warn({ err }, "Desktop presence read failed; treating as unattended");
+    return false;
+  }
+}
+
+/**
+ * Web presence, kept fail-open here for the same reason as
+ * {@link readDesktopAttended}: a presence read that fails has to send the
+ * push, not reach the producer's catch and silence it.
+ *
+ * No `actorPrincipalId`: the platform delivers this push to the assistant
+ * owner's device tokens, and a pod has exactly one owner, so any focused web
+ * tab is that owner's.
+ */
+function readWebConversationFocused(
+  conversationId: string,
+  rlog: pino.Logger,
+): boolean {
+  try {
+    return isWebConversationFocused(conversationId);
+  } catch (err) {
+    rlog.warn({ err }, "Web presence read failed; treating as unfocused");
     return false;
   }
 }
@@ -229,6 +255,16 @@ export async function emitAssistantReplyNotification(params: {
       isMacOriginatedUserMessage(initiatingMetadata) &&
       readDesktopAttended(rlog);
 
+    // Same shape as desktop attendance, scoped to a browser tab instead of
+    // the whole app: presence only speaks for a turn a web tab itself opened,
+    // and only suppresses when that tab's focused conversation is this one.
+    // A turn sent from another surface still needs its push while a web tab
+    // sits open on an unrelated conversation.
+    const webFocused =
+      isAssistantFeatureFlagEnabled(WEB_PRESENCE_FLAG) &&
+      isWebOriginatedUserMessage(initiatingMetadata) &&
+      readWebConversationFocused(conversationId, rlog);
+
     await emitNotificationSignal({
       sourceEventName: "chat.assistant_reply",
       sourceChannel: "vellum",
@@ -243,10 +279,10 @@ export async function emitAssistantReplyNotification(params: {
         // opting into v2.
         urgency: "medium",
         isAsyncBackground: false,
-        // Read weakly, as "at the machine this landed on": the attended Mac
-        // that opened the turn renders the reply in-app, and its Dock unread
-        // badge carries it while the window is hidden.
-        visibleInSourceNow: desktopAttended,
+        // Read weakly, as "at the surface this landed on": the attended Mac
+        // or focused web tab that opened the turn renders the reply in-app,
+        // so a redundant push would only duplicate what's already on screen.
+        visibleInSourceNow: desktopAttended || webFocused,
       },
       contextPayload: {
         ...(requestedTitle ? { requestedTitle } : {}),

@@ -4651,6 +4651,47 @@ paths:
                 required:
                   - recorded
                 additionalProperties: false
+  /v1/clients/web-presence:
+    post:
+      operationId: clients_webpresence_post
+      summary: Report web tab visibility and focused conversation
+      description:
+        Record the visibility and focused conversation reported by the web client identified by the
+        X-Vellum-Client-Id header.
+      tags:
+        - clients
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                visible:
+                  type: boolean
+                  description: Whether the reporting tab is currently visible.
+                focusedConversationId:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description: The conversation currently focused (chat composer on screen) in the tab, or null.
+              required:
+                - visible
+                - focusedConversationId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recorded:
+                    type: boolean
+                    description: Whether a connected client matched the reporting clientId.
+                required:
+                  - recorded
+                additionalProperties: false
   /v1/config:
     get:
       operationId: config_get

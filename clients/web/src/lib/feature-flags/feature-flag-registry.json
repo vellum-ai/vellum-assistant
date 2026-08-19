@@ -372,6 +372,14 @@
       "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. control = gpt-5.6-luna (the shipped pin); terra = gpt-5.6-terra; glm-5p2 = accounts/fireworks/models/glm-5p2. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to control.",
       "defaultEnabled": "control",
       "values": ["control", "terra", "glm-5p2"]
+    },
+    {
+      "id": "web-presence-suppression",
+      "scope": "assistant",
+      "key": "web-presence-suppression",
+      "label": "Web Presence Suppression",
+      "description": "Gates whether a `chat.assistant_reply` push is suppressed while a web browser tab reports itself visible and focused on the reply's own conversation. On by default; turn it off to restore unconditional reply pushes for web-originated turns.",
+      "defaultEnabled": true
     }
   ]
 }
