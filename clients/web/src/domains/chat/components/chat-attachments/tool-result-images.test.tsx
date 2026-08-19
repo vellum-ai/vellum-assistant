@@ -48,8 +48,9 @@ mock.module("@/runtime/native-file", () => ({
   saveFile: saveFileMock,
 }));
 
-const { ToolResultImages } =
+const imagesModule =
   await import("@/domains/chat/components/chat-attachments/tool-result-images");
+const { ToolResultImages } = imagesModule;
 
 function renderStrip(
   toolCalls: ChatMessageToolCall[],
@@ -182,9 +183,9 @@ describe("ToolResultImages referenced media", () => {
   });
 
   test("keeps a referenced image an unrelated attachment does not cover", () => {
-    // The blunt rule dropped every image as soon as the message carried any
-    // attachment at all — a file the turn wrote, a user upload — so a generated
-    // image vanished from a turn that never showed it anywhere else.
+    // An attachment covering some other file (a file the turn wrote, a user
+    // upload) says nothing about this image, so the strip still owes it: it is
+    // the turn's only rendering of it.
     const toolCall: ChatMessageToolCall = {
       id: "tc-kept",
       name: "media_generate_image",
@@ -201,5 +202,105 @@ describe("ToolResultImages referenced media", () => {
       screen.queryByTestId("tool-result-image") ??
         screen.queryByTestId("tool-result-image-placeholder"),
     ).not.toBeNull();
+  });
+});
+
+describe("resolveToolResultImages embed dedupe", () => {
+  const { resolveToolResultImages, embeddedImageFileNames } = imagesModule;
+
+  /** A `media_generate_image` call shaped like the real one: the saved path
+   *  rides in the result prose, alongside the embed hint for the model. */
+  function generateCall(savedPaths: string[]): ChatMessageToolCall {
+    const saved =
+      savedPaths.length === 1
+        ? ` Saved to ${savedPaths[0]}.`
+        : ` Saved to:\n${savedPaths.map((p) => `- ${p}`).join("\n")}`;
+    return {
+      id: "tc-gen",
+      name: "media_generate_image",
+      input: { prompt: "a dashboard" },
+      result:
+        `Generated ${savedPaths.length} image using gpt-image.${saved}` +
+        `\n\nShow the user an image by embedding it in your reply: ` +
+        `![description](vellum://workspace/${savedPaths[0]}).`,
+      imageDataList: savedPaths.map(() => "aGVsbG8="),
+      completedAt: 1,
+    };
+  }
+
+  test("drops an image the reply embeds by its saved path", () => {
+    // The turn's reply presents the image full width where the text refers to
+    // it, so the mid-turn strip would be the second copy of the same picture.
+    const toolCall = generateCall(["media/generated/dashboard-ui.png"]);
+    const embedded = embeddedImageFileNames([
+      {
+        type: "text",
+        text: "here it is:\n\n![UI](vellum://workspace/media/generated/dashboard-ui.png)",
+      },
+    ]);
+
+    expect(resolveToolResultImages([toolCall], undefined, embedded)).toEqual(
+      [],
+    );
+  });
+
+  test("keeps the image when the reply embeds nothing", () => {
+    const toolCall = generateCall(["media/generated/dashboard-ui.png"]);
+    const embedded = embeddedImageFileNames([
+      { type: "text", text: "generated the image." },
+    ]);
+
+    expect(
+      resolveToolResultImages([toolCall], undefined, embedded).length,
+    ).toBe(1);
+  });
+
+  test("keeps the image when the reply embeds a different file", () => {
+    const toolCall = generateCall(["media/generated/dashboard-ui.png"]);
+    const embedded = embeddedImageFileNames([
+      { type: "text", text: "![other](vellum://workspace/media/other.png)" },
+    ]);
+
+    expect(
+      resolveToolResultImages([toolCall], undefined, embedded).length,
+    ).toBe(1);
+  });
+
+  test("drops only the variant the reply embeds", () => {
+    // Saved paths align positionally with the images the call produced, so a
+    // reply that presents one of two variants leaves the other in the strip.
+    const toolCall = generateCall([
+      "media/generated/logo-a.png",
+      "media/generated/logo-b.png",
+    ]);
+    const embedded = embeddedImageFileNames([
+      {
+        type: "text",
+        text: "![a](vellum://workspace/media/generated/logo-a.png)",
+      },
+    ]);
+
+    const shown = resolveToolResultImages([toolCall], undefined, embedded);
+    expect(shown.length).toBe(1);
+  });
+
+  test("drops a referenced image the reply embeds", () => {
+    // Referenced media carries an attachment id rather than inline bytes; the
+    // saved path in the result is still what the reply embeds.
+    const toolCall: ChatMessageToolCall = {
+      ...generateCall(["media/generated/dashboard-ui.png"]),
+      imageDataList: undefined,
+      imageAttachmentIds: ["att-generated"],
+    };
+    const embedded = embeddedImageFileNames([
+      {
+        type: "text",
+        text: "![UI](vellum://workspace/media/generated/dashboard-ui.png)",
+      },
+    ]);
+
+    expect(resolveToolResultImages([toolCall], undefined, embedded)).toEqual(
+      [],
+    );
   });
 });

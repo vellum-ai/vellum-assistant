@@ -33,7 +33,7 @@ function docCall(
   });
 }
 
-describe("artifactsFromToolCalls — documents", () => {
+describe("artifactsFromToolCalls: documents", () => {
   test("resolves the surface id a single update wrote to", () => {
     const tc = docCall("tc-a", "document_update", "doc-1");
     expect(ids(artifactsFromToolCalls([tc], new Set()))).toEqual(["doc-1"]);
@@ -180,10 +180,10 @@ describe("artifactsFromToolCalls — documents", () => {
   });
 });
 
-describe("artifactsFromToolCalls — apps", () => {
+describe("artifactsFromToolCalls: apps", () => {
   test("reads app_create's id and app_update's appId", () => {
-    // The two executors spell the field differently — `app_create` spreads the
-    // app record, `app_update` reports `appId` — and both persist as written.
+    // The two executors spell the field differently: `app_create` spreads the
+    // app record and `app_update` reports `appId`. Both persist as written.
     const calls = [
       call({
         id: "tc-a",

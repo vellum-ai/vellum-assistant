@@ -2,10 +2,10 @@
  * The card that stands for a document in the transcript: a bordered row naming
  * the document, with an "opens it" affordance.
  *
- * A document reaches the transcript two ways — the daemon's inline
+ * A document reaches the transcript two ways: the daemon's inline
  * `document_preview` surface (`DocumentPreviewSurface`) and the
  * end-of-response affordance the transcript derives from a turn's document
- * tool calls (`DocumentReopenLink`) — and both draw through this component so
+ * tool calls (`DocumentReopenLink`). Both draw through this component so
  * the two cannot drift into looking like different kinds of thing.
  */
 

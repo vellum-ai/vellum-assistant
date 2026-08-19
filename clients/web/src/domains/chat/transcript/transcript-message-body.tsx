@@ -14,6 +14,7 @@ import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachmen
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import {
+  embeddedImageFileNames,
   resolveToolResultImages,
   ToolResultImages,
 } from "@/domains/chat/components/chat-attachments/tool-result-images";
@@ -187,6 +188,15 @@ export function TranscriptMessageBody({
   // Each holds a shimmer at the end of the row's activity area until its
   // widget lands, its call resolves, or the turn ends.
   const pendingVisualToolUseIds = message.pendingVisualToolUseIds ?? [];
+
+  // The images this message's own prose presents with a markdown embed. A media
+  // skill asks the model to show its result that way, so the mid-turn strip owes
+  // nothing for the same file. Read by the strip and by the collapse rule that
+  // pins the group holding it, so the two agree on what renders.
+  const embeddedImageNames = useMemo(
+    () => embeddedImageFileNames(message.contentBlocks),
+    [message.contentBlocks],
+  );
 
   const isTouch = isPointerCoarse();
 
@@ -764,6 +774,7 @@ export function TranscriptMessageBody({
     <ToolResultImages
       toolCalls={toolCalls}
       messageAttachments={message.attachments}
+      embeddedImageNames={embeddedImageNames}
       assistantId={assistantId}
     />
   );
@@ -1147,11 +1158,14 @@ export function TranscriptMessageBody({
 
     const { toolCalls } = activityItemsToCardData(group.items);
     const hasVisibleOutputOrControl =
-      // Pinned only when the strip actually draws something. Asking whether the
-      // group *has* images pinned it even when every one of them was already
-      // shown by the end-of-turn attachments, which left the group parked
-      // outside "Earlier activity" rendering nothing but its own activity row.
-      resolveToolResultImages(toolCalls, message.attachments).length > 0 ||
+      // Pinned only when the strip actually draws something. A group whose
+      // images the end-of-turn attachments already show draws nothing, so it
+      // has no reason to sit outside "Earlier activity".
+      resolveToolResultImages(
+        toolCalls,
+        message.attachments,
+        embeddedImageNames,
+      ).length > 0 ||
       toolCalls.some(
         (toolCall) =>
           isToolCallRunning(toolCall) ||
@@ -1180,22 +1194,22 @@ export function TranscriptMessageBody({
       groups[collapsibleRowIndexes[0]!]?.type !== "activity");
   // Every group the disclosure swallows, collected message-wide rather than per
   // contiguous run, and resolved before the render pass so a group knows it is
-  // collapsed while it renders — prose reads that to drop to the muted, smaller
+  // collapsed while it renders: prose reads that to drop to the muted, smaller
   // collapsed tone.
   //
-  // Per-run collection let a pinned group — a surface, a running tool, a result
-  // image, an inline process card — split the run around it, and the groups
-  // stranded on the far side often rendered a single activity row, which does
-  // not earn a disclosure of its own. That left one message showing the same
-  // kind of row twice over: indented inside a disclosure, and flush at the
-  // margin below it. Message-wide there is exactly one disclosure, anchored
-  // where the first collapsible group sits, and pinned groups keep their
-  // positions around it.
+  // Collecting per contiguous run instead would let a pinned group (a surface,
+  // a running tool, a result image, an inline process card) split the run
+  // around it, and a run stranded on the far side often renders a single
+  // activity row, which does not earn a disclosure of its own: one message
+  // would show the same kind of row twice over, indented inside a disclosure
+  // and flush at the margin below it. Message-wide there is exactly one
+  // disclosure, anchored where the first collapsible group sits, and pinned
+  // groups keep their positions around it.
   //
   // The trade is ordering: a collapsed group that ran *after* a pinned one
   // still reads above it once the disclosure is open, because one disclosure
-  // cannot interleave with what it does not contain. Closed — which is how a
-  // settled turn renders — nothing moves.
+  // cannot interleave with what it does not contain. Closed, which is how a
+  // settled turn renders, nothing moves.
   const disclosedGroupIndexes = new Set<number>(
     earnsDisclosure ? collapsibleGroupIndexes : [],
   );
@@ -1235,7 +1249,7 @@ export function TranscriptMessageBody({
 
   // Resolved across the whole response by `Transcript` and handed only to the
   // message that ends it. Each kind's card decides for itself whether it can
-  // render — without an opener it opens nothing, so it does not.
+  // render. Without an opener it opens nothing, so it does not.
   const responseArtifactCards = isAssistant
     ? responseArtifacts?.map((artifact) => (
         <ResponseArtifactCard

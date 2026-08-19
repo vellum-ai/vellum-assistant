@@ -952,7 +952,7 @@ describe("TranscriptMessageBody", () => {
     const finalText = getByText("Here are the results.");
     // Both collapsed runs read inside the one disclosure, which sits where the
     // first of them was. That puts "I will summarize it." above the image it
-    // originally followed — the ordering cost of a single disclosure, paid only
+    // originally followed. That is the ordering cost of a single disclosure, paid only
     // while it is open. The pinned image and the final answer keep their places.
     expect(
       firstText.compareDocumentPosition(secondText) &
@@ -1130,13 +1130,10 @@ describe("TranscriptMessageBody", () => {
     );
   });
 
-  test("a pinned surface no longer strands the run on the far side of it", () => {
-    // The shape the per-run rule handled worst: a surface between two
-    // collapsible runs. The leading [prose, thinking] pair earned a disclosure
-    // and the trailing lone thinking run did not, so one message rendered the
-    // same kind of row both indented inside a disclosure and flush at the
-    // margin below it. Message-wide, both runs collapse into the one
-    // disclosure and the surface keeps its place.
+  test("a pinned surface does not strand the run on the far side of it", () => {
+    // A surface sits between two collapsible runs. Both collapse into the one
+    // message-wide disclosure, and the surface keeps its place: neither run is
+    // left rendering a bare row flush at the margin beside it.
     const { container, getAllByRole, queryByText } = render(
       <TranscriptMessageBody
         message={{
@@ -1157,7 +1154,7 @@ describe("TranscriptMessageBody", () => {
     const triggers = getAllByRole("button", { name: "Earlier activity" });
     expect(triggers.length).toBe(1);
     expect(queryByText("Let me look that up.")).toBeNull();
-    // Neither thinking link is mounted while closed — both are inside the one
+    // Neither thinking link is mounted while closed: both are inside the one
     // disclosure now, where before the trailing one hung outside it.
     expect(
       container.querySelectorAll("[data-testid='thought-process-link']").length,
@@ -1178,8 +1175,7 @@ describe("TranscriptMessageBody", () => {
     // The group is pinned only when the strip draws something. Here every
     // referenced image is already shown by the end-of-turn attachment chips, so
     // the strip is empty and the group has nothing to keep it outside the
-    // disclosure — it used to sit at the margin rendering its activity row and
-    // no image at all.
+    // disclosure.
     const toolCall: ChatMessageToolCall = {
       id: "tc-shown-image",
       name: "media_generate_image",
@@ -2584,10 +2580,9 @@ describe("TranscriptMessageBody: response asset cards", () => {
   });
 
   test("a created-then-edited document renders one card, at the end", () => {
-    // The shape that used to produce two: `document_create` emits an inline
-    // `document_preview` where it ran, and the later edit stopped that card
-    // from standing in for the end-of-response one. The preview is no longer
-    // drawn, so the response closes with the single card it owes.
+    // `document_create` emits an inline `document_preview` where it ran and
+    // the edit names the same document again. The preview is not drawn, so the
+    // response closes with the single card it owes.
     const toolCalls = [
       {
         id: "tc-create",
@@ -2647,8 +2642,8 @@ describe("TranscriptMessageBody: response asset cards", () => {
     expect(
       screen.queryByText("created the weather test document."),
     ).not.toBeNull();
-    // Both tool runs live in that one disclosure — the create and the edit
-    // merged into a single run once the preview stopped splitting them.
+    // Both tool runs live in that one disclosure: with the preview dropped,
+    // the create and the edit form one contiguous run.
     fireEvent.click(triggers[0]!);
     expect(
       screen.queryByText("i'll make a short weather-themed test document."),

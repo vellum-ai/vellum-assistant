@@ -22,11 +22,11 @@ interface DocumentPreviewSurfaceProps {
 /**
  * A `document_preview` surface, drawn through the shared {@link DocumentCard}.
  *
- * The assistant transcript no longer renders this surface where its tool ran —
- * a turn's documents are collected into one affordance at the end of the
- * response instead (see `resolve-response-documents.ts`). This path remains for
- * a `document_preview` that arrives outside that projection, e.g. one the model
- * writes inline with a `ui_show` tag.
+ * The assistant transcript collects a turn's documents into one card per
+ * document at the end of the response (see `resolve-response-artifacts.ts`),
+ * dropping the `document_preview` blocks that name them while it groups.
+ * This path serves a `document_preview` that arrives outside that projection,
+ * such as one the model writes inline with a `ui_show` tag.
  */
 export function DocumentPreviewSurface({
   surface,

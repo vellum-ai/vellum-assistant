@@ -82,8 +82,8 @@ export interface TranscriptMessageBodyProps {
   /** Callback to abort/stop a running workflow from an inline card. */
   onStopWorkflow?: (runId: string) => void;
   /**
-   * The assets this message's whole response touched — its documents and apps
-   * — resolved by `Transcript` (see `resolveResponseArtifacts`) and set only on
+   * The assets this message's whole response touched (its documents and apps),
+   * resolved by `Transcript` (see `resolveResponseArtifacts`) and set only on
    * the message that ends a completed response. Each one renders a card below
    * the message body, so a response closes with one card per asset however many
    * of its messages wrote to it.

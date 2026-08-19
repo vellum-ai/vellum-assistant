@@ -69,7 +69,7 @@ function appUpdateCall(id: string, appId: string): ChatMessageToolCall {
 
 /**
  * The `dynamic_page` preview `app_create` auto-opens with. `data.preview` is
- * what makes it a pointer — the surface renders an `AppCard` rather than the
+ * what makes it a pointer: the surface renders an `AppCard` rather than the
  * expanded app.
  */
 function appPreviewBlock(appId: string): ConversationContentBlock {
@@ -194,9 +194,9 @@ describe("resolveResponseArtifacts", () => {
   });
 
   test("keeps a created document to one entry despite its preview card", () => {
-    // The preview card is not drawn where its tool ran, so it no longer stands
-    // in for the end-of-response card — but it names the same document the
-    // create does, and the response still owes exactly one entry.
+    // The preview card is not drawn where its tool ran, so it does not stand
+    // in for the end-of-response card. It names the same document the create
+    // does, and the response owes exactly one entry for it.
     const items = [
       user("u1"),
       assistant(
@@ -213,8 +213,8 @@ describe("resolveResponseArtifacts", () => {
   });
 
   test("keeps one entry for a document created then edited", () => {
-    // The case that used to produce two cards: one where the create ran and a
-    // second at the end of the response, because the edit unclaimed it.
+    // A create and an edit both name one document, and the union collapses
+    // them onto a single entry.
     const items = [
       user("u1"),
       assistant(
@@ -232,8 +232,7 @@ describe("resolveResponseArtifacts", () => {
 
   test("keeps a document a response only opened", () => {
     // `document_open` mutates nothing, so the preview surface it emits is the
-    // response's only trace of the document. Before the union it produced a
-    // card mid-transcript and nothing at the end; now it anchors an entry.
+    // response's only trace of the document, and it anchors the entry alone.
     const items = [
       user("u1"),
       assistant("a1", [], [previewBlock("surf-notes")]),
@@ -277,8 +276,8 @@ describe("resolveResponseArtifacts", () => {
   });
 
   test("keeps a created-then-updated app to one entry", () => {
-    // The app twin of the document duplicate: `app_create` emits a preview
-    // where it ran, and a later `app_update` used to leave both standing.
+    // The app twin of the document case: `app_create` emits a preview naming
+    // the app, and a later `app_update` names it again.
     const items = [
       user("u1"),
       assistant(
@@ -295,8 +294,8 @@ describe("resolveResponseArtifacts", () => {
   });
 
   test("ignores an expanded dynamic_page, which is the app itself", () => {
-    // Without `preview` the surface renders the live app inline — content, not
-    // a pointer — so it anchors nothing and keeps rendering where it landed.
+    // Without `preview` the surface renders the live app inline: content, not
+    // a pointer, so it anchors nothing and keeps rendering where it landed.
     const expanded = {
       type: "surface",
       surface: {

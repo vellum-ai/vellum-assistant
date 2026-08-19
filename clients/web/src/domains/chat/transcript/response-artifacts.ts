@@ -1,6 +1,6 @@
 /**
- * The assets a response produces — the documents and apps it created, changed,
- * or opened — and how the transcript finds them.
+ * The assets a response produces (the documents and apps it created, changed,
+ * or opened) and how the transcript finds them.
  *
  * An asset announces itself twice: as a mutating tool call, and as a *pointer*
  * surface the tool emits where it ran (a `document_preview`, or a
@@ -18,7 +18,7 @@
  *   - `resolve-response-artifacts.ts` collects a response's assets.
  *   - `response-artifact-card.tsx` renders each one's card.
  *
- * Pure — no React/DOM, so `message-content.ts` can import it without pulling a
+ * Pure: no React/DOM, so `message-content.ts` can import it without pulling a
  * component graph into the projection path.
  */
 
@@ -60,7 +60,7 @@ function str(value: unknown): string | null {
 
 /**
  * The app a `dynamic_page` names. Exported because the surface component reads
- * the same two spellings — the daemon has emitted both `appId` and `app_id` —
+ * the same two spellings (the daemon has emitted both `appId` and `app_id`),
  * and a second implementation would drift from this one.
  */
 export function readDynamicPageAppId(
@@ -159,7 +159,7 @@ const APP_KIND: ArtifactKindSpec = {
   kind: "app",
   // `dynamic_page` is a pointer only when it carries `preview`: that is the
   // payload `dynamic-page-surface.tsx` renders as an `AppCard`. Without it the
-  // surface is the expanded, interactive app itself — content, which belongs
+  // surface is the expanded, interactive app itself: content, which belongs
   // where it landed.
   pointerTarget: (surface) =>
     surface.surfaceType === "dynamic_page" && surface.data?.preview != null

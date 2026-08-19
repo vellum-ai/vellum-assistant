@@ -1,8 +1,8 @@
 /**
  * Renders one of a response's assets as the card that closes the response.
  *
- * The card is per kind — a document is a title row, an app is a thumbnail tile
- * — because they are different things to look at. What the registry
+ * The card is per kind (a document is a title row, an app is a thumbnail tile)
+ * because they are different things to look at. What the registry
  * generalizes is the placement and uniqueness rule (`response-artifacts.ts`):
  * one card per asset, at the end of the response, never where its tool ran and
  * never twice.

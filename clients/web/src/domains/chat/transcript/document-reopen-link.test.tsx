@@ -3,7 +3,7 @@
  *
  * Covers what the card owes its caller: it names the document from the
  * documents query, rendering only once a resolved list carries the document,
- * and it stays put regardless of what the viewer is showing — a document is an
+ * and it stays put regardless of what the viewer is showing. A document is an
  * artifact of the turn that produced it, so its row does not appear and vanish
  * as the editor opens and closes.
  */
