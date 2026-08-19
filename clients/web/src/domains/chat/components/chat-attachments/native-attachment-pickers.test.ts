@@ -21,8 +21,14 @@ const readPaths: string[] = [];
 /** The plain bytes a path holds; the mock below serves ranges out of it. */
 let mockContent: (path: string) => string = () => "";
 /**
- * A path's length for the tests that need a genuinely large file, served a
- * slice at a time so nothing ever builds the whole thing as a string.
+ * A path's length for the tests that need a genuinely large file.
+ *
+ * Served a slice at a time, so nothing builds the whole file, and served as a
+ * Blob, which is the shape the web implementation of `readFile` answers with.
+ * Both matter at this size: a fifty-megabyte case spends seconds in `atob` and
+ * the per-character loop behind it, and these tests are counting bytes rather
+ * than decoding them. The base64 shape every other test here uses is what
+ * covers that path.
  */
 let mockContentLength: (path: string) => number | null = () => null;
 let mockReadError: (path: string) => Error | null = () => null;
@@ -83,7 +89,7 @@ mock.module("@capacitor/filesystem", () => ({
         const end =
           length < 0 ? synthetic : Math.min(synthetic, offset + length);
         return Promise.resolve({
-          data: btoa("a".repeat(Math.max(0, end - offset))),
+          data: new Blob([new Uint8Array(Math.max(0, end - offset))]),
         });
       }
       const whole = mockContent(path);
