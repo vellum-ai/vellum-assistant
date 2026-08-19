@@ -149,7 +149,10 @@ beforeEach(() => {
   readFailure = null;
   dataUpdatedAt = 1;
   useInteractionStore.getState().resetAll();
-  useConversationStore.setState({ activeConversationId: "conv-A" });
+  useConversationStore.setState({
+    activeConversationId: "conv-A",
+    attentionConversationIds: new Set<string>(),
+  });
 });
 
 afterEach(() => {
@@ -279,6 +282,50 @@ describe("ask_question restore on a committed snapshot", () => {
     expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
       "req-live",
     );
+  });
+
+  test("keeps the conversation marked while a question is outstanding", async () => {
+    // GIVEN a conversation carrying an attention key and a question the
+    // registry still reports as awaiting an answer
+    useConversationStore.getState().addAttentionConversationId("conv-A");
+    reportedInteractions = {
+      pendingSecret: null,
+      pendingConfirmation: null,
+      pendingQuestion: { requestId: "req-live", entries: ENTRIES },
+    };
+
+    // WHEN the snapshot commits
+    renderHistory();
+
+    // THEN the key survives. A question parks the turn on the user the same way
+    // a secret or confirmation does, and the sweep that sets the key counts
+    // questions, so clearing it here just made the badge flap.
+    await waitFor(() => {
+      expect(useInteractionStore.getState().pendingQuestion).not.toBeNull();
+    });
+    expect(
+      useConversationStore.getState().attentionConversationIds.has("conv-A"),
+    ).toBe(true);
+  });
+
+  test("releases the conversation once nothing is outstanding", async () => {
+    // GIVEN an attention key and a registry reporting all three kinds clear
+    useConversationStore.getState().addAttentionConversationId("conv-A");
+    reportedInteractions = {
+      pendingSecret: null,
+      pendingConfirmation: null,
+      pendingQuestion: null,
+    };
+
+    // WHEN the snapshot commits
+    renderHistory();
+
+    // THEN the key is released, so adding the question term did not strand it
+    await waitFor(() => {
+      expect(
+        useConversationStore.getState().attentionConversationIds.has("conv-A"),
+      ).toBe(false);
+    });
   });
 
   test("leaves a prompt that arrived while the read was in flight", async () => {

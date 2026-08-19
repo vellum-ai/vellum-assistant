@@ -508,7 +508,19 @@ export function useConversationHistory({
               ),
             );
         }
-        if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
+        // A question parks the turn on the user exactly like a secret or a
+        // confirmation does, and the rest of the attention machinery already
+        // treats it that way: the bulk listing counts every kind, and the
+        // `interaction_resolved` clear is gated on a set that names `question`.
+        // Leaving it out here dropped the key for a conversation that was still
+        // waiting, until a sweep put it back. `undefined` (an assistant that
+        // cannot report questions) reads as "nothing outstanding" and clears as
+        // it always has.
+        if (
+          !interactions.pendingSecret &&
+          !interactions.pendingConfirmation &&
+          !interactions.pendingQuestion
+        ) {
           useConversationStore
             .getState()
             .removeAttentionConversationId(requestedConversationId);
