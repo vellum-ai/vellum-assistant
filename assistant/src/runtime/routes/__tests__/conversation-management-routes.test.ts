@@ -103,6 +103,10 @@ const createHandler = findHandler(
   CONVERSATION_MANAGEMENT_ROUTES,
   "createConversation",
 );
+const reorderHandler = findHandler(
+  CONVERSATION_MANAGEMENT_ROUTES,
+  "reorderConversations",
+);
 const putHandler = findHandler(
   CONVERSATION_MANAGEMENT_ROUTES,
   "setConversationInferenceProfile",
@@ -520,5 +524,73 @@ describe("DELETE /v1/conversations/:id (deleteConversation)", () => {
 
     expect(getDb().select().from(conversations).all()).toHaveLength(0);
     expect(getSchedule(job.id)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/conversations/reorder
+// ---------------------------------------------------------------------------
+
+/**
+ * The response is the point of these: this write does not simply apply its
+ * input, so a client that predicted the outcome from its own request would
+ * place the row in a section the next refetch takes it back out of. What the
+ * endpoint answers with has to be what the database now holds.
+ */
+describe("reorderConversations", () => {
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  test("answers with the group as stored, not as requested", async () => {
+    const convId = crypto.randomUUID();
+    seedConversation(convId);
+
+    // An id naming no group: the write sanitizes it to the ungrouped bucket
+    // rather than failing, which is exactly the case a client cannot predict.
+    const result = (await reorderHandler({
+      body: { updates: [{ conversationId: convId, groupId: "no-such-group" }] },
+    })) as {
+      ok: boolean;
+      conversations: Array<{ id: string; groupId: string | null }>;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.conversations).toHaveLength(1);
+    expect(result.conversations[0]!.id).toBe(convId);
+    expect(result.conversations[0]!.groupId).toBe("system:all");
+  });
+
+  test("answers with the pin state the write derived", async () => {
+    const convId = crypto.randomUUID();
+    seedConversation(convId);
+
+    const result = (await reorderHandler({
+      body: {
+        updates: [
+          { conversationId: convId, isPinned: true, groupId: "system:pinned" },
+        ],
+      },
+    })) as {
+      conversations: Array<{ groupId: string | null; isPinned?: true }>;
+    };
+
+    expect(result.conversations[0]!.groupId).toBe("system:pinned");
+    expect(result.conversations[0]!.isPinned).toBe(true);
+  });
+
+  test("an id naming no conversation is absent rather than represented", async () => {
+    const result = (await reorderHandler({
+      body: {
+        updates: [
+          { conversationId: crypto.randomUUID(), groupId: "system:all" },
+        ],
+      },
+    })) as { ok: boolean; conversations: unknown[] };
+
+    // The write is still reported as accepted: the batch is best-effort per
+    // row, and the empty list says this response speaks for no row.
+    expect(result.ok).toBe(true);
+    expect(result.conversations).toEqual([]);
   });
 });

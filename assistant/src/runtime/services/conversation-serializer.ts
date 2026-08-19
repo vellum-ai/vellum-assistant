@@ -243,6 +243,52 @@ export function serializeConversationSummary(params: {
 }
 
 /**
+ * Serialize several conversations in one pass, for the writes that answer
+ * with the rows they changed.
+ *
+ * The batched form of {@link buildConversationDetailResponse}: the three
+ * per-row lookups (bindings, attention state, display meta) are issued once
+ * for the whole set rather than once per row, so answering a bulk placement
+ * costs a fixed number of queries plus one row read each.
+ *
+ * Ids naming no conversation are dropped, as are the legacy `private` rows,
+ * for the reason given on {@link buildConversationDetailResponse}: a row no
+ * listing will ever show must not reach a client through a write response
+ * either. A caller cannot tell those two cases apart from the result, which
+ * is deliberate. The response says where rows are now, and a row that is not
+ * in it is one this answer says nothing about.
+ */
+export function buildConversationSummaries(
+  conversationIds: readonly string[],
+): Array<ReturnType<typeof serializeConversationSummary>> {
+  const conversations = conversationIds
+    .map((id) => getConversation(id))
+    .filter(
+      (conversation): conversation is NonNullable<typeof conversation> =>
+        conversation != null && conversation.conversationType !== "private",
+    );
+  if (conversations.length === 0) {
+    return [];
+  }
+  const ids = conversations.map((conversation) => conversation.id);
+  const bindings = getBindingsForConversations(ids);
+  const attentionStates = getAttentionStateByConversationIds(ids);
+  const displayMeta = getDisplayMetaForConversations(ids);
+  const parentCache = new Map<string, ConversationRow | null>();
+
+  return conversations.map((conversation) =>
+    serializeConversationSummary({
+      conversation,
+      binding: bindings.get(conversation.id),
+      attentionState: attentionStates.get(conversation.id),
+      displayMeta: displayMeta.get(conversation.id),
+      parentCache,
+      isProcessing: isConversationProcessing(conversation.id),
+    }),
+  );
+}
+
+/**
  * Build a full conversation detail response from a conversation ID.
  * Returns null if the conversation doesn't exist, or if it is a legacy
  * `private` row: every listing hides those by type (see

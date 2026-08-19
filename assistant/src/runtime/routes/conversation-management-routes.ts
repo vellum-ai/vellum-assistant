@@ -73,7 +73,10 @@ import { getLogger } from "../../util/logger.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
-import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
+import {
+  buildConversationDetailResponse,
+  buildConversationSummaries,
+} from "../services/conversation-serializer.js";
 import {
   publishConversationEnabledPluginsChanged,
   publishConversationListAndMetadataChanged,
@@ -857,6 +860,9 @@ function handleReorderConversations({ body = {}, headers }: RouteHandlerArgs) {
   if (!Array.isArray(updates)) {
     throw new BadRequestError("Missing updates array");
   }
+  const conversationIds = updates.map(
+    (u) => resolveConversationId(u.conversationId) ?? u.conversationId,
+  );
   batchSetConversationPlacement(
     updates.map((u) => ({
       id: u.conversationId,
@@ -869,7 +875,17 @@ function handleReorderConversations({ body = {}, headers }: RouteHandlerArgs) {
     updates.map((u) => u.conversationId),
     headers?.["x-vellum-client-id"]?.trim() || undefined,
   );
-  return { ok: true };
+  /* Answer with the rows as stored rather than as requested. This write is
+     not a pure application of its input: an unknown or deleted group id
+     falls back to `system:all`, and `surfaced_at` is stamped or cleared by
+     rule, so a client that assumed its own input would place the row in a
+     section the next refetch takes it back out of. Read after write, in the
+     same request, is the only answer that cannot disagree with the database.
+  */
+  return {
+    ok: true,
+    conversations: buildConversationSummaries(conversationIds),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1321,7 +1337,13 @@ export const ROUTES: RouteDefinition[] = [
         }),
       ),
     }),
-    responseBody: z.object({ ok: z.boolean() }),
+    responseBody: z.object({
+      ok: z.boolean(),
+      /* The rows as stored, so a client can place them instead of predicting
+         where this write put them. Ids that name no conversation are absent
+         rather than represented. */
+      conversations: z.array(conversationSummarySchema),
+    }),
     handler: handleReorderConversations,
   },
 ];

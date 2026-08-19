@@ -39,6 +39,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { haptic } from "@/utils/haptics";
 
 import type { Conversation } from "@/types/conversation-types";
+import { toConversation } from "@/utils/conversation-transforms";
 import { useRenameRequestStore } from "@/domains/chat/rename-request-store";
 import {
   findNextConversationId,
@@ -374,7 +375,7 @@ export function useConversationActions({
   });
 
   const moveToGroupMutation = useMutation<
-    void,
+    Conversation[],
     Error,
     MoveToGroupVars,
     PlacementContext
@@ -385,13 +386,18 @@ export function useConversationActions({
       groupId,
       isPinned,
     }) => {
-      await conversationsReorderPost({
+      const { data } = await conversationsReorderPost({
         path: { assistant_id: aid },
         body: {
           updates: [{ conversationId, isPinned, groupId }],
         },
         throwOnError: true,
       });
+      /* The rows as the daemon stored them. Absent against one that predates
+         this field, which needs no version gate: no rows means nothing to
+         apply, and the settle reconciles from the optimistic placement's own
+         keys exactly as it did before. */
+      return (data?.conversations ?? []).map(toConversation);
     },
     onMutate: async ({
       assistantId: aid,
@@ -423,9 +429,37 @@ export function useConversationActions({
       });
       return { token };
     },
-    onSuccess: (_data, { conversationId, isPinned }) => {
+    /* The optimistic write predicted where this row would land; this is where
+       the prediction is replaced by the answer. The two differ whenever the
+       daemon did not simply apply the request: an unknown or deleted group id
+       is stored as `system:all`, and `surfaced_at` is stamped or cleared by
+       rule. Applying the returned row converges the caches within this one
+       round trip instead of leaving a plausible wrong placement standing
+       until something unrelated refetches. */
+    onSuccess: (
+      rows,
+      { assistantId: aid, conversationId, isPinned },
+      context,
+    ) => {
       if (!isPinned) {
         prePinGroupIdsRef.current.delete(conversationId);
+      }
+      const placement = placementsRef.current.get(conversationId);
+      /* Superseded moves do not apply their answer, for the reason their
+         rollback does not run: the user has moved the row again, and this
+         response describes a placement they have already left. */
+      if (!context || placement?.token !== context.token) {
+        return;
+      }
+      for (const row of rows) {
+        for (const queryKey of patchConversation(
+          queryClient,
+          aid,
+          row.conversationId,
+          row,
+        )) {
+          placement.sectionKeys.set(hashKey(queryKey), queryKey);
+        }
       }
     },
     onError: (

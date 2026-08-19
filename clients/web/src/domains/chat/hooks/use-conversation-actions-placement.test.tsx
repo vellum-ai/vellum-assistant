@@ -28,11 +28,20 @@ import {
   type ConversationListFilter,
 } from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
+import type { RawConversationSummary } from "@/utils/conversation-transforms";
 
-type ReorderImpl = (opts: unknown) => Promise<{
-  data: undefined;
+/**
+ * The reorder response carries the rows as the daemon stored them. `data` is
+ * `undefined` against a daemon that predates that field, which is the shape
+ * most of these tests use: it exercises the path where the client has only
+ * its own optimistic placement to go on.
+ */
+type ReorderResponse = {
+  data: { ok: boolean; conversations: RawConversationSummary[] } | undefined;
   response: { ok: boolean };
-}>;
+};
+
+type ReorderImpl = (opts: unknown) => Promise<ReorderResponse>;
 
 let reorderImpl: ReorderImpl = async () => ({
   data: undefined,
@@ -125,6 +134,29 @@ function copies(client: QueryClient, conversationId: string): number {
       idsIn(client, filter).filter((id) => id === conversationId).length,
     0,
   );
+}
+
+/**
+ * A row in the daemon's wire shape, for the responses that carry one. Only
+ * the fields a placement reads are interesting; the rest are the required
+ * shape.
+ */
+function wireRow(
+  overrides: Partial<RawConversationSummary> = {},
+): RawConversationSummary {
+  return {
+    id: "c1",
+    title: "Conversation",
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    lastMessageAt: 1_000,
+    conversationType: "standard",
+    source: "user",
+    groupId: "system:all",
+    conversationOriginChannel: "slack",
+    isProcessing: false,
+    ...overrides,
+  };
 }
 
 function deferred<T>() {
@@ -390,5 +422,98 @@ describe("pin/unpin placement", () => {
       client.getQueryState(conversationListQueryKey(ASSISTANT_ID))
         ?.isInvalidated,
     ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The response is authoritative
+// ---------------------------------------------------------------------------
+
+/**
+ * The optimistic write predicts where the daemon will put the row, and the
+ * prediction can be wrong in ways no client can detect: a group id naming no
+ * group is stored as `system:all`, and `surfaced_at` is stamped or cleared by
+ * rule. So the write answers with the rows it stored, and applying that answer
+ * is what converges the caches within the round trip.
+ */
+describe("placement response", () => {
+  const CUSTOM: ConversationListFilter = { groupId: "group-uuid" };
+
+  test("the row ends where the daemon stored it, not where the move asked", async () => {
+    /* Filing into a group that no longer exists. The daemon redirects it to
+       the ungrouped bucket, and without applying the response the row would
+       keep rendering in a group it is not in. */
+    reorderImpl = async () => ({
+      data: { ok: true, conversations: [wireRow({ groupId: "system:all" })] },
+      response: { ok: true },
+    });
+    const { result, client } = setup([
+      [SLACK, [SLACK_ROW]],
+      [CUSTOM, []],
+    ]);
+
+    await act(async () => {
+      result.current.handleMoveToGroup(SLACK_ROW, "group-uuid");
+    });
+
+    await waitFor(() => {
+      expect(idsIn(client, SLACK)).toEqual(["c1"]);
+    });
+    expect(idsIn(client, CUSTOM)).toEqual([]);
+    expect(copies(client, "c1")).toBe(1);
+  });
+
+  test("a superseded move does not apply its answer over the newer one", async () => {
+    /* Same rule as the rollback: the response describes a placement the user
+       has already left, so applying it would move the row back out of the
+       section they last chose. */
+    const first = deferred<ReorderResponse>();
+    let call = 0;
+    reorderImpl = () => {
+      call += 1;
+      return call === 1
+        ? first.promise
+        : Promise.resolve({
+            data: {
+              ok: true,
+              conversations: [wireRow({ groupId: "system:all" })],
+            },
+            response: { ok: true },
+          });
+    };
+    const { result, client } = setup([
+      [SLACK, [SLACK_ROW]],
+      [CUSTOM, []],
+    ]);
+
+    // Move A into the custom group, still in flight.
+    await act(async () => {
+      result.current.handleMoveToGroup(SLACK_ROW, "group-uuid");
+    });
+    // Move B returns it to the ungrouped bucket, and settles.
+    await act(async () => {
+      result.current.handleMoveToGroup(
+        { ...SLACK_ROW, groupId: "group-uuid" },
+        "system:all",
+      );
+    });
+    await waitFor(() => {
+      expect(idsIn(client, SLACK)).toEqual(["c1"]);
+    });
+
+    // A's answer lands late, naming the group the user has since left.
+    await act(async () => {
+      first.resolve({
+        data: {
+          ok: true,
+          conversations: [wireRow({ groupId: "group-uuid" })],
+        },
+        response: { ok: true },
+      });
+    });
+
+    expect(idsIn(client, SLACK)).toEqual(["c1"]);
+    expect(idsIn(client, CUSTOM)).toEqual([]);
+    expect(copies(client, "c1")).toBe(1);
   });
 });
