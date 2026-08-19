@@ -153,7 +153,7 @@ async function handleWebhooksRegister(
       try {
         baseUrl = getPublicBaseUrl(getConfig());
       } catch {
-        // No published tunnel URL yet (or ingress toggled off) — platform
+        // No published tunnel URL yet (or ingress toggled off), so platform
         // registration keeps webhooks working.
       }
       if (
