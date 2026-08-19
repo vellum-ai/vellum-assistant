@@ -35,7 +35,10 @@ mock.module("../util/cgroup-cpu.js", () => ({
 
 let mockedMemoryLimitBytes: number | null = null;
 let mockedMemoryUsageBytes: number | null = null;
-let mockedMemoryStat: { reclaimableBytes: number | null } | null = null;
+let mockedMemoryStat: {
+  inactiveFileBytes: number | null;
+  slabReclaimableBytes: number | null;
+} | null = null;
 
 mock.module("../util/cgroup-memory.js", () => ({
   getContainerMemoryLimitBytes: () => mockedMemoryLimitBytes,
@@ -309,7 +312,16 @@ describe("resource pressure guard", () => {
     expect(status.state).toBe("unknown");
     expect(status.memoryPercent).toBeNull();
 
-    mockedMemoryStat = { reclaimableBytes: 400 };
+    // An inactive_file counter alone is not enough to be missing: without
+    // it the readily-reclaimable split is unknowable even when slab counters
+    // parse.
+    mockedMemoryStat = { inactiveFileBytes: null, slabReclaimableBytes: 100 };
+    status = evaluateResourcePressureNow();
+    expect(status.memoryPercent).toBeNull();
+
+    // Only inactive file pages and reclaimable slab leave the working set;
+    // active file pages remain counted.
+    mockedMemoryStat = { inactiveFileBytes: 300, slabReclaimableBytes: 100 };
     status = evaluateResourcePressureNow();
     expect(status.state).toBe("ok");
     expect(status.memoryPercent).toBe(55);

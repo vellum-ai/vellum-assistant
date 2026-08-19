@@ -231,20 +231,23 @@ function defaultSampleMemory(): ResourcePressureMemorySample | null {
   if (limitBytes === null || limitBytes <= 0 || usageBytes === null) {
     return null;
   }
-  // Raw usage includes page cache the kernel can drop under pressure;
-  // counting it would false-positive, so the working set subtracts it.
-  // When the reclaimable breakdown is unreadable (cgroups v1, where
-  // memory.stat lives elsewhere, or missing v2 counters) the working set
-  // is unknowable: report the signal unavailable rather than assuming
-  // zero cache and flagging a cache-heavy container as under pressure.
-  const reclaimableBytes = getContainerMemoryStat()?.reclaimableBytes ?? null;
-  if (reclaimableBytes === null) {
+  // Raw usage includes cache the kernel can drop under pressure; counting
+  // it would false-positive, so the working set subtracts the READILY
+  // reclaimable part: inactive file pages plus reclaimable slab. The full
+  // `file` counter is not used because active file pages (hot mmaps, a hot
+  // cache) are not disposable and belong in the working set. When the
+  // breakdown is unreadable (cgroups v1, where memory.stat lives
+  // elsewhere, or missing v2 counters) the working set is unknowable:
+  // report the signal unavailable rather than guessing.
+  const stat = getContainerMemoryStat();
+  const inactiveFileBytes = stat?.inactiveFileBytes ?? null;
+  if (inactiveFileBytes === null) {
     return null;
   }
   return {
     usageBytes,
     limitBytes,
-    reclaimableBytes,
+    reclaimableBytes: inactiveFileBytes + (stat?.slabReclaimableBytes ?? 0),
   };
 }
 
