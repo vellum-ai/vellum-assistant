@@ -1,3 +1,4 @@
+import { isVellumStaff } from "@/lib/auth/staff";
 import { useAuthStore } from "@/stores/auth-store";
 import type { AuthUser } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -8,11 +9,9 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
  * kill switch, and the staff check is what keeps the feature off for everyone
  * else even if the flag is ever rolled out more widely than intended.
  *
- * "Staff" is recognized the same way `canUseLlmInspector` recognizes it: the
- * platform's `isStaff` bit, or a `@vellum.ai` address for sessions whose
- * snapshot carries no staff bit. Unlike the inspector there is no flag-only
- * escape hatch: local-gateway sessions have neither signal, so they never see
- * fork.
+ * Staff is recognized by the shared `isVellumStaff` predicate, the same one
+ * the LLM inspector gates on. Unlike the inspector there is no flag-only
+ * escape hatch, so local gateway sessions never see fork.
  */
 export function canForkConversation(
   user: AuthUser | null,
@@ -21,10 +20,7 @@ export function canForkConversation(
   if (!forkFromMessageEnabled) {
     return false;
   }
-  return (
-    user?.isStaff === true ||
-    user?.email?.toLowerCase().endsWith("@vellum.ai") === true
-  );
+  return isVellumStaff(user);
 }
 
 /**

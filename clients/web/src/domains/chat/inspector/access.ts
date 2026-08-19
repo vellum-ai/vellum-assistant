@@ -1,3 +1,4 @@
+import { isVellumStaff } from "@/lib/auth/staff";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAuthStore } from "@/stores/auth-store";
 import type { AuthUser } from "@/stores/auth-store";
@@ -13,11 +14,7 @@ export function canUseLlmInspector(
   user: AuthUser | null,
   developerNavEnabled: boolean,
 ): boolean {
-  return (
-    developerNavEnabled ||
-    user?.isStaff === true ||
-    user?.email?.toLowerCase().endsWith("@vellum.ai") === true
-  );
+  return developerNavEnabled || isVellumStaff(user);
 }
 
 /**
