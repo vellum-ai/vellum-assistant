@@ -21,6 +21,7 @@ import {
   type PanePosition,
   type PanePresentation,
 } from "@/stores/pane-presentation";
+import type { MainView } from "@/stores/viewer-store";
 
 /** What a viewer sees, with arrangements that look alike collapsed together. */
 type Rendered = "one-surface" | "two-columns" | "stacked-strip";
@@ -183,12 +184,17 @@ describe("panePresentation", () => {
 describe("viewerPanePresentation reads the stored fields", () => {
   // The two combinations below are the reference: an arrangement is correct
   // when it agrees with them across every combination the fields can hold.
-  const MAIN_VIEWS = ["chat", "app", "app-editing", "document"];
+  const MAIN_VIEWS: readonly MainView[] = [
+    "chat",
+    "app",
+    "app-editing",
+    "document",
+  ];
   const BOOLS = [false, true];
 
   /** The field combination that means side by side. */
   function rendersSplit(
-    mainView: string,
+    mainView: MainView,
     hasApp: boolean,
     hasBoundConversation: boolean,
   ): boolean {
@@ -197,7 +203,7 @@ describe("viewerPanePresentation reads the stored fields", () => {
 
   /** The field combination that means the app is parked to its strip. */
   function rendersStrip(
-    mainView: string,
+    mainView: MainView,
     hasApp: boolean,
     isAppMinimized: boolean,
   ): boolean {
@@ -233,7 +239,8 @@ describe("viewerPanePresentation reads the stored fields", () => {
   }
 
   it("reports no secondary once the viewer has moved off the app", () => {
-    for (const mainView of ["chat", "document", "skill-detail"]) {
+    const offApp: readonly MainView[] = ["chat", "document", "skill-detail"];
+    for (const mainView of offApp) {
       expect(
         viewerPanePresentation({
           mainView,
