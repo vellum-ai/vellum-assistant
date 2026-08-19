@@ -48,6 +48,7 @@ import {
   EDGE_SWIPE_SLIDE_MS,
 } from "@/hooks/edge-swipe-motion";
 import { useEdgeSwipeDrawer } from "@/hooks/use-edge-swipe-drawer";
+import { useSwipeCloseDrawer } from "@/hooks/use-swipe-close-drawer";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useMobileDrawerStore } from "@/stores/mobile-drawer-store";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
@@ -589,6 +590,15 @@ export function ChatLayout({
     onSettle: () => setDrawerDragging(false),
   });
 
+  // Swipe-to-close, the counterpart to the swipe that opened it. Armed only
+  // while the drawer is open, so it and the opening gesture never see the same
+  // touch, and stood down while a swipe-action row is revealed: swiping that
+  // row back toward centre must close the row, not the drawer.
+  const closeSwipe = useSwipeCloseDrawer({
+    enabled: drawerVisible && openRowCount === 0,
+    onClose: closeDrawer,
+  });
+
   const activeConversationId = useConversationStore.use.activeConversationId();
   const processingConversationIds =
     useConversationStore.use.processingConversationIds();
@@ -1105,9 +1115,25 @@ export function ChatLayout({
               className="fixed inset-0"
               style={{
                 zIndex: 40,
-                transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
-                transition: `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`,
+                // The close drag rides on the open resting transform, so the
+                // panel tracks the finger from where it sits. Releasing short
+                // returns it here under the standard transition; releasing past
+                // the threshold flips `drawerOpen`, and the same transition
+                // carries it the rest of the way out.
+                transform: drawerOpen
+                  ? `translateX(${closeSwipe.dragOffset}px)`
+                  : "translateX(-100%)",
+                transition: closeSwipe.isDragging
+                  ? "none"
+                  : `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`,
+                // Vertical panning stays native for the menu's scrollport while
+                // the horizontal axis belongs to this gesture.
+                touchAction: "pan-y",
               }}
+              onTouchStart={closeSwipe.onTouchStart}
+              onTouchMove={closeSwipe.onTouchMove}
+              onTouchEnd={closeSwipe.onTouchEnd}
+              onTouchCancel={closeSwipe.onTouchCancel}
               role="dialog"
               aria-modal="true"
               aria-label="Navigation"

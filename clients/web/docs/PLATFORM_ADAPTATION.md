@@ -305,6 +305,13 @@ the left half of a mobile viewport opens the navigation drawer. A row there keep
 on the **trailing** edge, or the two gestures resolve to the drawer and the row's leading action is
 unreachable in practice.
 
+Inside the open drawer the contested edge flips: a leftward drag closes it
+([`useSwipeCloseDrawer`](../src/hooks/use-swipe-close-drawer.ts)). Rows keep both edges there,
+because that gesture stands down over anything marked `data-slot="swipe-action-row"`, which
+[`SwipeActionReveal`](../src/components/swipe-action-reveal.tsx) sets on the branch that arms its own
+handlers. A panel gesture layered over rows needs the same opt-out, or it takes drags the rows were
+built to answer.
+
 ---
 
 ## Should iOS and Android differ?
