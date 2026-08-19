@@ -94,7 +94,6 @@ import {
 } from "./routes/inference-profile-session-reaper.js";
 import {
   activeWatchStreamSessions,
-  resolveWatchActorPrincipalId,
   WatchStreamSession,
 } from "./routes/watch-routes.js";
 
@@ -183,8 +182,6 @@ interface WatchStreamWebSocketData {
   conversationId?: string;
   /** Desktop client to observe, when the actor has more than one connected. */
   clientId?: string;
-  /** Actor principal header, present only on a socket that skipped the gateway. */
-  actorPrincipalIdHeader?: string;
   /** The session ID for tracking in the active sessions registry. */
   sessionId: string;
   /** Bound at open time so the close handler tears down the exact session. */
@@ -359,8 +356,6 @@ export class RuntimeHttpServer {
                 ? { conversationId: watchData.conversationId }
                 : {}),
               ...(watchData.clientId ? { clientId: watchData.clientId } : {}),
-              resolveActorPrincipalId: () =>
-                resolveWatchActorPrincipalId(watchData.actorPrincipalIdHeader),
             });
             watchData.session = session;
             activeWatchStreamSessions.set(watchData.sessionId, session);
@@ -1061,8 +1056,6 @@ export class RuntimeHttpServer {
     const conversationId =
       wsUrl.searchParams.get("conversationId")?.trim() || undefined;
     const clientId = wsUrl.searchParams.get("clientId")?.trim() || undefined;
-    const actorPrincipalIdHeader =
-      req.headers.get("x-vellum-actor-principal-id")?.trim() || undefined;
 
     const upgraded = server.upgrade(req, {
       data: {
@@ -1071,7 +1064,6 @@ export class RuntimeHttpServer {
         sampleRate,
         conversationId,
         clientId,
-        actorPrincipalIdHeader,
         sessionId: crypto.randomUUID(),
       } satisfies WatchStreamWebSocketData,
     });

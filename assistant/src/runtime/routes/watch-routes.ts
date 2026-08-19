@@ -503,6 +503,10 @@ export class WatchStreamSession {
 
     if (this.ownsManagerSession) {
       this.ownsManagerSession = false;
+      // A screen read still in flight is dropped by the manager's `stopped`
+      // guard rather than awaited. Narration itself survives, because
+      // `handleNarrationFinal` files it synchronously before it observes, so
+      // what is lost is at most one trailing frame of a session that is over.
       const summary = this.manager.stop();
       if (summary) {
         log.info(
@@ -550,28 +554,29 @@ function stopQuietly(transcriber: StreamingTranscriber | null): void {
 }
 
 /**
- * The actor a watch session observes for.
+ * The actor a watch session observes for: the vellum guardian bound to this
+ * daemon, read from the gateway-owned binding.
  *
- * The gateway authenticates the downstream client and then dials the runtime
- * on a fresh connection carrying only its service token, so the upgrade
- * request arrives with no actor header of its own: the header path covers a
- * client that reaches the daemon directly, and the guardian lookup covers the
- * gateway-proxied socket, which the gateway pinned to the bound guardian
- * before it dialled. Both go through the same resolution the host-proxy result
- * routes use, so a session binds to the principal those routes would match a
- * desktop client against.
+ * The principal comes from that binding rather than from anything the request
+ * carries, because the request cannot carry a trustworthy one. The gateway
+ * authenticates the downstream client's edge JWT and then dials the runtime on
+ * a fresh socket bearing only its own service token
+ * (`gateway/src/http/routes/stt-stream-websocket.ts`), so an actor claim on
+ * the upgrade is never the gateway's word about who the client is. Honouring
+ * one would let any caller holding the service token bind a session, and the
+ * screen reads it drives, to somebody else's principal.
+ *
+ * It is the same binding `resolveActorPrincipalIdForLocalGuardian` falls
+ * through to and the same one `live-voice-session.ts` stamps its turns with,
+ * so a watch session observes the principal the host-proxy result routes match
+ * a desktop client against.
  */
-export async function resolveWatchActorPrincipalId(
-  actorPrincipalIdHeader?: string,
-): Promise<string | undefined> {
-  const {
-    findLocalGuardianPrincipalId,
-    resolveActorPrincipalIdForLocalGuardian,
-  } = await import("../local-actor-identity.js");
-  const fromHeader = await resolveActorPrincipalIdForLocalGuardian(
-    actorPrincipalIdHeader,
-  );
-  return fromHeader ?? (await findLocalGuardianPrincipalId());
+export async function resolveWatchActorPrincipalId(): Promise<
+  string | undefined
+> {
+  const { findLocalGuardianPrincipalId } =
+    await import("../local-actor-identity.js");
+  return findLocalGuardianPrincipalId();
 }
 
 // ---------------------------------------------------------------------------
