@@ -10,7 +10,13 @@
  */
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 const passthrough = ({ children, ...props }: Record<string, unknown>) =>
@@ -93,6 +99,7 @@ afterEach(() => {
   mockPickMedia = async () => EMPTY_PICK;
   mockPickFiles = async () => EMPTY_PICK;
   requestComposerFocusSpy.mockClear();
+  requestComposerFocusSpy.mockImplementation(() => {});
   captureErrorSpy.mockClear();
 });
 
@@ -101,11 +108,13 @@ function renderSheet(
 ) {
   const onOpenChange = mock((_open: boolean) => {});
   const onAttachFiles = mock((files: FileList | File[]) => Array.from(files));
+  const onPickerOpenChange = mock((_open: boolean) => {});
   const result = render(
     <AddToChatSheet
       open
       onOpenChange={onOpenChange}
       onAttachFiles={onAttachFiles}
+      onPickerOpenChange={onPickerOpenChange}
       {...props}
     />,
   );
@@ -113,7 +122,15 @@ function renderSheet(
     result.container.querySelectorAll<HTMLInputElement>('input[type="file"]'),
   );
   const [camera, gallery, files] = inputs;
-  return { ...result, onOpenChange, onAttachFiles, camera, gallery, files };
+  return {
+    ...result,
+    onOpenChange,
+    onAttachFiles,
+    onPickerOpenChange,
+    camera,
+    gallery,
+    files,
+  };
 }
 
 describe("AddToChatSheet", () => {
@@ -182,6 +199,49 @@ describe("AddToChatSheet", () => {
 // The Capacitor shells, where a file input cannot reach either surface
 // ---------------------------------------------------------------------------
 
+describe("AddToChatSheet: holding the composer up", () => {
+  test("reports the picker up for as long as a native pick lasts", async () => {
+    // The row closes the sheet before opening anything and the picker takes
+    // the web view's first responder, so both of the composer's own signals
+    // read idle for the whole pick. A native one lasts until every file has
+    // been read across the bridge, which is long enough to see.
+    mockNativePickersAvailable = true;
+    let finish: (() => void) | undefined;
+    mockPickMedia = async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      return EMPTY_PICK;
+    };
+    const { onPickerOpenChange } = renderSheet();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Photo Library"));
+    });
+    expect(onPickerOpenChange).toHaveBeenLastCalledWith(true);
+
+    await act(async () => {
+      finish?.();
+    });
+    expect(onPickerOpenChange).toHaveBeenLastCalledWith(false);
+  });
+
+  test("reports it down when a native pick fails", async () => {
+    // A rejection leaves the picker just as gone as a selection does.
+    mockNativePickersAvailable = true;
+    mockPickMedia = async () => {
+      throw new Error("pickFiles cancelled.");
+    };
+    const { onPickerOpenChange } = renderSheet();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Photo Library"));
+    });
+
+    expect(onPickerOpenChange).toHaveBeenLastCalledWith(false);
+  });
+});
+
 describe("AddToChatSheet: native pickers", () => {
   test("the photo row opens the photo library and attaches what it returns", async () => {
     // GIVEN a shell whose photo library hands back one image
@@ -194,9 +254,9 @@ describe("AddToChatSheet: native pickers", () => {
     const { onAttachFiles } = renderSheet();
 
     // WHEN the photo row is tapped
-    fireEvent.click(screen.getByText("Photo Library"));
-    await Promise.resolve();
-    await Promise.resolve();
+    await act(async () => {
+      fireEvent.click(screen.getByText("Photo Library"));
+    });
 
     // THEN the file reaches the composer as a plain File[], the shape
     // drag-and-drop already hands down, so it picks up the same vision gating,
@@ -218,15 +278,15 @@ describe("AddToChatSheet: native pickers", () => {
 
     // GIVEN a composer that keeps what it is handed
     renderSheet();
-    fireEvent.click(screen.getByText("Photo Library"));
-    await Promise.resolve();
-    await Promise.resolve();
+    await act(async () => {
+      fireEvent.click(screen.getByText("Photo Library"));
+    });
 
     // AND one that keeps nothing, the way the vision gate turns images away
     renderSheet({ onAttachFiles: () => [] });
-    fireEvent.click(screen.getAllByText("Photo Library")[1] as HTMLElement);
-    await Promise.resolve();
-    await Promise.resolve();
+    await act(async () => {
+      fireEvent.click(screen.getAllByText("Photo Library")[1] as HTMLElement);
+    });
 
     expect(answers).toEqual([true, false]);
   });
@@ -243,9 +303,9 @@ describe("AddToChatSheet: native pickers", () => {
     };
 
     renderSheet({ onAttachFiles: () => undefined });
-    fireEvent.click(screen.getByText("Photo Library"));
-    await Promise.resolve();
-    await Promise.resolve();
+    await act(async () => {
+      fireEvent.click(screen.getByText("Photo Library"));
+    });
 
     expect(answer).toBe(true);
   });
@@ -260,9 +320,9 @@ describe("AddToChatSheet: native pickers", () => {
     const { onAttachFiles } = renderSheet();
 
     // WHEN the files row is tapped and dismissed
-    fireEvent.click(screen.getByText("Files"));
-    await Promise.resolve();
-    await Promise.resolve();
+    await act(async () => {
+      fireEvent.click(screen.getByText("Files"));
+    });
 
     // THEN nothing is attached
     expect(onAttachFiles).not.toHaveBeenCalled();
@@ -286,9 +346,9 @@ describe("AddToChatSheet: native pickers", () => {
     const { onAttachFiles } = renderSheet();
 
     // WHEN the files row is tapped
-    fireEvent.click(screen.getByText("Files"));
-    await Promise.resolve();
-    await Promise.resolve();
+    await act(async () => {
+      fireEvent.click(screen.getByText("Files"));
+    });
 
     // THEN nothing is attached, which on its own looks exactly like picking
     // nothing, so the failure is reported instead of vanishing

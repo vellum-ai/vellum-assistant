@@ -774,6 +774,9 @@ export function ChatComposer({
   );
 
   const [addSheetOpen, setAddSheetOpen] = useState(false);
+  // Whether a picker the sheet launched is still up. The sheet closes itself
+  // before opening one, so its own flag above cannot answer for the pick.
+  const [addSheetPickerOpen, setAddSheetPickerOpen] = useState(false);
   // Latched on the first open and never reset. The sheet closes itself before
   // it hands off to the OS picker, so a shell that crossed the breakpoint while
   // that picker was up would take the sheet's hidden inputs with it.
@@ -849,6 +852,7 @@ export function ChatComposer({
     composerFocusWithin ||
     settingsSheetOpen ||
     addSheetOpen ||
+    addSheetPickerOpen ||
     attachPickerOpen;
   // Whether a banner is standing over the card. Read off the box rather than
   // derived from props: most of that stack arrives through
@@ -1689,6 +1693,7 @@ export function ChatComposer({
               open={addSheetOpen}
               onOpenChange={handleAddSheetOpenChange}
               onAttachFiles={onAddAttachmentFiles}
+              onPickerOpenChange={setAddSheetPickerOpen}
             />
           )}
         </ComposerCompactProvider>

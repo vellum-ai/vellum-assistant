@@ -276,10 +276,14 @@ mock.module(
       open: boolean;
       onOpenChange: (open: boolean) => void;
       onAttachFiles: (files: File[]) => void;
+      onPickerOpenChange: (open: boolean) => void;
     }) => (
       <div data-testid="add-to-chat-sheet" data-open={String(props.open)}>
         <button type="button" onClick={() => props.onAttachFiles(SHEET_PICK)}>
           sheet-pick
+        </button>
+        <button type="button" onClick={() => props.onPickerOpenChange(true)}>
+          sheet-picker-up
         </button>
       </div>
     ),
@@ -1602,6 +1606,20 @@ describe("ChatComposer: the mobile external-models caption", () => {
     fireEvent.focusOut(textarea, { relatedTarget: null });
 
     // THEN the caption stays away rather than surfacing under the scrim
+    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
+  });
+
+  test("a picker the sheet opened holds the caption away", () => {
+    // The sheet closes itself before opening one and the picker takes the web
+    // view's first responder, so neither the composer's focus nor the sheet's
+    // own flag is still true. What the sheet reports is the only thing left
+    // holding the layout, and a native pick lasts until every file has been
+    // read across the bridge.
+    mockNativePickersAvailable = true;
+    const { container, getByText } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    fireEvent.click(getByText("sheet-picker-up"));
+
     expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
   });
 

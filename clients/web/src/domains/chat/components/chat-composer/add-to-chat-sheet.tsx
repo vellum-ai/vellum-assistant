@@ -1,4 +1,5 @@
 import { BottomSheet, toast } from "@vellumai/design-library";
+import { useEffect, useState } from "react";
 import {
   Camera,
   File as FileIcon,
@@ -61,6 +62,18 @@ interface AddToChatSheetProps {
    * filtering stays a plain callback and cannot free an allowance by accident.
    */
   onAttachFiles: (files: FileList | File[]) => File[] | void;
+  /**
+   * Told whenever a picker this sheet launched goes up or comes down.
+   *
+   * The rows close the sheet before opening anything, and a picker takes the
+   * web view's first responder, so from the composer's side both of its own
+   * signals read idle for as long as a pick lasts. That is the whole of it on
+   * a native pick, which resolves only once every selected file has been read
+   * across the bridge: without this the composer spends those seconds
+   * rearranged for an empty box behind the surface the user is picking in,
+   * and snaps back as the picker dismisses.
+   */
+  onPickerOpenChange: (open: boolean) => void;
 }
 
 /**
@@ -85,6 +98,7 @@ export function AddToChatSheet({
   open,
   onOpenChange,
   onAttachFiles,
+  onPickerOpenChange,
 }: AddToChatSheetProps) {
   const { t } = useTranslation("chat");
   const camera = useAttachmentFilePicker({
@@ -104,6 +118,10 @@ export function AddToChatSheet({
     multiple: true,
     ...RESTORE_FOCUS,
   });
+
+  // A native pick has no element behind it to watch, so its span is held
+  // here. The input rows carry their own, which is what `pickerUp` folds in.
+  const [nativePickInFlight, setNativePickInFlight] = useState(false);
 
   const closeThenPick = (openPicker: () => void) => () => {
     onOpenChange(false);
@@ -125,6 +143,7 @@ export function AddToChatSheet({
     (pick: (onFile: OnPickedFile) => Promise<PickOutcome>) =>
     async (): Promise<void> => {
       onOpenChange(false);
+      setNativePickInFlight(true);
       try {
         // Handed on one at a time rather than collected: the picker reads the
         // next file only after this one has left it, so a multi-select never
@@ -159,8 +178,25 @@ export function AddToChatSheet({
         }
       } finally {
         requestComposerFocus();
+        setNativePickInFlight(false);
       }
     };
+
+  const pickerUp =
+    nativePickInFlight ||
+    camera.pickerOpen ||
+    gallery.pickerOpen ||
+    files.pickerOpen;
+  useEffect(() => {
+    onPickerOpenChange(pickerUp);
+    // A sheet unmounted mid-pick would otherwise leave the composer holding a
+    // picker that is no longer there.
+    return () => {
+      if (pickerUp) {
+        onPickerOpenChange(false);
+      }
+    };
+  }, [onPickerOpenChange, pickerUp]);
 
   // Read once per render rather than per row, and deliberately not a hook:
   // neither the shell a session runs in nor the plugins its build links can
