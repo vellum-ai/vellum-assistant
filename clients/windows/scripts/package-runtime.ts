@@ -1,4 +1,4 @@
-import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -18,6 +18,9 @@ const releaseChannel = process.env.VELLUM_ENVIRONMENT || "local";
 const targetArch = process.env.ELECTRON_TARGET_ARCH ?? process.arch;
 if (targetArch !== "x64" && targetArch !== "arm64") {
   throw new Error(`Unsupported Windows runtime architecture: ${targetArch}`);
+}
+if (targetArch !== process.arch) {
+  throw new Error(`${targetArch} runtime packaging requires a native runner.`);
 }
 const compileTarget = `bun-windows-${targetArch}`;
 const readPackageVersion = async (packageDir: string): Promise<string> => {
@@ -136,20 +139,18 @@ for (const { name, entry, externals, defines } of targets) {
     throw new Error(`Failed to compile ${name} (exit ${build.status}).`);
   }
 }
-if (targetArch === process.arch) {
-  const versionCheck = spawnSync(
-    path.join(outputDir, "assistant.exe"),
-    ["--version"],
-    { encoding: "utf8", windowsHide: true },
+const versionCheck = spawnSync(
+  path.join(outputDir, "assistant.exe"),
+  ["--version"],
+  { encoding: "utf8", windowsHide: true },
+);
+if (
+  versionCheck.status !== 0 ||
+  versionCheck.stdout.trim() !== assistantVersion
+) {
+  throw new Error(
+    `Packaged assistant version check failed: expected ${assistantVersion}, got ${versionCheck.stdout.trim() || "no output"}.`,
   );
-  if (
-    versionCheck.status !== 0 ||
-    versionCheck.stdout.trim() !== assistantVersion
-  ) {
-    throw new Error(
-      `Packaged assistant version check failed: expected ${assistantVersion}, got ${versionCheck.stdout.trim() || "no output"}.`,
-    );
-  }
 }
 for (const [source, name] of [
   ["assistant/src/prompts/templates", "templates"],
@@ -193,14 +194,7 @@ if (pluginApiShim.status !== 0) {
     `Failed to package the plugin API shim (exit ${pluginApiShim.status}).`,
   );
 }
-const targetBunExecutable =
-  targetArch === process.arch
-    ? process.execPath
-    : process.env.BUN_TARGET_EXECUTABLE;
-if (!targetBunExecutable || !existsSync(targetBunExecutable)) {
-  throw new Error(`The ${targetArch} Bun runtime executable is missing.`);
-}
-copyFileSync(targetBunExecutable, path.join(outputDir, "bun.exe"));
+copyFileSync(process.execPath, path.join(outputDir, "bun.exe"));
 await Bun.write(
   path.join(outputDir, "runtime.json"),
   `${JSON.stringify({ version: appVersion, bunVersion, releaseChannel, architecture: targetArch })}\n`,
