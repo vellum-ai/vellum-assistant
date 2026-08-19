@@ -27,15 +27,15 @@ import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 /**
  * Public routes outside the webhook namespace:
  *
- *   - `^/v1/audio/` — Twilio fetches generated audio URLs directly on the
+ *   - `^/v1/audio/`: Twilio fetches generated audio URLs directly on the
  *     public surface (see comment at `gateway/src/index.ts` audio route).
- *   - `^/v1/live-voice$` — the browser live-voice WebSocket (the Twilio
+ *   - `^/v1/live-voice$`: the browser live-voice WebSocket (the Twilio
  *     media-stream WebSocket rides the Twilio webhook prefix).
- *   - `^/v1/stt/stream$` — the public STT streaming WebSocket.
- *   - `^/assistant/credentials/enter$` — the gateway-served one-time
+ *   - `^/v1/stt/stream$`: the public STT streaming WebSocket.
+ *   - `^/assistant/credentials/enter$`: the gateway-served one-time
  *     credential entry page (self-contained HTML; the single-use token rides
  *     the URL fragment, which never reaches Velay or the gateway logs).
- *   - `^/v1/credential-requests/(peek|submit)$` — the entry page's
+ *   - `^/v1/credential-requests/(peek|submit)$`: the entry page's
  *     unauthenticated API calls; the single-use token travels in the POST
  *     body and is validated by the gateway handlers.
  */
