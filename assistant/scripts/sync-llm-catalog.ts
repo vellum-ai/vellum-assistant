@@ -119,7 +119,7 @@ function projectProvider(entry: ProviderCatalogEntry): Record<string, unknown> {
   projected.defaultModel = entry.defaultModel;
   projected.models = entry.models.map(projectModel);
   // Which of this provider's models the ChatGPT Codex subscription endpoint
-  // serves — exported so out-of-repo consumers (e.g. the platform's
+  // serves, exported so out-of-repo consumers (e.g. the platform's
   // model-liveness probe) read the allowlist instead of mirroring it.
   if (entry.id === "openai") {
     projected.codexSubscriptionModels = [...CODEX_SUBSCRIPTION_MODEL_IDS];
