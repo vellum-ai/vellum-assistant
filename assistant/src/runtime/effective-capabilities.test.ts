@@ -93,53 +93,34 @@ describe("isArchiveBySenderAuthorized", () => {
 });
 
 describe("canSeePersonalMemory", () => {
-  test("guardian keeps memory on every channel", () => {
-    for (const executionChannel of [undefined, "vellum", "slack", "phone"]) {
-      expect(
-        canSeePersonalMemory({ trustClass: "guardian", executionChannel }),
-      ).toBe(true);
-    }
-  });
-
-  test("no channel means no actor was resolved, which is a local/native turn", () => {
-    // A resolved actor always carries a channel, so absence is a signal rather
-    // than a permissive default.
-    expect(canSeePersonalMemory({ trustClass: undefined })).toBe(true);
-    expect(canSeePersonalMemory({ trustClass: "unknown" })).toBe(true);
-  });
-
-  test("a non-guardian is denied memory on remote channels", () => {
-    for (const executionChannel of ["slack", "phone", "email", "telegram"]) {
-      expect(
-        canSeePersonalMemory({
-          trustClass: "unverified_contact",
-          executionChannel,
-        }),
-      ).toBe(false);
-    }
-  });
-
-  test("a non-guardian is denied memory on the first-party console too", () => {
-    // The console is a surface, not an actor. An actor whose class could not
-    // be resolved fails closed upstream; a blanket channel grant here would
-    // hand it the guardian's memory and undo that.
+  test("only the guardian class sees personal memory", () => {
+    expect(canSeePersonalMemory({ trustClass: "guardian" })).toBe(true);
     for (const trustClass of [
       "trusted_contact",
       "unverified_contact",
       "unknown",
     ]) {
-      expect(
-        canSeePersonalMemory({ trustClass, executionChannel: "vellum" }),
-      ).toBe(false);
+      expect(canSeePersonalMemory({ trustClass })).toBe(false);
     }
   });
 
-  test("an unrecognized class fails closed rather than reading as privileged", () => {
+  test("an unrecognized or absent class fails closed", () => {
+    expect(canSeePersonalMemory({ trustClass: "non_guardian" })).toBe(false);
+    expect(canSeePersonalMemory({ trustClass: undefined })).toBe(false);
+  });
+
+  test("takes no channel: a surface cannot stand in for an actor", () => {
+    // Guarding the shape itself. The previous gate granted memory to any actor
+    // on the first-party console, which handed the fail-closed `unknown` class
+    // the guardian's memory. Answering "who is this" belongs upstream in
+    // `resolveTrustClass`, not here.
+    expect(canSeePersonalMemory.length).toBe(1);
+    const asRecord = canSeePersonalMemory as unknown as (a: {
+      trustClass: string;
+      executionChannel?: string;
+    }) => boolean;
     expect(
-      canSeePersonalMemory({
-        trustClass: "non_guardian",
-        executionChannel: "vellum",
-      }),
+      asRecord({ trustClass: "unknown", executionChannel: "vellum" }),
     ).toBe(false);
   });
 });

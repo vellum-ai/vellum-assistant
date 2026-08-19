@@ -1497,6 +1497,11 @@ describe("stripInjectionsForCompaction memory/info wrapper matching", () => {
 // ---------------------------------------------------------------------------
 
 describe("applyRuntimeInjections with nowScratchpad", () => {
+  const GUARDIAN_TRUST_FIXTURE = {
+    trustClass: "guardian",
+    sourceChannel: "vellum",
+  } as const;
+
   const baseMessages: Message[] = [
     {
       role: "user",
@@ -1513,6 +1518,10 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     seedNowScratchpad("Current focus: fix the bug");
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
       conversationId: FALLBACK_CONVERSATION_ID,
+      // NOW.md is behind the personal-memory gate, so name the actor these
+      // ordering assertions are about. Left unset the injector substitutes
+      // FALLBACK_TURN_TRUST, whose whole contract is to be low-trust.
+      trust: GUARDIAN_TRUST_FIXTURE,
     });
 
     expect(result.length).toBe(1);
@@ -1527,6 +1536,10 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     seedNowScratchpad("scratchpad notes");
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
       conversationId: FALLBACK_CONVERSATION_ID,
+      // NOW.md is behind the personal-memory gate, so name the actor these
+      // ordering assertions are about. Left unset the injector substitutes
+      // FALLBACK_TURN_TRUST, whose whole contract is to be low-trust.
+      trust: GUARDIAN_TRUST_FIXTURE,
     });
 
     // Scratchpad comes first (before user content)
@@ -1542,6 +1555,10 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   test("does not inject when the NOW.md file is absent", async () => {
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
       conversationId: FALLBACK_CONVERSATION_ID,
+      // NOW.md is behind the personal-memory gate, so name the actor these
+      // ordering assertions are about. Left unset the injector substitutes
+      // FALLBACK_TURN_TRUST, whose whole contract is to be low-trust.
+      trust: GUARDIAN_TRUST_FIXTURE,
     });
 
     expect(result.length).toBe(1);
@@ -1552,6 +1569,10 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     seedNowScratchpad("Current focus: fix the bug");
     const { messages: result } = await applyRuntimeInjections(baseMessages, {
       conversationId: FALLBACK_CONVERSATION_ID,
+      // NOW.md is behind the personal-memory gate, so name the actor these
+      // ordering assertions are about. Left unset the injector substitutes
+      // FALLBACK_TURN_TRUST, whose whole contract is to be low-trust.
+      trust: GUARDIAN_TRUST_FIXTURE,
       mode: "minimal",
     });
 
