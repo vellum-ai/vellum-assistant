@@ -36,20 +36,54 @@ const HORIZONTAL_ESCAPE_RATIO = 0.7;
 const EDITABLE_SELECTOR =
   'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
+/**
+ * Rendered transcript message text, which is selectable so quote-reply can
+ * pick it up. `use-edge-swipe.ts` marks the same blocks for the same reason.
+ *
+ * Unlike an editable, this owns a vertical drag only while a selection is
+ * actually live (see {@link ownsVerticalTextDrag}). Excluding it outright
+ * would carve every message bubble out of the gesture, which is most of the
+ * surface above the keyboard and the opposite of the point. The marker sits on
+ * the text block alone, not the whole message row, so a drag over a row's
+ * gaps, attachments and action affordances still arms either way.
+ */
+const SELECTABLE_TEXT_SELECTOR = "[data-message-text]";
+
 // ---------------------------------------------------------------------------
 // Pure helpers (framework-agnostic, unit-tested in isolation)
 // ---------------------------------------------------------------------------
 
 /**
- * Whether the element is (or sits inside) an editable field, so a drag starting
- * on it belongs to caret placement and text selection rather than to this
- * gesture.
+ * Whether a drag starting on this element belongs to text interaction rather
+ * than to this gesture.
+ *
+ * Always true inside an editable, where a drag places the caret. True inside
+ * selectable transcript text only when `hasLiveSelection` says a selection is
+ * already up: that is the long-press-then-drag-a-handle case, where dismissing
+ * the keyboard would resize the viewport out from under the selection. With no
+ * selection in play a drag over message text is just a swipe, and the gesture
+ * takes it.
  */
-export function ownsVerticalTextDrag(target: EventTarget | null): boolean {
+export function ownsVerticalTextDrag(
+  target: EventTarget | null,
+  hasLiveSelection: boolean,
+): boolean {
   if (!(target instanceof Element)) {
     return false;
   }
-  return target.closest(EDITABLE_SELECTOR) !== null;
+  if (target.closest(EDITABLE_SELECTOR) !== null) {
+    return true;
+  }
+  return hasLiveSelection && target.closest(SELECTABLE_TEXT_SELECTOR) !== null;
+}
+
+/**
+ * Whether the document currently holds a non-empty text selection. A collapsed
+ * selection is just a caret, which no drag is adjusting.
+ */
+export function hasLiveSelection(): boolean {
+  const selection = window.getSelection();
+  return selection !== null && !selection.isCollapsed;
 }
 
 export type SwipeDownDecision = "pending" | "cancel" | "tracking" | "dismiss";
@@ -184,7 +218,7 @@ export function useSwipeDownDismissKeyboard({
       if (!touch) {
         return;
       }
-      if (ownsVerticalTextDrag(event.target)) {
+      if (ownsVerticalTextDrag(event.target, hasLiveSelection())) {
         return;
       }
       dragRef.current = {

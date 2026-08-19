@@ -14,11 +14,19 @@ import {
   ownsVerticalTextDrag,
 } from "@/hooks/use-swipe-down-dismiss-keyboard";
 
+const NO_SELECTION = false;
+const LIVE_SELECTION = true;
+
 describe("ownsVerticalTextDrag", () => {
   test("is true for text fields, where a drag places the caret", () => {
-    expect(ownsVerticalTextDrag(document.createElement("textarea"))).toBe(true);
-    expect(ownsVerticalTextDrag(document.createElement("input"))).toBe(true);
-    expect(ownsVerticalTextDrag(document.createElement("select"))).toBe(true);
+    const textarea = document.createElement("textarea");
+    expect(ownsVerticalTextDrag(textarea, NO_SELECTION)).toBe(true);
+    expect(
+      ownsVerticalTextDrag(document.createElement("input"), NO_SELECTION),
+    ).toBe(true);
+    expect(
+      ownsVerticalTextDrag(document.createElement("select"), NO_SELECTION),
+    ).toBe(true);
   });
 
   test("is true inside a contenteditable region", () => {
@@ -27,7 +35,7 @@ describe("ownsVerticalTextDrag", () => {
     const child = document.createElement("span");
     editor.appendChild(child);
     document.body.appendChild(editor);
-    expect(ownsVerticalTextDrag(child)).toBe(true);
+    expect(ownsVerticalTextDrag(child, NO_SELECTION)).toBe(true);
     editor.remove();
   });
 
@@ -35,7 +43,7 @@ describe("ownsVerticalTextDrag", () => {
     const region = document.createElement("div");
     region.setAttribute("contenteditable", "false");
     document.body.appendChild(region);
-    expect(ownsVerticalTextDrag(region)).toBe(false);
+    expect(ownsVerticalTextDrag(region, NO_SELECTION)).toBe(false);
     region.remove();
   });
 
@@ -47,17 +55,36 @@ describe("ownsVerticalTextDrag", () => {
     const header = document.createElement("header");
     const toolbarButton = document.createElement("button");
     document.body.append(message, header, toolbarButton);
-    expect(ownsVerticalTextDrag(message)).toBe(false);
-    expect(ownsVerticalTextDrag(header)).toBe(false);
-    expect(ownsVerticalTextDrag(toolbarButton)).toBe(false);
+    expect(ownsVerticalTextDrag(message, NO_SELECTION)).toBe(false);
+    expect(ownsVerticalTextDrag(header, NO_SELECTION)).toBe(false);
+    expect(ownsVerticalTextDrag(toolbarButton, NO_SELECTION)).toBe(false);
     message.remove();
     header.remove();
     toolbarButton.remove();
   });
 
+  test("yields message text to an in-progress selection drag", () => {
+    // Long-press to select, then drag a handle: dismissing here would resize
+    // the viewport out from under the selection.
+    const message = document.createElement("div");
+    message.setAttribute("data-message-text", "");
+    const span = document.createElement("span");
+    message.appendChild(span);
+    document.body.appendChild(message);
+    expect(ownsVerticalTextDrag(span, LIVE_SELECTION)).toBe(true);
+    message.remove();
+  });
+
+  test("keeps chrome outside message text even while a selection is live", () => {
+    const header = document.createElement("header");
+    document.body.appendChild(header);
+    expect(ownsVerticalTextDrag(header, LIVE_SELECTION)).toBe(false);
+    header.remove();
+  });
+
   test("is false for a non-element target", () => {
-    expect(ownsVerticalTextDrag(null)).toBe(false);
-    expect(ownsVerticalTextDrag(document)).toBe(false);
+    expect(ownsVerticalTextDrag(null, NO_SELECTION)).toBe(false);
+    expect(ownsVerticalTextDrag(document, NO_SELECTION)).toBe(false);
   });
 });
 
