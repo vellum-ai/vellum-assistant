@@ -9,9 +9,10 @@ import { credentialKey } from "../credential-key.js";
 import { mutateConfigFile } from "../config-file-utils.js";
 import { getLogger } from "../logger.js";
 import { ExponentialBackoff } from "../util/exponential-backoff.js";
+import { listWebhookIngressRoutes } from "../db/webhook-ingress-route-store.js";
 import {
   VELAY_ALLOWED_PATHS_HEADER,
-  VELAY_ALLOWED_PATHS_HEADER_VALUE,
+  buildVelayAllowedPathsHeaderValue,
 } from "./allowed-paths.js";
 import { bridgeVelayHttpRequest } from "./http-bridge.js";
 import { closeWebSocket } from "./bridge-utils.js";
@@ -40,6 +41,9 @@ const HEARTBEAT_READ_TIMEOUT_MS = 60_000;
 // ever chopping an established call.
 const TUNNEL_REFRESH_AFTER_MS = 3_300_000;
 const TUNNEL_REFRESH_BUSY_RETRY_MS = 30_000;
+// A lifecycle that registers several webhook routes in a row should cost one
+// reconnect, not one per route, so rule refreshes coalesce over this window.
+const RULES_REFRESH_DEBOUNCE_MS = 5_000;
 
 export type WebSocketConstructorWithOptions = {
   new (
@@ -102,6 +106,7 @@ export class VelayTunnelClient {
   private heartbeatTimer: unknown = null;
   private readTimeoutTimer: unknown = null;
   private refreshTimer: unknown = null;
+  private rulesRefreshTimer: unknown = null;
   // Set when the refresh deadline passed while the tunnel was busy: the
   // refresh then fires as soon as the tunnel drains (last bridged
   // connection or in-flight HTTP request completes) instead of waiting for
@@ -190,6 +195,31 @@ export class VelayTunnelClient {
     this.connectForCredentialRefresh(reason);
   }
 
+  /**
+   * Reconnect so Velay sees the current path rules. Only a live tunnel needs
+   * this: the next connect reads the registry itself, so a client that is
+   * stopped or disconnected already picks the change up. Deferred while the
+   * tunnel is busy, the same way the load-balancer refresh is.
+   */
+  requestRulesRefresh(reason: string): void {
+    const ws = this.ws;
+    if (!this.running || !ws || this.rulesRefreshTimer) {
+      return;
+    }
+    this.rulesRefreshTimer = this.timerApi.setTimeout(() => {
+      this.rulesRefreshTimer = null;
+      if (!this.running || this.ws !== ws) {
+        return;
+      }
+      if (this.isTunnelBusy()) {
+        this.refreshDue = true;
+        return;
+      }
+      log.info({ reason }, "Reconnecting Velay tunnel to advertise new rules");
+      this.performTunnelRefresh(ws);
+    }, RULES_REFRESH_DEBOUNCE_MS);
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -218,6 +248,10 @@ export class VelayTunnelClient {
     }
     this.clearHeartbeat();
     this.clearTunnelRefresh();
+    if (this.rulesRefreshTimer) {
+      this.timerApi.clearTimeout(this.rulesRefreshTimer);
+      this.rulesRefreshTimer = null;
+    }
     const ws = this.ws;
     this.ws = null;
     this.webSocketBridge.closeAll();
@@ -302,9 +336,13 @@ export class VelayTunnelClient {
         headers: {
           Authorization: `Api-Key ${apiKey}`,
           // Declares the path allowlist Velay enforces for inbound proxied
-          // traffic on this tunnel. See ./allowed-paths.ts for the route
-          // inventory and the platform-side enforcement (ATL-402).
-          [VELAY_ALLOWED_PATHS_HEADER]: VELAY_ALLOWED_PATHS_HEADER_VALUE,
+          // traffic on this tunnel. Read per attempt so a reconnect picks up
+          // webhook routes registered since the last one. See
+          // ./allowed-paths.ts for the route inventory and the platform-side
+          // enforcement (ATL-402).
+          [VELAY_ALLOWED_PATHS_HEADER]: buildVelayAllowedPathsHeaderValue(
+            listWebhookIngressRoutes().map((route) => route.path),
+          ),
         },
       });
       ws.binaryType = "arraybuffer";
