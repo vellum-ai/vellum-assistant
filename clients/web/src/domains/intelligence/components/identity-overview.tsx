@@ -480,8 +480,10 @@ function SectionCard({
         >
           {floodOverlay}
           <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
+            {/* The stacked tiles keep the 40px slot but sit a smaller glyph
+                in it, so the title leads the row rather than the icon. */}
             <Icon
-              className={`h-5 w-5 transition-colors duration-300 ${fgMuted}`}
+              className={`${compact ? "h-3.5 w-3.5" : "h-5 w-5"} transition-colors duration-300 ${fgMuted}`}
               aria-hidden
             />
           </span>
