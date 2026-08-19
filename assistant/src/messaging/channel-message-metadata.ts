@@ -1,5 +1,6 @@
-import { CHANNEL_IDS } from "@vellumai/service-contracts";
 import { z } from "zod";
+
+import { CHANNEL_IDS } from "../channels/types.js";
 
 /**
  * What a stored channel message row knows about itself, in terms no single
