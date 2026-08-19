@@ -307,6 +307,31 @@ describe("ResourcePressureBannerSlot", () => {
     expect(queryBanner()).toBeNull();
   });
 
+  test("a checked but undismissed suppress box does not follow an assistant switch", () => {
+    const view = render(slot(elevatedStatus, "active", "assistant-1"));
+
+    // Check "Don't show again" on assistant-1 but switch away before
+    // dismissing; the keyed banner remounts, so assistant-2's dismiss is a
+    // plain cooldown, not a permanent suppress inherited from assistant-1.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Don't show again" }));
+    view.rerender(slot(elevatedStatus, "active", "assistant-2"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    expect(queryBanner()).toBeNull();
+    expect(
+      localStorage.getItem("vellum:resourcePressureSuppressed:assistant-2"),
+    ).toBeNull();
+    expect(
+      Number(
+        localStorage.getItem(
+          "vellum:resourcePressureDismissedUntil:assistant-2",
+        ),
+      ),
+    ).toBeGreaterThan(Date.now());
+    expect(localStorage.getItem(SUPPRESSED_KEY)).toBeNull();
+  });
+
   test("permanent suppress persists and always hides the banner", () => {
     render(slot(elevatedStatus));
 

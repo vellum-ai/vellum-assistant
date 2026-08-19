@@ -189,7 +189,11 @@ export function ResourcePressureBannerSlot({
   // element in the composer's banner stack, which reads there as a banner.
   return (
     <div className="mb-2">
+      {/* Keyed by assistant so the banner's internal "Don't show again"
+          checkbox state cannot leak across an in-place assistant switch
+          and permanently suppress the wrong assistant's warning. */}
       <ResourcePressureBanner
+        key={assistantId ?? "no-assistant"}
         status={resourcePressure.status}
         onDismiss={dismiss}
         onUpgrade={
