@@ -7,7 +7,11 @@ import type {
 } from "../channel-transport.js";
 import { openDiscordDmChannel } from "./api.js";
 import type { DiscordSendTarget } from "./send.js";
-import { sendDiscordAttachments, sendDiscordReply } from "./send.js";
+import {
+  sendDiscordAttachments,
+  sendDiscordReply,
+  sendDiscordTypingIndicator,
+} from "./send.js";
 
 const log = getLogger("discord-transport");
 
@@ -42,6 +46,12 @@ async function sendTarget(
 
 export const discordTransport: ChannelTransport = {
   channel: "discord",
+
+  async typing(ctx, chatId) {
+    await sendDiscordTypingIndicator(await sendTarget(ctx, chatId));
+    log.debug({ chatId }, "Discord typing indicator delivered (direct)");
+    return { ok: true };
+  },
 
   async deliver(ctx, payload) {
     const { chatId, text, attachments, approval } = payload;

@@ -168,7 +168,6 @@ export const ChannelReplyPayloadSchema = z.object({
   assistantId: z.string().optional(),
   attachments: z.array(AttachmentMetadataSchema).optional(),
   approval: ApprovalUIMetadataSchema.optional(),
-  chatAction: z.literal("typing").optional(),
   /**
    * When true, deliver via `chat.postEphemeral` so only the target `user`
    * sees the message.

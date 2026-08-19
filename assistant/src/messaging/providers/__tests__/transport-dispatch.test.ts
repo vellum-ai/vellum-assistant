@@ -60,7 +60,8 @@ mock.module("../../../util/logger.js", () => ({
 const {
   deliverDirect,
   sendChannelReaction,
-  supportsChannelReaction,
+  sendChannelTyping,
+  supportsChannelTyping,
   isDirectDelivery,
   getTransportForCallback,
 } = await import("../index.js");
@@ -166,12 +167,11 @@ describe("Slack sub-operation selection", () => {
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
   });
 
-  test("a typing payload to Slack falls through to deliver (no typing capability)", async () => {
-    await deliverDirect(
-      `${BASE}/deliver/slack`,
-      payload({ chatAction: "typing", text: "hi" }),
-    );
-    expect(slack.sendSlackReply).toHaveBeenCalledTimes(1);
+  test("sendChannelTyping resolves quietly for a channel with no typing capability", async () => {
+    const result = await sendChannelTyping(`${BASE}/deliver/slack`, "C1");
+
+    expect(result).toEqual({ ok: true });
+    expect(slack.sendSlackReply).not.toHaveBeenCalled();
   });
 
   test("slackStream routes to sendSlackStreamOp ahead of the text path", async () => {
@@ -193,13 +193,10 @@ describe("Slack sub-operation selection", () => {
 });
 
 describe("capability gating across channels", () => {
-  test("the reaction capability is read from the transport, not the channel name", async () => {
+  test("a channel with no reaction capability resolves quietly", async () => {
     // Slack is the only channel that implements it, because the only producer
-    // is Slack's own acknowledgement fallback. A channel that implements the
-    // method starts being asked without a caller changing.
-    expect(supportsChannelReaction(`${BASE}/deliver/slack`)).toBe(true);
-    expect(supportsChannelReaction(`${BASE}/deliver/telegram`)).toBe(false);
-
+    // is Slack's own acknowledgement fallback. A channel without the method
+    // is not a failed delivery, so nothing is attempted and nothing throws.
     const target = {
       chatId: "C1",
       messageId: "1",
@@ -212,11 +209,19 @@ describe("capability gating across channels", () => {
     expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
   });
 
-  test("typing to Telegram routes to its typing indicator", async () => {
-    await deliverDirect(
-      `${BASE}/deliver/telegram`,
-      payload({ chatAction: "typing" }),
-    );
+  test("the typing capability is read from the transport, not the channel name", () => {
+    // The heartbeat gate in background-dispatch asks this rather than testing
+    // `sourceChannel === "telegram"`, so a channel that implements the method
+    // starts showing an indicator without a caller being changed.
+    expect(supportsChannelTyping(`${BASE}/deliver/telegram`)).toBe(true);
+    expect(supportsChannelTyping(`${BASE}/deliver/discord`)).toBe(true);
+    expect(supportsChannelTyping(`${BASE}/deliver/slack`)).toBe(false);
+    expect(supportsChannelTyping(`${BASE}/deliver/whatsapp`)).toBe(false);
+  });
+
+  test("sendChannelTyping reaches Telegram's typing indicator", async () => {
+    await sendChannelTyping(`${BASE}/deliver/telegram`, "123");
+
     expect(telegram.sendTelegramTypingIndicator).toHaveBeenCalledTimes(1);
   });
 
@@ -254,15 +259,10 @@ describe("capability gating across channels", () => {
     });
   });
 
-  test("a typing payload to Discord falls through to deliver (no sendTyping)", async () => {
-    // Only the Telegram heartbeat produces `chatAction: "typing"`, and it is
-    // gated on sourceChannel === "telegram", so Discord can never receive one.
-    // The transport implements no sendTyping, so this falls through.
-    await deliverDirect(
-      `${BASE}/deliver/discord`,
-      payload({ chatAction: "typing", text: "hi" }),
-    );
-    expect(discord.sendDiscordReply).toHaveBeenCalledTimes(1);
+  test("sendChannelTyping reaches Discord's typing indicator", async () => {
+    await sendChannelTyping(`${BASE}/deliver/discord`, "999");
+
+    expect(discord.sendDiscordTypingIndicator).toHaveBeenCalledTimes(1);
   });
 
   test("a Slack-only stream payload to Discord falls through to deliver", async () => {
