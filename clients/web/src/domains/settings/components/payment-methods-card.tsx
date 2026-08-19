@@ -16,7 +16,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import { BillingSectionHeader } from "@/domains/settings/components/billing-section-header";
 import { PaymentMethodRow } from "@/domains/settings/components/payment-method-row";
-import { usePaymentMethodSavedPoll } from "@/domains/settings/hooks/use-payment-method-saved-poll";
+import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import { useTranslation } from "@/i18n";
 
 /**
@@ -31,7 +31,7 @@ export function PaymentMethodsCard() {
   const removeMutation = useMutation(
     organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation(),
   );
-  const pollPaymentMethodSaved = usePaymentMethodSavedPoll();
+  const syncPaymentMethodSaved = usePaymentMethodSavedSync();
 
   const [pmModalOpen, setPmModalOpen] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
@@ -162,7 +162,7 @@ export function PaymentMethodsCard() {
       <AutoTopUpPaymentMethodModal
         open={pmModalOpen}
         onClose={() => setPmModalOpen(false)}
-        onSavedOptimistic={pollPaymentMethodSaved}
+        onSavedOptimistic={syncPaymentMethodSaved}
       />
     </Card>
   );

@@ -42,15 +42,35 @@ export interface AutoTopUpPaymentMethodModalProps {
   open: boolean;
   onClose: () => void;
   /**
-   * Called after `confirmSetup` succeeds. Owners use this to invalidate the
-   * auto-top-up config query so the saved-PM line and `has_payment_method`
-   * gate reflect the new card immediately.
+   * Called after `confirmSetup` succeeds, carrying the id of the SetupIntent
+   * that was just confirmed (null when it cannot be derived). Owners use this
+   * to refresh the auto-top-up config so the saved-PM line and
+   * `has_payment_method` gate reflect the new card immediately.
    *
    * May return a Promise; the modal awaits it before calling `onClose()` so
    * the parent re-renders against fresh data instead of briefly showing
    * stale payment-method copy after a successful save.
    */
-  onSavedOptimistic: () => void | Promise<void>;
+  onSavedOptimistic: (args: {
+    setupIntentId: string | null;
+  }) => void | Promise<void>;
+}
+
+/**
+ * A SetupIntent client secret is `<setup intent id>_secret_<random>`, so the
+ * id is everything before the `_secret` marker.
+ */
+function setupIntentIdFromClientSecret(
+  clientSecret: string | null,
+): string | null {
+  if (!clientSecret) {
+    return null;
+  }
+  const marker = clientSecret.indexOf("_secret");
+  if (marker <= 0) {
+    return null;
+  }
+  return clientSecret.slice(0, marker);
 }
 
 /**
@@ -74,7 +94,8 @@ export interface AutoTopUpPaymentMethodModalProps {
  *     in-page when the PM doesn't need 3DS, and otherwise redirects to
  *     `window.location.href` (so the user lands back on the current
  *     settings page).
- *  5. On success, toast + `onSavedOptimistic()` + `onClose()`.
+ *  5. On success, `onSavedOptimistic({ setupIntentId })`, then toast +
+ *     `onClose()` once the saved card has settled.
  */
 export function AutoTopUpPaymentMethodModal({
   open,
@@ -162,12 +183,14 @@ export function AutoTopUpPaymentMethodModal({
             >
               <SetupCardForm
                 onSuccess={async () => {
+                  // Await the parent's follow-up before toasting or closing:
+                  // the toast must not claim success while the saved card is
+                  // still settling, and closing early would briefly show
+                  // stale PM copy.
+                  await onSavedOptimistic({
+                    setupIntentId: setupIntentIdFromClientSecret(clientSecret),
+                  });
                   toast.success("Payment method saved.");
-                  // Await the parent's optimistic refetch before closing so
-                  // the next render reads fresh auto-top-up data. Without
-                  // the await, `onClose()` fires immediately and the user
-                  // briefly sees stale PM copy.
-                  await onSavedOptimistic();
                   onClose();
                 }}
                 onCancel={onClose}

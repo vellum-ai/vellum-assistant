@@ -25,7 +25,7 @@ import {
   type AutoTopUpFormValues,
 } from "@/domains/settings/components/auto-top-up-form";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
-import { usePaymentMethodSavedPoll } from "@/domains/settings/hooks/use-payment-method-saved-poll";
+import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import { extractDrfFieldErrors } from "@/domains/settings/utils/drf-errors";
 import { useTranslation } from "@/i18n";
 
@@ -116,7 +116,7 @@ export function AutoTopUpCard() {
   const disableMutation = useMutation(
     organizationsBillingAutoTopUpDisableCreateMutation(),
   );
-  const pollPaymentMethodSaved = usePaymentMethodSavedPoll();
+  const syncPaymentMethodSaved = usePaymentMethodSavedSync();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const cardRef = useRef<HTMLDivElement>(null);
@@ -430,11 +430,13 @@ export function AutoTopUpCard() {
 
   /**
    * Called after `AutoTopUpPaymentMethodModal` confirms a card was saved.
-   * Once the poll confirms the PM is fresh, drop the no-PM gate and, if the
+   * Once the config reflects the fresh PM, drop the no-PM gate and, if the
    * user got here via the toggle, advance straight into the configure form.
+   * The gate effect above may already have run off the seeded cache; both
+   * paths land on the same state.
    */
-  const handlePmSaved = async () => {
-    await pollPaymentMethodSaved();
+  const handlePmSaved = async (args: { setupIntentId: string | null }) => {
+    await syncPaymentMethodSaved(args);
     setShowAddPm(false);
     if (pendingEnable) {
       enterFormMode();

@@ -1,8 +1,10 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
+  organizationsBillingAutoTopUpConfirmSetupIntentCreateMutation,
   organizationsBillingAutoTopUpRetrieveOptions,
   organizationsBillingAutoTopUpRetrieveQueryKey,
+  organizationsBillingAutoTopUpRetrieveSetQueryData,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 
@@ -56,5 +58,44 @@ export function usePaymentMethodSavedPoll(): () => Promise<void> {
         setTimeout(resolve, PM_SAVED_POLL_INTERVAL_MS),
       );
     }
+  };
+}
+
+/**
+ * Confirm-first version of the follow-up above. The confirm endpoint persists
+ * the card and returns the same payload as the config GET, with brand and
+ * last4 filled in, so seeding the cache from it makes the saved card visible
+ * without waiting on the `setup_intent.succeeded` webhook.
+ *
+ * The poll stays as the fallback: when the confirm call fails for any reason
+ * (the endpoint is unavailable on this server, or the request errors), the
+ * webhook remains the durable writer and the poll waits for its write.
+ */
+export function usePaymentMethodSavedSync(): (args: {
+  setupIntentId: string | null;
+}) => Promise<void> {
+  const queryClient = useQueryClient();
+  const pollPaymentMethodSaved = usePaymentMethodSavedPoll();
+  const { mutateAsync: confirmSetupIntent } = useMutation(
+    organizationsBillingAutoTopUpConfirmSetupIntentCreateMutation(),
+  );
+
+  return async ({ setupIntentId }) => {
+    if (setupIntentId != null) {
+      try {
+        const config = await confirmSetupIntent({
+          body: { setup_intent_id: setupIntentId },
+        });
+        organizationsBillingAutoTopUpRetrieveSetQueryData(
+          queryClient,
+          undefined,
+          config,
+        );
+        return;
+      } catch {
+        // fall through to the poll below
+      }
+    }
+    await pollPaymentMethodSaved();
   };
 }
