@@ -225,11 +225,14 @@ export function ChatLayoutHeader({
               className={!canGoForward ? "opacity-35" : undefined}
               onClick={onGoForward}
             />
-            {/* Self-gates to the Windows shell (renders nothing elsewhere),
-                so no `electronHostOS` branch here. */}
-            <WindowsMenuBar />
           </>
         ) : null}
+        {/* Outside the isMobile branch: while this header is mounted the
+            fallback strip yields, so a narrow (zoomed) Windows window would
+            otherwise lose the menus entirely. Self-gates to the Windows
+            shell (renders nothing elsewhere), so no `electronHostOS`
+            branch here. */}
+        <WindowsMenuBar />
       </div>
 
       <div
