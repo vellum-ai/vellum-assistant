@@ -23,6 +23,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Docker volume architecture                  | [Docker Volume Architecture](#docker-volume-architecture) (this file)                              |
 | Web search failure normalization            | [Web Search Failure Normalization](#web-search-failure-normalization) (this file)                  |
 | Workflow orchestration engine               | [Workflow Orchestration Engine](#workflow-orchestration-engine) (this file)                        |
+| Watch sessions                              | [Watch Sessions](#watch-sessions) (this file)                                                      |
 | Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
 | Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
 | Service communication matrix                | [`docs/service-communication-matrix.md`](docs/service-communication-matrix.md)                     |
@@ -704,6 +705,45 @@ graph TB
 - **Routes** (read/abort/resume surfaces): `GET /v1/workflows`, `GET /v1/workflows/runs`, `GET /v1/workflows/runs/:id`, `POST /v1/workflows/runs/:id/abort`, `POST /v1/workflows/runs/:id/resume` (the resume route refuses a side-effecting run in normal posture and proceeds at full access).
 - **CLI**: `vellum workflows list | runs | show <id> | abort <id> | resume <id>`.
 - **Config** (`workflows.*`): `maxAgentsPerRun` (500), `maxConcurrentLeaves` (6), `maxConcurrentRuns` (3), `journalRetentionDays` (30).
+
+## Watch Sessions
+
+A watch session records what the user narrates while they work and reads their screen around it. The microphone and the socket live in the browser (`clients/web/src/domains/chat/watch/watch-controller.ts`); the cadence, the observations, and the timeline live in the daemon (`assistant/src/watch/watch-session-manager.ts`). The client draws nothing during a session: frames going the other way are lifecycle only, and the retrospective is a conversational turn after the socket is gone.
+
+One session at a time, on both sides. The client holds a single module-level slot and the daemon a single manager slot, because both are driven by the one microphone the machine has. The client refuses a start while a live-voice call is running, refuses one against an assistant that predates the route (`clients/web/src/lib/backwards-compat/watch-sessions.ts`), binds the session to the assistant it was started for, and ends it when that assistant stops being the active one, when the layout unmounts, or on sign-out.
+
+**Transport.** The browser opens `wss://<ingress>/v1/watch/stream?token=<edge JWT>&mimeType=audio/pcm&sampleRate=16000` and streams 16 kHz mono PCM16LE as binary frames, the same capture pipeline live voice and streaming dictation use. The token rides the query string because browser WebSockets cannot set an `Authorization` header. Self-hosted ingress only: the paired-gateway proxy is HTTP-only, so no upgrade exists there.
+
+**Auth posture.** The gateway (`gateway/src/http/routes/watch-stream-websocket.ts`) validates the edge JWT, rejects a revoked actor token, and requires an actor principal, refusing service tokens on this client-facing path. It then dials a *fresh* upstream socket to the daemon bearing only a short-lived gateway service token, never anything the client supplied, and pumps frames between the two. The daemon resolves the acting principal from its own guardian binding, restricts the upgrade to private-network peers and origins, and picks the host client to observe from that actor's own `host_cu` clients. The gate and the frame pump are shared with `/v1/stt/stream` (`gateway/src/http/routes/runtime-audio-stream.ts`) so the two client-facing audio proxies cannot drift apart on who may open one.
+
+```mermaid
+graph LR
+    SURFACE["Companion surface<br/>(Watch press)"]
+    MAIN["Electron main<br/>vellum:companion:toggleWatch"]
+    CTRL["watch-controller.ts<br/>one slot · version gate<br/>assistant binding"]
+    MIC["LiveVoiceAudioCapture<br/>16 kHz mono PCM16LE"]
+    GW["Gateway /v1/watch/stream<br/>edge JWT + actor principal"]
+    RT["Daemon /v1/watch/stream<br/>private peer + service token"]
+    MGR["WatchSessionManager<br/>narration cadence"]
+    OBS["observeHostScreen<br/>host_cu · same actor"]
+    TL["watch timeline<br/>(no-turn messages)"]
+    MIRROR["use-companion-mirror<br/>publishes watching"]
+
+    SURFACE --> MAIN
+    MAIN -->|"toggleWatch command"| CTRL
+    CTRL --> MIC
+    MIC -->|"binary audio frames"| GW
+    CTRL -->|"WS upgrade"| GW
+    GW -->|"fresh upstream WS<br/>service token only"| RT
+    RT --> MGR
+    MGR -->|"speech finals"| TL
+    MGR --> OBS
+    OBS -->|"AX tree + screenshot"| TL
+    RT -->|"ready / entry / error / closed"| CTRL
+    CTRL --> MIRROR
+    MIRROR -->|"watching flag"| MAIN
+    MAIN --> SURFACE
+```
 
 ## Maintenance Rule
 

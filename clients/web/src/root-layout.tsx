@@ -332,6 +332,8 @@ export function RootLayout() {
     },
     // Wrapped rather than passed by reference: handlers are called with the
     // command, and this one's only parameter is the controller's test seams.
+    // The start edge resolves the assistant version before it opens anything,
+    // so the call is fire-and-forget; the stop edge is taken synchronously.
     toggleWatch: () => {
       // Both edges through one call, because the surface draws one control and
       // this window is the side holding the session.
@@ -340,7 +342,7 @@ export function RootLayout() {
       // `startVoice`. The session reads the user's screen, so the work in front
       // of them is its subject: bringing Vellum forward would cover the very
       // thing the session exists to watch.
-      toggleWatch();
+      void toggleWatch();
     },
     companionSubmit: (command) => {
       if (command.kind !== "companionSubmit") {

@@ -4,15 +4,23 @@ import type {
   LiveVoiceAudioCaptureOptions,
   LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
+import type * as SelfHostedConnection from "@/lib/self-hosted/connection";
 
 let ingressUrl: string | null = "http://localhost:8500";
 let actorToken: string | null = "actor-jwt";
 let pcmSupported = true;
 
-mock.module("@/lib/self-hosted/connection", () => ({
-  getSelfHostedIngressUrl: () => ingressUrl,
-  getSelfHostedActorToken: () => actorToken,
-}));
+mock.module(
+  "@/lib/self-hosted/connection",
+  (): typeof SelfHostedConnection => ({
+    getSelfHostedIngressUrl: () => ingressUrl,
+    getSelfHostedActorToken: () => actorToken,
+    // Unused here, and stubbed rather than omitted: the resolved-assistants
+    // store's own imports reach this module for it, and a missing export is a
+    // load-time failure for the whole file.
+    setSelfHostedConnection: () => undefined,
+  }),
+);
 
 // The real module imports an AudioWorklet asset via Vite's `?worker&url`
 // suffix, which Bun's test runner can't resolve. The capture itself is
@@ -29,11 +37,58 @@ mock.module("@/domains/chat/voice/live-voice/pcm-capture", () => ({
   },
 }));
 
+/**
+ * The active-assistant store, stood in for so the test can see the session's
+ * subscription come and go. A leaked listener is invisible against the real
+ * store (teardown is idempotent, so a stale one fires harmlessly and
+ * accumulates one listener per session for the life of the page), and the
+ * subscription's lifetime is exactly what binds a session to its assistant.
+ */
+let activeAssistantId: string | null = null;
+const assistantListeners = new Set<
+  (state: { activeAssistantId: string | null }) => void
+>();
+
+mock.module("@/stores/resolved-assistants-store", () => ({
+  useResolvedAssistantsStore: {
+    getState: () => ({ activeAssistantId }),
+    subscribe: (
+      listener: (state: { activeAssistantId: string | null }) => void,
+    ) => {
+      assistantListeners.add(listener);
+      return () => {
+        assistantListeners.delete(listener);
+      };
+    },
+  },
+}));
+
 const { useLiveVoiceStore } = await import(
   "@/domains/chat/voice/live-voice/live-voice-store"
 );
+const { useAssistantIdentityStore } = await import(
+  "@/stores/assistant-identity-store"
+);
+const { MIN_VERSION } = await import("@/lib/backwards-compat/watch-sessions");
 const { buildWatchStreamWsUrl, stopWatch, toggleWatch, useWatchStore } =
   await import("./watch-controller");
+
+/** The assistant every session in this file is started against. */
+const ASSISTANT_ID = "asst-owner";
+
+/** Make `assistantId` the active one, on a version that serves the route. */
+const activate = (
+  assistantId: string | null,
+  version: string | null = MIN_VERSION,
+) => {
+  activeAssistantId = assistantId;
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", version, assistantId);
+  for (const listener of [...assistantListeners]) {
+    listener({ activeAssistantId });
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -116,8 +171,8 @@ let sockets: FakeWebSocket[] = [];
 let capture = createCaptureFake();
 
 /** Toggle through the fakes, so no test touches a real socket or the mic. */
-const toggle = () => {
-  toggleWatch({
+const toggle = (): Promise<void> => {
+  return toggleWatch({
     webSocketFactory: (url) => {
       const ws = new FakeWebSocket(url);
       sockets.push(ws);
@@ -138,7 +193,7 @@ const socket = (): FakeWebSocket => {
 
 /** Start a session and let the gateway accept it, which is what starts the mic. */
 const startRunning = async () => {
-  toggle();
+  await toggle();
   socket().serverOpen();
   await Promise.resolve();
 };
@@ -150,12 +205,16 @@ beforeEach(() => {
   sockets = [];
   capture = createCaptureFake();
   useLiveVoiceStore.setState({ state: "idle" });
+  activate(ASSISTANT_ID);
 });
 
 afterEach(() => {
   // Whatever a case left running, so the module-level slot never leaks into
   // the next one.
   stopWatch();
+  useAssistantIdentityStore.getState().clearIdentity();
+  activeAssistantId = null;
+  assistantListeners.clear();
 });
 
 describe("the watch stream URL", () => {
@@ -202,7 +261,7 @@ describe("toggling a watch session", () => {
   test("stops on the second press rather than starting a second session", async () => {
     await startRunning();
 
-    toggle();
+    await toggle();
 
     expect(sockets).toHaveLength(1);
     expect(capture.calls.started).toBe(1);
@@ -214,7 +273,7 @@ describe("toggling a watch session", () => {
   test("drains the capture and asks the runtime to wrap up before closing", async () => {
     await startRunning();
 
-    toggle();
+    await toggle();
 
     expect(capture.calls.flushed).toBe(1);
     expect(socket().sent).toEqual([JSON.stringify({ type: "stop" })]);
@@ -222,7 +281,7 @@ describe("toggling a watch session", () => {
 
   test("starts again after a session has ended", async () => {
     await startRunning();
-    toggle();
+    await toggle();
 
     await startRunning();
 
@@ -235,10 +294,10 @@ describe("toggling a watch session", () => {
    * machine has exactly one of, and the call is the one the user is already
    * in, so the press is spent rather than queued behind it.
    */
-  test("refuses to start while a live-voice call is running", () => {
+  test("refuses to start while a live-voice call is running", async () => {
     useLiveVoiceStore.setState({ state: "listening" });
 
-    toggle();
+    await toggle();
 
     expect(sockets).toHaveLength(0);
     expect(capture.calls.started).toBe(0);
@@ -247,7 +306,7 @@ describe("toggling a watch session", () => {
 
   test("starts once the call has ended", async () => {
     useLiveVoiceStore.setState({ state: "listening" });
-    toggle();
+    await toggle();
     useLiveVoiceStore.setState({ state: "idle" });
 
     await startRunning();
@@ -255,31 +314,174 @@ describe("toggling a watch session", () => {
     expect(useWatchStore.getState().watching).toBe(true);
   });
 
-  test("opens nothing without a self-hosted ingress to reach", () => {
+  test("opens nothing without a self-hosted ingress to reach", async () => {
     ingressUrl = null;
 
-    toggle();
+    await toggle();
 
     expect(sockets).toHaveLength(0);
     expect(useWatchStore.getState().watching).toBe(false);
   });
 
-  test("opens nothing without an actor token to authenticate with", () => {
+  test("opens nothing without an actor token to authenticate with", async () => {
     actorToken = null;
 
-    toggle();
+    await toggle();
 
     expect(sockets).toHaveLength(0);
     expect(useWatchStore.getState().watching).toBe(false);
   });
 
-  test("opens nothing where the capture pipeline cannot run", () => {
+  test("opens nothing where the capture pipeline cannot run", async () => {
     pcmSupported = false;
 
-    toggle();
+    await toggle();
 
     expect(sockets).toHaveLength(0);
     expect(useWatchStore.getState().watching).toBe(false);
+  });
+});
+
+/**
+ * The version gate, which decides whether there is a route to open at all.
+ *
+ * Refused before any state moves, because the alternative is the press
+ * flipping `watching` and then failing the handshake: the surface lights its
+ * capture ring for a session that never existed, which is the indicator lying.
+ */
+describe("starting against an assistant that cannot serve the stream", () => {
+  test("opens nothing on an assistant that predates the route", async () => {
+    activate(ASSISTANT_ID, "0.11.3");
+
+    await toggle();
+
+    expect(sockets).toHaveLength(0);
+    expect(capture.calls.started).toBe(0);
+  });
+
+  /**
+   * The flag is the whole point. A press that lit the ring and then went dark
+   * a round trip later is the failure this gate exists to remove.
+   */
+  test("never flips the watching flag on the way to refusing", async () => {
+    activate(ASSISTANT_ID, "0.11.3");
+    const seen: boolean[] = [];
+    const unsubscribe = useWatchStore.subscribe((state) => {
+      seen.push(state.watching);
+    });
+
+    await toggle();
+
+    unsubscribe();
+    expect(seen).toEqual([]);
+    expect(useWatchStore.getState().watching).toBe(false);
+  });
+
+  /**
+   * The case the resolution exists for. The gate reads `false` until the
+   * identity fetch lands, so a press inside that window would refuse an
+   * assistant that does support watching if it read the snapshot directly.
+   *
+   * Resolved by seeding the version rather than by letting the wait time out,
+   * which takes five seconds and is the gate module's own test to write.
+   */
+  test("waits for a version still in flight rather than refusing the press", async () => {
+    activate(ASSISTANT_ID, null);
+
+    const pressed = toggle();
+    activate(ASSISTANT_ID);
+    await pressed;
+
+    expect(sockets).toHaveLength(1);
+  });
+
+  test("opens nothing with no active assistant to start against", async () => {
+    activate(null);
+
+    await toggle();
+
+    expect(sockets).toHaveLength(0);
+  });
+
+  test("opens the stream once the assistant is new enough", async () => {
+    activate(ASSISTANT_ID, "0.12.0");
+
+    await startRunning();
+
+    expect(sockets).toHaveLength(1);
+    expect(useWatchStore.getState().watching).toBe(true);
+  });
+});
+
+/**
+ * The session belongs to the assistant it was started for.
+ *
+ * Switching assistants leaves this layout mounted and rewrites the active
+ * identity in place, so without this the socket would stay open to the
+ * previous assistant while the surface drew the new one's name beside a flag
+ * that read as the new one's.
+ */
+describe("a watch session across an assistant switch", () => {
+  test("ends when another assistant becomes the active one", async () => {
+    await startRunning();
+
+    activate("asst-other");
+
+    expect(capture.calls.shutdown).toBe(1);
+    expect(socket().closeCalls).toEqual([1000]);
+    expect(useWatchStore.getState().watching).toBe(false);
+  });
+
+  /** Ambiguous rather than benign, so the safe reading is to stop capturing. */
+  test("ends when no assistant is active any more", async () => {
+    await startRunning();
+
+    activate(null);
+
+    expect(capture.calls.shutdown).toBe(1);
+    expect(useWatchStore.getState().watching).toBe(false);
+  });
+
+  test("survives a write that leaves the same assistant active", async () => {
+    await startRunning();
+
+    activate(ASSISTANT_ID);
+
+    expect(capture.calls.shutdown).toBe(0);
+    expect(useWatchStore.getState().watching).toBe(true);
+  });
+
+  /**
+   * The subscription lives exactly as long as the session does. Left behind it
+   * fires harmlessly, because teardown is idempotent, and accumulates one
+   * listener per session for the life of the page.
+   */
+  test("stops listening for switches once the session is over", async () => {
+    await startRunning();
+    expect(assistantListeners.size).toBe(1);
+
+    stopWatch();
+
+    expect(assistantListeners.size).toBe(0);
+  });
+
+  test("leaves nothing behind across repeated sessions", async () => {
+    await startRunning();
+    stopWatch();
+    await startRunning();
+    stopWatch();
+
+    expect(assistantListeners.size).toBe(0);
+  });
+
+  test("starts again against whichever assistant is active now", async () => {
+    await startRunning();
+    activate("asst-other");
+
+    await startRunning();
+
+    expect(sockets).toHaveLength(2);
+    expect(useWatchStore.getState().watching).toBe(true);
   });
 });
 
