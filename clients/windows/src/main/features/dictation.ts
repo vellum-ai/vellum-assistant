@@ -121,6 +121,10 @@ export const installDictation = (): void => {
     z.object({ message: z.string() }),
     (event) => {
       log.warn(`[win-helper] dictation error: ${event.message}`);
+      dictationOwners
+        .target()
+        ?.send("vellum:helper:dictation:finalized", { text: "" });
+      dictationOwners.clear();
     },
   );
   helper.onState(handleHelperState);

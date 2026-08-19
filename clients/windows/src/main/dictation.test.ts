@@ -167,3 +167,19 @@ test("a helper crash drops the session owners", async () => {
     fakeClient.calls.some((c) => c.method === "dictation.appendAudio"),
   ).toBe(false);
 });
+
+test("a terminal recognition error settles and clears the owner", async () => {
+  const owner = makeSender();
+  await handlers["vellum:helper:dictation:setPartials"]!(
+    [true, undefined, true],
+    { sender: owner },
+  );
+
+  fakeClient.notifications.get("dictation.error")!({ message: "failed" });
+  expect(owner.send).toHaveBeenCalledWith("vellum:helper:dictation:finalized", {
+    text: "",
+  });
+
+  fakeClient.notifications.get("dictation.partial")!({ text: "late" });
+  expect(owner.send).toHaveBeenCalledTimes(1);
+});
