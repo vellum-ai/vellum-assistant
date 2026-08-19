@@ -24,6 +24,11 @@ import {
   isLiveVoiceSessionActive,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  firstRunCardIntercepts,
+  publishConfigNotice,
+  voiceReadiness,
+} from "@/domains/chat/voice/live-voice/voice-entry-guards";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
 import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -126,20 +131,43 @@ export async function drainPendingVoiceStart(): Promise<void> {
     return;
   }
   const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-  // Every remaining branch is a decision rather than a race, so the request is
-  // spent from here — and nothing below awaits, so it cannot be lost between
-  // the consume and the start.
-  if (
-    !usePendingDeepLinkStore
+  // Every remaining branch is a decision rather than a race, so each of them
+  // spends the request. The consume itself stays at the bottom, below the last
+  // await, so the one thing that can still become true — a controller that has
+  // not registered yet — leaves the request parked rather than losing it.
+  const consume = (): boolean =>
+    usePendingDeepLinkStore
       .getState()
-      .consumePendingVoiceStart(PENDING_VOICE_START_TTL_MS)
-  ) {
-    return;
-  }
+      .consumePendingVoiceStart(PENDING_VOICE_START_TTL_MS);
   // Same eligibility as the composer's entry point: on an assistant too old to
   // serve live voice the link navigates and stops there, exactly as the
   // composer renders no voice button.
   if (!supportsLiveVoice(assistantId)) {
+    consume();
+    return;
+  }
+  // The same two guards the composer's voice button runs. Without them a
+  // session asked for from outside the chat window skipped the first-run card
+  // and opened a room the composer would have refused. Each hands the entry to
+  // something the user can see (the card, the notice), so each is an answer
+  // rather than a drop.
+  if (firstRunCardIntercepts()) {
+    consume();
+    return;
+  }
+  const readiness = await voiceReadiness(assistantId);
+  publishConfigNotice(readiness.notice);
+  if (!readiness.allowed) {
+    consume();
+    return;
+  }
+  // Re-read across the readiness await, as above: a controller that unmounted
+  // during the preflight leaves this parked for the next mount.
+  const readyStarter = useLiveVoiceStore.getState().starter;
+  if (readyStarter === null) {
+    return;
+  }
+  if (!consume()) {
     return;
   }
   // `null` conversation is the supported "new conversation" start: the server
@@ -149,5 +177,5 @@ export async function drainPendingVoiceStart(): Promise<void> {
   // playback while a user gesture is still active, and this path has no gesture
   // to borrow (Siri, the Action Button, a Live Activity tap). `start()` creates
   // its own player when none was reserved.
-  starter.start(assistantId, null);
+  readyStarter.start(assistantId, null);
 }

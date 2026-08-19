@@ -279,6 +279,21 @@ export interface LiveVoiceState {
    */
   starter: LiveVoiceSessionStarter | null;
   /**
+   * Whether the first-run preferences card stands in for an entry, having
+   * intercepted one. Store-held rather than composer-local because every
+   * entry point can be intercepted, including the ones with no composer in
+   * them (the voice mode shortcut, the companion surface's Talk), and the
+   * card is drawn in one place for all of them.
+   */
+  firstRunCardOpen: boolean;
+  /**
+   * The daemon's "configure voice" copy from a `not-ready` readiness verdict,
+   * or `null`. Non-null means an entry was refused before the room opened;
+   * the composer renders it with a deep link to voice settings. Store-held
+   * for the same reason as {@link LiveVoiceState.firstRunCardOpen}.
+   */
+  configNotice: string | null;
+  /**
    * One short line describing what the current turn is doing ("Reading a
    * file"), or `""` when it is doing nothing nameable.
    *
@@ -427,6 +442,10 @@ export interface LiveVoiceActions {
   setControls: (controls: LiveVoiceSessionControls | null) => void;
   /** Register (or clear) the mounted controller's session starter. */
   setStarter: (starter: LiveVoiceSessionStarter | null) => void;
+  /** Open or dismiss the first-run preferences card. */
+  setFirstRunCardOpen: (open: boolean) => void;
+  /** Publish or clear the pre-open "configure voice" notice. */
+  setConfigNotice: (notice: string | null) => void;
   setPartialTranscript: (text: string) => void;
   setFinalTranscript: (text: string) => void;
   /** Append a delta to the accumulated assistant transcript. */
@@ -561,6 +580,8 @@ export function isLiveVoiceSessionOwnedBy(
 /** Session-scoped fields restored by `reset()`. Excludes `starter` (mount-scoped). */
 const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   state: "idle",
+  firstRunCardOpen: false,
+  configNotice: null,
   assistantAudioActive: false,
   microphoneActive: false,
   activityLabel: "",
@@ -616,6 +637,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     })),
   setControls: (controls) => set({ controls }),
   setStarter: (starter) => set({ starter }),
+  setFirstRunCardOpen: (firstRunCardOpen) => set({ firstRunCardOpen }),
+  setConfigNotice: (configNotice) => set({ configNotice }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),
   setFinalTranscript: (finalTranscript) => set({ finalTranscript }),
   appendAssistantTranscript: (delta) =>
