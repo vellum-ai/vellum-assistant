@@ -109,14 +109,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "collapse-assistant-intermediates",
-      "scope": "client",
-      "key": "collapse-assistant-intermediates",
-      "label": "Collapse Assistant Intermediates",
-      "description": "Collapse completed intermediary assistant activity behind Earlier activity while keeping the final response visible",
-      "defaultEnabled": false
-    },
-    {
       "id": "backward-releases",
       "scope": "assistant",
       "key": "backward-releases",
@@ -242,6 +234,14 @@
       "key": "web-remote-ingress",
       "label": "Web Remote Ingress",
       "description": "Show the pair-a-device card in web settings. Visibility only; pairing itself is always available.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "paired-devices-ui",
+      "scope": "client",
+      "key": "paired-devices-ui",
+      "label": "Paired Devices UI",
+      "description": "Show the paired-devices list and revoke controls inside the pair-a-device settings card. Visibility only; `vellum devices` on the host stays available.",
       "defaultEnabled": false
     },
     {

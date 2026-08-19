@@ -31,6 +31,7 @@ import type {
   RemoteWebPairingVerificationRequest,
 } from "@vellumai/service-contracts/remote-web-pairing";
 
+import { t } from "@/i18n";
 import { getLocalGatewayUrl, getSelectedAssistant } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 
@@ -46,9 +47,12 @@ const PAIRING_REQUEST_DENY_PATH = `${PAIRING_REQUESTS_PATH}/deny`;
  * Guidance appended when the host rejects the mint. The routes themselves only
  * require loopback, but a scan can only complete when the public URL actually
  * fronts this assistant, the usual reason pairing doesn't work end to end.
+ * A function rather than a module constant so the catalog is read at request
+ * time, after i18next is initialized and in the active locale.
  */
-export const PAIRING_CONNECTIVITY_HINT =
-  "If a scan can't connect, make sure a tunnel is running on the host (`vellum tunnel`) and the public URL points at it, then generate a new code.";
+export function pairingConnectivityHint(): string {
+  return t("settings:pairDeviceClient.connectivityHint");
+}
 
 /** A pairing request that failed, carrying an optional actionable hint. */
 export class PairDeviceError extends Error {
@@ -144,9 +148,7 @@ async function pairingRouteRequest<T>(
     if (err instanceof DOMException && err.name === "AbortError") {
       throw err;
     }
-    throw new PairDeviceError(
-      "Couldn't reach the assistant. Make sure it's running and try again.",
-    );
+    throw new PairDeviceError(t("settings:pairDeviceClient.networkError"));
   }
 
   // A non-JSON body (e.g. an HTML error page) resolves to null and falls
@@ -156,7 +158,7 @@ async function pairingRouteRequest<T>(
   if (!response.ok) {
     throw new PairDeviceError(
       serverErrorMessage(payload) ??
-        `Pairing failed (HTTP ${response.status}).`,
+        t("settings:pairDeviceClient.httpError", { status: response.status }),
       {
         hint: rejectionHint,
         status: response.status,
@@ -166,7 +168,9 @@ async function pairingRouteRequest<T>(
   }
 
   if (payload === null || typeof payload !== "object") {
-    throw new PairDeviceError("The assistant returned an unexpected response.");
+    throw new PairDeviceError(
+      t("settings:pairDeviceClient.unexpectedResponse"),
+    );
   }
   return payload as T;
 }
@@ -206,7 +210,7 @@ export async function mintDevicePairing(args: {
     `${base}${PAIRING_CHALLENGE_PATH}`,
     { publicBaseUrl } satisfies RemoteWebPairingChallengeRequest,
     signal,
-    PAIRING_CONNECTIVITY_HINT,
+    pairingConnectivityHint(),
   );
 
   try {
@@ -216,7 +220,7 @@ export async function mintDevicePairing(args: {
         userCode: challenge.userCode,
       } satisfies RemoteWebPairingVerificationRequest,
       signal,
-      PAIRING_CONNECTIVITY_HINT,
+      pairingConnectivityHint(),
     );
   } catch (err) {
     // The minted challenge would otherwise stay pending for its TTL and show

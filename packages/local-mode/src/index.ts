@@ -64,6 +64,12 @@ export { runSleep } from "./sleep";
 export type { SleepResult } from "./sleep";
 export { runWake } from "./wake";
 export type { WakeOptions, WakeResult } from "./wake";
+export { runDevicesList, runDevicesRevoke } from "./devices";
+export type {
+  DeviceRecord,
+  DevicesListResult,
+  DevicesRevokeResult,
+} from "./devices";
 export { runUpgrade, isValidReleaseVersion } from "./upgrade";
 export type { UpgradeOptions, UpgradeResult } from "./upgrade";
 export { getLocalAssistantStatus } from "./status";

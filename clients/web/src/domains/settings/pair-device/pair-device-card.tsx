@@ -1,14 +1,18 @@
+import { useState } from "react";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 
 import { DetailCard } from "@/components/detail-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useTranslation } from "@/i18n";
 import { useSupportsRemoteWebPairing } from "@/lib/backwards-compat/remote-web-pairing-gate";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 import { resolvePairDeviceTarget } from "./pair-device-client";
 import { PairDeviceReady } from "./pair-device-ready";
+import { PairedDevicesSection } from "./paired-devices-section";
 import { PendingPairingRequests } from "./pending-pairing-requests";
 import { usePairDevice } from "./use-pair-device";
 
@@ -25,15 +29,22 @@ import { usePairDevice } from "./use-pair-device";
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
  * pairing routes ({@link useSupportsRemoteWebPairing}). The client-scoped
  * `web-remote-ingress` flag decides only whether this card renders; it gates
- * no pairing functionality.
+ * no pairing functionality. The client-scoped `paired-devices-ui` flag decides
+ * only whether the paired-devices list + revoke section renders inside the
+ * card; revocation itself stays available via `vellum devices` on the host.
  */
 export function PairDeviceCard() {
+  const { t } = useTranslation("settings");
   const target = resolvePairDeviceTarget();
   const supported = useSupportsRemoteWebPairing();
   const webRemoteIngressOn = useClientFeatureFlagStore.use.webRemoteIngress();
+  const pairedDevicesUIOn = useClientFeatureFlagStore.use.pairedDevicesUI();
   const pair = usePairDevice(target?.base ?? null, target?.ingressUrl ?? null);
+  // Bumped when the pending-request flow pairs a device, so the device list
+  // below refetches without waiting for a live-code poll.
+  const [devicesRevalidateKey, setDevicesRevalidateKey] = useState(0);
   const { copy, copied } = useCopyToClipboard({
-    errorMessage: "Could not copy the pairing address.",
+    errorMessage: t("pairDeviceCard.copyError"),
   });
 
   if (!target || !supported || !webRemoteIngressOn) {
@@ -49,35 +60,33 @@ export function PairDeviceCard() {
   const showNoTunnelGuidance =
     pair.prefillSource === "none" && pair.publicBaseUrl.trim() === "";
   const buttonLabel = isMinting
-    ? "Generating…"
+    ? t("pairDeviceCard.generateButtonMinting")
     : isReady
-      ? "Generate new code"
-      : "Generate pairing QR";
+      ? t("pairDeviceCard.generateButtonRegenerate")
+      : t("pairDeviceCard.generateButton");
 
   return (
     <DetailCard
-      title="Pair a device"
-      subtitle={`Scan with another device's camera — or open the link on it — to use ${
-        target.assistantName ?? "this assistant"
-      } there.`}
+      title={t("pairDeviceCard.title")}
+      subtitle={t("pairDeviceCard.subtitle", {
+        name: target.assistantName ?? t("pairDeviceCard.subtitleFallbackName"),
+      })}
     >
       <div className="flex flex-col gap-4">
         {showNoTunnelGuidance && (
-          <Notice tone="info" title="No tunnel detected">
-            {
-              "On this computer, run `vellum tunnel --provider tailscale` (or another provider) — its address appears here."
-            }
+          <Notice tone="info" title={t("pairDeviceCard.noTunnelTitle")}>
+            {t("pairDeviceCard.noTunnelBody")}
           </Notice>
         )}
         <div className="flex flex-col gap-3">
           <Input
-            label="Public URL"
+            label={t("pairDeviceCard.publicUrlLabel")}
             fullWidth
-            placeholder="https://your-assistant.ts.net"
+            placeholder={t("pairDeviceCard.publicUrlPlaceholder")}
             helperText={
               prefilledFromTunnel
-                ? "This address comes from `vellum tunnel` on this computer. Edit it if your devices reach this assistant at a different URL."
-                : "The https address your devices can reach this assistant at (your Tailscale URL, or another tunnel's)."
+                ? t("pairDeviceCard.publicUrlHelperTunnel")
+                : t("pairDeviceCard.publicUrlHelper")
             }
             value={pair.publicBaseUrl}
             errorText={pair.inputError ?? undefined}
@@ -116,7 +125,20 @@ export function PairDeviceCard() {
           />
         )}
 
-        <PendingPairingRequests base={target.base} />
+        <PendingPairingRequests
+          base={target.base}
+          onApproved={() => setDevicesRevalidateKey((key) => key + 1)}
+        />
+
+        {/* Poll while a code is live so an externally claimed pairing shows up.
+            Gating at the render site also keeps the host `vellum devices`
+            fetch from ever firing while the flag is off. */}
+        {pairedDevicesUIOn && (
+          <PairedDevicesSection
+            pollWhilePairing={isReady && !pair.expired}
+            revalidateKey={devicesRevalidateKey}
+          />
+        )}
       </div>
     </DetailCard>
   );

@@ -27,7 +27,7 @@ import {
   ConnectionProviderSchema,
   deriveAuthForProvider,
   ProviderConnectionSchema,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  PROVIDERS_ALLOWING_CUSTOM_BASE_URL,
   VALID_CONNECTION_PROVIDERS,
 } from "../../providers/inference/auth.js";
 import {
@@ -72,14 +72,16 @@ const providerConnectionResponseSchema = ProviderConnectionSchema;
  * Parse and validate `base_url` and `models` from the request body.
  *
  * `base_url` is only accepted for providers in
- * `PROVIDERS_REQUIRING_BASE_URL_AND_MODELS` (currently `openai-compatible`).
+ * `PROVIDERS_ALLOWING_CUSTOM_BASE_URL` (openai-compatible and ollama).
  * For all other providers, supplying `base_url` returns a 400. This prevents
  * API-key exfiltration: an attacker cannot create an `anthropic` connection
  * with a `base_url` pointing to their own server, which would redirect all
  * LLM calls (and the API key) to the attacker.
  *
- * Even for `openai-compatible`, the `base_url` must not point to private
- * networks or cloud metadata endpoints (SSRF protection).
+ * Even for allowed providers, a platform-hosted daemon rejects `base_url`
+ * values that point to private networks or cloud metadata endpoints
+ * (SSRF protection). Self-hosted daemons allow those addresses because
+ * localhost and LAN hosts are the expected target.
  */
 async function parseCustomProviderFields(
   body: Record<string, unknown>,
@@ -96,14 +98,14 @@ async function parseCustomProviderFields(
   if ("base_url" in body) {
     const raw = body.base_url;
 
-    // Gate: base_url is only valid for openai-compatible providers.
+    // Gate: base_url is only valid for providers that persist a custom endpoint.
     if (
       raw !== null &&
       raw !== undefined &&
-      !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)
+      !PROVIDERS_ALLOWING_CUSTOM_BASE_URL.has(provider)
     ) {
       throw new BadRequestError(
-        `base_url is only valid for openai-compatible providers. Remove base_url or use the openai-compatible provider type.`,
+        `base_url is only valid for openai-compatible and ollama providers. Remove base_url or use a provider that accepts a custom endpoint.`,
       );
     }
 

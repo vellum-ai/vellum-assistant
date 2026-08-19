@@ -17,7 +17,7 @@ import {
 } from "../platform-proxy/context.js";
 import {
   type Auth,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  PROVIDERS_ALLOWING_CUSTOM_BASE_URL,
   type ResolvedAuth,
 } from "./auth.js";
 
@@ -36,14 +36,14 @@ export async function resolveAuth(
   { ok: true; resolved: ResolvedAuth } | { ok: false; error: ResolveAuthError }
 > {
   // Defense-in-depth: strip baseUrl for providers that should not accept one.
-  // The route layer rejects base_url for non-openai-compatible providers, but
-  // this guard catches any code path that bypasses route validation (e.g.
-  // corrupted DB rows, direct calls from internal code).
+  // The route layer rejects base_url for those providers, but this guard
+  // catches any code path that bypasses route validation (e.g. corrupted DB
+  // rows, direct calls from internal code).
   let safeBaseUrl = opts.baseUrl;
-  if (safeBaseUrl && !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
+  if (safeBaseUrl && !PROVIDERS_ALLOWING_CUSTOM_BASE_URL.has(provider)) {
     log.warn(
       { provider, baseUrl: safeBaseUrl },
-      `Stripping baseUrl for provider "${provider}" — base_url is only valid for openai-compatible providers.`,
+      `Stripping baseUrl for provider "${provider}": base_url is only valid for openai-compatible and ollama providers.`,
     );
     safeBaseUrl = null;
   }
@@ -85,7 +85,7 @@ export async function resolveAuth(
 
     case "none":
       // Keyless endpoints still need their custom baseUrl threaded through
-      // (LM Studio / vLLM openai-compatible servers).
+      // (Ollama, LM Studio / vLLM openai-compatible servers).
       return {
         ok: true,
         resolved: {

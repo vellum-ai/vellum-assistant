@@ -1,6 +1,9 @@
 import type {
   LocalAssistantStatusResult,
   LocalConnectImportResult,
+  LocalListDevicesResult,
+  LocalPairedDeviceRecord,
+  LocalRevokeDeviceResult,
   LocalUpgradeOptions,
   LocalWakeOptions,
 } from "@vellumai/ipc-contract";
@@ -86,6 +89,9 @@ export interface LocalUpgradeResult {
 
 export type { LocalAssistantStatusResult };
 export type { LocalConnectImportResult };
+export type { LocalListDevicesResult };
+export type { LocalPairedDeviceRecord };
+export type { LocalRevokeDeviceResult };
 export type { LocalUpgradeOptions };
 
 /**
@@ -390,6 +396,60 @@ export async function connectImportHost(
   return postLocalCommand<LocalConnectImportResult>(
     "/assistant/__local/connect-import",
     { bundle, name },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
+}
+
+/** Shared fallback for Electron preloads that predate the devices channels. */
+const DEVICE_MANAGEMENT_UNSUPPORTED_ERROR =
+  "Device management is not supported by this app version";
+
+/**
+ * List the devices holding pairing tokens for a local assistant. Device
+ * management is host-side only: the gateway's devices routes reject browser
+ * origins by design, so the trusted host (Electron main, the Vite dev
+ * middleware, or the `vellum client` server) spawns the CLI's `devices
+ * --json` and returns its result over this seam. Older Electron hosts that
+ * predate the IPC channel degrade to a structured unsupported error, which
+ * doubles as the UI's visibility gate on those app shells.
+ */
+export async function listPairedDevicesHost(
+  assistantId: string,
+): Promise<LocalListDevicesResult> {
+  if (isElectron()) {
+    const listDevices = window.vellum!.localMode.listDevices;
+    if (!listDevices) {
+      return { ok: false, error: DEVICE_MANAGEMENT_UNSUPPORTED_ERROR };
+    }
+    return listDevices(assistantId);
+  }
+
+  return postLocalCommand<LocalListDevicesResult>(
+    "/assistant/__local/devices",
+    { assistantId },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
+}
+
+/**
+ * Revoke one paired device's tokens; write counterpart of
+ * {@link listPairedDevicesHost} (same host-side-only rule and unsupported fallback).
+ */
+export async function revokePairedDeviceHost(
+  assistantId: string,
+  hashedDeviceId: string,
+): Promise<LocalRevokeDeviceResult> {
+  if (isElectron()) {
+    const revokeDevice = window.vellum!.localMode.revokeDevice;
+    if (!revokeDevice) {
+      return { ok: false, error: DEVICE_MANAGEMENT_UNSUPPORTED_ERROR };
+    }
+    return revokeDevice(assistantId, hashedDeviceId);
+  }
+
+  return postLocalCommand<LocalRevokeDeviceResult>(
+    "/assistant/__local/devices-revoke",
+    { assistantId, hashedDeviceId },
     LOCAL_HOST_UNAVAILABLE_ERROR,
   );
 }

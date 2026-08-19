@@ -797,7 +797,8 @@ describe("web_search tool", () => {
             {
               title: "Keenable Result 1",
               url: "https://example.com/keenable-1",
-              description: "First Keenable result",
+              description: "",
+              snippet: "First Keenable result",
             },
           ],
         }),
@@ -812,6 +813,45 @@ describe("web_search tool", () => {
     expect(capturedHeaders.get("x-keenable-title")).toBe("Vellum Assistant");
     expect(result.content).toContain("Keenable Result 1");
     expect(result.content).toContain("https://example.com/keenable-1");
+  });
+
+  test("Keenable reads the page text from snippet, capped", async () => {
+    seedWebSearch("your-own", "keenable");
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: "Wrapped",
+              url: "https://example.com/wrapped",
+              description: "",
+              snippet: "line one\n\nline two",
+            },
+            {
+              title: "Long",
+              url: "https://example.com/long",
+              description: "",
+              snippet: "word ".repeat(400),
+            },
+            {
+              title: "Meta only",
+              url: "https://example.com/meta",
+              description: "only a meta description",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "test" });
+    expect(result.content).toContain("line one line two");
+    expect(result.content).toContain("only a meta description");
+    const longLine = String(result.content)
+      .split("\n")
+      .find((line) => line.trim().startsWith("word"));
+    expect(longLine?.trim().length).toBeLessThanOrEqual(500);
+    expect(longLine?.trim().length).toBeGreaterThan(490);
   });
 
   test("Keenable uses the authenticated endpoint when a key is set", async () => {

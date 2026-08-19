@@ -184,6 +184,22 @@ describe("base_url provider-type gate (create)", () => {
     );
   });
 
+  test("accepts base_url on ollama provider", async () => {
+    mockResolvedAddresses = ["93.184.216.34"];
+    const result = await handleCreate({
+      body: {
+        name: "valid-ollama-remote",
+        provider: "ollama",
+        auth: { type: "none" },
+        base_url: "https://ollama.example.com/v1",
+      },
+    });
+    expect(result).toBeDefined();
+    expect((result as { baseUrl: string }).baseUrl).toBe(
+      "https://ollama.example.com/v1",
+    );
+  });
+
   test("allows null base_url on non-openai-compatible provider", async () => {
     // Setting base_url to null is always allowed (it's a no-op clear).
     const result = await handleCreate({
@@ -432,5 +448,27 @@ describe("base_url provider-type gate (update)", () => {
         },
       }),
     ).rejects.toThrow(/base_url is only valid for openai-compatible/);
+  });
+
+  test("accepts adding base_url to an existing ollama connection", async () => {
+    mockResolvedAddresses = ["93.184.216.34"];
+    await handleCreate({
+      body: {
+        name: "update-test-ollama",
+        provider: "ollama",
+        auth: { type: "none" },
+      },
+    });
+
+    const result = await handleUpdate({
+      pathParams: { name: "update-test-ollama" },
+      body: {
+        auth: { type: "none" },
+        base_url: "https://ollama.example.com/v1",
+      },
+    });
+    expect((result as { baseUrl: string }).baseUrl).toBe(
+      "https://ollama.example.com/v1",
+    );
   });
 });
