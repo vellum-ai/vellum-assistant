@@ -1888,10 +1888,15 @@ export async function forkConversationForRetrospective(params: {
         windowStartIndex - 1,
       );
     }
-    const trimmed = messagesToCopy.slice(0, windowStartIndex);
-    windowTrimmedRowCount = trimmed.length;
-    for (const message of trimmed) {
-      hiddenRowIds.add(message.id);
+    // Count only rows this bound newly removes. Rows an inherited compaction
+    // summary already hides are unrendered on both sides, so re-dropping them
+    // leaves the two rendered windows equal and must not flip
+    // `isFullHistoryFork`.
+    for (const message of messagesToCopy.slice(0, windowStartIndex)) {
+      if (!hiddenRowIds.has(message.id)) {
+        hiddenRowIds.add(message.id);
+        windowTrimmedRowCount += 1;
+      }
     }
   }
   // Read straight from config rather than taking a caller-supplied strategy:

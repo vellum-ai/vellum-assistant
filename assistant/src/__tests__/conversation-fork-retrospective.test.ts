@@ -279,6 +279,12 @@ describe("forkConversationForRetrospective", () => {
 
   test("a window start inside a display turn snaps back to the turn anchor", async () => {
     const source = createConversation("Tool turn thread");
+    await addMessage(source.id, "user", "earlier question", {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "assistant", "earlier answer", {
+      skipIndexing: true,
+    });
     await addMessage(source.id, "user", "lookup", { skipIndexing: true });
     await addMessage(source.id, "assistant", "calling tool", {
       skipIndexing: true,
@@ -299,12 +305,35 @@ describe("forkConversationForRetrospective", () => {
     const fork = await forkConversationForRetrospective({
       conversationId: source.id,
       throughMessageId: rows.at(-1)!.id,
+      windowStartMessageId: rows[4]!.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    // Earlier turns are trimmed, and the copy opens on the user turn that
+    // prompted the run rather than on the tool_result or its assistant row.
+    expect(stampsOf(fork.id)).toEqual(rows.slice(2).map((m) => m.id));
+  });
+
+  test("a window that drops rendered rows makes the fork truncated", async () => {
+    const source = await seedSource("Windowed memory thread");
+    const snapshot = JSON.stringify({ inContext: ["node-a"], currentTurn: 7 });
+    saveGraphMemoryState(source.id, snapshot);
+    const rows = getMessages(source.id);
+
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: rows.at(-1)!.id,
       windowStartMessageId: rows[2]!.id,
       conversationType: "background",
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
     });
 
-    expect(stampsOf(fork.id)).toEqual(rows.slice(1).map((m) => m.id));
+    // The fork ends at the tip yet renders strictly less than the source, so
+    // the wholesale memory-state carry would attach state for turns it does
+    // not hold.
+    expect(stampsOf(fork.id)).toEqual(rows.slice(2).map((m) => m.id));
+    expect(loadGraphMemoryState(fork.id)).not.toBe(snapshot);
   });
 
   test("a window opening on an assistant row starts the copy at a user turn", async () => {
@@ -537,7 +566,7 @@ describe("forkConversationForRetrospective — compacted source", () => {
     expect(v3Rows.map((r) => r.slug)).toEqual(["card-a"]);
   });
 
-  test("a window-bounded fork at the tip is truncated, not full-history", async () => {
+  test("a window re-dropping only hidden rows stays full-history", async () => {
     const source = await seedCompactedSource();
     const snapshot = JSON.stringify({ inContext: ["node-a"], currentTurn: 7 });
     saveGraphMemoryState(source.id, snapshot);
@@ -554,12 +583,12 @@ describe("forkConversationForRetrospective — compacted source", () => {
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
     });
 
-    expect(getMessages(fork.id)).toHaveLength(1);
-    // A tip boundary alone does not make the windows equal. Rows the window
-    // dropped are still rendered on the source (unlike compacted rows, which
-    // are rendered on neither), so the wholesale carry would attach state for
-    // turns this fork does not hold.
-    expect(loadGraphMemoryState(fork.id)).not.toBe(snapshot);
+    // The window start snaps to the user turn opening the visible tail, so
+    // every row it drops was already hidden behind the summary. Both rendered
+    // windows are still the summary plus that tail, so this remains a
+    // full-history fork and the wholesale carry stays valid.
+    expect(getMessages(fork.id)).toHaveLength(2);
+    expect(loadGraphMemoryState(fork.id)).toBe(snapshot);
   });
 
   test("re-derives memory seeding from the copied tail on a truncated cutoff", async () => {
