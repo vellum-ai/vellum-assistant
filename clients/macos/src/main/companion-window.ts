@@ -245,6 +245,7 @@ let context: CompanionContext = {
   assistantName: "",
   turns: [],
   working: false,
+  watching: false,
 };
 
 /**
@@ -267,6 +268,10 @@ const currentState = (): CompanionSurfaceState => {
     assistantName: context.assistantName,
     turns: context.turns,
     working: context.working,
+    // `CompanionContext.watching` is optional, so a publisher that omits it is
+    // reporting no session of its own. Settled to a boolean here rather than
+    // passed through, so the surface reads one shape whatever arrived.
+    watching: context.watching === true,
   };
 };
 
@@ -606,6 +611,23 @@ export const installCompanionWindow = (): void => {
   });
 
   /**
+   * Watch, delivered to the same renderer Talk's press goes to.
+   *
+   * One command for both edges rather than a start and a stop. The surface
+   * draws a single toggle and holds no session, so the window that owns the
+   * session is the only side that can tell which edge a press is; main forwards
+   * the press and lets it answer.
+   *
+   * This does not raise the app, for a sharper version of Talk's reason. The
+   * user reached for a floating surface because they are working somewhere
+   * else, and here that work is the subject of the session: bringing Vellum
+   * forward would cover the very thing the session exists to watch.
+   */
+  on("vellum:companion:toggleWatch", z.tuple([]), () => {
+    dispatchWithoutRaising({ kind: "toggleWatch" });
+  });
+
+  /**
    * Type, sent: the message goes to the same renderer Talk's press goes to, and
    * lands in the conversation that renderer has open.
    *
@@ -626,11 +648,17 @@ export const installCompanionWindow = (): void => {
   );
 
   /**
-   * The assistant and the conversation's tail, from the window holding them.
+   * The assistant and the conversation's tail, from the window holding them,
+   * and with them whether a watch session is running.
    *
    * Published rather than fetched, because main has no conversation of its own
    * and no transport to fetch one with. The turns arrive already condensed to a
    * side and some text: see `companionContextSchema`.
+   *
+   * One channel for the whole snapshot rather than one per fact. They describe
+   * the same assistant at the same moment, and a surface drawing a stale
+   * `watching` beside a fresh tail is exactly the skew independently-pushed
+   * facts would produce.
    */
   on(
     "vellum:companion:setContext",
