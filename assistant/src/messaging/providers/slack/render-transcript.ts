@@ -6,8 +6,7 @@
  * `{role, content}[]` chronologically ordered with compact Slack tags so the
  * model can reason across sibling threads in one channel.
  *
- * The function is pure: no I/O, no implicit clock reads. Time is taken from
- * `opts.now` only when needed for relative formatting. Sort and tag rendering
+ * The function is pure: no I/O, no implicit clock reads. Sort and tag rendering
  * are deterministic.
  *
  * Consumers wire this into inbound history rendering and the compaction
@@ -63,8 +62,6 @@ export interface RenderableSlackMessage {
 }
 
 export interface RenderOptions {
-  /** Reserved for future relative-time rendering; currently unused. */
-  now?: Date;
   /** Cap rendered reactions per parent message; default 5. */
   maxReactionsPerMessage?: number;
 }

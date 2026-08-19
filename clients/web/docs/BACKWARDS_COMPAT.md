@@ -266,6 +266,20 @@ with the code they protect:
   be read before the identity fetch hydrates the version on most cold boots
   and send them all down the paged path. The paged fallback is the legacy
   branch: delete it once no supported assistant predates the parameter.
+- **Pending-question reconcile**:
+  `src/domains/chat/pending-question.ts` decides whether the ask_question card
+  should be raised or retired from the `pendingQuestion` key on
+  `GET /v1/pending-interactions`. An assistant that carries the key reports
+  either the outstanding prompt or `null`; one that predates it omits the key
+  entirely, and `undefined` is read as "no opinion" so the legacy restore (the
+  `pendingQuestion` marker stamped on a history tool call) keeps the card. The
+  distinction has to survive: reading a missing key as "nothing outstanding"
+  would retire live prompts against every older assistant. A version gate is
+  the wrong instrument here for the same reason as the landing read above, and
+  because the reconcile runs on the first committed snapshot, which is usually
+  before the identity fetch hydrates a version to compare. Delete the marker
+  branch (and `extractWirePendingQuestion` with it) once no supported assistant
+  predates the key.
 - **Electron / Capacitor bridge** — `src/runtime/is-electron.ts` declares
   `window.vellum` with **optional capability groups** (`helper?`,
   `featureFlags?`, `diagnostics?`, …). Consumers guard on presence

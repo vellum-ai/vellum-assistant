@@ -148,7 +148,10 @@ interface FirecrawlSearchResponse {
 interface KeenableSearchResult {
   title?: string;
   url?: string;
+  /** The page's meta description. Empty for most pages; see keenableSnippet. */
   description?: string;
+  /** The page text. This is what carries content on a Keenable result. */
+  snippet?: string;
   published_at?: string;
   acquired_at?: string;
 }
@@ -488,6 +491,20 @@ function firecrawlTbsForFreshness(
   }
 }
 
+/** Characters of page text kept per result. Keenable returns the whole page on
+ * every search result, an order of magnitude more than the other providers here
+ * return, so it is capped to keep one search from filling the context. */
+const KEENABLE_SNIPPET_MAX_LENGTH = 500;
+
+/** Keenable sends both `snippet` and `description` on every result: `snippet`
+ * carries the page text and `description` is the page's meta description, which
+ * is empty for most pages. `||` rather than `??`, since the empty description is
+ * present rather than nullish. */
+function keenableSnippet(result: KeenableSearchResult): string {
+  const text = result.snippet || result.description || "";
+  return text.replace(/\s+/g, " ").trim().slice(0, KEENABLE_SNIPPET_MAX_LENGTH);
+}
+
 function formatKeenableResults(
   data: KeenableSearchResponse,
   query: string,
@@ -505,8 +522,9 @@ function formatKeenableResults(
     if (r.url) {
       lines.push(`   URL: ${r.url}`);
     }
-    if (r.description) {
-      lines.push(`   ${r.description}`);
+    const snippet = keenableSnippet(r);
+    if (snippet) {
+      lines.push(`   ${snippet}`);
     }
     if (r.published_at) {
       lines.push(`   Published: ${r.published_at}`);
@@ -531,7 +549,7 @@ function buildKeenableMetadata(
       url,
       domain,
       faviconUrl: faviconUrlForDomain(domain),
-      snippet: r.description,
+      snippet: keenableSnippet(r),
     };
   });
   return {

@@ -95,14 +95,15 @@ function toActivityContent(
   }
   return {
     phase: session.state,
-    // The room's label, verbatim — the same `liveVoiceSurfaceLabel` call the
-    // room makes, including both its "Reconnecting…" relabel and its
-    // silent-`speaking` → "Thinking…" remap — so the island never has wording
-    // of its own to drift from.
+    // The room's label, verbatim: the same `liveVoiceSurfaceLabel` call the
+    // room makes, including its "Reconnecting…" relabel, its
+    // silent-`speaking` to "Thinking…" remap, and its muted-`listening` to
+    // "Muted" remap, so the island never has wording of its own to drift from.
     label: liveVoiceSurfaceLabel(
       session.state,
       session.reconnecting,
       session.assistantAudioActive,
+      session.muted,
     ),
     // The accent the avatar (and therefore the voice room) renders. `""` for
     // an avatar with no color to match: the native side canonicalizes

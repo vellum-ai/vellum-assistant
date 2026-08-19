@@ -1,8 +1,9 @@
 /**
- * Tests for `useKeyboardOpen`, the shared soft-keyboard-visibility boolean.
+ * Tests for `useSoftKeyboardOpen` and `useKeyboardOpen`, the two shared
+ * soft-keyboard-visibility booleans.
  *
- * The hook composes `useIsMobile` + `useVisibleViewport`; both are mocked so
- * each test drives an explicit platform / viewport state.
+ * They compose `useIsMobile` + `useVisibleViewport`; both are mocked so each
+ * test drives an explicit platform / viewport state.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -21,7 +22,8 @@ mock.module("@/hooks/use-visible-viewport", () => ({
   useVisibleViewport: () => visibleViewport,
 }));
 
-const { useKeyboardOpen } = await import("@/hooks/use-keyboard-open");
+const { useKeyboardOpen, useSoftKeyboardOpen } =
+  await import("@/hooks/use-keyboard-open");
 
 function viewportWithKeyboard(keyboardHeight: number): VisibleViewport {
   return {
@@ -32,14 +34,22 @@ function viewportWithKeyboard(keyboardHeight: number): VisibleViewport {
   };
 }
 
-function captureKeyboardOpen(): boolean {
+function capture(hook: () => boolean): boolean {
   let captured = false;
   function Probe() {
-    captured = useKeyboardOpen();
+    captured = hook();
     return null;
   }
   render(<Probe />);
   return captured;
+}
+
+function captureKeyboardOpen(): boolean {
+  return capture(useKeyboardOpen);
+}
+
+function captureSoftKeyboardOpen(): boolean {
+  return capture(useSoftKeyboardOpen);
 }
 
 afterEach(cleanup);
@@ -71,5 +81,31 @@ describe("useKeyboardOpen", () => {
     visibleViewport = viewportWithKeyboard(300);
 
     expect(captureKeyboardOpen()).toBe(true);
+  });
+});
+
+describe("useSoftKeyboardOpen", () => {
+  test("ignores viewport width, so a tablet keyboard still reads as open", () => {
+    // An iPad in landscape is far above the mobile breakpoint and still
+    // raises a soft keyboard. This is what the swipe-down dismiss gesture
+    // arms on.
+    isMobile = false;
+    visibleViewport = viewportWithKeyboard(300);
+
+    expect(captureSoftKeyboardOpen()).toBe(true);
+  });
+
+  test("false while the viewport is unmeasured (null)", () => {
+    isMobile = false;
+    visibleViewport = null;
+
+    expect(captureSoftKeyboardOpen()).toBe(false);
+  });
+
+  test("false at exactly the threshold height", () => {
+    isMobile = true;
+    visibleViewport = viewportWithKeyboard(100);
+
+    expect(captureSoftKeyboardOpen()).toBe(false);
   });
 });

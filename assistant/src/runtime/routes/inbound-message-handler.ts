@@ -77,7 +77,7 @@ import {
   addMessage,
   getMessageById,
   getMessages,
-  selectSlackMetaCandidateMetadata,
+  selectProviderMetaCandidateMetadata,
   updateMessageContent,
   updateMessageMetadata,
 } from "../../persistence/conversation-crud.js";
@@ -1537,7 +1537,7 @@ function countSlackMetaMessages(conversationId: string): number {
   while (offset < SLACK_DM_CANDIDATE_MAX_SCAN) {
     const remaining = SLACK_DM_CANDIDATE_MAX_SCAN - offset;
     const batchLimit = Math.min(SLACK_DM_CANDIDATE_BATCH_SIZE, remaining);
-    const candidates = selectSlackMetaCandidateMetadata(
+    const candidates = selectProviderMetaCandidateMetadata(
       conversationId,
       batchLimit,
       offset,

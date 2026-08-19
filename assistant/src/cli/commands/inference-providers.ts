@@ -38,6 +38,7 @@ interface ProviderConnection {
   name: string;
   provider: string;
   auth: AuthInfo;
+  baseUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -129,10 +130,11 @@ function collectRepeatable(value: string, previous: string[]): string[] {
 }
 
 /**
- * Build the openai-compatible custom-provider fields (`base_url`, `models`)
- * from CLI flags, forwarded to the connection route under its exact field
- * names. The daemon stays authoritative on whether they are required/allowed;
- * the CLI only shape-forwards what the user passed.
+ * Build the custom-provider fields (`base_url`, `models`) from CLI flags,
+ * forwarded to the connection route under its exact field names. The daemon
+ * stays authoritative on whether they are required or allowed (openai-compatible
+ * requires both; ollama accepts an optional base URL); the CLI only
+ * shape-forwards what the user passed.
  */
 function buildCustomProviderFields(opts: {
   baseUrl?: string;
@@ -219,6 +221,9 @@ function attachGetSubcommand(parent: Command): void {
       process.stdout.write(`name:     ${conn.name}\n`);
       process.stdout.write(`provider: ${conn.provider}\n`);
       process.stdout.write(`auth:     ${formatAuth(conn.auth)}\n`);
+      if (conn.baseUrl) {
+        process.stdout.write(`base_url: ${conn.baseUrl}\n`);
+      }
       process.stdout.write(
         `created:  ${new Date(conn.createdAt).toISOString()}\n`,
       );

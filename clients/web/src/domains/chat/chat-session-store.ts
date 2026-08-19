@@ -477,9 +477,13 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
     );
     if (isConversationSwitch && outgoingConversationId) {
       const interactionSnapshot = useInteractionStore.getState();
+      // Questions count here for the same reason they count in the snapshot
+      // reconcile: the turn is parked until one is answered, so switching away
+      // from an unanswered prompt has to leave the conversation marked.
       if (
         interactionSnapshot.pendingSecret ||
-        interactionSnapshot.pendingConfirmation
+        interactionSnapshot.pendingConfirmation ||
+        interactionSnapshot.pendingQuestion
       ) {
         useConversationStore
           .getState()

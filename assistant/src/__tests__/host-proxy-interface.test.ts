@@ -16,6 +16,7 @@ import { isHostProxyTransport } from "../daemon/message-types/conversations.js";
 describe("supportsHostProxy (runtime)", () => {
   test("no-arg form returns true for host-proxy interfaces", () => {
     expect(supportsHostProxy("macos")).toBe(true);
+    expect(supportsHostProxy("windows")).toBe(true);
   });
 
   test("no-arg form returns false for interfaces without host-proxy support", () => {
@@ -42,11 +43,20 @@ describe("supportsHostProxy (runtime)", () => {
     expect(supportsHostProxy("chrome-extension", "host_cu")).toBe(false);
   });
 
-  test("capability form grants all four capabilities to macOS including host_browser", () => {
+  test("capability form grants representative host capabilities to macOS", () => {
     expect(supportsHostProxy("macos", "host_bash")).toBe(true);
     expect(supportsHostProxy("macos", "host_file")).toBe(true);
     expect(supportsHostProxy("macos", "host_cu")).toBe(true);
     expect(supportsHostProxy("macos", "host_browser")).toBe(true);
+  });
+
+  test("capability form withholds unimplemented Windows app control", () => {
+    expect(supportsHostProxy("windows", "host_bash")).toBe(true);
+    expect(supportsHostProxy("windows", "host_file")).toBe(true);
+    expect(supportsHostProxy("windows", "host_cu")).toBe(true);
+    expect(supportsHostProxy("windows", "host_browser")).toBe(true);
+    expect(supportsHostProxy("windows", "host_ui_snapshot")).toBe(true);
+    expect(supportsHostProxy("windows", "host_app_control")).toBe(false);
   });
 
   test("capability form rejects everything for non-host-proxy interfaces", () => {

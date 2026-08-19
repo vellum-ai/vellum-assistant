@@ -35,6 +35,8 @@ import {
   isActiveAssistant,
   isPairedLockfileEntry,
   PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
+  runDevicesList,
+  runDevicesRevoke,
   runHatch,
   runRetire,
   connectImport,
@@ -427,6 +429,8 @@ const LOCKFILE_PATTERN = /^(?:\/assistant)?\/__local\/lockfile$/;
 const HATCH_PATTERN = /^(?:\/assistant)?\/__local\/hatch$/;
 const RETIRE_PATTERN = /^(?:\/assistant)?\/__local\/retire$/;
 const UNPAIR_PATTERN = /^(?:\/assistant)?\/__local\/unpair$/;
+const DEVICES_PATTERN = /^(?:\/assistant)?\/__local\/devices$/;
+const DEVICES_REVOKE_PATTERN = /^(?:\/assistant)?\/__local\/devices-revoke$/;
 const CONNECT_IMPORT_PATTERN = /^(?:\/assistant)?\/__local\/connect-import$/;
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
@@ -483,6 +487,8 @@ async function handleLocalEndpoints(
     HATCH_PATTERN.test(pathname) ||
     RETIRE_PATTERN.test(pathname) ||
     UNPAIR_PATTERN.test(pathname) ||
+    DEVICES_PATTERN.test(pathname) ||
+    DEVICES_REVOKE_PATTERN.test(pathname) ||
     CONNECT_IMPORT_PATTERN.test(pathname) ||
     GUARDIAN_TOKEN_PATTERN.test(pathname) ||
     PLATFORM_SESSION_PATTERN.test(pathname) ||
@@ -704,6 +710,60 @@ async function handleLocalEndpoints(
       { ok: false, error: result.error },
       { status: result.status },
     );
+  }
+
+  // Paired devices: list and revoke via the CLI (`vellum devices … --json`).
+  // Always 200 with `ok` discriminating success, matching the other hosts.
+  const isDevicesRevoke = DEVICES_REVOKE_PATTERN.test(pathname);
+  if (DEVICES_PATTERN.test(pathname) || isDevicesRevoke) {
+    if (req.method !== "POST") {
+      return new Response(null, { status: 405 });
+    }
+
+    let body: { assistantId?: unknown; hashedDeviceId?: unknown };
+    try {
+      body = (await req.json()) as typeof body;
+    } catch {
+      return Response.json(
+        { ok: false, error: "Invalid JSON body" },
+        { status: 400 },
+      );
+    }
+
+    const { assistantId, hashedDeviceId } = body;
+    if (typeof assistantId !== "string" || !assistantId) {
+      return Response.json(
+        { ok: false, error: "Missing assistantId" },
+        { status: 400 },
+      );
+    }
+    let revokeHash: string | null = null;
+    if (isDevicesRevoke) {
+      if (typeof hashedDeviceId !== "string" || !hashedDeviceId) {
+        return Response.json(
+          { ok: false, error: "Missing hashedDeviceId" },
+          { status: 400 },
+        );
+      }
+      revokeHash = hashedDeviceId;
+    }
+
+    let invocation: CliInvocation;
+    try {
+      invocation = resolveDevCliInvocation(_baseDir);
+    } catch (err) {
+      return Response.json(
+        { ok: false, error: err instanceof Error ? err.message : String(err) },
+        { status: 500 },
+      );
+    }
+
+    if (revokeHash !== null) {
+      return Response.json(
+        await runDevicesRevoke(invocation, assistantId, revokeHash),
+      );
+    }
+    return Response.json(await runDevicesList(invocation, assistantId));
   }
 
   // Connect-import: register a pairing bundle from another machine (guardian
