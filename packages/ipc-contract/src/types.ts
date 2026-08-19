@@ -829,8 +829,16 @@ export interface CompanionSurfaceState {
    * and with more riding on it: the surface can reload mid-session, and a
    * screen being read with nothing on screen saying so is a capture the user
    * has no way to stop.
+   *
+   * Optional, and absence means not watching. Read it as `watching === true`
+   * rather than for truthiness: every state that is not a positive answer is
+   * the answer "no session", including a surface whose main process predates
+   * this field. The same bargain `companion-window.ts` makes for the surface
+   * flag, and for the same reason -- not knowing has to read as not running,
+   * because the alternative is drawing a capture indicator over a machine that
+   * is not being captured.
    */
-  watching: boolean;
+  watching?: boolean;
   /**
    * The character to render live, or `undefined` when there is none to
    * compose. See {@link CompanionCharacter}; `avatarBase64` is the fallback.
