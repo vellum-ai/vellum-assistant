@@ -27,6 +27,51 @@ export interface WaveItem {
   rotate: number;
 }
 
+/**
+ * Centerline control point authored relative to the box the ribbon fills,
+ * rather than in a fixed design box scaled to cover it.
+ *
+ * A ribbon that has to hold a composition against the content on top of it
+ * (clearing a heading, returning below a pair of buttons) can't be authored
+ * once and scaled: covering a shorter viewport pushes the head off the top,
+ * and containing a wider one pulls the loop's excursion back on screen, which
+ * is the one part that has to stay off it. Expressing each point against the
+ * box keeps both ends anchored at any aspect ratio.
+ *
+ * The two axes are deliberately measured against different sides. `fx`/`fw`
+ * are widths, so the crowd spans the box and the loop leaves it whichever way
+ * the box is proportioned; `fy`/`fs` are heights, so the avatars keep their
+ * size relative to the run of screen they have to fill.
+ */
+export interface RelativeRibbonPoint {
+  /** Centerline x, as a fraction of the box width. Outside 0–1 is off screen. */
+  fx: number;
+  /** Centerline y, as a fraction of the box height. */
+  fy: number;
+  /** Ribbon width, as a fraction of the box width. */
+  fw: number;
+  /** Avatar size here, as a fraction of the box height. */
+  fs: number;
+}
+
+/**
+ * Resolve a relative ribbon against a box, in pixels. The result feeds
+ * {@link buildRibbonWave} directly, so the placements come back in the same
+ * pixels and need no further scaling.
+ */
+export function resolveRibbon(
+  points: RelativeRibbonPoint[],
+  width: number,
+  height: number,
+): RibbonPoint[] {
+  return points.map((p) => ({
+    x: p.fx * width,
+    y: p.fy * height,
+    w: p.fw * width,
+    s: p.fs * height,
+  }));
+}
+
 /** mulberry32 — small deterministic PRNG for layout jitter. */
 export function mulberry32(seed: number): () => number {
   let state = seed;

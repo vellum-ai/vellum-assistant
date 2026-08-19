@@ -3,6 +3,8 @@ import { useEffect, useRef } from "react";
 import {
   buildRibbonWave,
   mulberry32,
+  resolveRibbon,
+  type RelativeRibbonPoint,
   type RibbonPoint,
 } from "@/utils/avatar-wave-ribbon";
 import type { CharacterComponents } from "@/types/avatar";
@@ -20,8 +22,8 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
  */
 
 /**
- * Design-space box the ribbon is authored in. The canvas scales this to
- * cover its container, so the crowd keeps its shape at any panel size.
+ * Design-space box the column ribbon is authored in. The canvas scales this
+ * to cover its container, so the crowd keeps its shape at any panel size.
  */
 const DESIGN_W = 620;
 const DESIGN_H = 900;
@@ -32,7 +34,7 @@ const SEED = 20260807;
 const MAX_AVATAR_SIZE = 165;
 
 /**
- * The ribbon enters cut off by the top edge as a thin thread of small
+ * The column ribbon enters cut off by the top edge as a thin thread of small
  * characters, switches back across the panel three times, and broadens into
  * a full crowd that pours off the bottom.
  *
@@ -47,7 +49,7 @@ const MAX_AVATAR_SIZE = 165;
  * so the broad rows bleed off the outer edge rather than being sliced by
  * the inner one.
  */
-const RIBBON: RibbonPoint[] = [
+const COLUMN_RIBBON: RibbonPoint[] = [
   { x: 330, y: -70, w: 26, s: 13 },
   { x: 420, y: 20, w: 40, s: 18 },
   { x: 482, y: 115, w: 62, s: 25 },
@@ -62,6 +64,47 @@ const RIBBON: RibbonPoint[] = [
   { x: 360, y: 912, w: 700, s: 132 },
   { x: 380, y: 1002, w: 760, s: 140 },
 ];
+
+/**
+ * The wrap ribbon is the same crowd on a screen with no column to spare: it
+ * goes around the content instead of beside it. A thread of small characters
+ * arcs over the heading, turns down past its outer edge, leaves the screen
+ * entirely, and comes back in below the buttons, where it broadens into the
+ * crowd that fills the rest of the screen.
+ *
+ * The loop between `fx: 1.0` and the re-entry is drawn but never seen. It
+ * exists so the thread that leaves and the crowd that returns are one
+ * continuous path with a continuous size ramp, rather than two pieces that
+ * happen to line up at the edge.
+ *
+ * The two clearances the arc and the crowd have to hold are the heading's
+ * top and the second button's bottom. Both sit at fractions of the screen
+ * that barely move across phone sizes (the content column is a fixed stack
+ * of text and controls centred in what the bottom padding leaves it), so the
+ * relative points hold the composition on every one of them. See
+ * {@link RelativeRibbonPoint} for why this ribbon is authored that way and
+ * the column one is not.
+ */
+const WRAP_RIBBON: RelativeRibbonPoint[] = [
+  { fx: -0.2, fy: 0.17, fw: 0.052, fs: 0.0118 },
+  { fx: 0.02, fy: 0.104, fw: 0.06, fs: 0.0136 },
+  { fx: 0.27, fy: 0.06, fw: 0.07, fs: 0.0158 },
+  { fx: 0.55, fy: 0.058, fw: 0.08, fs: 0.018 },
+  { fx: 0.83, fy: 0.096, fw: 0.095, fs: 0.0216 },
+  { fx: 1.03, fy: 0.17, fw: 0.114, fs: 0.026 },
+  { fx: 1.15, fy: 0.28, fw: 0.142, fs: 0.0316 },
+  { fx: 1.19, fy: 0.4, fw: 0.18, fs: 0.0392 },
+  { fx: 1.14, fy: 0.55, fw: 0.228, fs: 0.0476 },
+  { fx: 0.98, fy: 0.702, fw: 0.325, fs: 0.0586 },
+  { fx: 0.74, fy: 0.796, fw: 0.51, fs: 0.0724 },
+  { fx: 0.58, fy: 0.866, fw: 0.84, fs: 0.0874 },
+  { fx: 0.52, fy: 0.93, fw: 1.16, fs: 0.1004 },
+  { fx: 0.5, fy: 0.998, fw: 1.48, fs: 0.1124 },
+  { fx: 0.5, fy: 1.07, fw: 1.8, fs: 0.1224 },
+];
+
+/** {@link MAX_AVATAR_SIZE}'s counterpart, against the screen height. */
+const WRAP_MAX_AVATAR_FRACTION = 0.135;
 
 const REPEL_RADIUS = 170;
 const REPEL_PUSH = 70;
@@ -202,6 +245,15 @@ function renderSprite(
  */
 let hasPlayedEntrance = false;
 
+/**
+ * Which composition the crowd is laid out in.
+ *
+ * `column` fills a panel beside the content: the split the welcome screen
+ * takes once there is room for one. `wrap` fills the whole screen behind the
+ * content, going around it, which is what a phone gets instead of the split.
+ */
+export type AvatarWaveVariant = "column" | "wrap";
+
 interface AvatarWaveProps {
   className?: string;
   /**
@@ -211,9 +263,14 @@ interface AvatarWaveProps {
    * already come past one.
    */
   entrance?: boolean;
+  variant?: AvatarWaveVariant;
 }
 
-export function AvatarWave({ className = "", entrance = false }: AvatarWaveProps) {
+export function AvatarWave({
+  className = "",
+  entrance = false,
+  variant = "column",
+}: AvatarWaveProps) {
   const components = useBundledAvatarComponents();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -280,18 +337,28 @@ export function AvatarWave({ className = "", entrance = false }: AvatarWaveProps
       canvas.height = Math.round(height * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // Cover the panel so the ribbon always reaches every edge. Covering
+      // The wrap ribbon is authored against the canvas, so resolving it
+      // already lands in canvas pixels and the design-box transform below is
+      // the identity. The column one is authored in a fixed design box and
+      // covers the panel so the ribbon always reaches every edge. Covering
       // means the design is at least as wide as the panel, so there is
       // always horizontal overflow to place. Pin it to the inner edge and
       // let all of that overflow run off the outer one: this panel sits
       // flush against the side of the window, so overflow there leaves the
       // screen, while overflow at the inner edge would slice the crowd in
       // half along the boundary with the content beside it.
+      const wrap = variant === "wrap";
       const offsetX = 0;
-      const scale = Math.max(width / DESIGN_W, height / DESIGN_H);
-      const offsetY = (height - DESIGN_H * scale) / 2;
+      const scale = wrap ? 1 : Math.max(width / DESIGN_W, height / DESIGN_H);
+      const offsetY = wrap ? 0 : (height - DESIGN_H * scale) / 2;
 
-      const placements = buildRibbonWave(RIBBON, SEED, MAX_AVATAR_SIZE);
+      const placements = wrap
+        ? buildRibbonWave(
+            resolveRibbon(WRAP_RIBBON, width, height),
+            SEED,
+            height * WRAP_MAX_AVATAR_FRACTION,
+          )
+        : buildRibbonWave(COLUMN_RIBBON, SEED, MAX_AVATAR_SIZE);
 
       // Normalize the size-weighted stagger to a fixed total so the crowd
       // always finishes arriving at the same moment, however many characters
@@ -574,7 +641,7 @@ export function AvatarWave({ className = "", entrance = false }: AvatarWaveProps
       window.removeEventListener("touchend", onLeave);
       window.removeEventListener("touchcancel", onLeave);
     };
-  }, [components, entrance]);
+  }, [components, entrance, variant]);
 
   return (
     <canvas

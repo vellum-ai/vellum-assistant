@@ -3,6 +3,8 @@ import { describe, expect, it } from "bun:test";
 import {
   buildRibbonWave,
   mulberry32,
+  resolveRibbon,
+  type RelativeRibbonPoint,
   type RibbonPoint,
 } from "@/utils/avatar-wave-ribbon";
 
@@ -10,6 +12,12 @@ const RIBBON: RibbonPoint[] = [
   { x: 0, y: 0, w: 100, s: 40 },
   { x: 100, y: 200, w: 160, s: 80 },
   { x: 40, y: 400, w: 200, s: 120 },
+];
+
+const RELATIVE: RelativeRibbonPoint[] = [
+  { fx: 0.25, fy: 0.1, fw: 0.2, fs: 0.02 },
+  { fx: 1.2, fy: 0.5, fw: 0.6, fs: 0.06 },
+  { fx: 0.5, fy: 1.1, fw: 1.5, fs: 0.12 },
 ];
 
 describe("mulberry32", () => {
@@ -93,5 +101,46 @@ describe("buildRibbonWave", () => {
     ];
     const items = buildRibbonWave(degenerate, 2);
     expect(items.length).toBeGreaterThan(0);
+  });
+});
+
+describe("resolveRibbon", () => {
+  it("measures x against the width and y against the height", () => {
+    const resolved = resolveRibbon(RELATIVE, 400, 800);
+    const rounded = resolved.map((p) => ({
+      x: Math.round(p.x),
+      y: Math.round(p.y),
+      w: Math.round(p.w),
+      s: Math.round(p.s),
+    }));
+    expect(rounded).toEqual([
+      { x: 100, y: 80, w: 80, s: 16 },
+      { x: 480, y: 400, w: 240, s: 48 },
+      { x: 200, y: 880, w: 600, s: 96 },
+    ]);
+  });
+
+  it("keeps an off-screen point off screen at any aspect ratio", () => {
+    // The wrap ribbon's excursion is the one part of the composition that
+    // must never come back on screen: it is what makes the thread read as
+    // leaving and returning rather than doubling back inside the frame.
+    for (const [w, h] of [
+      [320, 1000],
+      [390, 844],
+      [767, 500],
+    ]) {
+      const resolved = resolveRibbon(RELATIVE, w!, h!);
+      expect(resolved[1]!.x).toBeGreaterThan(w!);
+    }
+  });
+
+  it("spans the box with a ribbon wider than it", () => {
+    const [, , tail] = resolveRibbon(RELATIVE, 390, 844);
+    expect(tail!.x - tail!.w / 2).toBeLessThan(0);
+    expect(tail!.x + tail!.w / 2).toBeGreaterThan(390);
+  });
+
+  it("returns an empty ribbon unchanged", () => {
+    expect(resolveRibbon([], 390, 844)).toEqual([]);
   });
 });
