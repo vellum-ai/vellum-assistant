@@ -53,6 +53,7 @@ import { TextSelectionPopover } from "@/domains/chat/components/text-selection-p
 import { useNativeQuoteReply } from "@/domains/chat/hooks/use-native-quote-reply";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { resolveComposerPlaceholder } from "@/domains/chat/utils/composer-placeholder";
 import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -1281,17 +1282,19 @@ export function ChatMainPanel({
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const settingsSheetOpen = accessSheetOpen || profileSheetOpen;
 
-  // The narrow composer is one slim row with no room for a sentence, so it
-  // names the assistant it is addressed to instead. An assistant whose name
-  // has not loaded keeps the wider copy.
   const { t } = useTranslation("chat");
   const composerAssistantName = assistantName?.trim();
-  const mobilePlaceholder =
-    isMobile && composerAssistantName
-      ? t("chatComposer.askAssistantPlaceholder", {
-          assistantName: composerAssistantName,
-        })
-      : null;
+  const composerPlaceholder = resolveComposerPlaceholder({
+    isEmptyConversation,
+    emptyStatePlaceholder,
+    assistantPlaceholder:
+      isMobile && composerAssistantName
+        ? t("chatComposer.askAssistantPlaceholder", {
+            assistantName: composerAssistantName,
+          })
+        : null,
+    defaultPlaceholder: "What would you like to do?",
+  });
 
   // Explicit props (no spread bundle): the contract is visible here, and the
   // composer self-sources its own store state, so nothing high-frequency is
@@ -1299,12 +1302,7 @@ export function ChatMainPanel({
   const composerNode = (
     <ChatComposer
       cmdEnterMode={cmdEnterMode}
-      placeholder={
-        mobilePlaceholder ??
-        (isEmptyConversation
-          ? emptyStatePlaceholder
-          : "What would you like to do?")
-      }
+      placeholder={composerPlaceholder}
       onSubmit={handleFormSubmit}
       inputRef={inputRef}
       typingDisabled={typingDisabled}
