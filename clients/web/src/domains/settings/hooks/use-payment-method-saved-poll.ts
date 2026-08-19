@@ -67,9 +67,9 @@ export function usePaymentMethodSavedPoll(): () => Promise<void> {
  * last4 filled in, so seeding the cache from it makes the saved card visible
  * without waiting on the `setup_intent.succeeded` webhook.
  *
- * The poll stays as the fallback: servers that predate the endpoint (older
- * self-hosted deployments) reject the call, and a transient failure still
- * leaves the webhook as the durable writer.
+ * The poll stays as the fallback: when the confirm call fails for any reason
+ * (the endpoint is unavailable on this server, or the request errors), the
+ * webhook remains the durable writer and the poll waits for its write.
  */
 export function usePaymentMethodSavedSync(): (args: {
   setupIntentId: string | null;
