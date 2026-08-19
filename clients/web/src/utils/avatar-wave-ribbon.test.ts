@@ -173,10 +173,9 @@ describe("ribbonSizingHeight", () => {
   });
 
   it("keeps the crowd's cost flat across aspect ratios", () => {
-    // Sizing avatars off the raw height packs the same ribbon by area: a box
-    // wide for its height fills it with several times as many, far smaller
-    // avatars, every one of which is simulated and drawn on every frame.
-    // Landscape used to reach ~1,100 against ~140 in portrait.
+    // Avatar count goes as the box's area over its size squared, and every
+    // avatar is simulated and drawn on every frame, so a box wide for its
+    // height has to scale its avatars up rather than pack in more of them.
     const count = (w: number, h: number) =>
       buildRibbonWave(
         resolveRibbon(RELATIVE, w, h),

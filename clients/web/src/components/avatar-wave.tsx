@@ -108,8 +108,8 @@ const WRAP_RIBBON: RelativeRibbonPoint[] = [
  * {@link MAX_AVATAR_SIZE}'s counterpart, against the same height the ribbon
  * sizes its avatars from. Reading it off the raw height instead would undo
  * {@link ribbonSizingHeight} on exactly the boxes it exists for: the cap
- * would clip the scaled-up avatars back down, and the crowd would go back to
- * packing itself several times over.
+ * would clip the scaled-up avatars back down, leaving the crowd to pack
+ * itself several times over.
  */
 const WRAP_MAX_AVATAR_FRACTION = 0.135;
 

@@ -56,12 +56,16 @@ export function OnboardingLayout({
    * `around` asks two things of a step, and a step that fails either keeps
    * `beside`:
    *
-   * Its content has to be a short centred column. The thread takes the top
-   * fifth and the crowd comes back in on the right at about 0.59 of the
-   * height, sloping down to 0.85 at the left, so a full-width control below
-   * roughly 0.58 lands in the crowd and a heading above 0.2 lands under the
-   * thread. Narrow centred content can sit lower, since the crowd has not
-   * reached the middle yet.
+   * Its content has to clear the wave at the shortest screen the wrap runs
+   * on, which is a 640-tall phone, not a 844-tall one. The step's column is
+   * a fixed stack of controls centred in what the padding leaves it, so it
+   * keeps its height as the screen shrinks and spreads across more of it:
+   * measure there or the check passes on a screen that was never the
+   * problem. The thread takes the top fifth, and the crowd comes back in on
+   * the right at about 0.59 of the height, sloping down to 0.85 at the left,
+   * so a full-width control below roughly 0.58 lands in the crowd and a
+   * heading above 0.2 lands under the thread. Narrow centred content can sit
+   * lower, where the crowd has not reached the middle yet.
    *
    * Its content also has to be bounded. A step rendering a list it does not
    * cap has no height to check: it fits until a user with enough assistants
