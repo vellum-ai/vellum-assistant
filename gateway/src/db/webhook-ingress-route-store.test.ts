@@ -106,6 +106,7 @@ describe("registerWebhookIngressRoute", () => {
     // carrying dots or dashes is a name, not a traversal.
     for (const path of [
       "/webhooks/plugins/a.b/hook",
+      "/webhooks/plugins/foo..bar/hook",
       "/webhooks/twilio/sms-inbound",
       `/webhooks/${"x".repeat(500)}`,
     ]) {
@@ -134,8 +135,11 @@ describe("registerWebhookIngressRoute", () => {
 
   it("refuses paths that would not survive a byte-for-byte comparison", () => {
     for (const path of [
+      "/webhooks/../admin",
       "/webhooks/../v1/guardian/init",
       "/webhooks/a/../../etc",
+      "/webhooks/..%2fadmin",
+      "/webhooks/%2e%2e/admin",
       "/webhooks/telegram?token=x",
       "/webhooks/telegram#frag",
       "/webhooks/telegram\\..\\etc",
