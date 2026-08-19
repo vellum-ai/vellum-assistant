@@ -206,7 +206,6 @@ export function ResourcePressureBannerSlot({
           and permanently suppress the wrong assistant's warning. */}
       <ResourcePressureBanner
         key={assistantId ?? "no-assistant"}
-        status={resourcePressure.status}
         onDismiss={dismiss}
         onUpgrade={
           assistantStateKind === "active" && !isNativeAndroid

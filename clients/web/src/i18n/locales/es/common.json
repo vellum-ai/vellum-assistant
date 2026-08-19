@@ -7,15 +7,11 @@
     "goBack": "Atrás"
   },
   "resourcePressureBanner": {
-    "title": "Tu asistente está usando muchos recursos",
-    "bodyCpu": "El uso de CPU se ha mantenido alto durante un periodo prolongado.",
-    "bodyMemory": "El uso de memoria se ha mantenido alto durante un periodo prolongado.",
-    "bodyBoth": "El uso de CPU y de memoria se ha mantenido alto durante un periodo prolongado.",
-    "upgradeHint": "Mejorar tu plan le da a tu asistente más margen.",
+    "title": "La utilización de recursos es alta",
+    "body": "Tu asistente ha estado usando recursos elevados durante un periodo prolongado; mejora tu plan para potenciar tu asistente.",
+    "bodyNoUpgrade": "Tu asistente ha estado usando recursos elevados durante un periodo prolongado.",
     "upgrade": "Mejorar plan",
-    "dontShowAgain": "No mostrar de nuevo",
-    "cpuLabel": "CPU {value, number} %",
-    "memoryLabel": "Memoria {value, number} %"
+    "dontShowAgain": "No mostrar de nuevo"
   },
   "sectionActionsButton": {
     "ariaLabel": "Acciones de {name}"

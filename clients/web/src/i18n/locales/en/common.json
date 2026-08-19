@@ -7,15 +7,11 @@
     "goBack": "Go back"
   },
   "resourcePressureBanner": {
-    "title": "Your assistant is using a lot of resources",
-    "bodyCpu": "CPU usage has stayed high for an extended period.",
-    "bodyMemory": "Memory usage has stayed high for an extended period.",
-    "bodyBoth": "CPU and memory usage have stayed high for an extended period.",
-    "upgradeHint": "Upgrading your plan gives your assistant more headroom.",
+    "title": "Resource utilization is high",
+    "body": "Your assistant has been using elevated resources for an extended period, upgrade to power up your assistant.",
+    "bodyNoUpgrade": "Your assistant has been using elevated resources for an extended period.",
     "upgrade": "Upgrade",
-    "dontShowAgain": "Don't show again",
-    "cpuLabel": "CPU {value, number}%",
-    "memoryLabel": "Memory {value, number}%"
+    "dontShowAgain": "Don't show again"
   },
   "sectionActionsButton": {
     "ariaLabel": "{name} actions"

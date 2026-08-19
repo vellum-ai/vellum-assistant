@@ -239,42 +239,29 @@ describe("ResourcePressureBannerSlot", () => {
     );
   });
 
-  test("cpu-only elevation shows the CPU body", () => {
-    render(
-      slot({
-        ...elevatedStatus,
-        memoryElevated: false,
-        memoryPercent: 40,
-      }),
-    );
-
-    expect(
-      screen.getByText("CPU usage has stayed high for an extended period."),
-    ).toBeTruthy();
-  });
-
-  test("both signals elevated shows the combined body", () => {
+  test("the body nudges an upgrade without surfacing CPU or memory figures", () => {
     render(slot(elevatedStatus));
 
     expect(
       screen.getByText(
-        "CPU and memory usage have stayed high for an extended period.",
+        "Your assistant has been using elevated resources for an extended period, upgrade to power up your assistant.",
       ),
     ).toBeTruthy();
+    expect(screen.queryByText(/CPU/)).toBeNull();
+    expect(screen.queryByText(/[Mm]emory/)).toBeNull();
+    expect(screen.queryByText(/\d+%/)).toBeNull();
   });
 
-  test("memory-only elevation shows the memory body", () => {
-    render(
-      slot({
-        ...elevatedStatus,
-        cpuElevated: false,
-        cpuPercent: 20,
-      }),
-    );
+  test("the body drops the upgrade clause when there is no upgrade path", () => {
+    nativeAndroid = true;
+    render(slot(elevatedStatus));
 
     expect(
-      screen.getByText("Memory usage has stayed high for an extended period."),
+      screen.getByText(
+        "Your assistant has been using elevated resources for an extended period.",
+      ),
     ).toBeTruthy();
+    expect(screen.queryByText(/upgrade/i)).toBeNull();
   });
 
   test("switching assistants re-derives dismissal from the new keys", () => {
