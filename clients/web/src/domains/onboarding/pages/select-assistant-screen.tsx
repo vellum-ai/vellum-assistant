@@ -14,7 +14,10 @@ import { refreshPlatformAssistantsIfStale } from "@/assistant/platform-assistant
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { retireAssistant } from "@/assistant/retire-service";
 import { isCurrentOrigin, switchToOrigin } from "@/assistant/switch-origin";
-import { removePairedAssistant } from "@/assistant/switch-service";
+import {
+  removePairedAssistant,
+  switchToResolvedAssistant,
+} from "@/assistant/switch-service";
 import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import {
   clearGatewayToken,
@@ -45,7 +48,7 @@ import {
   nativeSwitchToOrigin,
   nativeVellumCloudOrigin,
 } from "@/runtime/self-hosted-servers";
-import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import { useHasPlatformSession } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useOrganizationStore } from "@/stores/organization-store";
@@ -411,15 +414,7 @@ export function SelectAssistantScreen() {
     setConnecting(true);
     setError(null);
     try {
-      if (assistant.isPaired) {
-        await useAuthStore.getState().connectPairedAssistant(assistant.id);
-      } else if (assistant.isLocal && localClient) {
-        await useAuthStore.getState().connectLocalAssistant(assistant.id);
-      } else {
-        // A hub-listed local entry has no lockfile behind it; the platform
-        // path reaches it (lifecycle projects self-hosted via `ingress_url`).
-        await useAuthStore.getState().connectPlatformAssistant(assistant.id);
-      }
+      await switchToResolvedAssistant(assistant);
       void navigate(routes.assistant, { replace: true });
     } catch (err) {
       console.error("selectAssistant.handleConnect failed", err);

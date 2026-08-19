@@ -16,6 +16,7 @@ import {
   isLiveVoiceMicLive,
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
+  LIVE_VOICE_STATE_LABELS,
   liveVoiceStateLabel,
   liveVoiceSurfaceLabel,
   minimizeVoiceRoom,
@@ -28,6 +29,7 @@ import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { toVoiceAvatarVisual } from "@/domains/chat/voice/voice-room/voice-avatar-state";
 
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
@@ -220,6 +222,27 @@ describe("liveVoiceStateLabel", () => {
   });
 });
 
+describe("LIVE_VOICE_STATE_LABELS", () => {
+  /**
+   * `toVoiceAvatarVisual` collapses `transcribing` into `thinking`, so a label
+   * of its own put two different words for one phase on screen at once: the
+   * avatar and eyes caption reading thinking, the label reading transcribing.
+   */
+  test("gives transcribing no wording of its own", () => {
+    expect(LIVE_VOICE_STATE_LABELS.transcribing).toBe(
+      LIVE_VOICE_STATE_LABELS.thinking,
+    );
+  });
+
+  /** The collapse is the label's, not the phase's: the state still exists. */
+  test("keeps transcribing a distinct session state", () => {
+    expect(toVoiceAvatarVisual("transcribing", false)).toBe(
+      toVoiceAvatarVisual("thinking", false),
+    );
+    expect(liveVoiceStateLabel("transcribing", false)).toBe("Thinking…");
+  });
+});
+
 describe("liveVoiceSurfaceLabel", () => {
   test("a speaking phase with no audio playing reads as thinking", () => {
     // `speaking` stays set across a mid-turn tool run (the ack was spoken and
@@ -270,7 +293,7 @@ describe("liveVoiceSurfaceLabel", () => {
       "Speaking…",
     );
     expect(liveVoiceSurfaceLabel("transcribing", false, false, true)).toBe(
-      "Transcribing…",
+      "Thinking…",
     );
   });
 

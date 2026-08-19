@@ -2,12 +2,13 @@
  * "The user asked to talk" → live-voice session.
  *
  * The seam between the surfaces that can ask for a session from outside the
- * chat layout and the live-voice domain. Two ask today: the host-agnostic
- * deep-link consumer (`useGlobalDeepLinkConsumer`, mounted at `RootLayout`) and
+ * chat layout and the live-voice domain. Three ask today: the host-agnostic
+ * deep-link consumer (`useGlobalDeepLinkConsumer`, mounted at `RootLayout`),
  * the macOS companion surface's Talk, which arrives as a `startVoice` command
- * from the Electron host. Neither knows anything about sessions; everything
- * about *how* one starts lives here, so the two cannot drift into two ideas of
- * what talking means.
+ * from the Electron host, and the voice mode shortcut
+ * (`useVoiceModeHotkey`). None of them knows anything about sessions;
+ * everything about *how* one starts lives here, so they cannot drift into
+ * three ideas of what talking means.
  *
  * Why a parked request instead of a direct call: the session `starter` is
  * registered by `useLiveVoiceSessionController`, which is mounted at
@@ -19,12 +20,21 @@
  * when it registers a starter. No polling, no retry timer.
  */
 
-import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  firstRunCardIntercepts,
+  publishConfigNotice,
+  voiceReadiness,
+} from "@/domains/chat/voice/live-voice/voice-entry-guards";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
 import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { routes } from "@/utils/routes";
 
 /**
  * How long a parked start-voice request stays live.
@@ -49,6 +59,33 @@ export const PENDING_VOICE_START_TTL_MS = 60_000;
 export function requestVoiceStart(): void {
   usePendingDeepLinkStore.getState().setPendingVoiceStart();
   void drainPendingVoiceStart();
+}
+
+/**
+ * Start a session on behalf of a surface that is not the chat composer: the
+ * companion surface's Talk and the voice mode shortcut.
+ *
+ * Both are presses made from outside the conversation, and both mean the same
+ * thing by it, so they run the same three steps rather than each growing its
+ * own idea of what the press does:
+ *
+ * - **A session already running spends the press.** That session is the one
+ *   the user is in; the starter refuses a second anyway, and navigating would
+ *   only walk the app away from the composer that owns it. Callers that toggle
+ *   handle the end themselves before reaching here.
+ * - **The draft composer, so the session starts with no conversation** and the
+ *   server assigns one on `ready`. Navigating is also what mounts `ChatLayout`
+ *   and therefore the starter the request is waiting for.
+ * - **The window is never raised.** Every caller is a surface the user reached
+ *   for precisely because they are working somewhere else, and that surface is
+ *   where the call then shows itself.
+ */
+export function startVoiceFromSurface(navigate: (to: string) => unknown): void {
+  if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
+    return;
+  }
+  void navigate(routes.assistant);
+  requestVoiceStart();
 }
 
 /**
@@ -94,20 +131,43 @@ export async function drainPendingVoiceStart(): Promise<void> {
     return;
   }
   const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-  // Every remaining branch is a decision rather than a race, so the request is
-  // spent from here — and nothing below awaits, so it cannot be lost between
-  // the consume and the start.
-  if (
-    !usePendingDeepLinkStore
+  // Every remaining branch is a decision rather than a race, so each of them
+  // spends the request. The consume itself stays at the bottom, below the last
+  // await, so the one thing that can still become true — a controller that has
+  // not registered yet — leaves the request parked rather than losing it.
+  const consume = (): boolean =>
+    usePendingDeepLinkStore
       .getState()
-      .consumePendingVoiceStart(PENDING_VOICE_START_TTL_MS)
-  ) {
-    return;
-  }
+      .consumePendingVoiceStart(PENDING_VOICE_START_TTL_MS);
   // Same eligibility as the composer's entry point: on an assistant too old to
   // serve live voice the link navigates and stops there, exactly as the
   // composer renders no voice button.
   if (!supportsLiveVoice(assistantId)) {
+    consume();
+    return;
+  }
+  // The same two guards the composer's voice button runs. Without them a
+  // session asked for from outside the chat window skipped the first-run card
+  // and opened a room the composer would have refused. Each hands the entry to
+  // something the user can see (the card, the notice), so each is an answer
+  // rather than a drop.
+  if (firstRunCardIntercepts()) {
+    consume();
+    return;
+  }
+  const readiness = await voiceReadiness(assistantId);
+  publishConfigNotice(readiness.notice);
+  if (!readiness.allowed) {
+    consume();
+    return;
+  }
+  // Re-read across the readiness await, as above: a controller that unmounted
+  // during the preflight leaves this parked for the next mount.
+  const readyStarter = useLiveVoiceStore.getState().starter;
+  if (readyStarter === null) {
+    return;
+  }
+  if (!consume()) {
     return;
   }
   // `null` conversation is the supported "new conversation" start: the server
@@ -117,5 +177,5 @@ export async function drainPendingVoiceStart(): Promise<void> {
   // playback while a user gesture is still active, and this path has no gesture
   // to borrow (Siri, the Action Button, a Live Activity tap). `start()` creates
   // its own player when none was reserved.
-  starter.start(assistantId, null);
+  readyStarter.start(assistantId, null);
 }

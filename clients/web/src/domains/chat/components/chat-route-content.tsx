@@ -163,6 +163,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { shouldMintNewChatDraft } from "@/domains/chat/utils/conversation-selection";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
+import { viewerPanePresentation } from "@/stores/pane-presentation";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
@@ -1445,19 +1446,22 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const editingConversationId =
     useConversationStore.use.editingConversationId();
-  const isSidePanel =
-    mainView === "app-editing" && !!openedAppState && !!editingConversationId;
+  const paneArrangement = viewerPanePresentation({
+    mainView,
+    hasApp: !!openedAppState,
+    hasBoundConversation: !!editingConversationId,
+    isAppMinimized,
+  });
+  const isSidePanel = paneArrangement === "side";
   const variant = isSidePanel ? "side-panel" : "main";
 
-  // Mobile-only: while the app overlay is minimized to its bottom strip, the
-  // strip covers the bottom of the chat. Reserve its height so the composer
-  // sits above it. The guard mirrors the strip's mount condition — the strip
-  // renders only while `mainView === "app"`, and navigation can leave
-  // `isAppMinimized`/`openedAppState` set after it unmounts. The strip peeks
-  // `--app-strip-h` above the safe area, and the chat shell already pads for
-  // the safe area itself, so only the strip height needs reserving.
+  // Mobile-only: while the app is parked to its bottom strip, the strip covers
+  // the bottom of the chat, so its height is reserved to keep the composer
+  // above it. The strip peeks `--app-strip-h` above the safe area, and the
+  // chat shell already pads for the safe area itself, so only the strip height
+  // needs reserving.
   const appStripBottomInset =
-    isMobile && mainView === "app" && isAppMinimized && openedAppState
+    isMobile && paneArrangement === "bottom"
       ? "var(--app-strip-h, 64px)"
       : undefined;
 

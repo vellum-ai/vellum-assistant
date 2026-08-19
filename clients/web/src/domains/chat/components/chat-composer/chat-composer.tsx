@@ -67,7 +67,11 @@ import {
   useIsLiveVoiceSessionOwnedBy,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
+import {
+  firstRunCardIntercepts,
+  publishConfigNotice,
+  voiceReadiness,
+} from "@/domains/chat/voice/live-voice/voice-entry-guards";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { VoiceFirstRunCard } from "@/domains/chat/voice/voice-room/voice-first-run-card";
 import { useVoiceSurfacePaint } from "@/domains/chat/voice/voice-room/use-voice-surface-paint";
@@ -451,7 +455,7 @@ export function ChatComposer({
   // begins. Every subsequent entry (`firstRunSeen === true`) starts directly
   // — the card and the engine stay decoupled. The app-editing variant (no
   // voice entry point) never renders the card.
-  const [firstRunCardOpen, setFirstRunCardOpen] = useState(false);
+  const firstRunCardOpen = useLiveVoiceStore((state) => state.firstRunCardOpen);
   // Where the user tapped to start — captured at click so the room's entrance
   // grows from the on-screen control, not screen-center. Stashed here because
   // the first-run card path defers the actual start to its own handler.
@@ -466,9 +470,7 @@ export function ChatComposer({
   // `not-ready` — the daemon's human-readable `userMessage`. Non-null renders
   // the notice below (with a deep-link to voice settings) and the room stays
   // closed. Cleared on dismiss or on the next successful start.
-  const [voiceConfigNotice, setVoiceConfigNotice] = useState<string | null>(
-    null,
-  );
+  const voiceConfigNotice = useLiveVoiceStore((state) => state.configNotice);
   // Re-entrancy guard: the preflight is awaited before the room opens, so a
   // second click while it's in flight must be ignored (else two sessions could
   // race to start). A ref, not state — this must gate synchronously and never
@@ -498,9 +500,9 @@ export function ChatComposer({
     // part of the preflight, so a user who *can* be auto-configured comes back
     // `ready` here.
     liveVoicePreflightPendingRef.current = true;
-    let verdict;
+    let readiness;
     try {
-      verdict = await preflightLiveVoice(assistantId);
+      readiness = await voiceReadiness(assistantId);
     } finally {
       liveVoicePreflightPendingRef.current = false;
     }
@@ -522,19 +524,16 @@ export function ChatComposer({
       starter?.cancelPrewarm();
       return;
     }
-    // Fail OPEN on a null verdict (preflight network/daemon error): a preflight
-    // outage must not block voice entirely — proceed to `starter` and let the
-    // WS-level start handshake surface any real credential problem via the
-    // existing failure `Notice`. Only an explicit `not-ready` keeps us closed.
-    if (verdict?.status === "not-ready") {
+    // Only an explicit `not-ready` closes the door; see `voiceReadiness` for
+    // why a failed preflight allows the start instead of blocking it. The
+    // notice is published here rather than inside the guard so the staleness
+    // checks above get to decide the answer is still wanted.
+    if (!readiness.allowed) {
       starter?.cancelPrewarm();
-      setVoiceConfigNotice(
-        verdict.userMessage ??
-          "Voice isn't set up yet. Configure a voice provider to start talking.",
-      );
+      publishConfigNotice(readiness.notice);
       return;
     }
-    setVoiceConfigNotice(null);
+    publishConfigNotice(null);
     // Grow the room's entrance from the assistant avatar the user sees — the
     // empty-state greeting avatar, or the latest-turn avatar below the most
     // recent response (both tagged `data-voice-origin`). Fall back to the
@@ -573,8 +572,7 @@ export function ChatComposer({
       // alert, and a locked pre-prompt whose only action leads straight to that
       // alert is the sanctioned pattern (Apple HIG / App Store Review 5.1.1(iv))
       // — a *dismissible* pre-prompt is the disallowed one.
-      if (!useVoicePrefsStore.getState().firstRunSeen) {
-        setFirstRunCardOpen(true);
+      if (firstRunCardIntercepts()) {
         return;
       }
       startLiveVoiceSession();
@@ -583,7 +581,7 @@ export function ChatComposer({
   );
   const handleFirstRunStart = useCallback(() => {
     useVoicePrefsStore.getState().markFirstRunSeen();
-    setFirstRunCardOpen(false);
+    useLiveVoiceStore.getState().setFirstRunCardOpen(false);
     startLiveVoiceSession();
   }, [startLiveVoiceSession]);
 
@@ -1386,7 +1384,9 @@ export function ChatComposer({
         <VoiceFirstRunCard
           assistantId={assistantId}
           onStart={handleFirstRunStart}
-          onDismiss={() => setFirstRunCardOpen(false)}
+          onDismiss={() =>
+            useLiveVoiceStore.getState().setFirstRunCardOpen(false)
+          }
           nonDismissible={isNativeIOS()}
         />
       )}
@@ -1419,13 +1419,13 @@ export function ChatComposer({
           <div className="mb-2">
             <Notice
               tone="warning"
-              onDismiss={() => setVoiceConfigNotice(null)}
+              onDismiss={() => publishConfigNotice(null)}
               actions={
                 <Button
                   variant="outlined"
                   size="compact"
                   onClick={() => {
-                    setVoiceConfigNotice(null);
+                    publishConfigNotice(null);
                     navigate(routes.settings.voice);
                   }}
                 >

@@ -12,10 +12,11 @@ import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-setup-close-notify";
 import {
+  endLiveVoiceSession,
   isLiveVoiceSessionActive,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { requestVoiceStart } from "@/domains/chat/voice/live-voice/start-voice-request";
+import { startVoiceFromSurface } from "@/domains/chat/voice/live-voice/start-voice-request";
 import {
   useAuthStore,
   useIsSessionInitializing,
@@ -311,23 +312,20 @@ export function RootLayout() {
       );
     },
     startVoice: () => {
-      // A session already running is the session the user is in, so the press
-      // is spent: the starter refuses a second one anyway, and navigating
-      // would only walk the app away from the composer that owns it.
+      // See `startVoiceFromSurface` for the three steps and why the window
+      // stays where it is.
+      startVoiceFromSurface(navigate);
+    },
+    toggleVoice: () => {
+      // The global Talk shortcut. Starting is Talk's own behaviour; ending is
+      // the part a key needs and a button does not, since the surface drawing
+      // the button also draws a way to stop and a keyboard user working in
+      // another app may have nothing else in reach.
       if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
+        endLiveVoiceSession();
         return;
       }
-      // The draft composer, because the session starts with no conversation
-      // and the server assigns one on `ready`. Navigating is also what mounts
-      // `ChatLayout` and therefore the starter this request is waiting for;
-      // until then it stays parked.
-      //
-      // The window is deliberately not raised. This command comes from the
-      // companion surface, which the user reached for precisely because they
-      // are working somewhere else, and that surface is where the call then
-      // shows itself.
-      void navigate(routes.assistant);
-      requestVoiceStart();
+      startVoiceFromSurface(navigate);
     },
     companionSubmit: (command) => {
       if (command.kind !== "companionSubmit") {

@@ -519,7 +519,7 @@ const setInteractive = (interactive: boolean): void => {
  * nowhere: the press would read as broken. There is no way to act without a
  * renderer to act in, so that case builds one, which necessarily shows it.
  */
-const dispatchWithoutRaising = (command: VellumCommand): void => {
+export const dispatchWithoutRaising = (command: VellumCommand): void => {
   if (currentMainWindow() !== null) {
     dispatchToMain(command);
     return;
