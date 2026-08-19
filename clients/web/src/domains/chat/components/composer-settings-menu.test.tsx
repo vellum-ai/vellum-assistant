@@ -198,7 +198,15 @@ mock.module("@vellumai/design-library", () => {
         },
         label as ReactNode,
       ),
-    Tooltip: ({ children }: Record<string, unknown>) => children as ReactNode,
+    // Marked rather than transparent so a test can tell whether a trigger was
+    // wrapped in a tooltip at all. Radix opens one on focus as well as hover,
+    // so on the touch presentation its presence is the bug.
+    Tooltip: ({ children, content }: Record<string, unknown>) =>
+      createElement(
+        "span",
+        { "data-testid": "tooltip", "data-tooltip-content": content as string },
+        children as ReactNode,
+      ),
   };
 });
 
@@ -360,6 +368,29 @@ describe("Model Profile quick-add", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("New Profile")).toBeTruthy();
     });
+  });
+
+  test("the touch presentation carries no tooltip on the quick-add", async () => {
+    // Radix opens a tooltip on focus as well as hover, and the bottom sheet
+    // autofocuses this button as its first tabbable element, so a tooltip here
+    // shows itself every time the sheet rises rather than on any hover.
+    isMobileRef.value = true;
+    isTouchMobileRef.value = true;
+    renderMenu();
+    await waitFor(() => {
+      expect(screen.getByLabelText("New Profile")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("tooltip")).toBeNull();
+  });
+
+  test("the mouse presentation keeps the quick-add tooltip", async () => {
+    renderMenu();
+    await waitFor(() => {
+      expect(screen.getByLabelText("New Profile")).toBeTruthy();
+    });
+    const tooltip = screen.getByTestId("tooltip");
+    expect(tooltip.getAttribute("data-tooltip-content")).toBe("New Profile");
+    expect(tooltip.querySelector('[aria-label="New Profile"]')).toBeTruthy();
   });
 
   test('"+" New Profile renders even with zero profiles', async () => {

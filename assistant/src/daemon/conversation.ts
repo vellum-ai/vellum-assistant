@@ -2829,6 +2829,7 @@ export class Conversation {
     actionId: string,
     data?: Record<string, unknown>,
     sourceActorPrincipalId?: string,
+    requesterTrustContext?: TrustContext,
   ): Promise<SurfaceActionResult> {
     return handleSurfaceActionImpl(
       this,
@@ -2836,6 +2837,7 @@ export class Conversation {
       actionId,
       data,
       sourceActorPrincipalId,
+      requesterTrustContext,
     );
   }
 
