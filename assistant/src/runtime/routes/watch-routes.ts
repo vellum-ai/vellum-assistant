@@ -18,7 +18,7 @@
  * conversational turn that happens after the socket is gone.
  *
  * Route policy: the upgrade is gated exactly as `/v1/stt/stream` is, in
- * `http-server.ts` — private-network peer and origin, then an `svc_gateway`
+ * `http-server.ts`: private-network peer and origin, then an `svc_gateway`
  * service token. A WebSocket upgrade never reaches the shared `ROUTES` array,
  * whose `policy` block the HTTP adapter evaluates per JSON request, so the
  * gate is the upgrade handler's rather than a `RoutePolicy` value. The gateway
@@ -570,13 +570,22 @@ function stopQuietly(transcriber: StreamingTranscriber | null): void {
  * through to and the same one `live-voice-session.ts` stamps its turns with,
  * so a watch session observes the principal the host-proxy result routes match
  * a desktop client against.
+ *
+ * The read deliberately bypasses the guardian-delivery cache. That cache keeps
+ * a successful read that found no binding, and a gateway-side binding write
+ * does not invalidate it, so a guardian bound after the daemon cached an empty
+ * answer would leave every Watch press failing the unresolvable-principal path
+ * until the TTL lapsed. That is the order of events on a first run, and it
+ * fails looking like a broken feature rather than one that is not ready yet. A
+ * session starts only when a person asks for one, so a fresh read costs
+ * nothing worth weighing against that.
  */
 export async function resolveWatchActorPrincipalId(): Promise<
   string | undefined
 > {
   const { findLocalGuardianPrincipalId } =
     await import("../local-actor-identity.js");
-  return findLocalGuardianPrincipalId();
+  return findLocalGuardianPrincipalId({ forceRefresh: true });
 }
 
 // ---------------------------------------------------------------------------

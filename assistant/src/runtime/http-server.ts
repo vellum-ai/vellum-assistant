@@ -495,8 +495,8 @@ export class RuntimeHttpServer {
             const session = watchData.session;
             if (session) {
               session.handleClose(code, reason?.toString());
-              // Only drop our own session from the registry — a reconnect may
-              // have already replaced it under a new id.
+              // Only drop our own session from the registry, since a
+              // reconnect may have already replaced it under a new id.
               if (
                 activeWatchStreamSessions.get(watchData.sessionId) === session
               ) {
@@ -723,8 +723,9 @@ export class RuntimeHttpServer {
       return this.handleLiveVoiceUpgrade(req, server);
     }
 
-    // WebSocket upgrade for watch narration capture — same private-network
-    // restrictions and gateway-service token verification as STT streaming.
+    // WebSocket upgrade for watch narration capture, under the same
+    // private-network restrictions and gateway-service token verification as
+    // STT streaming.
     if (
       path === "/v1/watch/stream" &&
       req.headers.get("upgrade")?.toLowerCase() === "websocket"
@@ -1033,7 +1034,7 @@ export class RuntimeHttpServer {
     if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
       return httpError(
         "FORBIDDEN",
-        "Direct watch stream access disabled — only private network peers allowed",
+        "Direct watch stream access disabled: only private network peers allowed",
         403,
       );
     }
@@ -1070,7 +1071,7 @@ export class RuntimeHttpServer {
     if (!upgraded) {
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
-    // Bun's WebSocket upgrade consumes the request — no Response is sent.
+    // Bun's WebSocket upgrade consumes the request, so no Response is sent.
     return undefined!;
   }
 
