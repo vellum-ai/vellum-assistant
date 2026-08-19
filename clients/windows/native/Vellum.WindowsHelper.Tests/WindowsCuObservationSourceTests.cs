@@ -1,3 +1,5 @@
+using System.Drawing;
+using System.Drawing.Imaging;
 using Vellum.WindowsHelper.Modules;
 
 namespace Vellum.WindowsHelper.Tests;
@@ -6,6 +8,7 @@ public static class WindowsCuObservationSourceTests
 {
     public static async ValueTask RunAsync()
     {
+        TestJpegCapture();
         var snapshots = new FakeSnapshotSource
         {
             Snapshot = Available(Node(1, children: [Node(7, "Save", new PixelRect(20, 30, 100, 40))])),
@@ -49,6 +52,18 @@ public static class WindowsCuObservationSourceTests
             "fully unavailable observations return an execution error");
 
         Console.WriteLine("Windows computer-use observation tests passed");
+    }
+
+    private static void TestJpegCapture()
+    {
+        var capture = new GdiComputerUseCaptureSource(
+            new ScreenCaptureService(new ImageBackend())).Capture(null, CancellationToken.None);
+        Check(capture.JpegBase64?.StartsWith("/9j/", StringComparison.Ordinal) == true,
+            "computer use emits JPEG data");
+        Check(capture is { ScreenshotWidthPx: 810, ScreenshotHeightPx: 540 },
+            "computer-use screenshots fit the observation budget");
+        Check(capture is { ScreenWidthPt: 1200, ScreenHeightPt: 800 },
+            "computer use advertises the physical input coordinate space");
     }
 
     private static AutomationSnapshot Available(AutomationNode tree) =>
@@ -101,6 +116,21 @@ public static class WindowsCuObservationSourceTests
             cancellationToken.ThrowIfCancellationRequested();
             LastTargetBounds = targetBounds;
             return Result;
+        }
+    }
+
+    private sealed class ImageBackend : IScreenCaptureBackend
+    {
+        public IReadOnlyList<DisplayInfo> GetDisplays() =>
+            [new DisplayInfo(0, new PixelRect(0, 0, 1200, 800), true, 125)];
+
+        public CapturedImage CapturePixels(PixelRect bounds)
+        {
+            using var bitmap = new Bitmap(bounds.Width, bounds.Height);
+            using var stream = new MemoryStream();
+            bitmap.Save(stream, ImageFormat.Png);
+            return new CapturedImage(
+                Convert.ToBase64String(stream.ToArray()), bounds.Width, bounds.Height);
         }
     }
 }
