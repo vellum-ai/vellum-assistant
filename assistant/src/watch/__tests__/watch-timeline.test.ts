@@ -142,6 +142,44 @@ describe("watch timeline", () => {
     }
   });
 
+  test("does not take a lock a competing turn claimed while it waited", async () => {
+    const session = startSession("Watch timeline lock race");
+    try {
+      session.conversation.setProcessing(true);
+
+      const append = appendNarration(session.id, {
+        text: "mid-turn narration",
+        atMs: 5_000,
+      });
+
+      // Let the append reach its wait before anything releases the lock.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // A normal send claims the conversation in the same tick the prior turn
+      // releases it. That is the window the idle wait alone cannot cover: the
+      // waiter resolves on the release and its continuation runs a microtask
+      // later, by which point the flag belongs to somebody else.
+      session.conversation.setProcessing(false);
+      session.conversation.setProcessing(true);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(getMessages(session.id)).toHaveLength(0);
+      expect(session.conversation.isProcessing()).toBe(true);
+
+      session.conversation.setProcessing(false);
+      const result = await append;
+
+      expect(result.ok).toBe(true);
+      expect(timelineTexts(session.id)).toEqual([
+        "[t+00:05] narration: mid-turn narration",
+      ]);
+      expect(session.conversation.isProcessing()).toBe(false);
+      expect(session.calls).toHaveLength(0);
+    } finally {
+      session.dispose();
+    }
+  });
+
   test("appends nothing for a failed or empty observation", async () => {
     const session = startSession("Watch timeline failures");
     try {

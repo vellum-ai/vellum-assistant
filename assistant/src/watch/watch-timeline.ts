@@ -6,7 +6,7 @@
  * Every entry lands the moment it is captured and **runs no turn**, for the
  * reasons `live-voice/live-voice-photo.ts` sets out at length and which apply
  * here unchanged. The entry has to already be in history when a later turn
- * reads it — the retro at the end of the session is exactly that turn, and an
+ * reads it: the retro at the end of the session is exactly that turn, and an
  * entry attached to some future send is an entry the retro cannot see.
  * Dispatching a turn per entry is the other failure: observations arrive on a
  * cadence the user does not control, so a turn per entry would answer the
@@ -29,7 +29,7 @@
  */
 
 import { escapeAxTreeContent } from "../context/outbound-sanitize.js";
-import { waitForConversationIdle } from "../daemon/conversation-idle.js";
+import type { Conversation } from "../daemon/conversation.js";
 import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
@@ -82,7 +82,7 @@ export interface WatchTimelineResult {
 const FAILED: WatchTimelineResult = { ok: false };
 
 /**
- * Render `atMs` — milliseconds since the session started — as the `[t+MM:SS]`
+ * Render `atMs` (milliseconds since the session started) as the `[t+MM:SS]`
  * prefix every entry carries. Hours appear only once there are any, so a
  * typical session reads as `[t+04:12]` rather than `[t+00:04:12]`.
  */
@@ -161,12 +161,42 @@ function serializePerConversation<T>(
 }
 
 /**
+ * Take the conversation's processing lock, or false once `timeoutMs` elapses
+ * without getting it.
+ *
+ * The recheck and the claim sit in one synchronous step with no await between
+ * them, so a turn that starts while we were waiting cannot have its flag
+ * overwritten: losing that race sends us back to waiting rather than into the
+ * write. Only a call that returns true holds the lock, and only that call may
+ * release it.
+ */
+async function acquireProcessing(
+  conversation: Conversation,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (!conversation.isProcessing()) {
+      conversation.setProcessing(true);
+      return true;
+    }
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      return false;
+    }
+    if (!(await conversation.waitForIdle({ timeoutMs: remainingMs }))) {
+      return false;
+    }
+  }
+}
+
+/**
  * Persist one rendered entry as a user message, running no turn.
  *
- * Takes and releases the processing lock the way `persistLiveVoicePhoto` does:
- * it is what keeps this write from interleaving with a turn's own persist,
- * which matters at the two ends of a session where the retro's turn and a
- * late-arriving entry can overlap.
+ * Holds the conversation's processing lock across the write, which is what
+ * keeps it from interleaving with a turn's own persist. That matters at the
+ * two ends of a session, where the retro's turn and a late-arriving entry can
+ * overlap.
  *
  * Never throws. A watch session degrades to a shorter timeline; it does not
  * fall over because one entry could not be stored.
@@ -183,7 +213,7 @@ async function persistEntry(
   try {
     const conversation = await getOrCreateConversation(conversationId);
 
-    if (!(await waitForConversationIdle(conversation, PROCESSING_WAIT_MS))) {
+    if (!(await acquireProcessing(conversation, PROCESSING_WAIT_MS))) {
       log.warn(
         { conversationId, kind: entry.kind },
         "Watch timeline entry timed out waiting for the conversation to go idle",
@@ -191,7 +221,6 @@ async function persistEntry(
       return FAILED;
     }
 
-    conversation.setProcessing(true);
     try {
       const persisted = await persistQueuedMessageBody(conversation, {
         content: entry.content,
@@ -257,7 +286,7 @@ export function appendNarration(
  * of a session where observation stalled is simply a sparser one.
  *
  * The screenshot rides along only when the observation actually carries one.
- * Attaching pixels to every entry is what makes a long session unaffordable —
+ * Attaching pixels to every entry is what makes a long session unaffordable:
  * `stripOldMediaBlocks` only reaches media on tool results, so an image on a
  * plain user message stays in context for the life of the conversation.
  */

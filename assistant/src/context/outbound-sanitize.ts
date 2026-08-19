@@ -39,7 +39,7 @@ export function escapeAxTreeContent(content: string): string {
  * Two block shapes do. A computer-use step returns its tree in a
  * `tool_result`. A watch session (`src/watch/watch-timeline.ts`) writes each
  * observation as a plain user message and so carries its tree in a `text`
- * block — and it needs bounding for the same reason and more urgently, since a
+ * block. It needs bounding for the same reason and more urgently, since a
  * session is minutes of observations with no turn between them to compact.
  *
  * Assistant messages stay out of scope either way: a model that writes the

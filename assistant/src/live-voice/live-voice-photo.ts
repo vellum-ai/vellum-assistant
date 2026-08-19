@@ -23,7 +23,6 @@
 
 import { v7 as uuidv7 } from "uuid";
 
-import { waitForConversationIdle } from "../daemon/conversation-idle.js";
 import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import {
@@ -41,9 +40,11 @@ const log = getLogger("live-voice-photo");
 /**
  * How long to wait for an in-flight turn before giving up on a photo.
  *
- * Generous, because the alternative is dropping a photo the user watched
- * themselves take, and the photo is not urgent: nothing is blocked on it
- * except the next thing they say.
+ * Persisting takes the conversation's processing lock, which a running turn
+ * holds for as long as it runs, tools included. The wait is generous because
+ * the alternative is dropping a photo the user watched themselves take, and
+ * the photo is not urgent: nothing is blocked on it except the next thing they
+ * say.
  */
 const PROCESSING_WAIT_MS = 30_000;
 
@@ -100,7 +101,7 @@ export async function persistLiveVoicePhoto(
     // A turn holds the lock for its whole run. Waiting rather than queueing:
     // the conversation's queue drains into a turn, which is the one thing this
     // must not cause.
-    if (!(await waitForConversationIdle(conversation, PROCESSING_WAIT_MS))) {
+    if (!(await conversation.waitForIdle({ timeoutMs: PROCESSING_WAIT_MS }))) {
       log.warn(
         { conversationId, attachmentId },
         "Live-voice photo timed out waiting for the conversation to go idle",
