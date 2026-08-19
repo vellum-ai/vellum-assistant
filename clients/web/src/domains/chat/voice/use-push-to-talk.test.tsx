@@ -188,6 +188,28 @@ describe("usePushToTalk", () => {
     expect(target.stop).not.toHaveBeenCalled();
   });
 
+  test("stops a shifted key binding when Shift is released first", () => {
+    localStorage.setItem(
+      LS_PTT_ACTIVATION_KEY,
+      serializeActivator({ kind: "key", label: "!", modifiers: ["shift"] }),
+    );
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    renderPushToTalk(target);
+
+    fireEvent.keyDown(window, { key: "Shift", shiftKey: true });
+    fireEvent.keyDown(window, {
+      key: "!",
+      code: "Digit1",
+      shiftKey: true,
+    });
+    expect(target.start).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyUp(window, { key: "Shift", shiftKey: false });
+    expect(target.stop).toHaveBeenCalledTimes(1);
+    fireEvent.keyUp(window, { key: "1", code: "Digit1" });
+    expect(target.stop).toHaveBeenCalledTimes(1);
+  });
+
   test("cancels modifier-only PTT when a shortcut chord starts during hold", async () => {
     localStorage.setItem(
       LS_PTT_ACTIVATION_KEY,

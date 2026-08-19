@@ -290,7 +290,9 @@ export function eventDeactivatesPTT(
   }
   if (activator.kind === "key") {
     const label = event.key.length === 1 ? event.key.toUpperCase() : event.key;
-    return label === activator.label;
+    if (label === activator.label) {
+      return true;
+    }
   }
   return (
     (event.key === "Control" &&

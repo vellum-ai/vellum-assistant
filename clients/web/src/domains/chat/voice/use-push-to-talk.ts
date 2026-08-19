@@ -237,25 +237,15 @@ export function usePushToTalk(
         return;
       }
 
-      // For key activators with required modifiers (e.g. Ctrl+K), cancel
-      // the hold if a required modifier is released before the timer fires.
-      // eventDeactivatesPTT only matches the trigger key, not modifiers.
+      // Cancel a pending key chord when its key or final required modifier is
+      // released before the timer fires.
       if (
         holdingRef.current &&
         activator.kind === "key" &&
-        activator.modifiers.length > 0
+        eventDeactivatesPTT(event, activator)
       ) {
-        const k = event.key;
-        const mods = activator.modifiers;
-        if (
-          (k === "Control" && !event.ctrlKey && mods.includes("control")) ||
-          (k === "Alt" && !event.altKey && mods.includes("option")) ||
-          (k === "Shift" && !event.shiftKey && mods.includes("shift")) ||
-          (k === "Meta" && !event.metaKey && mods.includes("command"))
-        ) {
-          cancelHold();
-          return;
-        }
+        cancelHold();
+        return;
       }
 
       if (!eventDeactivatesPTT(event, activator)) {
