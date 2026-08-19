@@ -27,7 +27,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { eq, type SQL } from "drizzle-orm";
+import { count, desc, eq, type SQL } from "drizzle-orm";
 
 import { escapeAxTreeContent } from "../context/outbound-sanitize.js";
 import {
@@ -35,6 +35,7 @@ import {
   uploadAttachmentFromBytes,
 } from "../persistence/attachments-store.js";
 import { getDb } from "../persistence/db-connection.js";
+import { conversations } from "../persistence/schema/conversations.js";
 import { watchTimelineEntries } from "../persistence/schema/watch.js";
 import { getLogger } from "../util/logger.js";
 
@@ -157,7 +158,14 @@ export interface WatchTimelineEntry {
 
 export type WatchAppendResult =
   | { ok: true; entryId: string }
-  | { ok: false; reason: "empty" | "observation_failed" | "write_failed" };
+  | {
+      ok: false;
+      reason:
+        | "empty"
+        | "observation_failed"
+        | "conversation_missing"
+        | "write_failed";
+    };
 
 export interface WatchTimelineRenderOptions {
   /** Entries to render, counted back from the most recent. */
@@ -219,7 +227,44 @@ function toEntry(row: typeof watchTimelineEntries.$inferSelect) {
   } satisfies WatchTimelineEntry;
 }
 
+/**
+ * Whether the conversation an entry is keyed to is still in the store.
+ *
+ * The check is a read rather than a foreign key because the two would want
+ * opposite things from a delete. `purgeEntries` reads each row's
+ * `screenshotAttachmentId` and unlinks the staged frame before dropping the
+ * row, and it runs after the conversation row is gone; a cascade would have
+ * removed those rows first and left the frames on disk as files nothing points
+ * at.
+ */
+function conversationStillExists(conversationId: string): boolean {
+  return (
+    getDb()
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .get() !== undefined
+  );
+}
+
+/**
+ * Persist one entry, refusing an entry whose conversation is gone.
+ *
+ * An append is not instantaneous: an observation stores its screenshot before
+ * it writes its row, and a delete landing inside that gap would leave a row
+ * keyed to a conversation that no longer exists. Nothing could reach that row
+ * afterwards, because every purge is scoped to a conversation, so the entry
+ * and the frame it owns would survive the delete indefinitely. The existence
+ * check makes the write the point where a deleted conversation is noticed.
+ */
 function insertEntry(entry: WatchTimelineEntry): WatchAppendResult {
+  if (!conversationStillExists(entry.conversationId)) {
+    log.debug(
+      { sessionId: entry.sessionId, conversationId: entry.conversationId },
+      "Dropping a watch timeline entry for a conversation that is gone",
+    );
+    return { ok: false, reason: "conversation_missing" };
+  }
   try {
     getDb().insert(watchTimelineEntries).values(entry).run();
     return { ok: true, entryId: entry.id };
@@ -352,25 +397,56 @@ export async function appendObservation(
     createdAt: Date.now(),
   });
 
+  // A row that did not land leaves its screenshot owned by nothing, so the
+  // upload is undone rather than left staged on disk.
   if (!result.ok && screenshotAttachmentId) {
     deleteAttachment(screenshotAttachmentId);
   }
   return result;
 }
 
-/** Read a session's entries, oldest first. */
-function readEntries(sessionId: string): WatchTimelineEntry[] {
-  return getDb()
+/** How many entries the session has, including any a read leaves out. */
+function countEntries(sessionId: string): number {
+  return (
+    getDb()
+      .select({ total: count() })
+      .from(watchTimelineEntries)
+      .where(eq(watchTimelineEntries.sessionId, sessionId))
+      .get()?.total ?? 0
+  );
+}
+
+/**
+ * Read the newest `limit` entries of a session, oldest first.
+ *
+ * The bound is the SQL `LIMIT`, not a slice of the result: every row carries an
+ * AX tree that runs to the macOS enumerator's ceiling, so a session-wide select
+ * hydrates the whole session into memory before any render bound has a say. The
+ * descending order is the exact inverse of the ascending one the rows are
+ * rendered in, so taking the newest `limit` and reversing them gives the same
+ * tail an ordered read would end with.
+ */
+function readNewestEntries(
+  sessionId: string,
+  limit: number,
+): WatchTimelineEntry[] {
+  if (limit <= 0) {
+    return [];
+  }
+  const rows = getDb()
     .select()
     .from(watchTimelineEntries)
     .where(eq(watchTimelineEntries.sessionId, sessionId))
     .orderBy(
-      watchTimelineEntries.atMs,
-      watchTimelineEntries.createdAt,
-      watchTimelineEntries.id,
+      desc(watchTimelineEntries.atMs),
+      desc(watchTimelineEntries.createdAt),
+      desc(watchTimelineEntries.id),
     )
+    .limit(limit)
     .all()
     .map(toEntry);
+  rows.reverse();
+  return rows;
 }
 
 function byteLength(value: string): number {
@@ -514,8 +590,8 @@ export function renderWatchTimeline(
     options?.maxRenderBytes ?? DEFAULT_MAX_RENDER_BYTES,
   );
 
-  const all = readEntries(sessionId);
-  const candidates = all.slice(Math.max(0, all.length - maxEntries));
+  const totalEntries = countEntries(sessionId);
+  const candidates = readNewestEntries(sessionId, maxEntries);
 
   const treeIndices = candidates
     .map((entry, index) => (entry.axTree ? index : -1))
@@ -552,8 +628,8 @@ export function renderWatchTimeline(
   return {
     text: blocks.join(BLOCK_SEPARATOR),
     entries,
-    totalEntries: all.length,
-    truncated: clipped || entries.length < all.length,
+    totalEntries,
+    truncated: clipped || entries.length < totalEntries,
     screenshotAttachmentIds: entries
       .map((entry) => entry.screenshotAttachmentId)
       .filter((id): id is string => id !== null),

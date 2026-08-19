@@ -9,7 +9,8 @@
  * SQL, which drops rows and leaves files, so the timeline needs its own purge
  * inside that wipe.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
 // Keep the rest of the module real; only the Qdrant collection drop is
@@ -32,7 +33,9 @@ import {
   deleteConversation,
   deleteConversationGently,
 } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { attachments } from "../persistence/schema/conversations.js";
 import {
   appendNarration,
   appendObservation,
@@ -88,6 +91,15 @@ async function seedWatchedConversation(
   };
 }
 
+/** Every attachment row in the store, so a late upload cannot hide among them. */
+function attachmentIds(): string[] {
+  return getDb()
+    .select({ id: attachments.id })
+    .from(attachments)
+    .all()
+    .map((row) => row.id);
+}
+
 function expectPurged(watched: WatchedConversation): void {
   expect(renderWatchTimeline(watched.sessionId).totalEntries).toBe(0);
   expect(attachmentExists(watched.attachmentId)).toBe(false);
@@ -116,6 +128,39 @@ describe("deleteConversationGently purges the watch timeline", () => {
     await deleteConversationGently(watched.conversationId);
 
     expectPurged(watched);
+  });
+});
+
+describe("an append that lands after the delete", () => {
+  test("is refused and leaves no row, no attachment, and no file", async () => {
+    const watched = await seedWatchedConversation("watched-late-append");
+    const stagingDir = dirname(watched.filePath);
+    const filesBefore = new Set(readdirSync(stagingDir));
+    const attachmentsBefore = new Set(attachmentIds());
+
+    // The upload is in flight when the delete lands: `appendObservation`
+    // awaits attachment storage before it writes its row, and the delete runs
+    // to completion inside that await.
+    const pending = appendObservation(watched.sessionId, {
+      conversationId: watched.conversationId,
+      atMs: 3_000,
+      observation: { axTree: "window Mail", screenshot: SCREENSHOT_BASE64 },
+      attachScreenshot: true,
+    });
+    deleteConversation(watched.conversationId);
+    const result = await pending;
+
+    expect(result).toEqual({ ok: false, reason: "conversation_missing" });
+    expect(renderWatchTimeline(watched.sessionId).totalEntries).toBe(0);
+    // The screenshot the append had already stored goes with the refusal, so
+    // the guard leaves none of the orphan it exists to prevent.
+    expect(
+      attachmentIds().filter((id) => !attachmentsBefore.has(id)),
+    ).toHaveLength(0);
+    expect(
+      readdirSync(stagingDir).filter((name) => !filesBefore.has(name)),
+    ).toHaveLength(0);
+    expect(existsSync(watched.filePath)).toBe(false);
   });
 });
 

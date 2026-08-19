@@ -5,6 +5,11 @@ import {
   attachmentExists,
   getAttachmentContent,
 } from "../../persistence/attachments-store.js";
+import {
+  createConversation,
+  deleteConversation,
+} from "../../persistence/conversation-crud.js";
+import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import {
   appendNarration,
@@ -23,9 +28,30 @@ await initializeDb();
 const SCREENSHOT_BASE64 =
   "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD3+iiigD//2Q==";
 
-/** A fresh session, so entries from one test are invisible to the next. */
+/**
+ * A fresh session against a real conversation row, so entries from one test are
+ * invisible to the next and appends are not refused as orphans.
+ */
 function newSession() {
-  return { sessionId: randomUUID(), conversationId: randomUUID() };
+  const conversation = createConversation(`watch-${randomUUID()}`);
+  return { sessionId: randomUUID(), conversationId: conversation.id };
+}
+
+/** The SQL every statement drizzle prepares while `run` executes. */
+function captureSql<T>(run: () => T): { result: T; statements: string[] } {
+  const sqlite = getSqlite();
+  const statements: string[] = [];
+  const original = sqlite.prepare.bind(sqlite);
+  const patched = sqlite as unknown as { prepare: typeof original };
+  patched.prepare = ((sql: string, ...rest: unknown[]) => {
+    statements.push(sql);
+    return (original as (...args: unknown[]) => unknown)(sql, ...rest);
+  }) as typeof original;
+  try {
+    return { result: run(), statements };
+  } finally {
+    patched.prepare = original;
+  }
 }
 
 describe("watch timeline", () => {
@@ -326,6 +352,66 @@ describe("watch timeline", () => {
     });
 
     expect(renderWatchTimeline(sessionId).truncated).toBe(false);
+  });
+
+  test("bounds the read itself, not a slice of the whole session", () => {
+    const { sessionId, conversationId } = newSession();
+    const total = 12;
+    for (let i = 0; i < total; i++) {
+      appendNarration(sessionId, {
+        conversationId,
+        atMs: i * 1_000,
+        text: `line ${i}`,
+      });
+    }
+
+    const { result: rendered, statements } = captureSql(() =>
+      renderWatchTimeline(sessionId, { maxEntries: 3 }),
+    );
+
+    // The entries the render reasoned over are the newest three, and the count
+    // it reports is the session's real one rather than what it read.
+    expect(rendered.entries.map((e) => e.text)).toEqual([
+      "line 9",
+      "line 10",
+      "line 11",
+    ]);
+    expect(rendered.totalEntries).toBe(total);
+    expect(rendered.truncated).toBe(true);
+
+    // The bound is in the query, so the rows never read are never hydrated.
+    const selects = statements.filter((sql) =>
+      sql.includes("watch_timeline_entries"),
+    );
+    const rowRead = selects.find((sql) => sql.includes('"ax_tree"'));
+    expect(rowRead).toBeDefined();
+    expect(rowRead).toContain("limit");
+    expect(selects.some((sql) => sql.includes("count("))).toBe(true);
+  });
+
+  test("reports the true total when the count bound admits nothing", () => {
+    const { sessionId, conversationId } = newSession();
+    appendNarration(sessionId, { conversationId, atMs: 1_000, text: "hello" });
+
+    const rendered = renderWatchTimeline(sessionId, { maxEntries: 0 });
+
+    expect(rendered.entries).toHaveLength(0);
+    expect(rendered.totalEntries).toBe(1);
+    expect(rendered.truncated).toBe(true);
+  });
+
+  test("refuses an append whose conversation is gone", () => {
+    const { sessionId, conversationId } = newSession();
+    deleteConversation(conversationId);
+
+    const result = appendNarration(sessionId, {
+      conversationId,
+      atMs: 1_000,
+      text: "too late",
+    });
+
+    expect(result).toEqual({ ok: false, reason: "conversation_missing" });
+    expect(renderWatchTimeline(sessionId).totalEntries).toBe(0);
   });
 
   test("purges a conversation's rows and the screenshots they own", async () => {
