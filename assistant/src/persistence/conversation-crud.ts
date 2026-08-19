@@ -26,7 +26,10 @@ import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
+import {
+  findDisplayTurnEndIndex,
+  findDisplayTurnStartIndex,
+} from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -1749,12 +1752,23 @@ function latestForkedAssistantFrom(
 export async function forkConversationForRetrospective(params: {
   conversationId: string;
   throughMessageId?: string;
+  /**
+   * Lower bound of the copied range: the first message of the review window.
+   * Rows before the display turn containing it are dropped, so the fork
+   * carries the window rather than the source's whole visible tail. Omit to
+   * copy the visible tail in full.
+   *
+   * Applies to copied forks only. A referential fork copies nothing and reads
+   * its inherited window through the lineage resolver, which bounds a segment
+   * from above only, so passing this does not bound a referential fork.
+   */
+  windowStartMessageId?: string;
   source?: string;
   title?: string;
   conversationType?: ConversationCreateType;
   groupId?: string;
 }): Promise<ConversationRow> {
-  const { conversationId, throughMessageId } = params;
+  const { conversationId, throughMessageId, windowStartMessageId } = params;
   const db = getDb();
   const sourceConversation = getConversation(conversationId);
   if (!sourceConversation) {
@@ -1829,6 +1843,31 @@ export async function forkConversationForRetrospective(params: {
   const hiddenRowIds = new Set(
     loadOrderIds.slice(0, inheritedCompaction?.compactedMessageCount ?? 0),
   );
+  // Drop the visible-tail rows that precede the review window. Those turns
+  // were reviewed by earlier passes, and whatever they yielded reaches this
+  // run through the instruction's already-remembered list, so copying them
+  // spends context and write-lock time on history this pass does not review.
+  // The bound snaps to its display turn: a range opening mid-turn would carry
+  // tool_result rows whose tool_use blocks sit in a dropped row, which the
+  // provider rejects. An id that is not in the copied range is an
+  // inconsistency between the caller's slice and this fork, and failing here
+  // leaves the window retryable rather than silently copying the whole tail.
+  if (windowStartMessageId != null) {
+    const windowIndex = messagesToCopy.findIndex(
+      (message) => message.id === windowStartMessageId,
+    );
+    if (windowIndex === -1) {
+      throw new UserError(
+        `Message ${windowStartMessageId} is not in the forked range of conversation ${conversationId}`,
+      );
+    }
+    for (const message of messagesToCopy.slice(
+      0,
+      findDisplayTurnStartIndex(messagesToCopy, windowIndex),
+    )) {
+      hiddenRowIds.add(message.id);
+    }
+  }
   // Read straight from config rather than taking a caller-supplied strategy:
   // how a fork is materialized is a workspace-wide storage decision, and a
   // per-call override would let two callers disagree about it on the same
@@ -1836,7 +1875,10 @@ export async function forkConversationForRetrospective(params: {
   const isReferential =
     getConfig().memory.retrospective.forkStrategy === "reference";
   // A referential fork copies nothing: its inherited window is read back
-  // through `forkParentMessageId` by the lineage resolver.
+  // through `forkParentMessageId` by the lineage resolver. That resolver
+  // bounds an ancestor segment from above only, so `windowStartMessageId`
+  // does not apply here and a referential retrospective fork still renders
+  // the source's whole visible tail.
   const rowsToCopy = isReferential
     ? []
     : messagesToCopy.filter((message) => !hiddenRowIds.has(message.id));

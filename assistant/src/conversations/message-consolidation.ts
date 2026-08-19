@@ -146,6 +146,48 @@ export function findDisplayTurnEndIndex(
   return endIdx;
 }
 
+/**
+ * Returns the DB-row index where the display turn containing
+ * `messages[startIdx]` begins.
+ *
+ * Inverse of {@link findDisplayTurnEndIndex}, for write-paths that need a
+ * lower bound on a row range. A cut that lands inside a display turn strands
+ * the turn's tool_result rows without the assistant `tool_use` blocks they
+ * pair with, which the provider rejects outright, so a range whose start is
+ * snapped through here is always pairing-complete at its leading edge.
+ *
+ * Walks back over the rows the read-path collapse folds into one turn: rows
+ * of a consecutive-assistant run, and the tool-result-only user rows that sit
+ * between the halves of such a run. A real user message, a standalone
+ * assistant row (system card or provider-error notice), and index 0 all
+ * anchor a turn and stop the walk.
+ */
+export function findDisplayTurnStartIndex(
+  messages: MessageRow[],
+  startIdx: number,
+): number {
+  if (startIdx < 0 || startIdx >= messages.length) {
+    return startIdx;
+  }
+  const foldsIntoRunBefore = (msg: MessageRow): boolean =>
+    (msg.role === "assistant" && !isStandaloneAssistantRow(msg)) ||
+    (msg.role === "user" && isToolResultOnlyUserMessage(msg));
+
+  let idx = startIdx;
+  while (idx > 0) {
+    const current = messages[idx];
+    const previous = messages[idx - 1];
+    if (!current || !previous) {
+      break;
+    }
+    if (!foldsIntoRunBefore(current) || !foldsIntoRunBefore(previous)) {
+      break;
+    }
+    idx -= 1;
+  }
+  return idx;
+}
+
 // ── Pass 1: tool-result merging ─────────────────────────────────────
 
 /**

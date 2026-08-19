@@ -4,6 +4,7 @@ import type { MessageRow } from "../../persistence/conversation-crud.js";
 import { resolveMessageContentBlocks } from "../../persistence/message-content-file.js";
 import {
   findDisplayTurnEndIndex,
+  findDisplayTurnStartIndex,
   isToolResultOnlyUserMessage,
   mergeConsecutiveAssistantMessages,
   mergeToolResultsIntoAssistantMessages,
@@ -433,5 +434,78 @@ describe("provider-error boundaries", () => {
       }),
     ];
     expect(findDisplayTurnEndIndex(rows, 0)).toBe(0);
+  });
+});
+
+describe("findDisplayTurnStartIndex", () => {
+  const toolResultRow = (id: string) =>
+    makeMsg(
+      "user",
+      JSON.stringify([{ type: "tool_result", tool_use_id: id, content: "ok" }]),
+    );
+
+  test("returns startIdx unchanged for out-of-range indices", () => {
+    const messages = [makeMsg("user", "hi")];
+    expect(findDisplayTurnStartIndex(messages, -1)).toBe(-1);
+    expect(findDisplayTurnStartIndex(messages, 5)).toBe(5);
+  });
+
+  test("a real user row anchors its own turn", () => {
+    const messages = [makeMsg("assistant", "reply"), makeMsg("user", "next")];
+    expect(findDisplayTurnStartIndex(messages, 1)).toBe(1);
+  });
+
+  test("walks back from a tool-result row to the assistant that called it", () => {
+    const messages = [
+      makeMsg("user", "lookup"),
+      makeMsg("assistant", "calling tool"),
+      toolResultRow("t1"),
+      makeMsg("assistant", "results"),
+    ];
+    expect(findDisplayTurnStartIndex(messages, 2)).toBe(1);
+    expect(findDisplayTurnStartIndex(messages, 3)).toBe(1);
+  });
+
+  test("walks back across a consecutive-assistant run to its first row", () => {
+    const messages = [
+      makeMsg("user", "hi"),
+      makeMsg("assistant", "step 1"),
+      makeMsg("assistant", "step 2"),
+      makeMsg("assistant", "step 3"),
+    ];
+    expect(findDisplayTurnStartIndex(messages, 3)).toBe(1);
+  });
+
+  test("a standalone card anchors its own turn and stops a walk", () => {
+    const cardMeta = JSON.stringify({ messageKind: "system_card" });
+    const messages = [
+      makeMsg("assistant", "reply"),
+      makeMsg("assistant", "**Conversation summarized**", {
+        metadata: cardMeta,
+      }),
+      makeMsg("assistant", "after the card"),
+    ];
+    expect(findDisplayTurnStartIndex(messages, 1)).toBe(1);
+    expect(findDisplayTurnStartIndex(messages, 2)).toBe(2);
+  });
+
+  test("a cut at the returned index never opens on an orphaned tool_result", () => {
+    // The reason this primitive exists: slicing a row range at an arbitrary
+    // index can strand tool_result blocks whose tool_use sits in a dropped
+    // row, which the provider rejects. Snapping every index through the
+    // helper must make that unrepresentable across a whole mixed cluster.
+    const messages = [
+      makeMsg("user", "start"),
+      makeMsg("assistant", "call one"),
+      toolResultRow("t1"),
+      makeMsg("assistant", "call two"),
+      toolResultRow("t2"),
+      makeMsg("assistant", "done"),
+      makeMsg("user", "next turn"),
+    ];
+    for (let i = 0; i < messages.length; i++) {
+      const kept = messages.slice(findDisplayTurnStartIndex(messages, i));
+      expect(isToolResultOnlyUserMessage(kept[0]!)).toBe(false);
+    }
   });
 });

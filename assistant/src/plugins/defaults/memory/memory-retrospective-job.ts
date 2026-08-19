@@ -396,9 +396,15 @@ export async function runForkBasedRetrospective(
   // advances to `cutoffMessageId`, causing the next retrospective to
   // reprocess (and potentially re-`remember`) those same turns.
   //
-  // The fork copies only the source's visible tail and carries the inherited
-  // compaction summary on its own row (with a fork-local compacted count of
-  // 0). Compacted source ⇒ summary + tail visible to the agent natively.
+  // The fork copies the review window and carries the inherited compaction
+  // summary on its own row (with a fork-local compacted count of 0), so the
+  // agent natively reads summary + the turns this pass reviews. Bounding the
+  // copy at `windowStartMessageId` keeps the wake's input proportional to the
+  // window instead of the conversation: the wake suppresses auto-compaction
+  // and the loop's overflow ladder is off for every wake, so an input sized
+  // by total conversation length has no recovery when it exceeds the window.
+  // Turns before the window were reviewed by earlier passes and reach this
+  // run through `priorRemembers` rather than through raw history.
   let forkConversationRow: Awaited<
     ReturnType<typeof forkConversationForRetrospective>
   >;
@@ -409,6 +415,7 @@ export async function runForkBasedRetrospective(
     forkConversationRow = await forkConversationForRetrospective({
       conversationId: sourceConversationId,
       throughMessageId: cutoffMessageId,
+      windowStartMessageId: newMessages[0]!.id,
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
       title: `${sourceConversation.title ?? "Untitled"} (Retrospective)`,
       conversationType: "background",

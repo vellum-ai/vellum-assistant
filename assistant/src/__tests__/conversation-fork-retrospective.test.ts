@@ -252,6 +252,84 @@ describe("forkConversationForRetrospective", () => {
     // The boundary check fails before any fork row is created — no orphan row.
     expect(countConversations()).toBe(before);
   });
+
+  const stampsOf = (conversationId: string): string[] =>
+    getMessages(conversationId).map(
+      (m) =>
+        (JSON.parse(m.metadata!) as { forkSourceMessageId: string })
+          .forkSourceMessageId,
+    );
+
+  test("windowStartMessageId bounds the copied range to the review window", async () => {
+    const source = await seedSource("Windowed thread");
+    const rows = getMessages(source.id);
+
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: rows.at(-1)!.id,
+      windowStartMessageId: rows[2]!.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    // Rows before the window are dropped from the fork, not merely hidden
+    // behind a count: the wake sends what the fork physically holds.
+    expect(stampsOf(fork.id)).toEqual(rows.slice(2).map((m) => m.id));
+  });
+
+  test("a window start inside a display turn snaps back to the turn anchor", async () => {
+    const source = createConversation("Tool turn thread");
+    await addMessage(source.id, "user", "lookup", { skipIndexing: true });
+    await addMessage(source.id, "assistant", "calling tool", {
+      skipIndexing: true,
+    });
+    await addMessage(
+      source.id,
+      "user",
+      JSON.stringify([
+        { type: "tool_result", tool_use_id: "t1", content: "ok" },
+      ]),
+      { skipIndexing: true },
+    );
+    await addMessage(source.id, "assistant", "results", { skipIndexing: true });
+    const rows = getMessages(source.id);
+
+    // Start the window on the tool_result row itself. Copying from there
+    // would strand it without the tool_use it pairs with.
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: rows.at(-1)!.id,
+      windowStartMessageId: rows[2]!.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    expect(stampsOf(fork.id)).toEqual(rows.slice(1).map((m) => m.id));
+  });
+
+  test("rejects an unknown windowStartMessageId without creating a fork", async () => {
+    const source = await seedSource("Bad window thread");
+    const rows = getMessages(source.id);
+    const countConversations = () =>
+      (
+        getSqlite().query("SELECT COUNT(*) AS c FROM conversations").get() as {
+          c: number;
+        }
+      ).c;
+    const before = countConversations();
+
+    await expect(
+      forkConversationForRetrospective({
+        conversationId: source.id,
+        throughMessageId: rows.at(-1)!.id,
+        windowStartMessageId: "does-not-exist",
+      }),
+    ).rejects.toThrow();
+
+    // Failing loudly keeps the window retryable; silently copying the whole
+    // tail would restore the unbounded payload this bound exists to prevent.
+    expect(countConversations()).toBe(before);
+  });
 });
 
 describe("forkConversationForRetrospective — compacted source", () => {
