@@ -1,11 +1,16 @@
 /**
- * Holds the derived arrangement to the one the stored fields produce today.
+ * Holds `panePresentation` to the arrangements the workspace renders.
  *
- * The migration rests on a claim: `mainView`'s `"app"` and `"app-editing"`,
- * plus `isAppMinimized`, carry nothing beyond whether a secondary surface is
- * open and where it was asked for. These cases are that claim, written as the
- * table the stored fields produce, so a derivation that disagrees with any
- * combination they can reach fails here rather than in a layout nobody sees.
+ * The cases below are taken from the predicates the layout reads: a side
+ * panel needs `mainView === "app-editing"` with both an app and a bound
+ * conversation, the strip needs `mainView === "app"` with the app minimized,
+ * and a full-width app is `mainView === "app"` otherwise. Combinations
+ * outside those are unreachable and are not enumerated.
+ *
+ * The comparison is on what a viewer sees, because `"single"` and `"full"`
+ * are one picture: a surface filling the width. They differ only in whether a
+ * secondary is collapsed behind it, which the stored fields cannot express
+ * and which is asserted separately below.
  */
 
 import { describe, expect, it } from "bun:test";
@@ -16,91 +21,94 @@ import {
   type PanePresentation,
 } from "@/stores/pane-presentation";
 
-/**
- * The four arrangements reachable from the stored fields.
- *
- * The third is the one worth naming: `exitAppEditing()` sets `mainView` back
- * to `"app"` while leaving the bound conversation in place, so the app fills
- * the width with a secondary still open behind it. That is `"full"`, and it
- * already exists in the app; it simply has no name.
- */
-function storedArrangement(
-  mainView: string,
-  isAppMinimized: boolean,
-  hasBoundConversation: boolean,
-): PanePresentation {
-  if (mainView === "app-editing") {
-    return "side";
+/** What a viewer sees, with arrangements that look alike collapsed together. */
+type Rendered = "one-surface" | "two-columns" | "stacked-strip";
+
+function rendered(presentation: PanePresentation): Rendered {
+  switch (presentation) {
+    case "side":
+      return "two-columns";
+    case "bottom":
+      return "stacked-strip";
+    case "single":
+    case "full":
+      return "one-surface";
   }
-  if (mainView !== "app") {
-    return "single";
-  }
-  if (isAppMinimized) {
-    return "bottom";
-  }
-  return hasBoundConversation ? "full" : "single";
 }
 
-/** The same stored fields read as the two facts the derivation takes. */
-function asInput(
-  mainView: string,
-  isAppMinimized: boolean,
-  hasBoundConversation: boolean,
-): { hasSecondary: boolean; position: PanePosition } {
-  const position: PanePosition =
-    mainView === "app-editing" ? "side" : isAppMinimized ? "bottom" : "full";
-  return { hasSecondary: hasBoundConversation, position };
+interface ReachableState {
+  readonly name: string;
+  /** What the layout renders from the stored fields. */
+  readonly today: Rendered;
+  /** The same state read as the facts the derivation takes. */
+  readonly hasSecondary: boolean;
+  readonly position: PanePosition;
+  readonly isNarrow: boolean;
 }
 
-describe("panePresentation reproduces the stored arrangement", () => {
-  for (const mainView of ["app", "app-editing"]) {
-    for (const isAppMinimized of [false, true]) {
-      for (const hasBoundConversation of [false, true]) {
-        const label = `${mainView}, minimized=${isAppMinimized}, bound=${hasBoundConversation}`;
+const REACHABLE: readonly ReachableState[] = [
+  {
+    name: "app open, no conversation beside it",
+    today: "one-surface",
+    hasSecondary: false,
+    position: "full",
+    isNarrow: false,
+  },
+  {
+    name: "app and conversation side by side",
+    today: "two-columns",
+    hasSecondary: true,
+    position: "side",
+    isNarrow: false,
+  },
+  {
+    name: "app minimized to the strip, conversation in front",
+    today: "stacked-strip",
+    hasSecondary: true,
+    position: "bottom",
+    isNarrow: true,
+  },
+  {
+    name: "app expanded again, conversation still bound behind it",
+    today: "one-surface",
+    hasSecondary: true,
+    position: "full",
+    isNarrow: false,
+  },
+  {
+    name: "no app, conversation alone",
+    today: "one-surface",
+    hasSecondary: false,
+    position: "side",
+    isNarrow: false,
+  },
+  {
+    name: "no app, conversation alone, narrow",
+    today: "one-surface",
+    hasSecondary: false,
+    position: "side",
+    isNarrow: true,
+  },
+];
 
-        it(`${label}, wide`, () => {
-          const stored = storedArrangement(
-            mainView,
-            isAppMinimized,
-            hasBoundConversation,
-          );
-          const derived = panePresentation({
-            ...asInput(mainView, isAppMinimized, hasBoundConversation),
-            isNarrow: false,
-          });
-          expect(derived).toBe(stored);
-        });
-
-        it(`${label}, narrow`, () => {
-          const stored = storedArrangement(
-            mainView,
-            isAppMinimized,
-            hasBoundConversation,
-          );
-          const derived = panePresentation({
-            ...asInput(mainView, isAppMinimized, hasBoundConversation),
-            isNarrow: true,
-          });
-
-          // The single deliberate disagreement. The stored fields can hold
-          // `"app-editing"` on a viewport with no room for two columns;
-          // nothing puts them there, since selecting a conversation beside an
-          // app refuses a narrow viewport outright. Two columns in that space
-          // is the defect, so the derivation answers `"bottom"` instead of
-          // reproducing it.
-          if (stored === "side") {
-            expect(derived).toBe("bottom");
-            return;
-          }
-          expect(derived).toBe(stored);
-        });
-      }
-    }
+describe("panePresentation matches what the workspace renders", () => {
+  for (const state of REACHABLE) {
+    it(state.name, () => {
+      expect(
+        rendered(
+          panePresentation({
+            hasSecondary: state.hasSecondary,
+            position: state.position,
+            isNarrow: state.isNarrow,
+          }),
+        ),
+      ).toBe(state.today);
+    });
   }
 });
 
 describe("panePresentation", () => {
-  it("shows one pane when no secondary is open", () => {
+  it("shows one surface when no secondary is open", () => {
     for (const position of ["side", "bottom", "full"] as const) {
       for (const isNarrow of [false, true]) {
         expect(
@@ -111,6 +119,8 @@ describe("panePresentation", () => {
   });
 
   it("keeps a collapsed secondary distinct from no secondary", () => {
+    // The distinction the stored fields cannot draw, and the reason a
+    // full-width app can still be returned to its conversation in one click.
     expect(
       panePresentation({
         hasSecondary: true,
@@ -149,7 +159,6 @@ describe("panePresentation", () => {
     expect(
       panePresentation({ hasSecondary: true, position: asked, isNarrow: true }),
     ).toBe("bottom");
-    // The same preference, given room again, still answers what was asked.
     expect(
       panePresentation({
         hasSecondary: true,

@@ -1,43 +1,35 @@
 /**
  * How the workspace arranges its two panes.
  *
- * The workspace shows a primary surface and, when one is open, a secondary
- * beside it. Which of those you actually see is a question about three
- * things, and only three: whether a secondary is open at all, where the user
- * has asked for it, and whether there is room for that answer.
- *
- * Deriving it is the point. The same arrangement is stored today across
- * `mainView` (`"app"` / `"app-editing"`) and `isAppMinimized`, so every path
- * that opens, closes or moves a surface has to re-decide the whole layout,
- * and a path that decides only part of it leaves a combination nothing
- * renders. A derived answer cannot be forgotten by a caller, because no
- * caller sets it.
- *
- * Nothing reads this yet. It exists so the readers of those fields can move
- * across one at a time against a fixed reference, with
- * `pane-presentation.test.ts` holding it to what the stored fields produce
- * today for every combination they can reach.
+ * Three facts decide it: whether a secondary surface is open, where the user
+ * asked for it, and whether there is room for that answer. Deriving keeps
+ * them independent, so opening, closing and moving a surface each change one
+ * fact rather than re-deciding the arrangement, and no combination of them
+ * can produce a layout nothing renders.
  */
 
 /**
- * Where the user has asked for the secondary pane. A preference, not a
- * consequence: a viewport too narrow for `"side"` presents `"bottom"` without
- * overwriting the answer, so widening the window restores what was asked for.
+ * Where the user asked for the secondary pane.
+ *
+ * A preference rather than a consequence: a viewport with no room for
+ * `"side"` presents `"bottom"` without overwriting it, so widening the window
+ * answers what was asked for rather than making the user ask again.
  */
 export type PanePosition = "side" | "bottom" | "full";
 
 /**
- * What the workspace actually shows.
+ * What the workspace shows.
  *
- * `"full"` is distinct from `"single"`: the secondary is still open and one
- * click away, it is simply collapsed. `"single"` is no secondary at all.
+ * `"full"` and `"single"` are one picture and two states: a surface filling
+ * the width, with a secondary collapsed behind it or with none at all. The
+ * difference is what makes a collapsed pane one click from returning, and a
+ * closed one gone.
  */
 export type PanePresentation = "single" | "side" | "bottom" | "full";
 
 export interface PanePresentationInput {
-  /** Whether a secondary surface is open, whatever is currently visible. */
+  /** Whether a secondary surface is open, visible or collapsed. */
   hasSecondary: boolean;
-  /** Where the user asked for it. */
   position: PanePosition;
   /** Whether the viewport is too narrow to stand two panes side by side. */
   isNarrow: boolean;
@@ -54,9 +46,9 @@ export function panePresentation({
   if (position === "full") {
     return "full";
   }
-  // The only place the viewport overrides the preference, and it narrows the
-  // answer rather than replacing it: the stored position is left alone, so a
-  // wider window presents `"side"` again without the user asking twice.
+  // The one place the viewport has a say, and it narrows the answer rather
+  // than replacing it: `position` is untouched, so the same preference reads
+  // as `"side"` again once there is room.
   if (isNarrow) {
     return "bottom";
   }
