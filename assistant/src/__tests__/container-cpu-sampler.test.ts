@@ -4,6 +4,7 @@ import {
   __resetContainerCpuSamplerForTests,
   __runContainerCpuSamplerTickForTests,
   computeCpuPercent,
+  computeDurationWeightedMeanPercent,
   getAverageContainerCpuPercentOrNull,
   getCachedContainerCpuPercent,
   getCachedContainerCpuPercentOrNull,
@@ -53,6 +54,33 @@ describe("getCachedContainerCpuPercentOrNull", () => {
     expect(sampled).not.toBeNull();
     expect(Number.isFinite(sampled!)).toBe(true);
     expect(sampled).toBe(getCachedContainerCpuPercent());
+  });
+});
+
+describe("computeDurationWeightedMeanPercent", () => {
+  test("weights each percent by the wall time its delta spanned", () => {
+    // 25s at 80% then 5s at 100% is 83.33% of the half minute, not the 90%
+    // an equal-weight mean would report.
+    expect(
+      computeDurationWeightedMeanPercent([
+        { percent: 80, elapsedMs: 25_000 },
+        { percent: 100, elapsedMs: 5_000 },
+      ]),
+    ).toBe(83.33);
+    // Equal durations degrade to the plain mean.
+    expect(
+      computeDurationWeightedMeanPercent([
+        { percent: 40, elapsedMs: 5_000 },
+        { percent: 60, elapsedMs: 5_000 },
+      ]),
+    ).toBe(50);
+  });
+
+  test("returns null without any positive-duration samples", () => {
+    expect(computeDurationWeightedMeanPercent([])).toBeNull();
+    expect(
+      computeDurationWeightedMeanPercent([{ percent: 50, elapsedMs: 0 }]),
+    ).toBeNull();
   });
 });
 

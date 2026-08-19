@@ -93,12 +93,16 @@ let _cachedCpuPercent = 0;
 // is a placeholder 0 (still warming up, or neither cgroup counters nor
 // process.cpuUsage() deltas are readable), not a measurement.
 let _hasCpuSample = false;
-let _recentSamples: { at: number; percent: number }[] = [];
+let _recentSamples: { at: number; percent: number; elapsedMs: number }[] = [];
 
-function setCachedCpuPercent(percent: number, at: number): void {
+function setCachedCpuPercent(
+  percent: number,
+  at: number,
+  elapsedMs: number,
+): void {
   _cachedCpuPercent = percent;
   _hasCpuSample = true;
-  _recentSamples.push({ at, percent });
+  _recentSamples.push({ at, percent, elapsedMs });
   const cutoff = at - RECENT_SAMPLE_RETENTION_MS;
   while (_recentSamples.length > 0 && _recentSamples[0].at < cutoff) {
     _recentSamples.shift();
@@ -139,12 +143,14 @@ function runCpuSamplerTick(now: number): void {
       setCachedCpuPercent(
         computeCpuPercent(cgroupUs - _lastCgroupCpuUs, elapsedMs, numCores),
         now,
+        elapsedMs,
       );
     } else if (processDeltaUs !== null) {
       // cgroup CPU stats unavailable (e.g. gVisor) – fall back to process-level.
       setCachedCpuPercent(
         computeCpuPercent(processDeltaUs, elapsedMs, numCores),
         now,
+        elapsedMs,
       );
     }
     _lastCgroupCpuUs = cgroupUs;
@@ -153,6 +159,7 @@ function runCpuSamplerTick(now: number): void {
     setCachedCpuPercent(
       computeCpuPercent(processDeltaUs, elapsedMs, numCores),
       now,
+      elapsedMs,
     );
   }
 
@@ -186,27 +193,42 @@ export function getCachedContainerCpuPercentOrNull(): number | null {
 }
 
 /**
- * Mean of the per-tick percents recorded within the trailing `windowMs`,
- * rounded to 2 decimal places, or null when no tick landed in the window.
- * Coarser-cadence consumers use this instead of the instantaneous cache so
- * a short spike aligned with their cadence cannot read as sustained load.
+ * Duration-weighted mean of per-tick percents. Each tick's percent covers
+ * the wall time its delta spanned, so a delayed tick (covering more time)
+ * must weigh proportionally more than an on-schedule one; an equal-weight
+ * mean would let the shorter interval skew the reading.
+ */
+export function computeDurationWeightedMeanPercent(
+  samples: readonly { percent: number; elapsedMs: number }[],
+): number | null {
+  let weightedSum = 0;
+  let totalElapsedMs = 0;
+  for (const sample of samples) {
+    if (sample.elapsedMs > 0) {
+      weightedSum += sample.percent * sample.elapsedMs;
+      totalElapsedMs += sample.elapsedMs;
+    }
+  }
+  if (totalElapsedMs <= 0) {
+    return null;
+  }
+  return Math.round((weightedSum / totalElapsedMs) * 100) / 100;
+}
+
+/**
+ * Duration-weighted mean of the per-tick percents recorded within the
+ * trailing `windowMs`, rounded to 2 decimal places, or null when no tick
+ * landed in the window. Coarser-cadence consumers use this instead of the
+ * instantaneous cache so a short spike aligned with their cadence cannot
+ * read as sustained load.
  */
 export function getAverageContainerCpuPercentOrNull(
   windowMs: number,
 ): number | null {
   const cutoff = Date.now() - windowMs;
-  let sum = 0;
-  let count = 0;
-  for (const sample of _recentSamples) {
-    if (sample.at >= cutoff) {
-      sum += sample.percent;
-      count += 1;
-    }
-  }
-  if (count === 0) {
-    return null;
-  }
-  return Math.round((sum / count) * 100) / 100;
+  return computeDurationWeightedMeanPercent(
+    _recentSamples.filter((sample) => sample.at >= cutoff),
+  );
 }
 
 export function __resetContainerCpuSamplerForTests(): void {
