@@ -35,6 +35,13 @@ import {
   shouldStreamSlackReply,
 } from "./slack-reply-session.js";
 
+/** The Slack extras off a captured wire payload. */
+function slackExtrasOf(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  return payload.slack as Record<string, unknown> | undefined;
+}
+
 const CHANNEL = "D-STREAM";
 const THREAD_TS = "1700000000.000001";
 const CALLBACK_URL = `https://example.test/deliver/slack?channel=${CHANNEL}&threadTs=${THREAD_TS}`;
@@ -98,7 +105,9 @@ const tick = (ms: number): Promise<void> =>
 
 const slackStreamOps = (): Array<Record<string, unknown>> =>
   deliverCalls
-    .map((call) => call.payload.slackStream as Record<string, unknown>)
+    .map(
+      (call) => slackExtrasOf(call.payload)?.stream as Record<string, unknown>,
+    )
     .filter(Boolean);
 
 const streamedMarkdown = (): string =>
@@ -350,7 +359,7 @@ describe("createSlackReplySession", () => {
 
   test("falls back when stopStream throws after streaming text", async () => {
     deliverImpl = async (_url, payload) => {
-      const op = payload.slackStream as { action: string };
+      const op = slackExtrasOf(payload)?.stream as { action: string };
       if (op.action === "stop") {
         throw new Error("stop failed");
       }
@@ -483,7 +492,7 @@ describe("createSlackReplySession", () => {
 
   test("leaves progress to stop when the task-only append fails", async () => {
     deliverImpl = async (_url, payload) => {
-      const op = payload.slackStream as {
+      const op = slackExtrasOf(payload)?.stream as {
         action: string;
         markdownText?: string;
       };

@@ -47,13 +47,13 @@ export interface ChannelTransport {
     payload: ChannelReplyPayload,
   ): Promise<ChannelDeliveryResult>;
 
-  /** Update an assistant-thread status surface. Routed when `payload.assistantThreadStatus` is set. */
+  /** Update an assistant-thread status surface. Routed when `payload.slack.assistantThreadStatus` is set. */
   setThreadStatus?(
     ctx: CallbackContext,
     payload: ChannelReplyPayload,
   ): Promise<ChannelDeliveryResult>;
 
-  /** Perform one streaming operation. Routed when `payload.slackStream` is set. */
+  /** Perform one streaming operation. Routed when `payload.slack.stream` is set. */
   streamReply?(
     ctx: CallbackContext,
     payload: ChannelReplyPayload,

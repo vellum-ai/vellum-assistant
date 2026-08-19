@@ -187,6 +187,13 @@ import type { ToolContext } from "../tools/types.js";
 import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 import { setConfig } from "./helpers/set-config.js";
 
+/** The Slack extras off a captured wire payload. */
+function slackExtrasOf(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  return payload.slack as Record<string, unknown> | undefined;
+}
+
 await initializeDb();
 
 function resetTables(): void {
@@ -1232,7 +1239,9 @@ describe("(g) access_request resolver: requester code delivery", () => {
       "your access request was approved",
     );
     // The code DM is durable, never ephemeral.
-    expect(requesterCodeReply!.payload.ephemeral).toBeUndefined();
+    expect(
+      slackExtrasOf(requesterCodeReply!.payload)?.ephemeral,
+    ).toBeUndefined();
     // threadTs (the guardian's channel thread) is stripped for the DM.
     expect(requesterCodeReply!.url).not.toContain("threadTs");
 
@@ -1411,8 +1420,8 @@ describe("(g) access_request resolver: requester code delivery", () => {
     );
     expect(courier).toBeDefined();
     expect(courier!.payload.chatId).toBe("C_SHARED_CHANNEL");
-    expect(courier!.payload.ephemeral).toBe(true);
-    expect(courier!.payload.user).toBe(REQUESTER_UID);
+    expect(slackExtrasOf(courier!.payload)?.ephemeral).toBe(true);
+    expect(slackExtrasOf(courier!.payload)?.user).toBe(REQUESTER_UID);
   });
 
   test("guardian-facing reply uses the requester's display name, not the raw ID", async () => {

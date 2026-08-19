@@ -123,6 +123,13 @@ import {
 } from "./background-dispatch.js";
 import { __resetChannelTurnAdmissionForTests } from "./channel-turn-admission.js";
 
+/** The Slack extras off a captured wire payload. */
+function slackExtrasOf(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  return payload.slack as Record<string, unknown> | undefined;
+}
+
 beforeEach(() => {
   __resetChannelTurnAdmissionForTests();
   clearConversations();
@@ -146,7 +153,10 @@ beforeEach(() => {
 
 const slackStreamOps = (): Array<Record<string, unknown>> =>
   deliveredChannelReplies
-    .map((entry) => entry.payload.slackStream as Record<string, unknown>)
+    .map(
+      (entry) =>
+        slackExtrasOf(entry.payload)?.stream as Record<string, unknown>,
+    )
     .filter(Boolean);
 
 describe("isBoundGuardianActor", () => {
@@ -966,14 +976,15 @@ describe("Slack thinking status timing", () => {
 
     const processMessage: MessageProcessor = async () => {
       expect(deliveredChannelReplies).toHaveLength(1);
-      expect(deliveredChannelReplies[0]!.payload.assistantThreadStatus).toEqual(
-        {
-          channel: channelId,
-          threadTs,
-          status: expect.any(String),
-          loadingMessages: ["Thinking\u2026"],
-        },
-      );
+      expect(
+        slackExtrasOf(deliveredChannelReplies[0]!.payload)
+          ?.assistantThreadStatus,
+      ).toEqual({
+        channel: channelId,
+        threadTs,
+        status: expect.any(String),
+        loadingMessages: ["Thinking\u2026"],
+      });
       const threadStatus = deliveredChannelReplies[0]!.payload
         .assistantThreadStatus as { status: string };
       expect(slackStatusLabels).toContain(threadStatus.status);
@@ -997,7 +1008,7 @@ describe("Slack thinking status timing", () => {
     await flush();
 
     const statuses = deliveredChannelReplies.map((entry) => {
-      const status = entry.payload.assistantThreadStatus as
+      const status = slackExtrasOf(entry.payload)?.assistantThreadStatus as
         | { status?: string }
         | undefined;
       return status?.status;
@@ -1083,7 +1094,7 @@ describe("Slack thinking status timing", () => {
     await flush();
 
     const statuses = deliveredChannelReplies.map((entry) => {
-      const status = entry.payload.assistantThreadStatus as
+      const status = slackExtrasOf(entry.payload)?.assistantThreadStatus as
         | { status?: string }
         | undefined;
       return status?.status;
@@ -1145,7 +1156,7 @@ describe("Slack thinking status timing", () => {
     await flush();
 
     const statuses = deliveredChannelReplies.map(
-      (entry) => entry.payload.assistantThreadStatus,
+      (entry) => slackExtrasOf(entry.payload)?.assistantThreadStatus,
     );
     expect(statuses).toEqual([
       {
@@ -1279,7 +1290,7 @@ describe("Slack thinking status timing", () => {
     await flush();
 
     const statuses = deliveredChannelReplies.map(
-      (entry) => entry.payload.assistantThreadStatus,
+      (entry) => slackExtrasOf(entry.payload)?.assistantThreadStatus,
     );
     expect(statuses).toEqual([
       {

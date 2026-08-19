@@ -6,6 +6,7 @@
  * the conversational engine in guardian-text-engine-strategy.ts.
  */
 import type { KnownBlock } from "@slack/types";
+import { ephemeralTo } from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../../channels/types.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
@@ -214,7 +215,7 @@ export async function handleApprovalInterception(
             chatId: conversationExternalId,
             text: "Sorry, I couldn't process that. Please try again.",
             assistantId,
-            ...(ephemeralUser ? { ephemeral: true, user: ephemeralUser } : {}),
+            ...(ephemeralUser ? { slack: ephemeralTo(ephemeralUser) } : {}),
           });
         } catch (err) {
           log.error(

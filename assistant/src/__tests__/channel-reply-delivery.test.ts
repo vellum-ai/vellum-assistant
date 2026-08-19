@@ -3,6 +3,13 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
 import type { RuntimeAttachmentMetadata } from "../runtime/http-types.js";
 
+/** The Slack extras off a captured wire payload. */
+function slackExtrasOf(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  return payload.slack as Record<string, unknown> | undefined;
+}
+
 type DeliveryCall = {
   callbackUrl: string;
   payload: Record<string, unknown>;
@@ -800,10 +807,10 @@ describe("channel-reply-delivery", () => {
     });
 
     expect(deliveryCalls).toHaveLength(2);
-    expect(deliveryCalls[0].payload.ephemeral).toBe(true);
-    expect(deliveryCalls[0].payload.user).toBe("U456");
-    expect(deliveryCalls[1].payload.ephemeral).toBe(true);
-    expect(deliveryCalls[1].payload.user).toBe("U456");
+    expect(slackExtrasOf(deliveryCalls[0].payload)?.ephemeral).toBe(true);
+    expect(slackExtrasOf(deliveryCalls[0].payload)?.user).toBe("U456");
+    expect(slackExtrasOf(deliveryCalls[1].payload)?.ephemeral).toBe(true);
+    expect(slackExtrasOf(deliveryCalls[1].payload)?.user).toBe("U456");
   });
 
   it("does not include ephemeral fields when not set", async () => {
@@ -815,8 +822,8 @@ describe("channel-reply-delivery", () => {
     });
 
     expect(deliveryCalls).toHaveLength(1);
-    expect(deliveryCalls[0].payload.ephemeral).toBeUndefined();
-    expect(deliveryCalls[0].payload.user).toBeUndefined();
+    expect(slackExtrasOf(deliveryCalls[0].payload)?.ephemeral).toBeUndefined();
+    expect(slackExtrasOf(deliveryCalls[0].payload)?.user).toBeUndefined();
   });
 
   it("suppresses delivery when the only text segment is <no_response/>", async () => {
