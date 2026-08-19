@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   compactAxTreeHistory,
   escapeAxTreeContent,
-  wrapWatchEntry,
 } from "../context/outbound-sanitize.js";
 import type { Message } from "../providers/types.js";
 
@@ -40,13 +39,6 @@ function userText(text: string): Message {
     role: "user",
     content: [{ type: "text", text }],
   };
-}
-
-/** Build a marked watch timeline entry carrying an AX tree. */
-function watchEntry(axContent: string): Message {
-  return userText(
-    wrapWatchEntry(`[t+00:07] screen:\n<ax-tree>\n${axContent}\n</ax-tree>`),
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -242,72 +234,6 @@ describe("compactAxTreeHistory", () => {
     if (lastBlock.type === "tool_result") {
       expect(lastBlock.content).toContain("<ax-tree>");
     }
-  });
-
-  test("compacts marked watch timeline entries, keeping the most recent two", () => {
-    // GIVEN a watch session's worth of observations, each a plain user message
-    const messages: Message[] = [
-      watchEntry("tree-1"),
-      watchEntry("tree-2"),
-      watchEntry("tree-3"),
-      watchEntry("tree-4"),
-    ];
-
-    const result = compactAxTreeHistory(messages);
-
-    // THEN the older entries collapse and the newest two keep their trees
-    const textOf = (msg: Message) =>
-      msg.content[0].type === "text" ? msg.content[0].text : "";
-    for (const idx of [0, 1]) {
-      expect(textOf(result[idx])).toContain("<ax_tree_omitted />");
-      expect(textOf(result[idx])).not.toContain("<ax-tree>");
-      // The marker survives compaction, so a later pass still recognizes the
-      // entry as generated capture.
-      expect(textOf(result[idx])).toStartWith("<watch-entry>\n");
-      expect(textOf(result[idx])).toEndWith("\n</watch-entry>");
-    }
-    for (const idx of [2, 3]) {
-      expect(textOf(result[idx])).toContain("<ax-tree>");
-      expect(textOf(result[idx])).not.toContain("<ax_tree_omitted />");
-    }
-  });
-
-  test("leaves unmarked user text that merely mentions <ax-tree> alone", () => {
-    // GIVEN an ordinary conversation about accessibility markup: three user
-    // messages that quote the tags without being watch entries
-    const messages: Message[] = [
-      userText("why does <ax-tree> show up in my prompt?"),
-      assistantText("it wraps a screen snapshot"),
-      userText("here's mine: <ax-tree>\nWindow: Notes\n</ax-tree>"),
-      assistantText("looks right"),
-      userText("and this one: <ax-tree>\nWindow: Mail\n</ax-tree>"),
-    ];
-
-    const result = compactAxTreeHistory(messages);
-
-    // THEN nothing the user wrote is rewritten
-    expect(result).toBe(messages);
-  });
-
-  test("compacts a marked entry without touching the user's own <ax-tree> prose", () => {
-    // GIVEN a watch session whose user also talks about the markup
-    const messages: Message[] = [
-      userText("the tree looks like <ax-tree>\nWindow: Notes\n</ax-tree>"),
-      watchEntry("tree-1"),
-      watchEntry("tree-2"),
-      watchEntry("tree-3"),
-    ];
-
-    const result = compactAxTreeHistory(messages);
-
-    // THEN only the oldest marked entry collapses: the user's message is not
-    // counted as a snapshot and is not rewritten
-    expect(result[0]).toBe(messages[0]);
-    const textOf = (msg: Message) =>
-      msg.content[0].type === "text" ? msg.content[0].text : "";
-    expect(textOf(result[1])).toContain("<ax_tree_omitted />");
-    expect(textOf(result[2])).toContain("tree-2");
-    expect(textOf(result[3])).toContain("tree-3");
   });
 
   test("is pure — does not mutate input messages", () => {

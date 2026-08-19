@@ -47,6 +47,7 @@ const log = getLogger("live-voice-photo");
  * say.
  */
 const PROCESSING_WAIT_MS = 30_000;
+const PROCESSING_POLL_MS = 100;
 
 const PHOTO_MESSAGE_CONTENT = "here's a photo:";
 
@@ -72,6 +73,20 @@ function resolvePhotoAttachments(attachmentIds: string[]) {
     data: a.dataBase64,
     ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
   }));
+}
+
+/** Resolve once the conversation is not mid-turn, or false on timeout. */
+async function waitForIdle(conversation: {
+  isProcessing: () => boolean;
+}): Promise<boolean> {
+  const deadline = Date.now() + PROCESSING_WAIT_MS;
+  while (conversation.isProcessing()) {
+    if (Date.now() >= deadline) {
+      return false;
+    }
+    await new Promise((resolve) => setTimeout(resolve, PROCESSING_POLL_MS));
+  }
+  return true;
 }
 
 /**
@@ -101,7 +116,7 @@ export async function persistLiveVoicePhoto(
     // A turn holds the lock for its whole run. Waiting rather than queueing:
     // the conversation's queue drains into a turn, which is the one thing this
     // must not cause.
-    if (!(await conversation.waitForIdle({ timeoutMs: PROCESSING_WAIT_MS }))) {
+    if (!(await waitForIdle(conversation))) {
       log.warn(
         { conversationId, attachmentId },
         "Live-voice photo timed out waiting for the conversation to go idle",

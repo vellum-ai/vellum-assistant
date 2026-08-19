@@ -16,8 +16,6 @@ import type {
 /** Number of most-recent AX tree snapshots to keep in conversation history. */
 const MAX_AX_TREES_IN_HISTORY = 2;
 
-/** Opening marker every AX tree snapshot is wrapped in. */
-const AX_TREE_OPEN = "<ax-tree>";
 /** Regex that matches the `<ax-tree>...</ax-tree>` markers. */
 const AX_TREE_PATTERN = /<ax-tree>[\s\S]*?<\/ax-tree>/g;
 const AX_TREE_PLACEHOLDER = "<ax_tree_omitted />";
@@ -34,76 +32,6 @@ export function escapeAxTreeContent(content: string): string {
 }
 
 /**
- * The wrapper a watch session (`src/watch/watch-timeline.ts`) writes around
- * every timeline entry it persists, and the one thing in this module that
- * tells generated capture apart from what a user typed.
- *
- * A watch entry is an ordinary user message, so its blocks carry no shape a
- * `tool_result` does not also have. Without the marker the only available
- * signal is "user text containing `<ax-tree>`", which an ordinary conversation
- * about accessibility markup matches: the transforms below would rewrite the
- * user's own words and drop images the user attached themselves. Every
- * watch-only behavior here keys off this marker, and nothing unmarked changes.
- *
- * Both ends are required, the discipline {@link isChannelCapabilitiesBlock}
- * follows, so a message that merely opens with the tag is never taken for a
- * generated entry. The marker rides in the text because a `Message` carries no
- * metadata at the provider boundary: the persisted row's `watchSession` flag
- * does not reach this layer.
- */
-const WATCH_ENTRY_OPEN = "<watch-entry>\n";
-const WATCH_ENTRY_CLOSE = "\n</watch-entry>";
-
-/**
- * Wrap one rendered timeline entry in the watch marker. The producer half of
- * the contract {@link WATCH_ENTRY_OPEN} documents.
- */
-export function wrapWatchEntry(body: string): string {
-  return `${WATCH_ENTRY_OPEN}${body}${WATCH_ENTRY_CLOSE}`;
-}
-
-/** Whether a text block is a complete marked watch timeline entry. */
-function isWatchEntryText(text: string): boolean {
-  return text.startsWith(WATCH_ENTRY_OPEN) && text.endsWith(WATCH_ENTRY_CLOSE);
-}
-
-/** Whether a message is a watch timeline entry. */
-function isWatchEntryMessage(message: Message): boolean {
-  return (
-    message.role === "user" &&
-    message.content.some(
-      (block) => block.type === "text" && isWatchEntryText(block.text),
-    )
-  );
-}
-
-/**
- * Whether a user content block carries an `<ax-tree>` snapshot.
- *
- * Two block shapes do. A computer-use step returns its tree in a
- * `tool_result`. A watch session writes each observation as a plain user
- * message and so carries its tree in a marked `text` block. It needs bounding
- * for the same reason and more urgently, since a session is minutes of
- * observations with no turn between them to compact.
- *
- * The marker is what makes the `text` arm safe: unmarked prose that mentions
- * `<ax-tree>` is somebody discussing the markup, not a snapshot of a screen.
- * Assistant messages stay out of scope either way.
- */
-function hasAxTreeSnapshot(block: ContentBlock): boolean {
-  if (block.type === "tool_result") {
-    return (
-      typeof block.content === "string" && block.content.includes(AX_TREE_OPEN)
-    );
-  }
-  return (
-    block.type === "text" &&
-    isWatchEntryText(block.text) &&
-    block.text.includes(AX_TREE_OPEN)
-  );
-}
-
-/**
  * Returns a shallow copy of `messages` where all but the most recent
  * `MAX_AX_TREES_IN_HISTORY` `<ax-tree>` blocks have been replaced with a
  * short placeholder.  This keeps the conversation context small so that
@@ -113,7 +41,7 @@ function hasAxTreeSnapshot(block: ContentBlock): boolean {
  * contain multiple tool_result blocks each with their own AX tree snapshot.
  */
 export function compactAxTreeHistory(messages: Message[]): Message[] {
-  // Collect (messageIndex, blockIndex) for every user block with <ax-tree>
+  // Collect (messageIndex, blockIndex) for every tool_result block with <ax-tree>
   const axBlocks: Array<{ msgIdx: number; blockIdx: number }> = [];
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
@@ -121,7 +49,12 @@ export function compactAxTreeHistory(messages: Message[]): Message[] {
       continue;
     }
     for (let j = 0; j < msg.content.length; j++) {
-      if (hasAxTreeSnapshot(msg.content[j])) {
+      const block = msg.content[j];
+      if (
+        block.type === "tool_result" &&
+        typeof block.content === "string" &&
+        block.content.includes("<ax-tree>")
+      ) {
         axBlocks.push({ msgIdx: i, blockIdx: j });
       }
     }
@@ -150,22 +83,17 @@ export function compactAxTreeHistory(messages: Message[]): Message[] {
     return {
       ...msg,
       content: msg.content.map((block, j) => {
-        if (!toStrip.has(`${idx}:${j}`)) {
-          return block;
-        }
-        if (block.type === "tool_result" && typeof block.content === "string") {
+        if (
+          toStrip.has(`${idx}:${j}`) &&
+          block.type === "tool_result" &&
+          typeof block.content === "string"
+        ) {
           return {
             ...block,
             content: block.content.replace(
               AX_TREE_PATTERN,
               AX_TREE_PLACEHOLDER,
             ),
-          };
-        }
-        if (block.type === "text") {
-          return {
-            ...block,
-            text: block.text.replace(AX_TREE_PATTERN, AX_TREE_PLACEHOLDER),
           };
         }
         return block;
@@ -287,152 +215,32 @@ export function lastToolResultUserMessageIndex(history: Message[]): number {
   return -1;
 }
 
-/** Whether a content block carries media bytes (image or audio/file). */
-function isMediaBlock(block: ContentBlock): boolean {
-  return block.type === "image" || block.type === "file";
-}
-
-/** Stands in for media the model already saw on the turn it was captured. */
-const MEDIA_STRIPPED_NOTE =
-  "[Media (image/audio) was captured and shown previously, binary data removed to save context.]";
-
 /**
- * Stands in for a watch screenshot dropped to stay inside
- * {@link MAX_WATCH_SCREENSHOTS_IN_HISTORY}.
- *
- * Worded separately from {@link MEDIA_STRIPPED_NOTE}, which asserts the model
- * saw the media once. A watch entry runs no turn, so no model ever did: the
- * first sanitization of a session is also the first time any of its
- * screenshots are offered to one. Telling the model it has already seen an
- * image it has not is a false claim about its own history.
- */
-const WATCH_MEDIA_DROPPED_NOTE =
-  "[A screenshot was captured at this moment and omitted to bound context. It was never shown to the model.]";
-
-/**
- * How many of a watch session's screenshots survive sanitization.
- *
- * A bound is required: the entries run no turn, so nothing between them trims
- * anything, and a half-hour session at the caller's chosen cadence would
- * otherwise send every frame on every later request.
- *
- * Four, because the ceiling this budget draws on is Anthropic's many-image
- * threshold. Past twenty images in one request a stricter per-image dimension
- * cap applies, and a full-screen retina screenshot exceeds it, so a request
- * over the threshold is rejected outright rather than merely large. Watch
- * screenshots are not the only images in that request (the current
- * tool-result turn's media and the user's own attachments count too), so the
- * watch share is a fifth of the ceiling rather than all of it. Four still
- * spans a session: the caller only attaches frames it judged worth an image,
- * so the retrospective gets a spread of moments instead of a single one.
- *
- * Raising it trades that headroom for more visual evidence, and nothing else
- * reads the number.
- */
-const MAX_WATCH_SCREENSHOTS_IN_HISTORY = 4;
-
-/**
- * Indices of the watch timeline entries whose media survives, newest first
- * until {@link MAX_WATCH_SCREENSHOTS_IN_HISTORY} screenshots are accounted
- * for. The watch-side counterpart of {@link lastToolResultUserMessageIndex}:
- * an entry in this set keeps its screenshot, every marked entry outside it
- * loses one.
- *
- * Entries are retained whole, and the budget counts media blocks rather than
- * messages, so an entry carrying several images spends several of the four.
- */
-function retainedWatchMediaIndices(history: Message[]): Set<number> {
-  const retained = new Set<number>();
-  let kept = 0;
-  for (let i = history.length - 1; i >= 0; i--) {
-    if (kept >= MAX_WATCH_SCREENSHOTS_IN_HISTORY) {
-      break;
-    }
-    const message = history[i];
-    if (!isWatchEntryMessage(message)) {
-      continue;
-    }
-    const mediaCount = message.content.filter(isMediaBlock).length;
-    if (mediaCount === 0) {
-      continue;
-    }
-    retained.add(i);
-    kept += mediaCount;
-  }
-  return retained;
-}
-
-/**
- * Replace the media blocks of a watch timeline entry with a text placeholder.
- * Unmarked messages and marked entries without media come back untouched.
- *
- * The placeholder takes the media block's own position rather than being
- * appended to the entry text, which keeps the marker's closing tag last and so
- * keeps the entry recognizable to every later pass over the same history.
- */
-function stripWatchEntryMedia(message: Message): Message {
-  if (!isWatchEntryMessage(message) || !message.content.some(isMediaBlock)) {
-    return message;
-  }
-  return {
-    ...message,
-    content: message.content.map((block) =>
-      isMediaBlock(block)
-        ? { type: "text" as const, text: WATCH_MEDIA_DROPPED_NOTE }
-        : block,
-    ),
-  };
-}
-
-/**
- * Strip media blocks from everywhere they accumulate: the `tool_result` blocks
- * of every user message but the most recent one carrying tool results, and the
- * watch timeline entries beyond the newest
- * {@link MAX_WATCH_SCREENSHOTS_IN_HISTORY} carrying media.
- *
- * The two arms are bounded on different reasoning. A tool result's media was
- * shown to the model on the turn that produced it, so one copy is enough and
- * only the current turn's needs to survive. A watch entry runs no turn, so its
- * screenshots have been seen by nobody when the first sanitization reaches
- * them: keeping only the newest would delete the session's visual evidence
- * before the retrospective ever read it, which is why a window of entries
- * survives rather than one, and why a dropped entry carries
- * {@link WATCH_MEDIA_DROPPED_NOTE} rather than the "shown previously" note.
- *
- * A watch session is also the more urgent of the two to bound. Its entries run
- * no turn, so a multi-minute session accumulates screenshots with nothing in
- * between to compact them, and the retrospective at the end reads the whole
- * session at once.
- *
- * Media on an unmarked user message is left alone: that is a file the user
- * attached, and dropping it would rewrite what they sent.
+ * Strip image contentBlocks from all tool_result blocks except those in the
+ * most recent user message that contains tool_result blocks. This prevents
+ * screenshots from accumulating in the context window — each image is seen
+ * once by the LLM on the turn it was captured, then replaced with a text
+ * placeholder on subsequent turns.
  */
 function stripOldMediaBlocks(history: Message[]): Message[] {
   const lastToolResultUserIdx = lastToolResultUserMessageIndex(history);
-  const retainedWatchMedia = retainedWatchMediaIndices(history);
 
   return history.map((msg, idx) => {
-    if (msg.role !== "user") {
+    // Keep the most recent tool-result user message intact (current turn)
+    if (idx === lastToolResultUserIdx || msg.role !== "user") {
       return msg;
     }
 
-    // Watch entries inside the retention window keep their screenshots; the
-    // most recent tool-result message is the current turn and keeps its own.
-    const watchStripped = retainedWatchMedia.has(idx)
-      ? msg
-      : stripWatchEntryMedia(msg);
-    if (idx === lastToolResultUserIdx) {
-      return watchStripped;
-    }
-
     // Check if any tool_result blocks carry embedded media (image or audio).
-    const hasMedia = watchStripped.content.some(
+    const isMedia = (cb: ContentBlock) =>
+      cb.type === "image" || cb.type === "file";
+    const hasMedia = msg.content.some(
       (b) =>
         b.type === "tool_result" &&
-        (b as ToolResultContent).contentBlocks?.some(isMediaBlock),
+        (b as ToolResultContent).contentBlocks?.some(isMedia),
     );
     if (!hasMedia) {
-      return watchStripped;
+      return msg;
     }
 
     // Strip media from tool_result blocks, replacing with a text marker. The
@@ -440,19 +248,21 @@ function stripOldMediaBlocks(history: Message[]): Message[] {
     // the bytes every turn (a 12 MB audio clip isn't optimized like images)
     // bloats the request until compaction.
     return {
-      ...watchStripped,
-      content: watchStripped.content.map((b) => {
+      ...msg,
+      content: msg.content.map((b) => {
         if (b.type !== "tool_result") {
           return b;
         }
         const tr = b as ToolResultContent;
-        if (!tr.contentBlocks?.some(isMediaBlock)) {
+        if (!tr.contentBlocks?.some(isMedia)) {
           return b;
         }
         return {
           ...tr,
           contentBlocks: undefined,
-          content: `${tr.content || ""}\n${MEDIA_STRIPPED_NOTE}`,
+          content:
+            (tr.content || "") +
+            "\n[Media (image/audio) was captured and shown previously — binary data removed to save context.]",
         };
       }),
     };
@@ -464,9 +274,7 @@ function stripOldMediaBlocks(history: Message[]): Message[] {
  * the pre-send transforms applied to every request that carries conversation
  * history:
  * - {@link stripOldMediaBlocks} drops accumulated screenshot/audio bytes from
- *   older tool results (the model saw that media on the turn it was captured)
- *   and from watch timeline entries beyond the newest few, which run no turn
- *   and so keep a bounded window of unseen screenshots for the retrospective.
+ *   older tool results — the model saw the media on the turn it was captured.
  *   Beyond context bloat, unstripped history can carry enough images to cross
  *   Anthropic's many-image threshold, where a stricter per-image dimension
  *   cap applies and a single large screenshot rejects the whole request.
