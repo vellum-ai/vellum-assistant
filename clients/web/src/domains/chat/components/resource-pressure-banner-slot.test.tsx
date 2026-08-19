@@ -176,6 +176,29 @@ describe("ResourcePressureBannerSlot", () => {
     expect(queryBanner()).toBeNull();
   });
 
+  test("a dismissal in one mounted surface hides the other surface's banner", () => {
+    render(
+      <MemoryRouter>
+        <ResourcePressureBannerSlot
+          resourcePressure={monitorResult(elevatedStatus)}
+          assistantId="assistant-1"
+          assistantStateKind="active"
+        />
+        <ResourcePressureBannerSlot
+          resourcePressure={monitorResult(elevatedStatus)}
+          assistantId="assistant-1"
+          assistantStateKind="active"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getAllByTestId("resource-pressure-banner")).toHaveLength(2);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Dismiss" })[0]);
+
+    expect(screen.queryAllByTestId("resource-pressure-banner")).toHaveLength(0);
+  });
+
   test("a still-valid cooldown suppresses a fresh elevated episode", () => {
     const view = render(slot(elevatedStatus));
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));

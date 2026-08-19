@@ -21,6 +21,7 @@ import {
   getLocalNumber,
   setLocalBool,
   setLocalNumber,
+  watchSetting,
 } from "@/utils/local-settings";
 import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
@@ -102,6 +103,28 @@ export function ResourcePressureBannerSlot({
     setCooldownActive(readCooldownActive(dismissedUntilKey));
     setSuppressed(readSuppressed(suppressedKey));
   }, [dismissedUntilKey, suppressedKey]);
+
+  // A dismissal written by another mounted surface (second tab or window on
+  // the same assistant) must reach this instance too, so subscribe to both
+  // keys the same way the disk-pressure visibility hook does (same-tab via
+  // the pref-changed event, cross-tab via `storage`).
+  useEffect(() => {
+    if (!dismissedUntilKey) {
+      return;
+    }
+    return watchSetting(dismissedUntilKey, () => {
+      setCooldownActive(readCooldownActive(dismissedUntilKey));
+    });
+  }, [dismissedUntilKey]);
+
+  useEffect(() => {
+    if (!suppressedKey) {
+      return;
+    }
+    return watchSetting(suppressedKey, () => {
+      setSuppressed(readSuppressed(suppressedKey));
+    });
+  }, [suppressedKey]);
 
   // While a cooldown is active, wake up at the stored deadline and clear the
   // flag so a long-lived chat view shows the banner again once the cooldown
