@@ -24,6 +24,14 @@
   "assistantSideMenu": {
     "bulkActionMembersFailed": "No se pudieron cargar todas las conversaciones de esta sección. Inténtalo de nuevo."
   },
+  "assistantSwitcher": {
+    "collapse": "Ocultar asistentes",
+    "currentAssistant": "{name}, asistente actual",
+    "expand": "Cambiar de asistente",
+    "switchFailed": "No se pudo cambiar de asistente. Inténtalo de nuevo.",
+    "switchTo": "Cambiar a {name}",
+    "unnamedAssistant": "Asistente sin nombre"
+  },
   "cacheBreakpointMapCard": {
     "description": "Dónde {count, plural, one {cayó # punto de corte de caché} other {cayeron # puntos de corte de caché}} en el prefijo de esta solicitud, y qué segmentos se leyeron frente a los que se volvieron a crear.",
     "estimatedTokens": "≈ {count} tokens",

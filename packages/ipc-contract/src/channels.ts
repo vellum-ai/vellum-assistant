@@ -89,6 +89,8 @@ export const LOCAL_MODE_GUARDIAN_TOKEN = "vellum:localMode:guardianToken";
 
 // Menu
 export const MENU_SET_PLATFORM_SESSION = "vellum:menu:setPlatformSession";
+export const MENU_TITLES = "vellum:menu:titles";
+export const MENU_POPUP = "vellum:menu:popup";
 
 // Main window
 export const MAIN_WINDOW_ENSURE_VISIBLE = "vellum:mainWindow:ensureVisible";

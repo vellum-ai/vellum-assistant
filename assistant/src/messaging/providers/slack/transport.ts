@@ -54,16 +54,12 @@ export const slackTransport: ChannelTransport = {
     return { ok: true, ts: sentTs };
   },
 
-  async sendReaction(_ctx, payload) {
-    const reaction = payload.reaction;
-    if (!reaction) {
-      return { ok: true };
-    }
+  async react(_ctx, target) {
     await sendSlackReaction(
-      payload.chatId,
-      reaction.name,
-      reaction.messageTs,
-      reaction.action,
+      target.chatId,
+      target.emoji,
+      target.messageId,
+      target.action,
     );
     return { ok: true };
   },

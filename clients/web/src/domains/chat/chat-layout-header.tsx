@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 
+import { WindowsMenuBar } from "@/components/windows-menu-bar";
 import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import { WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX } from "@/runtime/electron-window-chrome";
 import {
@@ -135,7 +136,10 @@ export function ChatLayoutHeader({
   // neutral band across the top. Off native mobile, and on any route that
   // publishes nothing, this resolves to the usual neutral chrome.
   const pageSurface = usePageSurfaceStore.use.surface();
-  const headerBackground = resolveShellBackground(pageSurface, isNativeMobile());
+  const headerBackground = resolveShellBackground(
+    pageSurface,
+    isNativeMobile(),
+  );
 
   return (
     <header
@@ -223,6 +227,12 @@ export function ChatLayoutHeader({
             />
           </>
         ) : null}
+        {/* Outside the isMobile branch: while this header is mounted the
+            fallback strip yields, so a narrow (zoomed) Windows window would
+            otherwise lose the menus entirely. Self-gates to the Windows
+            shell (renders nothing elsewhere), so no `electronHostOS`
+            branch here. */}
+        <WindowsMenuBar />
       </div>
 
       <div

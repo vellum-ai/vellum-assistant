@@ -20,6 +20,7 @@ import {
 } from "../../../contacts/guardian-delivery-reader.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
+import { sendChannelReaction } from "../../../messaging/providers/index.js";
 import {
   sendChannelTyping,
   supportsChannelTyping,
@@ -642,15 +643,13 @@ function setSlackThinkingStatus(
       };
     }
 
-    const addPromise = deliverChannelReply(callbackUrl, {
+    const addPromise = sendChannelReaction(callbackUrl, {
       chatId,
-      assistantId,
-      reaction: { action: "add", name: "eyes", messageTs },
+      messageId: messageTs,
+      emoji: "eyes",
+      action: "add",
     }).catch((err) => {
-      log.debug(
-        { err, chatId, messageTs },
-        "Failed to add Slack eyes reaction",
-      );
+      log.debug({ err, chatId, messageTs }, "Failed to add eyes reaction");
     });
 
     const clearReaction = (): void => {
@@ -660,14 +659,15 @@ function setSlackThinkingStatus(
       cleared = true;
       clearTimeout(safetyTimer);
       void addPromise.then(() =>
-        deliverChannelReply(callbackUrl, {
+        sendChannelReaction(callbackUrl, {
           chatId,
-          assistantId,
-          reaction: { action: "remove", name: "eyes", messageTs },
+          messageId: messageTs,
+          emoji: "eyes",
+          action: "remove",
         }).catch((err) => {
           log.debug(
             { err, chatId, messageTs },
-            "Failed to remove Slack eyes reaction",
+            "Failed to remove eyes reaction",
           );
         }),
       );

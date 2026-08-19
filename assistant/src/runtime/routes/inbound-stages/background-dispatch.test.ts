@@ -88,6 +88,22 @@ mock.module("../../gateway-client.js", () => ({
   },
 }));
 
+const sentReactions: Array<{
+  callbackUrl: string;
+  target: Record<string, unknown>;
+}> = [];
+mock.module("../../../messaging/providers/index.js", () => ({
+  sendChannelTyping: async () => ({ ok: true }),
+  supportsChannelTyping: () => false,
+  sendChannelReaction: async (
+    callbackUrl: string,
+    target: Record<string, unknown>,
+  ) => {
+    sentReactions.push({ callbackUrl, target });
+    return { ok: true };
+  },
+}));
+
 mock.module("../../channel-reply-delivery.js", () => ({
   deliverReplyViaCallback: async (...args: unknown[]) => {
     const options = args[4] as
@@ -127,6 +143,7 @@ beforeEach(() => {
   __resetChannelTurnAdmissionForTests();
   clearConversations();
   deliveredChannelReplies.length = 0;
+  sentReactions.length = 0;
   markedProcessedEvents.length = 0;
   processingFailureEvents.length = 0;
   retryableFailureEvents.length = 0;
@@ -925,11 +942,12 @@ describe("Slack thinking status timing", () => {
     const messageTs = "1700000000.000010";
 
     const processMessage: MessageProcessor = async () => {
-      expect(deliveredChannelReplies).toHaveLength(1);
-      expect(deliveredChannelReplies[0]!.payload.reaction).toEqual({
+      expect(sentReactions).toHaveLength(1);
+      expect(sentReactions[0]!.target).toEqual({
+        chatId: channelId,
+        messageId: messageTs,
+        emoji: "eyes",
         action: "add",
-        name: "eyes",
-        messageTs,
       });
       return { messageId: "user-msg-dm-immediate" };
     };
@@ -950,12 +968,14 @@ describe("Slack thinking status timing", () => {
 
     await flush();
 
-    const reactions = deliveredChannelReplies.map(
-      (entry) => entry.payload.reaction,
-    );
-    expect(reactions).toEqual([
-      { action: "add", name: "eyes", messageTs },
-      { action: "remove", name: "eyes", messageTs },
+    expect(sentReactions.map((entry) => entry.target)).toEqual([
+      { chatId: channelId, messageId: messageTs, emoji: "eyes", action: "add" },
+      {
+        chatId: channelId,
+        messageId: messageTs,
+        emoji: "eyes",
+        action: "remove",
+      },
     ]);
   });
 

@@ -42,6 +42,7 @@ import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-ch
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import { createSelectors } from "@/utils/create-selectors";
+import { isAppMainView } from "@/stores/pane-presentation";
 
 /** Views that overlay the main content and track a "back" destination. */
 type OverlayView =
@@ -718,10 +719,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   handleAppUnpinned: (appId) => {
     const state = get();
-    if (
-      state.activeAppId !== appId ||
-      (state.mainView !== "app" && state.mainView !== "app-editing")
-    ) {
+    if (state.activeAppId !== appId || !isAppMainView(state.mainView)) {
       return false;
     }
     get().closeApp();

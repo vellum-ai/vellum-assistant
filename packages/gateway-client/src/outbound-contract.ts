@@ -179,14 +179,6 @@ export const ChannelReplyPayloadSchema = z.object({
   messageTs: z.string().optional(),
   /** When true, the daemon generates Block Kit blocks from the text before delivery. */
   useBlocks: z.boolean().optional(),
-  /** When provided, add or remove an emoji reaction on a message. */
-  reaction: z
-    .object({
-      action: z.enum(["add", "remove"]),
-      name: z.string(),
-      messageTs: z.string(),
-    })
-    .optional(),
   /** When provided, set or clear the Slack Assistants API thread status. */
   assistantThreadStatus: z
     .object({

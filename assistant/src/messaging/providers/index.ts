@@ -16,7 +16,11 @@ import type {
 import { a2aTransport } from "./a2a/transport.js";
 import type { DirectDeliveryChannel } from "./callback-routing.js";
 import { channelForCallback } from "./callback-routing.js";
-import type { CallbackContext, ChannelTransport } from "./channel-transport.js";
+import type {
+  CallbackContext,
+  ChannelTransport,
+  ReactionTarget,
+} from "./channel-transport.js";
 import { discordTransport } from "./discord/transport.js";
 import { slackTransport } from "./slack/transport.js";
 import { telegramTransport } from "./telegram-bot/transport.js";
@@ -46,13 +50,6 @@ export function getTransportForCallback(
 }
 
 /**
- * Show that the assistant is working on the channel this callback addresses.
- *
- * Resolves to nothing when the channel has no such affordance, which is the
- * ordinary case rather than a failure: the indicator is decoration, and a
- * channel that cannot show one is not degraded by its absence.
- */
-/**
  * Whether the channel this callback addresses can show a working indicator.
  *
  * Asks the transport rather than the channel id, so a channel that gains the
@@ -62,6 +59,13 @@ export function supportsChannelTyping(callbackUrl: string): boolean {
   return getTransportForCallback(callbackUrl)?.typing !== undefined;
 }
 
+/**
+ * Show that the assistant is working on the channel this callback addresses.
+ *
+ * Resolves to nothing when the channel has no such affordance, which is the
+ * ordinary case rather than a failure: the indicator is decoration, and a
+ * channel that cannot show one is not degraded by its absence.
+ */
 export async function sendChannelTyping(
   callbackUrl: string,
   chatId: string,
@@ -71,6 +75,24 @@ export async function sendChannelTyping(
     return { ok: true };
   }
   return transport.typing(callbackContext(callbackUrl), chatId);
+}
+
+/**
+ * Add or remove one of the assistant's own reactions on a message.
+ *
+ * Resolves to nothing when the channel has none, the same as typing: a
+ * reaction is an acknowledgement, and a channel that cannot show one is not a
+ * failed delivery.
+ */
+export async function sendChannelReaction(
+  callbackUrl: string,
+  target: ReactionTarget,
+): Promise<ChannelDeliveryResult> {
+  const transport = getTransportForCallback(callbackUrl);
+  if (!transport?.react) {
+    return { ok: true };
+  }
+  return transport.react(callbackContext(callbackUrl), target);
 }
 
 function callbackContext(callbackUrl: string): CallbackContext {
@@ -120,9 +142,6 @@ export async function deliverDirect(
   const ctx = callbackContext(callbackUrl);
   if (payload.slackStream && transport.streamReply) {
     return transport.streamReply(ctx, payload);
-  }
-  if (payload.reaction && transport.sendReaction) {
-    return transport.sendReaction(ctx, payload);
   }
   if (payload.assistantThreadStatus && transport.setThreadStatus) {
     return transport.setThreadStatus(ctx, payload);

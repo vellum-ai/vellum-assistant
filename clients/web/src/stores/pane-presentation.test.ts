@@ -17,9 +17,11 @@ import { describe, expect, it } from "bun:test";
 
 import {
   panePresentation,
+  viewerPanePresentation,
   type PanePosition,
   type PanePresentation,
 } from "@/stores/pane-presentation";
+import type { MainView } from "@/stores/viewer-store";
 
 /** What a viewer sees, with arrangements that look alike collapsed together. */
 type Rendered = "one-surface" | "two-columns" | "stacked-strip";
@@ -176,5 +178,77 @@ describe("panePresentation", () => {
         isNarrow: true,
       }),
     ).toBe("full");
+  });
+});
+
+describe("viewerPanePresentation reads the stored fields", () => {
+  // The two combinations below are the reference: an arrangement is correct
+  // when it agrees with them across every combination the fields can hold.
+  const MAIN_VIEWS: readonly MainView[] = [
+    "chat",
+    "app",
+    "app-editing",
+    "document",
+  ];
+  const BOOLS = [false, true];
+
+  /** The field combination that means side by side. */
+  function rendersSplit(
+    mainView: MainView,
+    hasApp: boolean,
+    hasBoundConversation: boolean,
+  ): boolean {
+    return mainView === "app-editing" && hasApp && hasBoundConversation;
+  }
+
+  /** The field combination that means the app is parked to its strip. */
+  function rendersStrip(
+    mainView: MainView,
+    hasApp: boolean,
+    isAppMinimized: boolean,
+  ): boolean {
+    return mainView === "app" && isAppMinimized && hasApp;
+  }
+
+  for (const mainView of MAIN_VIEWS) {
+    for (const hasApp of BOOLS) {
+      for (const hasBoundConversation of BOOLS) {
+        for (const isAppMinimized of BOOLS) {
+          const fields = {
+            mainView,
+            hasApp,
+            hasBoundConversation,
+            isAppMinimized,
+          };
+          const label = `${mainView}, app=${hasApp}, bound=${hasBoundConversation}, minimized=${isAppMinimized}`;
+
+          it(`${label}: side matches the split's condition`, () => {
+            expect(viewerPanePresentation(fields) === "side").toBe(
+              rendersSplit(mainView, hasApp, hasBoundConversation),
+            );
+          });
+
+          it(`${label}: bottom matches the strip's condition`, () => {
+            expect(viewerPanePresentation(fields) === "bottom").toBe(
+              rendersStrip(mainView, hasApp, isAppMinimized),
+            );
+          });
+        }
+      }
+    }
+  }
+
+  it("reports no secondary once the viewer has moved off the app", () => {
+    const offApp: readonly MainView[] = ["chat", "document", "skill-detail"];
+    for (const mainView of offApp) {
+      expect(
+        viewerPanePresentation({
+          mainView,
+          hasApp: true,
+          hasBoundConversation: true,
+          isAppMinimized: false,
+        }),
+      ).toBe("single");
+    }
   });
 });

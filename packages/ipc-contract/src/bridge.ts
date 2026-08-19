@@ -170,7 +170,9 @@ export interface VellumBridge {
        * PCM — the offline transcript authority. Result arrives via
        * `onTranscribed`.
        */
-      transcribe?(audio: ArrayBuffer): Promise<{ ok: boolean; reason?: string }>;
+      transcribe?(
+        audio: ArrayBuffer,
+      ): Promise<{ ok: boolean; reason?: string }>;
       onTranscribed?(
         callback: (event: DictationPartialEvent) => void,
       ): () => void;
@@ -279,6 +281,19 @@ export interface VellumBridge {
   };
   menu: {
     setPlatformSession(has: boolean): Promise<void>;
+    /**
+     * The top-level application menus: stable ids plus the shell's own
+     * labels. Windows only: the shell hides the native frame (and the menu
+     * bar with it), so the renderer draws the titles in its own title bar,
+     * mapping the ids to localized labels.
+     */
+    titles?(): Promise<Array<{ id: string; label: string }>>;
+    /**
+     * Pop the native submenu with the given id at (`x`, `y`), in CSS pixels
+     * relative to the window's web contents. Resolves when the menu closes.
+     * Windows only, paired with `titles`.
+     */
+    popup?(id: string, x: number, y: number): Promise<void>;
   };
   mainWindow: {
     ensureVisible(): Promise<void>;
