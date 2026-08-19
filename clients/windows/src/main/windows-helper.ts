@@ -12,6 +12,7 @@ export const getWindowsHelperPath = (): string =>
     ? path.join(
         process.resourcesPath,
         "native-helper",
+        HELPER_ARCH,
         "Vellum.WindowsHelper.exe",
       )
     : path.join(
