@@ -209,8 +209,9 @@ function dedicatedTableExists(db: DrizzleDb, table: string): boolean {
  * row is already gone by this point, so throwing here would turn a completed
  * delete into an error the caller cannot usefully retry. A swallowed failure
  * is not the end of the story: `sweepOrphanedWatchTimelineEntries` runs from
- * database maintenance and deletes entries whose conversation no longer
- * exists, so whatever this pass leaves behind is reclaimed on a later one.
+ * daemon startup and from database maintenance and deletes entries whose
+ * conversation no longer exists, so whatever this pass leaves behind is
+ * reclaimed on a later one.
  */
 function purgeWatchTimelineForDeletedConversation(id: string): void {
   try {

@@ -39,7 +39,7 @@
  * a failed purge or a crash between the conversation delete and the purge would
  * otherwise strand frames of the user's screen for good;
  * {@link sweepOrphanedWatchTimelineEntries} deletes entries whose conversation
- * is gone, and reclaims them on a later maintenance pass.
+ * is gone, and reclaims them on the next startup or maintenance pass.
  */
 
 import { randomUUID } from "node:crypto";
@@ -767,10 +767,10 @@ const MAX_SWEEP_ENTRIES = 5_000;
  * Conversation ids are never reused, so a row the select called an orphan is
  * still one by the time the delete runs.
  *
- * Best-effort and idempotent. It runs from database maintenance, which has
- * nothing useful to do with a failure, so a failing statement logs and reports
- * nothing swept and the next pass tries again; a second run over swept rows
- * finds none.
+ * Best-effort and idempotent. It runs from daemon startup and from database
+ * maintenance, neither of which has anything useful to do with a failure, so a
+ * failing statement logs and reports nothing swept and the next pass tries
+ * again; a second run over swept rows finds none.
  */
 export function sweepOrphanedWatchTimelineEntries(): number {
   try {
