@@ -50,8 +50,19 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
-/** Minimum hold duration (ms) before PTT activates, matching macOS PTTActivator. */
-const PTT_HOLD_DELAY_MS = 300;
+/** Hold guard for a single key or modifier. */
+const PTT_HOLD_DELAY_MS = 100;
+
+function activatesImmediately(activator: PTTActivator): boolean {
+  if (activator.kind === "off") {
+    return false;
+  }
+  const modifierCount = activator.modifiers.filter(
+    (modifier) => modifier !== "function",
+  ).length;
+  const inputCount = modifierCount + (activator.kind === "key" ? 1 : 0);
+  return inputCount > 1;
+}
 
 /**
  * Play a short activation blip via the Web Audio API to provide audible
@@ -107,12 +118,13 @@ function playActivationBlip(): void {
 /**
  * Listens for the saved PTT activator on `window` keydown/keyup and drives
  * the provided voice-input handle. Hold-to-talk: key-down starts recording
- * after a 300 ms hold delay, key-up stops it. Only fires while the Vellum
+ * after a short hold guard, key-up stops it. Multi-key chords start as soon
+ * as the final key is pressed. Only fires while the Vellum
  * tab has focus. Electron's app-level native Fn bridge bypasses this DOM path
  * so the desktop app can keep PTT active while it is in the background.
  *
- * The 300 ms hold delay prevents accidental activation from quick taps and
- * system shortcuts (matching the macOS `PTTActivator` behaviour). If
+ * The hold guard prevents accidental activation from quick taps and system
+ * shortcuts. If
  * another non-modifier key is pressed during the hold window, activation
  * is cancelled (the user is likely typing a shortcut like Ctrl+C).
  *
@@ -208,7 +220,7 @@ export function usePushToTalk(
       }
 
       holdingRef.current = true;
-      holdTimerRef.current = setTimeout(() => {
+      const activate = () => {
         holdTimerRef.current = null;
         if (!holdingRef.current) {
           return;
@@ -220,7 +232,12 @@ export function usePushToTalk(
         }
         holdingRef.current = false;
         startActiveTarget("dom");
-      }, PTT_HOLD_DELAY_MS);
+      };
+      if (activatesImmediately(activator)) {
+        activate();
+        return;
+      }
+      holdTimerRef.current = setTimeout(activate, PTT_HOLD_DELAY_MS);
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {

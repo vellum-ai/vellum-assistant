@@ -65,6 +65,32 @@ describe("usePushToTalk", () => {
     expect(target.stop).toHaveBeenCalledTimes(1);
   });
 
+  test("starts a multi-modifier chord immediately", () => {
+    localStorage.setItem(
+      LS_PTT_ACTIVATION_KEY,
+      serializeActivator({
+        kind: "modifierOnly",
+        modifiers: ["control", "shift"],
+      }),
+    );
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    renderPushToTalk(target);
+    const textarea = focusedTextarea();
+
+    fireEvent.keyDown(textarea, { key: "Control", ctrlKey: true });
+    expect(target.start).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(textarea, {
+      key: "Shift",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(target.start).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyUp(textarea, { key: "Shift", ctrlKey: true });
+    expect(target.stop).toHaveBeenCalledTimes(1);
+  });
+
   test("keeps key activators disabled inside editable targets", async () => {
     localStorage.setItem(
       LS_PTT_ACTIVATION_KEY,

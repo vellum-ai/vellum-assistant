@@ -84,6 +84,9 @@ public static class DictationServiceTests
         Assert(events.Any(e => e.Method == "dictation.error" &&
             e.Json.Contains("audio device lost", StringComparison.Ordinal)));
         Assert(!events.Any(e => e.Method == "dictation.finalized"));
+        Assert(SpinWait.SpinUntil(() => engine.Disposed, TimeSpan.FromSeconds(1)));
+        manager.AppendAudio(Convert.ToBase64String(new byte[] { 3, 4 }));
+        Assert(engine.Chunks.Count == 0);
 
         // Restarting cancels the replaced session: it is torn down and its
         // late events are dropped without a finalized transcript.

@@ -103,26 +103,41 @@ public sealed class DictationSessionManager(
             }
             engine.Partial += text => IfCurrent(generation, () =>
                 notify("dictation.partial", new { text }));
-            engine.Failed += message => IfCurrent(generation, () =>
-                notify("dictation.error",
-                    new { message, onDevice = true, willRetryServer = false }));
-            engine.Finalized += text =>
+            engine.Failed += message =>
             {
-                IfCurrent(generation, () => notify("dictation.finalized", new { text }));
-                // Off the recognizer's own event thread: disposing a
-                // SpeechRecognitionEngine from inside its events can deadlock.
+                if (ReleaseIfCurrent(generation, engine))
+                {
+                    notify("dictation.error",
+                        new { message, onDevice = true, willRetryServer = false });
+                }
                 _ = Task.Run(engine.Dispose);
             };
+            engine.Finalized += text =>
+            {
+                if (ReleaseIfCurrent(generation, engine))
+                {
+                    notify("dictation.finalized", new { text });
+                }
+                _ = Task.Run(engine.Dispose);
+            };
+            _engine = engine;
             try
             {
                 engine.Start();
             }
             catch (Exception err)
             {
-                engine.Dispose();
+                if (ReferenceEquals(_engine, engine))
+                {
+                    _engine = null;
+                    engine.Dispose();
+                }
                 return new { enabled = false, reason = err.Message };
             }
-            _engine = engine;
+            if (!ReferenceEquals(_engine, engine))
+            {
+                return new { enabled = false, reason = "recognition failed" };
+            }
             return new { enabled = true, tap = engine.Tap };
         }
     }
@@ -164,6 +179,22 @@ public sealed class DictationSessionManager(
             }
         }
         action();
+    }
+
+    private bool ReleaseIfCurrent(int generation, IDictationEngine engine)
+    {
+        lock (_gate)
+        {
+            if (generation != _generation)
+            {
+                return false;
+            }
+            if (ReferenceEquals(_engine, engine))
+            {
+                _engine = null;
+            }
+            return true;
+        }
     }
 }
 
