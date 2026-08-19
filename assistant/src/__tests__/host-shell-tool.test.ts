@@ -859,7 +859,7 @@ describe("host_bash — proxy delegation", () => {
       delete process.env[key];
     }
     // With VELLUM_WORKSPACE_DIR unset, loadConfig resolves the real ~/.vellum
-    // fallback (read-only here) — bypass the live-workspace guard for it.
+    // fallback (read-only here), so bypass the live-workspace guard for it.
     process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE = "1";
 
     try {

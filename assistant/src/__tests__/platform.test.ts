@@ -24,8 +24,8 @@ import {
 
 const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 
-// This file characterizes path resolution itself — including the ~/.vellum
-// fallback and literal override paths — without reading or writing those
+// This file characterizes path resolution itself (including the ~/.vellum
+// fallback and literal override paths) without reading or writing those
 // locations, so the live-workspace guard is deliberately bypassed.
 process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE = "1";
 afterAll(() => {

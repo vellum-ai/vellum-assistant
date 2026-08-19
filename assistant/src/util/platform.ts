@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, sep } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 
 import { SEEDS } from "@vellumai/environments";
 
@@ -24,13 +24,17 @@ const VELLUM_ROOT = join(homedir(), ".vellum");
  */
 export function vellumRoot(): string {
   const override = getWorkspaceDirOverride();
+  let root = VELLUM_ROOT;
   if (override) {
     const parent = dirname(override);
     if (parent !== "/") {
-      return parent;
+      root = parent;
     }
   }
-  return VELLUM_ROOT;
+  // Same containment rule as getWorkspaceDir(): root-derived paths (protected
+  // dir, .env) must stay ephemeral in test processes too.
+  assertTestPathIsEphemeral(root);
+  return root;
 }
 
 export function isMacOS(): boolean {
@@ -336,16 +340,15 @@ export function getProcPidPath(name: string): string {
 
 // --- Live-workspace guard for test processes --------------------------------
 //
-// A test process must never resolve the workspace to a real (non-temp)
-// directory: production code exercised by a test would then read — and
-// destructively write — a live workspace DB. The tmpdir redirection normally
+// A test process must never resolve the workspace (or the vellum root) to a
+// real, non-temp directory: production code exercised by a test would then
+// read and destructively write live state. The tmpdir redirection normally
 // comes from the bunfig.toml test preload, but bun only loads bunfig from the
-// cwd: `bun test` run from anywhere else (e.g. a source checkout inside a
-// deployed container's workspace) skips the preload entirely and inherits the
-// ambient VELLUM_WORKSPACE_DIR. That exact gap let a stray `bun test src`
-// execute clearAll() against a production DB (Aug 2026 incident), so the
-// containment assertion lives here, in production code, where it fires no
-// matter how the test process was launched.
+// cwd, so `bun test` run from any other directory (for example a source
+// checkout inside a deployed container's workspace) skips the preload and
+// inherits the ambient VELLUM_WORKSPACE_DIR. The containment assertion
+// therefore lives here, in production code, where it fires no matter how the
+// test process was launched.
 //
 // Containment logic mirrors src/__tests__/assert-not-live-db.ts, which cannot
 // be imported here (production code must not depend on test machinery).
@@ -353,31 +356,40 @@ export function getProcPidPath(name: string): string {
 /** Lazily computed: is this process a `bun test` run? */
 let isTestProcess: boolean | undefined;
 
-const validatedTestWorkspaces = new Set<string>();
+const validatedTestPaths = new Set<string>();
 
+/**
+ * Resolve symlinks in the deepest existing ancestor of `p`, then re-append
+ * the not-yet-created tail. This keeps the containment check honest both for
+ * paths under a symlinked temp root (macOS /var/folders) and for symlinks
+ * that point outside it, whether or not the leaf exists yet.
+ */
 function canonicalizeForWorkspaceGuard(p: string): string {
-  try {
-    return realpathSync(p);
-  } catch {
-    // Path doesn't exist yet — canonicalize the parent instead so symlinked
-    // temp roots (e.g. /tmp → /private/tmp on macOS) still compare correctly.
-    // Containment of the parent implies containment of the child.
+  let cur = p;
+  const tail: string[] = [];
+  for (;;) {
     try {
-      return realpathSync(dirname(p));
+      return join(realpathSync(cur), ...tail);
     } catch {
-      return p;
+      const parent = dirname(cur);
+      if (parent === cur) {
+        return p;
+      }
+      tail.unshift(basename(cur));
+      cur = parent;
     }
   }
 }
 
-function assertTestWorkspaceIsEphemeral(dir: string): void {
+function assertTestPathIsEphemeral(dir: string): void {
   isTestProcess ??=
     process.env.NODE_ENV === "test" ||
+    process.env.BUN_TEST === "1" ||
     // `bun test` sets NODE_ENV=test only when unset; Bun.main being the test
     // file itself is the backstop signal that survives a preset NODE_ENV.
     (typeof Bun !== "undefined" &&
       /\.(test|spec)\.[cm]?[jt]sx?$/.test(Bun.main));
-  if (!isTestProcess || validatedTestWorkspaces.has(dir)) {
+  if (!isTestProcess || validatedTestPaths.has(dir)) {
     return;
   }
   // Escape hatch for the rare intentional run against a real workspace.
@@ -387,21 +399,15 @@ function assertTestWorkspaceIsEphemeral(dir: string): void {
   if (process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE === "1") {
     return;
   }
-  const rawTmp = tmpdir();
-  const tmpRoot = canonicalizeForWorkspaceGuard(rawTmp);
+  const tmpRoot = canonicalizeForWorkspaceGuard(tmpdir());
   const resolved = canonicalizeForWorkspaceGuard(dir);
-  const within = (p: string, root: string) =>
-    p === root || p.startsWith(root + sep);
-  // Raw-prefix check as fallback: a not-yet-created path several levels below
-  // tmpdir can't be realpath'd, but a literal tmpdir prefix is proof enough —
-  // this guard defends against accidents, not adversarial symlinks.
-  if (!within(resolved, tmpRoot) && !within(dir, rawTmp)) {
+  if (resolved !== tmpRoot && !resolved.startsWith(tmpRoot + sep)) {
     throw new Error(
       [
-        `Refusing to use workspace ${dir} (resolves to ${resolved}) in a test process: it is not under the temp directory (${tmpRoot}).`,
+        `Refusing to use ${dir} (resolves to ${resolved}) in a test process: it is not under the temp directory (${tmpRoot}).`,
         "",
-        "Tests must only touch an ephemeral workspace — a real one would expose",
-        "a live assistant DB to destructive test fixtures. This usually means",
+        "Tests must only touch an ephemeral workspace; a real one would expose",
+        "live assistant state to destructive test fixtures. This usually means",
         "`bun test` ran from a cwd without the repo bunfig.toml, so the test",
         "preload that redirects VELLUM_WORKSPACE_DIR to a tmpdir never loaded.",
         "Run tests from the assistant package root, or set",
@@ -409,7 +415,7 @@ function assertTestWorkspaceIsEphemeral(dir: string): void {
       ].join("\n"),
     );
   }
-  validatedTestWorkspaces.add(dir);
+  validatedTestPaths.add(dir);
 }
 
 /**
@@ -424,7 +430,7 @@ function assertTestWorkspaceIsEphemeral(dir: string): void {
  */
 export function getWorkspaceDir(): string {
   const dir = getWorkspaceDirOverride() ?? join(VELLUM_ROOT, "workspace");
-  assertTestWorkspaceIsEphemeral(dir);
+  assertTestPathIsEphemeral(dir);
   return dir;
 }
 

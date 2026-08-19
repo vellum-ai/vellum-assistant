@@ -137,7 +137,7 @@ describe("ensurePluginApiShim", () => {
     );
 
     // Explicit env spread: under bun test, a child's default env reflects the
-    // process-start environ, not later process.env mutations — without this
+    // process-start environ, not later process.env mutations. Without this
     // the child misses the preload's VELLUM_WORKSPACE_DIR and resolves the
     // real ~/.vellum/workspace (refused by the live-workspace guard).
     const result = spawnSync(process.execPath, ["run", probe], {
