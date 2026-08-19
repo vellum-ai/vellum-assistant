@@ -1,17 +1,22 @@
 /**
- * Unit tests for `initNativeKeyboard` and `subscribeNativeKeyboardHeight`.
+ * Unit tests for `initNativeKeyboard`, `hideNativeKeyboard` and
+ * `subscribeNativeKeyboardHeight`.
  *
- * These pin the platform gate, the backwards-compat contract (shells without
- * the linked `@capacitor/keyboard` plugin reject the call and retain the
- * accessory bar, and boot must not surface that as an error), and the
- * defensive height read that keeps a malformed payload from reaching layout.
+ * These pin the platform gates (including the Android half of `hide()`, which
+ * the swipe-down dismiss gesture depends on), the backwards-compat contract
+ * (shells without the linked `@capacitor/keyboard` plugin reject the call and
+ * retain the accessory bar, and boot must not surface that as an error), and
+ * the defensive height read that keeps a malformed payload from reaching
+ * layout.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockIsNativeIOS = false;
+let mockIsNativeAndroid = false;
 mock.module("@/runtime/platform-detection", () => ({
   isNativeIOS: () => mockIsNativeIOS,
+  isNativeMobile: () => mockIsNativeIOS || mockIsNativeAndroid,
 }));
 
 mock.module("@/runtime/native-auth", () => ({
@@ -43,16 +48,21 @@ const addListener = mock((eventName: string, handler: unknown) => {
   return Promise.resolve({ remove: removeHide });
 });
 
+const hide = mock(async () => {});
+
 mock.module("@capacitor/keyboard", () => ({
-  Keyboard: { setAccessoryBarVisible, addListener },
+  Keyboard: { setAccessoryBarVisible, addListener, hide },
 }));
 
 // Warm the module cache so the source's lazy `import("@capacitor/keyboard")`
 // resolves within microtasks instead of a full loader turn.
 await import("@capacitor/keyboard");
 
-const { initNativeKeyboard, subscribeNativeKeyboardHeight } =
-  await import("@/runtime/native-keyboard");
+const {
+  hideNativeKeyboard,
+  initNativeKeyboard,
+  subscribeNativeKeyboardHeight,
+} = await import("@/runtime/native-keyboard");
 
 // The dynamic plugin import and its `.then` chain each queue a microtask, so
 // listener registration lags synchronous test code.
@@ -64,8 +74,10 @@ async function flushMicrotasks(rounds = 4): Promise<void> {
 
 beforeEach(() => {
   mockIsNativeIOS = false;
+  mockIsNativeAndroid = false;
   showHandler = null;
   hideHandler = null;
+  hide.mockClear();
   setAccessoryBarVisible.mockClear();
   addListener.mockClear();
   removeShow.mockClear();
@@ -93,6 +105,36 @@ describe("initNativeKeyboard", () => {
     });
     await initNativeKeyboard();
     expect(setAccessoryBarVisible).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("hideNativeKeyboard", () => {
+  test("never touches the plugin outside a native shell", async () => {
+    await hideNativeKeyboard();
+    expect(hide).not.toHaveBeenCalled();
+  });
+
+  test("hides the keyboard inside the native iOS shell", async () => {
+    mockIsNativeIOS = true;
+    await hideNativeKeyboard();
+    expect(hide).toHaveBeenCalledTimes(1);
+  });
+
+  test("hides the keyboard inside the native Android shell", async () => {
+    // The swipe-down dismiss gesture needs this: an Android WebView commonly
+    // keeps the IME up after a DOM blur, so the plugin call is the way down.
+    mockIsNativeAndroid = true;
+    await hideNativeKeyboard();
+    expect(hide).toHaveBeenCalledTimes(1);
+  });
+
+  test("swallows the rejection Android returns with no focused view", async () => {
+    mockIsNativeAndroid = true;
+    hide.mockImplementationOnce(async () => {
+      throw new Error("Can't close keyboard, not currently focused");
+    });
+    await hideNativeKeyboard();
+    expect(hide).toHaveBeenCalledTimes(1);
   });
 });
 

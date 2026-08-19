@@ -48,6 +48,8 @@ import {
   EDGE_SWIPE_SLIDE_MS,
 } from "@/hooks/edge-swipe-motion";
 import { useEdgeSwipeDrawer } from "@/hooks/use-edge-swipe-drawer";
+import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
+import { useSwipeDownDismissKeyboard } from "@/hooks/use-swipe-down-dismiss-keyboard";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useMobileDrawerStore } from "@/stores/mobile-drawer-store";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
@@ -588,6 +590,14 @@ export function ChatLayout({
     },
     onSettle: () => setDrawerDragging(false),
   });
+
+  // Swipe-down-to-dismiss-keyboard. Armed only while the soft keyboard is up,
+  // so it costs nothing the rest of the time and cannot shadow the gestures
+  // above. It listens on `document` rather than on a container because the
+  // whole surface over the keyboard should answer to it: the thread, the
+  // banners, the composer chrome and the header alike, not just the one
+  // scrollable strip a drag happens to land in.
+  useSwipeDownDismissKeyboard({ enabled: useKeyboardOpen() });
 
   const activeConversationId = useConversationStore.use.activeConversationId();
   const processingConversationIds =
