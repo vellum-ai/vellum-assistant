@@ -1093,7 +1093,8 @@ export function ChatLayout({
                 // panel tracks the finger from where it sits. Releasing short
                 // returns it here under the standard transition; releasing past
                 // the threshold flips `drawerOpen`, and the same transition
-                // carries it the rest of the way out.
+                // carries it the rest of the way out while the panel stays
+                // mounted for the slide.
                 transform: drawerOpen
                   ? `translateX(${drawerGestures.dragOffset}px)`
                   : "translateX(-100%)",
@@ -1103,6 +1104,10 @@ export function ChatLayout({
                 // Vertical panning stays native for the menu's scrollport while
                 // the horizontal axis belongs to this gesture.
                 touchAction: "pan-y",
+                // A panel on its way out still covers the viewport for the
+                // length of the slide. Let taps through to the page it is
+                // uncovering rather than swallowing them.
+                pointerEvents: drawerGestures.exiting ? "none" : undefined,
               }}
               onTouchStart={drawerGestures.onTouchStart}
               onTouchMove={drawerGestures.onTouchMove}
