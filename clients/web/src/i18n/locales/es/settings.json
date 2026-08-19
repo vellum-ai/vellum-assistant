@@ -947,6 +947,7 @@
     "systemDefault": "Predeterminado del sistema",
     "talkShortcutLabel": "Hablar",
     "talkShortcutLink": "Cámbialo en Preferencias → Atajos de teclado",
+    "talkShortcutSetLink": "Configúralo en Preferencias → Atajos de teclado",
     "talkShortcutUnbound": "Sin asignar",
     "turnTakingSubtitle": "Dónde termina tu turno y comienza el del asistente. Se aplica a conversaciones manos libres. Con pulsar para hablar, lo decide la tecla.",
     "turnTakingTitle": "Turnos de conversación",

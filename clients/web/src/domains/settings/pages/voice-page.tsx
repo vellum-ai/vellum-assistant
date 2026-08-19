@@ -574,7 +574,9 @@ function VoiceModeShortcutCard() {
             to={routes.settings.general}
             className="inline-flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
           >
-            {t("voicePage.talkShortcutLink")}
+            {talkAccelerator
+              ? t("voicePage.talkShortcutLink")
+              : t("voicePage.talkShortcutSetLink")}
             <ArrowUpRight className="h-3 w-3" />
           </Link>
 

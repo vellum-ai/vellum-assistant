@@ -947,6 +947,7 @@
     "systemDefault": "System Default",
     "talkShortcutLabel": "Talk",
     "talkShortcutLink": "Change in Preferences → Keyboard Shortcuts",
+    "talkShortcutSetLink": "Set one in Preferences → Keyboard Shortcuts",
     "talkShortcutUnbound": "Not bound",
     "turnTakingSubtitle": "Where your turn ends and the assistant's begins. Applies to hands-free conversations. Under push to talk, the key decides.",
     "turnTakingTitle": "Turn taking",
