@@ -25,6 +25,19 @@ export interface AvatarData {
 
 const activeBlobUrls = new Map<string, string>();
 
+export interface AssistantAvatarOptions {
+  /**
+   * Per-assistant override for the avatar-state-manifest capability. The
+   * default gate reads the ACTIVE assistant's version, which is wrong for
+   * a sibling assistant on another runtime: a pre-manifest sibling would
+   * be asked for `/avatar/state` it doesn't serve and its avatar would
+   * collapse to the fallback. List surfaces resolve the sibling's own
+   * version (`versionSupportsAvatarStateManifest`) and pass it here;
+   * `undefined` keeps the active-assistant gate.
+   */
+  supportsManifest?: boolean;
+}
+
 /**
  * Resolve the avatar render mode from the authoritative `/avatar/state`
  * manifest (assistants on `MIN_VERSION`+). Throws on a null state so React
@@ -90,9 +103,13 @@ async function fetchAvatarViaLegacyFiles(
  * key so the avatar re-fetches through the correct path the moment the
  * assistant version resolves.
  */
-export function useAssistantAvatar(assistantId: string | null) {
+export function useAssistantAvatar(
+  assistantId: string | null,
+  options?: AssistantAvatarOptions,
+) {
   const queryClient = useQueryClient();
-  const supportsManifest = useSupportsAvatarStateManifest();
+  const activeSupportsManifest = useSupportsAvatarStateManifest();
+  const supportsManifest = options?.supportsManifest ?? activeSupportsManifest;
 
   const { data, isLoading } = useQuery<AvatarData>({
     queryKey: [...avatarQueryKey(assistantId ?? ""), supportsManifest],

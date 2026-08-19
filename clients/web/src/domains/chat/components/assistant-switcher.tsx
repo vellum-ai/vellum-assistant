@@ -24,6 +24,7 @@ import { switchToResolvedAssistant } from "@/assistant/switch-service";
 import { useSwitchableAssistants } from "@/assistant/use-switchable-assistants";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { AssistantSwitcherRow } from "@/domains/chat/components/assistant-switcher-row";
+import { versionSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useConversationStore } from "@/stores/conversation-store";
 import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
@@ -218,6 +219,12 @@ export function AssistantSwitcher({
               name={assistant.name || t("assistantSwitcher.unnamedAssistant")}
               disabled={switching}
               switching={switchingId === assistant.id}
+              /* A sibling's avatar loads through ITS runtime's capability,
+                 not the active assistant's: the default gate would ask a
+                 pre-manifest sibling for /avatar/state it doesn't serve. */
+              supportsAvatarManifest={versionSupportsAvatarStateManifest(
+                assistant.runtimeVersion ?? assistant.currentReleaseVersion,
+              )}
               onSelect={() => void handleSwitch(assistant)}
             />
           ))}

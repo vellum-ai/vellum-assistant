@@ -24,6 +24,13 @@ interface AssistantSwitcherRowProps {
   disabled?: boolean;
   /** A switch to this row is in flight; shows a spinner beside the name. */
   switching?: boolean;
+  /**
+   * This assistant's own avatar-state-manifest capability, resolved from
+   * ITS version: a sibling can run an older runtime than the active
+   * assistant the default gate reads. `undefined` keeps the active gate
+   * (the current row).
+   */
+  supportsAvatarManifest?: boolean;
   trailingAction?: ReactNode;
   onSelect: () => void;
 }
@@ -34,12 +41,15 @@ export function AssistantSwitcherRow({
   isCurrent = false,
   disabled = false,
   switching = false,
+  supportsAvatarManifest,
   trailingAction,
   onSelect,
 }: AssistantSwitcherRowProps) {
   const { t } = useTranslation("chat");
-  const { components, traits, customImageUrl } =
-    useAssistantAvatar(assistantId);
+  const { components, traits, customImageUrl } = useAssistantAvatar(
+    assistantId,
+    { supportsManifest: supportsAvatarManifest },
+  );
 
   const label = isCurrent ? (
     <span className="flex min-w-0 items-center gap-2">

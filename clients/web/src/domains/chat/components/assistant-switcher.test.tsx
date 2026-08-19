@@ -27,6 +27,7 @@ const OTHER: ResolvedAssistant = {
   isLocal: false,
   isPlatformHosted: true,
   isPaired: false,
+  runtimeVersion: "0.9.0",
 };
 
 const navigateMock = mock((_to: string, _opts?: { replace?: boolean }) => {});
@@ -61,14 +62,23 @@ mock.module("@/lib/sentry/capture-error", () => ({
   captureError: captureErrorMock,
 }));
 
+const avatarCalls: Array<
+  [string | null, { supportsManifest?: boolean } | undefined]
+> = [];
 mock.module("@/hooks/use-assistant-avatar", () => ({
-  useAssistantAvatar: () => ({
-    components: null,
-    traits: null,
-    customImageUrl: null,
-    isLoading: false,
-    invalidate: () => {},
-  }),
+  useAssistantAvatar: (
+    id: string | null,
+    options?: { supportsManifest?: boolean },
+  ) => {
+    avatarCalls.push([id, options]);
+    return {
+      components: null,
+      traits: null,
+      customImageUrl: null,
+      isLoading: false,
+      invalidate: () => {},
+    };
+  },
 }));
 
 const { AssistantSwitcher } = await import(
@@ -95,6 +105,7 @@ beforeEach(() => {
   switchMock.mockImplementation(async () => {});
   captureErrorMock.mockClear();
   navigateMock.mockClear();
+  avatarCalls.length = 0;
   useConversationStore.setState({ activeConversationId: null });
 });
 
@@ -212,6 +223,41 @@ describe("AssistantSwitcher expanded card", () => {
       LOCATION.pathname,
       { replace: true },
     ]);
+  });
+
+  test("sibling avatars gate by the sibling's own runtime version", () => {
+    const OLD_SIBLING: ResolvedAssistant = {
+      id: "a3",
+      name: "Carol",
+      isLocal: false,
+      isPlatformHosted: true,
+      isPaired: false,
+      runtimeVersion: "0.5.0",
+    };
+    switchable = {
+      assistants: [CURRENT, OTHER, OLD_SIBLING],
+      canSwitch: true,
+    };
+    const { getByLabelText } = renderSwitcher();
+
+    fireEvent.click(getByLabelText("Switch assistant"));
+
+    /* Bob's 0.9.0 runtime serves the manifest; Carol's 0.5.0 predates it.
+       The current row carries no override, deferring to the active gate. */
+    expect(
+      avatarCalls.some(([id, o]) => id === "a2" && o?.supportsManifest === true),
+    ).toBe(true);
+    expect(
+      avatarCalls.some(
+        ([id, o]) => id === "a3" && o?.supportsManifest === false,
+      ),
+    ).toBe(true);
+    expect(
+      avatarCalls.some(
+        ([id, o]) =>
+          id === "a1" && o !== undefined && o.supportsManifest === undefined,
+      ),
+    ).toBe(true);
   });
 
   test("a mid-switch assistant publication still hands focus to the chevron", async () => {
