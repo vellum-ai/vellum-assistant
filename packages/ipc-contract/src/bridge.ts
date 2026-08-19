@@ -42,7 +42,7 @@ import type {
   SystemPermissionStateItem,
   SystemPermissionsState,
   TextInsertionResult,
-  TitleBarOverlayColors,
+  TitleBarOverlayTheme,
   UpdateState,
   VellumCommand,
   VoiceActivityContent,
@@ -289,7 +289,7 @@ export interface VellumBridge {
      * draws traffic lights the system themes itself, so the macOS preload
      * does not expose this.
      */
-    setTitleBarOverlay?(colors: TitleBarOverlayColors): Promise<void>;
+    setTitleBarOverlay?(colors: TitleBarOverlayTheme): Promise<void>;
   };
   power: {
     onEvent(callback: (event: PowerEvent) => void): () => void;

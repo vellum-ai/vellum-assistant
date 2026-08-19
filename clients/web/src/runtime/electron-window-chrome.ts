@@ -2,7 +2,7 @@
  * The Electron desktop window's chrome, as the renderer owns it: the band the
  * app's own title bar occupies, and the native window controls drawn into it.
  */
-import type { TitleBarOverlayColors } from "@vellumai/ipc-contract";
+import type { TitleBarOverlayTheme } from "@vellumai/ipc-contract";
 
 import { detectElectronHostOS } from "@/runtime/platform-detection";
 import { isPopoutWindow } from "@/runtime/popout-window";
@@ -10,12 +10,12 @@ import { isPopoutWindow } from "@/runtime/popout-window";
 export const WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX = 150;
 
 /**
- * The root attributes an effective theme arrives through: `data-theme` for the
- * light / dark / velvet base (`applyThemePreference()`), and inline custom
- * properties for a workspace theme's overrides layered on top of it
- * (`applyWorkspaceThemeTokens()`).
+ * The root attributes an effective theme arrives through: `data-theme` and the
+ * `dark` class for the light / dark / velvet base (`applyThemePreference()`),
+ * and inline custom properties for a workspace theme's overrides layered on top
+ * of it (`applyWorkspaceThemeTokens()`).
  */
-const THEME_ATTRIBUTES = ["data-theme", "style"];
+const THEME_ATTRIBUTES = ["data-theme", "class", "style"];
 
 /**
  * The theme tokens the caption buttons are painted from: the surface every
@@ -23,20 +23,27 @@ const THEME_ATTRIBUTES = ["data-theme", "style"];
  * rather than a per-theme table keeps the buttons on whatever the light, dark,
  * and velvet themes define, with no second copy of those colors to drift.
  */
-function readOverlayColors(): TitleBarOverlayColors | null {
+function readOverlayTheme(): TitleBarOverlayTheme | null {
+  const root = document.documentElement;
   // The attribute is stamped by `applyThemePreference()`. Until it lands the
   // effective theme is unknown, and reporting the `:root` fallback would flash
   // a light overlay onto a dark window.
-  if (!document.documentElement.hasAttribute("data-theme")) {
+  if (!root.hasAttribute("data-theme")) {
     return null;
   }
-  const styles = getComputedStyle(document.documentElement);
+  const styles = getComputedStyle(root);
   const color = styles.getPropertyValue("--surface-base").trim();
   const symbolColor = styles.getPropertyValue("--content-default").trim();
   if (!color || !symbolColor) {
     return null;
   }
-  return { color, symbolColor };
+  // Both dark and velvet carry the `dark` class, which is how the rest of the
+  // app decides which of the two schemes it is painting.
+  return {
+    color,
+    symbolColor,
+    colorScheme: root.classList.contains("dark") ? "dark" : "light",
+  };
 }
 
 /**
@@ -47,7 +54,9 @@ function readOverlayColors(): TitleBarOverlayColors | null {
  * it: left alone it renders on the system caption colors, a light strip in the
  * corner of a dark title bar. Publishing the theme's colors to main, which
  * applies them with `BrowserWindow.setTitleBarOverlay`, is how the buttons join
- * the title bar they sit in.
+ * the title bar they sit in. The scheme those colors come from goes with them,
+ * because Chromium washes the buttons on hover from the native scheme rather
+ * than from the overlay's color.
  *
  * No-op off the Windows desktop client: macOS draws traffic lights the system
  * themes itself, and web and Capacitor hosts have no window chrome. Pop-out
@@ -67,22 +76,23 @@ export function initWindowsTitleBarOverlay(): () => void {
     return () => undefined;
   }
 
-  let published: TitleBarOverlayColors | null = null;
+  let published: TitleBarOverlayTheme | null = null;
   const publish = () => {
-    const colors = readOverlayColors();
-    if (!colors) {
+    const theme = readOverlayTheme();
+    if (!theme) {
       return;
     }
     // The root's `style` carries more than theme tokens, so most mutations
-    // resolve to the colors already painted.
+    // resolve to the theme already painted.
     if (
-      colors.color === published?.color &&
-      colors.symbolColor === published?.symbolColor
+      theme.color === published?.color &&
+      theme.symbolColor === published?.symbolColor &&
+      theme.colorScheme === published?.colorScheme
     ) {
       return;
     }
-    published = colors;
-    void window.vellum?.mainWindow.setTitleBarOverlay?.(colors);
+    published = theme;
+    void window.vellum?.mainWindow.setTitleBarOverlay?.(theme);
   };
 
   publish();

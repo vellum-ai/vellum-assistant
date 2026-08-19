@@ -824,23 +824,29 @@ export interface CompanionSurfaceState {
 // Windows title bar
 // ---------------------------------------------------------------------------
 
+/** Which of the app's two color schemes a theme paints. */
+export type ColorScheme = "light" | "dark";
+
 /**
- * The colors the Windows title-bar overlay (the native minimize / maximize /
- * close buttons drawn over the webview) is painted with.
+ * How the Windows title-bar overlay (the native minimize / maximize / close
+ * buttons drawn over the webview) is painted.
  *
  * The overlay is chrome the OS draws, so it has no access to the renderer's
  * theme tokens and defaults to the system caption colors. The renderer
  * publishes the active theme's surface and content colors so the buttons match
- * the title bar they sit in.
+ * the title bar they sit in, plus the scheme those colors come from, which is
+ * what Chromium derives the buttons' hover and press wash from.
  *
- * Both are CSS color strings, which Electron parses with Chromium's color
+ * The colors are CSS color strings, which Electron parses with Chromium's color
  * parser (hex, `rgb()`, `hsl()`, and named colors).
  *
  * @see https://www.electronjs.org/docs/latest/tutorial/window-customization#set-custom-window-controls-colors
  */
-export interface TitleBarOverlayColors {
+export interface TitleBarOverlayTheme {
   /** The overlay's background, matching the title bar's own surface. */
   color: string;
   /** The button glyphs, matching the title bar's text. */
   symbolColor: string;
+  /** The scheme the two colors are drawn from. */
+  colorScheme: ColorScheme;
 }

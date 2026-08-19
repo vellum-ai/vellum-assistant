@@ -127,8 +127,9 @@ const cssColorSchema = z
   .max(64)
   .regex(/^(#[0-9a-fA-F]{3,8}|(?:rgb|hsl)a?\([^()]*\)|[a-zA-Z]+)$/);
 
-/** See `TitleBarOverlayColors`: the Windows caption buttons' two colors. */
-export const titleBarOverlayColorsSchema = z.object({
+/** See `TitleBarOverlayTheme`: how the Windows caption buttons are painted. */
+export const titleBarOverlayThemeSchema = z.object({
   color: cssColorSchema,
   symbolColor: cssColorSchema,
+  colorScheme: z.enum(["light", "dark"]),
 });

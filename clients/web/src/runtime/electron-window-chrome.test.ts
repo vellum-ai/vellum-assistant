@@ -1,8 +1,25 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { TitleBarOverlayColors } from "@vellumai/ipc-contract";
+import type { TitleBarOverlayTheme } from "@vellumai/ipc-contract";
 
 import type { ElectronHostOS } from "@/runtime/platform-detection";
+
+/**
+ * happy-dom keeps each mutation listener's report callback in a `WeakRef`
+ * (`MutationObserverListener`), so a garbage collection mid-test silences the
+ * observer and no further mutations are reported. Retaining the referents for
+ * the life of the file makes delivery deterministic.
+ */
+const retainedWeakReferents = new Set<WeakKey>();
+const NativeWeakRef = globalThis.WeakRef;
+globalThis.WeakRef = class RetainingWeakRef<
+  T extends WeakKey,
+> extends NativeWeakRef<T> {
+  constructor(value: T) {
+    super(value);
+    retainedWeakReferents.add(value);
+  }
+} as typeof WeakRef;
 
 let hostOS: ElectronHostOS | null = "windows";
 
@@ -12,7 +29,7 @@ mock.module("@/runtime/platform-detection", () => ({
 
 const { initWindowsTitleBarOverlay } = await import("./electron-window-chrome");
 
-let published: TitleBarOverlayColors[] = [];
+let published: TitleBarOverlayTheme[] = [];
 let stopSync: (() => void) | null = null;
 
 /** Start the sync and register its teardown so cases stay isolated. */
@@ -31,11 +48,17 @@ const THEME_TOKENS = {
   velvet: { surface: "#121214", content: "#F6F5F4" },
 } as const;
 
+/**
+ * Applies a theme the way `applyThemePreference()` does: the tokens, the
+ * `data-theme` attribute, and the `dark` class both dark themes carry.
+ */
 function applyTheme(theme: keyof typeof THEME_TOKENS): void {
   const root = document.documentElement;
   root.style.setProperty("--surface-base", THEME_TOKENS[theme].surface);
   root.style.setProperty("--content-default", THEME_TOKENS[theme].content);
   root.setAttribute("data-theme", theme);
+  root.classList.toggle("dark", theme !== "light");
+  root.classList.toggle("velvet", theme === "velvet");
 }
 
 /** Let the observer's microtask-scheduled callback run. */
@@ -47,11 +70,12 @@ beforeEach(() => {
   published = [];
   document.documentElement.removeAttribute("data-theme");
   document.documentElement.removeAttribute("style");
+  document.documentElement.removeAttribute("class");
   window.vellum = {
     mainWindow: {
       ensureVisible: async () => undefined,
       setOnboarding: async () => undefined,
-      setTitleBarOverlay: async (colors: TitleBarOverlayColors) => {
+      setTitleBarOverlay: async (colors: TitleBarOverlayTheme) => {
         published.push(colors);
       },
     },
@@ -77,9 +101,10 @@ describe("initWindowsTitleBarOverlay", () => {
     startSync();
     await flushMutations();
 
-    // THEN the dark theme's surface and text colors reach the main process
+    // THEN the dark theme's surface and text colors reach the main process,
+    // along with the scheme Chromium washes the buttons from
     expect(published).toEqual([
-      { color: "#17191C", symbolColor: "#F6F5F4" },
+      { color: "#17191C", symbolColor: "#F6F5F4", colorScheme: "dark" },
     ]);
   });
 
@@ -96,11 +121,12 @@ describe("initWindowsTitleBarOverlay", () => {
     // WHEN the user switches to velvet
     applyTheme("velvet");
 
-    // THEN velvet's own colors are published, distinct from the dark theme's
+    // THEN velvet's own colors are published, distinct from the dark theme's,
+    // and the scheme follows the theme off light
     await flushMutations();
     expect(published).toEqual([
-      { color: "#F6F5F4", symbolColor: "#24292E" },
-      { color: "#121214", symbolColor: "#F6F5F4" },
+      { color: "#F6F5F4", symbolColor: "#24292E", colorScheme: "light" },
+      { color: "#121214", symbolColor: "#F6F5F4", colorScheme: "dark" },
     ]);
   });
 
@@ -123,8 +149,8 @@ describe("initWindowsTitleBarOverlay", () => {
     // THEN the authored colors are published over the base theme's
     await flushMutations();
     expect(published).toEqual([
-      { color: "#17191C", symbolColor: "#F6F5F4" },
-      { color: "#2B1B3D", symbolColor: "#F3E9FF" },
+      { color: "#17191C", symbolColor: "#F6F5F4", colorScheme: "dark" },
+      { color: "#2B1B3D", symbolColor: "#F3E9FF", colorScheme: "dark" },
     ]);
   });
 
@@ -143,7 +169,9 @@ describe("initWindowsTitleBarOverlay", () => {
 
     // THEN the colors already painted are not republished
     await flushMutations();
-    expect(published).toEqual([{ color: "#17191C", symbolColor: "#F6F5F4" }]);
+    expect(published).toEqual([
+      { color: "#17191C", symbolColor: "#F6F5F4", colorScheme: "dark" },
+    ]);
   });
 
   test("stays quiet until the effective theme is resolved", async () => {
@@ -162,7 +190,9 @@ describe("initWindowsTitleBarOverlay", () => {
     // THEN nothing is published for the unresolved document
     expect(beforeTheme).toEqual([]);
     // AND the resolved theme is published once it lands
-    expect(published).toEqual([{ color: "#17191C", symbolColor: "#F6F5F4" }]);
+    expect(published).toEqual([
+      { color: "#17191C", symbolColor: "#F6F5F4", colorScheme: "dark" },
+    ]);
   });
 
   test("does nothing on hosts with no themable overlay", async () => {
