@@ -8,7 +8,10 @@
     "closeAriaLabel": "Close",
     "camera": "Camera",
     "gallery": "Photo Library",
-    "files": "Files"
+    "files": "Files",
+    "pickFailed": "Could not add that file. Please try again.",
+    "tooLarge": "{count, plural, one {# file is too large to attach} other {# files are too large to attach}}",
+    "pickFull": "{count, plural, one {# file did not fit in this batch. Add it on its own.} other {# files did not fit in this batch. Add them separately.}}"
   },
   "allowOptionsMenu": {
     "allowAndCreateRule": "Allow & Create Rule",

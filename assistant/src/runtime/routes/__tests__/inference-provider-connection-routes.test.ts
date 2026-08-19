@@ -313,8 +313,59 @@ describe("POST inference/provider-connections (create)", () => {
           auth: { type: "none" },
         },
       },
-    )) as { auth: object };
+    )) as { auth: object; baseUrl: string | null };
     expect(result.auth).toEqual({ type: "none" });
+    expect(result.baseUrl).toBeNull();
+  });
+
+  test("creates an ollama connection with an optional base_url", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "ollama-remote",
+          provider: "ollama",
+          auth: { type: "none" },
+          base_url: "http://192.168.1.50:11434/v1",
+        },
+      },
+    )) as { auth: object; baseUrl: string | null };
+    expect(result.auth).toEqual({ type: "none" });
+    expect(result.baseUrl).toBe("http://192.168.1.50:11434/v1");
+  });
+
+  test("updates an ollama connection base_url and can clear it", async () => {
+    await call(findHandler("inference_provider_connections_create"), {
+      body: {
+        name: "ollama-editable",
+        provider: "ollama",
+        auth: { type: "none" },
+      },
+    });
+
+    const updated = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "ollama-editable" },
+        body: {
+          auth: { type: "none" },
+          base_url: "http://127.0.0.1:11434/v1",
+        },
+      },
+    )) as { baseUrl: string | null };
+    expect(updated.baseUrl).toBe("http://127.0.0.1:11434/v1");
+
+    const cleared = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "ollama-editable" },
+        body: {
+          auth: { type: "none" },
+          base_url: null,
+        },
+      },
+    )) as { baseUrl: string | null };
+    expect(cleared.baseUrl).toBeNull();
   });
 
   test("derives api_key auth from provider + credential when auth is omitted", async () => {

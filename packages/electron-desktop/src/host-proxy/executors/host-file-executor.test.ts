@@ -1,41 +1,10 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-// ---------------------------------------------------------------------------
-// Stubs
-// ---------------------------------------------------------------------------
-
-const MOCK_DEVICE_ID = "test-device-00000000-0000-0000-0000-000000000000";
-mock.module("@vellumai/electron-desktop/device-id", () => ({
-  getDeviceId: () => MOCK_DEVICE_ID,
-  resetDeviceIdCache: () => {},
-}));
-
-mock.module("electron-log/main", () => {
-  const noop = () => {};
-  return {
-    default: {
-      info: noop,
-      warn: noop,
-      error: noop,
-      debug: noop,
-      initialize: noop,
-      transports: {
-        file: {
-          maxSize: 0,
-          fileName: "",
-          format: "",
-          getFile: () => ({ path: "" }),
-        },
-      },
-    },
-  };
-});
-
-const { HostProxyPoster } = await import("@vellumai/electron-desktop/host-proxy/poster");
-const { hostFileExecutor, __testing } = await import("./host-file-executor");
+import { HostProxyPoster } from "../poster";
+import { hostFileExecutor, __testing } from "./host-file-executor";
 
 // ---------------------------------------------------------------------------
 // Helpers

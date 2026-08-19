@@ -14,18 +14,15 @@
  * dispatch/cancel/post lifecycle without a real BrowserWindow.
  */
 
-import { app } from "electron";
 import { z } from "zod";
 
-import { getDevRendererBase, RENDERER_BASE_PROD } from "../app-config";
-import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
+import type { HostProxyExecutor } from "../router";
 import type {
   HostProxyPoster,
   HostUiSnapshotResultPayload,
-} from "@vellumai/electron-desktop/host-proxy/poster";
-import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
-import { createWindow } from "../windows";
-import log from "../logger";
+} from "../poster";
+import type { HostProxySseMessage } from "../sse";
+import log from "./logger";
 
 /** Must match THEME_STAGE_READY_TITLE in the web client's theme-stage page. */
 const READY_TITLE = "__THEME_STAGE_READY__";
@@ -68,11 +65,14 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * including abort (cancel from the daemon).
  */
 async function captureStagedView(
+  base: string,
   view: "sampler" | "chat",
   tokens: Record<string, string> | undefined,
   signal: AbortSignal,
 ): Promise<StagedCaptureResult> {
-  const base = app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase();
+  // Imported lazily so loading this module never drags Electron into
+  // processes that only exercise the dispatch lifecycle.
+  const { createWindow } = await import("../../windows");
   const query = tokens ? `?tokens=${encodeURIComponent(JSON.stringify(tokens))}` : "";
   const url = `${base}/theme-stage/${view}${query}`;
   const { width, height } = VIEW_SIZES[view];
@@ -157,13 +157,29 @@ async function captureStagedView(
 }
 
 export interface HostUiSnapshotExecutorDeps {
+  /** Overrides the real staged-window capture pipeline (tests). */
   capture?: StagedCaptureFn;
+  /**
+   * Client-supplied renderer base URL the staged views load from.
+   * Required unless `capture` is overridden.
+   */
+  resolveRendererBase?: () => string;
 }
 
 export function createHostUiSnapshotExecutor(
   deps: HostUiSnapshotExecutorDeps = {},
 ): HostProxyExecutor {
-  const capture = deps.capture ?? captureStagedView;
+  const { resolveRendererBase } = deps;
+  const capture: StagedCaptureFn =
+    deps.capture ??
+    ((view, tokens, signal) => {
+      if (!resolveRendererBase) {
+        throw new Error(
+          "host_ui_snapshot requires resolveRendererBase when no capture override is provided",
+        );
+      }
+      return captureStagedView(resolveRendererBase(), view, tokens, signal);
+    });
   const inFlight = new Map<string, AbortController>();
 
   return {
@@ -224,5 +240,3 @@ export function createHostUiSnapshotExecutor(
     },
   };
 }
-
-export const hostUiSnapshotExecutor = createHostUiSnapshotExecutor();

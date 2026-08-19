@@ -39,6 +39,8 @@ import type {
   HotkeyScope,
   LocalAssistantStatusResult,
   LocalConnectImportResult,
+  LocalListDevicesResult,
+  LocalRevokeDeviceResult,
   LocalUpgradeOptions,
   LocalWakeOptions,
   NotificationActionEvent,
@@ -207,6 +209,7 @@ declare global {
           assistantId?: string;
           error?: string;
         }>;
+        listDevices?(assistantId: string): Promise<LocalListDevicesResult>;
         readLockfile(): Promise<Lockfile>;
         saveLockfileAssistant(
           assistant: Record<string, unknown>,
@@ -221,6 +224,10 @@ declare global {
           organizationId?: string,
         ): Promise<LockfileWriteResult>;
         retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+        revokeDevice?(
+          assistantId: string,
+          hashedDeviceId: string,
+        ): Promise<LocalRevokeDeviceResult>;
         unpair?(assistantId: string): Promise<LockfileWriteResult>;
         connectImport?(
           bundle: string,
