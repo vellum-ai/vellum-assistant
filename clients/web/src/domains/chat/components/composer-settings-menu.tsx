@@ -214,14 +214,17 @@ export function ComposerSettingsMenu({
   // while the real/draft id lives in the conversation store. If the user
   // already picked a model for that id, the selection is stashed there (not
   // written to the global default) — reflect it so the checkmark survives a
-  // remount and matches what the first message / promotion will apply. See
+  // remount and matches what the first message / promotion will apply. A
+  // defined prop can also carry a stash: a draft stub's id (no server row
+  // yet), or a loaded row whose promotion hasn't landed. In both cases the
+  // stash is the latest intent, so it wins there too. See
   // `pendingDraftProfiles` in `conversation-store`.
   const activeConversationId = useConversationStore.use.activeConversationId();
   const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
-  const draftProfileSelection =
-    !conversationId && activeConversationId
-      ? (pendingDraftProfiles.get(activeConversationId) ?? null)
-      : null;
+  const stashKey = conversationId ?? activeConversationId;
+  const draftProfileSelection = stashKey
+    ? (pendingDraftProfiles.get(stashKey) ?? null)
+    : null;
 
   const profileActiveKey =
     optimisticActiveProfile ?? draftProfileSelection ?? serverEffectiveProfile;
@@ -263,7 +266,10 @@ export function ComposerSettingsMenu({
   // persist the stash as a per-conversation override. Draft stubs (`draft:
   // true`, added optimistically on first send) are skipped — the send path owns
   // their stash and applies it to the conversation it mints.
-  const promotingProfileRef = useRef<Set<string>>(new Set());
+  // Keyed by conversation id, holding the in-flight promotion promise so a
+  // direct selection can serialize behind it (see handleProfileSelect). The
+  // promise never rejects — failures are swallowed below.
+  const promotingProfileRef = useRef<Map<string, Promise<void>>>(new Map());
   useEffect(() => {
     if (!conversationId) {
       return;
@@ -279,8 +285,7 @@ export function ComposerSettingsMenu({
       return;
     }
     const id = conversationId;
-    promotingProfileRef.current.add(id);
-    void (async () => {
+    const promotion = (async () => {
       try {
         await conversationsByIdInferenceprofilePut({
           path: { assistant_id: assistantId, id },
@@ -309,6 +314,7 @@ export function ComposerSettingsMenu({
         promotingProfileRef.current.delete(id);
       }
     })();
+    promotingProfileRef.current.set(id, promotion);
   }, [conversationId, assistantId, pendingDraftProfiles, queryClient]);
 
   // ---------------------------------------------------------------------------
@@ -426,6 +432,22 @@ export function ComposerSettingsMenu({
         return false;
       }
 
+      // A draft stub (optimistically prepended on first send, `draft: true`)
+      // has no server row yet — a PUT against its client-minted id 404s
+      // (ATL-1136). Stash like the no-row branch above; the send path forwards
+      // the stash, and `use-send-message` re-keys it to the server-minted id
+      // so the promotion effect persists it once the real row exists.
+      if (
+        findConversation(queryClient, assistantId, capturedConversationId)
+          ?.draft
+      ) {
+        useConversationStore
+          .getState()
+          .setPendingDraftProfile(capturedConversationId, name);
+        lastConfirmedProfileRef.current = name;
+        return true;
+      }
+
       // A direct selection supersedes any stash recorded for this conversation
       // while it was loading — drop it so an in-flight promotion can't write the
       // older value back (the promotion also re-checks the stash before
@@ -433,6 +455,17 @@ export function ComposerSettingsMenu({
       useConversationStore
         .getState()
         .clearPendingDraftProfile(capturedConversationId);
+
+      // Serialize behind an in-flight promotion PUT for this conversation:
+      // if the older promotion write landed after ours, the persisted
+      // override would silently revert to the stashed value. The promotion
+      // promise never rejects, so awaiting it is safe.
+      const inflightPromotion = promotingProfileRef.current.get(
+        capturedConversationId,
+      );
+      if (inflightPromotion) {
+        await inflightPromotion;
+      }
 
       try {
         await conversationsByIdInferenceprofilePut({
