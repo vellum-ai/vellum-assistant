@@ -201,6 +201,13 @@ export type CursorHoverPollerDeps = {
   } | null;
   /** The Stop control's rect in window-relative CSS pixels, if reported. */
   getHitRegion: () => DictationOverlayHitRegion | null;
+  /**
+   * The overlay page's zoom factor. Window bounds and the cursor are in
+   * DIPs while the reported region is in CSS pixels; the two only match at
+   * zoom 1, and Chromium persists per-origin zoom, so a zoomed main window
+   * carries over to the overlay route.
+   */
+  getZoomFactor: () => number;
   isInteractive: () => boolean;
   setInteractive: (interactive: boolean) => void;
   setInterval: (callback: () => void, ms: number) => unknown;
@@ -237,13 +244,14 @@ export const createCursorHoverPoller = (
     let inside = false;
     if (region) {
       const cursor = deps.getCursor();
-      const left = bounds.x + region.x;
-      const top = bounds.y + region.y;
+      const zoom = deps.getZoomFactor();
+      const left = bounds.x + region.x * zoom;
+      const top = bounds.y + region.y * zoom;
       inside =
         cursor.x >= left &&
-        cursor.x < left + region.width &&
+        cursor.x < left + region.width * zoom &&
         cursor.y >= top &&
-        cursor.y < top + region.height;
+        cursor.y < top + region.height * zoom;
     }
     // Only toggle on change; the renderer's own setInteractive messages
     // (real mouse events, once the window is interactive) stay in charge
@@ -309,6 +317,8 @@ const hoverPoller = createCursorHoverPoller({
   getCursor: () => screen.getCursorScreenPoint(),
   getOverlayBounds: () => getFloatingWindow(OVERLAY_KIND)?.getBounds() ?? null,
   getHitRegion: () => overlayHitRegion,
+  getZoomFactor: () =>
+    getFloatingWindow(OVERLAY_KIND)?.webContents.getZoomFactor() ?? 1,
   isInteractive: () => overlayInteractive,
   setInteractive: setOverlayInteractive,
   setInterval: (callback, ms) => setInterval(callback, ms),

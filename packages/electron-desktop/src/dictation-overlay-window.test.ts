@@ -20,6 +20,7 @@ const createHarness = () => {
     cursor: { x: 0, y: 0 },
     bounds: OVERLAY_BOUNDS as Rect | null,
     region: STOP_REGION as Rect | null,
+    zoom: 1,
     interactive: false,
     toggles: [] as boolean[],
     intervals: 0,
@@ -32,6 +33,7 @@ const createHarness = () => {
     getCursor: () => state.cursor,
     getOverlayBounds: () => state.bounds,
     getHitRegion: () => state.region,
+    getZoomFactor: () => state.zoom,
     isInteractive: () => state.interactive,
     setInteractive: (interactive) => {
       state.interactive = interactive;
@@ -80,6 +82,22 @@ describe("createCursorHoverPoller", () => {
     h.tick();
     h.tick();
 
+    expect(h.state.toggles).toEqual([true]);
+  });
+
+  test("scales the CSS-pixel region by the page zoom factor", () => {
+    const h = createHarness();
+    h.state.zoom = 2;
+    h.poller.start();
+
+    // At zoom 2 the region's DIP footprint is 900..940 x 90..130; the
+    // unzoomed position must no longer hit.
+    h.state.cursor = { x: 510, y: 80 };
+    h.tick();
+    expect(h.state.toggles).toEqual([]);
+
+    h.state.cursor = { x: 920, y: 110 };
+    h.tick();
     expect(h.state.toggles).toEqual([true]);
   });
 

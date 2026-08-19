@@ -41,6 +41,7 @@ const makeWindow = () => {
       isDestroyed: () => destroyed,
       on: () => undefined,
       send: mock(() => undefined),
+      getZoomFactor: () => 1,
     },
     close: mock(() => emit("closed")),
     emit,
