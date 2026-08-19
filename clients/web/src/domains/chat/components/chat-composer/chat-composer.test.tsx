@@ -843,10 +843,6 @@ function pillsRow(container: HTMLElement) {
   return container.querySelector('[data-slot="composer-settings-pills"]');
 }
 
-function disclaimer(container: HTMLElement) {
-  return container.querySelector('[data-slot="composer-disclaimer"]');
-}
-
 /** The wrapper around the card, which publishes the banner flag. */
 function composerShell(container: HTMLElement) {
   return container.querySelector('[data-slot="chat-composer-shell"]');
@@ -1310,18 +1306,6 @@ describe("ChatComposer: mobile settings pills row", () => {
     expect(row?.className).toContain("flex");
   });
 
-  test("an app shell still rests the caption under the card", () => {
-    // GIVEN an untouched phone composer in a Capacitor shell
-    mockIsNativeMobile = true;
-    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
-
-    // THEN both stand: the caption keeps its own at-rest rule, so a resting
-    // composer in a shell carries the row above the card and the caption below
-    // it at the same time
-    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(false);
-    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
-  });
-
   test("focusing the composer raises the row above the card, access first", () => {
     // GIVEN a phone composer
     const { container } = renderPhoneComposer(SETTINGS_SLOTS);
@@ -1387,7 +1371,6 @@ describe("ChatComposer: mobile settings pills row", () => {
     // THEN the row stays up rather than collapsing behind the picker, the same
     // way the sheet used to hold it
     expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
-    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
 
     // AND the picker closing gives the composer back to its own focus
     fireEvent(fileInput(container)!, new Event("cancel"));
@@ -1554,106 +1537,6 @@ describe("ChatComposer: a banner standing over the card", () => {
     expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
       false,
     );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// The resting caption below the card, the pills row's opposite number
-// ---------------------------------------------------------------------------
-
-describe("ChatComposer: the mobile external-models caption", () => {
-  const DISCLAIMER = "Vellum uses external AI models and can make mistakes";
-
-  test("an unfocused phone composer stands the caption under the card", () => {
-    // GIVEN a phone composer nobody has tapped into
-    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
-
-    // THEN the caption is shown, below the card and outside it
-    const caption = disclaimer(container);
-    expect(caption?.textContent).toBe(DISCLAIMER);
-    expect(caption?.hasAttribute("hidden")).toBe(false);
-    expect(caption?.closest("form")).toBeNull();
-    const html = container.innerHTML;
-    expect(html.indexOf("<form")).toBeLessThan(
-      html.indexOf('data-slot="composer-disclaimer"'),
-    );
-  });
-
-  test("focusing the composer takes the caption away, as the keyboard covers it", () => {
-    // GIVEN a phone composer
-    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
-
-    // WHEN it takes focus
-    fireEvent.focusIn(textareaOf(container));
-
-    // THEN the caption is hidden, still mounted, exactly as the pills row it
-    // trades places with
-    const caption = disclaimer(container);
-    expect(caption?.hasAttribute("hidden")).toBe(true);
-    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
-  });
-
-  test("an open settings sheet keeps the caption away with focus gone", () => {
-    // GIVEN a phone composer whose access sheet is open
-    const { container } = renderPhoneComposer({
-      ...SETTINGS_SLOTS,
-      settingsSheetOpen: true,
-    });
-    const textarea = textareaOf(container);
-    fireEvent.focusIn(textarea);
-
-    // WHEN the sheet takes focus out of the composer
-    fireEvent.focusOut(textarea, { relatedTarget: null });
-
-    // THEN the caption stays away rather than surfacing under the scrim
-    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
-  });
-
-  test("a picker the sheet opened holds the caption away", () => {
-    // The sheet closes itself before opening one and the picker takes the web
-    // view's first responder, so neither the composer's focus nor the sheet's
-    // own flag is still true. What the sheet reports is the only thing left
-    // holding the layout, and a native pick lasts until every file has been
-    // read across the bridge.
-    mockNativePickersAvailable = true;
-    const { container, getByText } = renderPhoneComposer(SETTINGS_SLOTS);
-
-    fireEvent.click(getByText("sheet-picker-up"));
-
-    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
-  });
-
-  test("blurring back to the body brings the caption back", () => {
-    // GIVEN a focused phone composer
-    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
-    const textarea = textareaOf(container);
-    fireEvent.focusIn(textarea);
-
-    // WHEN focus leaves with nowhere to land, as the iOS keyboard dismiss does
-    fireEvent.focusOut(textarea, { relatedTarget: null });
-
-    // THEN the composer is at rest again and the caption is back
-    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(false);
-  });
-
-  test("desktop renders no caption, focused or not", () => {
-    // GIVEN a desktop composer
-    viewport.set({ narrow: false, coarsePointer: false });
-    const { container } = renderComposerView(SETTINGS_SLOTS);
-
-    // THEN nothing hangs under the card, and focus does not add it
-    expect(disclaimer(container)).toBeNull();
-    fireEvent.focusIn(textareaOf(container));
-    expect(disclaimer(container)).toBeNull();
-  });
-
-  test("a variant with no settings slots renders no caption (app-editing panel)", () => {
-    // GIVEN a phone composer that was passed neither settings slot
-    viewport.set({ narrow: true, coarsePointer: true });
-    const { container } = renderComposerView();
-
-    // THEN the panel's composer carries no caption of its own
-    expect(disclaimer(container)).toBeNull();
   });
 });
 
@@ -2152,8 +2035,8 @@ describe("ChatComposer: the mobile send slot", () => {
 describe("ChatComposer: the mobile row holds focus through a press", () => {
   // WebKit blurs the textarea on a press without focusing the pressed button.
   // The mobile composer is gated on that focus, so the pills row above the card
-  // and the disclaimer under it both swap in the same commit and the row's 40px
-  // controls move out from under the finger before the tap's click lands. Each
+  // swaps away and the row's 40px controls move out from under the finger
+  // before the tap's click lands. Each
   // control cancels the compatibility `mousedown`, the event the focus transfer
   // rides on, and leaves `pointerdown` alone, since WebKit drops the whole rest
   // of the sequence when that one is cancelled. See `docs/CAPACITOR.md`.
@@ -2171,7 +2054,6 @@ describe("ChatComposer: the mobile row holds focus through a press", () => {
     // AND the row is still up when the click arrives, so the plus is still
     // under the finger
     expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
-    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
 
     // AND the click opens what it always opened
     let opened = 0;

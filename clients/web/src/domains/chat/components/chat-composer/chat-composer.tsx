@@ -901,12 +901,6 @@ export function ChatComposer({
     isMobileMainComposer &&
     !hasBannerAboveCard &&
     (isNativeMobileShell || composerInUse);
-  // The caption is the row's opposite number: it stands under the card at rest
-  // and steps aside the moment anything takes the bottom of the screen, which
-  // is where the keyboard and every sheet cover it anyway. In the shells,
-  // where the pills row stands throughout, the two share the resting composer
-  // rather than trading places.
-  const disclaimerVisible = isMobileMainComposer && !composerInUse;
   // The entrance belongs to the row that arrives with the keyboard. A row that
   // stands throughout has no arrival to animate, and the same animation there
   // replays on every mount, settling the composer on each navigation.
@@ -1661,21 +1655,6 @@ export function ChatComposer({
               )}
             </Popover.Content>
           </Popover.Root>
-          {isMobileMainComposer && (
-            // Mounted for as long as the composer is and toggled with `hidden`,
-            // the same treatment the pills row above the card gets: one caption
-            // that comes and goes rather than a node that mounts and unmounts
-            // under the card the composer is anchored to. Inside the shell, so
-            // focus judged against the shell is unaffected, and below the form,
-            // which is the box `composer-peek` measures.
-            <p
-              data-slot="composer-disclaimer"
-              hidden={!disclaimerVisible}
-              className="mt-2 px-4 text-center text-[10px] leading-3 text-[var(--content-tertiary)]"
-            >
-              {t("chatComposer.disclaimer")}
-            </p>
-          )}
           {/* Beside the form, not inside it: a hidden file input stays mounted
               while a native picker is up, and has no business in the form the
               composer submits. Mounted whatever the row is showing, so a width
