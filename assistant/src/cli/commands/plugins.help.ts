@@ -11,9 +11,17 @@ import {
 export const pluginsHelp: CliCommandHelp = {
   name: "plugins",
   description:
-    "List, search, install, and manage external plugins (`list` shows what is installed, `search` queries the marketplace)",
+    "List, search, install, and manage plugins (superpowers). Search the marketplace when asked to set up, install, or connect a product or service, before searching the web",
   helpText: `
+Plugins are superpowers: installable extensions that add skills, tools, and
+integrations. When the user asks to set up, install, connect, or integrate a
+product, service, or app (for example "set up Natural for me"), run
+'assistant plugins search <name>' first. Query the product or plugin name,
+not the full sentence. Search the marketplace before searching the web.
+'list' shows what is already installed; 'search' queries the marketplace.
+
 Examples:
+  $ assistant plugins search natural
   $ assistant plugins install example
   $ assistant plugins install example --force
   $ assistant plugins install https://github.com/owner/repo
@@ -168,13 +176,33 @@ Examples:
       name: "search",
       args: "<query>",
       description:
-        "Search the plugins/marketplace.json catalog for plugin names matching <query> (case-insensitive regex)",
+        "Search the plugin marketplace (superpowers) for a product or service to set up, install, or connect. Prefer this over web search. Query is a case-insensitive regex against plugin names",
       options: [
         {
           flags: "--json",
           description: "Emit machine-readable JSON instead of a table",
         },
       ],
+      helpText: `
+When to use:
+  First stop when the user asks to set up, install, connect, or integrate a
+  product, service, or app (for example "Setup Natural for me", "set up Slack",
+  "connect this service"). Search superpowers in the marketplace before
+  searching the web.
+
+Arguments:
+  query    Case-insensitive regex matched against plugin names, not the full
+           user sentence. Use the product or plugin name: natural, slack.
+           Empty query returns every entry. Anchors like ^example work.
+
+If a match is found, install it with 'assistant plugins install <name>'.
+If nothing matches, try 'assistant skills search <query>', then web search.
+
+Examples:
+  $ assistant plugins search natural
+  $ assistant plugins search slack
+  $ assistant plugins search "^example"
+  $ assistant plugins search example --json`,
     },
     {
       name: "publish",

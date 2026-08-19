@@ -4,16 +4,21 @@ import type { CliCommandHelp } from "../lib/cli-command-help.js";
 
 export const skillsHelp: CliCommandHelp = {
   name: "skills",
-  description: "Browse and install skills from the Vellum catalog",
+  description:
+    "Browse, search, and install skills (superpowers) from the Vellum catalog. Search the catalog when asked to set up or add a capability, before searching the web",
   helpText: `
-Manage skills from the Vellum catalog. Skills extend the assistant's
-capabilities with pre-built workflows and tools.
+Manage skills from the Vellum catalog. Skills are superpowers: pre-built
+workflows and tools that extend the assistant. When the user asks to set up,
+install, or add a capability (for example "set up Natural for me"), run
+'assistant skills search <query>' first. Query the product or capability
+name, not the full sentence. Search the catalog before searching the web.
 
 Examples:
   $ assistant skills list
   $ assistant skills list --json
   $ assistant skills inspect slack
   $ assistant skills inspect resend-setup --json
+  $ assistant skills search natural
   $ assistant skills search react
   $ assistant skills search react --limit 5 --json
   $ assistant skills install weather
@@ -60,7 +65,7 @@ Examples:
       name: "search",
       args: "<query>",
       description:
-        "Search the Vellum catalog, skills.sh, and clawhub community registries",
+        "Search the Vellum catalog, skills.sh, and clawhub for skills (superpowers) to set up or add a capability. Prefer this over web search",
       options: [
         {
           flags: "--limit <n>",
@@ -70,16 +75,27 @@ Examples:
         { flags: "--json", description: "Machine-readable JSON output" },
       ],
       helpText: `
+When to use:
+  First stop when the user asks to set up, install, or add a capability
+  (for example "Setup Natural for me", "add a skill for file management").
+  Search superpowers in the skills catalog before searching the web.
+
 Arguments:
   query    Free-text search term matched against skill names, descriptions,
-           and tags. Searches the Vellum catalog, the skills.sh community
+           and tags. Use the product or capability name, not the full user
+           sentence. Searches the Vellum catalog, the skills.sh community
            registry, and the clawhub registry.
 
 Displays results from all sources with clear labels. When a skill ID
 exists in both the Vellum catalog and a community registry, a conflict
 note is shown with guidance on which install command to use.
 
+If a catalog match is found, install it with 'assistant skills install <id>'.
+If a community match is found, add it with 'assistant skills add <source>'.
+If nothing matches, try 'assistant plugins search <query>', then web search.
+
 Examples:
+  $ assistant skills search natural
   $ assistant skills search react
   $ assistant skills search "file management" --limit 3
   $ assistant skills search deploy --json`,
