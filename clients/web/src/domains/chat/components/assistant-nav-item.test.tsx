@@ -107,6 +107,63 @@ describe("AssistantNavItem leading slot", () => {
   });
 });
 
+describe("AssistantNavItem switcher slots", () => {
+  const TRAILING = createElement(
+    "span",
+    { "data-testid": "switcher-chevron" },
+    "v",
+  );
+  const EXPANSION = createElement(
+    "div",
+    { "data-testid": "switcher-card" },
+    "card",
+  );
+
+  function renderWithSlots(
+    props: Partial<Parameters<typeof AssistantNavItem>[0]> = {},
+  ): string {
+    return renderToStaticMarkup(
+      createElement(AssistantNavItem, {
+        assistantId: "a1",
+        label: "Haze II",
+        active: false,
+        onSelect: () => {},
+        onNewConversation: () => {},
+        ...props,
+      }),
+    );
+  }
+
+  test("a trailing action renders inside the expanded pill", () => {
+    const html = renderWithSlots({ trailingAction: TRAILING });
+    expect(html).toContain('data-testid="switcher-chevron"');
+    expect(html).toContain("gap-[12px]");
+  });
+
+  test("without a trailing action the pill keeps its default gap", () => {
+    const html = renderWithSlots();
+    expect(html).not.toContain("gap-[12px]");
+  });
+
+  test("the collapsed tile has no slot for the trailing action", () => {
+    const html = renderWithSlots({ trailingAction: TRAILING, collapsed: true });
+    expect(html).not.toContain('data-testid="switcher-chevron"');
+  });
+
+  test("an expansion replaces the pill and keeps the New Chat row", () => {
+    const html = renderWithSlots({ expansion: EXPANSION });
+    expect(html).toContain('data-testid="switcher-card"');
+    expect(html).not.toContain('data-tour-id="assistant-page"');
+    expect(html).toContain(">New Chat<");
+  });
+
+  test("the collapsed tile ignores an expansion", () => {
+    const html = renderWithSlots({ expansion: EXPANSION, collapsed: true });
+    expect(html).not.toContain('data-testid="switcher-card"');
+    expect(html).toContain('data-tour-id="assistant-page"');
+  });
+});
+
 describe("AssistantNavItem New Chat shortcut tooltip", () => {
   function renderNewChat(collapsed = false): string {
     return renderToStaticMarkup(

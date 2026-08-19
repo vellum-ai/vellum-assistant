@@ -10,10 +10,11 @@ import { createDraftConversationId } from "@/domains/chat/utils/conversation-sel
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { postDictation } from "@/domains/chat/voice/dictation-api";
 import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
-import { shouldEnablePushToTalk } from "@/domains/chat/voice/push-to-talk-host";
+import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
 import { useNativePushToTalkRegistration } from "@/domains/chat/voice/use-native-push-to-talk-registration";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { usePushToTalk } from "@/domains/chat/voice/use-push-to-talk";
+import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { subscribeToDictationOverlayStop } from "@/runtime/dictation-overlay";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
@@ -94,7 +95,11 @@ export function GlobalPushToTalkBridge({
     });
   }, [resolveTarget]);
 
-  usePushToTalk(resolveTarget, { enabled: shouldEnablePushToTalk() });
+  // The voice mode shortcut lives here rather than in the chat layout because
+  // this bridge is mounted app-wide: voice is reachable from any route, the
+  // same way dictation is.
+  useVoiceModeHotkey({ enabled: supportsKeyboardActivation() });
+  usePushToTalk(resolveTarget, { enabled: supportsKeyboardActivation() });
 
   const handleTranscript = useCallback(
     async (rawText: string): Promise<void> => {

@@ -28,10 +28,6 @@ export function subscribeToConfigurablePushToTalk(
   return () => registrationListeners.delete(listener);
 }
 
-export function canConfigureFnPushToTalk(): boolean {
-  return supportsFnPushToTalk();
-}
-
 export function supportsFnPushToTalk(): boolean {
   return (
     isElectron() &&

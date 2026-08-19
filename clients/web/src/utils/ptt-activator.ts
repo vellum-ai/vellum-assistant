@@ -1,10 +1,14 @@
 /**
- * Push-to-Talk (PTT) activator types and helpers.
+ * Activator types and helpers: what a user-bound key or chord looks like, how
+ * it serializes, and what counts as a keyboard event matching it.
  *
- * Mirrors the macOS `PTTActivator` model so the web port can (de)serialize
- * values already stored in `localStorage` by the settings UI. Browsers cannot
- * observe the Fn key, so stored Fn preferences fall back to Ctrl on read
- * unless the Electron host bridge asks to preserve the native Fn binding.
+ * Mirrors the macOS `PTTActivator` model, so the web port reads and writes the
+ * same serialized values. Voice mode's binding is built on this shape; see
+ * `utils/voice-mode-activation.ts` for the rules a toggle adds on top.
+ *
+ * Browsers cannot observe the Fn key, so stored Fn preferences fall back to
+ * Ctrl on read unless the Electron host bridge asks to preserve the native
+ * Fn binding.
  */
 
 import type {
@@ -270,44 +274,21 @@ export function eventActivatesPTT(
   return sameModifierSet(held, requiredMods);
 }
 
-/**
- * Returns `true` if releasing this key should deactivate PTT (stop recording).
- *
- * This is called on every `keyup` while PTT is active. We stop on the first
- * key-release that would break the activator — either the non-modifier key
- * itself (for `key` activators) or *any* of the required modifiers (for
- * `modifierOnly` activators). That mirrors the "hold to talk, release to
- * submit" behaviour of a physical PTT button.
- */
 export function eventDeactivatesPTT(
   event: KeyboardEvent,
   activator: PTTActivator,
 ): boolean {
-  if (activator.kind === "off") {
+  if (activator.kind === "off" || activator.modifiers.includes("function")) {
     return false;
   }
-  if (activator.modifiers.includes("function")) {
-    return false;
+  if (activator.kind === "key") {
+    const label = event.key.length === 1 ? event.key.toUpperCase() : event.key;
+    return label === activator.label;
   }
-  const requiredMods = activator.modifiers.filter((m) => m !== "function");
-
-  if (activator.kind === "modifierOnly") {
-    if (event.key === "Control" && requiredMods.includes("control")) {
-      return true;
-    }
-    if (event.key === "Alt" && requiredMods.includes("option")) {
-      return true;
-    }
-    if (event.key === "Shift" && requiredMods.includes("shift")) {
-      return true;
-    }
-    if (event.key === "Meta" && requiredMods.includes("command")) {
-      return true;
-    }
-    return false;
-  }
-
-  const eventKeyLabel =
-    event.key.length === 1 ? event.key.toUpperCase() : event.key;
-  return eventKeyLabel === activator.label;
+  return (
+    (event.key === "Control" && activator.modifiers.includes("control")) ||
+    (event.key === "Alt" && activator.modifiers.includes("option")) ||
+    (event.key === "Shift" && activator.modifiers.includes("shift")) ||
+    (event.key === "Meta" && activator.modifiers.includes("command"))
+  );
 }

@@ -210,3 +210,19 @@ export async function sendDiscordAttachments(
     totalCount: attachments.length,
   };
 }
+
+/**
+ * Show the Discord typing indicator in a channel.
+ *
+ * Discord expires it after about ten seconds, so a caller that wants it to
+ * persist re-sends on a timer rather than clearing it; there is no stop route.
+ */
+export async function sendDiscordTypingIndicator(
+  target: DiscordSendTarget,
+): Promise<void> {
+  await callDiscordApi(
+    "POST",
+    `/channels/${encodeURIComponent(target.channelId)}/typing`,
+    {},
+  );
+}

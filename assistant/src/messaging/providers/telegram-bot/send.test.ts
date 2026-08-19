@@ -272,10 +272,7 @@ describe("telegramTransport topic targeting", () => {
   });
 
   test("typing indicators target the topic", async () => {
-    await telegramTransport.sendTyping!(
-      topicCtx,
-      payload({ chatAction: "typing" }),
-    );
+    await telegramTransport.typing!(topicCtx, "123");
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendChatAction", {
       chat_id: "123",
@@ -291,10 +288,7 @@ describe("telegramTransport topic targeting", () => {
     };
 
     await telegramTransport.deliver(bareCtx, payload({ useBlocks: false }));
-    await telegramTransport.sendTyping!(
-      bareCtx,
-      payload({ chatAction: "typing" }),
-    );
+    await telegramTransport.typing!(bareCtx, "123");
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendMessage", {
       chat_id: "123",

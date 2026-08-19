@@ -24,6 +24,14 @@
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again."
   },
+  "assistantSwitcher": {
+    "collapse": "Hide assistants",
+    "currentAssistant": "{name}, current assistant",
+    "expand": "Switch assistant",
+    "switchFailed": "Couldn't switch assistants. Try again.",
+    "switchTo": "Switch to {name}",
+    "unnamedAssistant": "Unnamed assistant"
+  },
   "cacheBreakpointMapCard": {
     "description": "Where the {count, plural, one {# cache breakpoint} other {# cache breakpoints}} fell across this request's prefix, and which segments were read versus re-created.",
     "estimatedTokens": "≈ {count} tokens",
