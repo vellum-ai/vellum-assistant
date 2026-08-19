@@ -41,7 +41,10 @@ import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
 import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-detection";
 import type { SendChatMessageOptions } from "@/domains/chat/hooks/use-send-message";
-import { DiskPressureBannerSlot } from "@/domains/chat/components/disk-pressure-banner-slot";
+import {
+  DiskPressureBannerSlot,
+  useDiskPressureBannerVisible,
+} from "@/domains/chat/components/disk-pressure-banner-slot";
 import { ResourcePressureBannerSlot } from "@/domains/chat/components/resource-pressure-banner-slot";
 import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge";
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
@@ -1116,6 +1119,12 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Disk pressure banner (localStorage-backed dismiss/suppress)
   // -------------------------------------------------------------------------
+  // Shares the slot's dismissal logic so the precedence gate below tracks
+  // what the slot actually renders, not just the raw monitor mode.
+  const diskPressureBannerVisible = useDiskPressureBannerVisible(
+    diskPressure,
+    assistantId,
+  );
   const diskPressureBannerSlot = (
     <DiskPressureBannerSlot
       diskPressure={diskPressure}
@@ -1382,11 +1391,12 @@ export function ChatMainPanel({
             diskPressureBanner={diskPressureBannerSlot}
             // A storage warning is actionable-critical and must not stack
             // with or compete against an upsell banner, so the resource
-            // slot yields whenever the disk-pressure slot is active.
+            // slot yields whenever the disk-pressure banner is actually
+            // visible. Acknowledgement-required and cleanup modes are never
+            // dismissible, so disk always wins there; a dismissed or
+            // suppressed warning hands the space to the resource banner.
             resourcePressureBanner={
-              diskPressure.mode !== "inactive"
-                ? null
-                : resourcePressureBannerSlot
+              diskPressureBannerVisible ? null : resourcePressureBannerSlot
             }
             showMissingApiKeyBanner={error?.code === "PROVIDER_NOT_CONFIGURED"}
             onOpenAiSettings={pushToAiSettings}

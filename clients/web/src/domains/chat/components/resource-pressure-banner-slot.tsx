@@ -27,6 +27,10 @@ import { routes } from "@/utils/routes";
 
 const DISMISS_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 
+// setTimeout treats delays above 2^31 - 1 ms as 0; longer waits re-arm in
+// chunks of at most this much.
+const MAX_TIMEOUT_DELAY_MS = 2 ** 31 - 1;
+
 function readCooldownActive(dismissedUntilKey: string | null): boolean {
   if (!dismissedUntilKey) {
     return false;
@@ -71,8 +75,9 @@ export function ResourcePressureBannerSlot({
     ? `vellum:resourcePressureSuppressed:${assistantId}`
     : null;
 
-  // Evaluated lazily at mount; a cooldown that expires while the slot stays
-  // mounted is picked up on the next mount, which is fine for a 7-day window.
+  // Seeded lazily at mount; the expiry effect below re-arms a timer for the
+  // stored deadline so a cooldown that lapses while the slot stays mounted
+  // re-enables the banner without a remount.
   const [cooldownActive, setCooldownActive] = useState(() =>
     readCooldownActive(dismissedUntilKey),
   );
@@ -90,6 +95,32 @@ export function ResourcePressureBannerSlot({
     setCooldownActive(readCooldownActive(dismissedUntilKey));
     setSuppressed(readSuppressed(suppressedKey));
   }, [dismissedUntilKey, suppressedKey]);
+
+  // While a cooldown is active, wake up at the stored deadline and clear the
+  // flag so a long-lived chat view shows the banner again once the cooldown
+  // lapses. The deadline is re-read from storage on each (re-)arm; delays
+  // beyond the setTimeout range re-arm in chunks. (`Date.now()` is impure,
+  // so the arithmetic lives in the effect rather than in render.)
+  useEffect(() => {
+    if (!cooldownActive || !dismissedUntilKey) {
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      const remainingMs = getLocalNumber(dismissedUntilKey, 0) - Date.now();
+      if (remainingMs <= 0) {
+        setCooldownActive(false);
+        return;
+      }
+      timer = setTimeout(arm, Math.min(remainingMs, MAX_TIMEOUT_DELAY_MS));
+    };
+    arm();
+    return () => {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+    };
+  }, [cooldownActive, dismissedUntilKey]);
 
   const dismiss = useCallback(
     (permanent: boolean) => {

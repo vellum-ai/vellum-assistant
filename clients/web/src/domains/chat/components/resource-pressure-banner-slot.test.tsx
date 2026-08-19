@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 import type { UseResourcePressureMonitorResult } from "@/assistant/use-resource-pressure-monitor";
@@ -157,6 +163,25 @@ describe("ResourcePressureBannerSlot", () => {
     render(slot(elevatedStatus));
 
     expect(queryBanner()).toBeTruthy();
+  });
+
+  test("a cooldown lapsing while mounted re-enables the banner", async () => {
+    // A short synthetic deadline stands in for the 7-day cooldown; bun's
+    // setSystemTime does not advance setTimeout, so the test rides a real
+    // timer (same approach as use-tip-card.test).
+    localStorage.setItem(DISMISSED_UNTIL_KEY, String(Date.now() + 60));
+    render(slot(elevatedStatus));
+
+    expect(queryBanner()).toBeNull();
+
+    // No remount: the expiry timer clears the cooldown at the deadline. Its
+    // fire time is scheduler-dependent, so poll rather than sleeping.
+    await waitFor(
+      () => {
+        expect(queryBanner()).toBeTruthy();
+      },
+      { timeout: 4000 },
+    );
   });
 
   test("cpu-only elevation shows the CPU body", () => {

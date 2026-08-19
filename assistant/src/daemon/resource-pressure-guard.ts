@@ -23,7 +23,7 @@ import {
   getContainerMemoryStat,
   getContainerMemoryUsageBytes,
 } from "../util/cgroup-memory.js";
-import { getCachedContainerCpuPercent } from "../util/container-cpu-sampler.js";
+import { getCachedContainerCpuPercentOrNull } from "../util/container-cpu-sampler.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("resource-pressure-guard");
@@ -214,7 +214,10 @@ function defaultSampleCpuPercent(): number | null {
   if (getContainerCpuCores() <= 0) {
     return null;
   }
-  return getCachedContainerCpuPercent();
+  // Null while the rolling sampler is still warming up or CPU accounting is
+  // unreadable: a placeholder 0% would look like a real measurement and mask
+  // the signal being unavailable.
+  return getCachedContainerCpuPercentOrNull();
 }
 
 function defaultSampleMemory(): ResourcePressureMemorySample | null {

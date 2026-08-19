@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  __resetContainerCpuSamplerForTests,
+  __runContainerCpuSamplerTickForTests,
   computeCpuPercent,
   getCachedContainerCpuPercent,
+  getCachedContainerCpuPercentOrNull,
 } from "../util/container-cpu-sampler.js";
 
 describe("computeCpuPercent", () => {
@@ -30,5 +33,24 @@ describe("computeCpuPercent", () => {
 describe("getCachedContainerCpuPercent", () => {
   test("returns a finite number", () => {
     expect(Number.isFinite(getCachedContainerCpuPercent())).toBe(true);
+  });
+});
+
+describe("getCachedContainerCpuPercentOrNull", () => {
+  test("returns null until the sampler computes its first delta", () => {
+    __resetContainerCpuSamplerForTests();
+
+    expect(getCachedContainerCpuPercentOrNull()).toBeNull();
+    // The plain accessor keeps its 0 placeholder for /v1/health.
+    expect(getCachedContainerCpuPercent()).toBe(0);
+
+    // Drive one sampler tick a full interval ahead of the reset baseline so
+    // it computes a real delta from process.cpuUsage().
+    __runContainerCpuSamplerTickForTests(Date.now() + 5_000);
+
+    const sampled = getCachedContainerCpuPercentOrNull();
+    expect(sampled).not.toBeNull();
+    expect(Number.isFinite(sampled!)).toBe(true);
+    expect(sampled).toBe(getCachedContainerCpuPercent());
   });
 });

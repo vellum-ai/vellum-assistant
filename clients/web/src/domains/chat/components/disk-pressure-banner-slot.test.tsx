@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
@@ -11,7 +11,7 @@ mock.module("@/runtime/platform-detection", () => ({
   useIsNativeAndroid: () => nativeAndroid,
 }));
 
-const { DiskPressureBannerSlot } = await import(
+const { DiskPressureBannerSlot, useDiskPressureBannerVisible } = await import(
   "@/domains/chat/components/disk-pressure-banner-slot"
 );
 
@@ -42,6 +42,18 @@ const diskPressure: UseDiskPressureMonitorResult = {
   refresh: async () => {},
 };
 
+const acknowledgementRequired: UseDiskPressureMonitorResult = {
+  ...diskPressure,
+  status: {
+    ...warningStatus,
+    state: "critical",
+    locked: true,
+    effectivelyLocked: true,
+    usagePercent: 97,
+  },
+  mode: "acknowledgement-required",
+};
+
 function renderSlot() {
   return render(
     <MemoryRouter>
@@ -51,6 +63,26 @@ function renderSlot() {
         assistantStateKind="active"
       />
     </MemoryRouter>,
+  );
+}
+
+// Mirrors the chat route's precedence wiring: the resource-pressure slot only
+// gets the space when the disk banner is not actually visible.
+function PrecedenceHarness({
+  monitor,
+}: {
+  monitor: UseDiskPressureMonitorResult;
+}) {
+  const diskVisible = useDiskPressureBannerVisible(monitor, "assistant-1");
+  return (
+    <MemoryRouter>
+      <DiskPressureBannerSlot
+        diskPressure={monitor}
+        assistantId="assistant-1"
+        assistantStateKind="active"
+      />
+      {diskVisible ? null : <div data-testid="resource-banner-stand-in" />}
+    </MemoryRouter>
   );
 }
 
@@ -76,5 +108,36 @@ describe("DiskPressureBannerSlot", () => {
     renderSlot();
 
     expect(screen.getByRole("button", { name: "Upgrade" })).toBeTruthy();
+  });
+
+  test("dismissing the warning yields the slot to the resource banner", () => {
+    render(<PrecedenceHarness monitor={diskPressure} />);
+
+    expect(screen.getByTestId("disk-pressure-banner")).toBeTruthy();
+    expect(screen.queryByTestId("resource-banner-stand-in")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    expect(screen.queryByTestId("disk-pressure-banner")).toBeNull();
+    expect(screen.getByTestId("resource-banner-stand-in")).toBeTruthy();
+  });
+
+  test("a stored permanent suppress frees the slot from the first render", () => {
+    localStorage.setItem("vellum:diskPressureSuppressed:assistant-1", "true");
+
+    render(<PrecedenceHarness monitor={diskPressure} />);
+
+    expect(screen.queryByTestId("disk-pressure-banner")).toBeNull();
+    expect(screen.getByTestId("resource-banner-stand-in")).toBeTruthy();
+  });
+
+  test("acknowledgement-required ignores dismiss flags and keeps precedence", () => {
+    localStorage.setItem("vellum:diskPressureDismissed:assistant-1", "true");
+    localStorage.setItem("vellum:diskPressureSuppressed:assistant-1", "true");
+
+    render(<PrecedenceHarness monitor={acknowledgementRequired} />);
+
+    expect(screen.getByTestId("disk-pressure-banner")).toBeTruthy();
+    expect(screen.queryByTestId("resource-banner-stand-in")).toBeNull();
   });
 });

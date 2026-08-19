@@ -17,13 +17,18 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 }));
 
 // Default readers report no container accounting, so tests that exercise the
-// default samplers see both signals unavailable.
+// default samplers see both signals unavailable. Individual tests override
+// the mutable values to exercise other default-sampler paths.
+let mockedCpuCores = 0;
+let mockedCachedCpuPercentOrNull: number | null = null;
+
 mock.module("../util/container-cpu-sampler.js", () => ({
-  getCachedContainerCpuPercent: () => 0,
+  getCachedContainerCpuPercent: () => mockedCachedCpuPercentOrNull ?? 0,
+  getCachedContainerCpuPercentOrNull: () => mockedCachedCpuPercentOrNull,
 }));
 
 mock.module("../util/cgroup-cpu.js", () => ({
-  getContainerCpuCores: () => 0,
+  getContainerCpuCores: () => mockedCpuCores,
 }));
 
 mock.module("../util/cgroup-memory.js", () => ({
@@ -87,6 +92,8 @@ const originalIsPlatform = process.env.IS_PLATFORM;
 beforeEach(() => {
   __resetResourcePressureGuardForTests();
   broadcasts.length = 0;
+  mockedCpuCores = 0;
+  mockedCachedCpuPercentOrNull = null;
   process.env.IS_PLATFORM = "true";
 });
 
@@ -279,6 +286,24 @@ describe("resource pressure guard", () => {
     expect(status!.memoryPercent).toBeNull();
     expect(status!.error).toBeTruthy();
     expect(status!.lastCheckedAt).toBeTruthy();
+  });
+
+  test("the default CPU sampler is unavailable until the rolling sampler warms up", () => {
+    // Cores are known but the rolling sampler has not computed a delta yet:
+    // the default sampler must report the signal unavailable rather than
+    // feed a genuine-looking 0% into the window.
+    mockedCpuCores = 4;
+
+    let status = evaluateResourcePressureNow();
+    expect(status.state).toBe("unknown");
+    expect(status.cpuPercent).toBeNull();
+    expect(status.cpuElevated).toBe(false);
+
+    // The first computed delta makes the signal available.
+    mockedCachedCpuPercentOrNull = 42;
+    status = evaluateResourcePressureNow();
+    expect(status.state).toBe("ok");
+    expect(status.cpuPercent).toBe(42);
   });
 
   test("an unavailable signal resets its window and drops its elevated flag", () => {

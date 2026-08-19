@@ -13,6 +13,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 
 mock.module("../util/container-cpu-sampler.js", () => ({
   getCachedContainerCpuPercent: () => 0,
+  getCachedContainerCpuPercentOrNull: () => null,
 }));
 
 mock.module("../util/cgroup-cpu.js", () => ({

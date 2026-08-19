@@ -82,10 +82,17 @@ let _lastProcessCpuUsage: NodeJS.CpuUsage | null = sampleProcessCpuUsage();
 let _lastCgroupCpuUs: number | null = getContainerCpuUsageUs();
 let _lastCpuTime: number = Date.now();
 let _cachedCpuPercent = 0;
+// Whether the sampler has ever computed a real delta. Until then the cache
+// is a placeholder 0 (still warming up, or neither cgroup counters nor
+// process.cpuUsage() deltas are readable), not a measurement.
+let _hasCpuSample = false;
 
-// Kick off the background sampler. unref() so it never prevents process exit.
-setInterval(() => {
-  const now = Date.now();
+function setCachedCpuPercent(percent: number): void {
+  _cachedCpuPercent = percent;
+  _hasCpuSample = true;
+}
+
+function runCpuSamplerTick(now: number): void {
   const elapsedMs = now - _lastCpuTime;
   if (elapsedMs <= 0) {
     return;
@@ -116,32 +123,58 @@ setInterval(() => {
     // container footprint, not just this process.
     const cgroupUs = getContainerCpuUsageUs();
     if (cgroupUs !== null && _lastCgroupCpuUs !== null) {
-      _cachedCpuPercent = computeCpuPercent(
-        cgroupUs - _lastCgroupCpuUs,
-        elapsedMs,
-        numCores,
+      setCachedCpuPercent(
+        computeCpuPercent(cgroupUs - _lastCgroupCpuUs, elapsedMs, numCores),
       );
     } else if (processDeltaUs !== null) {
       // cgroup CPU stats unavailable (e.g. gVisor) – fall back to process-level.
-      _cachedCpuPercent = computeCpuPercent(
-        processDeltaUs,
-        elapsedMs,
-        numCores,
+      setCachedCpuPercent(
+        computeCpuPercent(processDeltaUs, elapsedMs, numCores),
       );
     }
     _lastCgroupCpuUs = cgroupUs;
   } else if (processDeltaUs !== null) {
     // Non-platform: use process.cpuUsage() (accurate for single-process mode).
-    _cachedCpuPercent = computeCpuPercent(processDeltaUs, elapsedMs, numCores);
+    setCachedCpuPercent(computeCpuPercent(processDeltaUs, elapsedMs, numCores));
   }
 
   _lastCpuTime = now;
+}
+
+// Kick off the background sampler. unref() so it never prevents process exit.
+setInterval(() => {
+  runCpuSamplerTick(Date.now());
 }, CPU_SAMPLE_INTERVAL_MS).unref();
 
 /**
  * Near-real-time CPU utilization as a percent of the container's full
  * allocation, refreshed every {@link CPU_SAMPLE_INTERVAL_MS}.
+ *
+ * Reports 0 until the sampler computes its first delta; callers that must
+ * distinguish "idle" from "no data yet" use
+ * {@link getCachedContainerCpuPercentOrNull}.
  */
 export function getCachedContainerCpuPercent(): number {
   return _cachedCpuPercent;
+}
+
+/**
+ * Like {@link getCachedContainerCpuPercent}, but null until the sampler has
+ * computed at least one real delta, so warm-up and unreadable CPU accounting
+ * read as "signal unavailable" instead of a genuine-looking 0%.
+ */
+export function getCachedContainerCpuPercentOrNull(): number | null {
+  return _hasCpuSample ? _cachedCpuPercent : null;
+}
+
+export function __resetContainerCpuSamplerForTests(): void {
+  _lastProcessCpuUsage = sampleProcessCpuUsage();
+  _lastCgroupCpuUs = getContainerCpuUsageUs();
+  _lastCpuTime = Date.now();
+  _cachedCpuPercent = 0;
+  _hasCpuSample = false;
+}
+
+export function __runContainerCpuSamplerTickForTests(nowMs: number): void {
+  runCpuSamplerTick(nowMs);
 }
