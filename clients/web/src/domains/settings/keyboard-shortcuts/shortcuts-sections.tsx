@@ -1,5 +1,5 @@
 import { RotateCcw, X } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import { type ResolvedHotkey } from "@/runtime/hotkeys";
 import { Button } from "@vellumai/design-library/components/button";
@@ -31,6 +31,15 @@ export interface ShortcutRowProps {
   hotkey: ResolvedHotkey;
   recording: boolean;
   conflictLabel: string | null;
+  /**
+   * Another way to bind the same command, offered beside the recorder.
+   *
+   * Fn is the only one today: it is not an accelerator, so it cannot be
+   * recorded or held in `settings.hotkeys`, but to a user it is simply the
+   * other thing Talk can be bound to and belongs in the same row rather than
+   * in a control of its own.
+   */
+  alternateBinding?: ReactNode;
   onStartRecording: () => void;
   onCancelRecording: () => void;
   onReset: () => void;
@@ -48,6 +57,7 @@ export function ShortcutRow({
   hotkey,
   recording,
   conflictLabel,
+  alternateBinding,
   onStartRecording,
   onCancelRecording,
   onReset,
@@ -70,6 +80,7 @@ export function ShortcutRow({
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
+        {alternateBinding}
         {recording ? (
           <span className="text-body-small-default text-[var(--content-secondary)]">
             Recording… press a shortcut, or Esc to cancel

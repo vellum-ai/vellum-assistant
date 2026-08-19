@@ -538,39 +538,45 @@ function VoiceModeShortcutCard() {
         title={t("voicePage.voiceShortcutTitle")}
         subtitle={t("voicePage.voiceShortcutSubtitleDesktop")}
       >
-        <div className="flex flex-col gap-2">
-          {/* Rebound from here rather than from the page that lists every
-              shortcut: whoever is reading this card is the person who wants to
-              change this binding, and the same row is what they would have
-              found there. The write goes to the host either way. */}
-          {talkHotkey && (
-            <ShortcutRow
-              hotkey={talkHotkey}
-              recording={recorder.recordingKey === TALK_HOTKEY_KEY}
-              conflictLabel={
-                recorder.conflict?.key === TALK_HOTKEY_KEY
-                  ? recorder.conflict.label
-                  : null
-              }
-              onStartRecording={() => recorder.startRecording(TALK_HOTKEY_KEY)}
-              onCancelRecording={recorder.stopRecording}
-              onReset={() => recorder.resetHotkey(TALK_HOTKEY_KEY)}
-              onRemove={() => recorder.removeHotkey(TALK_HOTKEY_KEY)}
-            />
-          )}
+        {/* Rebound from here rather than from the page that lists every
+            shortcut: whoever is reading this card is the person who wants to
+            change this binding, and the same row is what they would have found
+            there. The write goes to the host either way.
 
-          {/* Fn is not an accelerator, so it cannot live on that rail and is
-              configured here instead. */}
-          {fnConfigurable && (
-            <Toggle
-              checked={isFnVoiceModeActivator(activator)}
-              onChange={(next: boolean) => {
-                selectActivator(next ? FN_PTT_ACTIVATOR : { kind: "off" });
-              }}
-              label={t("voicePage.enableFnShortcut")}
-            />
-          )}
-        </div>
+            Fn rides in the same row as an alternate binding. It is a different
+            mechanism (the helper, not an accelerator) but not a different
+            question: both answer "what starts Talk", so both belong in the one
+            place that asks it. */}
+        {talkHotkey && (
+          <ShortcutRow
+            hotkey={talkHotkey}
+            recording={recorder.recordingKey === TALK_HOTKEY_KEY}
+            conflictLabel={
+              recorder.conflict?.key === TALK_HOTKEY_KEY
+                ? recorder.conflict.label
+                : null
+            }
+            alternateBinding={
+              fnConfigurable ? (
+                <ActivationKeyOption
+                  label={t("voicePage.fnKeyLabel")}
+                  selected={isFnVoiceModeActivator(activator)}
+                  onClick={() => {
+                    selectActivator(
+                      isFnVoiceModeActivator(activator)
+                        ? { kind: "off" }
+                        : FN_PTT_ACTIVATOR,
+                    );
+                  }}
+                />
+              ) : undefined
+            }
+            onStartRecording={() => recorder.startRecording(TALK_HOTKEY_KEY)}
+            onCancelRecording={recorder.stopRecording}
+            onReset={() => recorder.resetHotkey(TALK_HOTKEY_KEY)}
+            onRemove={() => recorder.removeHotkey(TALK_HOTKEY_KEY)}
+          />
+        )}
       </DetailCard>
     );
   }
