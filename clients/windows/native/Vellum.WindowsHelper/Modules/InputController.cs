@@ -274,11 +274,20 @@ public sealed class InputController : IRpcModule, IInputController
             return await Finish(null, null, note: false);
         }
 
-        // Element-id targets need the observation module to resolve coordinates.
+        try
+        {
+            action = await ResolveElementCoordinatesAsync(
+                action, ObservationSeams.CuSource, cancellationToken);
+        }
+        catch (InvalidOperationException error)
+        {
+            return await Finish(null, error.Message);
+        }
+
         if (action.Type is "click" or "double_click" or "right_click" &&
             (action.X is null || action.Y is null))
         {
-            return await Finish(null, "Coordinates are required; element-id resolution arrives with the observation module");
+            return await Finish(null, "Coordinates or a valid element_id are required");
         }
 
         var verdict = verifier.Verify(action);
@@ -302,6 +311,28 @@ public sealed class InputController : IRpcModule, IInputController
         {
             return await Finish(null, err.Message, SettleDelayMs);
         }
+    }
+
+    public static async Task<CuAction> ResolveElementCoordinatesAsync(
+        CuAction action, ICuObservationSource? source, CancellationToken cancellationToken)
+    {
+        if (action.Type is not ("click" or "double_click" or "right_click" or "scroll") ||
+            action.X is not null && action.Y is not null || action.ElementId is null)
+        {
+            return action;
+        }
+        if (source is null)
+        {
+            throw new InvalidOperationException(
+                $"Element {action.ElementId} cannot be resolved because screen observation is unavailable");
+        }
+        var point = await source.ResolveElementCenterAsync(action.ElementId.Value, cancellationToken);
+        if (point is null)
+        {
+            throw new InvalidOperationException(
+                $"Element {action.ElementId} was not found in the current window");
+        }
+        return action with { X = point.X, Y = point.Y };
     }
 
     private static async Task<string> ExecuteAsync(CuAction action, CancellationToken cancellationToken)
@@ -360,7 +391,7 @@ public sealed class InputController : IRpcModule, IInputController
                 throw new NotSupportedException(
                     "run_applescript is not supported on Windows; use click, type, and key actions instead");
             case "drag" or "open_app":
-                // Drag pointer paths and app launching arrive with the observation module.
+                // Drag pointer paths and app launching are not implemented.
                 throw new NotSupportedException($"{action.Type} is not yet available on Windows");
             default:
                 throw new InvalidOperationException($"Unsupported action: {action.Type}");
@@ -427,6 +458,7 @@ public sealed class InputController : IRpcModule, IInputController
             type,
             X: JsonInput.GetDouble(input, "x"),
             Y: JsonInput.GetDouble(input, "y"),
+            ElementId: JsonInput.GetLong(input, "element_id"),
             Text: JsonInput.GetString(input, "text"),
             Key: JsonInput.GetString(input, "key"),
             ScrollDirection: JsonInput.GetString(input, "direction") ?? JsonInput.GetString(input, "scroll_direction"),
@@ -454,4 +486,11 @@ public static class JsonInput
 
     public static int? GetInt(JsonElement? element, string name) =>
         GetDouble(element, name) is double parsed ? (int)parsed : null;
+
+    public static long? GetLong(JsonElement? element, string name) =>
+        element is { ValueKind: JsonValueKind.Object } value &&
+        value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.Number &&
+        property.TryGetInt64(out var parsed)
+            ? parsed
+            : null;
 }

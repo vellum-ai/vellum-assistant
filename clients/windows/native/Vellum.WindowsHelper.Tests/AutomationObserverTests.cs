@@ -17,20 +17,27 @@ public static class AutomationObserverTests
 
     private static void TestStableIdsAndDiff()
     {
-        Check(AutomationIds.FromRuntimeId([7, 42], "f") == "r7.42", "runtime id maps stably");
-        Check(AutomationIds.FromRuntimeId([], "p1n2") == "p1n2", "empty runtime id uses fallback");
-        var before = Node("root", children: [Node("b", name: "Save"), Node("c", name: "Cancel")]);
-        var after = Node("root", children: [Node("b", name: "Saved", focused: true), Node("d", name: "Close")]);
+        Check(
+            AutomationIds.FromRuntimeId([7, 42], "f") == AutomationIds.FromRuntimeId([7, 42], "other"),
+            "runtime id maps stably");
+        Check(
+            AutomationIds.FromRuntimeId([], "p1n2") == AutomationIds.FromRuntimeId(null, "p1n2"),
+            "empty runtime id uses fallback");
+        Check(
+            AutomationIds.FromRuntimeId([7, 42], "f") != AutomationIds.FromRuntimeId([7, 43], "f"),
+            "different runtime ids differ");
+        var before = Node(1, children: [Node(2, name: "Save"), Node(3, name: "Cancel")]);
+        var after = Node(1, children: [Node(2, name: "Saved", focused: true), Node(4, name: "Close")]);
         var diff = AutomationTreeDiff.Compute(before, after);
-        Check(diff.Added.Count == 1 && diff.Added[0].Id == "d" && diff.Added[0].Children.Count == 0,
+        Check(diff.Added.Count == 1 && diff.Added[0].Id == 4 && diff.Added[0].Children.Count == 0,
             "diff reports added nodes shallowly");
-        Check(diff.Changed.Count == 1 && diff.Changed[0].Id == "b", "diff reports changed nodes");
-        Check(diff.RemovedIds.SequenceEqual(["c"]), "diff reports removed ids");
+        Check(diff.Changed.Count == 1 && diff.Changed[0].Id == 2, "diff reports changed nodes");
+        Check(diff.RemovedIds.SequenceEqual([3]), "diff reports removed ids");
     }
 
     private static async ValueTask TestFullThenDiffAsync()
     {
-        var source = new FakeSource { Snapshot = Snapshot(Node("root", children: [Node("b", name: "Save")])) };
+        var source = new FakeSource { Snapshot = Snapshot(Node(1, children: [Node(2, name: "Save")])) };
         var module = Module(source);
         var full = await ObserveAsync(module, "conv-1", "full");
         Check(full.GetProperty("kind").GetString() == "full", "first observation is full");
@@ -42,17 +49,21 @@ public static class AutomationObserverTests
             "foreground app metadata is reported");
         Check(!full.TryGetProperty("unavailable", out _), "successful results omit null fields");
 
-        source.Snapshot = Snapshot(Node("root", children: [Node("b", name: "Saved", focused: true)]));
+        source.Snapshot = Snapshot(Node(1, children: [Node(2, name: "Saved", focused: true)]));
         var diff = await ObserveAsync(module, "conv-1", "diff");
-        Check(diff.GetProperty("kind").GetString() == "diff" && !diff.TryGetProperty("tree", out _),
-            "second observation diffs without the full tree");
+        Check(diff.GetProperty("kind").GetString() == "diff" && diff.TryGetProperty("tree", out _),
+            "diff observations include the current tree");
         Check(diff.GetProperty("diff").GetString()!.Contains("\"Saved\"", StringComparison.Ordinal),
             "diff contains the changed node");
+
+        var unchanged = await ObserveAsync(module, "conv-1", "diff");
+        Check(!unchanged.TryGetProperty("diff", out _),
+            "unchanged observations omit the diff");
     }
 
     private static async ValueTask TestSessionIsolationAndExpiryAsync()
     {
-        var source = new FakeSource { Snapshot = Snapshot(Node("root")) };
+        var source = new FakeSource { Snapshot = Snapshot(Node(1)) };
         var now = DateTimeOffset.UtcNow;
         var store = new ObservationSessionStore(TimeSpan.FromMinutes(10), () => now);
         var module = new AutomationObserverModule(new AutomationObserver(source, store));
@@ -67,7 +78,7 @@ public static class AutomationObserverTests
 
     private static async ValueTask TestUnavailableAsync()
     {
-        var source = new FakeSource { Snapshot = Snapshot(Node("root")) };
+        var source = new FakeSource { Snapshot = Snapshot(Node(1)) };
         var module = Module(source);
         _ = await ObserveAsync(module, "conv-1", "full");
         source.Snapshot = new AutomationSnapshot(
@@ -77,7 +88,7 @@ public static class AutomationObserverTests
             !denied.TryGetProperty("tree", out _),
             "denied targets return a structured unavailable result and no tree");
 
-        source.Snapshot = Snapshot(Node("root"));
+        source.Snapshot = Snapshot(Node(1));
         var after = await ObserveAsync(module, "conv-1", "diff");
         Check(after.GetProperty("kind").GetString() == "full",
             "denied targets never leave a stale diff baseline");
@@ -91,7 +102,7 @@ public static class AutomationObserverTests
 
     private static async ValueTask TestCancellationAsync()
     {
-        var module = Module(new FakeSource { Snapshot = Snapshot(Node("root")) });
+        var module = Module(new FakeSource { Snapshot = Snapshot(Node(1)) });
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
         try
@@ -129,7 +140,7 @@ public static class AutomationObserverTests
             null);
 
     private static AutomationNode Node(
-        string id, string? name = null, bool focused = false, IReadOnlyList<AutomationNode>? children = null) =>
+        long id, string? name = null, bool focused = false, IReadOnlyList<AutomationNode>? children = null) =>
         new(id, "ControlType.Button", name, null, focused, false, false, true,
             new PixelRect(0, 0, 100, 40), children ?? []);
 

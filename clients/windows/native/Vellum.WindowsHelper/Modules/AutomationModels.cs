@@ -23,7 +23,7 @@ public static class AutomationJson
 public sealed record PixelRect(int X, int Y, int Width, int Height);
 
 public sealed record AutomationNode(
-    string Id, string Role, string? Name, string? Value, bool Focused, bool Selected,
+    long Id, string Role, string? Name, string? Value, bool Focused, bool Selected,
     bool Editable, bool Enabled, PixelRect Bounds, IReadOnlyList<AutomationNode> Children);
 
 public sealed record ForegroundApp(string Name, int ProcessId, string? WindowTitle);
@@ -55,13 +55,26 @@ public sealed record ObservationResult(
 
 public sealed record TreeDiff(
     IReadOnlyList<AutomationNode> Added, IReadOnlyList<AutomationNode> Changed,
-    IReadOnlyList<string> RemovedIds);
+    IReadOnlyList<long> RemovedIds);
 
 public static class AutomationIds
 {
-    /// <summary>Stable id from a UIA runtime id, with a deterministic fallback when it is unavailable.</summary>
-    public static string FromRuntimeId(int[]? runtimeId, string fallback) =>
-        runtimeId is null || runtimeId.Length == 0 ? fallback : "r" + string.Join('.', runtimeId);
+    public static long FromRuntimeId(int[]? runtimeId, string fallback)
+    {
+        var value = runtimeId is null || runtimeId.Length == 0
+            ? fallback
+            : string.Join('.', runtimeId);
+        ulong hash = 14695981039346656037;
+        unchecked
+        {
+            foreach (var character in value)
+            {
+                hash = (hash ^ character) * 1099511628211;
+            }
+        }
+        var id = (long)(hash & 0x1fffffffffffff);
+        return id == 0 ? 1 : id;
+    }
 }
 
 public static class AutomationTreeDiff
@@ -86,9 +99,9 @@ public static class AutomationTreeDiff
         a.Selected == b.Selected && a.Editable == b.Editable && a.Enabled == b.Enabled &&
         a.Bounds == b.Bounds;
 
-    private static Dictionary<string, AutomationNode> Flatten(AutomationNode? root)
+    private static Dictionary<long, AutomationNode> Flatten(AutomationNode? root)
     {
-        var nodes = new Dictionary<string, AutomationNode>(StringComparer.Ordinal);
+        var nodes = new Dictionary<long, AutomationNode>();
         var stack = new Stack<AutomationNode>();
         if (root is not null)
         {

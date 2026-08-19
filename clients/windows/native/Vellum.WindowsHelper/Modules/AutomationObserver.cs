@@ -64,8 +64,12 @@ public sealed class AutomationObserver(IAutomationSnapshotSource source, Observa
             var tree = AutomationJson.ToJson(snapshot.Tree);
             return new ObservationResult("full", tree, null, snapshot.ForegroundApp, windowsJson, null);
         }
-        var diff = AutomationJson.ToJson(AutomationTreeDiff.Compute(previous, snapshot.Tree));
-        return new ObservationResult("diff", null, diff, snapshot.ForegroundApp, windowsJson, null);
+        var currentTree = AutomationJson.ToJson(snapshot.Tree);
+        var changes = AutomationTreeDiff.Compute(previous, snapshot.Tree);
+        var diff = changes is { Added.Count: 0, Changed.Count: 0, RemovedIds.Count: 0 }
+            ? null
+            : AutomationJson.ToJson(changes);
+        return new ObservationResult("diff", currentTree, diff, snapshot.ForegroundApp, windowsJson, null);
     }
 }
 
