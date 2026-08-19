@@ -12,6 +12,7 @@ type SavedState = {
 let savedWindows: Record<string, SavedState> = {};
 let savedOnboardingActive: boolean | undefined = undefined;
 let savedCompanionHidden: boolean | undefined = undefined;
+let savedTitleBarOverlay: unknown = undefined;
 let workArea = { x: 0, y: 0, width: 1920, height: 1080 };
 const storeSetMock = mock((_key: string, _value: unknown) => {});
 
@@ -26,6 +27,7 @@ mock.module("electron-store", () => ({
       // when the key is absent.
       if (key === "onboardingActive") return savedOnboardingActive ?? fallback;
       if (key === "companionHidden") return savedCompanionHidden ?? fallback;
+      if (key === "titleBarOverlay") return savedTitleBarOverlay ?? fallback;
       if (key === "windows") return savedWindows;
       return fallback;
     }
@@ -50,8 +52,10 @@ const {
   track,
   readCompanionHidden,
   readOnboardingActive,
+  readTitleBarOverlayColors,
   writeCompanionHidden,
   writeOnboardingActive,
+  writeTitleBarOverlayColors,
 } = await import("./window-state");
 
 const DEFAULTS = { width: 800, height: 600 };
@@ -79,6 +83,7 @@ beforeEach(() => {
   savedWindows = {};
   savedOnboardingActive = undefined;
   savedCompanionHidden = undefined;
+  savedTitleBarOverlay = undefined;
   workArea = { x: 0, y: 0, width: 1920, height: 1080 };
   storeSetMock.mockClear();
 });
@@ -354,5 +359,57 @@ describe("companion surface visibility flag", () => {
 
     writeCompanionHidden(true);
     expect(storeSetMock).toHaveBeenCalledWith("companionHidden", true);
+  });
+});
+
+describe("windows title-bar overlay colors", () => {
+  test("absent colors leave the overlay on its system colors", () => {
+    // GIVEN nothing has been persisted
+
+    // WHEN the colors are read
+    const colors = readTitleBarOverlayColors();
+
+    // THEN there is nothing to override the system caption colors with
+    expect(colors).toBeNull();
+  });
+
+  test("persisted colors are returned for the next window's construction", () => {
+    // GIVEN a renderer published the dark theme's colors on a past launch
+    savedTitleBarOverlay = { color: "#17191C", symbolColor: "#F6F5F4" };
+
+    // WHEN the colors are read
+    const colors = readTitleBarOverlayColors();
+
+    // THEN they come back as stored
+    expect(colors).toEqual({ color: "#17191C", symbolColor: "#F6F5F4" });
+  });
+
+  test("a value that is not a pair of CSS colors is discarded", () => {
+    // GIVEN a hand-edited store file holding something unparseable
+    savedTitleBarOverlay = { color: "not a color", symbolColor: 42 };
+
+    // WHEN the colors are read
+    const colors = readTitleBarOverlayColors();
+
+    // THEN the overlay falls back to the system colors rather than carrying a
+    // string Chromium's color parser would silently ignore
+    expect(colors).toBeNull();
+  });
+
+  test("writeTitleBarOverlayColors skips persisting unchanged colors", () => {
+    // GIVEN the dark theme's colors are already persisted
+    savedTitleBarOverlay = { color: "#17191C", symbolColor: "#F6F5F4" };
+
+    // WHEN the same colors are re-asserted, then a different theme's are
+    writeTitleBarOverlayColors({ color: "#17191C", symbolColor: "#F6F5F4" });
+    expect(storeSetMock).not.toHaveBeenCalled();
+    writeTitleBarOverlayColors({ color: "#121214", symbolColor: "#F6F5F4" });
+
+    // THEN only the change reaches the store
+    expect(storeSetMock).toHaveBeenCalledTimes(1);
+    expect(storeSetMock).toHaveBeenCalledWith("titleBarOverlay", {
+      color: "#121214",
+      symbolColor: "#F6F5F4",
+    });
   });
 });

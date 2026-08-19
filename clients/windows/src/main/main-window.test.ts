@@ -3,6 +3,8 @@ import {
   IDENTITY_NAME,
   MAIN_WINDOW_ENSURE_VISIBLE,
   MAIN_WINDOW_SET_ONBOARDING,
+  MAIN_WINDOW_SET_TITLE_BAR_OVERLAY,
+  type TitleBarOverlayColors,
 } from "@vellumai/ipc-contract";
 
 interface WindowState {
@@ -35,6 +37,7 @@ interface WindowStub {
   maximize: ReturnType<typeof mock>;
   restore: ReturnType<typeof mock>;
   setTitle: ReturnType<typeof mock>;
+  setTitleBarOverlay: ReturnType<typeof mock>;
   show: ReturnType<typeof mock>;
   isDestroyed: () => boolean;
   isFocused: () => boolean;
@@ -101,6 +104,7 @@ const createWindowMock = mock(
         state.minimized = false;
       }),
       setTitle: mock(() => undefined),
+      setTitleBarOverlay: mock(() => undefined),
       show: mock(() => {
         state.visible = true;
       }),
@@ -151,11 +155,17 @@ let restoredBounds: {
 } = { width: 1280, height: 800 };
 const trackMock = mock(() => undefined);
 const writeOnboardingActiveMock = mock((_active: boolean) => undefined);
+let persistedOverlayColors: TitleBarOverlayColors | null = null;
+const writeTitleBarOverlayColorsMock = mock(
+  (_colors: TitleBarOverlayColors) => undefined,
+);
 
 mock.module("@vellumai/electron-desktop/window-state", () => ({
   restoreBounds: () => restoredBounds,
   track: trackMock,
   writeOnboardingActive: writeOnboardingActiveMock,
+  readTitleBarOverlayColors: () => persistedOverlayColors,
+  writeTitleBarOverlayColors: writeTitleBarOverlayColorsMock,
 }));
 
 const invokeHandlers = new Map<string, (args: unknown[]) => unknown>();
@@ -201,8 +211,10 @@ beforeEach(() => {
   invokeHandlers.clear();
   eventHandlers.clear();
   restoredBounds = { width: 1280, height: 800 };
+  persistedOverlayColors = null;
   trackMock.mockClear();
   writeOnboardingActiveMock.mockClear();
+  writeTitleBarOverlayColorsMock.mockClear();
 });
 
 afterEach(destroyWindows);
@@ -276,6 +288,8 @@ describe("Windows main window", () => {
     expect(invokeHandlers.has(MAIN_WINDOW_SET_ONBOARDING)).toBe(true);
     expect(eventHandlers.has(IDENTITY_NAME)).toBe(true);
 
+    expect(invokeHandlers.has(MAIN_WINDOW_SET_TITLE_BAR_OVERLAY)).toBe(true);
+
     invokeHandlers.get(MAIN_WINDOW_SET_ONBOARDING)?.([true]);
     expect(writeOnboardingActiveMock).toHaveBeenCalledWith(true);
 
@@ -298,6 +312,53 @@ describe("Windows main window", () => {
       "vellum:command",
       { kind: "openSettings" },
     );
+  });
+
+  test("opens on the persisted overlay colors so launch is themed", () => {
+    /**
+     * The overlay's colors are constructor options, so a launch that ignored
+     * the persisted pair would draw the system caption colors until the
+     * renderer reported its theme.
+     */
+    // GIVEN a renderer published the velvet theme's colors on a past launch
+    persistedOverlayColors = { color: "#121214", symbolColor: "#F6F5F4" };
+
+    // WHEN the window is created
+    void ensureVisible();
+
+    // THEN the caption buttons are built in those colors, at the title bar's
+    // own height
+    expect(constructed[0]?.options.titleBarOverlay).toEqual({
+      color: "#121214",
+      symbolColor: "#F6F5F4",
+      height: 44,
+    });
+  });
+
+  test("repaints the caption buttons when the renderer changes theme", () => {
+    /**
+     * Tests that a theme change reaches the native overlay, which no
+     * stylesheet can.
+     */
+    // GIVEN a running window
+    installMainWindow();
+
+    // WHEN the renderer publishes the dark theme's colors
+    invokeHandlers.get(MAIN_WINDOW_SET_TITLE_BAR_OVERLAY)?.([
+      { color: "#17191C", symbolColor: "#F6F5F4" },
+    ]);
+
+    // THEN the live window is repainted, keeping the title bar's height
+    expect(constructed[0]?.setTitleBarOverlay).toHaveBeenCalledWith({
+      color: "#17191C",
+      symbolColor: "#F6F5F4",
+      height: 44,
+    });
+    // AND the colors are persisted for the next launch's constructor
+    expect(writeTitleBarOverlayColorsMock).toHaveBeenCalledWith({
+      color: "#17191C",
+      symbolColor: "#F6F5F4",
+    });
   });
 
   test("hides on close and allows close while quitting", () => {

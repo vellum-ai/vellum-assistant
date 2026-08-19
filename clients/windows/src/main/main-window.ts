@@ -3,12 +3,17 @@ import {
   IDENTITY_NAME,
   MAIN_WINDOW_ENSURE_VISIBLE,
   MAIN_WINDOW_SET_ONBOARDING,
+  MAIN_WINDOW_SET_TITLE_BAR_OVERLAY,
+  titleBarOverlayColorsSchema,
+  type TitleBarOverlayColors,
   type VellumCommand,
 } from "@vellumai/ipc-contract";
 import {
+  readTitleBarOverlayColors,
   restoreBounds,
   track as trackWindowState,
   writeOnboardingActive,
+  writeTitleBarOverlayColors,
 } from "@vellumai/electron-desktop/window-state";
 import { createWindowReadiness } from "@vellumai/electron-desktop/window-readiness";
 import { z } from "zod";
@@ -56,13 +61,14 @@ const createMainWindow = (): BrowserWindow => {
     "main",
     MAIN_DEFAULT_BOUNDS,
   );
+  const overlayColors = readTitleBarOverlayColors();
   const win = createWindow({
     browserWindow: {
       ...bounds,
       minWidth: MAIN_MIN_SIZE.width,
       minHeight: MAIN_MIN_SIZE.height,
       titleBarStyle: "hidden",
-      titleBarOverlay: { height: TITLE_BAR_HEIGHT },
+      titleBarOverlay: { ...overlayColors, height: TITLE_BAR_HEIGHT },
       show: false,
     },
     navigation: { installGuard: installSameOriginNavigationGuard },
@@ -148,6 +154,22 @@ export const setOnboarding = (active: boolean): void => {
   writeOnboardingActive(active);
 };
 
+/**
+ * Paint the native caption buttons in the renderer's theme colors.
+ *
+ * The overlay is OS chrome drawn over the webview, so it can't inherit the
+ * themed title bar it sits in: the colors have to be handed to it. They're
+ * persisted as well as applied because they're `BrowserWindow` constructor
+ * options, so the next launch builds its window themed instead of opening on
+ * the system caption colors until the renderer reports its theme.
+ */
+export const setTitleBarOverlay = (colors: TitleBarOverlayColors): void => {
+  writeTitleBarOverlayColors(colors);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setTitleBarOverlay({ ...colors, height: TITLE_BAR_HEIGHT });
+  }
+};
+
 const setAssistantName = (name: string): void => {
   const nextTitle = name.trim() || DEFAULT_WINDOW_TITLE;
   if (nextTitle === currentTitle) {
@@ -179,6 +201,13 @@ export const installMainWindow = (): void => {
     z.tuple([z.boolean()]),
     ([active]) => {
       setOnboarding(active);
+    },
+  );
+  handle(
+    MAIN_WINDOW_SET_TITLE_BAR_OVERLAY,
+    z.tuple([titleBarOverlayColorsSchema]),
+    ([colors]) => {
+      setTitleBarOverlay(colors);
     },
   );
   on(IDENTITY_NAME, z.tuple([z.string()]), ([name]) => {

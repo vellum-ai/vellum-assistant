@@ -4,7 +4,9 @@ import Store from "electron-store";
 import {
   COMPANION_SIZES,
   DEFAULT_COMPANION_SIZE,
+  titleBarOverlayColorsSchema,
   type CompanionSize,
+  type TitleBarOverlayColors,
 } from "@vellumai/ipc-contract";
 
 /**
@@ -44,6 +46,13 @@ interface StoreSchema {
   // from this before any renderer loads. Optional: absent means the default
   // (see `readCompanionSize`).
   companionSize?: CompanionSize;
+  // The colors the Windows title-bar overlay's caption buttons are painted
+  // with, as last published by the renderer's active theme. A main-process
+  // concern for the same reason the flags above are: the overlay's colors are
+  // constructor options, so the first window of a launch is built with them
+  // before any renderer loads. Optional: absent means the system colors (see
+  // `readTitleBarOverlayColors`).
+  titleBarOverlay?: TitleBarOverlayColors;
 }
 
 let instance: Store<StoreSchema> | null = null;
@@ -124,6 +133,35 @@ export const writeCompanionSize = (size: CompanionSize): void => {
     return;
   }
   store().set("companionSize", size);
+};
+
+/**
+ * The colors the Windows caption buttons are drawn in, or `null` when none
+ * have been published yet, which leaves the overlay on its system colors.
+ *
+ * Validated on the way out for the same reason the companion's size is: this
+ * is a JSON file a user can edit, and the value is handed to Chromium's color
+ * parser, which silently keeps the previous color for anything it cannot read.
+ */
+export const readTitleBarOverlayColors = (): TitleBarOverlayColors | null => {
+  const parsed = titleBarOverlayColorsSchema.safeParse(
+    store().get("titleBarOverlay"),
+  );
+  return parsed.success ? parsed.data : null;
+};
+
+/** Persist the caption-button colors. No-op when unchanged. */
+export const writeTitleBarOverlayColors = (
+  colors: TitleBarOverlayColors,
+): void => {
+  const current = readTitleBarOverlayColors();
+  if (
+    current?.color === colors.color &&
+    current?.symbolColor === colors.symbolColor
+  ) {
+    return;
+  }
+  store().set("titleBarOverlay", colors);
 };
 
 /**
