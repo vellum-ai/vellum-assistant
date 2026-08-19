@@ -1,6 +1,10 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { COMPANION_SIZES } from "@vellumai/ipc-contract";
+import {
+  COMPANION_SIZES,
+  type CompanionSurfaceState,
+  type VellumCommand,
+} from "@vellumai/ipc-contract";
 
 // The module under test reaches `main-window.ts` to hand Talk to the renderer
 // that owns the live-voice session, and that chain loads `electron-store`, a
@@ -17,8 +21,101 @@ mock.module("electron-store", () => ({
   },
 }));
 
-// Dynamic, so the mock above is installed before the module graph loads:
-// static imports hoist above it.
+// The rest of the module's graph, stubbed down to what the IPC cases need: the
+// registrars the handlers land in, the surface they push to, and the app's
+// window they dispatch at. Everything main does against a real window server is
+// out of reach here, and none of it is what these cases are about.
+
+/** Every state main has pushed to the surface, most recent last. */
+const pushes: CompanionSurfaceState[] = [];
+
+/** Every command main has handed to the app's renderer, most recent last. */
+const dispatched: VellumCommand[] = [];
+
+/** How many times a press had to build a window before it could land. */
+let windowsRaised = 0;
+
+/** Whether the app's window exists, which is what decides between those two. */
+let mainWindowOpen = true;
+
+const surface = {
+  webContents: {
+    send: (_channel: string, state: CompanionSurfaceState) => {
+      pushes.push(state);
+    },
+  },
+};
+
+type Invoker = (args: unknown[]) => unknown;
+
+/** Channel to handler, with the channel's schema applied the way `on` does. */
+const listeners = new Map<string, Invoker>();
+const invocable = new Map<string, Invoker>();
+
+const register =
+  (into: Map<string, Invoker>) =>
+  (
+    channel: string,
+    schema: { parse: (input: unknown) => unknown },
+    fn: (args: never) => unknown,
+  ): void => {
+    into.set(channel, (args) => fn(schema.parse(args) as never));
+  };
+
+mock.module("electron", () => ({
+  BrowserWindow: { getAllWindows: () => [] },
+  screen: {
+    getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+    getDisplayNearestPoint: () => ({
+      workArea: { x: 0, y: 0, width: 1440, height: 900 },
+    }),
+    on: () => undefined,
+  },
+}));
+
+mock.module("./ipc", () => ({
+  on: register(listeners),
+  handle: register(invocable),
+}));
+
+mock.module("./main-window", () => ({
+  // Only its existence is read: it is what decides whether a press is
+  // dispatched straight into a renderer or has to build one first.
+  current: () => (mainWindowOpen ? {} : null),
+  dispatchToMain: (command: VellumCommand) => {
+    dispatched.push(command);
+  },
+  ensureVisible: () => {
+    windowsRaised += 1;
+    return Promise.resolve();
+  },
+}));
+
+mock.module("@vellumai/electron-desktop/floating-window", () => ({
+  createFloatingWindow: () => surface,
+  getFloatingWindow: () => surface,
+}));
+
+mock.module("@vellumai/electron-desktop/avatar", () => ({
+  getAvatarPng: () => null,
+  getCharacter: () => null,
+  onAvatarChange: () => () => {},
+}));
+
+mock.module("@vellumai/electron-desktop/settings", () => ({
+  readSetting: () => ({ "companion-surface": true }),
+  onSettingChange: () => () => {},
+}));
+
+mock.module("@vellumai/electron-desktop/window-state", () => ({
+  readCompanionSize: () => "small",
+  readCompanionHidden: () => false,
+  writeCompanionSize: () => {},
+  writeCompanionHidden: () => {},
+}));
+
+// Dynamic, so the mocks above are installed before the module graph loads:
+// static imports hoist above them.
 const {
   growthFor,
   cardGrowthFor,
@@ -27,7 +124,36 @@ const {
   placeCanvas,
   callOnUpdate,
   shouldShowCompanionSurface,
+  installCompanionWindow,
 } = await import("./companion-window");
+
+installCompanionWindow();
+
+/** Send on a channel exactly as a renderer would, schema and all. */
+const send = (channel: string, ...args: unknown[]): void => {
+  const listener = listeners.get(channel);
+  if (!listener) {
+    throw new Error(`No listener registered for ${channel}`);
+  }
+  listener(args);
+};
+
+/** The state a renderer mounting on the surface would pull. */
+const state = (): CompanionSurfaceState => {
+  const pull = invocable.get("vellum:companion:getState");
+  if (!pull) {
+    throw new Error("No handler registered for vellum:companion:getState");
+  }
+  return pull([]) as CompanionSurfaceState;
+};
+
+/** A context as the app's window publishes one. */
+const context = (over: Record<string, unknown> = {}) => ({
+  assistantName: "Ziggy",
+  turns: [],
+  working: false,
+  ...over,
+});
 
 /** A session as the mirror publishes one, which is what main then holds. */
 const START = {
@@ -418,5 +544,76 @@ describe("placing a larger companion", () => {
     expect(
       cardGrowthFor(WORK_AREA.y + LARGE.riseAbove - 1, WORK_AREA, LARGE),
     ).toBe("down");
+  });
+});
+
+/**
+ * The watch session, as far as main is concerned: a press it forwards and a
+ * fact it holds. Main runs no session of its own, so what is worth stating is
+ * that the press does not drag the app over the screen being watched, and that
+ * the surface keeps being told whether a session is running across its own
+ * renderer reloading.
+ */
+describe("the watch session main relays", () => {
+  beforeEach(() => {
+    dispatched.length = 0;
+    windowsRaised = 0;
+    mainWindowOpen = true;
+    send("vellum:companion:setContext", context({ watching: false }));
+    pushes.length = 0;
+  });
+
+  test("hands the toggle to the app's renderer without raising it", () => {
+    send("vellum:companion:toggleWatch");
+    expect(dispatched).toEqual([{ kind: "toggleWatch" }]);
+    // The whole point of the surface: the user is working somewhere else, and
+    // here that work is what the session is for.
+    expect(windowsRaised).toBe(0);
+  });
+
+  test("builds a window when there is none, rather than lose the press", () => {
+    mainWindowOpen = false;
+    send("vellum:companion:toggleWatch");
+    expect(windowsRaised).toBe(1);
+  });
+
+  test("carries watching from the published context into pushed state", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    expect(state().watching).toBe(true);
+    send("vellum:companion:setContext", context({ watching: false }));
+    expect(state().watching).toBe(false);
+  });
+
+  /**
+   * The surface reloads, and a session whose indicator came back missing is a
+   * screen being read with nothing on screen saying so.
+   */
+  test("still reports the session to a renderer that pulls state fresh", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    expect(state()).toMatchObject({ assistantName: "Ziggy", watching: true });
+  });
+
+  /**
+   * A publisher that omits the field, which the schema defaults. Absence is
+   * the answer "no session", never a drawn indicator over a machine nobody is
+   * watching.
+   */
+  test("reads a context with no watching at all as no session", () => {
+    send("vellum:companion:setContext", context());
+    expect(state().watching).toBe(false);
+  });
+
+  /**
+   * One channel carries the whole snapshot, so a context that flips watching is
+   * a single push. Pushing the fact separately from the context it arrived with
+   * would send the surface two states for one publish, the first of them stale.
+   */
+  test("pushes once per change rather than once per fact", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ working: true, watching: true }),
+    );
+    expect(pushes.length).toBe(1);
+    expect(pushes[0]).toMatchObject({ working: true, watching: true });
   });
 });
