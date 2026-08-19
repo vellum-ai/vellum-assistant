@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
+import { useLocation } from "react-router";
 
 import { useMarkConversationSeenMutation } from "@/domains/chat/hooks/use-mark-conversation-seen-mutation";
+import { useViewerStore } from "@/stores/viewer-store";
+import { isConversationPath } from "@/utils/routes";
 import type { AssistantState } from "@/assistant/types";
 import type { Conversation } from "@/types/conversation-types";
 
@@ -16,6 +19,12 @@ import type { Conversation } from "@/types/conversation-types";
  * This is a conversation lifecycle action (changing seen-state), not
  * attention tracking — it lives here because its concern is state
  * mutation, not observation.
+ *
+ * Seen means the user saw it, so the conversation has to be on screen. The
+ * selected conversation outlives the route it was selected on, because the
+ * streams read the same field and need it to, and it can also sit behind a
+ * full-width app on its own route. In both the user is somewhere else, and a
+ * message that arrives there is unread until they come back.
  */
 export function useMarkSeenOnOpen({
   assistantId,
@@ -30,12 +39,21 @@ export function useMarkSeenOnOpen({
 }) {
   const { mutate: markSeen } = useMarkConversationSeenMutation();
   const lastSeenOnOpenConversationIdRef = useRef<string | null>(null);
+  const { pathname } = useLocation();
+  const mainView = useViewerStore.use.mainView();
+  const isAppMinimized = useViewerStore.use.isAppMinimized();
+
+  // A full-width app replaces the transcript; minimized, it is a strip over a
+  // chat the user can still read.
+  const isCoveredByApp = mainView === "app" && !isAppMinimized;
+  const isOnScreen = isConversationPath(pathname) && !isCoveredByApp;
 
   useEffect(() => {
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
-      !activeConversationId
+      !activeConversationId ||
+      !isOnScreen
     ) {
       return;
     }
@@ -69,6 +87,7 @@ export function useMarkSeenOnOpen({
     activeConversationId,
     assistantId,
     assistantStateKind,
+    isOnScreen,
     markSeen,
   ]);
 }
