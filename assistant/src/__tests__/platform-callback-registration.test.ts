@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { RegisterWebhookRouteIpcParams } from "@vellumai/gateway-client";
+
 import { setIngressPublicBaseUrl } from "../config/env.js";
+import type { IpcRegisterWebhookRouteResult } from "../ipc/gateway-client.js";
 import { credentialKey } from "../security/credential-key.js";
 
 let mockIsPlatform = true;
@@ -10,6 +13,22 @@ let mockPlatformAssistantId = "";
 let mockSecureKeys: Record<string, string> = {};
 let mockConfig: { ingress?: { publicBaseUrl?: string; enabled?: boolean } } =
   {};
+
+const REGISTERED_ROUTE = {
+  path: "/webhooks/twilio/voice",
+  type: "twilio_voice",
+  source: null,
+  match: "exact" as const,
+  createdAt: 1,
+  lastRegisteredAt: 1,
+};
+
+let mockRegisterWebhookRouteResult: IpcRegisterWebhookRouteResult = {
+  ok: true,
+  disabled: false,
+  route: REGISTERED_ROUTE,
+};
+let ipcRegisterCalls: RegisterWebhookRouteIpcParams[] = [];
 
 // Bun shares mocked modules across test files in a combined run, so each mock
 // spreads the real module and overrides only what this file drives. Replacing
@@ -32,6 +51,15 @@ mock.module("../config/env.js", () => ({
   ...actualEnv,
   getPlatformBaseUrl: () => mockPlatformBaseUrl,
   getPlatformAssistantId: () => mockPlatformAssistantId,
+}));
+
+const actualGatewayClient = await import("../ipc/gateway-client.js");
+mock.module("../ipc/gateway-client.js", () => ({
+  ...actualGatewayClient,
+  ipcRegisterWebhookRoute: async (input: RegisterWebhookRouteIpcParams) => {
+    ipcRegisterCalls.push(input);
+    return mockRegisterWebhookRouteResult;
+  },
 }));
 
 const actualSecureKeys = await import("../security/secure-keys.js");
@@ -214,9 +242,7 @@ describe("platform callback registration", () => {
 
     await expect(
       registerCallbackRoute("webhooks/telegram", "telegram"),
-    ).resolves.toBe(
-      "https://my-assistant.example.com/v1/gateway/callbacks/x/",
-    );
+    ).resolves.toBe("https://my-assistant.example.com/v1/gateway/callbacks/x/");
   });
 
   test("self-hosted registerCallbackRoute sends detected module-level callback_base_url", async () => {
@@ -388,6 +414,12 @@ describe("resolveCallbackUrl resolution order", () => {
     setIngressPublicBaseUrl(undefined);
     delete process.env.ASSISTANT_API_KEY;
     registerCalls = 0;
+    ipcRegisterCalls = [];
+    mockRegisterWebhookRouteResult = {
+      ok: true,
+      disabled: false,
+      route: REGISTERED_ROUTE,
+    };
     globalThis.fetch = mock(async () => {
       registerCalls++;
       return new Response(
@@ -416,9 +448,10 @@ describe("resolveCallbackUrl resolution order", () => {
       resolveCallbackUrl(noIngress, "webhooks/twilio/voice", "twilio_voice"),
     ).resolves.toBe(PLATFORM_URL);
     expect(registerCalls).toBe(1);
+    expect(ipcRegisterCalls).toEqual([]);
   });
 
-  test("velay-webhooks on: a pod with a published ingress URL uses it directly", async () => {
+  test("velay-webhooks on: a pod claims the subpath and uses the published URL", async () => {
     mockIsPlatform = true;
     mockVelayWebhooksEnabled = true;
     seedPlatformCredentials();
@@ -428,11 +461,54 @@ describe("resolveCallbackUrl resolution order", () => {
         () => "https://velay.example.com/assistant-1/webhooks/twilio/voice",
         "webhooks/twilio/voice",
         "twilio_voice",
+        { callSessionId: "conv-xyz" },
+        "+15555550142",
       ),
     ).resolves.toBe(
       "https://velay.example.com/assistant-1/webhooks/twilio/voice",
     );
     expect(registerCalls).toBe(0);
+    expect(ipcRegisterCalls).toEqual([
+      {
+        path: "/webhooks/twilio/voice",
+        type: "twilio_voice",
+        source: "+15555550142",
+      },
+    ]);
+  });
+
+  test("velay-webhooks on: a refused claim falls back to the platform", async () => {
+    mockIsPlatform = true;
+    mockVelayWebhooksEnabled = true;
+    mockRegisterWebhookRouteResult = { ok: true, disabled: true };
+    seedPlatformCredentials();
+
+    await expect(
+      resolveCallbackUrl(
+        () => "https://velay.example.com/assistant-1/webhooks/twilio/voice",
+        "webhooks/twilio/voice",
+        "twilio_voice",
+      ),
+    ).resolves.toBe(PLATFORM_URL);
+    expect(registerCalls).toBe(1);
+    expect(ipcRegisterCalls).toHaveLength(1);
+  });
+
+  test("velay-webhooks on: an unreachable gateway falls back to the platform", async () => {
+    mockIsPlatform = true;
+    mockVelayWebhooksEnabled = true;
+    mockRegisterWebhookRouteResult = { ok: false, reason: "no_response" };
+    seedPlatformCredentials();
+
+    await expect(
+      resolveCallbackUrl(
+        () => "https://velay.example.com/assistant-1/webhooks/twilio/voice",
+        "webhooks/twilio/voice",
+        "twilio_voice",
+      ),
+    ).resolves.toBe(PLATFORM_URL);
+    expect(registerCalls).toBe(1);
+    expect(ipcRegisterCalls).toHaveLength(1);
   });
 
   test("velay-webhooks on: a pod with no published URL still registers with the platform", async () => {
@@ -444,6 +520,7 @@ describe("resolveCallbackUrl resolution order", () => {
       resolveCallbackUrl(noIngress, "webhooks/twilio/voice", "twilio_voice"),
     ).resolves.toBe(PLATFORM_URL);
     expect(registerCalls).toBe(1);
+    expect(ipcRegisterCalls).toEqual([]);
   });
 
   test("velay-webhooks on: a pod with ingress disabled falls back instead of throwing", async () => {
@@ -459,6 +536,7 @@ describe("resolveCallbackUrl resolution order", () => {
       ),
     ).resolves.toBe(PLATFORM_URL);
     expect(registerCalls).toBe(1);
+    expect(ipcRegisterCalls).toEqual([]);
   });
 
   test("velay-webhooks on: self-hosted opt-out still surfaces", async () => {
@@ -473,6 +551,21 @@ describe("resolveCallbackUrl resolution order", () => {
       ),
     ).rejects.toThrow("Public ingress is disabled");
     expect(registerCalls).toBe(0);
+    expect(ipcRegisterCalls).toEqual([]);
+  });
+
+  test("velay-webhooks on: a self-hosted ingress URL is not claimed on the gateway", async () => {
+    mockVelayWebhooksEnabled = true;
+    seedPlatformCredentials();
+
+    await expect(
+      resolveCallbackUrl(
+        () => "https://tunnel.example.com/webhooks/twilio/voice",
+        "webhooks/twilio/voice",
+        "twilio_voice",
+      ),
+    ).resolves.toBe("https://tunnel.example.com/webhooks/twilio/voice");
+    expect(ipcRegisterCalls).toEqual([]);
   });
 
   test("a configured ingress wins over platform connectivity", async () => {
@@ -486,6 +579,7 @@ describe("resolveCallbackUrl resolution order", () => {
       ),
     ).resolves.toBe("https://tunnel.example.com/webhooks/twilio/voice");
     expect(registerCalls).toBe(0);
+    expect(ipcRegisterCalls).toEqual([]);
   });
 
   test("a platform-connected assistant with no ingress registers with the platform", async () => {
