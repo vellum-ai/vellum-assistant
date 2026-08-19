@@ -143,6 +143,7 @@ import type {
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
 import { referenceMediaBlocksForPersist } from "./persist-media-references.js";
+import { buildProviderRejectionLogFields } from "./provider-rejection-log-fields.js";
 import { turnOrRestingTrust } from "./trust-context-types.js";
 import type { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
@@ -2709,6 +2710,7 @@ function handleError(
             ? event.error.provider
             : undefined,
         errorMessage: event.error.message,
+        ...buildProviderRejectionLogFields(event.error),
       },
       "Provider rejected request with unclassified 4xx error",
     );
