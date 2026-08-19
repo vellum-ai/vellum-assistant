@@ -340,6 +340,38 @@ describe("ask_question restore on a committed snapshot", () => {
     });
   });
 
+  test("ignores a read whose prompt arrived and settled while it was in flight", async () => {
+    // GIVEN a reconcile whose read is still in flight, started while no card
+    // was on screen
+    currentMessages = [];
+    deferredCalls = [];
+    renderHistory();
+    await waitFor(() => {
+      expect(deferredCalls?.length).toBe(1);
+    });
+
+    // WHEN a prompt arrives and is then resolved inside that same window (the
+    // live `question_request` followed by its `interaction_resolved`, or a fast
+    // answer), returning the slot to the null it started from
+    useInteractionStore
+      .getState()
+      .showQuestion({ requestId: "req-fleeting", entries: ENTRIES });
+    useInteractionStore.getState().dismissQuestionIfMatches("req-fleeting");
+    expect(useInteractionStore.getState().pendingQuestion).toBeNull();
+
+    // AND the read lands, still carrying the prompt it saw mid-flight
+    deferredCalls?.[0]?.({
+      pendingQuestion: { requestId: "req-fleeting", entries: ENTRIES },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // THEN the settled prompt is not put back on screen. Comparing the card
+    // rather than a revision cannot catch this: the slot ends on the same
+    // `null` it began on, so the response looks like it landed on an untouched
+    // store.
+    expect(useInteractionStore.getState().pendingQuestion).toBeNull();
+  });
+
   test("ignores a read that a newer one has already overtaken", async () => {
     // GIVEN two reconciles whose reads are both in flight, which happens when
     // two snapshots commit close together (a turn-end reseed landing on top of

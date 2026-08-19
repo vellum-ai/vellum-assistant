@@ -39,6 +39,16 @@ export interface InteractionState {
   contactRequestAccepted: boolean;
 
   pendingQuestion: PendingQuestionState | null;
+  /**
+   * Bumped on every change to {@link pendingQuestion}, so a reader that has to
+   * leave and come back can tell whether the slot moved while it was away.
+   * Comparing the value cannot answer that: a prompt that arrives and settles
+   * inside one await returns the slot to `null`, which is indistinguishable
+   * from never having changed, and a reconcile that trusted the comparison
+   * would raise the settled prompt back onto the screen. Monotonic, never
+   * reset, and meaningless in absolute terms; only differences matter.
+   */
+  questionRevision: number;
   isSubmittingQuestion: boolean;
   /** When true, the question card is hidden but `pendingQuestion` stays set
    *  so the composer free-text intercept still routes to `submitQuestionResponse`. */
@@ -158,6 +168,7 @@ const INITIAL_STATE: InteractionState = {
   contactRequestAccepted: false,
 
   pendingQuestion: null,
+  questionRevision: 0,
   isSubmittingQuestion: false,
   isQuestionCardDismissed: false,
 
@@ -278,33 +289,36 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
 
   // ----- Question -----
   showQuestion: (payload) =>
-    set({
+    set((state) => ({
       pendingQuestion: payload,
+      questionRevision: state.questionRevision + 1,
       isSubmittingQuestion: false,
       isQuestionCardDismissed: false,
-    }),
+    })),
 
   submitQuestionStart: () => set({ isSubmittingQuestion: true }),
 
   submitQuestionEnd: () => set({ isSubmittingQuestion: false }),
 
   dismissQuestion: () =>
-    set({
+    set((state) => ({
       pendingQuestion: null,
+      questionRevision: state.questionRevision + 1,
       isSubmittingQuestion: false,
       isQuestionCardDismissed: false,
-    }),
+    })),
 
   dismissQuestionIfMatches: (requestId) => {
     const { pendingQuestion } = get();
     if (!pendingQuestion || pendingQuestion.requestId !== requestId) {
       return;
     }
-    set({
+    set((state) => ({
       pendingQuestion: null,
+      questionRevision: state.questionRevision + 1,
       isSubmittingQuestion: false,
       isQuestionCardDismissed: false,
-    });
+    }));
   },
 
   dismissQuestionCard: () => set({ isQuestionCardDismissed: true }),
@@ -383,6 +397,11 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set((state) => ({
       ...INITIAL_STATE,
       pendingAcpConnect: state.pendingAcpConnect,
+      // A conversation switch drops the card, which is a change like any other:
+      // carry the counter forward and advance it rather than restarting from
+      // the initial zero. Restarting would let a read issued before the switch
+      // compare equal to the state after it.
+      questionRevision: state.questionRevision + 1,
     })),
 }));
 

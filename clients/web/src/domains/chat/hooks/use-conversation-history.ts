@@ -66,7 +66,6 @@ import {
 } from "@/domains/chat/utils/send-message-utils";
 import type { AssistantStateKind } from "@/domains/chat/types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import type { PendingQuestionState } from "@/types/interaction-ui-types";
 import {
   getPendingInteractions,
   type ConversationPendingInteractions,
@@ -142,17 +141,20 @@ function surfaceContentEqual(a: unknown, b: unknown): boolean {
  * re-raises a prompt that was answered before the switch and nothing ever takes
  * it down again. See `pending-question.ts`.
  *
- * `before` is the card as it stood when the request was issued. Anything that
- * moved it since (a live `question_request`, the user's own submit) is strictly
+ * `revisionBefore` is the question slot's revision when the request was issued.
+ * Anything that moved the slot since (a live `question_request`, the user's own
+ * submit, a prompt that both arrived and settled inside the await) is strictly
  * newer than this response and keeps its claim; the next committed snapshot
- * reconciles again.
+ * reconciles again. This is a revision rather than the card itself because a
+ * prompt that comes and goes returns the slot to the same `null` it started
+ * from, which a value comparison reads as "nothing happened".
  */
 function applyReportedQuestion(params: {
   reported: ReportedQuestion;
-  before: PendingQuestionState | null;
+  revisionBefore: number;
   messages: DisplayMessage[];
 }): void {
-  const { reported, before, messages } = params;
+  const { reported, revisionBefore, messages } = params;
   const interactionStore = useInteractionStore.getState();
 
   if (reported === undefined) {
@@ -163,10 +165,10 @@ function applyReportedQuestion(params: {
     return;
   }
 
-  const current = interactionStore.pendingQuestion;
-  if (current !== before) {
+  if (interactionStore.questionRevision !== revisionBefore) {
     return;
   }
+  const current = interactionStore.pendingQuestion;
 
   const action = decidePendingQuestion({ reported, current });
   if (action.kind === "raise") {
@@ -465,7 +467,8 @@ export function useConversationHistory({
     const requestedConversationId = activeConversationId;
     // Read before the fetch so the question reconcile below can tell whether
     // anything moved underneath it while the request was in flight.
-    const questionBeforeFetch = useInteractionStore.getState().pendingQuestion;
+    const questionRevisionBeforeFetch =
+      useInteractionStore.getState().questionRevision;
     const generation = ++reconcileGenerationRef.current;
     void (async () => {
       // A read that never landed carries no opinion, exactly like an assistant
@@ -499,7 +502,7 @@ export function useConversationHistory({
       }
       applyReportedQuestion({
         reported: interactions?.pendingQuestion,
-        before: questionBeforeFetch,
+        revisionBefore: questionRevisionBeforeFetch,
         messages: pagination.messages,
       });
       if (!interactions) {
@@ -544,9 +547,9 @@ export function useConversationHistory({
             .removeAttentionConversationId(requestedConversationId);
         }
       } catch {
-        // Unchanged from before this reconcile existed: a payload the secret /
-        // confirmation parsers choke on leaves both prompts and the attention
-        // key as they are, rather than rejecting inside a void async block.
+        // A payload the secret or confirmation parsers choke on leaves both
+        // prompts and the attention key untouched, rather than rejecting
+        // inside a void async block.
       }
     })();
     // `pagination.*` other than `dataUpdatedAt` intentionally excluded: they all
