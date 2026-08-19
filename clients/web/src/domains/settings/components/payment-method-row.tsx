@@ -30,11 +30,13 @@ export function PaymentMethodRow({
           aria-hidden
           className="h-4 w-4 shrink-0 text-[var(--content-default)]"
         />
+        {/* leading-snug: the type tokens are line-height:1 and truncate's
+            overflow clipping would cut descenders without real line height. */}
         <div className="flex min-w-0 items-baseline gap-2">
           <Typography
             as="p"
             variant="body-medium-default"
-            className="truncate text-[var(--content-default)]"
+            className="truncate leading-snug text-[var(--content-default)]"
           >
             {brand ? brandLabel(brand) : "Saved card"}
           </Typography>
@@ -42,7 +44,7 @@ export function PaymentMethodRow({
             <Typography
               as="p"
               variant="body-small-default"
-              className="truncate text-[var(--content-tertiary)]"
+              className="truncate leading-snug text-[var(--content-tertiary)]"
             >
               Ending in {last4}
             </Typography>
