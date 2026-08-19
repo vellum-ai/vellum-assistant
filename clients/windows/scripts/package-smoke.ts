@@ -12,6 +12,7 @@ const requireCjs = createRequire(import.meta.url);
 const { productName } = requireCjs("../electron-builder.config.cjs") as {
   productName: string;
 };
+const packageName = requireCjs("../package.json").name as string;
 const env = process.env.VELLUM_ENVIRONMENT || "local";
 const scheme = env === "production" ? "vellum" : `vellum-assistant-${env}`;
 
@@ -98,10 +99,10 @@ const main = async (): Promise<void> => {
 
   console.log(`Launching ${appExe}`);
   const child = spawn(appExe, [], { stdio: "ignore" });
-  const logCandidates = [
-    path.join(appData, productName, "logs", "vellum.log"),
-    path.join(appData, `${productName}-${env}`, "logs", "vellum.log"),
-  ];
+  const logCandidates = [productName, packageName].flatMap((name) => [
+    path.join(appData, name, "logs", "vellum.log"),
+    path.join(appData, `${name}-${env}`, "logs", "vellum.log"),
+  ]);
   let logFile: string | undefined;
   for (let waited = 0; waited < 120_000 && !logFile; waited += 2_000) {
     await sleep(2_000);

@@ -92,8 +92,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path smoke-logs | Out-Null
-          Get-ChildItem "$env:APPDATA" -Directory -Filter 'Vellum*' -ErrorAction SilentlyContinue |
-            ForEach-Object { Copy-Item -Recurse -Force -ErrorAction SilentlyContinue "$($_.FullName)\logs" "smoke-logs\$($_.Name)" }
+          Get-ChildItem "$env:APPDATA" -File -Recurse -Filter 'vellum.log' -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item -Force -ErrorAction SilentlyContinue $_.FullName "smoke-logs\$($_.Directory.Name)-vellum.log" }
 
       - name: Upload failure logs
         if: failure()
