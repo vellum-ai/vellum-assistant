@@ -148,6 +148,7 @@ describe("monitoring_status", () => {
       memoryStat: {
         anonBytes: 4 * 1024 * 1024 * 1024,
         fileBytes: 1024 * 1024 * 1024,
+        inactiveFileBytes: 768 * 1024 * 1024,
         kernelBytes: 512 * 1024 * 1024,
         slabReclaimableBytes: 400 * 1024 * 1024,
         slabUnreclaimableBytes: 100 * 1024 * 1024,

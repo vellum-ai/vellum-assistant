@@ -33,9 +33,10 @@ import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
   connectionSaveErrorMessage,
-  validationErrorMessage,
   parseCredentialRef,
+  providerAllowsCustomBaseUrl,
   providerConnectionDisplayName,
+  validationErrorMessage,
 } from "@/domains/settings/ai/provider-editor-constants";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
@@ -108,6 +109,7 @@ export function ProviderEditorContent({
   const [error, setError] = useState<string | null>(null);
 
   const isOpenAICompatible = provider === "openai-compatible";
+  const allowsCustomBaseUrl = providerAllowsCustomBaseUrl(provider);
 
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
@@ -253,8 +255,10 @@ export function ProviderEditorContent({
       const input: InferenceProviderconnectionsByNamePatchData["body"] = {
         auth,
         label: labelValue,
-        ...(isOpenAICompatible && {
+        ...(allowsCustomBaseUrl && {
           base_url: baseUrl.trim() || null,
+        }),
+        ...(isOpenAICompatible && {
           models: connectionModels.trim()
             ? connectionModels
                 .split(",")
@@ -366,39 +370,51 @@ export function ProviderEditorContent({
           ) : null}
         </div>
 
-        {/* Base URL + Models — openai-compatible only */}
-        {isOpenAICompatible && (
-          <>
-            <div className="space-y-1">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                {t("providerEditorContent.baseUrlLabel")}
-              </label>
-              <Input
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder={t("providerEditorContent.baseUrlPlaceholder")}
-                fullWidth
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                {t("providerEditorContent.modelsLabel")}
-              </label>
-              <Input
-                value={connectionModels}
-                onChange={(e) => setConnectionModels(e.target.value)}
-                placeholder={t("providerEditorContent.modelsPlaceholder")}
-                fullWidth
-              />
+        {allowsCustomBaseUrl && (
+          <div className="space-y-1">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              {t("providerEditorContent.baseUrlLabel")}
+            </label>
+            <Input
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder={
+                provider === "ollama"
+                  ? t("providerEditorContent.baseUrlPlaceholderOllama")
+                  : t("providerEditorContent.baseUrlPlaceholder")
+              }
+              fullWidth
+            />
+            {provider === "ollama" ? (
               <Typography
                 variant="body-small-default"
                 as="p"
                 className="text-[var(--content-tertiary)]"
               >
-                {t("providerEditorContent.modelsHint")}
+                {t("providerEditorContent.baseUrlHintOllama")}
               </Typography>
-            </div>
-          </>
+            ) : null}
+          </div>
+        )}
+        {isOpenAICompatible && (
+          <div className="space-y-1">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              {t("providerEditorContent.modelsLabel")}
+            </label>
+            <Input
+              value={connectionModels}
+              onChange={(e) => setConnectionModels(e.target.value)}
+              placeholder={t("providerEditorContent.modelsPlaceholder")}
+              fullWidth
+            />
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-[var(--content-tertiary)]"
+            >
+              {t("providerEditorContent.modelsHint")}
+            </Typography>
+          </div>
         )}
 
         {/* API Key + Advanced disclosure — only shown for api_key auth */}

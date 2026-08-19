@@ -248,7 +248,7 @@ internal sealed class SystemSpeechEngine : IDictationEngine
         _pushStream?.Complete();
         _engine.RecognizeAsyncStop();
         // Guard against a recognizer that never completes after stop.
-        _ = Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ => Complete(null));
+        _ = Task.Delay(TimeSpan.FromSeconds(3)).ContinueWith(_ => Complete(null));
     }
 
     public void Cancel()

@@ -120,6 +120,24 @@ describe("providers create — derived auth", () => {
     });
   });
 
+  test("forwards optional --base-url for ollama create", async () => {
+    await run([
+      "providers",
+      "create",
+      "ollama-home",
+      "--provider",
+      "ollama",
+      "--base-url",
+      "http://192.168.1.50:11434/v1",
+    ]);
+    expect(lastIpcCall()?.params?.body).toEqual({
+      name: "ollama-home",
+      provider: "ollama",
+      auth: { type: "none" },
+      base_url: "http://192.168.1.50:11434/v1",
+    });
+  });
+
   test("rejects a keyed provider without --credential before calling the daemon", async () => {
     const { exitCode } = await run([
       "providers",
@@ -331,6 +349,56 @@ describe("providers update", () => {
       auth: { type: "none" },
       base_url: "http://localhost:5678/v1",
     });
+  });
+
+  test("ollama update forwards --base-url after GET", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        ...CONNECTION_RESULT,
+        name: "ollama",
+        provider: "ollama",
+        auth: { type: "none" },
+      },
+    };
+    await run([
+      "providers",
+      "update",
+      "ollama",
+      "--base-url",
+      "http://192.168.1.50:11434/v1",
+    ]);
+    expect(ipcCalls.map((c) => c.method)).toEqual([
+      "inference_provider_connections_get",
+      "inference_provider_connections_update",
+    ]);
+    expect(lastIpcCall()?.params).toEqual({
+      pathParams: { name: "ollama" },
+      body: {
+        auth: { type: "none" },
+        base_url: "http://192.168.1.50:11434/v1",
+      },
+    });
+  });
+});
+
+describe("providers get output", () => {
+  test("prints base_url when the connection stores one", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        name: "ollama",
+        provider: "ollama",
+        auth: { type: "none" },
+        baseUrl: "http://192.168.1.50:11434/v1",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    };
+    const { stdout } = await run(["providers", "get", "ollama"]);
+    expect(stdout).toContain("name:     ollama");
+    expect(stdout).toContain("provider: ollama");
+    expect(stdout).toContain("base_url: http://192.168.1.50:11434/v1");
   });
 });
 

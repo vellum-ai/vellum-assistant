@@ -1,22 +1,21 @@
 import { useNavigate } from "react-router";
 
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { AuthWelcomeScreen } from "@/components/auth-welcome-screen";
 import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
-import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { hasAssistants } from "@/lib/local-mode";
 import { useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
-import { Button } from "@vellumai/design-library/components/button";
 
+/**
+ * `/assistant/welcome` — the local client's front door. Shares its screen with
+ * `/account/login`; the account this build doesn't require is what makes the
+ * difference, so the second button walks past the login entirely.
+ */
 export function WelcomeScreen() {
   const { t } = useTranslation("onboarding");
   const navigate = useNavigate();
-  const { loading, error, login, cancel } = useOnboardingLogin();
 
   const handleContinueWithoutAccount = () => {
-    if (loading) {
-      cancel();
-    }
     // `replace`, like every other step of the setup flow: the funnel occupies a
     // single history entry so a Back press can never re-enter it (see
     // `SETUP_NAVIGATE` in `onboarding-navigation.ts`).
@@ -28,61 +27,11 @@ export function WelcomeScreen() {
   };
 
   return (
-    <OnboardingLayout showAvatarWave animateAvatarWaveIn>
-      <div className="mx-auto flex min-h-full w-full max-w-xl flex-col items-center px-6 pb-40 text-[var(--content-default)] md:pb-0">
-        <div className="flex flex-1 flex-col items-center justify-center">
-          {/*
-            Only the tablet split is tight enough to wrap the heading: the
-            column is widest on the single-column layout, and wide again once
-            the wave settles at half width.
-          */}
-          <h1
-            className="text-5xl font-normal tracking-tight md:text-4xl lg:text-5xl xl:text-6xl"
-            style={{
-              fontFamily: "var(--font-serif)",
-              animation: "fadeInUp 0.5s ease-out 0.1s both",
-            }}
-          >
-            {t("welcome.title")}
-          </h1>
-          <p
-            className="mt-3 text-body-large-lighter text-[var(--content-tertiary)]"
-            style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
-          >
-            {t("welcome.body")}
-          </p>
-
-          {error && (
-            <p className="mt-4 text-body-small-default text-[var(--system-negative-strong)]">
-              {error}
-            </p>
-          )}
-
-          <div
-            className="mt-15 flex w-full max-w-sm flex-col gap-3"
-            style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
-          >
-            <Button
-              variant="primary"
-              size="regular"
-              fullWidth
-              className="h-11 text-base"
-              onClick={loading ? cancel : () => void login()}
-            >
-              {loading ? t("actions.cancel") : t("actions.logIn")}
-            </Button>
-            <Button
-              variant="ghost"
-              size="regular"
-              fullWidth
-              className="h-11 text-base"
-              onClick={handleContinueWithoutAccount}
-            >
-              {t("welcome.continueWithoutAccount")}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </OnboardingLayout>
+    <AuthWelcomeScreen
+      secondary={{
+        label: t("welcome.continueWithoutAccount"),
+        onSelect: handleContinueWithoutAccount,
+      }}
+    />
   );
 }

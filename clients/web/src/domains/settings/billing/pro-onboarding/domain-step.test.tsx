@@ -231,7 +231,7 @@ describe("DomainStep machine busy", () => {
     await waitFor(() =>
       expect(
         getByText(
-          "Your assistant is restarting — you can set the domain in a moment.",
+          "Your assistant is restarting - you can set the domain in a moment.",
         ),
       ).toBeTruthy(),
     );

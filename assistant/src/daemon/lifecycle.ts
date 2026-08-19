@@ -4,6 +4,7 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
 import { expireInteractionBoundGuardianRequests } from "../channels/gateway-guardian-requests.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
+import { getBalancedModelExperimentArm } from "../config/balanced-model-experiment.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
 import {
   hasPendingDefaultWorkspaceConfig,
@@ -97,6 +98,7 @@ import {
   registerMessagingProviders,
   registerWatcherProviders,
 } from "./providers-setup.js";
+import { startResourcePressureGuardForLifecycle } from "./resource-pressure-guard-lifecycle.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { broadcastDaemonStatus } from "./status.js";
 
@@ -224,9 +226,21 @@ export async function runDaemon(): Promise<void> {
   // a failed fetch leaves the cache unset and resolves `os-beta` to its
   // registry default `false`, which would remove the user's profile and reset
   // their selection.
+  // A balanced-model experiment arm arriving in this same load gets the same
+  // invalidation. HTTP binds before this resolves, so a client that fetched
+  // profiles in that window holds the shipped model; the arm moves nothing on
+  // disk, so the reconcile above would not report a change and the listener's
+  // own comparison sees the arm on both sides of its refresh.
+  const balancedArmBeforeInit = getBalancedModelExperimentArm();
   void initFeatureFlagOverrides()
     .then((loaded) => {
-      if (loaded && reconcileFlagGatedProfiles()) {
+      if (!loaded) {
+        return;
+      }
+      const profilesChanged = reconcileFlagGatedProfiles();
+      const balancedArmChanged =
+        getBalancedModelExperimentArm() !== balancedArmBeforeInit;
+      if (profilesChanged || balancedArmChanged) {
         publishConfigChanged();
       }
     })
@@ -687,6 +701,7 @@ export async function runDaemon(): Promise<void> {
 
   startUsageTelemetryReporter();
   startDiskPressureGuardForLifecycle();
+  startResourcePressureGuardForLifecycle();
   startOrphanReaper();
   startEventLoopWatchdog();
 

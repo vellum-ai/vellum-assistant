@@ -5,30 +5,18 @@ import type {
   MessageFilesPayload,
   ToolDetailPayload,
 } from "@/stores/viewer-store";
-import type {
-  DocumentsByIdGetResponse,
-  DocumentsForworkspacefilePostResponse,
-} from "@/generated/daemon/types.gen";
+import type { DocumentsByIdGetResponse } from "@/generated/daemon/types.gen";
 import { ApiError } from "@/utils/api-errors";
 import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 
-// The store opens file-backed documents through the daemon SDK. Spread the
-// real module so the actions this file does not exercise keep their real
-// bindings.
+// The store opens documents through the daemon SDK. Spread the real module so
+// the actions this file does not exercise keep their real bindings.
 const daemonSdk = await import("@/generated/daemon/sdk.gen");
-
-type FileDocumentResult = {
-  data: DocumentsForworkspacefilePostResponse | null;
-};
 
 type DocumentResult = {
   data: DocumentsByIdGetResponse | null;
 };
-
-let fileDocumentResult: () => Promise<FileDocumentResult> = () =>
-  Promise.reject(new Error("not stubbed"));
-const fileDocumentCalls: unknown[] = [];
 
 let documentResult: () => Promise<DocumentResult> = () =>
   Promise.reject(new Error("not stubbed"));
@@ -36,22 +24,6 @@ let documentResult: () => Promise<DocumentResult> = () =>
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   documentsByIdGet: () => documentResult(),
-  documentsForworkspacefilePost: (options: unknown) => {
-    fileDocumentCalls.push(options);
-    return fileDocumentResult();
-  },
-}));
-
-// The route-missing fallback navigates to the workspace browser, which pulls
-// the whole route tree in at call time.
-const openWorkspaceFile = mock(async (_path: string) => {});
-mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
-
-const toastError = mock((_message: string) => {});
-const toastModule = await import("@vellumai/design-library/components/toast");
-mock.module("@vellumai/design-library/components/toast", () => ({
-  ...toastModule,
-  toast: { ...toastModule.toast, error: toastError },
 }));
 
 const { isAppNotFoundError, useViewerStore } = await import(
@@ -75,9 +47,6 @@ function unseenFor(conversationId: string): string[] {
 
 beforeEach(() => {
   getState().reset();
-  fileDocumentCalls.length = 0;
-  toastError.mockClear();
-  openWorkspaceFile.mockClear();
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
 });
 
@@ -94,11 +63,10 @@ const SAMPLE_DOC = {
   documentName: "README.md",
   content: "# Hello",
 } as const;
-const SAMPLE_FILE_DOC = {
+const SAMPLE_OTHER_DOC = {
   source: "document",
-  surfaceId: "surf-file",
+  surfaceId: "surf-2",
   conversationId: "conv-1",
-  workspacePath: "drafts/notes.md",
   documentName: "notes.md",
   content: "# Notes",
 } as const;
@@ -976,9 +944,9 @@ describe("updateDocumentContent", () => {
   });
 
   it("leaves a document with a different surface id alone", () => {
-    useViewerStore.setState({ openedDocumentState: SAMPLE_FILE_DOC });
+    useViewerStore.setState({ openedDocumentState: SAMPLE_OTHER_DOC });
     getState().updateDocumentContent("surf-1", "# Replaced", "replace");
-    expect(getState().openedDocumentState).toBe(SAMPLE_FILE_DOC);
+    expect(getState().openedDocumentState).toBe(SAMPLE_OTHER_DOC);
   });
 
   it("leaves a read-only preview alone", () => {
@@ -1037,26 +1005,32 @@ describe("openWorkspaceFilePreview", () => {
     });
   });
 
-  it("makes an in-flight file load for the same path stale", async () => {
-    let resolveLoad: (value: FileDocumentResult) => void = () => {};
-    fileDocumentResult = () =>
-      new Promise<FileDocumentResult>((resolve) => {
+  it("makes an in-flight document load stale", async () => {
+    let resolveLoad: (value: DocumentResult) => void = () => {};
+    documentResult = () =>
+      new Promise<DocumentResult>((resolve) => {
         resolveLoad = resolve;
       });
 
-    const load = getState().loadWorkspaceFileDocument(
-      "asst-1",
-      "rows.csv",
-      "conv-1",
-    );
-    // The same path, but opened as a preview: a different target.
+    const load = getState().loadDocument("asst-1", "surf-1");
     getState().openWorkspaceFilePreview("rows.csv", "csv");
 
-    resolveLoad({ data: fileDocument({ workspacePath: "rows.csv" }) });
+    resolveLoad({ data: documentSurface() });
     await load;
 
     expect(getState().openedDocumentState).toMatchObject({
       source: "workspace-file-preview",
+    });
+  });
+
+  it("opens a markdown file read-only, like any other format", () => {
+    getState().openWorkspaceFilePreview("drafts/notes.md", "markdown");
+
+    expect(getState().openedDocumentState).toEqual({
+      source: "workspace-file-preview",
+      workspacePath: "drafts/notes.md",
+      documentName: "notes.md",
+      previewKind: "markdown",
     });
   });
 });
@@ -1078,7 +1052,6 @@ function documentSurface(
     wordCount: 2,
     createdAt: 1,
     updatedAt: 2,
-    workspacePath: null,
     ...overrides,
   };
 }
@@ -1130,239 +1103,6 @@ describe("loadDocument", () => {
     await getState().loadDocument("asst-1", "surf-1");
 
     expect(unseenFor("conv-1")).toEqual(["surf-1"]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Document viewer: workspace files
-// ---------------------------------------------------------------------------
-
-/** The daemon's answer for the document bound to a workspace markdown file. */
-function fileDocument(
-  overrides: Partial<DocumentsForworkspacefilePostResponse> = {},
-): DocumentsForworkspacefilePostResponse {
-  return {
-    success: true,
-    surfaceId: "surf-file",
-    conversationId: "conv-1",
-    title: "notes.md",
-    content: "# Notes",
-    wordCount: 2,
-    createdAt: 1,
-    updatedAt: 2,
-    workspacePath: "drafts/notes.md",
-    ...overrides,
-  };
-}
-
-describe("loadWorkspaceFileDocument", () => {
-  it("opens the file's document as a full document surface", async () => {
-    fileDocumentResult = () => Promise.resolve({ data: fileDocument() });
-
-    await getState().loadWorkspaceFileDocument(
-      "asst-1",
-      "drafts/notes.md",
-      "conv-1",
-    );
-
-    const state = getState();
-    expect(state.mainView).toBe("document");
-    expect(state.openedDocumentState).toEqual({
-      source: "document",
-      surfaceId: "surf-file",
-      conversationId: "conv-1",
-      documentName: "notes.md",
-      content: "# Notes",
-      workspacePath: "drafts/notes.md",
-    });
-    // The surface id exists once the daemon has answered, so the in-flight
-    // path target gives way to the document target.
-    expect(state.activeDocumentTarget).toEqual({
-      source: "document",
-      surfaceId: "surf-file",
-    });
-    expect(fileDocumentCalls.length).toBe(1);
-    expect(fileDocumentCalls[0]).toMatchObject({
-      path: { assistant_id: "asst-1" },
-      body: { path: "drafts/notes.md", conversationId: "conv-1" },
-    });
-    expect(toastError).not.toHaveBeenCalled();
-  });
-
-  it("clears the unseen change for the document it opened", async () => {
-    useUnseenDocumentChangesStore
-      .getState()
-      .markDocumentChanged("conv-1", "surf-file");
-    fileDocumentResult = () => Promise.resolve({ data: fileDocument() });
-
-    await getState().loadWorkspaceFileDocument(
-      "asst-1",
-      "drafts/notes.md",
-      "conv-1",
-    );
-
-    expect(unseenFor("conv-1")).toEqual([]);
-  });
-
-  it("clears a change recorded against a conversation other than the document's", async () => {
-    // Opening the file from another conversation still answers with the
-    // conversation that created the document.
-    useUnseenDocumentChangesStore
-      .getState()
-      .markDocumentChanged("conv-2", "surf-file");
-    fileDocumentResult = () =>
-      Promise.resolve({ data: fileDocument({ conversationId: "conv-1" }) });
-
-    await getState().loadWorkspaceFileDocument(
-      "asst-1",
-      "drafts/notes.md",
-      "conv-2",
-    );
-
-    expect(unseenFor("conv-2")).toEqual([]);
-  });
-
-  it("names an untitled document rather than showing an empty navbar", async () => {
-    fileDocumentResult = () =>
-      Promise.resolve({ data: fileDocument({ title: "" }) });
-
-    await getState().loadWorkspaceFileDocument(
-      "asst-1",
-      "drafts/notes.md",
-      "conv-1",
-    );
-
-    expect(getState().openedDocumentState).toMatchObject({
-      documentName: "Untitled",
-    });
-  });
-
-  it("saves the prior view so closing restores it", async () => {
-    useViewerStore.setState({ mainView: "app" });
-    fileDocumentResult = () => Promise.resolve({ data: fileDocument() });
-
-    await getState().loadWorkspaceFileDocument("asst-1", "notes.md", "conv-1");
-    expect(getState().viewBeforeDocument).toBe("app");
-
-    getState().closeDocument();
-    expect(getState().mainView).toBe("app");
-  });
-
-  it("repeats the daemon's own message when it refuses the open", async () => {
-    useViewerStore.setState({ mainView: "app" });
-    fileDocumentResult = () =>
-      Promise.reject(
-        new ApiError(
-          404,
-          "The file backing this document no longer exists: gone.md",
-        ),
-      );
-
-    await getState().loadWorkspaceFileDocument("asst-1", "gone.md", "conv-1");
-
-    const state = getState();
-    expect(state.mainView).toBe("app");
-    expect(state.openedDocumentState).toBeNull();
-    expect(state.activeDocumentTarget).toBeNull();
-    expect(toastError).toHaveBeenCalledTimes(1);
-    expect(toastError.mock.calls[0]![0]).toBe(
-      "The file backing this document no longer exists: gone.md",
-    );
-    expect(openWorkspaceFile).not.toHaveBeenCalled();
-  });
-
-  it("keeps the toast for the route's own 404 about a missing file", async () => {
-    fileDocumentResult = () =>
-      Promise.reject(new ApiError(404, "File not found"));
-
-    await getState().loadWorkspaceFileDocument("asst-1", "gone.md", "conv-1");
-
-    expect(toastError).toHaveBeenCalledTimes(1);
-    expect(openWorkspaceFile).not.toHaveBeenCalled();
-  });
-
-  it("falls back to the workspace browser when the daemon has no such route", async () => {
-    useViewerStore.setState({ mainView: "app" });
-    // The catch-all an older assistant answers an unknown endpoint with.
-    fileDocumentResult = () => Promise.reject(new ApiError(404, "Not found"));
-
-    await getState().loadWorkspaceFileDocument(
-      "asst-1",
-      "drafts/notes.md",
-      "conv-1",
-    );
-
-    const state = getState();
-    expect(state.mainView).toBe("app");
-    expect(state.openedDocumentState).toBeNull();
-    expect(state.activeDocumentTarget).toBeNull();
-    expect(toastError).not.toHaveBeenCalled();
-    expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
-    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("drafts/notes.md");
-  });
-
-  it("repeats a rejected file type the same way", async () => {
-    fileDocumentResult = () =>
-      Promise.reject(new ApiError(422, "Only markdown files open here."));
-
-    await getState().loadWorkspaceFileDocument("asst-1", "rows.csv", "conv-1");
-
-    expect(getState().openedDocumentState).toBeNull();
-    expect(toastError.mock.calls[0]![0]).toBe("Only markdown files open here.");
-  });
-
-  it("keeps plumbing out of the toast when the request never landed", async () => {
-    fileDocumentResult = () => Promise.reject(new TypeError("Failed to fetch"));
-
-    await getState().loadWorkspaceFileDocument("asst-1", "notes.md", "conv-1");
-
-    expect(getState().openedDocumentState).toBeNull();
-    expect(toastError.mock.calls[0]![0]).toBe("Couldn't open this file");
-  });
-
-  it("does the same for a server fault, which has no message to repeat", async () => {
-    fileDocumentResult = () => Promise.reject(new ApiError(500, "HTTP 500"));
-
-    await getState().loadWorkspaceFileDocument("asst-1", "notes.md", "conv-1");
-
-    expect(toastError.mock.calls[0]![0]).toBe("Couldn't open this file");
-  });
-
-  it("treats an empty response as a failed open", async () => {
-    useViewerStore.setState({ mainView: "app" });
-    fileDocumentResult = () => Promise.resolve({ data: null });
-
-    await getState().loadWorkspaceFileDocument("asst-1", "notes.md", "conv-1");
-
-    const state = getState();
-    expect(state.mainView).toBe("app");
-    expect(state.openedDocumentState).toBeNull();
-    expect(toastError).toHaveBeenCalledTimes(1);
-  });
-
-  it("ignores a response for a file the user already navigated away from", async () => {
-    let resolveFirst: (value: FileDocumentResult) => void = () => {};
-    fileDocumentResult = () =>
-      new Promise<FileDocumentResult>((resolve) => {
-        resolveFirst = resolve;
-      });
-
-    const first = getState().loadWorkspaceFileDocument(
-      "asst-1",
-      "slow.md",
-      "conv-1",
-    );
-    // The user opened a document surface while the file was still loading.
-    useViewerStore.setState({
-      openedDocumentState: SAMPLE_DOC,
-      activeDocumentTarget: { source: "document", surfaceId: "surf-1" },
-    });
-
-    resolveFirst({ data: fileDocument({ workspacePath: "slow.md" }) });
-    await first;
-
-    expect(getState().openedDocumentState).toBe(SAMPLE_DOC);
-    expect(toastError).not.toHaveBeenCalled();
   });
 });
 

@@ -66,8 +66,10 @@ const {
   CORE_PAGES_CONSOLIDATION_SECTION,
   CORE_PAGES_PLACEHOLDER,
   CUTOFF_PLACEHOLDER,
+  DANGLING_LINKS_PLACEHOLDER,
   PARSE_FAILURES_PLACEHOLDER,
   renderConsolidationPrompt,
+  renderDanglingLinksSection,
   renderParseFailuresSection,
   resolveConsolidationPrompt,
 } = await import("../prompts/consolidation.js");
@@ -107,7 +109,15 @@ const bundledPrompt = (includeCorePagesSection = false): string =>
         ? (CORE_PAGES_CONSOLIDATION_SECTION as string)
         : "",
     )
-    .replaceAll(PARSE_FAILURES_PLACEHOLDER, "");
+    .replaceAll(PARSE_FAILURES_PLACEHOLDER, "")
+    .replaceAll(DANGLING_LINKS_PLACEHOLDER, "");
+
+/** Sample dangling links for the repair-section tests. */
+const SAMPLE_DANGLING = [
+  { from: "atl-1290", to: "atl-1291", kind: "links" as const },
+  { from: "people/alice", to: "ghost-page", kind: "wikilink" as const },
+  { from: "arcs/day", to: "old-slug", kind: "edges" as const },
+];
 
 beforeEach(() => {
   warnCalls.length = 0;
@@ -313,6 +323,153 @@ describe("resolveConsolidationPrompt — parse-failures repair section", () => {
 
     const result = resolveConsolidationPrompt(path, CUTOFF, NO_CORE);
     expect(result).toBe(`My custom prompt ${CUTOFF}\n`);
+  });
+});
+
+describe("resolveConsolidationPrompt: dangling-links repair section", () => {
+  test("no dangling links: no section and no placeholder residue, both article shapes", () => {
+    expect(renderDanglingLinksSection([])).toBe("");
+    for (const articleShape of ["v2", "v3"] as const) {
+      const result = renderConsolidationPrompt(CUTOFF, {
+        includeCorePagesSection: false,
+        articleShape,
+      });
+      expect(result).not.toContain("resolve dangling links");
+      expect(result).not.toContain(DANGLING_LINKS_PLACEHOLDER);
+      expect(result).toContain("# The work\n\n## 1. Read the buffer");
+    }
+  });
+
+  test("with dangling links: section renders once, before step 1, one line per reference with its kind", () => {
+    const result = renderConsolidationPrompt(CUTOFF, {
+      ...NO_CORE,
+      danglingLinks: SAMPLE_DANGLING,
+    });
+    expect(result.split("resolve dangling links").length - 1).toBe(1);
+    const sectionAt = result.indexOf("## 0. FIRST: resolve dangling links");
+    expect(sectionAt).toBeGreaterThan(result.indexOf("# The work"));
+    expect(sectionAt).toBeLessThan(result.indexOf("## 1. Read the buffer"));
+    expect(result).toContain(
+      "- `memory/concepts/atl-1290.md` → `atl-1291` (frontmatter `links:` entry)",
+    );
+    expect(result).toContain(
+      "- `memory/concepts/people/alice.md` → `ghost-page` (inline `[[wikilink]]` in the body)",
+    );
+    expect(result).toContain(
+      "- `memory/concepts/arcs/day.md` → `old-slug` (frontmatter `edges:` entry)",
+    );
+    // The three resolutions the agent must choose between.
+    expect(result).toContain("spawn it, a stub is fine, and keep the link");
+    expect(result).toContain("repoint the reference at the surviving slug");
+    expect(result).toContain("Prose stays prose");
+    expect(result).not.toContain("more, reported next pass");
+  });
+
+  test("renders after the parse-failures section when both are present", () => {
+    const result = renderConsolidationPrompt(CUTOFF, {
+      ...NO_CORE,
+      parseFailures: SAMPLE_FAILURES,
+      danglingLinks: SAMPLE_DANGLING,
+    });
+    expect(result.indexOf("repair unreadable pages")).toBeLessThan(
+      result.indexOf("resolve dangling links"),
+    );
+    expect(result.indexOf("resolve dangling links")).toBeLessThan(
+      result.indexOf("## 1. Read the buffer"),
+    );
+  });
+
+  test("caps the rendered list at 40 and counts the remainder", () => {
+    const many = Array.from({ length: 45 }, (_, i) => ({
+      from: `page-${String(i).padStart(2, "0")}`,
+      to: `missing-${i}`,
+      kind: "links" as const,
+    }));
+    const section = renderDanglingLinksSection(many);
+    const listLines = section
+      .split("\n")
+      .filter((line) => line.startsWith("- `memory/concepts/"));
+    expect(listLines).toHaveLength(40);
+    expect(section).toContain("`memory/concepts/page-39.md`");
+    expect(section).not.toContain("`memory/concepts/page-40.md`");
+    expect(section).toContain("...and 5 more, reported next pass");
+  });
+
+  test("sanitizes injection-shaped slugs and targets: newlines, backticks, oversize", () => {
+    // Both ends of a dangling link are page content: the source is a
+    // filename, the target is whatever the page wrote inside `[[...]]` or
+    // `links:`. Raw, either could break out of the list item.
+    const section = renderDanglingLinksSection([
+      {
+        from: "evil\n\n## Injected heading\n- `nested`",
+        to: "target`code`\n## also injected",
+        kind: "wikilink",
+      },
+      { from: "s".repeat(500), to: "t".repeat(500), kind: "links" },
+    ]);
+    const listLines = section
+      .split("\n")
+      .filter((line) => line.startsWith("- `memory/concepts/"));
+    expect(listLines).toHaveLength(2);
+    for (const line of listLines) {
+      // Source path, target, and the kind label's own inline-code span:
+      // six template backticks, no injected ones.
+      expect((line.match(/`/g) ?? []).length).toBe(6);
+    }
+    const headingLines = section
+      .split("\n")
+      .filter((line) => line.startsWith("## "));
+    expect(headingLines).toHaveLength(1);
+    expect(section).toContain("memory/concepts/evil ");
+    expect(section).toContain(`${"s".repeat(199)}…`);
+    expect(section).toContain(`${"t".repeat(199)}…`);
+    expect(section).not.toContain("s".repeat(200));
+    expect(section).not.toContain("t".repeat(200));
+  });
+
+  test("override containing the placeholder: substituted in place", () => {
+    const path = join(tmpWorkspace, "custom-prompt.md");
+    writeFileSync(path, "Top\n{{DANGLING_LINKS_SECTION}}Bottom\n");
+
+    const result = resolveConsolidationPrompt(path, CUTOFF, {
+      ...NO_CORE,
+      danglingLinks: SAMPLE_DANGLING,
+    });
+    expect(result).toContain("## 0. FIRST: resolve dangling links");
+    expect(result.indexOf("resolve dangling links")).toBeLessThan(
+      result.indexOf("Bottom"),
+    );
+    expect(result).not.toContain(DANGLING_LINKS_PLACEHOLDER);
+  });
+
+  test("override without either placeholder: both non-empty repair sections are appended, in order", () => {
+    const path = join(tmpWorkspace, "no-placeholder.md");
+    writeFileSync(path, "My custom prompt {{CUTOFF}}\n");
+
+    const result = resolveConsolidationPrompt(path, CUTOFF, {
+      ...NO_CORE,
+      parseFailures: SAMPLE_FAILURES,
+      danglingLinks: SAMPLE_DANGLING,
+    });
+    expect(result.startsWith(`My custom prompt ${CUTOFF}`)).toBe(true);
+    const parseAt = result.indexOf("repair unreadable pages");
+    const danglingAt = result.indexOf("resolve dangling links");
+    expect(parseAt).toBeGreaterThan(0);
+    expect(danglingAt).toBeGreaterThan(parseAt);
+    expect(result).toContain("`memory/concepts/atl-1290.md`");
+  });
+
+  test("override with only the parse placeholder + dangling links: dangling section appended", () => {
+    const path = join(tmpWorkspace, "custom-prompt.md");
+    writeFileSync(path, "Top\n{{PARSE_FAILURES_SECTION}}Bottom\n");
+
+    const result = resolveConsolidationPrompt(path, CUTOFF, {
+      ...NO_CORE,
+      danglingLinks: SAMPLE_DANGLING,
+    });
+    expect(result.indexOf("Bottom")).toBeLessThan(
+      result.indexOf("resolve dangling links"),
+    );
   });
 });
 

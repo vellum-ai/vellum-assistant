@@ -123,17 +123,19 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
 /**
  * Top-edge fade for the overlay drawer's scrollport in Capacitor mobile
  * shells, where the close and search glyphs float over the list. The gradient
- * spans the whole 3.5rem reserve (`native-mobile:pt-14`), so a row is fully
- * transparent at the top of the glyph band and only reaches full opacity once
- * it has passed below the glyphs. The glyphs live in a sibling of the
- * scrollport, so the mask never dims them.
+ * spans the whole reserve the scrollport carries (`native-mobile:pt-11`), so
+ * a row is fully transparent at the top of the glyph band and only reaches
+ * full opacity once it has passed below the glyphs. Keep the two in step: a
+ * stop shorter than the reserve leaves a row opaque while it is still behind
+ * a glyph, which reads as text printed over a bare icon. The glyphs live in a
+ * sibling of the scrollport, so the mask never dims them.
  *
  * Both declarations are spelled out in full because Tailwind only emits the
  * candidates it finds verbatim in source; the prefixed pairing follows
  * {@link VOICE_WAVE_EDGE_FADE_CLASS} in `voice-listening-waves.tsx`.
  */
 const NATIVE_MOBILE_LIST_TOP_FADE =
-  "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)] native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]";
+  "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)] native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)]";
 
 function SearchButton() {
   const toggle = useCommandPaletteStore.use.toggle();
@@ -521,7 +523,7 @@ export function AssistantSideMenu({
                scrollable. */
             <div
               data-slot="side-menu-glyph-row"
-              className="flex items-center justify-between gap-2 native-mobile:pointer-events-none native-mobile:absolute native-mobile:inset-x-4 native-mobile:top-4 native-mobile:z-10"
+              className="flex items-center justify-between gap-2 native-mobile:pointer-events-none native-mobile:absolute native-mobile:inset-x-3 native-mobile:top-4 native-mobile:z-10"
             >
               <div className="flex items-center gap-1">
                 <Button
@@ -547,9 +549,14 @@ export function AssistantSideMenu({
           className={
             variant === "overlay"
               ? /* pb-24 is a coarse floating-column reserve until the measured
-                 inline padding below is applied. The native-mobile pt-14
-                 clears the 40px floating icon row plus a 16px gap. */
-                `-mx-4 ${SIDEBAR_STACK_GAP} px-4 pb-24 native-mobile:pt-14 ${NATIVE_MOBILE_LIST_TOP_FADE}`
+                 inline padding below is applied. The native-mobile reserve is
+                 the glyph row's own extent: it floats 1rem below the sheet's
+                 top and stands 2.5rem tall. An icon-only Button carries a
+                 40px touch target on a coarse pointer, not the 32px box the
+                 mock draws. This scrollport starts one overlay inset down, so
+                 2.75rem reaches the row's bottom edge, and the assistant
+                 cluster's own top padding supplies the 1rem gap beneath it. */
+                `-mx-3 ${SIDEBAR_STACK_GAP} px-3 pb-24 native-mobile:pt-11 ${NATIVE_MOBILE_LIST_TOP_FADE}`
               : /* The top inset is the same stack gap: the header closes
                    with no rule, so without it the first card (or the
                    collapsed rail's first group icon) butts against the
@@ -559,12 +566,14 @@ export function AssistantSideMenu({
           style={
             variant === "overlay" && overlayBottomColumnHeight > 0
               ? ({
-                  /* The floating column overlaps the scrollport by its own
-                     height + the safe-area inset (its 1rem bottom offset
-                     cancels against the root's p-4); + 1rem breathing gap. */
+                  /* The column floats 1rem above the sheet's bottom edge; the
+                     body's own box stops one overlay inset short of that same
+                     edge. Reserving the column's height plus both 1rem steps,
+                     less the inset the body already has, leaves exactly the
+                     second step as clearance under the last row. */
                   "--overlay-bottom-column-h": `${overlayBottomColumnHeight}px`,
                   paddingBottom:
-                    "calc(var(--overlay-bottom-column-h) + 1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
+                    "calc(var(--overlay-bottom-column-h) + 2rem - var(--side-menu-inset) + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
                 } as CSSProperties)
               : undefined
           }

@@ -12,6 +12,11 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
+import {
+  EXTERNAL_LINK_CLASS,
+  ExternalAnchor,
+} from "@/components/external-anchor";
+
 /**
  * True if the file looks like markdown by name or mime type.
  * Recognised extensions: `.md`, `.markdown`. Recognised mime: `text/markdown`.
@@ -107,15 +112,9 @@ export const fileMarkdownComponents: Components = {
   ),
   li: ({ children }) => <li className="mb-0.5">{children}</li>,
   a: ({ href, children }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="underline"
-      style={{ color: "var(--primary-base, #60a5fa)" }}
-    >
+    <ExternalAnchor href={href} className={EXTERNAL_LINK_CLASS}>
       {children}
-    </a>
+    </ExternalAnchor>
   ),
   strong: ({ children }) => (
     <strong style={{ color: "var(--content-default)" }}>{children}</strong>

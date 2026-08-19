@@ -34,6 +34,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantReachability } from "@/assistant/use-assistant-reachability";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
+import { useResourcePressureMonitor } from "@/assistant/use-resource-pressure-monitor";
 import { useActiveAssistantIsPlatformHosted } from "@/hooks/use-platform-gate";
 import { useComposerStore } from "@/domains/chat/composer-store";
 
@@ -43,6 +44,7 @@ import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-o
 
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
 import { useAssistantCapability } from "@/hooks/use-assistant-capability";
+import { useSupportsResourcePressureStatus } from "@/lib/backwards-compat/use-supports-resource-pressure-status";
 import { useSupportsSummarizeUpToHere } from "@/lib/backwards-compat/use-supports-summarize-up-to-here";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
@@ -180,6 +182,13 @@ export function ActiveChatView() {
     monitorEnabled: diskPressure.mode !== null,
     hasResolvedStatus: diskPressure.hasResolvedStatus,
     status: diskPressure.status,
+  });
+  // Daemons below the gate's floor lack the status route; the gate keeps
+  // the poller from 404ing against them every tick and app resume.
+  const supportsResourcePressureStatus = useSupportsResourcePressureStatus();
+  const resourcePressure = useResourcePressureMonitor({
+    assistantId,
+    enabled: isPlatformHosted && supportsResourcePressureStatus,
   });
 
   // -------------------------------------------------------------------------
@@ -576,6 +585,9 @@ export function ActiveChatView() {
 
     // Disk pressure (single instance — avoids duplicate polling/subscriptions)
     diskPressure,
+
+    // Resource pressure (single instance, same reasoning as disk pressure)
+    resourcePressure,
 
     // Upward signals
     setRefreshEpoch,

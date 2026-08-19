@@ -13,7 +13,11 @@ export const createLocalModeBridge = (
     ipc.invoke("vellum:localMode:guardianToken", assistantId),
   hatch: (species, remote) =>
     ipc.invoke("vellum:localMode:hatch", species, remote),
+  listDevices: (assistantId) =>
+    ipc.invoke("vellum:localMode:listDevices", assistantId),
   readLockfile: () => ipc.invoke("vellum:localMode:readLockfile"),
+  renameLockfileAssistant: (assistantId, name) =>
+    ipc.invoke("vellum:localMode:renameLockfileAssistant", assistantId, name),
   replacePlatformAssistants: (assistants, organizationId) =>
     ipc.invoke(
       "vellum:localMode:replacePlatformAssistants",
@@ -21,6 +25,8 @@ export const createLocalModeBridge = (
       organizationId,
     ),
   retire: (assistantId) => ipc.invoke("vellum:localMode:retire", assistantId),
+  revokeDevice: (assistantId, hashedDeviceId) =>
+    ipc.invoke("vellum:localMode:revokeDevice", assistantId, hashedDeviceId),
   saveLockfileAssistant: (assistant, activeAssistant) =>
     ipc.invoke(
       "vellum:localMode:saveLockfileAssistant",

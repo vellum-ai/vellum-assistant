@@ -122,6 +122,27 @@ describe("useLocalFileInfo", () => {
     });
   });
 
+  test("classifies a 416 as an existing empty file, by extension", async () => {
+    nextResult = () => ({
+      data: undefined,
+      error: { error: "Range Not Satisfiable" },
+      response: new Response(null, { status: 416 }),
+    });
+
+    const { result } = renderHook(
+      () => useLocalFileInfo("scratch/empty.md", "asst-1"),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current).toMatchObject({
+      status: "ready",
+      kind: "file",
+      sizeBytes: 0,
+      filename: "empty.md",
+    });
+  });
+
   test("reports other failures as errors", async () => {
     nextResult = () => ({
       data: undefined,

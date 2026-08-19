@@ -104,4 +104,32 @@ export const companionTurnsSchema = z.array(companionTurnSchema).max(40);
 export const companionContextSchema = z.object({
   assistantName: z.string(),
   turns: companionTurnsSchema,
+  // Defaulted rather than required so a renderer that predates the field still
+  // publishes a valid context: the tail it sends is worth drawing, and the
+  // honest answer for a publisher that cannot report a turn is that it is not
+  // reporting one.
+  working: z.boolean().default(false),
+});
+
+// ---------------------------------------------------------------------------
+// Windows title bar
+// ---------------------------------------------------------------------------
+
+/**
+ * A CSS color in one of the notations Chromium's parser accepts: hex,
+ * functional `rgb()` / `rgba()` / `hsl()` / `hsla()`, or a named color.
+ * Bounded so an unparseable string is rejected at the boundary rather than
+ * silently dropped by Electron, and so nothing unbounded reaches the store the
+ * colors are persisted in.
+ */
+const cssColorSchema = z
+  .string()
+  .max(64)
+  .regex(/^(#[0-9a-fA-F]{3,8}|(?:rgb|hsl)a?\([^()]*\)|[a-zA-Z]+)$/);
+
+/** See `TitleBarOverlayTheme`: how the Windows caption buttons are painted. */
+export const titleBarOverlayThemeSchema = z.object({
+  color: cssColorSchema,
+  symbolColor: cssColorSchema,
+  colorScheme: z.enum(["light", "dark"]),
 });

@@ -1,14 +1,20 @@
-import { BrowserWindow, app, shell } from "electron";
+import { BrowserWindow, app, nativeTheme, shell } from "electron";
 import {
   IDENTITY_NAME,
   MAIN_WINDOW_ENSURE_VISIBLE,
   MAIN_WINDOW_SET_ONBOARDING,
+  MAIN_WINDOW_SET_TITLE_BAR_OVERLAY,
+  titleBarOverlayThemeSchema,
+  type ColorScheme,
+  type TitleBarOverlayTheme,
   type VellumCommand,
 } from "@vellumai/ipc-contract";
 import {
+  readTitleBarOverlayTheme,
   restoreBounds,
   track as trackWindowState,
   writeOnboardingActive,
+  writeTitleBarOverlayTheme,
 } from "@vellumai/electron-desktop/window-state";
 import { createWindowReadiness } from "@vellumai/electron-desktop/window-readiness";
 import { z } from "zod";
@@ -56,13 +62,20 @@ const createMainWindow = (): BrowserWindow => {
     "main",
     MAIN_DEFAULT_BOUNDS,
   );
+  const overlay = readTitleBarOverlayTheme();
+  if (overlay) {
+    syncNativeColorScheme(overlay.colorScheme);
+  }
+  const overlayColors = overlay
+    ? { color: overlay.color, symbolColor: overlay.symbolColor }
+    : {};
   const win = createWindow({
     browserWindow: {
       ...bounds,
       minWidth: MAIN_MIN_SIZE.width,
       minHeight: MAIN_MIN_SIZE.height,
       titleBarStyle: "hidden",
-      titleBarOverlay: { height: TITLE_BAR_HEIGHT },
+      titleBarOverlay: { ...overlayColors, height: TITLE_BAR_HEIGHT },
       show: false,
     },
     navigation: { installGuard: installSameOriginNavigationGuard },
@@ -148,6 +161,51 @@ export const setOnboarding = (active: boolean): void => {
   writeOnboardingActive(active);
 };
 
+/**
+ * Put the native color scheme on the scheme the app paints.
+ *
+ * Chromium washes a caption button on hover and press with a translucent layer
+ * whose color comes from the native frame, not from the overlay's own color, so
+ * a dark title bar under a light system scheme is washed in black on black and
+ * the buttons stop responding to the pointer. Reporting the app's scheme puts
+ * that wash on the right side of the surface underneath it.
+ *
+ * The scheme is left on `system` whenever the two already agree, so a theme
+ * preference of "system" keeps following the OS.
+ */
+const syncNativeColorScheme = (colorScheme: ColorScheme): void => {
+  // `shouldUseDarkColors` reflects the override once one is in force, so the
+  // OS scheme is read from Windows' own setting whenever the app has overridden
+  // it, and from the unoverridden theme otherwise.
+  const systemPrefersDark =
+    nativeTheme.themeSource === "system"
+      ? nativeTheme.shouldUseDarkColors
+      : nativeTheme.shouldUseDarkColorsForSystemIntegratedUI;
+  nativeTheme.themeSource =
+    (colorScheme === "dark") === systemPrefersDark ? "system" : colorScheme;
+};
+
+/**
+ * Paint the native caption buttons in the renderer's theme.
+ *
+ * The overlay is OS chrome drawn over the webview, so it can't inherit the
+ * themed title bar it sits in: the colors have to be handed to it. They're
+ * persisted as well as applied because they're `BrowserWindow` constructor
+ * options, so the next launch builds its window themed instead of opening on
+ * the system caption colors until the renderer reports its theme.
+ */
+const setTitleBarOverlay = (theme: TitleBarOverlayTheme): void => {
+  writeTitleBarOverlayTheme(theme);
+  syncNativeColorScheme(theme.colorScheme);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setTitleBarOverlay({
+      color: theme.color,
+      symbolColor: theme.symbolColor,
+      height: TITLE_BAR_HEIGHT,
+    });
+  }
+};
+
 const setAssistantName = (name: string): void => {
   const nextTitle = name.trim() || DEFAULT_WINDOW_TITLE;
   if (nextTitle === currentTitle) {
@@ -179,6 +237,20 @@ export const installMainWindow = (): void => {
     z.tuple([z.boolean()]),
     ([active]) => {
       setOnboarding(active);
+    },
+  );
+  handle(
+    MAIN_WINDOW_SET_TITLE_BAR_OVERLAY,
+    z.tuple([titleBarOverlayThemeSchema]),
+    ([theme], event) => {
+      // Only the window wearing the overlay describes it. Every window runs the
+      // same renderer bundle and reports whatever theme it applied: the
+      // offscreen theme-stage window stages arbitrary workspace tokens for
+      // screenshots, and auxiliary windows carry no workspace theme at all.
+      if (event.sender !== mainWindow?.webContents) {
+        return;
+      }
+      setTitleBarOverlay(theme);
     },
   );
   on(IDENTITY_NAME, z.tuple([z.string()]), ([name]) => {

@@ -7,7 +7,6 @@ import type { AvailableSound } from "@/lib/sounds/api";
 import {
   defaultSoundsConfig,
   displayLabelForFilename,
-  SOUND_EVENT_DISPLAY_NAMES,
   SOUND_EVENT_IDS,
   type SoundEventConfig,
   type SoundEventId,
@@ -21,10 +20,38 @@ import {
   soundsConfigPutMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { SoundsConfigGetResponse } from "@/generated/daemon/types.gen";
+import { useTranslation } from "@/i18n";
 import { Card } from "@vellumai/design-library/components/card";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 type SoundsConfig = SoundsConfigGetResponse;
+
+type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
+
+const SOUND_EVENT_LABEL_KEYS = {
+  task_complete: "soundsSections.soundEventTaskComplete",
+  needs_input: "soundsSections.soundEventNeedsInput",
+  task_failed: "soundsSections.soundEventTaskFailed",
+  notification: "soundsSections.soundEventNotification",
+  new_conversation: "soundsSections.soundEventNewConversation",
+  message_sent: "soundsSections.soundEventMessageSent",
+  character_poke: "soundsSections.soundEventCharacterPoke",
+  random: "soundsSections.soundEventRandom",
+} as const satisfies Record<
+  SoundEventId,
+  | "soundsSections.soundEventTaskComplete"
+  | "soundsSections.soundEventNeedsInput"
+  | "soundsSections.soundEventTaskFailed"
+  | "soundsSections.soundEventNotification"
+  | "soundsSections.soundEventNewConversation"
+  | "soundsSections.soundEventMessageSent"
+  | "soundsSections.soundEventCharacterPoke"
+  | "soundsSections.soundEventRandom"
+>;
+
+function soundEventDisplayName(event: SoundEventId, t: SettingsTranslate): string {
+  return t(SOUND_EVENT_LABEL_KEYS[event]);
+}
 
 function ToggleRow({
   label,
@@ -74,6 +101,7 @@ function SoundEventRow({
   onAddSound,
   onRemoveSound,
   onPreview,
+  t,
 }: {
   event: SoundEventId;
   eventConfig: SoundEventConfig;
@@ -83,8 +111,10 @@ function SoundEventRow({
   onAddSound: (filename: string) => void;
   onRemoveSound: (filename: string) => void;
   onPreview: (filename: string) => void;
+  t: SettingsTranslate;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const eventName = soundEventDisplayName(event, t);
 
   const remaining = availableSounds.filter(
     (s) => !eventConfig.sounds.includes(s.filename),
@@ -95,13 +125,13 @@ function SoundEventRow({
     <div className="py-3">
       <div className="flex items-center justify-between gap-3">
         <span className="text-body-medium-lighter text-[var(--content-default)]">
-          {SOUND_EVENT_DISPLAY_NAMES[event]}
+          {eventName}
         </span>
         <Toggle
           checked={eventConfig.enabled}
           disabled={!globalEnabled}
           onChange={onToggle}
-          label={`Enable ${SOUND_EVENT_DISPLAY_NAMES[event]}`}
+          label={t("soundsSections.enableEvent", { eventName })}
         />
       </div>
 
@@ -109,7 +139,7 @@ function SoundEventRow({
         <div className="mt-2 space-y-1 pl-2">
           {eventConfig.sounds.length === 0 ? (
             <p className="text-body-small-default text-[var(--content-tertiary)]">
-              Default Blip
+              {t("soundsSections.defaultBlip")}
             </p>
           ) : (
             eventConfig.sounds.map((filename) => (
@@ -128,7 +158,9 @@ function SoundEventRow({
                     type="button"
                     onClick={() => onPreview(filename)}
                     className="inline-flex items-center rounded-md px-1.5 py-0.5 text-body-small-default text-[var(--content-tertiary)] hover:bg-[var(--surface-base)] dark:text-[var(--content-disabled)] dark:hover:bg-[var(--ghost-hover)]"
-                    aria-label={`Preview ${filename}`}
+                    aria-label={t("soundsSections.previewSoundAriaLabel", {
+                      filename,
+                    })}
                   >
                     <Play className="h-3 w-3" />
                   </button>
@@ -136,7 +168,9 @@ function SoundEventRow({
                     type="button"
                     onClick={() => onRemoveSound(filename)}
                     className="inline-flex items-center rounded-md px-1.5 py-0.5 text-body-small-default text-[var(--content-tertiary)] hover:bg-[var(--surface-base)] dark:text-[var(--content-disabled)] dark:hover:bg-[var(--ghost-hover)]"
-                    aria-label={`Remove ${filename}`}
+                    aria-label={t("soundsSections.removeSoundAriaLabel", {
+                      filename,
+                    })}
                   >
                     <Trash2 className="h-3 w-3" />
                   </button>
@@ -147,8 +181,7 @@ function SoundEventRow({
 
           {availableSounds.length === 0 ? (
             <p className="text-body-small-default italic text-[var(--content-disabled)]">
-              No sound files yet. Drop audio files into data/sounds/ in your
-              workspace.
+              {t("soundsSections.noSoundFiles")}
             </p>
           ) : allAdded ? (
             <button
@@ -156,7 +189,7 @@ function SoundEventRow({
               disabled
               className="inline-flex items-center gap-1 rounded-md border border-[var(--border-base)] bg-white px-2 py-1 text-body-small-default text-[var(--content-disabled)] disabled:cursor-not-allowed dark:bg-[var(--surface-lift)] dark:text-[var(--content-tertiary)]"
             >
-              All sounds added
+              {t("soundsSections.allSoundsAdded")}
             </button>
           ) : (
             <div className="relative inline-block">
@@ -165,7 +198,7 @@ function SoundEventRow({
                 onClick={() => setPickerOpen((v) => !v)}
                 className="inline-flex items-center gap-1 rounded-md border border-[var(--border-base)] bg-white px-2 py-1 text-body-small-default text-[var(--content-default)] hover:bg-[var(--surface-base)] dark:bg-[var(--surface-lift)] dark:hover:bg-[var(--ghost-hover)]"
               >
-                Add sound
+                {t("soundsSections.addSound")}
                 <ChevronDown className="h-3 w-3" />
               </button>
               {pickerOpen && (
@@ -198,6 +231,7 @@ function SoundEventRow({
 }
 
 export function SoundsSections() {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const assistantId = useActiveAssistantId();
 
@@ -323,15 +357,15 @@ export function SoundsSections() {
     <div className="space-y-6">
       <Card>
         <ToggleRow
-          label="Enable sound effects"
-          description="Master switch for every event-driven sound."
+          label={t("soundsSections.enableSoundEffects")}
+          description={t("soundsSections.enableSoundEffectsDescription")}
           checked={config.globalEnabled}
           onChange={setGlobalEnabled}
         />
         <Divider />
         <div className="flex items-center gap-3 py-3">
           <span className="text-body-medium-lighter text-[var(--content-default)]">
-            Volume
+            {t("soundsSections.volume")}
           </span>
           <input
             type="range"
@@ -363,7 +397,7 @@ export function SoundsSections() {
             }}
             className="h-1 w-48 cursor-pointer"
             disabled={!config.globalEnabled}
-            aria-label="Sound effect volume"
+            aria-label={t("soundsSections.volumeAriaLabel")}
           />
           <span className="tabular-nums text-body-small-default text-[var(--content-tertiary)]">
             {Math.round(displayVolume * 100)}%
@@ -372,7 +406,7 @@ export function SoundsSections() {
         <Divider />
         <div className="flex items-center justify-between py-3">
           <span className="text-body-medium-lighter text-[var(--content-default)]">
-            Preview default blip
+            {t("soundsSections.previewDefaultBlip")}
           </span>
           <button
             type="button"
@@ -381,7 +415,7 @@ export function SoundsSections() {
             className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border-base)] bg-white px-3 py-1.5 text-body-medium-lighter text-[var(--content-default)] hover:bg-[var(--surface-base)] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-[var(--surface-lift)] dark:hover:bg-[var(--ghost-hover)]"
           >
             <Play className="h-3.5 w-3.5" />
-            Preview
+            {t("soundsSections.preview")}
           </button>
         </div>
       </Card>
@@ -389,11 +423,10 @@ export function SoundsSections() {
       <Card>
         <div className="pb-2">
           <h3 className="text-title-small text-[var(--content-default)]">
-            Sound Events
+            {t("soundsSections.soundEventsTitle")}
           </h3>
           <p className="text-body-small-default text-[var(--content-tertiary)]">
-            Add one or more sounds per event. When multiple are configured, one
-            plays at random.
+            {t("soundsSections.soundEventsDescription")}
           </p>
         </div>
         <div className="divide-y divide-[var(--border-base)]">
@@ -412,6 +445,7 @@ export function SoundsSections() {
                 removeSoundFromEvent(event, filename)
               }
               onPreview={(filename) => previewFile(filename)}
+              t={t}
             />
           ))}
         </div>

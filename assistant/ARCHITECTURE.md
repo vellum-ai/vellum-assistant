@@ -35,6 +35,16 @@ Safe storage limits protect the workspace volume from running out of disk. The d
 
 **Prompt and tools:** Cleanup-mode turns carry `diskPressureContext` through runtime assembly and receive the concise `<disk_pressure_warning>` injector in `src/plugins/defaults/memory-retrieval/injectors.ts`. The instruction tells the assistant to warn first, call `skill_load` for `system-storage-cleanup`, and explain that background processes and trusted-contact messages are blocked. Tool setup marks the turn as cleanup mode; `skill_load` remains available so the assistant can load the cleanup skill (or another already-installed skill) for its instructions, but under the lock it performs **no side effects** — it skips catalog auto-install (workspace writes / `bun install`) and strips inline command tokens instead of executing them, so loading a skill cannot write to the workspace or run shell. `skill_execute` and skill-origin tools remain unavailable, and a loaded skill's own tools stay filtered by the cleanup allowlist. The bundled `system-storage-cleanup` skill (`src/config/bundled-skills/system-storage-cleanup/SKILL.md`) carries the detailed cleanup procedure and deletion safety rules, including read-only SQLite diagnosis only; product-owned retention and maintenance work remains tracked separately by ATL-450 and related tickets. `src/tools/tool-approval-handler.ts` rejects non-cleanup-safe tools, and foreground shell inspection remains available while background `bash` and `host_bash` modes are rejected. When a new lock is created, active background terminal tools are cancelled with reason `disk_pressure`.
 
+### Resource Pressure Monitoring
+
+Resource pressure monitoring reports sustained CPU/memory pressure on platform-hosted assistants so clients can suggest a plan upgrade. Unlike disk pressure it never locks or blocks work; it is observe-and-report only.
+
+**Guard state:** `src/daemon/resource-pressure-guard.ts` is gated on `getIsPlatform()`: off-platform there is no plan allocation to measure against, so the guard stays disabled and samples nothing. On platform it samples every 30 seconds. CPU percent comes from the shared rolling container CPU sampler (`src/util/container-cpu-sampler.ts`) measured against the cgroup CPU allocation (null when no CPU cores are reported); memory percent is the working set (cgroup usage minus reclaimable file cache) measured against the container memory limit. Each signal keeps a 20-sample window (10 minutes) with hysteresis: it enters `elevated` only when the window is full and at least 18 samples exceeded the enter threshold (CPU 85%, memory 90%), and clears only after 10 consecutive samples below the clear threshold (CPU 70%, memory 80%). An unavailable sample resets that signal's window; when both samples fail the status becomes `unknown` with the sample error. The overall state is `elevated` while either signal holds.
+
+**Runtime API and events:** `src/runtime/routes/resource-pressure-routes.ts` exposes the read-only `GET /v1/resource-pressure/status` (scope `settings.read`, actor principals); there are no acknowledge or override transitions. `resource_pressure_status_changed` events broadcast the same status shape, but only on substantive transitions: the raw percents and `lastCheckedAt` are excluded from the change fingerprint so the 30-second cadence does not spam the SSE hub. The canonical wire contract lives in `src/api/events/resource-pressure-status-changed.ts`.
+
+**Lifecycle:** `src/daemon/resource-pressure-guard-lifecycle.ts` starts the guard at daemon boot with the first sample deferred onto a macrotask so it never blocks startup, and stops the guard (cancelling any pending deferred sample) on shutdown. The web chat banner built on this status is documented in the repo-level [`/ARCHITECTURE.md`](../ARCHITECTURE.md) "Resource Pressure Monitoring" section.
+
 ### Single-Header JWT Auth Model
 
 All HTTP API requests use a single `Authorization: Bearer <jwt>` header for authentication. The JWT carries identity, permissions, and policy versioning in a unified token.
@@ -888,17 +898,29 @@ startup pass in `daemon/lifecycle.ts` (after plugin init, before the
 scheduler starts), the end of `reconcilePluginSourcesNow()` in
 `plugins/mtime-cache.ts` (install/uninstall/upgrade and sentinel-driven
 changes), the plugin enable/disable routes, and a 60s backstop sweep
-registered with the HTTP server's background sweeps.
+registered with the HTTP server's background sweeps. The desired set is
+gated on activation as well as on what is on disk:
+`collectDesiredDeclarations` skips any plugin directory that
+`isPluginDirActivated` (`plugins/mtime-cache.ts`) does not report as brought
+up in this process, so a directory that merely exists under the plugins root
+never arms a row.
 
 Reconcile lag never lets a disabled plugin run. The disable path writes a
 `.disabled` sentinel that only a reconcile pass turns into disarmed rows, so
 the scheduler re-reads the sentinel at fire time and records a skipped run
 instead of executing a claimed row whose plugin is off. Run-now applies the
-same boundary through `declarationExistsOnDisk`, which also covers a plugin
+same boundary through `pluginScheduleSourceAvailable`
+(`schedule/plugin-schedule-availability.ts`), which composes the activation
+ledger with `declarationExistsOnDisk`. That disk probe also covers a plugin
 whose manifest no longer parses, a declaration directory that is gone, and a
 plugin root or declaration directory resolving outside the tree it belongs to
 (the same `isInsidePluginRoot` containment the loader applies before importing
-a plugin).
+a plugin). Fire time in the scheduler and the user re-enable path in
+`schedule-store.ts` deliberately use the disk probe on its own, because both
+can run outside the daemon process, where the activation ledger is empty and
+every plugin would read as unactivated. The reconciler's sweep disarms the
+rows of a plugin it has not activated within one pass, which bounds what
+those disk-only probes can let through.
 
 A declaration that stops parsing keeps its execute row armed on the message
 already stored in the row, but disarms its script rows: a script row fires its
@@ -911,7 +933,10 @@ timezone, message/script, retry policy, `definition_hash`); the execution
 engine owns runtime columns (`next_run_at`, `status`, `last_*`,
 `retry_count`) and its latches are never overridden; the user owns
 `user_enabled`, a sticky override consulted when computing effective
-`enabled`. Nothing ever writes to plugin files. Execution itself is
+`enabled`. `definition_hash` is a sha256 over the relPath and bytes of
+exactly two files, the declaration's `config.json` and its entrypoint, so
+nothing else under `schedules/<name>/` can produce a definition change.
+Nothing ever writes to plugin files. Execution itself is
 unchanged: declared rows fire through the same `claimDueSchedules` path as
 imperative ones.
 

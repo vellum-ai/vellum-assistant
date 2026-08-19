@@ -168,6 +168,41 @@ Identifiers and plumbing notes:
 - Guardian request records live in the gateway-owned `guardian_requests` table (and their `guardian_request_deliveries`); the daemon reads/writes them through the `channels/gateway-guardian-requests.ts` client.
 - Legacy in-turn interception (`routes/guardian-approval-interception.ts` + the approval prompt watcher) still serves a guardian's own tool-approval prompts mid-turn, resolving via `conversation.handleConfirmationResponse(requestId, decision)`. It is a legacy rail — the reply router runs first; converge new work on the pipeline.
 
+### Message metadata vocabulary
+
+Several differently-scoped things are called metadata on the channel path, and
+they nest, so a name that fits two of them reads as one concept. Counterpart to
+the gateway's Channel Identity Vocabulary, which covers the wire side.
+
+- **`sourceMetadata`** describes an inbound event in flight on the gateway to
+  daemon wire (`SourceMetadataSchema`, `packages/gateway-client`): provider
+  ids, trust verdict, admission policy. It is also persisted verbatim on the
+  stored inbound payload, because the retry sweep replays that payload and has
+  to reconstruct the same turn (`channel-retry-sweep.ts`).
+- **`messages.metadata`** is the stored envelope on a row. Everything below is
+  a key inside it. `messageMetadataSchema` (`persistence/conversation-crud.ts`)
+  describes its shared keys; it is parsed where a reader needs them, not
+  enforced on every write.
+- **`buildChannelMetadata`** (`routes/channel-metadata.ts`) builds the turn's
+  portion of that envelope: provenance, `userMessageChannel`, interfaces,
+  attachments. Callers spread it and add channel-specific keys alongside, so it
+  is a producer of the envelope, never a key within it.
+- **`slackMeta`** is the per-row key describing what a row is in its Slack
+  conversation: `channelTs` for the row's own id, `threadTs` for its thread,
+  `reaction.targetChannelTs` for the message a reaction was attached to, plus
+  Slack's own file markers and timezone labels. Every channel-path reader goes
+  through it today.
+- **`providerMeta`** is the channel-neutral counterpart of that key
+  (`messaging/provider-message-metadata.ts`): `conversationExternalId`,
+  `messageId`, `threadId`, `actorExternalId`, `eventKind` and
+  `reaction.targetMessageId`, deliberately the same vocabulary the inbound
+  wire uses in `InboundEventBase`, so a channel that can describe itself at
+  ingress can describe its stored rows without a translation of its own.
+  Writable by any channel, including one this repo has no code for. `readProviderMetadata` reads it and maps `slackMeta` onto it.
+  **Nothing writes or reads it yet**; it is the home a new channel should use
+  rather than inventing a sixth key, and existing readers move onto it as
+  channels adopt it.
+
 ### Channel verification: gateway-owned
 
 Verification SESSION state (sessions, secrets, rate limits, validate+consume) AND the channel-verified OUTCOME (status / verifiedAt / verifiedVia) are both gateway-owned. The gateway holds the `channel_verification_sessions` + `channel_guardian_rate_limits` tables (`gateway/src/db/session-store.ts`) and mints all secrets in `gateway/src/verification/session-service.ts`; the daemon holds no session or rate-limit state (its legacy tables were dropped by gateway data migration m0014).

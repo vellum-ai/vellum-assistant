@@ -16,13 +16,28 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
-let announceKeyboardHeight: ((keyboardHeight: number) => void) | null = null;
+let announceKeyboardHeight:
+  ((keyboardHeight: number, visible: boolean) => void) | null = null;
+// Whether the stubbed shell reports a keyboard source, as one with the plugin
+// linked does and one built before it never does.
+let stubReportsKeyboardSource = true;
+// Held so a test can let registration land after the fact, the way a lazy
+// plugin import does.
+let reportKeyboardSource: (() => void) | null = null;
 
 const subscribeNativeKeyboardHeight = mock(
-  (onHeightChange: (keyboardHeight: number) => void) => {
+  (
+    onHeightChange: (keyboardHeight: number) => void,
+    onSourceReady?: () => void,
+  ) => {
     announceKeyboardHeight = onHeightChange;
+    reportKeyboardSource = onSourceReady ?? null;
+    if (stubReportsKeyboardSource) {
+      onSourceReady?.();
+    }
     return () => {
       announceKeyboardHeight = null;
+      reportKeyboardSource = null;
     };
   },
 );
@@ -31,7 +46,15 @@ mock.module("@/runtime/native-keyboard", () => ({
   subscribeNativeKeyboardHeight,
 }));
 
-const { readVisibleViewport, useVisibleViewport } =
+// Whether the stub stands in for a shell whose frame the keyboard resizes. Only
+// there is a shrink ambiguous, so only there does the reference wait for an
+// announcement before trusting that no keyboard is up.
+let stubIsNativeMobile = false;
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeMobile: () => stubIsNativeMobile,
+}));
+
+const { holdVisibleViewport, readVisibleViewport, useVisibleViewport } =
   await import("@/hooks/use-visible-viewport");
 
 const REFERENCE_HEIGHT = 800;
@@ -74,20 +97,26 @@ function setInnerHeight(height: number): void {
   });
 }
 
-/** Announce a keyboard height the way the native shell does. */
-function announce(keyboardHeight: number): void {
+/**
+ * Announce a keyboard height the way the native shell does. Visibility is
+ * carried separately from the height, since the bridge sanitizes a malformed
+ * show payload to `0` and a keyboard coming up still means one is coming up.
+ */
+function announce(keyboardHeight: number, visible = keyboardHeight > 0): void {
   act(() => {
-    announceKeyboardHeight!(keyboardHeight);
+    announceKeyboardHeight!(keyboardHeight, visible);
   });
 }
 
 beforeEach(() => {
+  stubIsNativeMobile = false;
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     writable: true,
     value: () => ({ matches: isPortraitStub }) as MediaQueryList,
   });
   isPortraitStub = true;
+  stubReportsKeyboardSource = true;
   setInnerHeight(REFERENCE_HEIGHT);
   subscribeNativeKeyboardHeight.mockClear();
   stubViewport();
@@ -124,6 +153,102 @@ describe("readVisibleViewport", () => {
     expect(viewport?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
     expect(viewport?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
     expect(viewport?.offsetTop).toBe(40);
+  });
+});
+
+describe("holdVisibleViewport", () => {
+  test("pins the shell at the keyboard's size while a picker is up", () => {
+    // GIVEN a keyboard-open viewport, the state the composer is in when the
+    // plus is pressed
+    stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT, offsetTop: 40 });
+    const release = holdVisibleViewport();
+
+    // WHEN iOS resigns the web view's first responder to present the picker,
+    // which dismisses the keyboard and grows the viewport back
+    stubViewport({ height: REFERENCE_HEIGHT, offsetTop: 0 });
+
+    // THEN the reading stays where the keyboard left it, so the shell does not
+    // walk the composer down the screen behind a picker covering that space
+    const held = readVisibleViewport();
+    expect(held?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+    expect(held?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+    expect(held?.offsetTop).toBe(40);
+
+    // AND the release hands the shell back to the measurement
+    release();
+    expect(readVisibleViewport()?.keyboardHeight).toBe(0);
+    expect(readVisibleViewport()?.height).toBe(REFERENCE_HEIGHT);
+  });
+
+  test("holds nothing when no keyboard was up to collapse", () => {
+    // GIVEN a desktop or an unfocused composer, where the picker costs the
+    // layout nothing
+    stubViewport({ height: REFERENCE_HEIGHT });
+    const release = holdVisibleViewport();
+
+    // WHEN the viewport moves for reasons of its own
+    stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT });
+
+    // THEN the measurement is still authoritative
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+    release();
+  });
+
+  test("one picker's release leaves another's hold standing", () => {
+    // GIVEN two pickers holding at once, as the composer's plus and the
+    // attachments strip each own a session of their own
+    stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT });
+    const releaseFirst = holdVisibleViewport();
+    const releaseSecond = holdVisibleViewport();
+    stubViewport({ height: REFERENCE_HEIGHT });
+
+    // WHEN one of them closes
+    releaseFirst();
+
+    // THEN the other still has the shell
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+
+    // AND only the last release gives it back
+    releaseSecond();
+    expect(readVisibleViewport()?.keyboardHeight).toBe(0);
+  });
+
+  test("a repeated release cannot unbalance the depth", () => {
+    // GIVEN a released hold
+    stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT });
+    const release = holdVisibleViewport();
+    release();
+
+    // WHEN the same release runs again, as a close path and an unmount both
+    // reaching for it would
+    release();
+
+    // THEN a later hold still works, rather than starting from a negative depth
+    stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT });
+    const next = holdVisibleViewport();
+    stubViewport({ height: REFERENCE_HEIGHT });
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+    next();
+  });
+
+  test("a rotation drops the hold rather than pinning the old orientation", () => {
+    // GIVEN a portrait hold taken while the keyboard was up
+    stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT });
+    const release = holdVisibleViewport();
+
+    // WHEN the device turns, which resizes the viewport on its own account
+    isPortraitStub = false;
+    setInnerHeight(LANDSCAPE_HEIGHT);
+    stubViewport({ height: LANDSCAPE_HEIGHT });
+
+    // THEN the landscape measurement answers, not a portrait height that
+    // describes nothing on this screen
+    expect(readVisibleViewport()?.height).toBe(LANDSCAPE_HEIGHT);
+    expect(readVisibleViewport()?.keyboardHeight).toBe(0);
+
+    // AND the release that owns it still balances
+    release();
+    expect(readVisibleViewport()?.height).toBe(LANDSCAPE_HEIGHT);
   });
 });
 
@@ -331,5 +456,219 @@ describe("useVisibleViewport", () => {
     const remounted = renderHook(() => useVisibleViewport());
     announce(KEYBOARD_HEIGHT);
     expect(remounted.result.current?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+  });
+});
+
+describe("window resizes", () => {
+  const RESIZED_HEIGHT = REFERENCE_HEIGHT - 260;
+
+  /** Shrink the window and its viewport the way a window resize does. */
+  function resizeWindowTo(height: number): void {
+    setInnerHeight(height);
+    stubViewport({ height });
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+  }
+
+  test("rebases the reference onto a window a resize made shorter", () => {
+    // GIVEN a mounted consumer with no keyboard up
+    renderHook(() => useVisibleViewport());
+
+    // WHEN a same-orientation resize (an iPad Stage Manager drag, a split-view
+    // divider) shrinks the window past the keyboard threshold
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    // THEN the shorter window is the new keyboard-free reference, rather than a
+    // keyboard that never goes away and arms the swipe-down dismiss gesture
+    // over the whole surface
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(0);
+    expect(viewport?.height).toBe(RESIZED_HEIGHT);
+  });
+
+  test("leaves the reference alone for the frame resize a keyboard announced", () => {
+    // GIVEN a shell that resizes its own web view frame for the keyboard, which
+    // it announces first
+    renderHook(() => useVisibleViewport());
+    announce(KEYBOARD_HEIGHT);
+
+    // WHEN that deferred resize lands, shrinking the window with it
+    resizeWindowTo(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+
+    // THEN the keyboard-free reference survives it, so the shell keeps sizing
+    // for the keyboard the user is looking at
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+  });
+
+  test("rebases with the composer focused when no keyboard was announced", () => {
+    // GIVEN a composer holding focus with nothing announced, which is what a
+    // hardware keyboard on a tablet looks like: focus with no soft keyboard
+    renderHook(() => useVisibleViewport());
+    const composer = document.createElement("textarea");
+    document.body.appendChild(composer);
+    composer.focus();
+
+    // WHEN split view shortens the window under it
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    // THEN focus is not mistaken for a keyboard, so the shorter window still
+    // becomes the reference and the gesture stays disarmed
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(0);
+    expect(viewport?.height).toBe(RESIZED_HEIGHT);
+    composer.remove();
+  });
+
+  test("leaves the reference alone once the keyboard is announced away again", () => {
+    // GIVEN a shell whose keyboard opened and closed, so it has announced
+    // before but reports nothing up now
+    renderHook(() => useVisibleViewport());
+    announce(KEYBOARD_HEIGHT);
+    announce(0);
+
+    // WHEN a later keyboard shrinks the frame with its own announcement
+    announce(KEYBOARD_HEIGHT);
+    resizeWindowTo(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+
+    // THEN the reference still survives it
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+  });
+
+  test("keeps the reference on a shell that reports no keyboard source", () => {
+    // GIVEN a shell built before `@capacitor/keyboard`, which the deployed web
+    // bundle still runs in, so nothing will ever announce its keyboard
+    stubReportsKeyboardSource = false;
+    renderHook(() => useVisibleViewport());
+
+    // WHEN that shell resizes its own web view for the soft keyboard
+    resizeWindowTo(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+
+    // THEN the reference survives, because rebasing here would swallow the
+    // keyboard and leave the composer behind it
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+  });
+
+  test("holds the reference when the source reports in, which proves nothing", () => {
+    // GIVEN a shell whose plugin listeners are still registering, which is a
+    // lazy import away on every boot, and a frame that shrank in that window
+    stubReportsKeyboardSource = false;
+    renderHook(() => useVisibleViewport());
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    // WHEN the source reports in, the one moment that cannot tell a shrinking
+    // window from a keyboard that opened before anything could announce it
+    act(() => {
+      reportKeyboardSource!();
+    });
+
+    // THEN the reference stands. Rebasing here onto a keyboard-sized frame
+    // would report no keyboard for as long as the keyboard is up; standing
+    // still only reports one that is not there, and that corrects itself.
+    expect(readVisibleViewport()?.keyboardHeight).toBe(
+      REFERENCE_HEIGHT - RESIZED_HEIGHT,
+    );
+  });
+
+  test("settles that shrink on the next resize, once the source is known", () => {
+    // GIVEN the same deferred shrink, with the source now reported
+    stubReportsKeyboardSource = false;
+    renderHook(() => useVisibleViewport());
+    resizeWindowTo(RESIZED_HEIGHT);
+    act(() => {
+      reportKeyboardSource!();
+    });
+
+    // WHEN any further resize arrives, which a window drag emits continuously
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    // THEN the reference follows the window down and the phantom keyboard goes
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(0);
+    expect(viewport?.height).toBe(RESIZED_HEIGHT);
+  });
+
+  test("grows back to a window returning to full height", () => {
+    // The other way the too-tall reference resolves itself, with no resize
+    // needed while the source is still registering.
+    stubReportsKeyboardSource = false;
+    renderHook(() => useVisibleViewport());
+    resizeWindowTo(RESIZED_HEIGHT);
+    act(() => {
+      reportKeyboardSource!();
+    });
+
+    resizeWindowTo(REFERENCE_HEIGHT);
+
+    expect(readVisibleViewport()?.keyboardHeight).toBe(0);
+  });
+
+  test("keeps the reference when a show announces a malformed height", () => {
+    // The bridge coerces a malformed payload to `0`. The keyboard is still
+    // coming up, so the frame resize behind it is not the window shrinking.
+    renderHook(() => useVisibleViewport());
+    announce(0, true);
+
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    // The reference stands, so the shrunken frame still reads as a keyboard
+    // rather than as the window's new height.
+    expect(readVisibleViewport()?.keyboardHeight).toBe(
+      REFERENCE_HEIGHT - RESIZED_HEIGHT,
+    );
+  });
+
+  test("waits for an announcement on a shell before trusting a quiet keyboard", () => {
+    // A keyboard raised while the plugin listeners were registering announces
+    // nothing, so silence here is not proof that the frame shrank for the
+    // window. The deferred frame resize must not be taken as the window's own.
+    stubIsNativeMobile = true;
+    renderHook(() => useVisibleViewport());
+
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    expect(readVisibleViewport()?.keyboardHeight).toBe(
+      REFERENCE_HEIGHT - RESIZED_HEIGHT,
+    );
+  });
+
+  test("rebases on a shell once an announcement has been heard", () => {
+    // A hide is an answer, where silence was not. From here a shrink is the
+    // window's own and the reference follows it.
+    stubIsNativeMobile = true;
+    renderHook(() => useVisibleViewport());
+    announce(0, false);
+
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(0);
+    expect(viewport?.height).toBe(RESIZED_HEIGHT);
+  });
+
+  test("rebases in a browser with no announcement, having nothing to wait for", () => {
+    // A browser keyboard leaves `window.innerHeight` alone, so every shrink
+    // there is the window's own and there is no ambiguity to resolve.
+    renderHook(() => useVisibleViewport());
+
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(0);
+    expect(viewport?.height).toBe(RESIZED_HEIGHT);
+  });
+
+  test("ignores a window that grew, which the reference already tracks", () => {
+    // GIVEN a window shortened by a resize
+    renderHook(() => useVisibleViewport());
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    // WHEN it is pulled back out
+    resizeWindowTo(REFERENCE_HEIGHT);
+
+    // THEN the taller window is the reference again and no keyboard is reported
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(0);
+    expect(viewport?.height).toBe(REFERENCE_HEIGHT);
   });
 });

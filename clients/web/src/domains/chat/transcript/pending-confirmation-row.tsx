@@ -18,18 +18,14 @@ export function PendingConfirmationRow() {
     return null;
   }
 
-  const showAllowAndCreateRule =
-    pendingConfirmation.persistentDecisionsAllowed !== false &&
-    (pendingConfirmation.allowlistOptions?.length ?? 0) > 0;
-
+  // The card owns whether the rule option is offered; this only says the
+  // surface can act on it.
   return (
     <ConfirmationPromptCard
       confirmation={pendingConfirmation}
       isSubmitting={isSubmitting}
       onSubmit={handleConfirmationSubmit}
-      onAllowAndCreateRule={
-        showAllowAndCreateRule ? handleAllowAndCreateRule : undefined
-      }
+      onAllowAndCreateRule={handleAllowAndCreateRule}
     />
   );
 }

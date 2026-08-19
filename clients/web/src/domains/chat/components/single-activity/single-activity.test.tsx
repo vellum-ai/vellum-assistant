@@ -28,7 +28,6 @@ import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils
 mock.module("@/generated/daemon/sdk.gen", () => ({
   appsByIdOpenPost: async () => ({ data: undefined }),
   documentsByIdGet: async () => ({ data: undefined }),
-  documentsForworkspacefilePost: async () => ({ data: undefined }),
 }));
 
 const { SingleActivity } =

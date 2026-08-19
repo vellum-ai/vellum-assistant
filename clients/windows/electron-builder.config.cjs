@@ -2,7 +2,9 @@
 
 const env = process.env.VELLUM_ENVIRONMENT || "local";
 const bucketEnv = env === "production" ? "prod" : env;
-const targetArch = process.env.ELECTRON_TARGET_ARCH || "x64";
+const targetArch =
+  process.env.ELECTRON_TARGET_ARCH ||
+  (process.arch === "arm64" ? "arm64" : "x64");
 
 const productName =
   env === "production"
@@ -32,10 +34,6 @@ module.exports = {
     { from: `resources/native-helper/${targetArch}`, to: "native-helper" },
     { from: "resources/tray.ico", to: "tray.ico" },
     { from: "resources/cli-runtime", to: "cli-runtime" },
-    {
-      from: `resources/native-helper/${targetArch}`,
-      to: `native-helper/${targetArch}`,
-    },
   ],
   win: {
     target: [

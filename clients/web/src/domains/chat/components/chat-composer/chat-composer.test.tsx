@@ -10,7 +10,7 @@
  *      send/stop button, disabled attribute).
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createRef, type ReactNode } from "react";
+import { createRef, type FormEvent, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import {
@@ -59,8 +59,30 @@ mock.module("@/runtime/is-electron", () => ({
 // requests — see the composer's `handleLiveVoiceStart` note), so setting this to
 // iOS must NOT suppress the card. Defaults to non-iOS (web).
 let mockIsNativeIOS = false;
+// The Capacitor shells (iOS and Android), where the settings pills stand for
+// the whole session instead of following focus. Defaults to the browser, so
+// every case that does not set it exercises the focus-driven reveal.
+let mockIsNativeMobile = false;
+// The Android shell alone, where Capacitor's file chooser cannot offer a
+// camera and the plus keeps a sheet of its own. Defaults to false, so every
+// other surface exercises the direct picker.
+let mockIsNativeAndroid = false;
+// Whether this shell's build linked the native pickers. False by default, so
+// every other case describes a shell with only the OS chooser.
+let mockNativePickersAvailable = false;
+mock.module(
+  "@/domains/chat/components/chat-attachments/native-attachment-pickers",
+  () => ({
+    nativeAttachmentPickersAvailable: () => mockNativePickersAvailable,
+    pickMediaNative: async () => ({ tooLarge: [], pickFull: [] }),
+    pickFilesNative: async () => ({ tooLarge: [], pickFull: [] }),
+    isPickerDismissal: () => false,
+  }),
+);
 mock.module("@/runtime/platform-detection", () => ({
   isNativeIOS: () => mockIsNativeIOS,
+  useIsNativeMobile: () => mockIsNativeMobile,
+  useIsNativeAndroid: () => mockIsNativeAndroid,
 }));
 
 // The native shell, which is the only place dictation's inline preview takes
@@ -242,13 +264,10 @@ mock.module("react-router", () => ({
   useLocation: () => ({ search: "" }),
 }));
 
-// "Add to chat" sheet. Stubbed to a probe that surfaces its open state plus a
-// button standing in for a completed pick, so these cases assert the
-// composer's wiring: the plus opens the sheet, and files chosen inside it
-// reach the same attach callback the paperclip feeds. A second button stands
-// in for the real sheet closing itself before it launches the OS picker. The
-// real sheet, its three hidden file inputs included, is covered by
-// `add-to-chat-sheet.test.tsx`.
+// "Add to chat" sheet, kept for the Android shell. Stubbed to a probe that
+// surfaces its open state plus a button standing in for a completed pick, so
+// these cases assert the composer's wiring rather than the sheet, which
+// `add-to-chat-sheet.test.tsx` covers.
 const SHEET_PICK = [new File(["x"], "picked.png", { type: "image/png" })];
 mock.module(
   "@/domains/chat/components/chat-composer/add-to-chat-sheet",
@@ -257,13 +276,14 @@ mock.module(
       open: boolean;
       onOpenChange: (open: boolean) => void;
       onAttachFiles: (files: File[]) => void;
+      onPickerOpenChange: (open: boolean) => void;
     }) => (
       <div data-testid="add-to-chat-sheet" data-open={String(props.open)}>
         <button type="button" onClick={() => props.onAttachFiles(SHEET_PICK)}>
           sheet-pick
         </button>
-        <button type="button" onClick={() => props.onOpenChange(false)}>
-          sheet-close
+        <button type="button" onClick={() => props.onPickerOpenChange(true)}>
+          sheet-picker-up
         </button>
       </div>
     ),
@@ -283,6 +303,9 @@ function resetLiveVoiceMocks() {
   mockSupportsLiveVoice = true;
   mockIsElectron = false;
   mockIsNativeIOS = false;
+  mockIsNativeMobile = false;
+  mockIsNativeAndroid = false;
+  mockNativePickersAvailable = false;
   mockIsNativePlatform = false;
   mockVoicePhase = "idle";
   mockPreflightVerdict = { status: "ready" };
@@ -820,12 +843,9 @@ function pillsRow(container: HTMLElement) {
   return container.querySelector('[data-slot="composer-settings-pills"]');
 }
 
-function disclaimer(container: HTMLElement) {
-  return container.querySelector('[data-slot="composer-disclaimer"]');
-}
-
-function addSheet(container: HTMLElement) {
-  return container.querySelector('[data-testid="add-to-chat-sheet"]');
+/** The wrapper around the card, which publishes the banner flag. */
+function composerShell(container: HTMLElement) {
+  return container.querySelector('[data-slot="chat-composer-shell"]');
 }
 
 function control(container: HTMLElement, label: string) {
@@ -834,6 +854,10 @@ function control(container: HTMLElement, label: string) {
 
 function fileInput(container: HTMLElement) {
   return container.querySelector<HTMLInputElement>('input[type="file"]');
+}
+
+function addSheet(container: HTMLElement) {
+  return container.querySelector('[data-testid="add-to-chat-sheet"]');
 }
 
 function textareaOf(container: HTMLElement) {
@@ -1263,6 +1287,25 @@ describe("ChatComposer: mobile settings pills row", () => {
     expect(container.querySelector("form")?.innerHTML).not.toContain(">THR<");
   });
 
+  test("an app shell keeps the row standing before anyone taps in", () => {
+    // GIVEN the same untouched phone composer, in a Capacitor shell
+    mockIsNativeMobile = true;
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // THEN the row is up already: on a phone these pills are the only place
+    // the access and profile pickers live, so a row that waited for focus put
+    // both behind a tap for as long as the composer rested
+    const row = pillsRow(container);
+    expect(row?.textContent).toBe("THRPROFILE");
+    expect(row?.hasAttribute("hidden")).toBe(false);
+
+    // AND it carries no entrance: the animation exists because the row
+    // arrives with the keyboard, and standing permanently it would instead
+    // replay on every mount, settling the composer on each navigation
+    expect(row?.className).not.toContain("animate-");
+    expect(row?.className).toContain("flex");
+  });
+
   test("focusing the composer raises the row above the card, access first", () => {
     // GIVEN a phone composer
     const { container } = renderPhoneComposer(SETTINGS_SLOTS);
@@ -1314,20 +1357,24 @@ describe("ChatComposer: mobile settings pills row", () => {
     expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
   });
 
-  test("the composer's own add-to-chat sheet holds the row up too", () => {
-    // GIVEN a focused phone composer
+  test("the native picker holds the row up after it takes the focus", () => {
+    // GIVEN a focused mobile-web composer, where the row follows focus
     const { container } = renderPhoneComposer(SETTINGS_SLOTS);
     const textarea = textareaOf(container);
     fireEvent.focusIn(textarea);
 
-    // WHEN the plus opens the add-to-chat sheet, which takes focus into a
-    // portal of its own
+    // WHEN the plus hands off to the OS picker, which takes the web view's
+    // first responder and so arrives here as focus returning to the body
     fireEvent.click(control(container, PLUS_LABEL)!);
     fireEvent.focusOut(textarea, { relatedTarget: null });
 
-    // THEN the row stays up, rather than dropping away and shifting the card
-    // down under the sheet's scrim
+    // THEN the row stays up rather than collapsing behind the picker, the same
+    // way the sheet used to hold it
     expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+
+    // AND the picker closing gives the composer back to its own focus
+    fireEvent(fileInput(container)!, new Event("cancel"));
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
   });
 
   test("a sheet flag that goes false with focus gone puts the row away", () => {
@@ -1377,103 +1424,119 @@ describe("ChatComposer: mobile settings pills row", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The resting caption below the card, the pills row's opposite number
+// Banners standing over the card, and what gives way to them
 // ---------------------------------------------------------------------------
 
-describe("ChatComposer: the mobile external-models caption", () => {
-  const DISCLAIMER = "Vellum uses external AI models and can make mistakes";
-
-  test("an unfocused phone composer stands the caption under the card", () => {
-    // GIVEN a phone composer nobody has tapped into
+describe("ChatComposer: a banner standing over the card", () => {
+  test("an empty banner stack leaves the row up and publishes nothing", () => {
+    // GIVEN a resting phone composer in an app shell, with nothing above it
+    mockIsNativeMobile = true;
     const { container } = renderPhoneComposer(SETTINGS_SLOTS);
 
-    // THEN the caption is shown, below the card and outside it
-    const caption = disclaimer(container);
-    expect(caption?.textContent).toBe(DISCLAIMER);
-    expect(caption?.hasAttribute("hidden")).toBe(false);
-    expect(caption?.closest("form")).toBeNull();
-    const html = container.innerHTML;
-    expect(html.indexOf("<form")).toBeLessThan(
-      html.indexOf('data-slot="composer-disclaimer"'),
+    // THEN the row stands, and the shell carries no flag for the avatar peek
+    // that reads this off it
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      false,
     );
   });
 
-  test("focusing the composer takes the caption away, as the keyboard covers it", () => {
-    // GIVEN a phone composer
-    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
-
-    // WHEN it takes focus
-    fireEvent.focusIn(textareaOf(container));
-
-    // THEN the caption is hidden, still mounted, exactly as the pills row it
-    // trades places with
-    const caption = disclaimer(container);
-    expect(caption?.hasAttribute("hidden")).toBe(true);
-    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
-  });
-
-  test("an open settings sheet keeps the caption away with focus gone", () => {
-    // GIVEN a phone composer whose access sheet is open
+  test("a slot that renders nothing is not a banner", () => {
+    // GIVEN a shell composer whose notices slot is mounted but quiet, the way
+    // the disk-pressure slot sits there holding its dismiss flags while the
+    // disk is healthy
+    mockIsNativeMobile = true;
+    const Quiet = () => null;
     const { container } = renderPhoneComposer({
       ...SETTINGS_SLOTS,
-      settingsSheetOpen: true,
+      noticesAboveFormSlot: <Quiet />,
     });
-    const textarea = textareaOf(container);
-    fireEvent.focusIn(textarea);
 
-    // WHEN the sheet takes focus out of the composer
-    fireEvent.focusOut(textarea, { relatedTarget: null });
-
-    // THEN the caption stays away rather than surfacing under the scrim
-    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
+    // THEN the row stands: what the stack renders decides this, not what is
+    // mounted in it
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      false,
+    );
   });
 
-  test("the composer's own add-to-chat sheet keeps it away too", () => {
-    // GIVEN a focused phone composer
-    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
-    const textarea = textareaOf(container);
-    fireEvent.focusIn(textarea);
+  test("a banner mounted with the composer takes the row down", () => {
+    // GIVEN the same shell composer, with a banner in the stack above the card
+    mockIsNativeMobile = true;
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      noticesAboveFormSlot: <div>BANNER</div>,
+    });
 
-    // WHEN the plus opens the add-to-chat sheet, which takes focus into a
-    // portal of its own
-    fireEvent.click(control(container, PLUS_LABEL)!);
-    fireEvent.focusOut(textarea, { relatedTarget: null });
+    // THEN the row stands down: the banner docks to the card's top edge and
+    // takes the strip the row floats in
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
 
-    // THEN the caption stays away for as long as the sheet is up
-    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(true);
+    // AND the shell publishes the banner, which is how `ComposerPeek` knows to
+    // hold its avatar down behind that same edge
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      true,
+    );
   });
 
-  test("blurring back to the body brings the caption back", () => {
-    // GIVEN a focused phone composer
-    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
-    const textarea = textareaOf(container);
-    fireEvent.focusIn(textarea);
+  test("focus does not buy the row back from a banner", () => {
+    // GIVEN a browser phone composer under a banner, where focus is normally
+    // what raises the row
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      noticesAboveFormSlot: <div>BANNER</div>,
+    });
 
-    // WHEN focus leaves with nowhere to land, as the iOS keyboard dismiss does
-    fireEvent.focusOut(textarea, { relatedTarget: null });
-
-    // THEN the composer is at rest again and the caption is back
-    expect(disclaimer(container)?.hasAttribute("hidden")).toBe(false);
-  });
-
-  test("desktop renders no caption, focused or not", () => {
-    // GIVEN a desktop composer
-    viewport.set({ narrow: false, coarsePointer: false });
-    const { container } = renderComposerView(SETTINGS_SLOTS);
-
-    // THEN nothing hangs under the card, and focus does not add it
-    expect(disclaimer(container)).toBeNull();
+    // WHEN the user taps into it
     fireEvent.focusIn(textareaOf(container));
-    expect(disclaimer(container)).toBeNull();
+
+    // THEN the banner still wins
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
   });
 
-  test("a variant with no settings slots renders no caption (app-editing panel)", () => {
-    // GIVEN a phone composer that was passed neither settings slot
-    viewport.set({ narrow: true, coarsePointer: true });
-    const { container } = renderComposerView();
+  test("a banner arriving after mount takes the row down with it", async () => {
+    // GIVEN a standing row in an app shell
+    mockIsNativeMobile = true;
+    const { container, rerender } = renderPhoneComposer(SETTINGS_SLOTS);
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
 
-    // THEN the panel's composer carries no caption of its own
-    expect(disclaimer(container)).toBeNull();
+    // WHEN a banner arrives mid-session, the way a low credit balance does
+    await act(async () => {
+      rerender(
+        composerElement({
+          ...SETTINGS_SLOTS,
+          noticesAboveFormSlot: <div>BANNER</div>,
+        }),
+      );
+    });
+
+    // THEN the row follows it down. The stack is watched rather than derived
+    // from props, so notices that source their own state take it down too
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      true,
+    );
+  });
+
+  test("a banner leaving gives the row back", async () => {
+    // GIVEN a shell composer whose row is down under a banner
+    mockIsNativeMobile = true;
+    const { container, rerender } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      noticesAboveFormSlot: <div>BANNER</div>,
+    });
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+
+    // WHEN the banner is dismissed
+    await act(async () => {
+      rerender(composerElement(SETTINGS_SLOTS));
+    });
+
+    // THEN the strip is free again and the row comes back up with it
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+    expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
+      false,
+    );
   });
 });
 
@@ -1510,40 +1573,51 @@ describe("ChatComposer: single-row mobile composer", () => {
     );
   });
 
-  test("tapping the plus opens the add-to-chat sheet", () => {
-    // GIVEN a phone composer whose sheet is closed
+  test("tapping the plus opens the native picker", () => {
+    // GIVEN a phone composer
     const { container } = renderPhoneComposer();
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("false");
+    const input = fileInput(container);
+
+    // AND a picker that takes several files of any type, so WebKit offers its
+    // own camera, photo library and file browser menu
+    expect(input?.multiple).toBe(true);
+    expect(input?.getAttribute("accept")).toBeNull();
 
     // WHEN the plus is tapped
+    let opened = 0;
+    input?.addEventListener("click", () => {
+      opened += 1;
+    });
     fireEvent.click(control(container, PLUS_LABEL)!);
 
-    // THEN the sheet comes up
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+    // THEN the native picker comes up, with nothing of ours in between
+    expect(opened).toBe(1);
   });
 
-  test("files picked in the sheet reach the composer's attach callback", () => {
+  test("files picked from the plus reach the composer's attach callback", () => {
     // GIVEN a phone composer
     const onAddAttachmentFiles = mock((_files: FileList | File[]) => {});
-    const { getByText } = renderPhoneComposer({ onAddAttachmentFiles });
+    const { container } = renderPhoneComposer({ onAddAttachmentFiles });
+    const input = fileInput(container)!;
 
-    // WHEN a sheet row delivers its files
-    fireEvent.click(getByText("sheet-pick"));
+    // WHEN the picker returns a file
+    const picked = new File(["x"], "picked.png", { type: "image/png" });
+    selectFiles(input, [picked]);
 
-    // THEN they land on the same callback the paperclip feeds, which is what
+    // THEN it lands on the same callback the paperclip feeds, which is what
     // runs the vision gate and queues the upload
     expect(onAddAttachmentFiles).toHaveBeenCalledTimes(1);
-    expect(onAddAttachmentFiles.mock.calls[0]?.[0]).toBe(SHEET_PICK);
+    expect(onAddAttachmentFiles.mock.calls[0]?.[0]?.[0]).toBe(picked);
   });
 
-  test("the hidden picker input outlives a swap of what the plus opens", () => {
-    // GIVEN a phone composer, whose plus opens the sheet
+  test("the hidden picker input outlives a pointer change mid-pick", () => {
+    // GIVEN a phone composer
     const { container, rerender } = renderPhoneComposer();
     const before = fileInput(container);
     expect(before).not.toBeNull();
 
-    // WHEN a keyboard is attached mid-session, handing the plus the picker
-    // instead, while an OS file dialog opened from it is still up
+    // WHEN a keyboard is attached mid-session, while an OS file dialog opened
+    // from the plus is still up
     viewport.set({ narrow: true, coarsePointer: false });
     rerender(composerElement());
 
@@ -1552,15 +1626,14 @@ describe("ChatComposer: single-row mobile composer", () => {
     expect(fileInput(container)).toBe(before);
   });
 
-  test("a narrow window a mouse drives keeps the plus and mounts no sheet", () => {
+  test("a narrow window a mouse drives keeps the plus and the same picker", () => {
     // GIVEN a web or Electron window dragged under the mobile breakpoint,
     // still driven by a mouse
     const { container } = renderNarrowMouseComposer();
 
-    // THEN the compact row keeps its plus, while the touch sheet, whose camera
-    // and gallery rows have nothing to offer a mouse, never mounts
+    // THEN the compact row keeps its plus, over the picker every shape shares
     expect(control(container, PLUS_LABEL)).not.toBeNull();
-    expect(addSheet(container)).toBeNull();
+    expect(fileInput(container)).not.toBeNull();
   });
 
   test("the plus wears the row's chrome on either narrow window", () => {
@@ -1610,101 +1683,75 @@ describe("ChatComposer: single-row mobile composer", () => {
     expect(box?.className).toContain("h-10");
   });
 
-  test("a touch device at desktop width keeps the sheet mounted", () => {
+  test("a touch device at desktop width takes the desktop row back", () => {
     // GIVEN a tablet, or a phone turned into landscape
     const { container } = renderTouchTabletComposer();
 
-    // THEN the room it has takes the desktop row back, while the sheet stays
-    // mounted so its hidden inputs outlive the swap
+    // THEN the room it has takes the paperclip back, over the same picker
     expect(control(container, "Attach file")).not.toBeNull();
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("false");
+    expect(fileInput(container)).not.toBeNull();
   });
 
-  test("rotating mid-pick leaves the open sheet and its inputs mounted", () => {
-    // GIVEN a phone whose add-to-chat sheet is up
+  test("the Android shell keeps a sheet, since its chooser has no camera", () => {
+    // GIVEN the Capacitor Android shell, whose `BridgeWebChromeClient` reaches
+    // a camera intent only for an input carrying `capture` and an image accept
+    mockIsNativeAndroid = true;
+    const { container } = renderPhoneComposer();
+
+    // WHEN the plus is tapped
+    fireEvent.click(control(container, PLUS_LABEL)!);
+
+    // THEN the sheet comes up, keeping the camera row this shell has no other
+    // way to offer
+    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
+  });
+
+  test("files picked in that sheet reach the composer's attach callback", () => {
+    // GIVEN the Android shell
+    mockIsNativeAndroid = true;
+    const onAddAttachmentFiles = mock((_files: FileList | File[]) => {});
+    const { getByText } = renderPhoneComposer({ onAddAttachmentFiles });
+
+    // WHEN a sheet row delivers its files
+    fireEvent.click(getByText("sheet-pick"));
+
+    // THEN they land on the same callback the picker feeds
+    expect(onAddAttachmentFiles).toHaveBeenCalledTimes(1);
+    expect(onAddAttachmentFiles.mock.calls[0]?.[0]).toBe(SHEET_PICK);
+  });
+
+  test("a sheet that has been up outlives the shell crossing the breakpoint", () => {
+    // GIVEN an Android phone whose sheet has been presented
+    mockIsNativeAndroid = true;
     const { container, rerender } = renderPhoneComposer();
     fireEvent.click(control(container, PLUS_LABEL)!);
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
 
-    // WHEN the phone turns into landscape, crossing the width breakpoint while
-    // the camera or gallery pick is still resolving
+    // WHEN it turns into landscape while a camera pick is still resolving
     viewport.set({ narrow: false, coarsePointer: true });
     rerender(composerElement());
 
-    // THEN the sheet is still there to receive it, since what mounts it is the
-    // pointer, which rotating does not change
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
-  });
-
-  test("attaching a keyboard leaves an open sheet up", () => {
-    // GIVEN a convertible on a touch screen with its sheet up
-    const { container, rerender } = renderPhoneComposer();
-    fireEvent.click(control(container, PLUS_LABEL)!);
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
-
-    // WHEN its keyboard is reattached, which flips the live pointer signal the
-    // sheet is mounted on
-    viewport.set({ narrow: true, coarsePointer: false });
-    rerender(composerElement());
-
-    // THEN the sheet the user is looking at stays up, rather than vanishing
-    // with its open state still set and reappearing on the next flip
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("true");
-  });
-
-  test("a sheet closed into an OS picker outlives a keyboard reattach", () => {
-    // GIVEN a phone whose sheet has been up and then closed itself, which is
-    // what its rows do before handing off to the OS picker
-    const { container, getByText, rerender } = renderPhoneComposer();
-    fireEvent.click(control(container, PLUS_LABEL)!);
-    fireEvent.click(getByText("sheet-close"));
-    expect(addSheet(container)?.getAttribute("data-open")).toBe("false");
-
-    // WHEN a keyboard is attached while that picker is still up, flipping the
-    // live pointer with the sheet's own open flag already back to false
-    viewport.set({ narrow: true, coarsePointer: false });
-    rerender(composerElement());
-
-    // THEN the latch keeps the sheet's hidden inputs mounted to receive the
-    // selection, rather than both live mount terms going false together
+    // THEN the latch keeps its hidden inputs mounted to receive the selection
     expect(addSheet(container)).not.toBeNull();
   });
 
-  test("the plus opens the picker directly when a mouse drives the window", () => {
-    // GIVEN a narrow mouse-driven window
-    const { container } = renderNarrowMouseComposer();
-    const input = fileInput(container);
+  test("a shell with only the OS chooser gets the picker, no sheet", () => {
+    // GIVEN a mobile surface that is neither the Android shell nor a build
+    // holding the native pickers, so a sheet could only raise the OS menu a
+    // second time
+    const { container } = renderPhoneComposer();
 
-    // AND a picker that takes several files of any type, as the desktop
-    // paperclip's does
-    expect(input?.multiple).toBe(true);
-    expect(input?.getAttribute("accept")).toBeNull();
-
-    // WHEN the plus is pressed
-    let opened = 0;
-    input?.addEventListener("click", () => {
-      opened += 1;
-    });
-    fireEvent.click(control(container, PLUS_LABEL)!);
-
-    // THEN the native picker comes up with no sheet in between
-    expect(opened).toBe(1);
+    // THEN nothing of ours stands between the plus and that menu
     expect(addSheet(container)).toBeNull();
   });
 
-  test("files picked from that plus reach the composer's attach callback", () => {
-    // GIVEN a narrow mouse-driven window
-    const onAddAttachmentFiles = mock((_files: FileList | File[]) => {});
-    const { container } = renderNarrowMouseComposer({ onAddAttachmentFiles });
-    const input = fileInput(container)!;
+  test("a shell holding the native pickers gets the sheet", () => {
+    // GIVEN a build whose rows can open the photo picker and the document
+    // browser directly, which is the whole reason to show a list of our own
+    mockNativePickersAvailable = true;
+    const { container } = renderPhoneComposer();
 
-    // WHEN the picker returns a file
-    const picked = new File(["x"], "picked.png", { type: "image/png" });
-    selectFiles(input, [picked]);
-
-    // THEN it lands on the same callback the paperclip and the sheet feed
-    expect(onAddAttachmentFiles).toHaveBeenCalledTimes(1);
-    expect(onAddAttachmentFiles.mock.calls[0]?.[0]?.[0]).toBe(picked);
+    // THEN the plus opens ours rather than the OS chooser
+    expect(addSheet(container)).not.toBeNull();
   });
 
   test("a busy assistant takes the plus away, as it does the paperclip", () => {
@@ -1734,15 +1781,14 @@ describe("ChatComposer: single-row mobile composer", () => {
     );
   });
 
-  test("desktop keeps the paperclip, its own row, and mounts no sheet", () => {
+  test("desktop keeps the paperclip and its own row", () => {
     // GIVEN a desktop composer
     viewport.set({ narrow: false, coarsePointer: false });
     const { container } = renderComposerView();
 
-    // THEN the attach control is the paperclip and the sheet never mounts
+    // THEN the attach control is the paperclip, never the row's plus
     expect(control(container, "Attach file")).not.toBeNull();
     expect(control(container, PLUS_LABEL)).toBeNull();
-    expect(addSheet(container)).toBeNull();
 
     // AND the textarea stays above the action row rather than inside it
     const html = container.innerHTML;
@@ -1986,6 +2032,107 @@ describe("ChatComposer: the mobile send slot", () => {
   });
 });
 
+describe("ChatComposer: the mobile row holds focus through a press", () => {
+  // WebKit blurs the textarea on a press without focusing the pressed button.
+  // The mobile composer is gated on that focus, so the pills row above the card
+  // swaps away and the row's 40px controls move out from under the finger
+  // before the tap's click lands. Each
+  // control cancels the compatibility `mousedown`, the event the focus transfer
+  // rides on, and leaves `pointerdown` alone, since WebKit drops the whole rest
+  // of the sequence when that one is cancelled. See `docs/CAPACITOR.md`.
+
+  test("the plus cancels the press and still opens the picker", () => {
+    // GIVEN a focused phone composer, the state that raises the pills row
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+    fireEvent.focusIn(textareaOf(container));
+    const plus = control(container, PLUS_LABEL)!;
+
+    // THEN the press is cancelled, while the pointer that precedes it is not
+    expect(fireEvent.pointerDown(plus)).toBe(true);
+    expect(fireEvent.mouseDown(plus)).toBe(false);
+
+    // AND the row is still up when the click arrives, so the plus is still
+    // under the finger
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+
+    // AND the click opens what it always opened
+    let opened = 0;
+    fileInput(container)?.addEventListener("click", () => {
+      opened += 1;
+    });
+    fireEvent.click(plus);
+    expect(opened).toBe(1);
+  });
+
+  test("send cancels the press and still submits", () => {
+    // GIVEN a focused phone composer with a draft to send
+    const onSubmit = mock((event: FormEvent) => event.preventDefault());
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      input: "hello",
+      onSubmit,
+    });
+    fireEvent.focusIn(textareaOf(container));
+    const send = control(container, "Send message")!;
+
+    // THEN the press is cancelled, and the submit the click carries is not
+    expect(fireEvent.mouseDown(send)).toBe(false);
+    fireEvent.click(send);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  test("stop cancels the press and still stops the turn", () => {
+    // GIVEN the same row mid-turn, where stop takes the slot
+    const onStopGenerating = mock(() => {});
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      isAssistantBusy: true,
+      onStopGenerating,
+    });
+    fireEvent.focusIn(textareaOf(container));
+    const stop = control(container, "Stop generating")!;
+
+    expect(fireEvent.mouseDown(stop)).toBe(false);
+    fireEvent.click(stop);
+    expect(onStopGenerating).toHaveBeenCalledTimes(1);
+  });
+
+  test("a narrow mouse window keeps its press, and its row", () => {
+    // GIVEN the window dragged under the breakpoint, which takes the row's
+    // structure with a mouse still driving it. The row is gated on the same
+    // focus, but a pointing device focuses the button it presses rather than
+    // dropping focus to nothing, so the click lands without any help.
+    const { container } = renderNarrowMouseComposer({
+      ...SETTINGS_SLOTS,
+      input: "hello",
+    });
+    fireEvent.focusIn(textareaOf(container));
+    const send = control(container, "Send message")!;
+
+    // THEN the press is left alone, so the button still takes the focus it is
+    // owed and a keyboard user is not stranded on the body
+    expect(fireEvent.mouseDown(send)).toBe(true);
+    expect(fireEvent.mouseDown(control(container, PLUS_LABEL)!)).toBe(true);
+
+    // AND the row survives that press on its own: focus moves to a button
+    // inside the shell, which is not a leave
+    fireEvent.focusOut(textareaOf(container), { relatedTarget: send });
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+  });
+
+  test("a roomy window leaves the press alone", () => {
+    // GIVEN a desktop composer, which gates no row on focus
+    viewport.set({ narrow: false, coarsePointer: false });
+    const { container } = renderComposerView({
+      ...SETTINGS_SLOTS,
+      input: "hello",
+    });
+
+    // THEN the press behaves as the platform intends
+    expect(fireEvent.mouseDown(control(container, "Send message")!)).toBe(true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Empty composer with no attachments
 // ---------------------------------------------------------------------------
@@ -2159,6 +2306,89 @@ describe("ChatComposer — live-voice integration", () => {
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
     expect(liveCancelPrewarmSpy).not.toHaveBeenCalled();
+  });
+
+  test("entering voice mode drops the composer's focus, and only that", async () => {
+    // GIVEN a focused composer on a soft-keyboard device. The voice button
+    // cancels the press that would otherwise blur this, so its click survives
+    // the row's focus gating, which leaves that keyboard raised.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockPreflightVerdict = { status: "ready" };
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { container, getByLabelText } = renderVoiceComposer();
+    const textarea = container.querySelector("textarea")!;
+    // Real focus rather than a synthetic `focusIn`: the assertion below is
+    // about `document.activeElement`, and the focus this raises drives the
+    // composer's own focus-gated state.
+    act(() => {
+      textarea.focus();
+    });
+    expect(document.activeElement).toBe(textarea);
+
+    // WHEN the user taps into voice mode
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN the entry drops that focus itself, now that the click it depended on
+    // has been delivered. The room takes the whole screen and has no use for a
+    // keyboard under it.
+    expect(document.activeElement).not.toBe(textarea);
+
+    // Drain the preflight the click started, so its resolution does not land
+    // after the test has returned.
+    await flushPreflight();
+  });
+
+  // The `not-ready` verdict is the one that makes stranded focus bite: the room
+  // never opens, and the configure-voice action it raises is what the user then
+  // has to reach. Both entries below drive it for that reason.
+  const NOT_READY_VERDICT = {
+    status: "not-ready" as const,
+    missing: [
+      { kind: "tts" as const, providerId: "elevenlabs", reason: "no key" },
+    ],
+    userMessage: "Add a voice provider to start talking.",
+  };
+
+  test("entering voice mode from the button itself leaves that focus alone", async () => {
+    // GIVEN a keyboard user on the voice button, which leaves focus there
+    // rather than on the textarea
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockPreflightVerdict = NOT_READY_VERDICT;
+    viewport.set({ narrow: true, coarsePointer: true });
+    const { getByLabelText } = renderVoiceComposer();
+    const button = getByLabelText("Start voice mode");
+    act(() => {
+      button.focus();
+    });
+
+    // WHEN the entry runs
+    fireEvent.click(button);
+
+    // THEN it blurs the textarea by name, which holds no focus to take, and
+    // leaves this where it is
+    expect(document.activeElement).toBe(button);
+    await flushPreflight();
+  });
+
+  test("a pointing device keeps the composer's focus through the entry", async () => {
+    // GIVEN a focused composer with no soft keyboard to dismiss: a mouse-driven
+    // window, narrow enough to carry the row
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockPreflightVerdict = NOT_READY_VERDICT;
+    viewport.set({ narrow: true, coarsePointer: false });
+    const { container, getByLabelText } = renderVoiceComposer();
+    const textarea = container.querySelector("textarea")!;
+    act(() => {
+      textarea.focus();
+    });
+
+    // WHEN the entry runs
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN nothing is blurred at all. There is no keyboard raised over the room,
+    // so the only thing a blur could do here is cost the user their place.
+    expect(document.activeElement).toBe(textarea);
+    await flushPreflight();
   });
 
   test("a not-ready verdict keeps the room closed and surfaces the configure-voice prompt", async () => {

@@ -22,12 +22,9 @@ import type { RouteDefinition } from "../../../../runtime/routes/types.js";
 import type { RouteHandlerArgs } from "../../../../runtime/routes/types.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
-import {
-  getEdgeIndex,
-  totalEdgeCount,
-  validateEdgeTargets,
-} from "../substrate/edge-index.js";
+import { getEdgeIndex, totalEdgeCount } from "../substrate/edge-index.js";
 import { getPageIndex } from "../substrate/page-index.js";
+import type { DanglingLink } from "../substrate/page-links.js";
 import {
   getConceptsDir,
   listPages,
@@ -111,14 +108,17 @@ async function handleBackfill({
 
 const MemoryV2ValidateParams = z.object({}).strict();
 
-type MissingEdgeEndpoint = { from: string; to: string };
 type OversizedPage = { slug: string; chars: number };
 type ParseFailure = { slug: string; error: string };
 
 export type MemoryV2ValidateResult = {
   pageCount: number;
   edgeCount: number;
-  missingEdgeEndpoints: MissingEdgeEndpoint[];
+  /**
+   * `links:`, `[[wikilink]]`, and `edges:` references whose target has no
+   * page (`PageIndex.danglingLinks`).
+   */
+  danglingLinks: DanglingLink[];
   oversizedPages: OversizedPage[];
   parseFailures: ParseFailure[];
 };
@@ -162,13 +162,15 @@ async function handleValidate({
     }
   }
 
-  const edgeIndex = await getEdgeIndex(workspaceDir);
-  const { missing } = validateEdgeTargets(edgeIndex, knownSlugs);
+  const [edgeIndex, pageIndex] = await Promise.all([
+    getEdgeIndex(workspaceDir),
+    getPageIndex(workspaceDir),
+  ]);
 
   return {
     pageCount: knownSlugs.size,
     edgeCount: totalEdgeCount(edgeIndex),
-    missingEdgeEndpoints: missing,
+    danglingLinks: pageIndex.danglingLinks,
     oversizedPages,
     parseFailures,
   };

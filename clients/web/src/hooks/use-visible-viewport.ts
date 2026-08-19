@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { subscribeNativeKeyboardHeight } from "@/runtime/native-keyboard";
+import { isNativeMobile } from "@/runtime/platform-detection";
 
 /**
  * Threshold (in px) below which an `innerHeight − visualViewport.height` delta
@@ -48,7 +49,9 @@ export interface VisibleViewport {
 // detection works correctly across both runtimes.
 //
 // Orientation changes are tracked so the reference resets when the viewport
-// dimensions change due to rotation rather than a keyboard event.
+// dimensions change due to rotation rather than a keyboard event, and
+// `rebaseReferenceForWindowResize` does the same for a window that a resize
+// made shorter without rotating.
 let referenceInnerHeight =
   typeof window !== "undefined" ? window.innerHeight : 0;
 
@@ -74,6 +77,78 @@ let anticipatedKeyboardHeight = 0;
 // this height is what that event looks like from here.
 let anticipationViewportHeight = 0;
 
+// Whether the last thing the shell announced was a keyboard coming up. The
+// shells that resize their web view frame for the keyboard are the ones where
+// that resize is otherwise indistinguishable from the window itself getting
+// shorter, and they are exactly the shells that announce (see the
+// `isNativeMobile` gate on `subscribeNativeKeyboardHeight`), so the
+// announcement is what separates the two. Stays `false` in a browser, where the
+// keyboard leaves `window.innerHeight` alone and there is nothing to separate.
+let nativeKeyboardVisible = false;
+
+// Whether a soft keyboard in this runtime would reach us at all: the plugin
+// listeners registered, or there is no shell whose frame a keyboard resizes.
+// A shell built before `@capacitor/keyboard`, or one whose registration
+// rejected, leaves this `false`, and its own frame resizes must not be read as
+// the window getting shorter. The web bundle is deployed ahead of installed
+// shells, so that shell is a version we still run in.
+let keyboardSourceReady = false;
+
+// Whether an announcement has actually arrived. `nativeKeyboardVisible` starts
+// `false`, which before the first announcement means "nothing heard yet" and
+// not "no keyboard": a keyboard raised while the plugin listeners were still
+// registering shows up here as silence. On a shell whose frame the keyboard
+// resizes, that silence is indistinguishable from the window getting shorter,
+// so the reference waits for one announcement before it trusts a `false`.
+// A browser needs no such wait, since its keyboard leaves `window.innerHeight`
+// alone and every shrink there is the window's own.
+let sawKeyboardAnnouncement = false;
+
+// The viewport reading pinned across a native picker session, or `null` when
+// nothing is holding it. iOS presents a document/photo picker by taking first
+// responder off the web view, which dismisses the soft keyboard, and the
+// keyboard cannot stay up under a modal that owns the responder. What it can
+// avoid is the shell resizing behind that picker: the composer would ride the
+// keyboard down on the way in and back up on the way out, twice per attachment,
+// with the picker covering the space either way.
+let heldViewport: VisibleViewport | null = null;
+// Depth rather than a flag: the composer's picker and the attachments strip's
+// each own a session of their own, and a release from one must not answer for
+// the other.
+let viewportHoldDepth = 0;
+
+/**
+ * Pin the current viewport reading until the returned release is called, so a
+ * transition the user is not looking at cannot resize the shell. Holds nothing
+ * unless a keyboard is actually up, since there is no collapse to sit out
+ * otherwise, and the release is idempotent.
+ */
+export function holdVisibleViewport(): () => void {
+  if (viewportHoldDepth === 0 && typeof window !== "undefined") {
+    const current = readVisibleViewport();
+    heldViewport =
+      current && current.keyboardHeight >= KEYBOARD_OPEN_THRESHOLD_PX
+        ? current
+        : null;
+  }
+  viewportHoldDepth += 1;
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    viewportHoldDepth -= 1;
+    if (viewportHoldDepth > 0) {
+      return;
+    }
+    heldViewport = null;
+    for (const notify of viewportUpdaters) {
+      notify();
+    }
+  };
+}
+
 // State updaters of the mounted `useVisibleViewport` consumers. One native
 // subscription feeds all of them, so the listener count stays flat as the shell
 // and the mobile overlays each mount their own copy of the hook, and a repeated
@@ -97,12 +172,25 @@ function addViewportUpdater(update: () => void): () => void {
   viewportUpdaters.add(update);
   if (!unsubscribeNativeKeyboard) {
     unsubscribeNativeKeyboard = subscribeNativeKeyboardHeight(
-      (keyboardHeight) => {
+      (keyboardHeight, visible) => {
         anticipatedKeyboardHeight = keyboardHeight;
         anticipationViewportHeight = window.visualViewport?.height ?? 0;
+        // Which event fired, not what it measured. A malformed show payload is
+        // coerced to `0` at the bridge, and reading visibility off that number
+        // would call a keyboard coming up a dismissal, then let the frame
+        // resize behind it pass for the window getting shorter.
+        nativeKeyboardVisible = visible;
+        sawKeyboardAnnouncement = true;
         for (const notify of viewportUpdaters) {
           notify();
         }
+      },
+      () => {
+        // Only the flag. A resize that landed while these listeners were
+        // registering is deliberately left alone: see `rebaseReferenceForWindowResize`
+        // for why this moment cannot tell a shrinking window from a keyboard
+        // that opened before there was anything to announce it.
+        keyboardSourceReady = true;
       },
     );
   }
@@ -115,7 +203,68 @@ function addViewportUpdater(update: () => void): () => void {
     unsubscribeNativeKeyboard?.();
     unsubscribeNativeKeyboard = null;
     anticipatedKeyboardHeight = 0;
+    nativeKeyboardVisible = false;
+    sawKeyboardAnnouncement = false;
+    keyboardSourceReady = false;
   };
+}
+
+/**
+ * Rebase the keyboard-free reference onto a window that has genuinely become
+ * shorter.
+ *
+ * `referenceInnerHeight` otherwise only ever grows, so a same-orientation
+ * window resize (an iPad Stage Manager drag, a split-view divider, a desktop
+ * window pulled shorter) leaves it standing at a height the window no longer
+ * has, and every reading from then on reports the difference as a keyboard that
+ * never goes away.
+ *
+ * A real keyboard is the one shrink to leave alone, and the announcement is the
+ * whole test: a shell that resizes its frame for the keyboard says so first,
+ * and a browser, which never announces, does not shrink the window for a
+ * keyboard in the first place. Focus is deliberately not consulted, since a
+ * hardware keyboard holds the composer focused with nothing on screen.
+ *
+ * That test only holds while there is something to announce with, so a runtime
+ * that has not reported a keyboard source keeps its reference: on a shell built
+ * before the plugin, rebasing would swallow the keyboard's own frame resize and
+ * leave the composer behind it.
+ *
+ * Driven by the `window` resize listener alone. Never on a plain viewport read:
+ * that would rebase onto a frame the keyboard still owns, since a dismissal
+ * announces its `0` and notifies consumers before the frame grows back. And
+ * never when the keyboard source reports in, even though a resize that landed
+ * during registration was skipped for want of that answer: at that moment
+ * nothing separates a window that shrank from a keyboard that opened before
+ * there was anything to announce it. Focus does not separate them, a hardware
+ * keyboard holds a field focused with nothing on screen, and the plugin offers
+ * no way to ask whether the keyboard is up right now.
+ *
+ * Leaving it alone is the safe half of that ambiguity. A reference left too
+ * tall reports a keyboard that is not there, which arms a dismissal gesture
+ * whose whole effect is blurring a focused field, and it corrects itself on the
+ * next resize or as soon as a read sees the window at its full height. A
+ * reference rebased onto a keyboard-sized frame reports no keyboard at all and
+ * stays wrong for as long as the keyboard is up.
+ *
+ * Reports whether the reference moved, which the resize listener ignores today
+ * and a future caller may not.
+ */
+function rebaseReferenceForWindowResize(): boolean {
+  if (window.innerHeight >= referenceInnerHeight) {
+    return false;
+  }
+  if (!keyboardSourceReady || nativeKeyboardVisible) {
+    return false;
+  }
+  // On a shell that resizes its frame for the keyboard, a `false` that no
+  // announcement has confirmed is silence rather than an answer, and the
+  // keyboard raised during registration is exactly the case that produces it.
+  if (isNativeMobile() && !sawKeyboardAnnouncement) {
+    return false;
+  }
+  referenceInnerHeight = window.innerHeight;
+  return true;
 }
 
 /**
@@ -140,6 +289,16 @@ export function readVisibleViewport(): VisibleViewport | null {
     // Rebasing the reference invalidates any height announced against the old
     // one, so anticipation goes with it rather than outliving its baseline.
     anticipatedKeyboardHeight = 0;
+    // A rotation resizes the viewport on its own account, and a height held
+    // against the orientation the device has left describes nothing. The hold
+    // is dropped rather than ended, so the release that owns it still balances.
+    heldViewport = null;
+  }
+
+  // Held readings answer before the measurement, and after the rotation reset
+  // so they cannot outlive the orientation they were taken in.
+  if (heldViewport) {
+    return heldViewport;
   }
 
   // Update the reference whenever the viewport grows (keyboard dismissed,
@@ -236,18 +395,24 @@ export function useVisibleViewport(): VisibleViewport | null {
     }
     const vv = window.visualViewport;
     const update = () => setState(readVisibleViewport());
+    // The rebase rides the window's own resize rather than every viewport
+    // read; see `rebaseReferenceForWindowResize`.
+    const handleWindowResize = () => {
+      rebaseReferenceForWindowResize();
+      update();
+    };
     update();
     // `resize` fires on width/height/scale changes; `scroll` fires on
     // offsetTop/offsetLeft changes. Both must be observed — iOS commonly
     // fires one without the other during a single keyboard transition.
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
-    window.addEventListener("resize", update);
+    window.addEventListener("resize", handleWindowResize);
     const removeUpdater = addViewportUpdater(update);
     return () => {
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
+      window.removeEventListener("resize", handleWindowResize);
       removeUpdater();
     };
   }, []);

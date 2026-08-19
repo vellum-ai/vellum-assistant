@@ -131,9 +131,8 @@ describe("InvoicesTable collapse", () => {
     const { getByText, getByTestId, queryByTestId } = renderTable();
 
     getByText("Invoices");
-    getByText("Your billing history.");
     expect(getByTestId("invoices-toggle").textContent).toContain(
-      "Show invoices",
+      "Show Invoices",
     );
     expect(queryByTestId("invoices-table")).toBeNull();
     expect(queryByTestId("invoices-download-all")).toBeNull();
@@ -146,7 +145,7 @@ describe("InvoicesTable collapse", () => {
     expect(listRetrieveCalls.length).toBe(1);
     expect(getAllByTestId("invoice-row").length).toBe(2);
     expect(getByTestId("invoices-toggle").textContent).toContain(
-      "Hide invoices",
+      "Hide Invoices",
     );
     getByTestId("invoices-download-all");
 
@@ -154,7 +153,7 @@ describe("InvoicesTable collapse", () => {
     expect(queryByTestId("invoices-table")).toBeNull();
     expect(queryByTestId("invoices-download-all")).toBeNull();
     expect(getByTestId("invoices-toggle").textContent).toContain(
-      "Show invoices",
+      "Show Invoices",
     );
   });
 

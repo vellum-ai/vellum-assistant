@@ -54,6 +54,41 @@ anti-pattern was retired in #35642 and again in the ask_question redesign).
 | Kind-specific follow-through            | resolver registry (`kind` → resolver)                    | switch statements in the router     |
 | Reply understanding                     | guardian reply router (codes, buttons, reactions, modes) | per-feature inbound intercepts      |
 
+## Cards are not conversation history
+
+`pairDeliveryWithConversation` persists one message row per delivery so the
+card renders and deep-links. For a guardian card that row is addressed to a
+conversation the request is _about_, not one the assistant is speaking in:
+`buildVellumCardAffinity` pins the vellum card to the originating
+conversation, and a channel card lands in whatever conversation the guardian's
+chat binds to. Either way the row is written straight to the DB by the
+notification pipeline, so the live turn's in-memory history never sees it.
+
+That row must never be replayed to the model. The conversation it lands in is
+typically parked mid-approval, with its last assistant message carrying the
+`tool_use` still waiting on this very decision. Replayed, the card sits
+between that `tool_use` and its `tool_result`; history repair reads the pair
+as broken, synthesizes a stub result, and downgrades the real one to text. A
+card left as the tail row instead ends the history on an assistant message,
+which extended-thinking models reject outright ("does not support assistant
+message prefill").
+
+`isGuardianCardRow` (`notifications/approval-card-data.ts`) is the one
+definition of which rows those are, read off the card's own `ui_surface` id
+using the same prefixes `approvalCardSurfaceId` recomputes for withdrawal. It
+is derived rather than stored so a row written before the rule existed is
+recognized on the same terms as a new one, with no marker to backfill.
+
+**Both history assemblers must consult it.** `Conversation.loadFromDb` builds
+`this.messages`, but Slack conversations do not use that list:
+`loadSlackChronologicalContext` re-reads the rows. A rule applied to only one
+exempts the other channel. Each applies it _after_ its own compaction boundary,
+since both boundaries are computed against unfiltered row lists.
+
+Surface state is deliberately NOT filtered this way. `restoreSurfaceStateFromHistory`
+takes the pre-filter window, because a card's Approve/Reject buttons must keep
+routing after a restart even though the card is absent from the model's history.
+
 Two instruction modes exist per request kind (`notifications/guardian-question-mode.ts`):
 **approval** ("CODE approve" / approve–reject buttons) and **answer**
 ("CODE <your answer>" / option buttons). `pending_question` is answer-mode.

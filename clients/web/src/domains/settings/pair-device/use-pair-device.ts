@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 
@@ -147,7 +148,7 @@ export function usePairDevice(
         captureError(err, { context: "pair-device-mint" });
         setPhase({
           kind: "error",
-          message: "Something went wrong while generating the code.",
+          message: t("settings:usePairDevice.mintErrorFallback"),
         });
       }
     })();

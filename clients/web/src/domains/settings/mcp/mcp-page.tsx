@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useTranslation } from "@/i18n";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { McpAddServerModal } from "./mcp-add-server-modal";
@@ -29,14 +30,8 @@ import { toast } from "@vellumai/design-library/components/toast";
 const MCP_SERVERS_KEY = "mcp-servers";
 const MCP_TOOLS_KEY = "mcp-tools-summary";
 
-/**
- * First message auto-sent when a user without the add-server flag clicks the
- * empty-state call to action — kicks off an assistant-guided MCP setup.
- */
-const MCP_SETUP_PROMPT =
-  "Help me set up an MCP server to extend you with external tools.";
-
 function McpPageInner() {
+  const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -107,7 +102,11 @@ function McpPageInner() {
         await updateMcpServer(assistantId, { name: serverId, enabled });
         invalidateAll();
       } catch {
-        toast.error(`Failed to ${enabled ? "enable" : "disable"} ${serverId}`);
+        toast.error(
+          enabled
+            ? t("mcpPage.toastEnableFailed", { serverId })
+            : t("mcpPage.toastDisableFailed", { serverId }),
+        );
       } finally {
         setPendingMutations((prev) => {
           const next = new Set(prev);
@@ -116,7 +115,7 @@ function McpPageInner() {
         });
       }
     },
-    [assistantId, invalidateAll],
+    [assistantId, invalidateAll, t],
   );
 
   const handleRemoveConfirm = useCallback(async () => {
@@ -127,14 +126,16 @@ function McpPageInner() {
     try {
       await removeMcpServer(assistantId, removeServerId);
       invalidateAll();
-      toast.success(`Removed ${removeServerId}`);
+      toast.success(t("mcpPage.toastRemoved", { serverId: removeServerId }));
       setRemoveServerId(null);
     } catch {
-      toast.error(`Failed to remove ${removeServerId}`);
+      toast.error(
+        t("mcpPage.toastRemoveFailed", { serverId: removeServerId }),
+      );
     } finally {
       setIsRemoving(false);
     }
-  }, [removeServerId, assistantId, invalidateAll]);
+  }, [removeServerId, assistantId, invalidateAll, t]);
 
   const handleAuthenticate = useCallback(
     async (serverId: string) => {
@@ -143,13 +144,15 @@ function McpPageInner() {
       try {
         result = await startMcpAuth(assistantId, serverId);
       } catch {
-        toast.error(`Failed to start authentication for ${serverId}`);
+        toast.error(t("mcpPage.toastAuthStartFailed", { serverId }));
         setAuthenticatingServerId(null);
         return;
       }
       try {
         if (result.already_authenticated) {
-          toast.success(`${serverId} is already authenticated`);
+          toast.success(
+            t("mcpPage.toastAlreadyAuthenticated", { serverId }),
+          );
           invalidateAll();
           return;
         }
@@ -159,26 +162,29 @@ function McpPageInner() {
           await new Promise((resolve) => setTimeout(resolve, 3000));
           const status = await pollMcpAuthStatus(assistantId, serverId);
           if (status.status === "complete") {
-            toast.success(`${serverId} authenticated successfully`);
+            toast.success(
+              t("mcpPage.toastAuthenticatedSuccess", { serverId }),
+            );
             invalidateAll();
             return;
           }
           if (status.status === "error") {
             toast.error(
-              status.error ?? `Authentication failed for ${serverId}`,
+              status.error ??
+                t("mcpPage.toastAuthFailed", { serverId }),
             );
             return;
           }
         }
-        toast.error(`Authentication timed out for ${serverId}`);
+        toast.error(t("mcpPage.toastAuthTimedOut", { serverId }));
       } catch {
-        toast.error(`Authentication polling failed for ${serverId}`);
+        toast.error(t("mcpPage.toastAuthPollingFailed", { serverId }));
       } finally {
         setAuthenticatingServerId(null);
         invalidateAll();
       }
     },
-    [assistantId, invalidateAll],
+    [assistantId, invalidateAll, t],
   );
 
   const handleRevokeOAuth = useCallback(
@@ -187,14 +193,14 @@ function McpPageInner() {
       try {
         await revokeMcpOAuth(assistantId, serverId);
         invalidateAll();
-        toast.success(`OAuth credentials revoked for ${serverId}`);
+        toast.success(t("mcpPage.toastOAuthRevoked", { serverId }));
       } catch {
-        toast.error(`Failed to revoke OAuth for ${serverId}`);
+        toast.error(t("mcpPage.toastOAuthRevokeFailed", { serverId }));
       } finally {
         setRevokingServerId(null);
       }
     },
-    [assistantId, invalidateAll],
+    [assistantId, invalidateAll, t],
   );
 
   const handleAdd = useCallback(
@@ -217,10 +223,10 @@ function McpPageInner() {
       try {
         await addMcpServer(assistantId, config);
         invalidateAll();
-        toast.success(`Added ${config.name}`);
+        toast.success(t("mcpPage.toastAdded", { name: config.name }));
         setAddModalOpen(false);
       } catch {
-        toast.error(`Failed to add ${config.name}`);
+        toast.error(t("mcpPage.toastAddFailed", { name: config.name }));
         authWindow?.close();
         setIsAdding(false);
         return;
@@ -233,7 +239,11 @@ function McpPageInner() {
           const result = await startMcpAuth(assistantId, config.name);
           if (result.already_authenticated) {
             authWindow?.close();
-            toast.success(`${config.name} is already authenticated`);
+            toast.success(
+              t("mcpPage.toastAlreadyAuthenticated", {
+                serverId: config.name,
+              }),
+            );
             invalidateAll();
             return;
           }
@@ -247,28 +257,37 @@ function McpPageInner() {
             await new Promise((resolve) => setTimeout(resolve, 3000));
             const status = await pollMcpAuthStatus(assistantId, config.name);
             if (status.status === "complete") {
-              toast.success(`${config.name} authenticated successfully`);
+              toast.success(
+                t("mcpPage.toastAuthenticatedSuccess", {
+                  serverId: config.name,
+                }),
+              );
               invalidateAll();
               return;
             }
             if (status.status === "error") {
               toast.error(
-                status.error ?? `Authentication failed for ${config.name}`,
+                status.error ??
+                  t("mcpPage.toastAuthFailed", { serverId: config.name }),
               );
               return;
             }
           }
-          toast.error(`Authentication timed out for ${config.name}`);
+          toast.error(
+            t("mcpPage.toastAuthTimedOut", { serverId: config.name }),
+          );
         } catch {
           authWindow?.close();
-          toast.error(`Failed to start authentication for ${config.name}`);
+          toast.error(
+            t("mcpPage.toastAuthStartFailed", { serverId: config.name }),
+          );
         } finally {
           setAuthenticatingServerId(null);
           invalidateAll();
         }
       }
     },
-    [assistantId, invalidateAll],
+    [assistantId, invalidateAll, t],
   );
 
   const handleSave = useCallback(
@@ -285,15 +304,15 @@ function McpPageInner() {
       try {
         await updateMcpServer(assistantId, updates);
         invalidateAll();
-        toast.success(`Updated ${serverId}`);
+        toast.success(t("mcpPage.toastUpdated", { serverId }));
         setConfigureServerId(null);
       } catch {
-        toast.error(`Failed to update ${serverId}`);
+        toast.error(t("mcpPage.toastUpdateFailed", { serverId }));
       } finally {
         setIsSaving(false);
       }
     },
-    [assistantId, invalidateAll],
+    [assistantId, invalidateAll, t],
   );
 
   const handleReload = useCallback(async () => {
@@ -301,21 +320,23 @@ function McpPageInner() {
     try {
       await reloadMcpServers(assistantId);
       invalidateAll();
-      toast.success("MCP servers reloaded");
+      toast.success(t("mcpPage.toastReloadSuccess"));
     } catch {
-      toast.error("Failed to reload MCP servers");
+      toast.error(t("mcpPage.toastReloadFailed"));
     } finally {
       setIsReloading(false);
     }
-  }, [assistantId, invalidateAll]);
+  }, [assistantId, invalidateAll, t]);
 
   const handleEmptyStateAction = useCallback(() => {
     if (mcpAddServerEnabled) {
       setAddModalOpen(true);
     } else {
-      navigateToNewConversation(navigate, { prompt: MCP_SETUP_PROMPT });
+      navigateToNewConversation(navigate, {
+        prompt: t("mcpPage.setupPrompt"),
+      });
     }
-  }, [mcpAddServerEnabled, navigate]);
+  }, [mcpAddServerEnabled, navigate, t]);
 
   const servers = serversData?.servers ?? [];
 
@@ -324,11 +345,10 @@ function McpPageInner() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-title-small text-[var(--content-default)]">
-            MCP Servers
+            {t("mcpPage.title")}
           </h2>
           <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
-            Manage Model Context Protocol server connections and their
-            registered tools.
+            {t("mcpPage.subtitle")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -340,8 +360,8 @@ function McpPageInner() {
             }
             onClick={handleReload}
             disabled={isReloading}
-            tooltip="Reload all servers"
-            aria-label="Reload MCP servers"
+            tooltip={t("mcpPage.reloadTooltip")}
+            aria-label={t("mcpPage.reloadAriaLabel")}
           />
           {mcpAddServerEnabled ? (
             <Button
@@ -350,7 +370,7 @@ function McpPageInner() {
               leftIcon={<Plus />}
               onClick={() => setAddModalOpen(true)}
             >
-              Add Server
+              {t("mcpPage.addServerButton")}
             </Button>
           ) : null}
         </div>
@@ -359,11 +379,12 @@ function McpPageInner() {
       {toolsData ? (
         <div className="flex gap-4 text-body-small-default text-[var(--content-tertiary)]">
           <span>
-            {toolsData.totalToolCount} total{" "}
-            {toolsData.totalToolCount === 1 ? "tool" : "tools"}
+            {t("mcpPage.totalTools", { count: toolsData.totalToolCount })}
           </span>
           <span>
-            ~{toolsData.totalEstimatedTokens.toLocaleString()} total tokens
+            {t("mcpPage.totalTokens", {
+              count: toolsData.totalEstimatedTokens.toLocaleString(),
+            })}
           </span>
         </div>
       ) : null}
@@ -371,11 +392,11 @@ function McpPageInner() {
       {serversLoading ? (
         <div className="flex items-center gap-2 py-6 text-body-medium-lighter text-[var(--content-tertiary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
-          <span>Loading MCP servers...</span>
+          <span>{t("mcpPage.loading")}</span>
         </div>
       ) : serversError ? (
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          Failed to load MCP servers. Check that an assistant is running.
+          {t("mcpPage.loadError")}
         </p>
       ) : servers.length === 0 ? (
         <button
@@ -386,12 +407,12 @@ function McpPageInner() {
         >
           <Cable className="h-6 w-6 text-[var(--content-disabled)]" />
           <p className="text-body-medium-default text-[var(--content-default)]">
-            No MCP Servers
+            {t("mcpPage.emptyTitle")}
           </p>
           <p className="text-body-small-default text-[var(--content-tertiary)]">
             {mcpAddServerEnabled
-              ? "Add an MCP server to extend your assistant with external tools."
-              : "Chat with your assistant to set up an MCP server."}
+              ? t("mcpPage.emptyAddSubtitle")
+              : t("mcpPage.emptyChatSubtitle")}
           </p>
         </button>
       ) : (
@@ -435,9 +456,13 @@ function McpPageInner() {
 
       <ConfirmDialog
         open={!!removeServerId}
-        title="Remove MCP Server"
-        message={`Are you sure you want to remove "${removeServerId}"? This will disconnect all tools provided by this server.`}
-        confirmLabel="Remove"
+        title={t("mcpPage.removeDialogTitle")}
+        message={
+          removeServerId
+            ? t("mcpPage.removeDialogMessage", { serverId: removeServerId })
+            : ""
+        }
+        confirmLabel={t("mcpPage.removeDialogConfirm")}
         destructive
         isPending={isRemoving}
         onConfirm={handleRemoveConfirm}

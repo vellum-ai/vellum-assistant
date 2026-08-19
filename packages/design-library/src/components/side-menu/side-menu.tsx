@@ -189,9 +189,17 @@ const RAIL_GEOMETRY_VARS: CustomPropertyStyle = {
  */
 export const SIDE_MENU_OVERLAY_TILE_SIZE = 44;
 
+/**
+ * How far the overlay holds its content off the screen edge. Published as
+ * well as applied, because anything positioned against the sheet's own edge
+ * rather than the body's has to subtract it to land where the body stops.
+ */
+export const SIDE_MENU_OVERLAY_INSET = 12;
+
 const OVERLAY_VARS: CustomPropertyStyle = {
   ...RAIL_GEOMETRY_VARS,
   "--side-menu-tile-size": `${SIDE_MENU_OVERLAY_TILE_SIZE}px`,
+  "--side-menu-inset": `${SIDE_MENU_OVERLAY_INSET}px`,
 };
 
 export interface SideMenuProps extends ComponentProps<"nav"> {
@@ -266,7 +274,7 @@ const ROOT_RAIL_RESIZABLE_CLASSES = [
 const ROOT_OVERLAY_CLASSES = [
   "w-full",
   "rounded-none",
-  "p-4",
+  "p-[var(--side-menu-inset)]",
   "bg-transparent",
 ].join(" ");
 

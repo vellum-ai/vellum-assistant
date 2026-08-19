@@ -37,7 +37,6 @@ import {
 import {
   check,
   classifyRisk,
-  generateAllowlistOptions,
   generateScopeOptions,
 } from "../../permissions/checker.js";
 import { resolveGuardianPersonaPath } from "../../prompts/persona-resolver.js";
@@ -710,19 +709,22 @@ async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
       isInteractive === false ? "headless" : "conversation";
     const policyContext = { executionTarget, executionContext } as const;
 
-    const { level: riskLevel } = await classifyRisk(
+    const classification = await classifyRisk(
       toolName,
       input,
       workingDir,
       undefined,
       manifestOverride,
     );
+    const riskLevel = classification.level;
     const result = await check(
       toolName,
       input,
       workingDir,
       policyContext,
       manifestOverride,
+      undefined,
+      classification,
     );
 
     if (isInteractive === false && result.decision === "prompt") {
@@ -743,11 +745,9 @@ async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
       | undefined;
 
     if (result.decision === "prompt") {
-      const allowlistOptions = await generateAllowlistOptions(toolName, input);
-      const scopeOptions = generateScopeOptions(workingDir, toolName);
       promptPayload = {
-        allowlistOptions,
-        scopeOptions,
+        allowlistOptions: classification.allowlistOptions ?? [],
+        scopeOptions: generateScopeOptions(workingDir, toolName),
         persistentDecisionsAllowed: true,
       };
     }

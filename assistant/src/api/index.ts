@@ -102,6 +102,7 @@ import {
   RecordingStopEventSchema,
 } from "./events/recording.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
+import { ResourcePressureStatusChangedEventSchema } from "./events/resource-pressure-status-changed.js";
 import { ScheduleConversationCreatedEventSchema } from "./events/schedule-conversation-created.js";
 import { SecretRequestEventSchema } from "./events/secret-request.js";
 import { ServiceGroupUpdateCompleteEventSchema } from "./events/service-group-update-complete.js";
@@ -537,6 +538,14 @@ export {
   RelationshipStateUpdatedEventSchema,
 } from "./events/relationship-state-updated.js";
 export {
+  type ResourcePressureState,
+  ResourcePressureStateSchema,
+  type ResourcePressureStatus,
+  type ResourcePressureStatusChangedEvent,
+  ResourcePressureStatusChangedEventSchema,
+  ResourcePressureStatusSchema,
+} from "./events/resource-pressure-status-changed.js";
+export {
   type ScheduleConversationCreatedEvent,
   ScheduleConversationCreatedEventSchema,
 } from "./events/schedule-conversation-created.js";
@@ -803,6 +812,10 @@ export {
   MemoryV3SelectionRowSchema,
 } from "./responses/memory-v3-selection-log.js";
 export {
+  type ResourcePressureStatusResponse,
+  ResourcePressureStatusResponseSchema,
+} from "./responses/resource-pressure-status.js";
+export {
   type SubagentDetailEvent,
   SubagentDetailEventSchema,
   type SubagentDetailResponse,
@@ -987,6 +1000,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   RecordingStartEventSchema,
   RecordingStopEventSchema,
   RelationshipStateUpdatedEventSchema,
+  ResourcePressureStatusChangedEventSchema,
   ScheduleConversationCreatedEventSchema,
   SecretRequestEventSchema,
   ServiceGroupUpdateCompleteEventSchema,

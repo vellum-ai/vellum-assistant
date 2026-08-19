@@ -1,5 +1,7 @@
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
+import { useTranslation } from "@/i18n";
+
 export interface AutoTopUpDisableConfirmProps {
   open: boolean;
   confirming: boolean;
@@ -8,7 +10,7 @@ export interface AutoTopUpDisableConfirmProps {
 }
 
 /**
- * Reconfirm dialog for the destructive "Disable automatic top-ups" action.
+ * Reconfirm dialog for the destructive "Disable auto-reload" action.
  * Single-sentence body — fits the `ConfirmDialog` primitive exactly. If the
  * copy ever needs structure (bullets, etc.), swap to `Modal.*` directly.
  */
@@ -18,11 +20,12 @@ export function AutoTopUpDisableConfirm({
   onCancel,
   onConfirm,
 }: AutoTopUpDisableConfirmProps) {
+  const { t } = useTranslation("settings");
   return (
     <ConfirmDialog
       open={open}
-      title="Disable automatic top-ups?"
-      message="Auto top-ups will stop. Any saved payment method stays on file."
+      title={t("autoTopUpDisableConfirm.title")}
+      message={t("autoTopUpDisableConfirm.message")}
       confirmLabel={confirming ? "Disabling…" : "Disable"}
       cancelLabel="Keep enabled"
       destructive

@@ -29,7 +29,7 @@ import {
 import { AddRemoteOriginDialog } from "@/domains/onboarding/components/add-remote-origin-dialog";
 import { ConnectAssistantDialog } from "@/domains/onboarding/components/connect-assistant-dialog";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { OnboardingLayout } from "@/components/onboarding-layout";
 import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
 import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
@@ -73,7 +73,15 @@ function assistantLabel(a: ResolvedAssistant): string {
   if (a.isPaired) {
     return "Paired Assistant";
   }
-  return a.isLocal ? "Local Assistant" : "Cloud Assistant";
+  if (a.isLocal && a.cloud === "local") {
+    // Lockfile-sourced local ids are friendly generated instance names;
+    // API-sourced hub registrations carry platform UUIDs instead.
+    return a.id;
+  }
+  if (a.isLocal) {
+    return "Local Assistant";
+  }
+  return "Cloud Assistant";
 }
 
 /** A hub-listed self-hosted entry lives on another machine; name its host. */
@@ -716,7 +724,7 @@ export function SelectAssistantScreen() {
   }
 
   return (
-    <OnboardingLayout showAvatarWave>
+    <OnboardingLayout avatarWave="beside">
       <div
         className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-6 md:min-h-full md:pb-6"} text-[var(--content-default)]`}
       >
@@ -958,7 +966,7 @@ export function SelectAssistantScreen() {
 function ConnectingHold() {
   const { t } = useTranslation("onboarding");
   return (
-    <OnboardingLayout showAvatarWave>
+    <OnboardingLayout avatarWave="beside">
       <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 text-[var(--content-default)]">
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
           {t("selectAssistantScreen.connectingToAssistant")}
@@ -1260,12 +1268,16 @@ function RemoteOriginCard({
   /** Opens the remove-from-this-device confirmation, when there is one. */
   onRemove?: () => void;
 }) {
+  const { t } = useTranslation("onboarding");
   const label = originLabel(origin);
+  const subtitleKey = current
+    ? "selectAssistantScreen.currentWithHost"
+    : "selectAssistantScreen.remoteWithHost";
   return (
     <ChooserCard
       icon={icon ?? <Globe className="h-5 w-5" />}
       title={label}
-      subtitle={`${current ? "Current" : "Remote"} · ${originHostname(origin)}`}
+      subtitle={t(subtitleKey, { host: originHostname(origin) })}
       selected={selected}
       tabStop={tabStop}
       onSelect={onSelect}

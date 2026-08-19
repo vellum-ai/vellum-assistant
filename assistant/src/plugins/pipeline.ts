@@ -25,7 +25,10 @@ import { getHookEntriesFor } from "../hooks/registry.js";
 import type { BaseHookContext } from "../hooks/types.js";
 import { type HookName, HOOKS } from "../plugin-api/constants.js";
 import { getLogger } from "../util/logger.js";
-import { runInPluginContext } from "./plugin-execution-context.js";
+import {
+  runInPluginContext,
+  runOutsidePluginContext,
+} from "./plugin-execution-context.js";
 import type { HookEntry } from "./types.js";
 
 // ─── Hook runner ────────────────────────────────────────────────────────────
@@ -303,9 +306,10 @@ export async function callWithTimeout<T>(
  *
  * When `initialCtx` carries a `conversationId`, it is passed to
  * {@link getHookEntriesFor}, which resolves the conversation's per-chat plugin
- * scope (memory, then DB) and skips a hook whose contributing plugin is outside
- * the effective set. Contexts without a `conversationId` impose no restriction —
- * every globally-enabled plugin's hook runs.
+ * scope (memory, then DB) and skips a user-plugin hook whose owner is
+ * outside the effective set. First-party default plugins always run (unless
+ * workspace-disabled). Contexts without a `conversationId` impose no
+ * restriction: every globally-enabled plugin's hook runs.
  *
  * Before each hook runs, the pipeline stamps the {@link BaseHookContext}
  * capabilities onto its (freshly-cloned) draft, both bound to that hook's
@@ -354,12 +358,15 @@ export async function runHook<TInput extends object>(
     };
     try {
       // Mark the contributing plugin as in context so host APIs the hook
-      // reaches (e.g. resolveCredential) can scope to it. Standalone workspace
-      // hooks are not plugins and establish no context.
+      // reaches (e.g. resolveCredential) can scope to it. A standalone
+      // workspace hook is not a plugin, and runs with the context explicitly
+      // cleared rather than merely unset: the turn may have been started by a
+      // plugin (a route handler calling `runConversationTurn`), and this hook
+      // must not inherit that plugin's identity.
       const invokeHook =
         owner.kind === "plugin"
           ? () => runInPluginContext(owner.id, () => fn(draft))
-          : () => fn(draft);
+          : () => runOutsidePluginContext(() => fn(draft));
       const result = await callWithTimeout(
         invokeHook,
         HOOK_TIMEOUT_MS,

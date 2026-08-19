@@ -39,6 +39,8 @@ import type {
   HotkeyScope,
   LocalAssistantStatusResult,
   LocalConnectImportResult,
+  LocalListDevicesResult,
+  LocalRevokeDeviceResult,
   LocalUpgradeOptions,
   LocalWakeOptions,
   NotificationActionEvent,
@@ -52,6 +54,7 @@ import type {
   SystemPermissionStatus,
   SystemPermissionsState,
   TextInsertionResult,
+  TitleBarOverlayTheme,
   UpdateState,
   UpdateStatus,
   VellumCommand,
@@ -207,16 +210,25 @@ declare global {
           assistantId?: string;
           error?: string;
         }>;
+        listDevices?(assistantId: string): Promise<LocalListDevicesResult>;
         readLockfile(): Promise<Lockfile>;
         saveLockfileAssistant(
           assistant: Record<string, unknown>,
           activeAssistant?: string,
+        ): Promise<LockfileWriteResult>;
+        renameLockfileAssistant?(
+          assistantId: string,
+          name: string,
         ): Promise<LockfileWriteResult>;
         replacePlatformAssistants(
           platformAssistants: Array<Record<string, unknown>>,
           organizationId?: string,
         ): Promise<LockfileWriteResult>;
         retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+        revokeDevice?(
+          assistantId: string,
+          hashedDeviceId: string,
+        ): Promise<LocalRevokeDeviceResult>;
         unpair?(assistantId: string): Promise<LockfileWriteResult>;
         connectImport?(
           bundle: string,
@@ -251,6 +263,7 @@ declare global {
       mainWindow: {
         ensureVisible(): Promise<void>;
         setOnboarding(active: boolean): Promise<void>;
+        setTitleBarOverlay?(colors: TitleBarOverlayTheme): Promise<void>;
       };
       power: {
         onEvent(callback: (event: PowerEvent) => void): () => void;

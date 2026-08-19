@@ -5,9 +5,10 @@
  * Pure type-level declarations only (+ the `RiskLevel` enum, which is a
  * value). No runtime helpers live here — the assistant keeps all behavior
  * functions in `assistant/src/tools/` and re-exports the types from this
- * file. This module imports nothing, so it can sit at the bottom of the
- * import graph and be consumed by `tools/types.ts`, `providers/types.ts`,
- * and `permissions/types.ts` without creating cycles.
+ * file. This module imports nothing from `assistant/src` (only type-only
+ * wire shapes from `@vellumai/gateway-client`), so it can sit at the bottom
+ * of the import graph and be consumed by `tools/types.ts`,
+ * `providers/types.ts`, and `permissions/types.ts` without creating cycles.
  *
  * Heavy daemon-internal references (CES client, host-proxy classes, trust
  * classifications, interface IDs, content blocks, CES `ApprovalRequired`)
@@ -24,6 +25,12 @@
 // ---------------------------------------------------------------------------
 // Simple type-level declarations — moved in full
 // ---------------------------------------------------------------------------
+
+import type {
+  RiskAllowlistOption,
+  RiskDirectoryScopeOption,
+  RiskPatternScopeOption,
+} from "@vellumai/gateway-client";
 
 export type ExecutionTarget = "sandbox" | "host";
 
@@ -48,6 +55,14 @@ export enum RiskLevel {
   Medium = "medium",
   High = "high",
 }
+
+/**
+ * `riskLevel` recorded on a `tool_invocations` audit row when the call's risk
+ * was never classified (classification aborted, or the gateway was
+ * unreachable, before any decision was reached). Distinct from every
+ * {@link RiskLevel} so a reader can tell "not assessed" from "assessed as low".
+ */
+export const RISK_LEVEL_UNCLASSIFIED = "unclassified";
 
 export interface ToolDefinition {
   name: string;
@@ -162,7 +177,7 @@ export interface ToolExecutionResult {
   /** Whether the daemon is running in a containerized (Docker) environment. */
   isContainerized?: boolean;
   /** Scope options ladder for the rule editor (narrowest to broadest). */
-  riskScopeOptions?: Array<{ pattern: string; label: string }>;
+  riskScopeOptions?: RiskPatternScopeOption[];
 }
 
 export type ProxyToolResolver = (
@@ -174,16 +189,14 @@ export type ProxyToolResolver = (
 // Permission prompt option ladders
 // ---------------------------------------------------------------------------
 
-export interface AllowlistOption {
-  label: string;
-  description: string;
-  pattern: string;
-}
+/** The prompt's "always allow" ladder entry: the gateway's wire shape. */
+export type AllowlistOption = RiskAllowlistOption;
 
-export interface ScopeOption {
-  label: string;
-  scope: string;
-}
+/**
+ * A directory-scope ladder entry (`scope` is a path glob or `everywhere`);
+ * the same wire shape the gateway emits as `directoryScopeOptions`.
+ */
+export type ScopeOption = RiskDirectoryScopeOption;
 
 // ---------------------------------------------------------------------------
 // Tool context

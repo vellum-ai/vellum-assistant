@@ -10,7 +10,7 @@ import {
   privacyChangeNotes,
   tosChangeNotes,
 } from "@/domains/onboarding/consent-changelog";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { OnboardingLayout } from "@/components/onboarding-layout";
 import {
   useAnalyticsConsentCurrent,
   useDiagnosticsConsentCurrent,

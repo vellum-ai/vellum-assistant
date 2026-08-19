@@ -28,6 +28,7 @@ import {
 import { Button } from "@vellumai/design-library";
 
 import { AllowOptionsMenu } from "@/domains/chat/components/allow-options-menu";
+import { offersRuleOption } from "@/domains/chat/confirmation-decisions";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 import {
@@ -158,7 +159,7 @@ export function InlineConfirmationCard({
   }
 
   const hasDetails = !!confirmation.input;
-  const hasAllowlistOptions = (confirmation.allowlistOptions?.length ?? 0) > 0;
+  const offersRule = offersRuleOption(confirmation);
 
   // Meta-line context: what the agent was doing when it hit the gate. The
   // live activity label wins; a custom confirmation title and the friendly
@@ -208,7 +209,7 @@ export function InlineConfirmationCard({
       {/* Actions — left-aligned. Allow splits into Allow | ⌄ when allowlist
           options exist; the chevron opens the "Allow & Create Rule" menu. */}
       <div className="flex items-start gap-2">
-        {hasAllowlistOptions && onAllowAndCreateRule ? (
+        {offersRule && onAllowAndCreateRule ? (
           <div className="flex">
             <Button
               variant="primary"

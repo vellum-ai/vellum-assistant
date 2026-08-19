@@ -94,12 +94,8 @@ mock.module("../permissions/checker.js", () => ({
     }
     return { decision: "allow", reason: "allowed" };
   },
-  generateAllowlistOptions: () => [
-    { label: "exact", description: "exact", pattern: "exact" },
-  ],
   generateScopeOptions: () =>
     scopeOptionsOverride ?? [{ label: "/tmp", scope: "/tmp" }],
-  getCachedAssessment: () => undefined,
 }));
 
 mock.module("../telemetry/tool-usage-store.js", () => ({

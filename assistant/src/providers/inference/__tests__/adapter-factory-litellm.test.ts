@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { OpenAIChatCompletionsProvider } from "../../openai/chat-completions-provider.js";
+import {
+  EMPTY_ASSISTANT_TURN_PLACEHOLDER,
+  OpenAIChatCompletionsProvider,
+} from "../../openai/chat-completions-provider.js";
 import {
   buildProviderAdapter,
   createAdapterFromConnection,
@@ -17,6 +20,49 @@ describe("litellm adapter factory", () => {
       useNativeWebSearch: false,
     });
     expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
+  });
+
+  test("backfills placeholder content after an aborted empty assistant turn", async () => {
+    const adapter = buildProviderAdapter("litellm", {
+      apiKey: "sk-litellm-test",
+      model: "deepseek/deepseek-v4",
+      streamTimeoutMs: 60_000,
+      baseURL: "http://localhost:4000/v1",
+      useNativeWebSearch: false,
+    });
+    expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
+    const provider = adapter as OpenAIChatCompletionsProvider;
+    const requests: unknown[] = [];
+    (provider as unknown as { client: unknown }).client = {
+      chat: {
+        completions: {
+          create: async (params: unknown) => {
+            requests.push(params);
+            return {
+              async *[Symbol.asyncIterator]() {
+                yield {
+                  choices: [
+                    { delta: { content: "ok" }, finish_reason: "stop" },
+                  ],
+                  usage: { prompt_tokens: 2, completion_tokens: 1 },
+                };
+              },
+            };
+          },
+        },
+      },
+    };
+
+    await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "question" }] },
+      { role: "assistant", content: [] },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{ role: string; content: string | null }>;
+    };
+    const assistantMsg = params.messages.find((m) => m.role === "assistant")!;
+    expect(assistantMsg.content).toBe(EMPTY_ASSISTANT_TURN_PLACEHOLDER);
   });
 
   test("buildProviderAdapter works without baseURL (uses proxy default)", () => {

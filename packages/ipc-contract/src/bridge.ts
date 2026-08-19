@@ -42,6 +42,7 @@ import type {
   SystemPermissionStateItem,
   SystemPermissionsState,
   TextInsertionResult,
+  TitleBarOverlayTheme,
   UpdateState,
   VellumCommand,
   VoiceActivityContent,
@@ -75,6 +76,32 @@ export type ElectronHostOS = "macos" | "windows";
 export type LocalConnectImportResult =
   | { ok: true; assistantId: string; accessOnly: boolean }
   | { ok: false; error: string };
+
+/**
+ * One paired-device row as returned by `localMode.listDevices`. Structural
+ * duplicate of `@vellumai/local-mode`'s `DeviceRecord`, declared here so this
+ * package has no `file:` dependency on local-mode (which carries a transitive
+ * `file:` chain that breaks lockfile resolution in consumer packages; see the
+ * lockfile types in `./types.ts`). The gateway stores only the HASHED device
+ * id, so `hashedDeviceId` is both the display identifier and the revocation
+ * key.
+ */
+export interface LocalPairedDeviceRecord {
+  hashedDeviceId: string;
+  platform: string;
+  issuedAt: number | null;
+  expiresAt: number | null;
+  lastUsedAt: number | null;
+  /** True when this row is the hosting machine's own guardian credential. */
+  isCurrentHost?: boolean;
+}
+
+export type LocalListDevicesResult =
+  | { ok: true; devices: LocalPairedDeviceRecord[] }
+  | { ok: false; error: string };
+
+export type LocalRevokeDeviceResult =
+  { ok: true } | { ok: false; error: string };
 
 export interface VellumBridge {
   platform: "electron";
@@ -194,16 +221,36 @@ export interface VellumBridge {
       species: string,
       remote?: string,
     ): Promise<{ ok: boolean; assistantId?: string; error?: string }>;
+    /** List the devices holding pairing tokens for a local assistant. */
+    listDevices(assistantId: string): Promise<LocalListDevicesResult>;
     readLockfile(): Promise<Lockfile>;
     saveLockfileAssistant(
       assistant: Record<string, unknown>,
       activeAssistant?: string,
+    ): Promise<LockfileWriteResult>;
+    /**
+     * Rename an existing lockfile entry. Unlike `saveLockfileAssistant`'s
+     * upsert, the host refuses when the entry is missing or the on-disk
+     * file is unreadable, so a stale renderer cache can never re-create a
+     * retired assistant. Never touches the active assistant.
+     */
+    renameLockfileAssistant(
+      assistantId: string,
+      name: string,
     ): Promise<LockfileWriteResult>;
     replacePlatformAssistants(
       platformAssistants: Array<Record<string, unknown>>,
       organizationId?: string,
     ): Promise<LockfileWriteResult>;
     retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+    /**
+     * Revoke one paired device's tokens on a local assistant's gateway.
+     * Server-side: the device's next request is rejected.
+     */
+    revokeDevice(
+      assistantId: string,
+      hashedDeviceId: string,
+    ): Promise<LocalRevokeDeviceResult>;
     /**
      * Forget a paired assistant (`cloud: "paired"`): remove its lockfile
      * entry and stored guardian token on this machine. Client-side only:
@@ -243,6 +290,13 @@ export interface VellumBridge {
   mainWindow: {
     ensureVisible(): Promise<void>;
     setOnboarding(active: boolean): Promise<void>;
+    /**
+     * Paint the native caption buttons in the active theme's colors. Windows
+     * only: the title-bar overlay is a Windows and Linux surface, and macOS
+     * draws traffic lights the system themes itself, so the macOS preload
+     * does not expose this.
+     */
+    setTitleBarOverlay?(colors: TitleBarOverlayTheme): Promise<void>;
   };
   power: {
     onEvent(callback: (event: PowerEvent) => void): () => void;

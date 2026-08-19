@@ -1,5 +1,6 @@
 using System.Reflection;
 using Vellum.WindowsHelper.Rpc;
+using Vellum.WindowsHelper.Modules;
 
 using var shutdown = new CancellationTokenSource();
 Console.CancelKeyPress += (_, eventArgs) =>
@@ -9,6 +10,7 @@ Console.CancelKeyPress += (_, eventArgs) =>
 };
 
 var registry = ModuleRegistry.Discover(Assembly.GetExecutingAssembly());
+ObservationSeams.CuSource = new WindowsCuObservationSource();
 try
 {
     while (await Console.In.ReadLineAsync(shutdown.Token) is { } frame)

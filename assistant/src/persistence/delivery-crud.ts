@@ -5,15 +5,15 @@
  * finding messages by source identifiers, and managing raw payload storage.
  */
 
-import { and, desc, eq, isNotNull, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { ChannelId } from "../channels/types.js";
-import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import type { SlackInboundMessageMetadata } from "../runtime/http-types.js";
 import { parseJsonSafe } from "../util/json.js";
 import { isPlainObject } from "../util/object.js";
-import { selectSlackMetaCandidateMetadata } from "./conversation-crud.js";
+import { selectProviderMetaCandidateMetadata } from "./conversation-crud.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
@@ -21,7 +21,12 @@ import {
 } from "./conversation-key-store.js";
 import type { NonScheduledConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
-import { channelInboundEvents, conversations } from "./schema.js";
+import {
+  channelInboundEvents,
+  conversationKeys,
+  conversations,
+  messages,
+} from "./schema.js";
 
 export interface InboundResult {
   accepted: boolean;
@@ -33,10 +38,25 @@ export interface InboundResult {
 export interface RecordInboundOptions {
   sourceMessageId?: string;
   sourceThreadId?: string;
+  /**
+   * Record the event against this conversation instead of resolving one from
+   * the address. For events that belong to a message rather than to a chat: a
+   * reaction lives in the conversation of the message it was attached to, and
+   * resolving from its own address would mint a second one.
+   */
+  conversationId?: string;
 }
 
 const SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE = 50;
 const SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN = 500;
+
+/**
+ * Rows examined when locating a Slack message the assistant itself posted.
+ * Bounded on purpose: the scan runs on the inbound path while the gateway
+ * waits for its ack, and reactions land on recent messages, so a cap costs
+ * almost no recall and keeps the cost flat as the database grows.
+ */
+const SLACK_OUTBOUND_TS_MAX_SCAN = 400;
 
 /**
  * Channels where an inbound thread id scopes the conversation: a Slack thread
@@ -99,7 +119,7 @@ function legacySlackConversationHasThreadEvidence(
       SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE,
       remaining,
     );
-    const metadataRows = selectSlackMetaCandidateMetadata(
+    const metadataRows = selectProviderMetaCandidateMetadata(
       conversationId,
       batchLimit,
       offset,
@@ -110,12 +130,10 @@ function legacySlackConversationHasThreadEvidence(
       return false;
     }
     for (const metadata of metadataRows) {
-      const slackMeta = readSlackMetadataFromMessageMetadata(metadata, {
-        allowFlatLegacy: true,
-      });
+      const meta = readProviderMetadata(metadata, { allowFlatLegacy: true });
       if (
-        slackMeta?.channelId === externalChatId &&
-        slackMeta.threadTs === sourceThreadId
+        meta?.conversationExternalId === externalChatId &&
+        meta.threadId === sourceThreadId
       ) {
         return true;
       }
@@ -248,6 +266,93 @@ export function findInboundConversationId(
  * the conversation and tracks the reply. Both must key on the same three
  * fields for either to mean anything.
  */
+/**
+ * The inbound event already recorded for this address, if any. Read-only twin
+ * of the dedup check inside {@link recordInbound}, for callers that must know
+ * an event is a redelivery before doing work that recording would otherwise
+ * gate (routing a guardian decision, for one).
+ */
+export function findInboundEvent(
+  sourceChannel: string,
+  externalChatId: string,
+  externalMessageId: string,
+): { eventId: string; conversationId: string } | null {
+  const row = getDb()
+    .select({
+      id: channelInboundEvents.id,
+      conversationId: channelInboundEvents.conversationId,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.sourceChannel, sourceChannel),
+        eq(channelInboundEvents.externalChatId, externalChatId),
+        eq(channelInboundEvents.externalMessageId, externalMessageId),
+      ),
+    )
+    .get();
+  return row ? { eventId: row.id, conversationId: row.conversationId } : null;
+}
+
+/**
+ * The conversation holding the message with this provider id, found by reading
+ * the metadata the assistant's own posts carry.
+ *
+ * Reads through `readProviderMetadata`, so it matches any channel that
+ * describes its rows in the neutral shape as well as Slack's own envelope.
+ *
+ * `findMessageBySourceId` covers every message that arrived as an inbound
+ * event. It cannot see what the assistant posted, because an outbound reply
+ * opens no inbound event, so a reaction on the assistant's own message needs
+ * this. The search is confined to conversations already bound to the same
+ * Slack channel and to the most recent {@link SLACK_OUTBOUND_TS_MAX_SCAN}
+ * rows among them; beyond that it gives up and the caller drops the
+ * annotation, which is the same outcome as never finding it at all.
+ */
+export function findSlackConversationByMessageTs(
+  externalChatId: string,
+  channelTs: string,
+): string | null {
+  const db = getDb();
+  const keyPrefix = `${CONVERSATION_KEY_SCOPE}:slack:${externalChatId}`;
+  const rows = db
+    .select({
+      conversationId: messages.conversationId,
+      metadata: messages.metadata,
+    })
+    .from(messages)
+    .innerJoin(
+      conversationKeys,
+      eq(conversationKeys.conversationId, messages.conversationId),
+    )
+    .where(
+      and(
+        or(
+          eq(conversationKeys.conversationKey, keyPrefix),
+          like(conversationKeys.conversationKey, `${keyPrefix}:thread:%`),
+        ),
+        or(
+          like(messages.metadata, '%"providerMeta"%'),
+          like(messages.metadata, '%"slackMeta"%'),
+        ),
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(SLACK_OUTBOUND_TS_MAX_SCAN)
+    .all();
+
+  for (const row of rows) {
+    const meta = readProviderMetadata(row.metadata, { allowFlatLegacy: true });
+    if (
+      meta?.conversationExternalId === externalChatId &&
+      meta.messageId === channelTs
+    ) {
+      return row.conversationId;
+    }
+  }
+  return null;
+}
+
 export function recordInbound(
   sourceChannel: string,
   externalChatId: string,
@@ -280,11 +385,13 @@ export function recordInbound(
     };
   }
 
-  const mapping = resolveInboundConversation(
-    sourceChannel,
-    externalChatId,
-    options?.sourceThreadId,
-  );
+  const mapping = options?.conversationId
+    ? { conversationId: options.conversationId }
+    : resolveInboundConversation(
+        sourceChannel,
+        externalChatId,
+        options?.sourceThreadId,
+      );
   const now = Date.now();
   const eventId = uuid();
 

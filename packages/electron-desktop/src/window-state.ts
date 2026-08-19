@@ -1,6 +1,14 @@
 import { BrowserWindow, screen, type Rectangle } from "electron";
 import Store from "electron-store";
 
+import {
+  COMPANION_SIZES,
+  DEFAULT_COMPANION_SIZE,
+  titleBarOverlayThemeSchema,
+  type CompanionSize,
+  type TitleBarOverlayTheme,
+} from "@vellumai/ipc-contract";
+
 /**
  * Window-geometry persistence. Kept in its own `electron-store` instance
  * (`window-state.json`) so it doesn't collide with the renderer-facing
@@ -33,6 +41,18 @@ interface StoreSchema {
   // before any renderer loads. Optional: absent means shown, so the flag
   // records only the opt-out (see `readCompanionHidden`).
   companionHidden?: boolean;
+  // Which named size the companion surface is drawn at. A main-process concern
+  // for the same reason the opt-out is: the window is built at a size derived
+  // from this before any renderer loads. Optional: absent means the default
+  // (see `readCompanionSize`).
+  companionSize?: CompanionSize;
+  // How the Windows title-bar overlay's caption buttons are painted, as last
+  // published by the renderer's active theme. A main-process concern for the
+  // same reason the flags above are: the overlay's colors are constructor
+  // options, so the first window of a launch is built with them before any
+  // renderer loads. Optional: absent means the system colors (see
+  // `readTitleBarOverlayTheme`).
+  titleBarOverlay?: TitleBarOverlayTheme;
 }
 
 let instance: Store<StoreSchema> | null = null;
@@ -90,6 +110,59 @@ export const writeCompanionHidden = (hidden: boolean): void => {
     return;
   }
   store().set("companionHidden", hidden);
+};
+
+/**
+ * Which named size the companion surface is drawn at.
+ *
+ * Validated on the way out rather than trusted. This file is a JSON store a
+ * user can edit and an older build can have written, and the value indexes a
+ * table of geometry, and an unknown one would size the window from `undefined`
+ * put a canvas of `NaN` on screen.
+ */
+export const readCompanionSize = (): CompanionSize => {
+  const stored = store().get("companionSize");
+  return stored !== undefined && COMPANION_SIZES.includes(stored)
+    ? stored
+    : DEFAULT_COMPANION_SIZE;
+};
+
+/** Persist the companion's size. No-op when unchanged, as the opt-out is. */
+export const writeCompanionSize = (size: CompanionSize): void => {
+  if (readCompanionSize() === size) {
+    return;
+  }
+  store().set("companionSize", size);
+};
+
+/**
+ * How the Windows caption buttons are drawn, or `null` when nothing has been
+ * published yet, which leaves the overlay on its system colors.
+ *
+ * Validated on the way out for the same reason the companion's size is: this
+ * is a JSON file a user can edit, and the value is handed to Chromium's color
+ * parser, which silently keeps the previous color for anything it cannot read.
+ */
+export const readTitleBarOverlayTheme = (): TitleBarOverlayTheme | null => {
+  const parsed = titleBarOverlayThemeSchema.safeParse(
+    store().get("titleBarOverlay"),
+  );
+  return parsed.success ? parsed.data : null;
+};
+
+/** Persist how the caption buttons are painted. No-op when unchanged. */
+export const writeTitleBarOverlayTheme = (
+  theme: TitleBarOverlayTheme,
+): void => {
+  const current = readTitleBarOverlayTheme();
+  if (
+    current?.color === theme.color &&
+    current?.symbolColor === theme.symbolColor &&
+    current?.colorScheme === theme.colorScheme
+  ) {
+    return;
+  }
+  store().set("titleBarOverlay", theme);
 };
 
 /**

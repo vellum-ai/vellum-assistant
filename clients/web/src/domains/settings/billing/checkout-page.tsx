@@ -10,6 +10,7 @@ import {
 } from "@/lib/billing/takeover-avatar-stash";
 import { organizationsBillingSubscriptionUpgradeCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
+import { useTranslation } from "@/i18n";
 import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
 import { usePlatformGateWithPending } from "@/hooks/use-platform-gate";
 import { checkoutContinuation } from "@/lib/billing/checkout-continuation";
@@ -93,6 +94,7 @@ function abandonCheckout() {
  * them off this route.
  */
 function CheckoutPageContent() {
+  const { t } = useTranslation("settings");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const packageKey = searchParams.get(PACKAGE_PARAM) ?? "";
@@ -134,7 +136,9 @@ function CheckoutPageContent() {
   // carried onboarding continuation is not the plans takeover, and a label
   // naming one destination while taking another is worse than either wording.
   const bailLabel =
-    bailTarget === routes.plans ? "View plans" : "Continue setup";
+    bailTarget === routes.plans
+      ? t("checkoutPage.viewPlans")
+      : t("checkoutPage.continueSetup");
 
   const queryClient = useQueryClient();
   const { mutateAsync } = useMutation(
@@ -325,10 +329,10 @@ function CheckoutPageContent() {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-center">
         <p className="text-[var(--content-default)]">
-          We couldn&rsquo;t start your checkout. Please try again.
+          {t("checkoutPage.checkoutFailedMessage")}
         </p>
         <div className="flex items-center gap-4">
-          <Button onClick={retryCheckout}>Try again</Button>
+          <Button onClick={retryCheckout}>{t("checkoutPage.tryAgain")}</Button>
           {/*
            * Taking the escape ends the attempt, so both stashes go with it.
            * Nothing was bought, and a signup-marked intent left behind is one
@@ -350,11 +354,12 @@ function CheckoutPageContent() {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-center">
         <p className="text-[var(--content-default)]">
-          Checkout opened in your browser. Finish there to complete your
-          upgrade.
+          {t("checkoutPage.awaitingReturnMessage")}
         </p>
         <div className="flex items-center gap-4">
-          <Button onClick={retryCheckout}>Reopen checkout</Button>
+          <Button onClick={retryCheckout}>
+            {t("checkoutPage.reopenCheckout")}
+          </Button>
           {/*
            * No `abandonCheckout` here, unlike the failure escape: a
            * checkout that reached Stripe may have been paid for, and this page
@@ -377,10 +382,10 @@ function CheckoutPageContent() {
     <div className="flex h-full w-full flex-col items-center justify-center gap-3">
       <Loader2
         className="h-6 w-6 animate-spin text-[var(--content-tertiary)]"
-        aria-label="Preparing checkout"
+        aria-label={t("checkoutPage.preparingCheckoutAriaLabel")}
       />
       <p className="text-sm text-[var(--content-tertiary)]">
-        Preparing checkout&hellip;
+        {t("checkoutPage.preparingCheckout")}
       </p>
     </div>
   );

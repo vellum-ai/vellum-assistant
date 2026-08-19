@@ -12,6 +12,15 @@
 
 // ── Risk level enum ──────────────────────────────────────────────────────────
 
+import type {
+  ClassifiedRisk,
+  RiskAllowlistOption,
+  RiskDirectoryScopeOption,
+  RiskLevelValue,
+  RiskMatchType,
+  RiskPatternScopeOption,
+} from "@vellumai/gateway-client";
+
 export enum RiskLevel {
   Low = "low",
   Medium = "medium",
@@ -28,42 +37,32 @@ export enum RiskLevel {
  * - `"high"`: Destructive, privilege escalation, force ops, arbitrary code exec
  * - `"unknown"`: Not in registry, unrecognized command or arg pattern
  */
-export type Risk = "low" | "medium" | "high" | "unknown";
+export type Risk = ClassifiedRisk;
 
 /**
  * Risk levels that can be assigned to commands in the registry.
  * Excludes "unknown" — that's a classifier output, not a registry value.
  */
-export type RegistryRisk = "low" | "medium" | "high";
+export type RegistryRisk = RiskLevelValue;
 
-// ── Allowlist option ─────────────────────────────────────────────────────────
+// ── Wire shapes ──────────────────────────────────────────────────────────────
+// The option ladders a classification carries are the `classify_risk`
+// contract's; the classifiers build them under their local names.
 
-export interface AllowlistOption {
-  label: string;
-  description: string;
-  pattern: string;
-}
+export type AllowlistOption = RiskAllowlistOption;
 
-// ── Risk assessment output ───────────────────────────────────────────────────
-
-/** A scope option presented to the user when classifying an unknown command. */
-export interface ScopeOption {
-  /** Stored in DB if user saves (always regex internally). */
-  pattern: string;
-  /** Human-readable description shown in UI. */
-  label: string;
-}
+/**
+ * A display-only rung of the "save this classification" ladder. Only the bash
+ * classifier emits these, and `pattern` is a plain string (the command, or an
+ * `action:` key), not a regex: nothing regex-matches a trust rule.
+ */
+export type ScopeOption = RiskPatternScopeOption;
 
 /**
  * A directory-scope option presented alongside the pattern ladder. Emitted
  * for filesystem ops (bash with filesystemOp=true) and file tools.
  */
-export interface DirectoryScopeOption {
-  /** Path glob (e.g. "/workspace/scratch/*") or the sentinel "everywhere". */
-  scope: string;
-  /** Human-readable label (e.g. "In scratch/"). */
-  label: string;
-}
+export type DirectoryScopeOption = RiskDirectoryScopeOption;
 
 /**
  * The output of a risk classifier. Tool-agnostic — every classifier
@@ -77,12 +76,12 @@ export interface RiskAssessment {
   /** Scope options for the "save this classification" UI, narrowest to broadest. */
   scopeOptions: ScopeOption[];
   /** How the risk was determined. */
-  matchType: "user_rule" | "registry" | "unknown";
+  matchType: RiskMatchType;
   /**
-   * Allowlist options for the permission prompt "always allow" scope ladder.
-   * Populated by classifiers that unify risk classification and scope option
-   * generation. When present, `generateAllowlistOptions()` returns these
-   * directly instead of calling the per-tool strategy function.
+   * The "always allow" ladder for the permission prompt, narrowest to
+   * broadest. The assistant offers exactly these, so a classifier that omits
+   * them leaves the user nothing to save a rule from. Patterns are matched by
+   * exact string, so they must be spelled as the invocation will be.
    */
   allowlistOptions?: AllowlistOption[];
   /**
@@ -264,27 +263,6 @@ export interface ParsedArgs {
 }
 
 // ── User rule types ──────────────────────────────────────────────────────────
-
-/**
- * A user-created risk classification rule.
- *
- * Created via the scope ladder UI (from permission prompts) or manually
- * in settings. Stored in the user's DB.
- */
-export interface UserRule {
-  /** Auto-generated unique ID. */
-  id: string;
-  /** Regex pattern (converted from glob at creation time). */
-  pattern: string;
-  /** User-assigned risk level. */
-  risk: RegistryRisk;
-  /** Human-readable label (shown in settings UI). */
-  label: string;
-  /** ISO 8601 timestamp of when the rule was created. */
-  createdAt: string;
-  /** How the rule was created. */
-  source: "scope_ladder" | "manual";
-}
 
 // ── Dangerous pattern types (from shell parser) ──────────────────────────────
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   canActOnPrivilegedDocuments,
+  canSeePersonalMemory,
   isArchiveBySenderAuthorized,
 } from "./effective-capabilities.js";
 
@@ -88,5 +89,23 @@ describe("isArchiveBySenderAuthorized", () => {
         userApproved: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("canSeePersonalMemory", () => {
+  test("only the guardian class sees personal memory", () => {
+    expect(canSeePersonalMemory({ trustClass: "guardian" })).toBe(true);
+    for (const trustClass of [
+      "trusted_contact",
+      "unverified_contact",
+      "unknown",
+    ]) {
+      expect(canSeePersonalMemory({ trustClass })).toBe(false);
+    }
+  });
+
+  test("an unrecognized or absent class fails closed", () => {
+    expect(canSeePersonalMemory({ trustClass: "non_guardian" })).toBe(false);
+    expect(canSeePersonalMemory({ trustClass: undefined })).toBe(false);
   });
 });

@@ -1,12 +1,14 @@
-import { ArrowLeft, Mail, MailOpen, RotateCcw, Trash2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 import { DetailShell } from "@/components/detail-shell";
 import { useTranslation } from "@/i18n";
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
+import { FeedItemStatusActions } from "../feed-item-status-actions";
 import { resolveCategoryStyle } from "../home-feed-filter-bar";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
+import { buildReadToggle } from "../read-toggle";
 import { HomeGenericDetail } from "./home-generic-detail";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
 
@@ -57,9 +59,8 @@ export function HomeDetailPanel({
       : t("homeDetailPanel.untitled");
   const CategoryIcon = categoryStyle.icon;
   const isUnread = item.status === "new";
-  const readToggleLabel = isUnread
-    ? t("actions.markAsRead")
-    : t("actions.markAsUnread");
+  const { label: readToggleLabel, nextStatus: readToggleStatus } =
+    buildReadToggle(isUnread, t);
   const isDismissed = item.status === "dismissed";
   const hasValidConversation =
     !!item.conversationId && validConversationIds.has(item.conversationId);
@@ -85,30 +86,11 @@ export function HomeDetailPanel({
           </Typography>
 
           <div className="ml-auto flex items-center gap-2">
-            <Button
-              variant="ghost"
-              iconOnly={isUnread ? <MailOpen /> : <Mail />}
-              onClick={() => onUpdateStatus(item.id, isUnread ? "seen" : "new")}
-              aria-label={readToggleLabel}
-              tooltip={readToggleLabel}
+            <FeedItemStatusActions
+              item={item}
+              onUpdateStatus={onUpdateStatus}
+              onDismiss={onDismiss}
             />
-            {isDismissed ? (
-              <Button
-                variant="ghost"
-                iconOnly={<RotateCcw />}
-                onClick={() => onUpdateStatus(item.id, "seen")}
-                aria-label={t("actions.restore")}
-                tooltip={t("actions.restore")}
-              />
-            ) : (
-              <Button
-                variant="ghost"
-                iconOnly={<Trash2 />}
-                onClick={() => onDismiss(item.id)}
-                aria-label={t("actions.dismiss")}
-                tooltip={t("actions.dismiss")}
-              />
-            )}
           </div>
         </div>
 
@@ -233,9 +215,7 @@ export function HomeDetailPanel({
               <>
                 <Button
                   variant="outlined"
-                  onClick={() =>
-                    onUpdateStatus(item.id, isUnread ? "seen" : "new")
-                  }
+                  onClick={() => onUpdateStatus(item.id, readToggleStatus)}
                 >
                   {readToggleLabel}
                 </Button>

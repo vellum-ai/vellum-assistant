@@ -3,14 +3,41 @@
  * support the renderer's loopback token exchange, while paired credentials
  * stay inside the trusted host proxy.
  */
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ViteDevServer, Connect } from "vite";
 
-import { guardianTokenPath } from "@vellumai/local-mode";
+import * as actualLocalMode from "@vellumai/local-mode";
+import {
+  guardianTokenPath,
+  type DevicesListResult,
+  type DevicesRevokeResult,
+} from "@vellumai/local-mode";
+
+// Per-test stubs for the CLI-spawning device helpers. The rest of the module
+// stays real so the other middlewares under test keep their behavior.
+let devicesListResult: DevicesListResult = { ok: true, devices: [] };
+let devicesRevokeResult: DevicesRevokeResult = { ok: true };
+const runDevicesListMock = mock((_invocation: unknown, _assistantId: string) =>
+  Promise.resolve(devicesListResult),
+);
+const runDevicesRevokeMock = mock(
+  (_invocation: unknown, _assistantId: string, _hashedDeviceId: string) =>
+    Promise.resolve(devicesRevokeResult),
+);
+
+mock.module("@vellumai/local-mode", () => {
+  const mocked: Partial<typeof import("@vellumai/local-mode")> = {
+    ...actualLocalMode,
+    resolveDevCliInvocation: () => ({ command: "vellum", baseArgs: [] }),
+    runDevicesList: runDevicesListMock,
+    runDevicesRevoke: runDevicesRevokeMock,
+  };
+  return mocked;
+});
 
 import { localModePlugin } from "./vite-plugin-local-mode";
 
@@ -46,17 +73,20 @@ interface DispatchResult {
   body: string;
 }
 
-/** Drive a loopback GET through the captured connect chain. */
+/** Drive a request through the captured connect chain (loopback by default). */
 function dispatch(
   url: string,
   headers: Record<string, string> = {},
+  options: { method?: string; body?: unknown; remoteAddress?: string } = {},
 ): Promise<DispatchResult> {
+  const { method = "GET", body, remoteAddress = "127.0.0.1" } = options;
   return new Promise((resolve, reject) => {
-    const req = Object.assign(new EventEmitter(), {
+    const emitter = new EventEmitter();
+    const req = Object.assign(emitter, {
       url,
-      method: "GET",
+      method,
       headers: { host: "127.0.0.1:5173", ...headers },
-      socket: { remoteAddress: "127.0.0.1" },
+      socket: { remoteAddress },
     }) as unknown as Connect.IncomingMessage;
     const res = {
       statusCode: 200,
@@ -79,6 +109,16 @@ function dispatch(
       middleware(req, res as unknown as Parameters<typeof middleware>[1], next);
     };
     next();
+    if (method === "POST") {
+      // Body listeners are registered synchronously by the matched middleware;
+      // feed the stream on the next tick.
+      setImmediate(() => {
+        if (body !== undefined) {
+          emitter.emit("data", Buffer.from(JSON.stringify(body)));
+        }
+        emitter.emit("end");
+      });
+    }
   });
 }
 
@@ -217,5 +257,198 @@ describe("paired gateway proxy", () => {
     });
 
     expect(result).toEqual({ status: 403, body: "Forbidden" });
+  });
+});
+
+describe("devices middleware", () => {
+  beforeEach(() => {
+    devicesListResult = { ok: true, devices: [] };
+    devicesRevokeResult = { ok: true };
+    runDevicesListMock.mockClear();
+    runDevicesRevokeMock.mockClear();
+  });
+
+  const DEVICE = {
+    hashedDeviceId: "hash-a",
+    platform: "ios",
+    issuedAt: 1700000000000,
+    expiresAt: null,
+    lastUsedAt: null,
+  };
+
+  describe("list endpoint", () => {
+    test("rejects non-loopback callers", async () => {
+      const result = await dispatch(
+        "/__local/devices",
+        {},
+        {
+          method: "POST",
+          body: { assistantId: "asst-1" },
+          remoteAddress: "192.168.1.20",
+        },
+      );
+
+      expect(result.status).toBe(403);
+      expect(runDevicesListMock).not.toHaveBeenCalled();
+    });
+
+    test("rejects non-POST methods", async () => {
+      const result = await dispatch("/__local/devices");
+
+      expect(result.status).toBe(405);
+      expect(runDevicesListMock).not.toHaveBeenCalled();
+    });
+
+    test("400 when assistantId is missing", async () => {
+      const result = await dispatch(
+        "/__local/devices",
+        {},
+        {
+          method: "POST",
+          body: {},
+        },
+      );
+
+      expect(result.status).toBe(400);
+      expect(JSON.parse(result.body)).toEqual({
+        ok: false,
+        error: "Missing assistantId",
+      });
+    });
+
+    test("passes the device list through on the SPA-prefixed route", async () => {
+      devicesListResult = { ok: true, devices: [DEVICE] };
+
+      const result = await dispatch(
+        "/assistant/__local/devices",
+        {},
+        {
+          method: "POST",
+          body: { assistantId: "asst-1" },
+        },
+      );
+
+      expect(result.status).toBe(200);
+      expect(JSON.parse(result.body)).toEqual({ ok: true, devices: [DEVICE] });
+      expect(runDevicesListMock).toHaveBeenCalledWith(
+        { command: "vellum", baseArgs: [] },
+        "asst-1",
+      );
+    });
+
+    test("run-helper failure yields ok:false with no status field", async () => {
+      devicesListResult = { ok: false, error: "gateway offline" };
+
+      const result = await dispatch(
+        "/__local/devices",
+        {},
+        {
+          method: "POST",
+          body: { assistantId: "asst-1" },
+        },
+      );
+
+      expect(result.status).toBe(200);
+      expect(JSON.parse(result.body)).toEqual({
+        ok: false,
+        error: "gateway offline",
+      });
+    });
+  });
+
+  describe("revoke endpoint", () => {
+    test("rejects non-loopback callers", async () => {
+      const result = await dispatch(
+        "/__local/devices-revoke",
+        {},
+        {
+          method: "POST",
+          body: { assistantId: "asst-1", hashedDeviceId: "hash-a" },
+          remoteAddress: "192.168.1.20",
+        },
+      );
+
+      expect(result.status).toBe(403);
+      expect(runDevicesRevokeMock).not.toHaveBeenCalled();
+    });
+
+    test("rejects non-POST methods", async () => {
+      const result = await dispatch("/__local/devices-revoke");
+
+      expect(result.status).toBe(405);
+      expect(runDevicesRevokeMock).not.toHaveBeenCalled();
+    });
+
+    test("400 when assistantId is missing", async () => {
+      const result = await dispatch(
+        "/__local/devices-revoke",
+        {},
+        {
+          method: "POST",
+          body: { hashedDeviceId: "hash-a" },
+        },
+      );
+
+      expect(result.status).toBe(400);
+      expect(JSON.parse(result.body)).toEqual({
+        ok: false,
+        error: "Missing assistantId",
+      });
+    });
+
+    test("400 when hashedDeviceId is missing", async () => {
+      const result = await dispatch(
+        "/__local/devices-revoke",
+        {},
+        {
+          method: "POST",
+          body: { assistantId: "asst-1" },
+        },
+      );
+
+      expect(result.status).toBe(400);
+      expect(JSON.parse(result.body)).toEqual({
+        ok: false,
+        error: "Missing hashedDeviceId",
+      });
+    });
+
+    test("passes a successful revoke through", async () => {
+      const result = await dispatch(
+        "/assistant/__local/devices-revoke",
+        {},
+        {
+          method: "POST",
+          body: { assistantId: "asst-1", hashedDeviceId: "hash-a" },
+        },
+      );
+
+      expect(result.status).toBe(200);
+      expect(JSON.parse(result.body)).toEqual({ ok: true });
+      expect(runDevicesRevokeMock).toHaveBeenCalledWith(
+        { command: "vellum", baseArgs: [] },
+        "asst-1",
+        "hash-a",
+      );
+    });
+
+    test("run-helper failure yields ok:false with no status field", async () => {
+      devicesRevokeResult = { ok: false, error: "revoke failed" };
+
+      const result = await dispatch(
+        "/__local/devices-revoke",
+        {},
+        {
+          method: "POST",
+          body: { assistantId: "asst-1", hashedDeviceId: "hash-a" },
+        },
+      );
+
+      expect(result.status).toBe(200);
+      expect(JSON.parse(result.body)).toEqual({
+        ok: false,
+        error: "revoke failed",
+      });
+    });
   });
 });

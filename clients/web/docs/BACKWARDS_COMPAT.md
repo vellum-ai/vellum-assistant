@@ -235,6 +235,7 @@ Each module owns one feature's old/new split. Current registry:
 | `use-supports-inchat-plugin-edit.ts`         | `0.12.0`                          | In-chat plugin pill hidden; the conversation GET omits `enabledPlugins` so per-chat scope is unreadable                                                                                                                                                                                            | Pill renders the conversation's plugin scope and edits it via `PUT /conversations/:id/enabledplugins`                                                                                                                                                   |
 | `use-supports-group-filter.ts`               | `0.11.2-dev.202608052136.dce970c` | `GET /v1/conversations` does not know the `groupId` parameter. Being unrecognized it is ignored, not rejected, so the request answers 200 with the entire unfiltered list. Sidebar sections derive their rows from the foreground page they are handed instead of querying for their own members   | The filter is honored, so a section fetches exactly its own rows (including members that sort many pages deep). Scoped to the owning assistant, so a version held for the outgoing assistant cannot authorize a filtered fetch against the incoming one |
 | `use-supports-native-origin-filter.ts`      | `0.11.2-dev.202608070222.ef06e94` | `originChannel=vellum` compiles to a strict equality, so it matches only rows explicitly stamped `'vellum'` and misses every row still unattributed (`origin_channel` is NULL at insert so an inbound message can claim it). The Grouped view's Chats card derives its rows from the loaded list instead | `vellum` matches NULL as well, so Chats fetches everything no channel claimed. Scoped to the owning assistant, and strictly later than the group-filter floor, so anything passing it also honors `groupId` |
+| `use-supports-resource-pressure-status.ts`  | `0.11.5`                          | No `GET /v1/resource-pressure/status` route; the resource-pressure monitor (a hand-rolled poller outside React Query's no-retry policy) stays disabled so it never 404s on mount, poll ticks, and app resume                                                                                            | Route exists; the monitor polls it for platform-hosted assistants and feeds the resource-pressure banner                                                                                                   |
 
 When you delete a row here, also delete its module, its test, and the now-dead
 legacy branch at the call site.
@@ -254,6 +255,32 @@ with the code they protect:
   pre-0.8.8 positional arrays (`textSegments`, `thinkingSegments`,
   `toolCalls`, `surfaces`, `attachments`, `contentOrder`) when an assistant
   omits `contentBlocks`, so the renderer only ever deals with one shape.
+- **Cold-boot landing's one-row read**:
+  `src/domains/chat/utils/landing-conversation.ts` asks
+  `GET /v1/conversations?foregroundOnly=true&limit=1` for the newest
+  conversation the user can open. An assistant that predates the parameter
+  ignores it and answers 200 with the newest row of the unfiltered listing,
+  the "silent superset" that normally forces a version gate. Here the client
+  can tell: it asked for a foreground row, so a returned row that fails
+  `isStoredConversationSelectable` proves the filter was not applied, and the
+  landing falls back to paging the unfiltered list itself. A gate would also
+  be read before the identity fetch hydrates the version on most cold boots
+  and send them all down the paged path. The paged fallback is the legacy
+  branch: delete it once no supported assistant predates the parameter.
+- **Pending-question reconcile**:
+  `src/domains/chat/pending-question.ts` decides whether the ask_question card
+  should be raised or retired from the `pendingQuestion` key on
+  `GET /v1/pending-interactions`. An assistant that carries the key reports
+  either the outstanding prompt or `null`; one that predates it omits the key
+  entirely, and `undefined` is read as "no opinion" so the legacy restore (the
+  `pendingQuestion` marker stamped on a history tool call) keeps the card. The
+  distinction has to survive: reading a missing key as "nothing outstanding"
+  would retire live prompts against every older assistant. A version gate is
+  the wrong instrument here for the same reason as the landing read above, and
+  because the reconcile runs on the first committed snapshot, which is usually
+  before the identity fetch hydrates a version to compare. Delete the marker
+  branch (and `extractWirePendingQuestion` with it) once no supported assistant
+  predates the key.
 - **Electron / Capacitor bridge** — `src/runtime/is-electron.ts` declares
   `window.vellum` with **optional capability groups** (`helper?`,
   `featureFlags?`, `diagnostics?`, …). Consumers guard on presence

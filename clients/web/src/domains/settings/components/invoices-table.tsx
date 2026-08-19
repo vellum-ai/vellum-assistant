@@ -26,6 +26,9 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { stripeScaleDigits } from "@vellumai/service-contracts/stripe-currency";
 
+import { useTranslation } from "@/i18n";
+import { BillingSectionHeader } from "./billing-section-header";
+
 const EMPTY_RESPONSE: InvoiceListResponse = { invoices: [], has_more: false };
 
 const INITIAL_VISIBLE = 4;
@@ -87,6 +90,7 @@ function downloadPdf(url: string): void {
 }
 
 export function InvoicesTable() {
+  const { t } = useTranslation("settings");
   const [expanded, setExpanded] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
@@ -205,72 +209,62 @@ export function InvoicesTable() {
   return (
     <Card padding="md">
       <div className="flex flex-col gap-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <Typography
-              as="h2"
-              variant="title-medium"
-              className="text-[var(--content-default)]"
-            >
-              Invoices
-            </Typography>
-            <Typography
-              as="p"
-              variant="body-small-default"
-              className="mt-2 text-[var(--content-tertiary)]"
-            >
-              Your billing history.
-            </Typography>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {expanded && invoices.length > 0 && (
+        <BillingSectionHeader
+          title={t("invoicesTable.title")}
+          actions={
+            <>
+              {expanded && invoices.length > 0 && (
+                <Button
+                  variant="outlined"
+                  leftIcon={
+                    isDownloadingAll ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )
+                  }
+                  onClick={downloadAllInvoices}
+                  disabled={isDownloadingAll}
+                  data-testid="invoices-download-all"
+                >
+                  Download all
+                </Button>
+              )}
               <Button
                 variant="outlined"
-                leftIcon={
-                  isDownloadingAll ? (
-                    <Loader2 className="animate-spin" />
+                rightIcon={
+                  expanded ? (
+                    <ChevronUp className="h-4 w-4" />
                   ) : (
-                    <Download className="h-4 w-4" />
+                    <ChevronDown className="h-4 w-4" />
                   )
                 }
-                onClick={downloadAllInvoices}
-                disabled={isDownloadingAll}
-                data-testid="invoices-download-all"
+                onClick={() => {
+                  // Collapsing abandons a failed page load; re-expanding
+                  // refetches, so a stale banner would sit over fresh data.
+                  // The bump also stops in-flight page fetches from writing
+                  // pageLoadFailed after this reset, and cancelling on collapse
+                  // keeps an abandoned page fetch from failing after re-expand
+                  // and resurrecting the banner via isFetchNextPageError.
+                  loadAttemptRef.current += 1;
+                  setPageLoadFailed(false);
+                  if (expanded) {
+                    void queryClient.cancelQueries({
+                      queryKey:
+                        organizationsBillingInvoicesRetrieveInfiniteQueryKey(),
+                    });
+                  }
+                  setExpanded((v) => !v);
+                }}
+                data-testid="invoices-toggle"
               >
-                Download all
+                {expanded
+                  ? t("invoicesTable.hideButton")
+                  : t("invoicesTable.showButton")}
               </Button>
-            )}
-            <Button
-              variant="outlined"
-              leftIcon={
-                expanded ? (
-                  <ChevronUp className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )
-              }
-              onClick={() => {
-                // Collapsing abandons a failed page load; re-expanding
-                // refetches, so a stale banner would sit over fresh data.
-                // The bump also stops in-flight page fetches from writing
-                // pageLoadFailed after this reset, and cancelling on collapse
-                // keeps an abandoned page fetch from failing after re-expand
-                // and resurrecting the banner via isFetchNextPageError.
-                loadAttemptRef.current += 1;
-                setPageLoadFailed(false);
-                if (expanded) {
-                  void queryClient.cancelQueries({
-                    queryKey: organizationsBillingInvoicesRetrieveInfiniteQueryKey(),
-                  });
-                }
-                setExpanded((v) => !v);
-              }}
-              data-testid="invoices-toggle"
-            >
-              {expanded ? "Hide invoices" : "Show invoices"}
-            </Button>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         {!expanded ? null : invoicesQuery.isLoading ? (
           <div className="flex items-center gap-2 py-6 text-[var(--content-tertiary)]">

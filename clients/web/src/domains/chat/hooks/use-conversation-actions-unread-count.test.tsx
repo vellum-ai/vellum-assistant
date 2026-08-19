@@ -24,10 +24,8 @@ import { createElement, type ReactNode } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
-import {
-  conversationsQueryKey,
-  unreadConversationCountQueryKey,
-} from "@/utils/conversation-list-fetchers";
+import { unreadConversationCountQueryKey } from "@/utils/conversation-list-fetchers";
+import { conversationListQueryKey } from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 
 // ---------------------------------------------------------------------------
@@ -87,7 +85,7 @@ function setupHook(opts: {
     defaultOptions: { queries: { retry: false } },
   });
   client.setQueryData(
-    conversationsQueryKey(ASSISTANT_ID),
+    conversationListQueryKey(ASSISTANT_ID),
     listPage(opts.conversations),
   );
   if (opts.unreadCount !== undefined) {

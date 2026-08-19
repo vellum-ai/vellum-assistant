@@ -1,5 +1,6 @@
 import { AlertCircle } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Typography } from "@vellumai/design-library/components/typography";
 
@@ -14,12 +15,14 @@ export function FetchErrorState({
   /** Which way the change whose billing reads failed was going. */
   direction?: TakeoverDirection;
 }) {
+  const { t } = useTranslation("settings");
+
   return (
     <div className="flex flex-col items-center gap-4 px-6 py-10 text-center">
       <IconBadge icon={AlertCircle} />
       <div className="space-y-1.5">
         <Typography variant="title-small" as="h1">
-          Couldn&apos;t reach billing
+          {t("errorStates.fetchErrorTitle")}
         </Typography>
         <Typography
           variant="body-medium-lighter"
@@ -34,7 +37,7 @@ export function FetchErrorState({
         data-testid="onboarding-go-to-billing"
         onClick={onGoToBilling}
       >
-        Go to billing
+        {t("errorStates.goToBilling")}
       </Button>
     </div>
   );

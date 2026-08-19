@@ -24,7 +24,6 @@ import {
   type LocalFileDestination,
 } from "@/domains/chat/components/local-file/open-local-file";
 import type { LocalFileKind } from "@/domains/chat/utils/mime-sniff";
-import { useConversationStore } from "@/stores/conversation-store";
 
 export interface LocalFileCardProps {
   /** Markdown alt/label text, which may equal the filename. */
@@ -44,23 +43,19 @@ interface ClickHint {
   Icon: ComponentType<{ className?: string }>;
 }
 
-/** Where a click lands: away in the workspace, or in one of the drawer's two modes. */
+/** Where a click lands: away in the workspace, or in the drawer's preview. */
 type ClickMode = LocalFileDestination["mode"];
 
 function clickHintFor(mode: ClickMode): ClickHint {
   if (mode === "workspace") {
     return { label: "Open in workspace", Icon: ExternalLink };
   }
-  if (mode === "preview") {
-    return { label: "Open preview", Icon: PanelRight };
-  }
-  return { label: "Open in editor", Icon: PanelRight };
+  return { label: "Open preview", Icon: PanelRight };
 }
 
 /** How the card names the mode in its close label. */
 const CLOSE_LABELS: Record<ClickMode, string> = {
   workspace: "workspace",
-  document: "editor",
   preview: "preview",
 };
 
@@ -87,12 +82,9 @@ export function LocalFileCard({
   workspacePath,
   assistantId,
 }: LocalFileCardProps): ReactNode {
-  // Markdown opens as a document bound to the conversation it was opened from,
-  // so the active conversation decides where a click on it lands.
-  const conversationId = useConversationStore.use.activeConversationId();
   const isReady = state === "ready";
   const canOpen = isReady && workspacePath !== null;
-  const { mode } = localFileDestination(filename, assistantId, conversationId);
+  const { mode } = localFileDestination(filename, assistantId);
   const opensDrawer = mode !== "workspace";
   const isOpenInDrawer =
     useIsWorkspaceFileOpen(canOpen ? workspacePath : null) && opensDrawer;
@@ -104,7 +96,7 @@ export function LocalFileCard({
 
   const activate = () => {
     if (canOpen) {
-      toggleLocalFile(workspacePath, filename, assistantId, conversationId);
+      toggleLocalFile(workspacePath, filename, assistantId);
     }
   };
 

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { ProviderMessageMetadata } from "../../provider-message-metadata.js";
+
 /**
  * Typed Slack message metadata stored flat in the `messages.metadata` column
  * alongside whatever other top-level keys the broader metadata envelope
@@ -286,6 +288,49 @@ export function readSlackMetadataFromMessageMetadata(
   }
 
   return opts?.allowFlatLegacy ? readSlackMetadata(metadata) : null;
+}
+
+/**
+ * Present a Slack row's stored metadata as the channel-neutral shape.
+ *
+ * `channelTs` is the row's own provider id and `targetChannelTs` the id of the
+ * message a reaction was attached to. Both are Slack `ts` strings, which is a
+ * Slack detail of the id format, not of the fact.
+ *
+ * The rest of Slack's envelope (file markers, timezone labels, channel name)
+ * stays there and is read from there by the Slack transcript renderer, which
+ * is a provider renderer by design.
+ */
+export function slackMetadataAsProviderMetadata(
+  meta: SlackMessageMetadata,
+): ProviderMessageMetadata {
+  return {
+    source: "slack",
+    conversationExternalId: meta.channelId,
+    // A reaction row stores the reacted message's ts in `channelTs`, which is
+    // its target rather than an id of its own.
+    ...(meta.eventKind === "reaction" ? {} : { messageId: meta.channelTs }),
+    ...(meta.actorExternalUserId
+      ? { actorExternalId: meta.actorExternalUserId }
+      : {}),
+    ...(meta.threadTs ? { threadId: meta.threadTs } : {}),
+    ...(meta.displayName ? { displayName: meta.displayName } : {}),
+    eventKind: meta.eventKind,
+    ...(meta.reaction
+      ? {
+          reaction: {
+            targetMessageId: meta.reaction.targetChannelTs,
+            emoji: meta.reaction.emoji,
+            op: meta.reaction.op,
+            ...(meta.reaction.actorDisplayName
+              ? { actorDisplayName: meta.reaction.actorDisplayName }
+              : {}),
+          },
+        }
+      : {}),
+    ...(meta.editedAt !== undefined ? { editedAt: meta.editedAt } : {}),
+    ...(meta.deletedAt !== undefined ? { deletedAt: meta.deletedAt } : {}),
+  };
 }
 
 /**

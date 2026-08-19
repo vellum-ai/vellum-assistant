@@ -18,6 +18,7 @@ import {
 
 import { HostProxySseClient, type HostProxySseMessage } from "./sse";
 import { HostProxyPoster, type PresenceState } from "./poster";
+import { setHostProxyExecutorLogger } from "./executors/logger";
 
 // ---------------------------------------------------------------------------
 // Executor interface
@@ -48,10 +49,12 @@ export interface HostProxyRuntime {
   getSessionToken: () => string | null;
   getLockfile: () => Lockfile;
   onLockfileChange: (listener: (lockfile: Lockfile) => void) => () => void;
+  onSessionTokenChange?: (listener: () => void) => () => void;
   installPresenceMonitor: (
     onReport: (state: PresenceState) => void,
   ) => () => void;
   sseClientHeaders: () => Record<string, string>;
+  sseFallbackClientHeaders?: () => Record<string, string>;
   posterClientHeaders: () => Record<string, string>;
   executors: Partial<Record<HostProxyExecutorKind, HostProxyExecutor>>;
   teardownExecutors?: () => void;
@@ -622,6 +625,7 @@ function openLocalConnection(
     eventsUrl,
     authHeaders,
     clientHeaders: requireRuntime().sseClientHeaders,
+    fallbackClientHeaders: requireRuntime().sseFallbackClientHeaders,
     onRefreshToken,
     onConnected: () => seedPresence(assistantId),
   });
@@ -672,6 +676,7 @@ function connectCloudAssistant(
     eventsUrl,
     authHeaders,
     clientHeaders: requireRuntime().sseClientHeaders,
+    fallbackClientHeaders: requireRuntime().sseFallbackClientHeaders,
     onConnected: () => seedPresence(assistantId),
   });
   const poster = new HostProxyPoster({
@@ -717,6 +722,7 @@ function disconnectAssistant(assistantId: string): void {
 
 function handleLockfileChange(lockfile: Lockfile): void {
   const activeIds = new Set<string>();
+  const hasSessionToken = requireRuntime().getSessionToken() !== null;
 
   for (const assistant of lockfile.assistants) {
     // Cloud wins over resources: a merge can leave a stale gatewayPort on a
@@ -725,7 +731,10 @@ function handleLockfileChange(lockfile: Lockfile): void {
     const port = isLoopbackGatewayCloud(assistant.cloud)
       ? assistant.resources?.gatewayPort
       : undefined;
-    const isCloud = assistant.cloud === "vellum" && assistant.runtimeUrl;
+    const isCloud =
+      assistant.cloud === "vellum" &&
+      assistant.runtimeUrl &&
+      hasSessionToken;
     if (!port && !isCloud) continue;
 
     activeIds.add(assistant.assistantId);
@@ -773,6 +782,7 @@ function handleLockfileChange(lockfile: Lockfile): void {
 // ---------------------------------------------------------------------------
 
 let unsubscribe: (() => void) | null = null;
+let unsubscribeSessionToken: (() => void) | null = null;
 let stopPresenceMonitor: (() => void) | null = null;
 
 /**
@@ -784,6 +794,7 @@ export function installHostProxyBridge(
   runtime: HostProxyRuntime,
 ): () => void {
   hostRuntime = runtime;
+  setHostProxyExecutorLogger(runtime.logger);
   executors.clear();
   for (const [kind, executor] of Object.entries(runtime.executors)) {
     if (executor) {
@@ -791,6 +802,10 @@ export function installHostProxyBridge(
     }
   }
   unsubscribe = runtime.onLockfileChange(handleLockfileChange);
+  unsubscribeSessionToken =
+    runtime.onSessionTokenChange?.(() => {
+      handleLockfileChange(runtime.getLockfile());
+    }) ?? null;
 
   // Seed from any assistants already present in the lockfile
   const currentLockfile = runtime.getLockfile();
@@ -822,6 +837,8 @@ export function installHostProxyBridge(
     lastPresenceState = null;
     unsubscribe?.();
     unsubscribe = null;
+    unsubscribeSessionToken?.();
+    unsubscribeSessionToken = null;
     for (const assistantId of new Set([...connections.keys(), ...pendingConnects.keys()])) {
       disconnectAssistant(assistantId);
     }
@@ -874,5 +891,7 @@ export const __testing = {
     hostRuntime = null;
     unsubscribe?.();
     unsubscribe = null;
+    unsubscribeSessionToken?.();
+    unsubscribeSessionToken = null;
   },
 };

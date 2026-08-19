@@ -145,6 +145,11 @@ export const SwipeActionReveal = forwardRef<
   return (
     <div
       ref={ref}
+      // Marks a row that owns horizontal drags, so an enclosing panel gesture
+      // can stand down over it. The mobile drawer's swipe-to-close reads this
+      // to leave a row's own swipe actions alone. Only the armed branch carries
+      // it: with no actions there is nothing to yield to.
+      data-slot="swipe-action-row"
       className={cn("relative overflow-hidden", className)}
       // Spread injected props first so our swipe-specific touch handlers
       // take precedence if there is ever a key collision.
@@ -197,10 +202,15 @@ export const SwipeActionReveal = forwardRef<
         </div>
       ) : null}
 
-      {/* Content layer — slides over the action layers */}
+      {/* Content layer, sliding over the action layers. Its fill has to be
+          opaque so the actions stay hidden until a swipe reveals them, and it
+          has to match whatever surface the row sits on or the row reads as a
+          differently-coloured band. `--swipe-reveal-bg` lets that surface name
+          itself (the sidebar's section card publishes its own), falling back
+          to the panel surface a row rests on elsewhere. */}
       <div
         className={cn(
-          "relative bg-[var(--surface-overlay)] transition-transform",
+          "relative bg-[var(--swipe-reveal-bg,var(--surface-overlay))] transition-transform",
           isDragging && "transition-none",
         )}
         style={{

@@ -64,3 +64,28 @@ describe("providerRowMeta model counts", () => {
     ).toBe(`${servable} models  •  ChatGPT subscription`);
   });
 });
+
+describe("providerRowMeta ollama endpoint", () => {
+  test("ollama without a stored URL shows catalog models and keyless auth", () => {
+    const total = getModelsForProvider("ollama").length;
+    expect(
+      providerRowMeta({
+        name: "ollama",
+        provider: "ollama",
+        auth: { type: "none" },
+      } as ProviderConnection),
+    ).toBe(`${total} models  •  No API key needed`);
+  });
+
+  test("ollama with a stored URL prefixes the host", () => {
+    const total = getModelsForProvider("ollama").length;
+    expect(
+      providerRowMeta({
+        name: "ollama",
+        provider: "ollama",
+        auth: { type: "none" },
+        baseUrl: "http://192.168.1.50:11434/v1",
+      } as ProviderConnection),
+    ).toBe(`192.168.1.50:11434  •  ${total} models  •  No API key needed`);
+  });
+});

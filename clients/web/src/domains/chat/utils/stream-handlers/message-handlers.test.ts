@@ -16,7 +16,7 @@ import {
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
+import { conversationListQueryKey } from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 import { findConversation } from "@/utils/conversation-cache";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -35,7 +35,7 @@ describe("handleAssistantTurnStart", () => {
     // GIVEN a cached conversation row the daemon last reported as idle
     const ctx = makeCtx();
     ctx.queryClient.setQueryData(
-      conversationsQueryKey("ast-1"),
+      conversationListQueryKey("ast-1"),
       listPage([{ conversationId: "conv-1", isProcessing: false }]),
     );
 
@@ -70,7 +70,7 @@ describe("handleAssistantTextDelta", () => {
     // (e.g. the start event was dropped on a reconnect)
     const ctx = makeCtx();
     ctx.queryClient.setQueryData(
-      conversationsQueryKey("ast-1"),
+      conversationListQueryKey("ast-1"),
       listPage([{ conversationId: "conv-1", isProcessing: false }]),
     );
 

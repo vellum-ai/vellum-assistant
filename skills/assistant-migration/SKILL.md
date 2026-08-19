@@ -222,7 +222,7 @@ Write the approved items as concept pages in a staging directory (for example `.
 assistant memory ingest --dir .mv3/staging --dry-run
 ```
 
-Review the per-page dry-run results (written / skipped / invalid) with the creator, fix any invalid pages, then run the same command without `--dry-run`. Existing slugs are skipped unless `--overwrite` is passed. If the command fails because the consolidation lock is held, wait for consolidation to finish and retry; do not work around the lock.
+Review the per-page dry-run results (written / skipped / invalid) with the creator, fix any invalid pages, and resolve any warning about a `links:` or `[[wikilink]]` target that is neither on disk nor in the staged set (stage the missing page, or make the reference plain prose), then run the same command without `--dry-run`. Existing slugs are skipped unless `--overwrite` is passed. If the command fails because the consolidation lock is held, wait for consolidation to finish and retry; do not work around the lock.
 
 ### 5. Verify
 

@@ -1,9 +1,22 @@
 {
+  "addCreditsModal": {
+    "configureAutoReload": "Configurar la recarga automática"
+  },
   "notFound": {
     "badge": "Error 404",
     "title": "Página no encontrada",
     "body": "La página que buscas no existe o puede haberse movido.",
     "backToAssistant": "Volver a tu asistente",
     "goBack": "Atrás"
+  },
+  "resourcePressureBanner": {
+    "title": "La utilización de recursos es alta",
+    "body": "Tu asistente ha estado usando recursos elevados durante un periodo prolongado; mejora tu plan para potenciar tu asistente.",
+    "bodyNoUpgrade": "Tu asistente ha estado usando recursos elevados durante un periodo prolongado.",
+    "upgrade": "Mejorar plan",
+    "dontShowAgain": "No mostrar de nuevo"
+  },
+  "sectionActionsButton": {
+    "ariaLabel": "Acciones de {name}"
   }
 }

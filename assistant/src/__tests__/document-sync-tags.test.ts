@@ -3,8 +3,6 @@
  * the Library and the per-conversation assets list converge on every surface.
  * Read routes and rejected writes must stay silent.
  */
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantEventEnvelope } from "../api/index.js";
@@ -23,9 +21,6 @@ import {
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 await initializeDb();
-
-const workspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
-const notesDir = join(workspaceDir, "sync-notes");
 
 const CONVERSATION_ID = "conv-doc-sync";
 const OTHER_CONVERSATION_ID = "conv-doc-sync-other";
@@ -110,15 +105,6 @@ async function saveViaRoute(
   });
 }
 
-async function openWorkspaceFile(
-  path: string,
-  conversationId = CONVERSATION_ID,
-): Promise<unknown> {
-  return await invoke("documentForWorkspaceFile", {
-    body: { path, conversationId },
-  });
-}
-
 async function linkViaRoute(
   surfaceId: string,
   conversationId: string,
@@ -136,12 +122,9 @@ beforeEach(() => {
   db.run("DELETE FROM conversations");
   createConversation({ id: CONVERSATION_ID });
   createConversation({ id: OTHER_CONVERSATION_ID });
-  rmSync(notesDir, { recursive: true, force: true });
-  mkdirSync(notesDir, { recursive: true });
 });
 
 afterAll(() => {
-  rmSync(notesDir, { recursive: true, force: true });
   resetDbForTesting();
 });
 
@@ -220,67 +203,9 @@ describe("document write routes publish documents:list", () => {
     expect(events).toHaveLength(1);
     expect("originClientId" in events[0].message).toBe(false);
   });
-
-  test("binding a workspace file publishes without an origin so the caller is not suppressed", async () => {
-    // `viewer-store.loadWorkspaceFileDocument` creates the row and invalidates
-    // nothing, so the client that opened the file is the one that most needs
-    // the invalidation.
-    writeFileSync(join(notesDir, "plan.md"), "# Plan");
-
-    const events = await captureSyncEvents(() =>
-      invoke("documentForWorkspaceFile", {
-        body: { path: "sync-notes/plan.md", conversationId: CONVERSATION_ID },
-        headers: { "x-vellum-client-id": "client-abc" },
-      }),
-    );
-
-    expect(events).toHaveLength(1);
-    expect("originClientId" in events[0].message).toBe(false);
-  });
-
-  test("binding a workspace file to a new document publishes", async () => {
-    writeFileSync(join(notesDir, "plan.md"), "# Plan");
-
-    const events = await captureSyncEvents(() =>
-      openWorkspaceFile("sync-notes/plan.md"),
-    );
-    expectDocumentsChanged(events);
-  });
-
-  test("reopening the file from another conversation publishes the new link", async () => {
-    writeFileSync(join(notesDir, "plan.md"), "# Plan");
-    await openWorkspaceFile("sync-notes/plan.md");
-
-    const events = await captureSyncEvents(() =>
-      openWorkspaceFile("sync-notes/plan.md", OTHER_CONVERSATION_ID),
-    );
-    expectDocumentsChanged(events);
-  });
-
-  test("refreshing a document whose file changed on disk publishes", async () => {
-    const filePath = join(notesDir, "plan.md");
-    writeFileSync(filePath, "# Plan");
-    await openWorkspaceFile("sync-notes/plan.md");
-    writeFileSync(filePath, "# Plan\n\nedited outside the editor");
-
-    const events = await captureSyncEvents(() =>
-      openWorkspaceFile("sync-notes/plan.md"),
-    );
-    expectDocumentsChanged(events);
-  });
 });
 
 describe("document routes that change nothing the list shows stay silent", () => {
-  test("reopening an unchanged, already-linked file publishes nothing", async () => {
-    writeFileSync(join(notesDir, "plan.md"), "# Plan");
-    await openWorkspaceFile("sync-notes/plan.md");
-
-    const events = await captureSyncEvents(() =>
-      openWorkspaceFile("sync-notes/plan.md"),
-    );
-    expect(events).toEqual([]);
-  });
-
   test("a save rejected by validation publishes nothing", async () => {
     const events = await captureSyncEvents(async () => {
       await expect(saveViaRoute({ title: undefined })).rejects.toThrow(

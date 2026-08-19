@@ -20,6 +20,7 @@ import { BillingPortalReturnHandler } from "@/domains/settings/components/billin
 import { BillingUsagePanel } from "@/domains/settings/components/billing-usage/billing-usage-panel";
 import { GracePeriodBanner } from "@/domains/settings/components/grace-period-banner";
 import { InvoicesTable } from "@/domains/settings/components/invoices-table";
+import { PaymentMethodsCard } from "@/domains/settings/components/payment-methods-card";
 import { PlanCard } from "@/domains/settings/components/plan-card";
 import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
 import {
@@ -93,6 +94,7 @@ function FinishProSetupNotice({
 }: {
   onFinishSetup: () => void;
 }) {
+  const { t } = useTranslation("settings");
   // Gate the query chain on org readiness (and subscribe to it, so the notice
   // re-evaluates when the org hydrates): a request fired before the org store
   // settles omits `Vellum-Organization-Id` and the platform rejects it.
@@ -124,7 +126,9 @@ function FinishProSetupNotice({
   return (
     <Notice
       tone="info"
-      title={`Finish setting up your ${proPackageDisplayName(subscription?.package)} plan`}
+      title={t("billingPage.finishSetupTitle", {
+        plan: proPackageDisplayName(subscription?.package),
+      })}
       actions={
         <Button
           variant="outlined"
@@ -132,17 +136,18 @@ function FinishProSetupNotice({
           onClick={onFinishSetup}
           data-testid="finish-pro-setup-button"
         >
-          Finish setup
+          {t("billingPage.finishSetupButton")}
         </Button>
       }
       data-testid="finish-pro-setup-notice"
     >
-      Your assistant&apos;s email address hasn&apos;t been set up yet.
+      {t("billingPage.finishSetupBody")}
     </Notice>
   );
 }
 
 function BillingTabContent() {
+  const { t } = useTranslation("settings");
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const billingGate = usePlatformGate();
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
@@ -237,7 +242,7 @@ function BillingTabContent() {
     return (
       <div className="space-y-4">
         <PlatformLoginNotice>
-          Log in to the Vellum platform to manage billing and usage.
+          {t("billingPage.platformLoginNotice")}
         </PlatformLoginNotice>
       </div>
     );
@@ -248,7 +253,7 @@ function BillingTabContent() {
       <div className="space-y-4">
         <div className="flex items-center gap-2 py-6 text-body-medium-lighter text-[var(--content-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading billing…
+          {t("billingPage.loadingBilling")}
         </div>
       </div>
     );
@@ -270,7 +275,7 @@ function BillingTabContent() {
     return (
       <div className="space-y-4">
         <Notice tone="warning">
-          Billing isn&apos;t available for the current assistant state.
+          {t("billingPage.billingUnavailable")}
         </Notice>
       </div>
     );
@@ -301,6 +306,9 @@ function BillingTabContent() {
         onOpenChange={onBonusOpenChange}
         amountUsd={amountUsd}
       />
+      <Suspense fallback={null}>
+        <PaymentMethodsCard />
+      </Suspense>
       <Suspense fallback={null}>
         <BillingPanel />
       </Suspense>
@@ -347,6 +355,7 @@ function UsagePanel() {
 }
 
 export function BillingPage() {
+  const { t } = useTranslation("settings");
   const billingGate = usePlatformGate();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -400,9 +409,11 @@ export function BillingPage() {
       <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
         <Tabs.List>
           {showBillingTab && (
-            <Tabs.Trigger value="billing">Billing</Tabs.Trigger>
+            <Tabs.Trigger value="billing">
+              {t("billingPage.billingTab")}
+            </Tabs.Trigger>
           )}
-          <Tabs.Trigger value="usage">Usage</Tabs.Trigger>
+          <Tabs.Trigger value="usage">{t("billingPage.usageTab")}</Tabs.Trigger>
         </Tabs.List>
         {showBillingTab && (
           <Tabs.Panel value="billing" className="pt-4">

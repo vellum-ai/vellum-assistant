@@ -98,3 +98,42 @@ describe("ProfileEditorProviderSection with a ChatGPT subscription", () => {
     );
   });
 });
+
+describe("ProfileEditorProviderSection with an openai-compatible connection", () => {
+  const connection = {
+    name: "lm-studio",
+    provider: "openai-compatible",
+    auth: { type: "api_key", credential: "credential/openai-compatible/api_key" },
+    models: [{ id: "llama-3.1", displayName: "Llama 3.1" }],
+  };
+
+  test("keeps a bound model the connection list omits instead of clearing it", () => {
+    const onModelChange = mock(() => {});
+    renderSection({
+      provider: "openai-compatible",
+      model: "gateway-alias",
+      providerConnection: "lm-studio",
+      connections: [connection],
+      availableConnectionsForProvider: [connection],
+      onModelChange,
+    });
+
+    expect(onModelChange).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Model").textContent?.trim()).toBe(
+      "gateway-alias",
+    );
+  });
+
+  test("offers the unlisted bound model in the Model dropdown", () => {
+    renderSection({
+      provider: "openai-compatible",
+      model: "gateway-alias",
+      providerConnection: "lm-studio",
+      connections: [connection],
+      availableConnectionsForProvider: [connection],
+    });
+
+    fireEvent.click(screen.getByLabelText("Model"));
+    expect(optionLabels()).toContain("gateway-alias");
+  });
+});

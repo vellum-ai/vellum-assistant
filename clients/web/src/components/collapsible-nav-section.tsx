@@ -266,7 +266,9 @@ function CollapsibleNavSectionSection({
   const titleClasses = cn(
     card ? "py-0" : "py-[6px] max-md:py-3",
     SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
-    card && "text-body-small-default max-md:text-body-small-default",
+    /* `!` twice over: the shared title classes pin their own weight the same
+       way, so a plain utility here loses to them rather than replacing them. */
+    card && "text-body-small-default max-md:text-body-small-default font-[500]!",
   );
 
   const titleStyle = {
@@ -297,6 +299,11 @@ function CollapsibleNavSectionSection({
         // the click target and long labels still truncate. The primitive
         // hardcodes `flex` on it, so the growth comes from here.
         "[&>[data-slot=collapsible-header]]:min-w-0 [&>[data-slot=collapsible-header]]:flex-1",
+        /* A card's header is the height of its label. The controls beside it
+           are touch targets rather than content, so they keep their own size
+           and centre-overflow this row instead of setting it; the card's top
+           padding is deeper than the overflow, so nothing escapes the card. */
+        card && "h-4",
         drag && "cursor-grab active:cursor-grabbing",
       )}
       {...drag?.headerProps}
@@ -479,7 +486,9 @@ function CollapsibleNavSectionSection({
         <Collapsible.Content
           className={cn(
             "sidebar-section-list",
-            card ? "pt-3" : "pt-2 pb-2",
+            card
+              ? "pt-3 [&_[data-slot=side-menu-sub-list]]:gap-0"
+              : "pt-2 pb-2",
             !unbounded && isLast && "flex min-h-0 flex-1 flex-col",
             contentClassName,
           )}
@@ -495,7 +504,12 @@ function CollapsibleNavSectionSection({
         // content can't be collapsed even if this section's `value` isn't
         // in the root's open list.
         <div
-          className={cn(card ? "pt-3" : "pt-2 pb-2", contentClassName)}
+          className={cn(
+            card
+              ? "pt-3 [&_[data-slot=side-menu-sub-list]]:gap-0"
+              : "pt-2 pb-2",
+            contentClassName,
+          )}
           style={{
             paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
             paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,

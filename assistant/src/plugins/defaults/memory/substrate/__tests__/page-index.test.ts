@@ -56,6 +56,7 @@ const {
 } = await import("../page-index.js");
 const { writePage } = await import("../page-store.js");
 const { invalidateEdgeIndex } = await import("../edge-index.js");
+const { LINK_SEPARATOR } = await import("../page-links.js");
 
 let workspaceDir: string;
 
@@ -272,6 +273,42 @@ describe("getPageIndex", () => {
     const alice = idx.bySlug.get("alice")!;
     const bob = idx.bySlug.get("bob")!;
     expect(alice.edges).toEqual([bob.id]);
+    // Dropped from the numeric edges, reported on the index.
+    expect(idx.danglingLinks).toEqual([
+      { from: "alice", to: "ghost", kind: "edges" },
+    ]);
+  });
+
+  test("danglingLinks covers links:, body wikilinks, and edges:, resolved against pages and synthetic rows", async () => {
+    skillState.entries = [{ id: "browser", content: "Drive a browser." }];
+    const alice = makePage("alice", {
+      summary: "A",
+      edges: ["bob"],
+      body: "Alice uses [[skills/browser]] and [[bob|Bob]] but also [[nobody#sec]].",
+    });
+    alice.frontmatter.links = [
+      `bob${LINK_SEPARATOR}peer`,
+      `atl-1291${LINK_SEPARATOR}ticket`,
+    ];
+    await writePage(workspaceDir, alice);
+    await writePage(workspaceDir, makePage("bob", { summary: "B" }));
+
+    const idx = await getPageIndex(workspaceDir);
+    expect(idx.danglingLinks).toEqual([
+      { from: "alice", to: "atl-1291", kind: "links" },
+      { from: "alice", to: "nobody", kind: "wikilink" },
+    ]);
+  });
+
+  test("danglingLinks is empty when every reference resolves", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("alice", { summary: "A", edges: ["bob"], body: "See [[bob]]." }),
+    );
+    await writePage(workspaceDir, makePage("bob", { summary: "B" }));
+
+    const idx = await getPageIndex(workspaceDir);
+    expect(idx.danglingLinks).toEqual([]);
   });
 
   test("exposes frontmatter leaves in the index entry", async () => {

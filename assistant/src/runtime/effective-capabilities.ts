@@ -45,6 +45,31 @@ export function canActOnPrivilegedDocuments(actor: {
 }
 
 /**
+ * Whether personal-memory content (memory pages, PKB, matched v3 card
+ * sections, the v2 static block) may be surfaced to an actor.
+ *
+ * The trust class decides, and nothing else. Personal memory is elevated
+ * access, and every other consumer of "no actor was bound" already fails
+ * closed for it: `FALLBACK_TURN_TRUST` is documented as low-trust and "never
+ * guardian", and the workflow resume path deliberately declines to fall back
+ * to the guardian context so a resumed run cannot gain trust it did not start
+ * with. A gate that granted memory for the same condition would contradict
+ * them.
+ *
+ * Notably this takes no channel. A surface is not an actor: arriving on the
+ * first-party console says nothing about who is asking, and an actor whose
+ * class could not be resolved fails closed to `unknown` upstream. Answering
+ * "who is this" is `resolveTrustClass`'s job -- including the local/native
+ * turns that resolve to guardian under a disabled-auth posture -- and this
+ * function only answers what that actor may see.
+ */
+export function canSeePersonalMemory(actor: {
+  trustClass: RawTrustClass;
+}): boolean {
+  return resolveCapabilities(actor.trustClass).canAccessMemory;
+}
+
+/**
  * Whether an archive-by-sender invocation is authorized. Any one of a surface
  * action, a task-batch authorization, or an explicit prompt approval suffices.
  * Absent those, the actor's own `user_approved` flag only counts when its trust

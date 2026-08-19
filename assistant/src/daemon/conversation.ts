@@ -41,6 +41,7 @@ import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
+import { isGuardianCardRow } from "../notifications/approval-card-data.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -1118,11 +1119,10 @@ export class Conversation {
       preStrippedCount = boundary === -1 ? slicedDbMessages.length : boundary;
     }
 
-    // The injection-time personal-memory gate, so background/local
-    // conversations (sourceChannel `undefined` or `"vellum"`) can rehydrate
-    // the persisted v2 static memory block. The shared helper folds in the
-    // HTTP-auth-disabled dev bypass so rehydration and injection agree on the
-    // effective trust class.
+    // The injection-time personal-memory gate, so rehydration of the persisted
+    // blocks admits exactly the actors injection would. The shared helper folds
+    // in the HTTP-auth-disabled dev bypass, so a turn with no bound actor
+    // resolves the same way on both paths.
     const personalMemoryAllowed = isPersonalMemoryAllowed(this.trustContext);
     // Pruned v3 card slugs, read lazily on the first row that carries a v3
     // block (most conversations carry none, so most loads never query). The
@@ -1341,6 +1341,16 @@ export class Conversation {
       parsedMessages.length,
     );
     for (const [index, message] of parsedMessages.entries()) {
+      // Applied after the compaction slice, never before it: the slice and
+      // `rowToHistoryIndex` are both computed against the full row list, so
+      // dropping earlier would shift them. A dropped row maps to a null
+      // history index exactly like a fully-injected user row that strips to
+      // nothing. `index` is shared with `slicedDbMessages`, which
+      // `parsedMessages` maps 1:1.
+      if (isGuardianCardRow(slicedDbMessages[index]?.content)) {
+        preRepairIndexBySlicedRow[index] = null;
+        continue;
+      }
       const stripped =
         index < preStrippedCount
           ? stripInjectionsForCompaction([message])
@@ -1443,7 +1453,7 @@ export class Conversation {
       messageCount: this.messages.length,
     });
 
-    this.restoreSurfaceStateFromHistory();
+    this.restoreSurfaceStateFromHistory(parsedMessages);
     this.graphMemory.restoreState();
 
     // Row→history correspondence for this load: slice offset, then the
@@ -1475,14 +1485,19 @@ export class Conversation {
    * populate surfaceState so that findConversationBySurfaceId works for
    * surfaces restored from history (e.g. after daemon restart).
    *
-   * Only scans live (non-compacted) messages in this.messages — not all DB
-   * rows — because surface IDs are not globally unique and restoring stale
-   * compacted surfaces would let findConversationBySurfaceId route actions
-   * to the wrong conversation.
+   * Scans the live (non-compacted) window only, never all DB rows, because
+   * surface IDs are not globally unique and restoring stale compacted
+   * surfaces would let findConversationBySurfaceId route actions to the wrong
+   * conversation.
+   *
+   * Takes that window as rows rather than reading `this.messages`, because a
+   * surface's lifecycle and the model's context are different questions. A
+   * guardian card is absent from `this.messages`, but it is exactly the card
+   * whose Approve/Reject buttons must still route after a restart.
    */
-  private restoreSurfaceStateFromHistory(): void {
+  private restoreSurfaceStateFromHistory(liveWindow: Message[]): void {
     this.surfaceState.clear();
-    for (const msg of this.messages) {
+    for (const msg of liveWindow) {
       if (!Array.isArray(msg.content)) {
         continue;
       }
@@ -1497,11 +1512,12 @@ export class Conversation {
 
   async ensureActorScopedHistory(): Promise<void> {
     const currentTrustClass = this.trustContext?.trustClass;
-    // `loadFromDb` gates personal-memory rehydration on `sourceChannel` too
-    // (via `isPersonalMemoryAllowed`), so a same-trust-class reuse from a
-    // different channel (e.g. internal `vellum` → remote channel) must also
-    // trigger a reload. Otherwise stale personal-memory blocks can leak to
-    // an untrusted remote turn, or be hidden when they should be present.
+    // Tracked alongside the trust class because `loadFromDb` gates
+    // personal-memory rehydration on `isPersonalMemoryAllowed`, which folds in
+    // the disabled-auth elevation of an unbound actor: two contexts can share a
+    // trust class and still differ here. A reuse that changes the answer has to
+    // reload, or stale personal-memory blocks persist into a turn that must not
+    // see them, or stay stripped from one that should.
     const currentPersonalMemoryAllowed = isPersonalMemoryAllowed(
       this.trustContext,
     );
@@ -2813,6 +2829,7 @@ export class Conversation {
     actionId: string,
     data?: Record<string, unknown>,
     sourceActorPrincipalId?: string,
+    requesterTrustContext?: TrustContext,
   ): Promise<SurfaceActionResult> {
     return handleSurfaceActionImpl(
       this,
@@ -2820,6 +2837,7 @@ export class Conversation {
       actionId,
       data,
       sourceActorPrincipalId,
+      requesterTrustContext,
     );
   }
 
