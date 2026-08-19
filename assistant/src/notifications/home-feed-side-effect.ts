@@ -149,24 +149,9 @@ export async function writeHomeFeedItemForSignal(
     sourceScheduleJobId ??
     undefined;
 
-  // Resolved before the card is built so the card can carry the row's id, and
-  // any write it implies lands first.
-  const conversationMessageId = await resolveOwnedConversationMessageId(
-    signal,
-    vellumDelivery,
-    sourceConversationId,
-    resolvedSummary,
-  );
-
-  const metadataAdditions: Record<string, unknown> = {
-    ...(scheduleId !== undefined ? { scheduleId } : {}),
-    ...(conversationMessageId
-      ? { [CONVERSATION_MESSAGE_ID_KEY]: conversationMessageId }
-      : {}),
-  };
   const metadata =
-    Object.keys(metadataAdditions).length > 0
-      ? { ...(baseMetadata ?? {}), ...metadataAdditions }
+    scheduleId !== undefined
+      ? { ...(baseMetadata ?? {}), scheduleId }
       : baseMetadata;
 
   const item: FeedItem = {
@@ -197,8 +182,29 @@ export async function writeHomeFeedItemForSignal(
     return null;
   }
 
-  await appendFeedItem(item);
-  return item;
+  // Resolved once the card is known to be writable, since the only reason to
+  // put a notification body in a conversation is that a card sends the user
+  // there. Validating first keeps the one rejection this function controls
+  // from leaving a message behind with no card to explain it. The id joins
+  // free-form metadata, which no schema rule can turn away.
+  const conversationMessageId = await resolveOwnedConversationMessageId(
+    signal,
+    vellumDelivery,
+    sourceConversationId,
+    resolvedSummary,
+  );
+  const card: FeedItem = conversationMessageId
+    ? {
+        ...item,
+        metadata: {
+          ...(item.metadata ?? {}),
+          [CONVERSATION_MESSAGE_ID_KEY]: conversationMessageId,
+        },
+      }
+    : item;
+
+  await appendFeedItem(card);
+  return card;
 }
 
 /**

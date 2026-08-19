@@ -31,6 +31,19 @@ let messageAppendShouldThrow = false;
 let messageRewriteShouldThrow = false;
 let messageLookupShouldThrow = false;
 
+let feedItemSchemaShouldReject = false;
+
+mock.module("../../home/feed-types.js", () => ({
+  feedItemSchema: {
+    parse: (item: unknown) => {
+      if (feedItemSchemaShouldReject) {
+        throw new Error("simulated schema rejection");
+      }
+      return item;
+    },
+  },
+}));
+
 mock.module("../../home/feed-writer.js", () => ({
   appendFeedItem: async (item: FeedItem) => {
     appendCalls.push(item);
@@ -140,6 +153,7 @@ beforeEach(() => {
   messageAppendShouldThrow = false;
   messageRewriteShouldThrow = false;
   messageLookupShouldThrow = false;
+  feedItemSchemaShouldReject = false;
 });
 
 describe("writeHomeFeedItemForSignal", () => {
@@ -1007,6 +1021,26 @@ describe("writeHomeFeedItemForSignal", () => {
 
       expect(item).not.toBeNull();
       expect(item?.conversationId).toBeUndefined();
+      expect(messageAppends).toHaveLength(0);
+    });
+
+    test("writes no message when the card is rejected", async () => {
+      // The body only belongs in a conversation because a card sends the user
+      // there, so a rejected card must not leave one behind.
+      conversationRow = { conversationType: "background" };
+      feedItemSchemaShouldReject = true;
+      const signal = makeSignal();
+      const decision = makeDecision({
+        selectedChannels: ["telegram"],
+        renderedCopy: {
+          telegram: { title: "Nightly briefing", body: "Three things today." },
+        },
+      });
+
+      const item = await writeHomeFeedItemForSignal(signal, decision);
+
+      expect(item).toBeNull();
+      expect(appendCalls).toHaveLength(0);
       expect(messageAppends).toHaveLength(0);
     });
 
