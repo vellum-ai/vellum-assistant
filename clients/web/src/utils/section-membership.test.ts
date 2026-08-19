@@ -668,9 +668,8 @@ describe("reconcileSectionMembership", () => {
   });
 
   test("a section the walk claimed is not also named from the row", () => {
-    /* The loaded destination decides for itself, deliberate skips included.
-       Only a row that no loaded section holds falls through to the fields,
-       or every field patch would name a section to refetch. */
+    /* The loaded destination decides for itself, deliberate skips included,
+       so a section that is already right is never refetched to confirm it. */
     const row = conversation({ conversationId: "c1" });
     const client = seed([[CHATS, [row]]]);
 
@@ -679,7 +678,36 @@ describe("reconcileSectionMembership", () => {
       surfacedAt: 5,
     });
 
-    expect(keys).toEqual([]);
+    expect(keys).not.toContainEqual(
+      conversationListQueryKey(ASSISTANT_ID, CHATS),
+    );
+  });
+
+  test("one view's loaded section does not answer for the other view's", () => {
+    /* Claiming is per destination, not one flag for the row. Only one view is
+       mounted at a time and the other view's caches outlive a toggle by their
+       gc time, so a flat Chats cache left over from before the switch still
+       claims an unpinned channel row. It is not the section the grouped view
+       renders it in, and that one is empty and unmounted: the exact state
+       this pass exists to catch. */
+    const row = conversation({
+      conversationId: "c1",
+      isPinned: true,
+      groupId: "system:pinned",
+      originChannel: "slack",
+    });
+    const client = seed([
+      [PINNED, [row]],
+      [CHATS, []],
+    ]);
+
+    const keys = reconcileSectionMembership(client, ASSISTANT_ID, {
+      ...row,
+      isPinned: false,
+      groupId: "system:all",
+    });
+
+    expect(keys).toContainEqual(conversationListQueryKey(ASSISTANT_ID, SLACK));
   });
 
   test("an archived row names no destination", () => {

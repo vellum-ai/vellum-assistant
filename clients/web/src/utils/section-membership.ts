@@ -18,7 +18,7 @@
  * the same warning, already governs `contributesToUnreadCount`.
  */
 
-import type { QueryClient } from "@tanstack/react-query";
+import { hashKey, type QueryClient } from "@tanstack/react-query";
 
 import type { Conversation } from "@/types/conversation-types";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -209,11 +209,12 @@ export function matchesSectionFilter(
  *    the prefix so an in-flight response cannot land on top of them) leaves an
  *    observer with nothing and no pending request, and a settle scoped to the
  *    sections that changed would never re-drive it.
- * 3. The row's destination, when no cache the walk saw claims it (see
- *    {@link sectionFiltersHolding}). Kinds 1 and 2 are both found by walking
- *    the cache, which answers only for sections something has already
- *    rendered; a section hidden because it was empty is precisely the one a
- *    placement fills and the one the walk cannot see.
+ * 3. Each destination of the row that no walked cache claimed, one per
+ *    section that could hold it (see {@link sectionFiltersHolding}). Kinds 1
+ *    and 2 are both found by walking the cache, which answers only for
+ *    sections something has already rendered; a section hidden because it was
+ *    empty is precisely the one a placement fills and the one the walk cannot
+ *    see.
  *
  * @see {@link https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientgetqueriesdata}
  */
@@ -239,27 +240,66 @@ export function matchesSectionFilter(
  * rare case on the settle refetch.
  */
 /**
- * Whether `row` is the index bucket holding `conversation`, mirroring the
- * daemon's aggregation axes: the group axis wins (pinned, then a custom
- * group), then the effective origin channel with NULL reading as native
- * (the Chats bucket). The one bucket rule, shared by the stub insertion
- * here and the unread deltas in `conversation-cache-mutations.ts`.
+ * The one sidebar bucket that holds `conversation`, by the daemon's
+ * aggregation precedence: the group axis wins (pinned, then a custom group),
+ * then the effective origin channel, with an unattributed row reading as
+ * native.
+ *
+ * One derivation, three projections: whether an index row is this row's
+ * bucket ({@link matchesIndexBucket}), the index row to insert when none is
+ * ({@link ensureSectionInIndex}), and the filters that fetch that section's
+ * conversations ({@link sectionFiltersHolding}). The precedence is what has
+ * to agree with the daemon, so it is stated once; three copies of it can only
+ * drift, and a projection is the part that legitimately differs.
+ *
+ * Visibility is deliberately not consulted. This answers which bucket a row
+ * belongs to, not whether any section shows it, and only the filter
+ * projection needs the stronger question. Folding it in here would also
+ * change what the unread deltas in `conversation-cache-mutations.ts` adjust
+ * for an archived row, which is a separate question from this one.
+ */
+type SectionBucket =
+  | { kind: "pinned" }
+  | { kind: "group"; groupId: string }
+  | { kind: "chats" }
+  | { kind: "channel"; channelId: string };
+
+function sectionBucketOf(conversation: Conversation): SectionBucket {
+  if (isConversationPinned(conversation)) {
+    return { kind: "pinned" };
+  }
+  const groupId = conversation.groupId;
+  if (isCustomGroupId(groupId)) {
+    return { kind: "group", groupId };
+  }
+  const channel = conversation.originChannel;
+  if (channel == null || channel === NATIVE_ORIGIN_CHANNEL) {
+    return { kind: "chats" };
+  }
+  return { kind: "channel", channelId: channel };
+}
+
+/**
+ * Whether `row` is the index bucket holding `conversation`. Shared by the
+ * stub insertion here and the unread deltas in
+ * `conversation-cache-mutations.ts`; see {@link sectionBucketOf} for the
+ * precedence itself.
  */
 export function matchesIndexBucket(
   conversation: Conversation,
   row: SidebarIndexSection,
 ): boolean {
-  if (isConversationPinned(conversation)) {
-    return row.kind === "pinned";
+  const bucket = sectionBucketOf(conversation);
+  switch (bucket.kind) {
+    case "pinned":
+      return row.kind === "pinned";
+    case "group":
+      return row.kind === "group" && row.groupId === bucket.groupId;
+    case "chats":
+      return row.kind === "chats";
+    case "channel":
+      return row.kind === "channel" && row.channelId === bucket.channelId;
   }
-  if (isCustomGroupId(conversation.groupId)) {
-    return row.kind === "group" && row.groupId === conversation.groupId;
-  }
-  const channel = conversation.originChannel;
-  if (channel == null || channel === NATIVE_ORIGIN_CHANNEL) {
-    return row.kind === "chats";
-  }
-  return row.kind === "channel" && row.channelId === channel;
 }
 
 export function ensureSectionInIndex(
@@ -281,51 +321,50 @@ export function ensureSectionInIndex(
     return;
   }
 
-  if (isConversationPinned(conversation)) {
-    queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, [
-      { kind: "pinned", total: 1, unread: 0 },
-      ...index,
-    ]);
-    return;
-  }
-
-  const groupId = conversation.groupId;
-  if (isCustomGroupId(groupId)) {
-    const groups = queryClient.getQueryData<GroupsGetResponse>(
-      groupsGetQueryKey({ path: { assistant_id: assistantId } }),
-    )?.groups;
-    const meta = groups?.find((g) => g.id === groupId);
-    if (!meta) {
+  const bucket = sectionBucketOf(conversation);
+  switch (bucket.kind) {
+    case "pinned":
+      queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, [
+        { kind: "pinned", total: 1, unread: 0 },
+        ...index,
+      ]);
+      return;
+    case "group": {
+      const groups = queryClient.getQueryData<GroupsGetResponse>(
+        groupsGetQueryKey({ path: { assistant_id: assistantId } }),
+      )?.groups;
+      const meta = groups?.find((g) => g.id === bucket.groupId);
+      if (!meta) {
+        return;
+      }
+      queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, [
+        ...index,
+        {
+          kind: "group",
+          groupId: bucket.groupId,
+          name: meta.name,
+          icon: meta.icon ?? null,
+          sortPosition: meta.sortPosition ?? 0,
+          total: 1,
+          unread: 0,
+        },
+      ]);
       return;
     }
-    queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, [
-      ...index,
-      {
-        kind: "group",
-        groupId,
-        name: meta.name,
-        icon: meta.icon ?? null,
-        sortPosition: meta.sortPosition ?? 0,
-        total: 1,
-        unread: 0,
-      },
-    ]);
-    return;
+    case "chats":
+      /* Chats renders regardless and the daemon always indexes it, so it
+         needs no stub. */
+      return;
+    case "channel":
+      /* A channel bucket can be missing too: pinning a channel's only
+         conversation empties it out of the index, so the unpin returning the
+         row targets a section the index no longer carries. */
+      queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, [
+        ...index,
+        { kind: "channel", channelId: bucket.channelId, total: 1, unread: 0 },
+      ]);
+      return;
   }
-
-  /* An ungrouped row's destination is its channel section, and that bucket
-     can be missing too: pinning a channel's only conversation empties its
-     bucket out of the index, so the unpin returning the row targets a
-     section the index no longer carries. The native bucket needs no stub;
-     Chats renders regardless and the daemon always indexes it. */
-  const channel = conversation.originChannel;
-  if (channel == null || channel === NATIVE_ORIGIN_CHANNEL) {
-    return;
-  }
-  queryClient.setQueryData<SidebarIndexSection[] | null>(queryKey, [
-    ...index,
-    { kind: "channel", channelId: channel, total: 1, unread: 0 },
-  ]);
 }
 
 /**
@@ -358,21 +397,35 @@ export function sectionFiltersHolding(
   if (!isSidebarVisible(conversation)) {
     return [];
   }
-  if (isConversationPinned(conversation)) {
-    return [{ groupId: SYSTEM_PINNED_GROUP_ID }];
+  const bucket = sectionBucketOf(conversation);
+  switch (bucket.kind) {
+    case "pinned":
+      return [{ groupId: SYSTEM_PINNED_GROUP_ID }];
+    case "group":
+      return [{ groupId: bucket.groupId }];
+    case "chats":
+      return [
+        { groupId: SYSTEM_ALL_GROUP_ID },
+        {
+          groupId: SYSTEM_ALL_GROUP_ID,
+          originChannel: NATIVE_ORIGIN_CHANNEL,
+        },
+      ];
+    case "channel":
+      /* Flat Chats holds the channel rows too, so it is named alongside the
+         channel's own section. A channel this client's schema predates
+         cannot be a section at all: nothing can key a query by a value the
+         daemon would reject. */
+      return isOriginChannel(bucket.channelId)
+        ? [
+            { groupId: SYSTEM_ALL_GROUP_ID },
+            {
+              groupId: SYSTEM_ALL_GROUP_ID,
+              originChannel: bucket.channelId,
+            },
+          ]
+        : [{ groupId: SYSTEM_ALL_GROUP_ID }];
   }
-  const groupId = conversation.groupId;
-  if (isCustomGroupId(groupId)) {
-    return [{ groupId }];
-  }
-  const channel = conversation.originChannel ?? NATIVE_ORIGIN_CHANNEL;
-  const filters: ConversationListFilter[] = [{ groupId: SYSTEM_ALL_GROUP_ID }];
-  /* A channel this client's schema predates cannot be a section: nothing can
-     key a query by a value the daemon would reject. */
-  if (isOriginChannel(channel)) {
-    filters.push({ groupId: SYSTEM_ALL_GROUP_ID, originChannel: channel });
-  }
-  return filters;
 }
 
 export function reconcileSectionMembership(
@@ -384,11 +437,14 @@ export function reconcileSectionMembership(
     return [];
   }
   const needsRefetch: (readonly unknown[])[] = [];
-  /* Whether any cache this pass walked is a section the row now belongs to.
-     False means the row was placed somewhere no cache is holding, which the
-     walk cannot report on its own: a section with no cache entry is absent
-     from `entries` entirely rather than present and empty. */
-  let claimed = false;
+  /* The sections this pass walked and found the row to belong to, by key.
+     Per destination rather than one flag for the row: an ungrouped row has a
+     destination in each view (flat Chats and its channel section), only one
+     view is mounted at a time, and the other view's caches outlive a toggle
+     by their gc time. A single flag would let a stale flat Chats cache
+     answer for a channel section that is not loaded, which is the failure
+     this whole pass exists to prevent. */
+  const claimedKeys = new Set<string>();
   const entries = queryClient.getQueriesData<ConversationListPage>({
     queryKey: conversationListPrefix(assistantId),
   });
@@ -403,7 +459,9 @@ export function reconcileSectionMembership(
        cache too: that section is already being asked about below, and it is
        still the section holding this row. */
     const belongs = matchesSectionFilter(conversation, filter);
-    claimed ||= belongs;
+    if (belongs) {
+      claimedKeys.add(hashKey(queryKey));
+    }
     if (!page) {
       needsRefetch.push(queryKey);
       continue;
@@ -454,16 +512,17 @@ export function reconcileSectionMembership(
     needsRefetch.push(queryKey);
   }
 
-  /* Nothing loaded claims the row, so its destination is named from the row
+  /* Each destination the walk could not speak for, named from the row
      itself. A section with no cache is one nothing has rendered, and a
-     section hidden while empty is exactly that, so this is the one case the
-     walk above is structurally unable to see. Keys named here can be for
-     caches that do not exist yet; invalidating those is a no-op, and by the
-     time a settle runs the section the placement revealed has usually
-     mounted one. */
-  if (!claimed) {
-    for (const filter of sectionFiltersHolding(conversation)) {
-      needsRefetch.push(conversationListQueryKey(assistantId, filter));
+     section hidden while empty is exactly that, so this is the case the walk
+     above is structurally unable to see. Keys named here can be for caches
+     that do not exist; invalidating those is a no-op, and by the time a
+     settle runs, the section the placement revealed has usually mounted
+     one. */
+  for (const filter of sectionFiltersHolding(conversation)) {
+    const queryKey = conversationListQueryKey(assistantId, filter);
+    if (!claimedKeys.has(hashKey(queryKey))) {
+      needsRefetch.push(queryKey);
     }
   }
 
