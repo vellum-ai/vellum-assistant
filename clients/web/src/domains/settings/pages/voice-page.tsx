@@ -14,6 +14,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Slider } from "@vellumai/design-library/components/slider";
+import { ShortcutKeys } from "@vellumai/design-library/components/shortcut-keys";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { ListeningLanguageCard } from "@/domains/settings/pages/listening-language-card";
@@ -21,7 +22,6 @@ import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { isElectron } from "@/runtime/is-electron";
-import { ShortcutRow } from "@/domains/settings/keyboard-shortcuts/shortcuts-sections";
 import { useHotkeyRecorder } from "@/domains/settings/keyboard-shortcuts/use-hotkey-recorder";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 
@@ -384,10 +384,6 @@ function VoiceModeShortcutCard() {
    * accelerator and cannot live on that rail.
    */
   const desktopHost = isElectron();
-  const recorder = useHotkeyRecorder();
-  const talkHotkey = recorder.catalog.find(
-    (entry) => entry.key === TALK_HOTKEY_KEY,
-  );
   const [activator, setActivator] = useState<VoiceModeActivator>(() =>
     readVoiceModeActivator(fnConfigurable),
   );
@@ -416,6 +412,24 @@ function VoiceModeShortcutCard() {
     setPendingModifiers([]);
     setShowChordHint(false);
   }, []);
+
+  /**
+   * Fn and a recorded chord are one choice, not two settings: the row asks
+   * what starts Talk and takes one answer. Recording therefore clears Fn, and
+   * choosing Fn clears the chord, so the selected chip is always the truth.
+   */
+  const recorder = useHotkeyRecorder({
+    onBound: () => selectActivator({ kind: "off" }),
+  });
+  const talkHotkey = recorder.catalog.find(
+    (entry) => entry.key === TALK_HOTKEY_KEY,
+  );
+  const talkAccelerator = talkHotkey?.accelerator ?? "";
+  const recordingTalk = recorder.recordingKey === TALK_HOTKEY_KEY;
+  const chooseFn = useCallback(() => {
+    selectActivator(FN_PTT_ACTIVATOR);
+    recorder.removeHotkey(TALK_HOTKEY_KEY);
+  }, [recorder, selectActivator]);
 
   const beginRecording = useCallback(() => {
     setIsRecording(true);
@@ -538,45 +552,51 @@ function VoiceModeShortcutCard() {
         title={t("voicePage.voiceShortcutTitle")}
         subtitle={t("voicePage.voiceShortcutSubtitleDesktop")}
       >
-        {/* Rebound from here rather than from the page that lists every
-            shortcut: whoever is reading this card is the person who wants to
-            change this binding, and the same row is what they would have found
-            there. The write goes to the host either way.
+        <div className="flex flex-col gap-2">
+          {/* Both answers to "what starts Talk" are the same control, so
+              neither reads as the primary one with the other bolted on. The
+              write still goes to the host: Fn through the helper, a chord
+              through `settings.hotkeys`. */}
+          <div className="flex flex-wrap items-center gap-2">
+            {fnConfigurable && (
+              <ActivationKeyOption
+                label={t("voicePage.fnKeyLabel")}
+                badge={t("voicePage.recommendedBadge")}
+                selected={isFnVoiceModeActivator(activator)}
+                onClick={chooseFn}
+              />
+            )}
+            <ActivationKeyOption
+              label={
+                recordingTalk ? (
+                  t("voicePage.recordingPrompt")
+                ) : talkAccelerator ? (
+                  <ShortcutKeys accelerator={talkAccelerator} />
+                ) : (
+                  t("voicePage.customKey")
+                )
+              }
+              selected={talkAccelerator !== ""}
+              recording={recordingTalk}
+              onClick={
+                recordingTalk
+                  ? recorder.stopRecording
+                  : () => recorder.startRecording(TALK_HOTKEY_KEY)
+              }
+            />
+          </div>
 
-            Fn rides in the same row as an alternate binding. It is a different
-            mechanism (the helper, not an accelerator) but not a different
-            question: both answer "what starts Talk", so both belong in the one
-            place that asks it. */}
-        {talkHotkey && (
-          <ShortcutRow
-            hotkey={talkHotkey}
-            recording={recorder.recordingKey === TALK_HOTKEY_KEY}
-            conflictLabel={
-              recorder.conflict?.key === TALK_HOTKEY_KEY
-                ? recorder.conflict.label
-                : null
-            }
-            alternateBinding={
-              fnConfigurable ? (
-                <ActivationKeyOption
-                  label={t("voicePage.fnKeyLabel")}
-                  selected={isFnVoiceModeActivator(activator)}
-                  onClick={() => {
-                    selectActivator(
-                      isFnVoiceModeActivator(activator)
-                        ? { kind: "off" }
-                        : FN_PTT_ACTIVATOR,
-                    );
-                  }}
-                />
-              ) : undefined
-            }
-            onStartRecording={() => recorder.startRecording(TALK_HOTKEY_KEY)}
-            onCancelRecording={recorder.stopRecording}
-            onReset={() => recorder.resetHotkey(TALK_HOTKEY_KEY)}
-            onRemove={() => recorder.removeHotkey(TALK_HOTKEY_KEY)}
-          />
-        )}
+          {recorder.conflict?.key === TALK_HOTKEY_KEY && (
+            <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--system-negative-strong)]">
+              <Info className="mt-0.5 h-3 w-3 shrink-0" />
+              <span>
+                {t("voicePage.shortcutConflict", {
+                  command: recorder.conflict.label,
+                })}
+              </span>
+            </div>
+          )}
+        </div>
       </DetailCard>
     );
   }
@@ -665,11 +685,14 @@ function VoiceModeShortcutCard() {
 
 function ActivationKeyOption({
   label,
+  badge,
   selected,
   recording = false,
   onClick,
 }: {
-  label: string;
+  label: ReactNode;
+  /** Muted suffix inside the chip, e.g. marking the recommended option. */
+  badge?: string;
   selected: boolean;
   recording?: boolean;
   onClick: () => void;
@@ -696,6 +719,11 @@ function ActivationKeyOption({
         ].join(" ")}
       />
       <span className="text-[var(--content-default)]">{label}</span>
+      {badge && (
+        <span className="text-body-small-default text-[var(--content-quiet)]">
+          {badge}
+        </span>
+      )}
     </button>
   );
 }

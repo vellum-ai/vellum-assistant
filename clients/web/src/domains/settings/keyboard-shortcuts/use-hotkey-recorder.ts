@@ -43,7 +43,15 @@ export interface HotkeyRecorder {
   removeHotkey: (key: string) => void;
 }
 
-export function useHotkeyRecorder(): HotkeyRecorder {
+export function useHotkeyRecorder(options?: {
+  /**
+   * Called after a recorded chord is written. Lets a caller settle anything
+   * the binding is exclusive with, which the recorder itself cannot know
+   * about (Settings, Voice clears Fn here).
+   */
+  onBound?: (key: string) => void;
+}): HotkeyRecorder {
+  const onBound = options?.onBound;
   const [catalog, setCatalog] = useState<ResolvedHotkey[]>([]);
   const [recordingKey, setRecordingKey] = useState<string | null>(null);
   const [conflict, setConflict] = useState<{
@@ -91,12 +99,13 @@ export function useHotkeyRecorder(): HotkeyRecorder {
       }
 
       void setHotkey(recordingKey, accelerator).then(refresh);
+      onBound?.(recordingKey);
       stopRecording();
     };
 
     window.addEventListener("keydown", handleKeydown, true);
     return () => window.removeEventListener("keydown", handleKeydown, true);
-  }, [recordingKey, catalog, refresh, stopRecording]);
+  }, [recordingKey, catalog, onBound, refresh, stopRecording]);
 
   const startRecording = useCallback((key: string) => {
     setConflict(null);

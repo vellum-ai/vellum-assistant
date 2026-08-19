@@ -63,7 +63,7 @@ export function ShortcutRow({
   onReset,
   onRemove,
 }: ShortcutRowProps) {
-  const isDisabled = hotkey.accelerator === "";
+  const isUnbound = hotkey.accelerator === "";
   const isCustomized = hotkey.override !== null;
 
   return (
@@ -85,9 +85,13 @@ export function ShortcutRow({
           <span className="text-body-small-default text-[var(--content-secondary)]">
             Recording… press a shortcut, or Esc to cancel
           </span>
-        ) : isDisabled ? (
+        ) : isUnbound ? (
+          // Not "Disabled": the command still works from its menu item, its
+          // button, or its surface. What is absent is the shortcut, and for a
+          // command that ships without one (Talk) this is the first thing the
+          // user reads, not the result of them removing anything.
           <span className="text-body-small-default italic text-[var(--content-disabled)]">
-            Disabled
+            None
           </span>
         ) : (
           <ShortcutKeys accelerator={hotkey.accelerator} />
@@ -119,7 +123,7 @@ export function ShortcutRow({
         <Button
           variant="ghost"
           size="compact"
-          disabled={isDisabled}
+          disabled={isUnbound}
           leftIcon={<X className="h-3.5 w-3.5" />}
           onClick={onRemove}
           aria-label={`Remove ${hotkey.label} binding`}
