@@ -12,6 +12,7 @@ import {
 import { getLocalSetting, watchSetting } from "@/utils/local-settings";
 import {
   subscribeToHotkeyEvents,
+  supportsConfigurablePushToTalk,
   supportsFnPushToTalk,
   type HotkeyEvent,
 } from "@/runtime/hotkey";
@@ -141,6 +142,7 @@ export function usePushToTalk(
     }
 
     const nativeFnAvailable = supportsFnPushToTalk();
+    const nativeConfigurable = supportsConfigurablePushToTalk();
     const readActivator = () => {
       const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
       activatorRef.current = raw
@@ -267,8 +269,9 @@ export function usePushToTalk(
 
     const handleNativeHotkey = (event: HotkeyEvent) => {
       if (
-        !nativeFnAvailable ||
-        !isFnPushToTalkActivator(activatorRef.current)
+        (!nativeConfigurable &&
+          (!nativeFnAvailable ||
+            !isFnPushToTalkActivator(activatorRef.current)))
       ) {
         return;
       }
@@ -305,13 +308,17 @@ export function usePushToTalk(
     );
     const unsubscribeNative = subscribeToHotkeyEvents(handleNativeHotkey);
 
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
+    if (!nativeConfigurable) {
+      window.addEventListener("keydown", handleKeyDown);
+      window.addEventListener("keyup", handleKeyUp);
+    }
     window.addEventListener("blur", handleBlur);
 
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
+      if (!nativeConfigurable) {
+        window.removeEventListener("keydown", handleKeyDown);
+        window.removeEventListener("keyup", handleKeyUp);
+      }
       window.removeEventListener("blur", handleBlur);
       unsubscribeSetting();
       unsubscribeNative();

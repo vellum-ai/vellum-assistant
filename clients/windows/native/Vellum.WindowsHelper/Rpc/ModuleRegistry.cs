@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace Vellum.WindowsHelper.Rpc;
 
-public sealed class ModuleRegistry
+public sealed class ModuleRegistry : IDisposable
 {
     private const int ParseError = -32700;
     private const int InvalidRequest = -32600;
@@ -97,6 +97,14 @@ public sealed class ModuleRegistry
             throw new RpcMethodNotFoundException(method);
         }
         return module.InvokeAsync(method, parameters, cancellationToken);
+    }
+
+    public void Dispose()
+    {
+        foreach (var disposable in _modulesByMethod.Values.OfType<IDisposable>().Distinct())
+        {
+            disposable.Dispose();
+        }
     }
 
     private static bool TryReadRequest(

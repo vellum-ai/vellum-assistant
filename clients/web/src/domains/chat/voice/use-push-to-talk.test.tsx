@@ -38,6 +38,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  delete window.vellum;
   document.body.innerHTML = "";
   localStorage.clear();
 });
@@ -102,5 +103,40 @@ describe("usePushToTalk", () => {
 
     expect(target.start).not.toHaveBeenCalled();
     expect(target.stop).not.toHaveBeenCalled();
+  });
+
+  test("uses native events without also listening to focused-window keys", async () => {
+    let listener: ((event: { kind: "pushToTalk"; state: "down" | "up" }) => void) | null = null;
+    window.vellum = {
+      platform: "electron",
+      helper: {
+        hotkey: {
+          setPushToTalk: async () => ({ ok: true, enabled: true }),
+          onEvent: (callback) => {
+            listener = callback;
+            return () => {
+              listener = null;
+            };
+          },
+        },
+      },
+    } as typeof window.vellum;
+    localStorage.setItem(
+      LS_PTT_ACTIVATION_KEY,
+      serializeActivator(CTRL_PTT_ACTIVATOR),
+    );
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    renderPushToTalk(target);
+
+    fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
+    await act(async () => {
+      await wait(PTT_HOLD_DELAY_MS + 25);
+    });
+    expect(target.start).not.toHaveBeenCalled();
+
+    act(() => listener?.({ kind: "pushToTalk", state: "down" }));
+    expect(target.start).toHaveBeenCalledTimes(1);
+    act(() => listener?.({ kind: "pushToTalk", state: "up" }));
+    expect(target.stop).toHaveBeenCalledTimes(1);
   });
 });

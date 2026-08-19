@@ -24,6 +24,8 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
   attention state appear on the Windows taskbar.
 - Persisted main-window geometry and maximized state, load/show readiness,
   dynamic assistant titles, and frameless title-bar overlay controls.
+- System-wide push-to-talk through the native Windows keyboard hook. Single-key
+  bindings use a 100 ms hold guard and multi-key chords activate immediately.
 - Static serving of the renderer from `src/main/index.ts`, with
   path-traversal protection from `@vellumai/electron-utils/app-protocol`,
   platform API forwarding, single-instance lock, per-environment `userData`
@@ -61,7 +63,7 @@ use the existing POSIX archive process.
 
 - Gateway (`/assistant/__gateway/{port}/*`) request forwarding. Packaged
   builds cannot reach local gateways until this lands.
-- Native auth / OAuth sign-in chain, notifications, auto-update, CSP, hotkeys,
+- Native auth / OAuth sign-in chain, notifications, auto-update, CSP,
   local-mode IPC (hatch/wake/retire), and device id.
 
 ## Development

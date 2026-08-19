@@ -55,7 +55,10 @@ import {
   LS_VOICE_INPUT_DEVICE,
   getPreferredInputDeviceId,
 } from "@/utils/voice-input-device";
-import { canConfigureFnPushToTalk } from "@/runtime/hotkey";
+import {
+  canConfigureFnPushToTalk,
+  supportsNativePushToTalk,
+} from "@/runtime/hotkey";
 import { routes } from "@/utils/routes";
 import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
 
@@ -399,7 +402,7 @@ function PushToTalkCard() {
   );
 
   const pttEnabled = activator.kind !== "off";
-  const showFocusedTabNote = pttEnabled && !fnPushToTalkConfigurable;
+  const showFocusedTabNote = pttEnabled && !supportsNativePushToTalk();
 
   const selectActivator = useCallback((next: PTTActivator) => {
     setActivator(next);

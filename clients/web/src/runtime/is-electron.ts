@@ -47,6 +47,8 @@ import type {
   NotificationCategory,
   PowerEvent,
   PowerEventKind,
+  PushToTalkActivator,
+  PushToTalkRegistrationResult,
   ResolvedHotkey,
   ShowNotificationPayload,
   SystemPermissionKind,
@@ -146,7 +148,10 @@ declare global {
         restart?(): Promise<HelperRestartResult>;
         onState?(callback: (state: HelperState) => void): () => void;
         hotkey?: {
-          fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
+          fnPushToTalk?(enable: boolean): Promise<FnPushToTalkResult>;
+          setPushToTalk?(
+            activator: PushToTalkActivator | null,
+          ): Promise<PushToTalkRegistrationResult>;
           onEvent(callback: (event: HotkeyEvent) => void): () => void;
         };
         dictation?: {

@@ -7,27 +7,16 @@
  * unless the Electron host bridge asks to preserve the native Fn binding.
  */
 
-export type PTTModifier =
-  "function" | "control" | "shift" | "option" | "command";
+import type {
+  PushToTalkActivator,
+  PushToTalkModifier,
+} from "@vellumai/ipc-contract";
 
-export interface PTTOff {
-  kind: "off";
-}
-
-export interface PTTModifierOnly {
-  kind: "modifierOnly";
-  modifiers: PTTModifier[];
-}
-
-export interface PTTKey {
-  kind: "key";
-  /** Display label for the captured key (e.g. "A", "Space"). */
-  label: string;
-  /** Modifiers held alongside the key, if any. */
-  modifiers: PTTModifier[];
-}
-
-export type PTTActivator = PTTOff | PTTModifierOnly | PTTKey;
+export type PTTModifier = PushToTalkModifier;
+export type PTTActivator = PushToTalkActivator;
+export type PTTOff = Extract<PTTActivator, { kind: "off" }>;
+export type PTTModifierOnly = Extract<PTTActivator, { kind: "modifierOnly" }>;
+export type PTTKey = Extract<PTTActivator, { kind: "key" }>;
 
 export const LS_PTT_ACTIVATION_KEY = "vellum:voice:activationKey";
 export const CTRL_PTT_ACTIVATOR: PTTModifierOnly = {

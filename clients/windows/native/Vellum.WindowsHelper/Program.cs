@@ -9,7 +9,7 @@ Console.CancelKeyPress += (_, eventArgs) =>
     shutdown.Cancel();
 };
 
-var registry = ModuleRegistry.Discover(Assembly.GetExecutingAssembly());
+using var registry = ModuleRegistry.Discover(Assembly.GetExecutingAssembly());
 ObservationSeams.CuSource = new WindowsCuObservationSource();
 try
 {
@@ -20,8 +20,7 @@ try
         {
             continue;
         }
-        await Console.Out.WriteLineAsync(response);
-        await Console.Out.FlushAsync(shutdown.Token);
+        await RpcOutput.WriteLineAsync(response, shutdown.Token);
     }
 }
 catch (OperationCanceledException) when (shutdown.IsCancellationRequested)

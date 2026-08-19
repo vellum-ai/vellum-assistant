@@ -5,28 +5,50 @@ import {
   LS_PTT_ACTIVATION_KEY,
   isFnPushToTalkActivator,
   parseActivator,
+  serializeActivator,
+  type PTTActivator,
 } from "@/utils/ptt-activator";
 import { getLocalSetting, watchSetting } from "@/utils/local-settings";
-import { setFnPushToTalkEnabled, supportsFnPushToTalk } from "@/runtime/hotkey";
+import {
+  setFnPushToTalkEnabled,
+  setNativePushToTalkActivator,
+  supportsConfigurablePushToTalk,
+  supportsFnPushToTalk,
+  supportsNativePushToTalk,
+} from "@/runtime/hotkey";
 
-function shouldRegisterFnPushToTalk(): boolean {
+function desiredActivator(fnAvailable: boolean): PTTActivator {
   const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
-  const activator = raw
-    ? parseActivator(raw, { preserveFunction: true })
-    : FN_PTT_ACTIVATOR;
-  return isFnPushToTalkActivator(activator);
+  return raw
+    ? parseActivator(raw, { preserveFunction: fnAvailable })
+    : fnAvailable
+      ? FN_PTT_ACTIVATOR
+      : { kind: "off" };
 }
 
 export function useNativePushToTalkRegistration(): void {
   useEffect(() => {
-    if (typeof window === "undefined" || !supportsFnPushToTalk()) {
+    if (typeof window === "undefined" || !supportsNativePushToTalk()) {
       return;
     }
 
+    const configurable = supportsConfigurablePushToTalk();
+    const fnAvailable = supportsFnPushToTalk();
     let disposed = false;
-    let desired = shouldRegisterFnPushToTalk();
-    let applied = false;
+    let desired = desiredActivator(fnAvailable);
+    let appliedKey: string | null = null;
     let syncInFlight: Promise<void> | null = null;
+
+    const apply = async (activator: PTTActivator): Promise<boolean> => {
+      if (configurable) {
+        return setNativePushToTalkActivator(
+          activator.kind === "off" ? null : activator,
+        );
+      }
+      return setFnPushToTalkEnabled(
+        fnAvailable && isFnPushToTalkActivator(activator),
+      );
+    };
 
     const sync = () => {
       if (syncInFlight) {
@@ -34,16 +56,17 @@ export function useNativePushToTalkRegistration(): void {
       }
 
       syncInFlight = (async () => {
-        while (!disposed && applied !== desired) {
+        while (!disposed) {
           const next = desired;
-          const ok = await setFnPushToTalkEnabled(next);
-          if (!ok) {
-            if (next) {
-              applied = false;
-            }
+          const nextKey = serializeActivator(next);
+          if (appliedKey === nextKey) {
             return;
           }
-          applied = next;
+          const ok = await apply(next);
+          if (!ok) {
+            return;
+          }
+          appliedKey = nextKey;
         }
       })().finally(() => {
         syncInFlight = null;
@@ -51,7 +74,7 @@ export function useNativePushToTalkRegistration(): void {
     };
 
     const updateDesiredRegistration = () => {
-      desired = shouldRegisterFnPushToTalk();
+      desired = desiredActivator(fnAvailable);
       sync();
     };
 
@@ -64,9 +87,9 @@ export function useNativePushToTalkRegistration(): void {
     return () => {
       disposed = true;
       unsubscribeSetting();
-      if (applied || desired) {
-        void setFnPushToTalkEnabled(false);
-      }
+      void (configurable
+        ? setNativePushToTalkActivator(null)
+        : setFnPushToTalkEnabled(false));
     };
   }, []);
 }

@@ -122,13 +122,27 @@ export interface ResolvedHotkey {
 
 export type HotkeyEventState = "down" | "up";
 
+export type PushToTalkModifier =
+  | "function"
+  | "control"
+  | "shift"
+  | "option"
+  | "command";
+
+export type PushToTalkActivator =
+  | { kind: "off" }
+  | { kind: "modifierOnly"; modifiers: PushToTalkModifier[] }
+  | { kind: "key"; label: string; modifiers: PushToTalkModifier[] };
+
 export interface HotkeyEvent {
-  kind: "fnPushToTalk";
+  kind: "fnPushToTalk" | "pushToTalk";
   state: HotkeyEventState;
 }
 
 export type FnPushToTalkResult =
   { ok: true; enabled: boolean } | { ok: false; reason: string };
+
+export type PushToTalkRegistrationResult = FnPushToTalkResult;
 
 // ---------------------------------------------------------------------------
 // System permissions
