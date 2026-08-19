@@ -381,6 +381,16 @@ export interface VellumBridge {
      */
     startVoice(): void;
     /**
+     * Turn the session that reads the screen on or off, which is what Watch
+     * does.
+     *
+     * One call for both edges, the way the `toggleWatch` command is: the
+     * surface draws a single control and the window holding the session is the
+     * only side that knows which edge a press is. What comes back is `watching`
+     * on `onState`.
+     */
+    toggleWatch(): void;
+    /**
      * Bring Vellum forward on the conversation the user was last in, which is
      * what pressing the avatar asks for.
      */

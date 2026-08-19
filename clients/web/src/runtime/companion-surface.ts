@@ -78,6 +78,20 @@ export function startCompanionVoice(): void {
 }
 
 /**
+ * Turn the session that reads the screen on or off, which is what Watch does.
+ *
+ * One call for both edges, over the `COMPANION_TOGGLE_WATCH` channel, because
+ * the surface draws one control and the window holding the session is the only
+ * side that knows which edge a press is. Like {@link startCompanionVoice} the
+ * press leaves this renderer immediately and nothing is awaited: what comes
+ * back is `watching` on the pushed state, once the window that owns the session
+ * has one to report.
+ */
+export function toggleCompanionWatch(): void {
+  bridge()?.toggleWatch?.();
+}
+
+/**
  * Bring Vellum forward on the conversation the user was last in, which is what
  * pressing the avatar asks for.
  *

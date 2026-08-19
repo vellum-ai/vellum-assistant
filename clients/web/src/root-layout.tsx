@@ -16,6 +16,7 @@ import {
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { requestVoiceStart } from "@/domains/chat/voice/live-voice/start-voice-request";
+import { toggleWatch } from "@/domains/chat/watch/watch-controller";
 import {
   useAuthStore,
   useIsSessionInitializing,
@@ -328,6 +329,18 @@ export function RootLayout() {
       // shows itself.
       void navigate(routes.assistant);
       requestVoiceStart();
+    },
+    // Wrapped rather than passed by reference: handlers are called with the
+    // command, and this one's only parameter is the controller's test seams.
+    toggleWatch: () => {
+      // Both edges through one call, because the surface draws one control and
+      // this window is the side holding the session.
+      //
+      // Nothing is navigated and the window is deliberately not raised, unlike
+      // `startVoice`. The session reads the user's screen, so the work in front
+      // of them is its subject: bringing Vellum forward would cover the very
+      // thing the session exists to watch.
+      toggleWatch();
     },
     companionSubmit: (command) => {
       if (command.kind !== "companionSubmit") {

@@ -2,6 +2,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { CompanionContext } from "@vellumai/ipc-contract";
+import type * as WatchController from "@/domains/chat/watch/watch-controller";
 
 const published: CompanionContext[] = [];
 // Counted rather than reimplemented: what this hook owns is calling the clear
@@ -21,6 +22,39 @@ mock.module("@/runtime/popout-window", () => ({
   isPopoutWindowLifetime: () => isPopout,
 }));
 
+// The session itself is the watch controller's, and its own test drives the
+// real socket and the real capture. What this hook owns is publishing the flag
+// and ending the session at teardown, so the module is stood in for by the
+// flag and a counted stop.
+let watching = false;
+const watchListeners = new Set<() => void>();
+const stopWatchMock = mock(() => {
+  setWatching(false);
+});
+mock.module(
+  "@/domains/chat/watch/watch-controller",
+  (): Partial<typeof WatchController> => ({
+    stopWatch: stopWatchMock,
+    useWatchStore: {
+      getState: () => ({ watching }),
+      subscribe: (listener: () => void) => {
+        watchListeners.add(listener);
+        return () => {
+          watchListeners.delete(listener);
+        };
+      },
+    } as unknown as typeof WatchController.useWatchStore,
+  }),
+);
+
+/** Flip the session the way the controller does, listeners and all. */
+const setWatching = (next: boolean) => {
+  watching = next;
+  for (const listener of [...watchListeners]) {
+    listener();
+  }
+};
+
 const { useTurnStore } = await import("@/domains/chat/turn-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useChatSessionStore } = await import(
@@ -37,6 +71,9 @@ afterEach(() => {
   cleanup();
   published.length = 0;
   clearWorkingMock.mockClear();
+  stopWatchMock.mockClear();
+  watching = false;
+  watchListeners.clear();
   isPopout = false;
   useTurnStore.getState().resetTurn();
   useConversationStore.setState({ processingConversationIds: new Set() });
@@ -221,5 +258,98 @@ describe("the middle of a turn, where the client looks idle", () => {
     await waitFor(() => {
       expect(latest().working).toBe(false);
     });
+  });
+});
+
+/**
+ * The watch session runs in this window and is drawn on another, so the flag
+ * has to cross the same bridge the tail does. It moves on its own schedule:
+ * the session is started by a command from the surface and can end on its own
+ * when the socket drops, neither of which writes any store the tail reads.
+ */
+describe("the watch flag the companion mirror publishes", () => {
+  test("is false with no session running", () => {
+    render(<Mirror />);
+    expect(latest().watching).toBe(false);
+  });
+
+  test("goes true when a session starts", async () => {
+    render(<Mirror />);
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().watching).toBe(true);
+    });
+  });
+
+  test("goes false again when the session ends", async () => {
+    render(<Mirror />);
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().watching).toBe(true);
+    });
+
+    setWatching(false);
+
+    await waitFor(() => {
+      expect(latest().watching).toBe(false);
+    });
+  });
+
+  /**
+   * Every push is an IPC message and a repaint of a window floating over
+   * another app's work, and the stores under this hook are written far more
+   * often than the card changes.
+   */
+  test("says nothing when the session has not moved", async () => {
+    render(<Mirror />);
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().watching).toBe(true);
+    });
+    const count = published.length;
+
+    setWatching(true);
+    setWatching(true);
+
+    expect(published.length).toBe(count);
+  });
+});
+
+/**
+ * The microphone and the socket are in this window. A layout going away takes
+ * the only thing that could stop them with it, so the session goes with the
+ * layout rather than being left running with nothing able to reach it.
+ */
+describe("the watch session at teardown", () => {
+  test("ends the session on unmount", () => {
+    const view = render(<Mirror />);
+    setWatching(true);
+
+    view.unmount();
+
+    expect(stopWatchMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Ended before the subscriptions go, so the flip is still published. A stop
+   * the surface never hears about leaves a capture indicator standing over a
+   * machine nothing is reading.
+   */
+  test("publishes the session ending before it stops listening", () => {
+    const view = render(<Mirror />);
+    setWatching(true);
+
+    view.unmount();
+
+    expect(latest().watching).toBe(false);
+  });
+
+  test("says nothing when no session was running", () => {
+    const view = render(<Mirror />);
+    const count = published.length;
+
+    view.unmount();
+
+    expect(published.length).toBe(count);
   });
 });

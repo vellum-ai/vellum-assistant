@@ -509,6 +509,9 @@ const bridge: VellumBridge = {
     startVoice: (): void => {
       ipcRenderer.send("vellum:companion:startVoice");
     },
+    toggleWatch: (): void => {
+      ipcRenderer.send("vellum:companion:toggleWatch");
+    },
     activate: (): void => {
       ipcRenderer.send("vellum:companion:activate");
     },
