@@ -308,8 +308,11 @@ export function slackMetadataAsProviderMetadata(
 ): ProviderMessageMetadata {
   return {
     source: "slack",
-    chatId: meta.channelId,
+    conversationExternalId: meta.channelId,
     messageId: meta.channelTs,
+    ...(meta.actorExternalUserId
+      ? { actorExternalId: meta.actorExternalUserId }
+      : {}),
     ...(meta.threadTs ? { threadId: meta.threadTs } : {}),
     ...(meta.displayName ? { displayName: meta.displayName } : {}),
     eventKind: meta.eventKind,

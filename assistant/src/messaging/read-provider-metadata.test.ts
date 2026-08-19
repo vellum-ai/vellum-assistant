@@ -33,11 +33,25 @@ describe("readProviderMetadata", () => {
 
     expect(readProviderMetadata(metadata)).toEqual({
       source: "slack",
-      chatId: CHANNEL,
+      conversationExternalId: CHANNEL,
       messageId: MESSAGE_TS,
       threadId: TARGET_TS,
       eventKind: "message",
     } satisfies ProviderMessageMetadata);
+  });
+
+  it("carries the actor's provider id, not just a display name", () => {
+    // Trust is keyed on the actor everywhere else, and a channel describing
+    // who reacted needs an identity rather than a label.
+    const metadata = JSON.stringify({
+      slackMeta: JSON.stringify(
+        slackRow({ actorExternalUserId: "U0123", displayName: "Jason" }),
+      ),
+    });
+
+    const meta = readProviderMetadata(metadata);
+    expect(meta?.actorExternalId).toBe("U0123");
+    expect(meta?.displayName).toBe("Jason");
   });
 
   it("maps a reaction's target onto the neutral name", () => {
@@ -86,7 +100,7 @@ describe("readProviderMetadata", () => {
     const metadata = JSON.stringify({
       providerMeta: JSON.stringify({
         source: "plugin",
-        chatId: "room-42",
+        conversationExternalId: "room-42",
         messageId: "evt-9",
         threadId: "evt-1",
         eventKind: "reaction",
@@ -120,7 +134,7 @@ describe("readProviderMetadata", () => {
     const metadata = JSON.stringify({
       providerMeta: JSON.stringify({
         source: "slack",
-        chatId: CHANNEL,
+        conversationExternalId: CHANNEL,
         messageId: MESSAGE_TS,
         eventKind: "message",
         slackFiles: [{ name: "diagram.png" }],

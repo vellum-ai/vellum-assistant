@@ -47,11 +47,11 @@ export const providerMessageMetadataSchema = z
   .object({
     source: z.enum(CHANNEL_IDS),
     /**
-     * Provider id of the chat, channel or room this row belongs to. Named for
-     * the conversation address rather than the provider, so it cannot be read as
-     * the `ChannelId` union ("slack", "telegram", ...) that `source` carries.
+     * Provider id of the chat, channel or room this row belongs to. Same name
+     * and meaning as on the inbound wire, where "conversation" is the canonical
+     * word for a delivery address and "channel" names the provider.
      */
-    chatId: z.string(),
+    conversationExternalId: z.string(),
     /** Provider id of this row itself. */
     messageId: z.string(),
     /**
@@ -60,6 +60,13 @@ export const providerMessageMetadataSchema = z
      * exists, and inventing one keys conversations on threads that never do.
      */
     threadId: z.string().optional(),
+    /**
+     * Provider id of whoever authored the row or performed the reaction. Trust
+     * is keyed on this everywhere else, and it is what lets a channel say who
+     * acted; a display name is a label, not an identity. Optional only because
+     * rows written before this shape existed may not carry one.
+     */
+    actorExternalId: z.string().optional(),
     displayName: z.string().optional(),
     /**
      * Only reactions get a row of their own. An edit rewrites the row it

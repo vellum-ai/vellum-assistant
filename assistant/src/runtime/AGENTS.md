@@ -193,9 +193,12 @@ the gateway's Channel Identity Vocabulary, which covers the wire side.
   Slack's own file markers and timezone labels. Every channel-path reader goes
   through it today.
 - **`providerMeta`** is the channel-neutral counterpart of that key
-  (`messaging/provider-message-metadata.ts`): the same structural facts under
-  names no provider owns, writable by any channel including one this repo has
-  no code for. `readProviderMetadata` reads it and maps `slackMeta` onto it.
+  (`messaging/provider-message-metadata.ts`): `conversationExternalId`,
+  `messageId`, `threadId`, `actorExternalId`, `eventKind` and
+  `reaction.targetMessageId`, deliberately the same vocabulary the inbound
+  wire uses in `InboundEventBase`, so a channel that can describe itself at
+  ingress can describe its stored rows without a translation of its own.
+  Writable by any channel, including one this repo has no code for. `readProviderMetadata` reads it and maps `slackMeta` onto it.
   **Nothing writes or reads it yet**; it is the home a new channel should use
   rather than inventing a sixth key, and existing readers move onto it as
   channels adopt it.
