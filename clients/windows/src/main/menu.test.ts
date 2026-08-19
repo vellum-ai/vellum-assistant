@@ -72,13 +72,19 @@ describe("installWindowsMenu", () => {
     openAbout: () => undefined,
   });
 
-  test("reports the top-level menu titles", () => {
+  test("reports the top-level menu ids and labels", () => {
     const titles = handlers.get("vellum:menu:titles")?.([], {});
-    expect(titles).toEqual(["File", "Edit", "View", "Window", "Help"]);
+    expect(titles).toEqual([
+      { id: "file", label: "File" },
+      { id: "edit", label: "Edit" },
+      { id: "view", label: "View" },
+      { id: "window", label: "Window" },
+      { id: "help", label: "Help" },
+    ]);
   });
 
   test("pops the requested submenu at zoom-scaled coordinates", async () => {
-    await handlers.get("vellum:menu:popup")?.(["Edit", 100, 44], {
+    await handlers.get("vellum:menu:popup")?.(["edit", 100, 44], {
       sender: { getZoomFactor: () => 1.25 },
     });
     expect(popups).toHaveLength(1);
@@ -89,8 +95,8 @@ describe("installWindowsMenu", () => {
     expect(items.some((item) => item.role === "undo")).toBe(true);
   });
 
-  test("ignores popups for unknown titles", async () => {
-    await handlers.get("vellum:menu:popup")?.(["Nope", 0, 0], {
+  test("ignores popups for unknown ids", async () => {
+    await handlers.get("vellum:menu:popup")?.(["nope", 0, 0], {
       sender: { getZoomFactor: () => 1 },
     });
     expect(popups).toHaveLength(1);

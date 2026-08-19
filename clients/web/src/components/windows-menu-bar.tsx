@@ -1,7 +1,17 @@
 import { Button } from "@vellumai/design-library";
 import { useEffect, useState } from "react";
 
-import { getMenuBarTitles, popupMenuBarMenu } from "@/runtime/menu";
+import { useTranslation } from "@/i18n";
+import {
+  getMenuBarEntries,
+  popupMenuBarMenu,
+  type MenuBarEntry,
+} from "@/runtime/menu";
+
+// Edit and Window carry only stock role items (undo/copy/minimize...) whose
+// shortcuts everyone knows; hiding them keeps the bar short. Their items stay
+// reachable through the (hidden) application menu's accelerators.
+const HIDDEN_MENU_IDS = new Set(["edit", "window"]);
 
 /**
  * In-title-bar menu bar for the Windows desktop shell.
@@ -13,20 +23,25 @@ import { getMenuBarTitles, popupMenuBarMenu } from "@/runtime/menu";
  * accelerators, and enabled states stay owned by the shell's one menu
  * template (`clients/windows/src/main/menu.ts`).
  *
- * Self-gating: renders nothing until the shell reports its menu titles.
- * Off Electron, on macOS (whose menu bar the system draws), and on shells
- * that predate the popup bridge, the titles query resolves empty and the
- * bar stays unmounted.
+ * Mounted in both title-bar surfaces: `ChatLayoutHeader` (the inline title
+ * bar on chat routes) and `WindowDragRegion` (the fallback strip everywhere
+ * else), so the menus survive navigation to routes without the chat layout.
+ *
+ * Self-gating: renders nothing until the shell reports its menus. Off
+ * Electron, on macOS (whose menu bar the system draws), and on shells that
+ * predate the popup bridge, the query resolves empty and the bar stays
+ * unmounted.
  */
 export function WindowsMenuBar() {
-  const [titles, setTitles] = useState<string[]>([]);
-  const [openTitle, setOpenTitle] = useState<string | null>(null);
+  const { t } = useTranslation();
+  const [entries, setEntries] = useState<MenuBarEntry[]>([]);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void getMenuBarTitles().then((fetched) => {
+    void getMenuBarEntries().then((fetched) => {
       if (!cancelled) {
-        setTitles(fetched);
+        setEntries(fetched.filter((entry) => !HIDDEN_MENU_IDS.has(entry.id)));
       }
     });
     return () => {
@@ -34,42 +49,55 @@ export function WindowsMenuBar() {
     };
   }, []);
 
-  if (titles.length === 0) {
+  if (entries.length === 0) {
     return null;
   }
 
-  const openMenu = (title: string, button: HTMLElement) => {
+  // The shell reports stable menu ids; the visible label comes from the
+  // catalog. An id the catalog doesn't know yet (a newer shell) falls back
+  // to the shell's own label rather than disappearing.
+  const labels: Record<string, string | undefined> = {
+    file: t("windowsMenuBar.file"),
+    view: t("windowsMenuBar.view"),
+    developer: t("windowsMenuBar.developer"),
+    help: t("windowsMenuBar.help"),
+  };
+
+  const openMenu = (id: string, button: HTMLElement) => {
     const rect = button.getBoundingClientRect();
-    setOpenTitle(title);
+    setOpenId(id);
     void popupMenuBarMenu(
-      title,
+      id,
       Math.round(rect.left),
       Math.round(rect.bottom),
     ).finally(() => {
       // The popup call resolves when the native menu closes; only the menu
       // that is still marked open clears the highlight, so a click that
-      // opened another title meanwhile keeps its own state.
-      setOpenTitle((current) => (current === title ? null : current));
+      // opened another menu meanwhile keeps its own state.
+      setOpenId((current) => (current === id ? null : current));
     });
   };
 
   return (
     <div role="menubar" className="flex items-center">
-      {titles.map((title) => (
+      {entries.map((entry) => (
         <Button
-          key={title}
+          key={entry.id}
           role="menuitem"
           aria-haspopup="menu"
-          aria-expanded={openTitle === title}
+          aria-expanded={openId === entry.id}
           variant="ghost"
-          size="compact"
-          active={openTitle === title}
-          className="[--vbtn-fg:var(--content-secondary)]"
+          active={openId === entry.id}
+          // Regular size for the text scale of the neighboring header
+          // buttons, slimmed to menu-bar proportions; tertiary content
+          // color keeps the labels quiet in every theme. no-drag: both
+          // mounts sit inside a window-drag surface.
+          className="h-6 px-2 [--vbtn-fg:var(--content-tertiary)] [-webkit-app-region:no-drag]"
           onClick={(event) => {
-            openMenu(title, event.currentTarget);
+            openMenu(entry.id, event.currentTarget);
           }}
         >
-          {title}
+          {labels[entry.id] ?? entry.label}
         </Button>
       ))}
     </div>

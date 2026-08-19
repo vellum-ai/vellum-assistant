@@ -7,12 +7,18 @@ export async function setMenuPlatformSession(has: boolean): Promise<void> {
   await window.vellum?.menu.setPlatformSession(has);
 }
 
+/** One top-level native menu: a stable id plus the shell's own label. */
+export interface MenuBarEntry {
+  id: string;
+  label: string;
+}
+
 /**
- * Titles of the native application menus, for the Windows in-title-bar menu
- * bar. Empty off Electron, on macOS (the system draws its menu bar), and on
+ * The native application menus, for the Windows in-title-bar menu bar.
+ * Empty off Electron, on macOS (the system draws its menu bar), and on
  * shells that predate the menu popup bridge.
  */
-export async function getMenuBarTitles(): Promise<string[]> {
+export async function getMenuBarEntries(): Promise<MenuBarEntry[]> {
   if (!isElectron()) {
     return [];
   }
@@ -20,16 +26,16 @@ export async function getMenuBarTitles(): Promise<string[]> {
 }
 
 /**
- * Pop the native menu named `title` at (`x`, `y`), in CSS pixels relative to
- * the window. Resolves when the menu closes.
+ * Pop the native menu with the given id at (`x`, `y`), in CSS pixels
+ * relative to the window. Resolves when the menu closes.
  */
 export async function popupMenuBarMenu(
-  title: string,
+  id: string,
   x: number,
   y: number,
 ): Promise<void> {
   if (!isElectron()) {
     return;
   }
-  await window.vellum?.menu.popup?.(title, x, y);
+  await window.vellum?.menu.popup?.(id, x, y);
 }

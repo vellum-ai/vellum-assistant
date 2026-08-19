@@ -41,6 +41,7 @@ export const buildWindowsMenu = ({
   installCli,
 }: Omit<WindowsMenuOptions, "handle">): MenuItemConstructorOptions[] => [
   {
+    id: "file",
     label: "File",
     submenu: [
       commandItem("New Conversation", { kind: "newConversation" }),
@@ -69,6 +70,7 @@ export const buildWindowsMenu = ({
     ],
   },
   {
+    id: "edit",
     label: "Edit",
     submenu: [
       { role: "undo" },
@@ -83,6 +85,7 @@ export const buildWindowsMenu = ({
     ],
   },
   {
+    id: "view",
     label: "View",
     submenu: [
       commandItem("Toggle Sidebar", { kind: "sidebarToggle" }),
@@ -101,6 +104,7 @@ export const buildWindowsMenu = ({
     ],
   },
   {
+    id: "window",
     label: "Window",
     submenu: [
       { role: "minimize" },
@@ -112,6 +116,7 @@ export const buildWindowsMenu = ({
   ...(!app.isPackaged
     ? [
         {
+          id: "developer",
           label: "Developer",
           submenu: [
             commandItem("Choose Assistant...", { kind: "chooseAssistant" }),
@@ -124,6 +129,7 @@ export const buildWindowsMenu = ({
       ]
     : []),
   {
+    id: "help",
     label: "Help",
     submenu: [
       ...(app.isPackaged
@@ -165,17 +171,21 @@ export const installWindowsMenu = (options: WindowsMenuOptions): void => {
   );
   // The main window hides the native frame (`titleBarStyle: "hidden"`), which
   // hides the OS menu bar with it. The renderer draws the top-level titles in
-  // its title bar and pops the real native submenus here, so items,
-  // accelerators, and enabled states keep the one template above as owner.
+  // its title bar (localizing them by id) and pops the real native submenus
+  // here, so items, accelerators, and enabled states keep the one template
+  // above as owner.
   options.handle("vellum:menu:titles", z.tuple([]), () =>
-    buildWindowsMenu(options).map((item) => String(item.label)),
+    buildWindowsMenu(options).map((item) => ({
+      id: String(item.id),
+      label: String(item.label),
+    })),
   );
   options.handle(
     "vellum:menu:popup",
     z.tuple([z.string(), z.number(), z.number()]),
-    ([title, x, y], event) => {
+    ([id, x, y], event) => {
       const submenu = buildWindowsMenu(options).find(
-        (item) => item.label === title,
+        (item) => item.id === id,
       )?.submenu;
       const win = BrowserWindow.fromWebContents(event.sender);
       if (!Array.isArray(submenu) || !win || win.isDestroyed()) {

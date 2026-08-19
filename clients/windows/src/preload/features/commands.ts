@@ -18,9 +18,11 @@ const commandsFeature: CapabilityModule<
           has,
         ) as Promise<void>,
       titles: () =>
-        ipcRenderer.invoke("vellum:menu:titles") as Promise<string[]>,
-      popup: (title, x, y) =>
-        ipcRenderer.invoke("vellum:menu:popup", title, x, y) as Promise<void>,
+        ipcRenderer.invoke("vellum:menu:titles") as Promise<
+          Array<{ id: string; label: string }>
+        >,
+      popup: (id, x, y) =>
+        ipcRenderer.invoke("vellum:menu:popup", id, x, y) as Promise<void>,
     });
   },
 };

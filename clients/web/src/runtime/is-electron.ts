@@ -200,8 +200,8 @@ declare global {
       };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;
-        titles?(): Promise<string[]>;
-        popup?(title: string, x: number, y: number): Promise<void>;
+        titles?(): Promise<Array<{ id: string; label: string }>>;
+        popup?(id: string, x: number, y: number): Promise<void>;
       };
       localMode: {
         hatch(
