@@ -486,6 +486,12 @@ export async function pairDeliveryWithConversation(
  * `access-req-*` strings) as `sourceContextId`; those resolve to nothing and
  * append nothing, which matches the button staying hidden for them.
  *
+ * This covers vellum deliveries only, since no other channel takes the
+ * passive branch. A signal routed away from vellum still gets a card, so
+ * `writeHomeFeedItemForSignal` writes the body itself when no vellum
+ * conversation was paired. Between them the button holds whatever the
+ * routing was, and only one of the two ever writes.
+ *
  * Indexing is skipped for parity with the other notification write paths:
  * notification copy is delivery audit, not conversational memory.
  */

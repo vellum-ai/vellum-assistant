@@ -17,7 +17,10 @@ import {
   feedItemSchema,
 } from "../home/feed-types.js";
 import { appendFeedItem } from "../home/feed-writer.js";
-import { getConversation } from "../persistence/conversation-crud.js";
+import {
+  addMessage,
+  getConversation,
+} from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { getLogger } from "../util/logger.js";
 import { normalizeTitle, stripMarkdown } from "../util/short-title.js";
@@ -33,15 +36,16 @@ const log = getLogger("home-feed-side-effect");
  * Append a `FeedItem` for the given notification signal when the
  * filter criteria pass.
  *
- * `fallbackConversationId` is used as the feed item's "Go to Convo"
- * navigation target when `signal.sourceContextId` doesn't resolve to a
- * real conversation row. The notification broadcaster pairs the vellum
- * delivery with a conversation (newly created or reused) before this
- * function runs, so callers can thread that paired id through here for
- * producers whose `sourceContextId` is a sentinel (heartbeat startup,
- * credential health, watcher emits, scheduler retries-exhausted) — the
- * feed item will then carry the paired delivery conversation and the
- * "Go to Convo" button can render.
+ * `pairedVellumConversationId` is the conversation the broadcaster paired
+ * with this signal's vellum delivery, and it carries two meanings here.
+ *
+ * As a navigation target it stands in for a `signal.sourceContextId` that
+ * doesn't resolve to a real conversation row, so producers passing a
+ * sentinel (heartbeat startup, credential health, watcher emits, scheduler
+ * retries-exhausted) still render a "Go to Convo" button.
+ *
+ * Its absence also means no vellum delivery wrote the notification body into
+ * a conversation, which is what the trailing append below acts on.
  *
  * Returns the persisted `FeedItem`, or `null` if the signal does not
  * qualify for home-feed mirroring (non-background origin AND no
@@ -50,10 +54,10 @@ const log = getLogger("home-feed-side-effect");
 export async function writeHomeFeedItemForSignal(
   signal: NotificationSignal,
   decision: NotificationDecision,
-  fallbackConversationId?: string,
+  pairedVellumConversationId?: string,
 ): Promise<FeedItem | null> {
   const { mirror, sourceConversationId, sourceScheduleJobId } =
-    resolveHomeFeedMirror(signal, fallbackConversationId);
+    resolveHomeFeedMirror(signal, pairedVellumConversationId);
   if (!mirror) {
     return null;
   }
@@ -153,7 +157,59 @@ export async function writeHomeFeedItemForSignal(
   }
 
   await appendFeedItem(item);
+
+  if (!pairedVellumConversationId && sourceConversationId) {
+    await appendSummaryToFeedTarget(signal, sourceConversationId, item.summary);
+  }
+
   return item;
+}
+
+/**
+ * Write the card's own summary into the conversation its "Go to Convo"
+ * button opens.
+ *
+ * That button targets the producing conversation whatever the routing, but
+ * only the vellum delivery writes a notification body into a conversation
+ * (`pairDeliveryWithConversation` appends there for passive signals). A
+ * signal the decision engine routes to Slack or Telegram alone pairs no
+ * vellum conversation, so without this the button opens a conversation that
+ * never received what the card shows. A paired vellum id means that write
+ * already happened, and this is skipped.
+ *
+ * The caller has already read `sourceConversationId` back from the store to
+ * gate the mirror, so the row is known to exist and needs no second lookup:
+ * with no paired id to fall back on, a resolved target can only be the
+ * producing conversation itself.
+ *
+ * Indexing is skipped for parity with the other notification write paths:
+ * notification copy is delivery audit, not conversational memory. Failures
+ * are logged rather than thrown, so a message write cannot undo a card that
+ * is already on disk.
+ */
+async function appendSummaryToFeedTarget(
+  signal: NotificationSignal,
+  conversationId: string,
+  summary: string,
+): Promise<void> {
+  try {
+    const message = await addMessage(conversationId, "assistant", summary, {
+      skipIndexing: true,
+    });
+    log.info(
+      {
+        signalId: signal.signalId,
+        conversationId,
+        messageId: message.id,
+      },
+      "Appended notification body to the feed item's conversation",
+    );
+  } catch (err) {
+    log.warn(
+      { err, signalId: signal.signalId, conversationId },
+      "Failed to append notification body to the feed item's conversation",
+    );
+  }
 }
 
 /**

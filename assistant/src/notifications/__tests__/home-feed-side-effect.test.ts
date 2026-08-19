@@ -13,8 +13,15 @@ import type { NotificationDecision } from "../types.js";
 
 const appendCalls: FeedItem[] = [];
 const conversationLookups: string[] = [];
+const messageAppends: Array<{
+  conversationId: string;
+  role: string;
+  content: string;
+  options?: { skipIndexing?: boolean };
+}> = [];
 let conversationRow: { conversationType: string } | null = null;
 let conversationLookupShouldThrow = false;
+let messageAppendShouldThrow = false;
 
 mock.module("../../home/feed-writer.js", () => ({
   appendFeedItem: async (item: FeedItem) => {
@@ -29,6 +36,18 @@ mock.module("../../persistence/conversation-crud.js", () => ({
       throw new Error("simulated conversation lookup failure");
     }
     return conversationRow;
+  },
+  addMessage: async (
+    conversationId: string,
+    role: string,
+    content: string,
+    options?: { skipIndexing?: boolean },
+  ) => {
+    if (messageAppendShouldThrow) {
+      throw new Error("simulated message write failure");
+    }
+    messageAppends.push({ conversationId, role, content, options });
+    return { id: `msg-${messageAppends.length}` };
   },
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
@@ -76,8 +95,10 @@ function makeDecision(
 beforeEach(() => {
   appendCalls.length = 0;
   conversationLookups.length = 0;
+  messageAppends.length = 0;
   conversationRow = null;
   conversationLookupShouldThrow = false;
+  messageAppendShouldThrow = false;
 });
 
 describe("writeHomeFeedItemForSignal", () => {
@@ -839,5 +860,126 @@ describe("writeHomeFeedItemForSignal", () => {
 
     expect(item?.noteworthy).toBe(true);
     expect(appendCalls[0]!.noteworthy).toBe(true);
+  });
+
+  describe("body append into the feed item's conversation", () => {
+    test("appends the card summary when no vellum conversation was paired", async () => {
+      // The Slack/Telegram-only routing case: nothing paired a vellum
+      // conversation, so this seam is the only writer that can put the body
+      // where the card's button points.
+      conversationRow = { conversationType: "background" };
+      const signal = makeSignal({
+        contextPayload: { title: "Nightly briefing" },
+      });
+      const decision = makeDecision({
+        selectedChannels: ["telegram"],
+        renderedCopy: {
+          telegram: { title: "Nightly briefing", body: "Three things today." },
+        },
+      });
+
+      const item = await writeHomeFeedItemForSignal(signal, decision);
+
+      expect(item?.conversationId).toBe("conv-source-1");
+      expect(messageAppends).toHaveLength(1);
+      expect(messageAppends[0]).toMatchObject({
+        conversationId: "conv-source-1",
+        role: "assistant",
+        content: "Three things today.",
+        options: { skipIndexing: true },
+      });
+    });
+
+    test("writes exactly the summary the card renders", async () => {
+      // The button's promise is that the conversation holds what the card
+      // shows, so the two read from the same resolved text.
+      conversationRow = { conversationType: "background" };
+      const signal = makeSignal();
+      const decision = makeDecision({
+        selectedChannels: ["slack"],
+        renderedCopy: {
+          slack: {
+            title: "Digest",
+            body: "Short popup line.",
+            conversationSeedMessage:
+              "**Digest**\n\n- First item\n- Second item",
+          },
+        },
+      });
+
+      const item = await writeHomeFeedItemForSignal(signal, decision);
+
+      expect(messageAppends[0]!.content).toBe(item!.summary);
+      expect(messageAppends[0]!.content).toBe(
+        "**Digest**\n\n- First item\n- Second item",
+      );
+    });
+
+    test("skips the append when the vellum delivery already paired a conversation", async () => {
+      // `pairDeliveryWithConversation` owns the write whenever vellum
+      // delivers; a second one here would duplicate the body.
+      conversationRow = { conversationType: "background" };
+      const signal = makeSignal();
+      const decision = makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: {
+          vellum: { title: "Nightly briefing", body: "Three things today." },
+        },
+      });
+
+      const item = await writeHomeFeedItemForSignal(
+        signal,
+        decision,
+        "conv-source-1",
+      );
+
+      expect(item?.conversationId).toBe("conv-source-1");
+      expect(messageAppends).toHaveLength(0);
+    });
+
+    test("skips the append when a sentinel source context leaves no target", async () => {
+      // No resolvable conversation means the client hides the button, so
+      // there is nothing to keep honest.
+      conversationRow = null;
+      const signal = makeSignal({
+        sourceContextId: "job-1700000000",
+        attentionHints: {
+          requiresAction: false,
+          urgency: "medium",
+          isAsyncBackground: true,
+          visibleInSourceNow: false,
+        },
+      });
+      const decision = makeDecision({
+        selectedChannels: ["telegram"],
+        renderedCopy: {
+          telegram: { title: "Retries exhausted", body: "Gave up after 3." },
+        },
+      });
+
+      const item = await writeHomeFeedItemForSignal(signal, decision);
+
+      expect(item).not.toBeNull();
+      expect(item?.conversationId).toBeUndefined();
+      expect(messageAppends).toHaveLength(0);
+    });
+
+    test("a failed message write leaves the persisted feed item intact", async () => {
+      conversationRow = { conversationType: "background" };
+      messageAppendShouldThrow = true;
+      const signal = makeSignal();
+      const decision = makeDecision({
+        selectedChannels: ["telegram"],
+        renderedCopy: {
+          telegram: { title: "Nightly briefing", body: "Three things today." },
+        },
+      });
+
+      const item = await writeHomeFeedItemForSignal(signal, decision);
+
+      expect(item).not.toBeNull();
+      expect(appendCalls).toHaveLength(1);
+      expect(messageAppends).toHaveLength(0);
+    });
   });
 });
