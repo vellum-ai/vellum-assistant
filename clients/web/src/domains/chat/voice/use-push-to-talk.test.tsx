@@ -77,17 +77,42 @@ describe("usePushToTalk", () => {
     renderPushToTalk(target);
     const textarea = focusedTextarea();
 
-    fireEvent.keyDown(textarea, { key: "Control", ctrlKey: true });
+    expect(
+      fireEvent.keyDown(textarea, { key: "Control", ctrlKey: true }),
+    ).toBe(false);
     expect(target.start).not.toHaveBeenCalled();
 
-    fireEvent.keyDown(textarea, {
-      key: "Shift",
-      ctrlKey: true,
-      shiftKey: true,
-    });
+    expect(
+      fireEvent.keyDown(textarea, {
+        key: "Shift",
+        ctrlKey: true,
+        shiftKey: true,
+      }),
+    ).toBe(false);
     expect(target.start).toHaveBeenCalledTimes(1);
 
     fireEvent.keyUp(textarea, { key: "Shift", ctrlKey: true });
+    expect(target.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("claims Alt before the application menu can take focus", async () => {
+    localStorage.setItem(
+      LS_PTT_ACTIVATION_KEY,
+      serializeActivator({ kind: "modifierOnly", modifiers: ["option"] }),
+    );
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    renderPushToTalk(target);
+    const textarea = focusedTextarea();
+
+    expect(
+      fireEvent.keyDown(textarea, { key: "Alt", altKey: true }),
+    ).toBe(false);
+    await act(async () => {
+      await wait(PTT_HOLD_DELAY_MS + 25);
+    });
+    expect(target.start).toHaveBeenCalledTimes(1);
+
+    expect(fireEvent.keyUp(textarea, { key: "Alt" })).toBe(false);
     expect(target.stop).toHaveBeenCalledTimes(1);
   });
 

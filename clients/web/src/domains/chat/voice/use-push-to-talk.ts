@@ -8,6 +8,7 @@ import {
   isFnPushToTalkActivator,
   parseActivator,
   type PTTActivator,
+  type PTTModifier,
 } from "@/utils/ptt-activator";
 import { getLocalSetting, watchSetting } from "@/utils/local-settings";
 import {
@@ -52,6 +53,12 @@ function isEditableTarget(target: EventTarget | null): boolean {
 
 /** Hold guard for a single key or modifier. */
 const PTT_HOLD_DELAY_MS = 100;
+const MODIFIER_BY_KEY: Partial<Record<string, PTTModifier>> = {
+  Alt: "option",
+  Control: "control",
+  Meta: "command",
+  Shift: "shift",
+};
 
 function activatesImmediately(activator: PTTActivator): boolean {
   if (activator.kind === "off") {
@@ -62,6 +69,23 @@ function activatesImmediately(activator: PTTActivator): boolean {
   ).length;
   const inputCount = modifierCount + (activator.kind === "key" ? 1 : 0);
   return inputCount > 1;
+}
+
+function isActivatorInput(
+  event: KeyboardEvent,
+  activator: PTTActivator,
+): boolean {
+  if (activator.kind === "off") {
+    return false;
+  }
+  if (eventActivatesPTT(event, activator)) {
+    return true;
+  }
+  if (activator.kind !== "modifierOnly") {
+    return false;
+  }
+  const modifier = MODIFIER_BY_KEY[event.key];
+  return modifier !== undefined && activator.modifiers.includes(modifier);
 }
 
 /**
@@ -193,11 +217,14 @@ export function usePushToTalk(
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.repeat) {
-        return;
-      }
       const activator = activatorRef.current;
       if (activator.kind === "off") {
+        return;
+      }
+      if (isActivatorInput(event, activator)) {
+        event.preventDefault();
+      }
+      if (event.repeat) {
         return;
       }
 
@@ -244,6 +271,9 @@ export function usePushToTalk(
       const activator = activatorRef.current;
       if (activator.kind === "off") {
         return;
+      }
+      if (isActivatorInput(event, activator)) {
+        event.preventDefault();
       }
 
       // For key activators with required modifiers (e.g. Ctrl+K), cancel
@@ -322,13 +352,13 @@ export function usePushToTalk(
     );
     const unsubscribeNative = subscribeToHotkeyEvents(handleNativeHotkey);
 
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
     window.addEventListener("blur", handleBlur);
 
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
       window.removeEventListener("blur", handleBlur);
       unsubscribeSetting();
       unsubscribeNative();
