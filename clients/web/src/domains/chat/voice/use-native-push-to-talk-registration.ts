@@ -57,6 +57,9 @@ export function useNativePushToTalkRegistration(): void {
           setConfigurablePushToTalkActive(ok && next.kind !== "off");
           if (!ok) {
             appliedKey = null;
+            if (serializeActivator(desired) !== nextKey) {
+              continue;
+            }
             return;
           }
           appliedKey = nextKey;

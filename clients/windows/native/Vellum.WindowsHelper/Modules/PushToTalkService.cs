@@ -95,7 +95,7 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
             reason = string.Empty;
             return true;
         }
-        var hook = new GlobalKeyboardHook(OnKeyboardEvent);
+        var hook = new GlobalKeyboardHook(OnKeyboardEvent, ShouldSuppress);
         if (!hook.Start(out reason))
         {
             hook.Dispose();
@@ -133,6 +133,14 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
             }
         }
         Emit(transition);
+    }
+
+    private bool ShouldSuppress(ushort key)
+    {
+        lock (_gate)
+        {
+            return _tracker.Consumes(key);
+        }
     }
 
     private void ActivatePending(long generation)
@@ -269,6 +277,7 @@ internal sealed partial class GlobalKeyboardHook : IDisposable
     private const uint Injected = 0x10;
 
     private readonly Action<ushort, bool> _onKey;
+    private readonly Func<ushort, bool> _shouldSuppress;
     private readonly HookProc _callback;
     private readonly PhysicalKeyTracker _physicalKeys = new();
     private Thread? _thread;
@@ -276,9 +285,12 @@ internal sealed partial class GlobalKeyboardHook : IDisposable
     private nint _hook;
     private string? _startError;
 
-    public GlobalKeyboardHook(Action<ushort, bool> onKey)
+    public GlobalKeyboardHook(
+        Action<ushort, bool> onKey,
+        Func<ushort, bool> shouldSuppress)
     {
         _onKey = onKey;
+        _shouldSuppress = shouldSuppress;
         _callback = HookCallback;
     }
 
@@ -334,6 +346,7 @@ internal sealed partial class GlobalKeyboardHook : IDisposable
 
     private nint HookCallback(int code, nuint message, nint data)
     {
+        var suppress = false;
         if (code >= 0)
         {
             var input = Marshal.PtrToStructure<LowLevelKeyboardInput>(data);
@@ -343,9 +356,15 @@ internal sealed partial class GlobalKeyboardHook : IDisposable
                 var up = message is KeyUp or SystemKeyUp;
                 if (down || up)
                 {
-                    ForwardPhysicalKey((ushort)input.VirtualKey, down);
+                    var physicalKey = (ushort)input.VirtualKey;
+                    suppress = _shouldSuppress(PhysicalKeyTracker.Normalize(physicalKey));
+                    ForwardPhysicalKey(physicalKey, down);
                 }
             }
+        }
+        if (suppress)
+        {
+            return 1;
         }
         return CallNextHookEx(_hook, code, message, data);
     }

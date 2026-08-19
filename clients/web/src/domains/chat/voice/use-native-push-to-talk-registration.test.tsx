@@ -110,3 +110,56 @@ test("retries a prior chord after a failed binding change", async () => {
   await waitFor(() => expect(registrations).toHaveLength(3));
   expect(registrations[2]).toEqual(CTRL_PTT_ACTIVATOR);
 });
+
+test("registers the latest binding after an in-flight failure", async () => {
+  const registrations: Array<PushToTalkActivator | null> = [];
+  let rejectOption = (): void => undefined;
+  const optionResult = new Promise<{ ok: boolean; reason: string }>((resolve) => {
+    rejectOption = () => resolve({ ok: false, reason: "unavailable" });
+  });
+  window.vellum = {
+    platform: "electron",
+    helper: {
+      hotkey: {
+        setPushToTalk: async (activator: PushToTalkActivator | null) => {
+          registrations.push(activator);
+          if (
+            activator?.kind === "modifierOnly" &&
+            activator.modifiers.includes("option")
+          ) {
+            return optionResult;
+          }
+          return { ok: true, enabled: activator !== null };
+        },
+        onEvent: () => () => undefined,
+        onRegistrationChange: () => () => undefined,
+      },
+    },
+  } as unknown as typeof window.vellum;
+  localStorage.setItem(
+    LS_PTT_ACTIVATION_KEY,
+    serializeActivator(CTRL_PTT_ACTIVATOR),
+  );
+  renderHook(() => useNativePushToTalkRegistration());
+  await waitFor(() => expect(registrations).toHaveLength(1));
+
+  setLocalSetting(
+    LS_PTT_ACTIVATION_KEY,
+    serializeActivator({ kind: "modifierOnly", modifiers: ["option"] }),
+  );
+  await waitFor(() => expect(registrations).toHaveLength(2));
+  setLocalSetting(
+    LS_PTT_ACTIVATION_KEY,
+    serializeActivator({
+      kind: "modifierOnly",
+      modifiers: ["control", "shift"],
+    }),
+  );
+
+  rejectOption();
+  await waitFor(() => expect(registrations).toHaveLength(3));
+  expect(registrations[2]).toEqual({
+    kind: "modifierOnly",
+    modifiers: ["control", "shift"],
+  });
+});

@@ -9,6 +9,7 @@ public static class PushToTalkChordTrackerTests
         SingleKeyRequiresHold();
         ExtraKeyCancelsPendingActivation();
         ChordActivatesImmediately();
+        ConfiguredKeysAreConsumed();
         ReconfigurationReleasesActiveChord();
         ResolvesBrowserKeyLabels();
         KeepsSidedModifiersPressed();
@@ -39,6 +40,15 @@ public static class PushToTalkChordTrackerTests
         Assert(tracker.KeyDown(0x11) == PushToTalkTransition.None);
         Assert(tracker.KeyDown(0x10) == PushToTalkTransition.Down);
         Assert(tracker.KeyUp(0x11) == PushToTalkTransition.Up);
+    }
+
+    private static void ConfiguredKeysAreConsumed()
+    {
+        var tracker = new PushToTalkChordTracker();
+        tracker.Configure([0x11, 0x10]);
+        Assert(tracker.Consumes(0x11));
+        Assert(tracker.Consumes(0x10));
+        Assert(!tracker.Consumes(0x4B));
     }
 
     private static void ReconfigurationReleasesActiveChord()

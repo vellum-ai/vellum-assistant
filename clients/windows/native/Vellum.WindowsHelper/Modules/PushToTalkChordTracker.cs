@@ -16,6 +16,8 @@ public sealed class PushToTalkChordTracker
     public bool Active { get; private set; }
     public bool Pending { get; private set; }
 
+    public bool Consumes(ushort key) => _required.Contains(key);
+
     public PushToTalkTransition Configure(IEnumerable<ushort> keys)
     {
         var transition = Active ? PushToTalkTransition.Up : PushToTalkTransition.None;
@@ -138,7 +140,7 @@ public sealed class PhysicalKeyTracker
             : new PhysicalKeyTransition(normalized, false);
     }
 
-    private static ushort Normalize(ushort key) => key switch
+    public static ushort Normalize(ushort key) => key switch
     {
         0xA0 or 0xA1 => 0x10,
         0xA2 or 0xA3 => 0x11,
