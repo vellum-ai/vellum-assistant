@@ -39,6 +39,7 @@ import {
   connectionAuthTypeForProvider,
   connectionSaveErrorMessage,
   parseCredentialRef,
+  providerAllowsCustomBaseUrl,
   validationErrorMessage,
 } from "@/domains/settings/ai/provider-editor-constants";
 import { useSelectableConnectionProviders } from "@/domains/settings/ai/provider-availability";
@@ -147,6 +148,7 @@ export function ProviderCreateForm({
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
 
   const isOpenAICompatible = provider === "openai-compatible";
+  const allowsCustomBaseUrl = providerAllowsCustomBaseUrl(provider);
   const connectionProviderOptions = useMemo<
     Array<ConnectionProvider | "chatgpt">
   >(() => {
@@ -287,8 +289,10 @@ export function ProviderCreateForm({
         provider,
         auth,
         ...(labelValue !== null && { label: labelValue }),
-        ...(isOpenAICompatible && {
+        ...(allowsCustomBaseUrl && {
           base_url: baseUrl.trim() || null,
+        }),
+        ...(isOpenAICompatible && {
           models: connectionModels.trim()
             ? connectionModels
                 .split(",")
@@ -459,60 +463,76 @@ export function ProviderCreateForm({
         </div>
       )}
 
-      {/* Name + Base URL + Models — custom providers only. Name leads:
-          the user is adding "xAI", not configuring a URL. */}
+      {/* Name + Models: custom providers only. Name leads: the user is
+          adding "xAI", not configuring a URL. Base URL is shared with
+          ollama, which treats an empty value as the local default. */}
       {isOpenAICompatible && (
-        <>
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              {t("providerCreateForm.nameLabel")}
-            </label>
-            <Input
-              value={label}
-              onChange={(e) => handleLabelChange(e.target.value)}
-              placeholder={t("providerCreateForm.namePlaceholder")}
-              fullWidth
-            />
-            {nameConflict ? (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className="text-(--system-negative-strong)"
-              >
-                {CUSTOM_PROVIDER_NAME_ERRORS[nameConflict]}
-              </Typography>
-            ) : null}
-          </div>
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              {t("providerCreateForm.baseUrlLabel")}
-            </label>
-            <Input
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder={t("providerCreateForm.baseUrlPlaceholder")}
-              fullWidth
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              {t("providerCreateForm.modelsLabel")}
-            </label>
-            <Input
-              value={connectionModels}
-              onChange={(e) => setConnectionModels(e.target.value)}
-              placeholder={t("providerCreateForm.modelsPlaceholder")}
-              fullWidth
-            />
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            {t("providerCreateForm.nameLabel")}
+          </label>
+          <Input
+            value={label}
+            onChange={(e) => handleLabelChange(e.target.value)}
+            placeholder={t("providerCreateForm.namePlaceholder")}
+            fullWidth
+          />
+          {nameConflict ? (
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-(--system-negative-strong)"
+            >
+              {CUSTOM_PROVIDER_NAME_ERRORS[nameConflict]}
+            </Typography>
+          ) : null}
+        </div>
+      )}
+      {allowsCustomBaseUrl && (
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            {t("providerCreateForm.baseUrlLabel")}
+          </label>
+          <Input
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder={
+              provider === "ollama"
+                ? t("providerCreateForm.baseUrlPlaceholderOllama")
+                : t("providerCreateForm.baseUrlPlaceholder")
+            }
+            fullWidth
+          />
+          {provider === "ollama" ? (
             <Typography
               variant="body-small-default"
               as="p"
               className="text-[var(--content-tertiary)]"
             >
-              {t("providerCreateForm.modelsHint")}
+              {t("providerCreateForm.baseUrlHintOllama")}
             </Typography>
-          </div>
-        </>
+          ) : null}
+        </div>
+      )}
+      {isOpenAICompatible && (
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            {t("providerCreateForm.modelsLabel")}
+          </label>
+          <Input
+            value={connectionModels}
+            onChange={(e) => setConnectionModels(e.target.value)}
+            placeholder={t("providerCreateForm.modelsPlaceholder")}
+            fullWidth
+          />
+          <Typography
+            variant="body-small-default"
+            as="p"
+            className="text-[var(--content-tertiary)]"
+          >
+            {t("providerCreateForm.modelsHint")}
+          </Typography>
+        </div>
       )}
 
       {/* API Key + Advanced disclosure — only shown for key-based providers */}

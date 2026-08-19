@@ -24,8 +24,11 @@ const ORIGINAL_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
 const ORIGINAL_ARGV = [...process.argv];
 const ORIGINAL_FETCH = globalThis.fetch;
 
+import { createHash } from "node:crypto";
+
 import { devices } from "../commands/devices.js";
 import { saveAssistantEntry } from "../lib/assistant-config.js";
+import { computeDeviceId } from "../lib/guardian-token.js";
 
 interface FetchCall {
   url: string;
@@ -178,6 +181,112 @@ describe("vellum devices", () => {
     expect(keys).not.toContain("x-forwarded-for");
   });
 
+  // Matches currentHostHashedDeviceId in the command: sha256 of the same
+  // stable device id the host's guardian lease registered with the gateway.
+  function hostHash(): string {
+    return createHash("sha256").update(computeDeviceId()).digest("hex");
+  }
+
+  test("labels this machine's own host credential in the human list", async () => {
+    seedLocal("host-label", "http://127.0.0.1:7837");
+    stubFetch((url) =>
+      url.endsWith("/v1/devices")
+        ? jsonResponse({
+            devices: [
+              {
+                hashedDeviceId: hostHash(),
+                platform: "cli",
+                issuedAt: 1_700_000_000_000,
+                expiresAt: null,
+                lastUsedAt: null,
+              },
+              {
+                hashedDeviceId: "hashBBB222",
+                platform: "ios",
+                issuedAt: 1_700_000_000_000,
+                expiresAt: null,
+                lastUsedAt: null,
+              },
+            ],
+          })
+        : jsonResponse({ error: "unexpected" }, 500),
+    );
+
+    process.argv = ["bun", "vellum", "devices", "host-label"];
+    const { exited, logs } = await runDevices();
+
+    expect(exited).toBe(false);
+    const label = "this machine's host credential";
+    expect(logs).toContain(label);
+    // Only the host record carries the label.
+    expect(logs.split(label)).toHaveLength(2);
+    const hostIdx = logs.indexOf(hostHash());
+    const otherIdx = logs.indexOf("hashBBB222");
+    const labelIdx = logs.indexOf(label);
+    expect(labelIdx).toBeGreaterThan(hostIdx);
+    expect(labelIdx).toBeLessThan(otherIdx);
+  });
+
+  test("list --json marks only the host credential with isCurrentHost", async () => {
+    seedLocal("host-json", "http://127.0.0.1:7838");
+    const hostRecord = {
+      hashedDeviceId: hostHash(),
+      platform: "cli",
+      issuedAt: 1_700_000_000_000,
+      expiresAt: null,
+      lastUsedAt: null,
+    };
+    const otherRecord = {
+      hashedDeviceId: "hashBBB222",
+      platform: "ios",
+      issuedAt: 1_700_000_000_000,
+      expiresAt: null,
+      lastUsedAt: null,
+    };
+    stubFetch((url) =>
+      url.endsWith("/v1/devices")
+        ? jsonResponse({ devices: [hostRecord, otherRecord] })
+        : jsonResponse({ error: "unexpected" }, 500),
+    );
+
+    process.argv = ["bun", "vellum", "devices", "host-json", "--json"];
+    const { exited, logs } = await runDevices();
+
+    expect(exited).toBe(false);
+    const parsed = JSON.parse(logs) as {
+      devices: Array<Record<string, unknown>>;
+    };
+    expect(parsed.devices[0]).toEqual({ ...hostRecord, isCurrentHost: true });
+    // Non-host records omit the field entirely (lean wire).
+    expect(parsed.devices[1]).toEqual(otherRecord);
+    expect("isCurrentHost" in parsed.devices[1]!).toBe(false);
+  });
+
+  test("revoking the host credential warns on stderr but proceeds", async () => {
+    seedLocal("host-revoke", "http://127.0.0.1:7839");
+    stubFetch((url) =>
+      url.endsWith("/v1/devices/revoke")
+        ? jsonResponse({ revoked: true })
+        : jsonResponse({ error: "unexpected" }, 500),
+    );
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "devices",
+      "revoke",
+      hostHash(),
+      "host-revoke",
+      "--yes",
+    ];
+    const { exited, logs, errors } = await runDevices();
+
+    expect(exited).toBe(false);
+    expect(errors).toContain("own host credential");
+    expect(logs).toContain(`Revoked device ${hostHash()}`);
+    expect(fetchCalls).toHaveLength(1);
+  });
+
   test("prints a clear message when no devices are paired", async () => {
     seedLocal("empty-host");
     stubFetch(() => jsonResponse({ devices: [] }));
@@ -257,6 +366,111 @@ describe("vellum devices", () => {
     expect(exited).toBe(true);
     expect(errors).toContain("vellum unpair");
     expect(fetchCalls).toHaveLength(0);
+  });
+
+  test("list --json emits a single JSON document and no human text", async () => {
+    seedLocal("json-host", "http://127.0.0.1:7835");
+    const records = [
+      {
+        hashedDeviceId: "hashAAA111",
+        platform: "cli",
+        issuedAt: 1_700_000_000_000,
+        expiresAt: 1_800_000_000_000,
+        lastUsedAt: null,
+      },
+    ];
+    stubFetch((url) =>
+      url.endsWith("/v1/devices")
+        ? jsonResponse({ devices: records })
+        : jsonResponse({ error: "unexpected" }, 500),
+    );
+
+    process.argv = ["bun", "vellum", "devices", "json-host", "--json"];
+    const { exited, logs, errors } = await runDevices();
+
+    expect(exited).toBe(false);
+    expect(errors).toBe("");
+    // Exactly one line on stdout, parseable, and zero prose.
+    expect(logs).not.toContain("\n");
+    expect(JSON.parse(logs)).toEqual({ devices: records });
+    expect(logs).not.toContain("Devices paired to");
+  });
+
+  test('list --json with zero devices emits {"devices":[]}', async () => {
+    seedLocal("json-empty-host");
+    stubFetch(() => jsonResponse({ devices: [] }));
+
+    process.argv = ["bun", "vellum", "devices", "json-empty-host", "--json"];
+    const { exited, logs } = await runDevices();
+
+    expect(exited).toBe(false);
+    expect(logs).toBe('{"devices":[]}');
+  });
+
+  test("revoke --json --yes emits one JSON line; identity preamble on stderr", async () => {
+    seedLocal("json-revoke-host", "http://127.0.0.1:7836");
+    stubFetch((url) =>
+      url.endsWith("/v1/devices/revoke")
+        ? jsonResponse({ revoked: true, hashedDeviceId: "hashAAA111" })
+        : jsonResponse({ error: "unexpected" }, 500),
+    );
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "devices",
+      "revoke",
+      "hashAAA111",
+      "json-revoke-host",
+      "--yes",
+      "--json",
+    ];
+    const { exited, logs, errors } = await runDevices();
+
+    expect(exited).toBe(false);
+    // Stdout is exactly one JSON document, no prose.
+    expect(logs).not.toContain("\n");
+    expect(JSON.parse(logs)).toEqual({
+      ok: true,
+      hashedDeviceId: "hashAAA111",
+      assistantId: "json-revoke-host",
+    });
+    expect(logs).not.toContain("Device to revoke");
+    // Destructive-identity preamble still printed, on stderr (cli/AGENTS.md).
+    expect(errors).toContain("Device to revoke:");
+    expect(errors).toContain("hashAAA111");
+  });
+
+  test("revoke --json without --yes exits 1 with empty stdout", async () => {
+    seedLocal("json-noyes-host");
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "devices",
+      "revoke",
+      "hashAAA111",
+      "json-noyes-host",
+      "--json",
+    ];
+    const { exited, logs, errors } = await runDevices();
+
+    expect(exited).toBe(true);
+    expect(logs).toBe("");
+    expect(errors).toContain("--json requires --yes");
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  test("list --json still exits 1 with stderr on a non-2xx gateway response", async () => {
+    seedLocal("json-err-host");
+    stubFetch(() => jsonResponse({ error: { code: "FORBIDDEN" } }, 403));
+
+    process.argv = ["bun", "vellum", "devices", "json-err-host", "--json"];
+    const { exited, logs, errors } = await runDevices();
+
+    expect(exited).toBe(true);
+    expect(logs).toBe("");
+    expect(errors).toContain("403");
   });
 
   test("surfaces a non-2xx gateway response on list", async () => {
