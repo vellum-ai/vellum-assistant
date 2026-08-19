@@ -96,7 +96,7 @@ export function PaymentMethodsCard() {
     if (!config.has_payment_method) {
       return (
         <div className="mt-4">
-          <Notice tone="neutral" data-testid="payment-methods-empty">
+          <Notice tone="info" data-testid="payment-methods-empty">
             {t("paymentMethodsCard.empty")}
           </Notice>
         </div>
