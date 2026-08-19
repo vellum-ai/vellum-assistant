@@ -18,6 +18,7 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import * as reactRouter from "react-router";
 
 import {
   SIDEBAR_SECTION_MAX_HEIGHT,
@@ -27,6 +28,14 @@ import {
 mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => false,
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+}));
+
+/* `AssistantSwitcher` (inside `SideMenuBuiltInNav`) navigates after a
+   successful switch, and its hook runs on every sidebar render; these tests
+   mount no router, so hand it a no-op. */
+mock.module("react-router", () => ({
+  ...reactRouter,
+  useNavigate: () => () => {},
 }));
 
 // The sidebar owns its Background/Scheduled lazy queries; stub both so static
