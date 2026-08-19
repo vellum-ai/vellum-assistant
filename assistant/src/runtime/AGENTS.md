@@ -170,32 +170,35 @@ Identifiers and plumbing notes:
 
 ### Message metadata vocabulary
 
-Five differently-scoped things are called metadata on the channel path. They
-nest, so a name that fits two of them reads as one concept to the next person.
-Counterpart to the gateway's Channel Identity Vocabulary, which covers the
-wire side.
+Several differently-scoped things are called metadata on the channel path, and
+they nest, so a name that fits two of them reads as one concept. Counterpart to
+the gateway's Channel Identity Vocabulary, which covers the wire side.
 
-- **`sourceMetadata`** is the gateway to daemon **wire** field on an inbound
-  payload (`SourceMetadataSchema`, `packages/gateway-client`). It describes
-  the event in flight: provider ids, the trust verdict, the admission policy.
-  It is not stored.
-- **`messages.metadata`** is the stored **envelope** on a row, validated by
-  `messageMetadataSchema` (`persistence/conversation-crud.ts`). Everything
-  below is a key inside it.
-- **`buildChannelMetadata`** (`routes/channel-metadata.ts`) builds that
-  envelope for a turn: provenance, `userMessageChannel`, interfaces,
-  attachments. It is the whole bag, not a key in it.
-- **`providerMeta`** is one key inside the envelope: what the row is in its
-  provider's conversation, in terms no provider owns (`chatId`, `messageId`,
-  `threadId`, `eventKind`, `reaction.targetMessageId`). Any channel can write
-  it, including one this repo has no code for, and the channel-agnostic
-  readers go through `readProviderMetadata`.
-- **`slackMeta`** is Slack's own version of that key, predating `providerMeta`
-  and carrying fields no other channel has an equivalent for (file markers,
-  timezone labels). It is mapped onto `providerMeta` on read, never rewritten.
-
-A channel added from here writes `providerMeta` and needs no adapter. Reach
-for a per-provider key only for fields that are genuinely that provider's.
+- **`sourceMetadata`** describes an inbound event in flight on the gateway to
+  daemon wire (`SourceMetadataSchema`, `packages/gateway-client`): provider
+  ids, trust verdict, admission policy. It is also persisted verbatim on the
+  stored inbound payload, because the retry sweep replays that payload and has
+  to reconstruct the same turn (`channel-retry-sweep.ts`).
+- **`messages.metadata`** is the stored envelope on a row. Everything below is
+  a key inside it. `messageMetadataSchema` (`persistence/conversation-crud.ts`)
+  describes its shared keys; it is parsed where a reader needs them, not
+  enforced on every write.
+- **`buildChannelMetadata`** (`routes/channel-metadata.ts`) builds the turn's
+  portion of that envelope: provenance, `userMessageChannel`, interfaces,
+  attachments. Callers spread it and add channel-specific keys alongside, so it
+  is a producer of the envelope, never a key within it.
+- **`slackMeta`** is the per-row key describing what a row is in its Slack
+  conversation: `channelTs` for the row's own id, `threadTs` for its thread,
+  `reaction.targetChannelTs` for the message a reaction was attached to, plus
+  Slack's own file markers and timezone labels. Every channel-path reader goes
+  through it today.
+- **`providerMeta`** is the channel-neutral counterpart of that key
+  (`messaging/provider-message-metadata.ts`): the same structural facts under
+  names no provider owns, writable by any channel including one this repo has
+  no code for. `readProviderMetadata` reads it and maps `slackMeta` onto it.
+  **Nothing writes or reads it yet**; it is the home a new channel should use
+  rather than inventing a sixth key, and existing readers move onto it as
+  channels adopt it.
 
 ### Channel verification: gateway-owned
 
