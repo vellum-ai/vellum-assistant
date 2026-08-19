@@ -93,6 +93,7 @@ const meta: Meta<StoryArgs> = {
     },
     accentHex: { control: "color" },
     glow: { control: "boolean" },
+    watching: { control: "boolean" },
   },
   args: {
     phase: "resting",
@@ -161,9 +162,7 @@ export const TypingWhileWorking: Story = {
     phase: "typing",
     working: true,
     assistantName: "Ziggy",
-    turns: [
-      { role: "user", text: "what is on my calendar tomorrow?" },
-    ],
+    turns: [{ role: "user", text: "what is on my calendar tomorrow?" }],
   },
 };
 
@@ -186,9 +185,44 @@ export const Hover: Story = {
  * stays open with no hand on it, Watch is held down, and the ring burns amber
  * rather than the assistant's own colour, so the running session is legible
  * from across the desk.
+ *
+ * The phase and the flag are both set because they answer different questions.
+ * Turn `watching` off and the pill stays open on a row nothing is running
+ * behind, which is what the phase alone means.
  */
 export const Watching: Story = {
-  args: { phase: "watching", hovered: false },
+  args: { phase: "watching", watching: true, hovered: false },
+};
+
+/**
+ * The same session, with the user mid-sentence in the composer.
+ *
+ * The phase the pill draws is `typing`, which outranks `watching`, and the
+ * indicator survives it: the ring is the session's, not the phase's. This is
+ * also the hardest geometry it has to hold, since the card is the one state
+ * that is not a pill.
+ *
+ * **Turn `watching` off to see what an indicator drawn from the phase would
+ * do.** The card goes dark while the screen is still being read.
+ */
+export const TypingWhileWatching: Story = {
+  args: {
+    phase: "typing",
+    watching: true,
+    assistantName: "Ziggy",
+    turns: [{ role: "user", text: "what changed in this file?" }],
+  },
+};
+
+/**
+ * The same session again, with a call running over it.
+ *
+ * Two things are live and the surface has one edge to say so with, so the
+ * capture takes it: the creature already carries the turn in its own pose,
+ * and a call is a thing the user started and can hear.
+ */
+export const InCallWhileWatching: Story = {
+  args: { phase: "call", watching: true, call: DEMO_CALL },
 };
 
 /** Expanded mid-call: the session's own controls, at pill scale. */

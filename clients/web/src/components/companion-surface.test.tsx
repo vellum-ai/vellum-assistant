@@ -93,17 +93,50 @@ describe("the companion surface's working ring", () => {
    * wearing the assistant's colour, which already means something else.
    */
   test("lights for a watch session", () => {
-    const { container } = render(<CompanionSurface phase="watching" />);
+    const { container } = render(
+      <CompanionSurface phase="watching" watching />,
+    );
     expect(ringOf(container)).not.toBeNull();
   });
 
   test("burns a watch session in the capture colour, not the assistant's", () => {
     const { container } = render(
-      <CompanionSurface phase="watching" accentHex="#ff8800" />,
+      <CompanionSurface phase="watching" watching accentHex="#ff8800" />,
     );
     expect(
       ringOf(container)?.style.getPropertyValue("--companion-ring-accent"),
     ).toBe("#ff9f45");
+  });
+
+  /**
+   * The capture keeps the colour when a turn is running under it. The creature
+   * carries the turn in its own pose, and a capture drawn in a colour that also
+   * means "a reply is streaming" is one the user has no reason to read as a
+   * capture.
+   */
+  test("keeps the capture colour while a turn runs under the session", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="watching"
+        watching
+        working
+        accentHex="#ff8800"
+      />,
+    );
+    expect(
+      ringOf(container)?.style.getPropertyValue("--companion-ring-accent"),
+    ).toBe("#ff9f45");
+  });
+
+  /**
+   * The phase is what the pill is showing and the flag is what is running, so
+   * the phase on its own is not a capture. This is the guard on that: an
+   * indicator that read the phase would be lit here, and would be dark in the
+   * two phases below that outrank it.
+   */
+  test("stays dark for the phase alone, which is not a running session", () => {
+    const { container } = render(<CompanionSurface phase="watching" />);
+    expect(ringOf(container)).toBeNull();
   });
 
   test("stays dark while a call is waiting on the user", () => {
@@ -312,13 +345,25 @@ describe("the companion surface's Watch action", () => {
    * alone.
    */
   test("reads as held down while the session runs", () => {
-    const { container } = render(<CompanionSurface phase="watching" />);
+    const { container } = render(
+      <CompanionSurface phase="watching" watching />,
+    );
     expect(watchOf(container).classList.contains("bg-white/15")).toBe(true);
   });
 
   test("reads as idle while no session runs", () => {
     const { container } = render(<CompanionSurface phase="hover" />);
     expect(watchOf(container).classList.contains("bg-white/15")).toBe(false);
+  });
+
+  /**
+   * The flag, not the phase, the same input the ring reads. The two are drawn
+   * in different places and must never be able to disagree about whether a
+   * session is running.
+   */
+  test("reads as held down on the idle pill while the session runs", () => {
+    const { container } = render(<CompanionSurface phase="hover" watching />);
+    expect(watchOf(container).classList.contains("bg-white/15")).toBe(true);
   });
 });
 
@@ -362,5 +407,56 @@ describe("the companion surface's width ceiling", () => {
       ([, width]) => width > CANVAS_CEILING,
     );
     expect(over).toEqual([]);
+  });
+});
+
+/**
+ * The indicator outlives the phase.
+ *
+ * `watching` ranks below `typing` and `call`, so a session that is still
+ * reading the screen is drawn under a phase that is not its own for as long as
+ * the user is mid-sentence or on a call. Those are the phases where an
+ * indicator derived from the phase would go dark, and going dark over a live
+ * capture is the failure this surface exists to prevent.
+ */
+describe("the companion surface's capture indicator across phases", () => {
+  const LISTENING_CALL = {
+    phase: "listening",
+    label: "Listening",
+    accentHex: "#5eead4",
+    muted: false,
+    outputMuted: false,
+    detail: "",
+    approvalRequestId: "",
+    assistantName: "Ziggy",
+  } as const;
+
+  test("survives the composer, which outranks the watching phase", () => {
+    const { container } = render(<CompanionSurface phase="typing" watching />);
+    expect(ringOf(container)).not.toBeNull();
+  });
+
+  test("survives a call, which outranks it too", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" watching call={LISTENING_CALL} />,
+    );
+    expect(ringOf(container)).not.toBeNull();
+  });
+
+  test("follows the card's corner radius while the user types", () => {
+    const { container } = render(<CompanionSurface phase="typing" watching />);
+    expect(ringOf(container)?.className).toContain("rounded-[24px]");
+  });
+
+  test("is absent in the composer with no session running", () => {
+    const { container } = render(<CompanionSurface phase="typing" />);
+    expect(ringOf(container)).toBeNull();
+  });
+
+  test("is absent in a call with no session running", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    expect(ringOf(container)).toBeNull();
   });
 });

@@ -77,16 +77,18 @@ export type CompanionSurfacePhase =
   | "resting"
   | "hover"
   /**
-   * Watching: a session reading the screen is running.
+   * Watching: the pill held open by a session reading the screen.
    *
-   * Holds the pill open regardless of the pointer, the way `call` does, and
-   * for a sharper reason. A screen reader that hides itself when the pointer
-   * leaves is one the user cannot see, and a capture nobody can see is one
-   * nobody can stop.
+   * Open regardless of the pointer, the way `call` is, and for a sharper
+   * reason. A screen reader that hides itself when the pointer leaves is one
+   * the user cannot see, and a capture nobody can see is one nobody can stop.
    *
    * It ranks below `typing` and `call` and above `hover`: a half-typed
-   * sentence and a live call are both something the user is in the middle of,
-   * and a watch session runs on its own either way.
+   * sentence and a live call are both something the user is in the middle of.
+   * Being outranked costs the session nothing, because this phase is only what
+   * the pill is showing. Whether the screen is being read is
+   * {@link CompanionSurfaceProps.watching}, and that is what the indicator
+   * reads.
    */
   | "watching"
   | "call"
@@ -377,6 +379,24 @@ export interface CompanionSurfaceProps {
    */
   working?: boolean;
   /**
+   * Whether a session reading the screen is running.
+   *
+   * Its own input rather than `phase === "watching"`, and this is the one place
+   * on the surface where that separation is not a matter of taste. The phase
+   * says what the pill is showing; this says whether the screen is being read,
+   * and they are different questions. A phase is outranked by a half-typed
+   * sentence and by a live call, so an indicator drawn from one would go dark
+   * the moment the user typed or took a call, which is the same capture the
+   * user cannot see with a different trigger. The ring belongs to the session,
+   * not to whatever the surface happens to be drawing over it.
+   *
+   * Absence is not a session, the way `CompanionSurfaceState.watching` has it:
+   * every state that is not a positive answer has to read as nothing running,
+   * because the alternative is a consent signal over a machine nobody is
+   * capturing.
+   */
+  watching?: boolean;
+  /**
    * The running session, when `phase` is `call`.
    *
    * Absent renders the call state from fixed sample values, which is what the
@@ -420,12 +440,12 @@ export function CompanionSurface({
   onCancelTyping,
   onAvatarClick,
   working = false,
+  watching = false,
   call,
   onControl,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
   const typing = phase === "typing";
-  const watching = phase === "watching";
 
   /**
    * Whether the assistant is working, from whichever side is in a position to
@@ -565,10 +585,12 @@ export function CompanionSurface({
           which is the state it has to be legible in: the whole point is being
           readable from the corner of an eye while the user works elsewhere.
 
-          A turn burns it in the assistant's colour, a watch session in amber.
-          The session wins when both are true: the creature already carries the
-          turn in its own pose, and a capture running with nothing drawn over it
-          is the worse of the two failures. */}
+          A turn burns it in the assistant's colour, a watch session in amber,
+          and the session's ring is drawn in every phase rather than only the
+          one named after it. The session also takes the colour when both are
+          true: the creature already carries the turn in its own pose, and a
+          capture running with nothing drawn over it is the worse of the two
+          failures. */}
       {(assistantWorking || watching) && (
         <span
           className={`companion-working-ring pointer-events-none absolute -inset-0.5 ${
