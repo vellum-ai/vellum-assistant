@@ -39,6 +39,13 @@ mock.module("../credential-reader.js", () => ({
 mock.module("../db/webhook-ingress-route-store.js", () => ({
   listWebhookIngressRoutes: () =>
     registeredWebhookPaths.map((path) => ({ path })),
+  hasWebhookIngressRoute: (path: string) =>
+    registeredWebhookPaths.includes(path),
+  registerWebhookIngressRoute: () => {
+    throw new Error("not expected in these tests");
+  },
+  unregisterWebhookIngressRoute: () => false,
+  onWebhookIngressRoutesChanged: () => () => {},
 }));
 
 mock.module("../feature-flag-resolver.js", () => ({
