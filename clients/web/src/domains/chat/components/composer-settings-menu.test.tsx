@@ -273,7 +273,7 @@ import { ComposerSettingsMenu } from "@/domains/chat/components/composer-setting
 import { useConversationStore } from "@/stores/conversation-store";
 import type { Conversation } from "@/types/conversation-types";
 import { ApiError } from "@/utils/api-errors";
-import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
+import { conversationListQueryKey } from "@/utils/conversation-list-keys";
 
 /** The config payload most cases mount against: one profile, "Smart". */
 const SMART_CONFIG = {
@@ -1089,9 +1089,12 @@ describe("Profile selection on a draft stub conversation (ATL-1136)", () => {
     // draft id — which has no server row yet, so a PUT against it would 404.
     useConversationStore.getState().setActiveConversationId("draft-xyz");
     const qc = createQueryClient();
-    qc.setQueryData(conversationsQueryKey("assistant-1"), [
-      { conversationId: "draft-xyz", draft: true } as Conversation,
-    ]);
+    qc.setQueryData(conversationListQueryKey("assistant-1"), {
+      conversations: [
+        { conversationId: "draft-xyz", draft: true } as Conversation,
+      ],
+      hasMore: false,
+    });
     renderMenu({ props: { conversationId: "draft-xyz" }, queryClient: qc });
 
     await waitFor(() =>
