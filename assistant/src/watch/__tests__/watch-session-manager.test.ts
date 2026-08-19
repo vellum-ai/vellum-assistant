@@ -63,6 +63,22 @@ function newManager(
   return { manager, calls };
 }
 
+/**
+ * A manager whose screen reads hang until the test releases them, so how long
+ * the host takes to answer is something the test states rather than waits for.
+ */
+function newDeferredManager() {
+  const releases: ((observation: HostObservation) => void)[] = [];
+  const manager = new WatchSessionManager({
+    now: () => nowMs,
+    observe: () =>
+      new Promise<HostObservation>((resolve) => {
+        releases.push(resolve);
+      }),
+  });
+  return { manager, releases };
+}
+
 function start(manager: WatchSessionManager) {
   const result = manager.start({ sourceActorPrincipalId: PRINCIPAL_ID });
   if (result.status !== "started") {
@@ -257,14 +273,7 @@ describe("watch session manager", () => {
   });
 
   test("never runs two observations at once, and drops one that lands after the session ended", async () => {
-    const releases: ((observation: HostObservation) => void)[] = [];
-    const manager = new WatchSessionManager({
-      now: () => nowMs,
-      observe: () =>
-        new Promise<HostObservation>((resolve) => {
-          releases.push(resolve);
-        }),
-    });
+    const { manager, releases } = newDeferredManager();
     const started = start(manager);
 
     const first = manager.handleNarrationFinal("mid-observation");
@@ -288,6 +297,51 @@ describe("watch session manager", () => {
     await settle();
 
     expect(renderWatchTimeline(started.sessionId).totalEntries).toBe(2);
+  });
+
+  test("a slow read spends the interval it belongs to rather than extending it", async () => {
+    const { manager, releases } = newDeferredManager();
+    start(manager);
+
+    // Silence, so the ceiling is what dispatches the read.
+    await elapse(30_000);
+    expect(releases).toHaveLength(1);
+
+    // The host takes 8s to answer, most of the 10s the session allows it.
+    await elapse(8_000);
+    releases[0](richObservation());
+    await settle();
+
+    // The next read is due 30s after the one that went out, so 22s from here.
+    // A fresh interval measured from the answer would put it 8s later.
+    await elapse(21_999);
+    expect(releases).toHaveLength(1);
+    await elapse(1);
+    expect(releases).toHaveLength(2);
+
+    manager.stop();
+  });
+
+  test("a ceiling tick that lands mid-read is deferred, not dropped", async () => {
+    const { manager, releases } = newDeferredManager();
+    start(manager);
+
+    const narration = manager.handleNarrationFinal("starting the long one");
+    await settle();
+    expect(releases).toHaveLength(1);
+
+    // The ceiling comes due while that read is still out. It stacks no second
+    // request, and the deadline it belongs to is already spent.
+    await elapse(30_000);
+    expect(releases).toHaveLength(1);
+
+    releases[0](richObservation());
+    await narration;
+    await settle();
+    await elapse(1);
+    expect(releases).toHaveLength(2);
+
+    manager.stop();
   });
 
   describe("screenshot escalation", () => {

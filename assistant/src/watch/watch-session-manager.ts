@@ -63,9 +63,10 @@ const MIN_OBSERVE_INTERVAL_MS = 5_000;
  * jumps from what they said before to what they said after with the work
  * itself missing. This is the ceiling on that gap.
  *
- * It is a ceiling and not a poll. It is rearmed from the last observation, so
- * it fires only in a stretch where narration produced none, and a talkative
- * session never reaches it.
+ * It is a ceiling and not a poll. The deadline runs from the moment the last
+ * observation was dispatched, so the wait a slow read spends counts against the
+ * ceiling rather than adding to it. It fires only in a stretch where narration
+ * produced none, and a talkative session never reaches it.
  */
 const MAX_OBSERVE_INTERVAL_MS = 30_000;
 
@@ -173,9 +174,10 @@ interface ActiveWatchSession {
   readonly startedAtMs: number;
   entryCount: number;
   /**
-   * When the last observation was dispatched. Negative infinity until the
-   * first one, so a session observes on its opening narration rather than
-   * spending its first interval blind.
+   * When the last observation was dispatched, the anchor both the rate limit
+   * and the idle ceiling measure from. Negative infinity until the first one,
+   * so a session observes on its opening narration rather than spending its
+   * first interval blind.
    */
   lastObserveAtMs: number;
   observing: boolean;
@@ -342,12 +344,19 @@ export class WatchSessionManager {
    * Read the screen once and file the result under the moment the request went
    * out.
    *
-   * The rate limit is anchored at dispatch rather than at completion, so a
-   * slow read does not shorten the gap before the next one, and a read still
-   * in flight turns away the finals that arrive during it.
+   * The rate limit and the idle ceiling are both anchored at dispatch rather
+   * than at completion, so a slow read neither shortens the gap before the next
+   * one nor pushes it out, and a read still in flight turns away the finals
+   * that arrive during it.
    */
   private async observeNow(session: ActiveWatchSession): Promise<void> {
-    if (session.stopped || session.observing) {
+    if (session.stopped) {
+      return;
+    }
+    if (session.observing) {
+      // The read in flight stands in for this one: it rearms the ceiling
+      // against its own dispatch when it settles, which is already due when the
+      // read outlasted the interval. The tick is deferred, not dropped.
       return;
     }
     session.observing = true;
@@ -399,18 +408,28 @@ export class WatchSessionManager {
   /**
    * Arm the ceiling on the gap between observations.
    *
-   * Rearmed after each observation rather than run as an interval, so it
-   * measures from the last thing recorded and never queues behind itself.
+   * The deadline is {@link MAX_OBSERVE_INTERVAL_MS} past the last dispatch, so
+   * rearming it after a slow read leaves only what remains of that interval and
+   * a read that outlasts the interval leaves nothing: the next observation goes
+   * out as soon as it settles. Rearmed rather than run as an interval, so it
+   * never queues behind itself.
    */
   private scheduleIdleObservation(session: ActiveWatchSession): void {
     this.clearIdleTimer(session);
     if (session.stopped) {
       return;
     }
+    // Before the first observation the ceiling runs from the session's start,
+    // the last moment its screen was accounted for.
+    const anchorMs = Math.max(session.lastObserveAtMs, session.startedAtMs);
+    const delayMs = Math.max(
+      0,
+      anchorMs + MAX_OBSERVE_INTERVAL_MS - this.now(),
+    );
     const timer = setTimeout(() => {
       session.idleTimer = null;
       void this.observeNow(session);
-    }, MAX_OBSERVE_INTERVAL_MS);
+    }, delayMs);
     // A watch session is not a reason to hold the process open.
     timer.unref?.();
     session.idleTimer = timer;
