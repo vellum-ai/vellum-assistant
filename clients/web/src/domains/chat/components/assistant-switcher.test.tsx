@@ -140,8 +140,16 @@ describe("AssistantSwitcher expanded card", () => {
     expect(queryByText("Bob")).toBeNull();
   });
 
-  test("selecting a row switches, collapses, and lands on the assistant route", async () => {
+  test("selecting a row resets the conversation before the connect, then collapses", async () => {
     useConversationStore.setState({ activeConversationId: "conv-old" });
+    /* The reset must precede the connect: the selection publishes before
+       the connect promise resolves, and the loader would apply, and
+       persist, a still-mounted old conversation against the new
+       assistant. */
+    let storeIdAtSwitch: string | null = "unset";
+    switchMock.mockImplementation(async () => {
+      storeIdAtSwitch = useConversationStore.getState().activeConversationId;
+    });
     const { getByLabelText, queryByText } = renderSwitcher();
 
     fireEvent.click(getByLabelText("Switch assistant"));
@@ -149,19 +157,18 @@ describe("AssistantSwitcher expanded card", () => {
 
     expect(switchMock).toHaveBeenCalledTimes(1);
     expect(switchMock.mock.calls[0]?.[0]).toEqual(OTHER);
+    expect(storeIdAtSwitch).toBeNull();
+    expect(navigateMock.mock.calls[0]).toEqual([
+      routes.assistant,
+      { replace: true },
+    ]);
     await waitFor(() => {
       expect(queryByText("Bob")).toBeNull();
     });
-    /* The old assistant's conversation must not survive the switch: the
-       loader would otherwise request it from, and persist it against, the
-       new assistant (URL ids outrank everything, across assistants). */
     expect(useConversationStore.getState().activeConversationId).toBeNull();
-    expect(navigateMock).toHaveBeenCalledWith(routes.assistant, {
-      replace: true,
-    });
   });
 
-  test("a failed switch reports, stays expanded, and stays put", async () => {
+  test("a failed switch reports, stays expanded, and restores the conversation", async () => {
     switchMock.mockImplementation(async () => {
       throw new Error("boom");
     });
@@ -178,6 +185,9 @@ describe("AssistantSwitcher expanded card", () => {
     expect(useConversationStore.getState().activeConversationId).toBe(
       "conv-old",
     );
-    expect(navigateMock).not.toHaveBeenCalled();
+    expect(navigateMock.mock.calls.at(-1)).toEqual([
+      routes.conversation("conv-old"),
+      { replace: true },
+    ]);
   });
 });

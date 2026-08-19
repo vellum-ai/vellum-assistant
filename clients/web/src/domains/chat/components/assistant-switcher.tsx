@@ -78,19 +78,40 @@ export function AssistantSwitcher({
       return;
     }
     setSwitchingId(assistant.id);
+    /* Leave the old assistant's conversation behind BEFORE the connect, not
+       after it resolves: every connect path publishes the selection before
+       its promise finishes, and the loader gives an explicit URL
+       conversation id top priority even across an assistant switch, so a
+       reset deferred to the await races the loader applying, and
+       persisting, the old assistant's conversation against the new one.
+       Landing on the assistant route lets the loader resolve the new
+       assistant's own last-viewed conversation, the same landing the
+       chooser screen navigates to. */
+    const previousConversationId =
+      useConversationStore.getState().activeConversationId;
+    useConversationStore.getState().setActiveConversationId(null);
+    void navigate(routes.assistant, { replace: true });
     try {
       await switchToResolvedAssistant(assistant);
       setExpanded(false);
-      /* Leave the old assistant's conversation behind: the loader gives an
-         explicit URL conversation id top priority even across an assistant
-         switch, so an id left in the route (or the store, which the async
-         landing fallback defers to) would be requested from, and persisted
-         against, the new assistant. Landing on the assistant route lets the
-         loader resolve the new assistant's own last-viewed conversation,
-         the same landing the chooser screen navigates to. */
-      useConversationStore.getState().setActiveConversationId(null);
-      void navigate(routes.assistant, { replace: true });
+      /* The old assistant's loader may have landed somewhere while the
+         connect was in flight; sweep again so the new assistant resolves
+         its own landing from a clean slate. */
+      if (useConversationStore.getState().activeConversationId !== null) {
+        useConversationStore.getState().setActiveConversationId(null);
+        void navigate(routes.assistant, { replace: true });
+      }
     } catch (error) {
+      /* A failed connect leaves the previous assistant selected; put its
+         conversation back too. */
+      if (previousConversationId !== null) {
+        useConversationStore
+          .getState()
+          .setActiveConversationId(previousConversationId);
+        void navigate(routes.conversation(previousConversationId), {
+          replace: true,
+        });
+      }
       captureError(error, { context: "assistantSwitcher.switch" });
       toast.error(t("assistantSwitcher.switchFailed"));
     } finally {
