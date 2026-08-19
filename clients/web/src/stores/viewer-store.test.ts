@@ -156,6 +156,21 @@ describe("releaseApp", () => {
     expect(state.openedAppState).toBe(reloaded);
   });
 
+  it("leaves an app minimized to the chat route's strip", () => {
+    // The narrow-viewport shape of the Edit hand-off: the app is tucked into
+    // the strip above the edit conversation, so the Library route unmounting
+    // behind it must not take the strip with it.
+    getState().showApp(SAMPLE_APP);
+    getState().minimizeApp();
+
+    getState().releaseApp(SAMPLE_APP);
+
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.openedAppState).toBe(SAMPLE_APP);
+    expect(state.isAppMinimized).toBe(true);
+  });
+
   it("clears an app the viewer already dropped back to chat", () => {
     // A narrow viewport takes the app off screen rather than splitting, and
     // the id left behind would keep marking it as the open one in the sidebar.

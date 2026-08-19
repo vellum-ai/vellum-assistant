@@ -663,23 +663,30 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
    * Take back a {@link showApp}, unless the app has been taken over.
    *
    * A surface that shows an app for as long as it is mounted calls this as
-   * it unmounts, unconditionally. Two takeovers are recognised, and only
-   * those two leave the app up:
+   * it unmounts, unconditionally. Two kinds of takeover leave the app up:
    *
    * - **Another publisher.** Anything that has since shown a different app,
    *   or reloaded this one, published its own object, so the departing
    *   surface is no longer describing what is on screen.
-   * - **The split.** `app-editing` is a hand-off to the chat route, which
-   *   is exactly what selecting a conversation beside an app asks for, so
-   *   closing the app here would undo the move that caused it.
+   * - **A hand-off to the chat route**, in either shape it takes: the
+   *   `app-editing` split on a wide viewport, and the minimized strip that
+   *   stands in for it on a narrow one. Both are the app moving to the chat
+   *   rather than leaving, so closing it here would undo the move that
+   *   caused it.
    *
    * Every other exit clears the app, including a narrow viewport dropping
-   * back to chat: the app is off screen either way, and leaving the id set
-   * would keep marking it as the open one in the sidebar.
+   * back to plain chat: the app is off screen either way, and leaving the id
+   * set would keep marking it as the open one in the sidebar. What separates
+   * that from the strip is exactly whether something minimized the app on the
+   * way out, which is what the hand-off does and a plain dismissal does not.
    */
   releaseApp: (app) => {
     const state = get();
-    if (state.openedAppState !== app || state.mainView === "app-editing") {
+    if (
+      state.openedAppState !== app ||
+      state.mainView === "app-editing" ||
+      state.isAppMinimized
+    ) {
       return;
     }
     state.closeApp();
