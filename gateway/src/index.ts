@@ -215,7 +215,10 @@ import {
 import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { fetchImpl } from "./fetch.js";
-import { arePlatformFeaturesEnabled } from "./feature-flag-resolver.js";
+import {
+  arePlatformFeaturesEnabled,
+  isFeatureFlagEnabled,
+} from "./feature-flag-resolver.js";
 import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
@@ -248,7 +251,9 @@ import { createWebhookRouteRoutes } from "./ipc/webhook-route-handlers.js";
 import { refreshRouteSchema } from "./ipc/route-schema-cache.js";
 import { initGatewayDb } from "./db/connection.js";
 import { cleanupExpiredInboundEvents } from "./db/inbound-dedup-store.js";
+import { onWebhookIngressRoutesChanged } from "./db/webhook-ingress-route-store.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
+import { VELAY_WEBHOOKS_FLAG_KEY } from "./velay/allowed-paths.js";
 import {
   clearManagedPublicBaseUrl,
   createVelayTunnelClient,
@@ -408,6 +413,11 @@ async function main() {
   const velayTunnelClient = createVelayTunnelClient(config, {
     credentials: credentialCache,
     configFile: configFileCache,
+  });
+  // Velay only sees a webhook route on the next tunnel connect, so a registry
+  // write asks for one.
+  onWebhookIngressRoutesChanged(() => {
+    velayTunnelClient?.requestRulesRefresh("webhook-routes-changed");
   });
 
   // ── Integration readiness flags ──
@@ -2996,8 +3006,16 @@ async function main() {
     assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
   });
 
+  let velayWebhooksEnabled = isFeatureFlagEnabled(VELAY_WEBHOOKS_FLAG_KEY);
   emitFlagChanged = () => {
     ipcServer.emit("feature_flags_changed");
+    // The flag decides the shape of the advertised rules, so flipping it has
+    // to re-advertise rather than wait out the periodic tunnel refresh.
+    const enabled = isFeatureFlagEnabled(VELAY_WEBHOOKS_FLAG_KEY);
+    if (enabled !== velayWebhooksEnabled) {
+      velayWebhooksEnabled = enabled;
+      velayTunnelClient?.requestRulesRefresh("velay-webhooks-flag-changed");
+    }
   };
 
   const featureFlagWatcher = new FeatureFlagWatcher({
