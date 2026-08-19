@@ -952,9 +952,10 @@ describe("writeHomeFeedItemForSignal", () => {
       );
     });
 
-    test("skips the append when the vellum delivery already paired a conversation", async () => {
-      // `pairDeliveryWithConversation` owns the write whenever vellum
-      // delivers; a second one here would duplicate the body.
+    test("records the paired row when vellum already wrote the body", async () => {
+      // `pairDeliveryWithConversation` wrote the body, so nothing is written
+      // again here, but the card still records the row so an edit can reach it
+      // when the delivery walk does not.
       conversationRow = { conversationType: "background" };
       const signal = makeSignal();
       const decision = makeDecision({
@@ -972,7 +973,9 @@ describe("writeHomeFeedItemForSignal", () => {
 
       expect(item?.conversationId).toBe("conv-source-1");
       expect(messageAppends).toHaveLength(0);
-      expect(item?.metadata?.notificationConversationMessageId).toBeUndefined();
+      expect(item?.metadata?.notificationConversationMessageId).toBe(
+        "msg-paired",
+      );
     });
 
     test("skips the append when a sentinel source context leaves no target", async () => {
@@ -1021,10 +1024,9 @@ describe("writeHomeFeedItemForSignal", () => {
       expect(item?.metadata?.notificationConversationMessageId).toBeUndefined();
     });
 
-    test("takes the paired row when the vellum delivery failed", async () => {
-      // A failed delivery leaves the row pairing wrote unclaimed: the edit
-      // path skips rows that did not send, and a delivery whose row was never
-      // recorded reports failed too.
+    test("records the paired row when the vellum delivery failed", async () => {
+      // The row exists whatever the delivery reported, and a failed delivery
+      // is exactly the case the edit path's delivery walk skips.
       conversationRow = { conversationType: "background" };
       const signal = makeSignal();
       const decision = makeDecision({
@@ -1047,25 +1049,60 @@ describe("writeHomeFeedItemForSignal", () => {
       expect(messageAppends).toHaveLength(0);
     });
 
-    test("leaves a skipped duplicate delivery to its adapter", async () => {
-      // A duplicate skip carries the earlier row's ids, and that row sent.
+    test("records nothing when the paired row sits outside the card's conversation", async () => {
+      // Guardian producers pair a fresh conversation rather than the one the
+      // card opens, so its row is not the card's to rewrite.
       conversationRow = { conversationType: "background" };
       const signal = makeSignal();
-      const decision = makeDecision({ selectedChannels: ["vellum"] });
+      const decision = makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: {
+          vellum: { title: "Approval needed", body: "Allow this?" },
+        },
+      });
 
       const item = await writeHomeFeedItemForSignal(
         signal,
-        makeDecision({
-          ...decision,
-          renderedCopy: {
-            vellum: { title: "Nightly briefing", body: "Three things today." },
-          },
+        decision,
+        makeVellumDelivery({
+          conversationId: "conv-guardian-request",
+          messageId: "msg-guardian",
         }),
-        makeVellumDelivery({ status: "skipped" }),
       );
 
+      expect(item?.conversationId).toBe("conv-source-1");
       expect(item?.metadata?.notificationConversationMessageId).toBeUndefined();
       expect(messageAppends).toHaveLength(0);
+    });
+
+    test("records the paired row when it backs a sentinel card", async () => {
+      // A sentinel `sourceContextId` puts the paired conversation behind the
+      // button, so its row is the one the card carries.
+      conversationRow = null;
+      const signal = makeSignal({
+        sourceContextId: "job-1700000000",
+        attentionHints: {
+          requiresAction: false,
+          urgency: "medium",
+          isAsyncBackground: true,
+          visibleInSourceNow: false,
+        },
+      });
+      const decision = makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: {
+          vellum: { title: "Retries exhausted", body: "Gave up after 3." },
+        },
+      });
+
+      const item = await writeHomeFeedItemForSignal(
+        signal,
+        decision,
+        makeVellumDelivery({ conversationId: "conv-paired", messageId: "m-p" }),
+      );
+
+      expect(item?.conversationId).toBe("conv-paired");
+      expect(item?.metadata?.notificationConversationMessageId).toBe("m-p");
     });
 
     test("strips a producer-supplied handle from the card metadata", async () => {
@@ -1089,6 +1126,32 @@ describe("writeHomeFeedItemForSignal", () => {
         signal,
         decision,
         makeVellumDelivery(),
+      );
+
+      expect(item?.metadata?.notificationConversationMessageId).toBe(
+        "msg-paired",
+      );
+    });
+
+    test("drops a producer-supplied handle when the card records none", async () => {
+      conversationRow = { conversationType: "background" };
+      const signal = makeSignal({
+        contextPayload: {
+          title: "Approval needed",
+          notificationConversationMessageId: "msg-somebody-elses",
+        },
+      });
+      const decision = makeDecision({
+        selectedChannels: ["vellum"],
+        renderedCopy: {
+          vellum: { title: "Approval needed", body: "Allow this?" },
+        },
+      });
+
+      const item = await writeHomeFeedItemForSignal(
+        signal,
+        decision,
+        makeVellumDelivery({ conversationId: "conv-guardian-request" }),
       );
 
       expect(item?.metadata?.notificationConversationMessageId).toBeUndefined();
@@ -1202,6 +1265,32 @@ describe("writeHomeFeedItemForSignal", () => {
 
       expect(rewritten).toBe(false);
       expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("stands down when the delivery walk already rewrote the row", () => {
+      messageOwners.set("msg-9", "conv-source-1");
+
+      const rewritten = updateFeedItemConversationMessage(
+        makeItem({ notificationConversationMessageId: "msg-9" }),
+        "Four things now.",
+        new Set(["msg-9"]),
+      );
+
+      expect(rewritten).toBe(false);
+      expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("rewrites when the walk touched some other row", () => {
+      messageOwners.set("msg-9", "conv-source-1");
+
+      const rewritten = updateFeedItemConversationMessage(
+        makeItem({ notificationConversationMessageId: "msg-9" }),
+        "Four things now.",
+        new Set(["1700000000.0001"]),
+      );
+
+      expect(rewritten).toBe(true);
+      expect(messageRewrites).toHaveLength(1);
     });
 
     test("reports no rewrite when the store write throws", () => {

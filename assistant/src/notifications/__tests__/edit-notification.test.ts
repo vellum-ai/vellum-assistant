@@ -75,11 +75,14 @@ mock.module("../emit-signal.js", () => ({
       adapterSupportsUpdate
         ? {
             update: async (
-              _target: unknown,
+              target: { messageId?: string | null },
               patch: { title?: string; body?: string },
             ) => {
               adapterUpdates.push(patch);
-              return { success: true };
+              return {
+                success: true,
+                messageId: target.messageId ?? undefined,
+              };
             },
           }
         : {},
@@ -398,6 +401,61 @@ describe("editNotification", () => {
       });
 
       expect(result!.feedItem.summary).toBe("Nightly backup finished");
+      expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("stands down when the adapter already rewrote that row", async () => {
+      // The ordinary vellum case: the delivery walk rewrites the paired row,
+      // so the card must not write it a second time.
+      await appendFeedItem(makeItem(OWNED));
+      decisionRow = { id: "dec-1" };
+      deliveryRows = [makeDelivery({ channel: "vellum", messageId: "msg-9" })];
+
+      await editNotification({ id: FEED_ITEM_ID, body: "New body" });
+
+      expect(adapterUpdates).toHaveLength(1);
+      expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("rewrites when a sent delivery's status write was lost", async () => {
+      // `sendAndRecord` swallows a failed status write after a successful
+      // send, leaving a row that reads pending, which the walk skips.
+      await appendFeedItem(makeItem(OWNED));
+      decisionRow = { id: "dec-1" };
+      deliveryRows = [
+        makeDelivery({
+          channel: "vellum",
+          messageId: "msg-9",
+          status: "pending",
+        }),
+      ];
+
+      await editNotification({ id: FEED_ITEM_ID, body: "New body" });
+
+      expect(adapterUpdates).toHaveLength(0);
+      expect(messageRewrites).toEqual([
+        { messageId: "msg-9", content: "New body" },
+      ]);
+    });
+
+    test("rewrites when the adapter update failed", async () => {
+      await appendFeedItem(makeItem(OWNED));
+      decisionRow = { id: "dec-1" };
+      deliveryRows = [makeDelivery({ channel: "vellum", messageId: "msg-9" })];
+      adapterSupportsUpdate = false;
+
+      await editNotification({ id: FEED_ITEM_ID, body: "New body" });
+
+      expect(messageRewrites).toHaveLength(1);
+    });
+
+    test("a title-only edit leaves the row alone even with deliveries", async () => {
+      await appendFeedItem(makeItem(OWNED));
+      decisionRow = { id: "dec-1" };
+      deliveryRows = [makeDelivery({ channel: "vellum", messageId: "msg-9" })];
+
+      await editNotification({ id: FEED_ITEM_ID, title: "Renamed" });
+
       expect(messageRewrites).toHaveLength(0);
     });
 

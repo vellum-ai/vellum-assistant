@@ -202,23 +202,21 @@ export async function writeHomeFeedItemForSignal(
 }
 
 /**
- * Resolve the conversation message this card owns, writing one if the card
+ * Resolve the conversation row backing this card, writing one if the card
  * would otherwise have no body in the conversation it opens.
  *
- * Ownership is exclusive, so exactly one path rewrites a row on an edit and
- * no row is left with none:
+ * The card records the row whoever wrote it, rather than only the rows it
+ * expects an edit to miss. Whether a delivery adapter will actually rewrite a
+ * row is a property of the durable delivery state at edit time, which a
+ * dispatch result cannot predict: a send can succeed and lose its status
+ * write, leaving a row that reads pending. `editNotification` settles that
+ * question by rewriting through the card only when the delivery walk did not.
  *
- * - A vellum delivery that sent owns its paired row. `editNotification` walks
- *   the delivery rows and `VellumAdapter.update` rewrites it, so the card
- *   takes no handle.
- * - A vellum delivery that failed leaves its paired row behind unclaimed: the
- *   delivery walk skips any row that did not send, and a delivery whose row
- *   was never recorded reports failed too. The card takes that row.
- * - No vellum conversation at all means no channel wrote the body, so the
- *   card writes it and takes the row.
- *
- * A skipped duplicate delivery carries the earlier row's ids, and that row
- * sent, so its adapter still owns it.
+ * A vellum delivery that paired a conversation already wrote the body there,
+ * so its row is the one to record. Guardian producers pair a fresh
+ * conversation instead of the one the card opens, and their row is left
+ * unrecorded: a handle has to address the conversation behind the button, and
+ * `updateFeedItemConversationMessage` refuses anything else.
  */
 async function resolveOwnedConversationMessageId(
   signal: NotificationSignal,
@@ -227,7 +225,7 @@ async function resolveOwnedConversationMessageId(
   summary: string,
 ): Promise<string | undefined> {
   if (vellumDelivery?.conversationId) {
-    return vellumDelivery.status === "failed"
+    return vellumDelivery.conversationId === sourceConversationId
       ? vellumDelivery.messageId
       : undefined;
   }
@@ -287,26 +285,36 @@ async function appendSummaryToFeedTarget(
 }
 
 /**
- * Rewrite the conversation message a card owns, keeping an edited card and
+ * Rewrite the conversation message behind a card, keeping an edited card and
  * the conversation it opens in step.
  *
  * Notification edits reach conversation content through the delivery rows the
- * broadcaster recorded, which is how the vellum adapter rewrites what it
- * paired. A card whose body this module wrote has no such row to walk, so it
- * carries the message id itself and this is the matching update path.
+ * broadcaster recorded, which is how the vellum adapter rewrites the row its
+ * pairing wrote. That walk covers a row only while its delivery reads sent, so
+ * this is the backstop for every way it can miss one: a delivery that failed,
+ * a row that was never recorded, a signal with no deliveries at all, and a
+ * send whose status write was lost after the message went out.
+ *
+ * `alreadyRewritten` carries the message ids the delivery walk reported
+ * rewriting, so the common case where the adapter got there first costs
+ * nothing and no row is written twice.
  *
  * The row holds the body, and the feed rewrites its summary only when the
  * patch carries one, so the caller applies this for body edits alone. Returns
- * whether a row was rewritten; a card that owns no message, or whose handle
- * does not address a row in its own conversation, reports false rather than
- * failing the edit.
+ * whether a row was rewritten; a card with no message behind it, or whose
+ * handle does not address a row in its own conversation, reports false rather
+ * than failing the edit.
  */
 export function updateFeedItemConversationMessage(
   item: FeedItem,
   body: string,
+  alreadyRewritten?: ReadonlySet<string>,
 ): boolean {
   const messageId = item.metadata?.[CONVERSATION_MESSAGE_ID_KEY];
   if (typeof messageId !== "string" || messageId.length === 0) {
+    return false;
+  }
+  if (alreadyRewritten?.has(messageId)) {
     return false;
   }
   // Scoped to the card's own conversation so the handle can only ever address
