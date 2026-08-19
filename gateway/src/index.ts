@@ -244,6 +244,7 @@ import { trustRulesRoutes } from "./ipc/trust-rules-handlers.js";
 
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
 import { createVelayRoutes } from "./ipc/velay-handlers.js";
+import { createWebhookRouteRoutes } from "./ipc/webhook-route-handlers.js";
 import { refreshRouteSchema } from "./ipc/route-schema-cache.js";
 import { initGatewayDb } from "./db/connection.js";
 import { cleanupExpiredInboundEvents } from "./db/inbound-dedup-store.js";
@@ -2978,6 +2979,7 @@ async function main() {
     }),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
+    ...createWebhookRouteRoutes(),
     ...createCredentialRequestIpcRoutes(
       config,
       configFileCache,
