@@ -53,7 +53,6 @@ import {
 import {
   purgeAllWatchTimelines,
   purgeWatchTimelineForConversation,
-  withWatchTimelineWipe,
 } from "../watch/watch-timeline.js";
 import {
   deleteOrphanAttachments,
@@ -196,13 +195,15 @@ function dedicatedTableExists(db: DrizzleDb, table: string): boolean {
  * conversation-scoped pending event.
  */
 /**
- * Remove a conversation's watch-session timeline and the screenshot files
- * those entries own.
+ * Remove a conversation's watch-session timeline: the narration, the screens,
+ * and the frames of them the entries carry.
  *
- * Runs with the other on-disk cleanup, after the row deletes: the entries are
- * keyed by conversation id, and their frames are staged attachment files, so a
- * delete that skipped them would leave pictures of the user's screen on disk
- * for a conversation they asked to remove.
+ * The rows are keyed by conversation id with no cascade behind them, so a
+ * delete that skipped them would keep pictures of the user's screen for a
+ * conversation they asked to remove. It runs after the row deletes, which is
+ * the order the watch store expects: once `conversations` no longer has the
+ * row, a later append is refused rather than left for a purge that has already
+ * been.
  *
  * Best-effort, like the rest of the post-transaction cleanup. The conversation
  * row is already gone by this point, so throwing here would turn a completed
@@ -3582,57 +3583,50 @@ export async function clearAll(): Promise<{
     "DELETE FROM telemetry_events WHERE name = 'skill_loaded'",
   );
 
-  // The whole delete sequence is one wipe as far as the watch timeline store
-  // is concerned: it refuses every append that overlaps it. The timeline purge
-  // is a single step partway through, so an append whose screenshot upload is
-  // in flight when the wipe starts would otherwise land its row after that
-  // purge, against a `conversations` row this sequence has not deleted yet,
-  // and leave narration and screen data behind a wipe the user asked for.
-  await withWatchTimelineWipe(async () => {
-    // Delete in dependency order. The cascade handles tool_invocations. memory_jobs,
-    // memory_segments, memory_embeddings, and memory_summaries each live on a
-    // dedicated connection; clear them there rather than through a main-DB sqlite3
-    // subprocess. Clear all four directly rather than routing memory_segments
-    // through the CONVERSATIONS_CLEARED hook below: that hook is a no-op when the
-    // memory plugin is disabled, which would keep memory_segments' deleted message
-    // text searchable until the next startup sweep. memory_embeddings and
-    // memory_summaries are not conversation-keyed, so the hook never covered them.
-    rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
-    rawMemoryRun(
-      "conversation:clearAll:memorySegments",
-      "DELETE FROM memory_segments",
-    );
-    rawMemoryRun(
-      "conversation:clearAll:memoryEmbeddings",
-      "DELETE FROM memory_embeddings",
-    );
-    rawMemoryRun(
-      "conversation:clearAll:memorySummaries",
-      "DELETE FROM memory_summaries",
-    );
-    await runOrThrow("DELETE FROM memory_checkpoints");
-    rawLogsRun(
-      "conversation:clearAll:requestLogs",
-      "DELETE FROM llm_request_logs",
-    );
-    await runOrThrow("DELETE FROM llm_usage_events");
-    await runOrThrow("DELETE FROM message_attachments");
-    // Watch-session timelines are conversation-keyed rows whose screenshots are
-    // staged attachment files on disk. `DELETE FROM attachments` drops rows, not
-    // files, so the timeline is purged through its own store first: that path
-    // unlinks each frame as it removes the row it belongs to. It runs after
-    // message_attachments so nothing still references a frame, and before the
-    // bulk attachment wipe so every row it needs is still there to read.
-    purgeAllWatchTimelines();
-    await runOrThrow("DELETE FROM attachments");
-    await runOrThrow("DELETE FROM tool_invocations");
-    await runOrThrow("DELETE FROM messages");
-    await runOrThrow("DELETE FROM conversations");
-    // Subagent lifecycle records reference conversations by id without an FK
-    // cascade; wipe them explicitly so labels/objectives don't survive (or
-    // rehydrate after) a clear-all.
-    await runOrThrow("DELETE FROM subagents");
-  });
+  // Delete in dependency order. The cascade handles tool_invocations. memory_jobs,
+  // memory_segments, memory_embeddings, and memory_summaries each live on a
+  // dedicated connection; clear them there rather than through a main-DB sqlite3
+  // subprocess. Clear all four directly rather than routing memory_segments
+  // through the CONVERSATIONS_CLEARED hook below: that hook is a no-op when the
+  // memory plugin is disabled, which would keep memory_segments' deleted message
+  // text searchable until the next startup sweep. memory_embeddings and
+  // memory_summaries are not conversation-keyed, so the hook never covered them.
+  rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
+  rawMemoryRun(
+    "conversation:clearAll:memorySegments",
+    "DELETE FROM memory_segments",
+  );
+  rawMemoryRun(
+    "conversation:clearAll:memoryEmbeddings",
+    "DELETE FROM memory_embeddings",
+  );
+  rawMemoryRun(
+    "conversation:clearAll:memorySummaries",
+    "DELETE FROM memory_summaries",
+  );
+  await runOrThrow("DELETE FROM memory_checkpoints");
+  rawLogsRun(
+    "conversation:clearAll:requestLogs",
+    "DELETE FROM llm_request_logs",
+  );
+  await runOrThrow("DELETE FROM llm_usage_events");
+  await runOrThrow("DELETE FROM message_attachments");
+  await runOrThrow("DELETE FROM attachments");
+  await runOrThrow("DELETE FROM tool_invocations");
+  await runOrThrow("DELETE FROM messages");
+  await runOrThrow("DELETE FROM conversations");
+  // Subagent lifecycle records reference conversations by id without an FK
+  // cascade; wipe them explicitly so labels/objectives don't survive (or
+  // rehydrate after) a clear-all.
+  await runOrThrow("DELETE FROM subagents");
+  // Watch-session timelines are conversation-keyed rows the cascade does not
+  // reach. They come after `conversations` so this statement is the last thing
+  // that needs to reach one: an append arriving from here on finds no
+  // conversation to key itself to and is refused, and an append that already
+  // ran is a row this deletes. The bulk deletes above run in a sqlite3
+  // subprocess, so the event loop is free while they work; this one is a
+  // synchronous in-process statement, which nothing can interleave with.
+  purgeAllWatchTimelines();
 
   // The memory feature's relocated conversation-keyed tables lost their main-DB
   // cascade. Signal the wipe through the hook rather than reaching into the

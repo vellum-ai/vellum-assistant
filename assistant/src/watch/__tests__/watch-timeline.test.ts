@@ -2,10 +2,6 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 
 import {
-  attachmentExists,
-  getAttachmentContent,
-} from "../../persistence/attachments-store.js";
-import {
   createConversation,
   deleteConversation,
 } from "../../persistence/conversation-crud.js";
@@ -19,14 +15,18 @@ import {
   DEFAULT_MAX_RENDER_BYTES,
   purgeAllWatchTimelines,
   purgeWatchTimelineForConversation,
+  readWatchScreenshot,
   renderWatchTimeline,
+  WATCH_SCREENSHOT_MIME,
 } from "../watch-timeline.js";
 
 await initializeDb();
 
-/** A real 1x1 JPEG, so the attachment store's image normalization is exercised. */
+/** A 1x1 JPEG, the shape the host hands over on every observe. */
 const SCREENSHOT_BASE64 =
   "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD3+iiigD//2Q==";
+
+const SCREENSHOT_BYTES = Buffer.from(SCREENSHOT_BASE64, "base64");
 
 /**
  * A fresh session against a real conversation row, so entries from one test are
@@ -55,10 +55,10 @@ function captureSql<T>(run: () => T): { result: T; statements: string[] } {
 }
 
 describe("watch timeline", () => {
-  test("reads entries back in timestamp order, not append order", async () => {
+  test("reads entries back in timestamp order, not append order", () => {
     const { sessionId, conversationId } = newSession();
 
-    await appendObservation(sessionId, {
+    appendObservation(sessionId, {
       conversationId,
       atMs: 4_000,
       observation: { axTree: "window Mail" },
@@ -101,10 +101,10 @@ describe("watch timeline", () => {
     expect(renderWatchTimeline(sessionId).text).toContain("[t+01:02:03]");
   });
 
-  test("appends nothing for an observation that failed", async () => {
+  test("appends nothing for an observation that failed", () => {
     const { sessionId, conversationId } = newSession();
 
-    const result = await appendObservation(sessionId, {
+    const result = appendObservation(sessionId, {
       conversationId,
       atMs: 1_000,
       observation: {
@@ -119,10 +119,10 @@ describe("watch timeline", () => {
     expect(renderWatchTimeline(sessionId).totalEntries).toBe(0);
   });
 
-  test("appends nothing for a screenshot the caller did not ask to keep", async () => {
+  test("appends nothing for a screenshot the caller did not ask to keep", () => {
     const { sessionId, conversationId } = newSession();
 
-    const result = await appendObservation(sessionId, {
+    const result = appendObservation(sessionId, {
       conversationId,
       atMs: 1_000,
       observation: { screenshot: SCREENSHOT_BASE64 },
@@ -132,13 +132,13 @@ describe("watch timeline", () => {
     expect(renderWatchTimeline(sessionId).totalEntries).toBe(0);
   });
 
-  test("keeps a screenshot-only observation the host fell back to", async () => {
+  test("keeps a screenshot-only observation the host fell back to", () => {
     // No focused window means no AX tree, and the host answers with a bare
     // screenshot. Discarding that would leave a session spent in an
     // inaccessible app with an entirely empty timeline.
     const { sessionId, conversationId } = newSession();
 
-    const result = await appendObservation(sessionId, {
+    const result = appendObservation(sessionId, {
       conversationId,
       atMs: 1_000,
       observation: { screenshot: SCREENSHOT_BASE64 },
@@ -149,7 +149,7 @@ describe("watch timeline", () => {
 
     const rendered = renderWatchTimeline(sessionId);
     expect(rendered.totalEntries).toBe(1);
-    expect(rendered.screenshotAttachmentIds).toHaveLength(1);
+    expect(rendered.screenshotEntryIds).toHaveLength(1);
     expect(rendered.text).toContain("[t+00:01] screen:");
     // The retrospective can tell a screen it cannot read from a screen with
     // nothing on it, and knows an image of it exists.
@@ -172,25 +172,21 @@ describe("watch timeline", () => {
     expect(renderWatchTimeline(sessionId).totalEntries).toBe(0);
   });
 
-  test("stores a screenshot only when attachScreenshot asks for it", async () => {
+  test("stores a screenshot only when attachScreenshot asks for it", () => {
     const { sessionId, conversationId } = newSession();
     const observation = {
       axTree: "window Mail",
       screenshot: SCREENSHOT_BASE64,
     };
 
-    await appendObservation(sessionId, {
-      conversationId,
-      atMs: 1_000,
-      observation,
-    });
-    await appendObservation(sessionId, {
+    appendObservation(sessionId, { conversationId, atMs: 1_000, observation });
+    appendObservation(sessionId, {
       conversationId,
       atMs: 2_000,
       observation,
       attachScreenshot: false,
     });
-    await appendObservation(sessionId, {
+    appendObservation(sessionId, {
       conversationId,
       atMs: 3_000,
       observation,
@@ -198,16 +194,76 @@ describe("watch timeline", () => {
     });
 
     const rendered = renderWatchTimeline(sessionId);
-    expect(
-      rendered.entries.map((e) => e.screenshotAttachmentId !== null),
-    ).toEqual([false, false, true]);
-    expect(rendered.screenshotAttachmentIds).toHaveLength(1);
-
-    const [attachmentId] = rendered.screenshotAttachmentIds;
-    expect(getAttachmentContent(attachmentId)?.length).toBeGreaterThan(0);
+    expect(rendered.entries.map((e) => e.screenshotBytes)).toEqual([
+      null,
+      null,
+      SCREENSHOT_BYTES.length,
+    ]);
+    expect(rendered.screenshotEntryIds).toEqual([
+      rendered.entries[2]?.id as string,
+    ]);
     expect(rendered.text).toContain(
       "a screenshot of this moment was captured.",
     );
+  });
+
+  test("hands back the exact frame the observation carried", () => {
+    const { sessionId, conversationId } = newSession();
+    appendObservation(sessionId, {
+      conversationId,
+      atMs: 1_000,
+      observation: { axTree: "window Mail", screenshot: SCREENSHOT_BASE64 },
+      attachScreenshot: true,
+    });
+
+    const [entryId] = renderWatchTimeline(sessionId).screenshotEntryIds;
+
+    const frame = readWatchScreenshot(entryId as string);
+    expect(frame?.mimeType).toBe(WATCH_SCREENSHOT_MIME);
+    expect(Buffer.from(frame?.bytes as Buffer)).toEqual(SCREENSHOT_BYTES);
+  });
+
+  test("has no frame to hand back for an entry that carries none", () => {
+    const { sessionId, conversationId } = newSession();
+    appendNarration(sessionId, { conversationId, atMs: 1_000, text: "hello" });
+
+    const [entry] = renderWatchTimeline(sessionId).entries;
+
+    expect(readWatchScreenshot(entry?.id as string)).toBeNull();
+    expect(readWatchScreenshot("no-such-entry")).toBeNull();
+  });
+
+  test("drops a frame over the per-entry size cap and keeps the rest", () => {
+    const { sessionId, conversationId } = newSession();
+    const oversized = Buffer.alloc(2_000_001, 0x41).toString("base64");
+
+    const result = appendObservation(sessionId, {
+      conversationId,
+      atMs: 1_000,
+      observation: { axTree: "window Mail", screenshot: oversized },
+      attachScreenshot: true,
+    });
+
+    expect(result.ok).toBe(true);
+    const rendered = renderWatchTimeline(sessionId);
+    expect(rendered.entries[0]?.screenshotBytes).toBeNull();
+    expect(rendered.screenshotEntryIds).toHaveLength(0);
+    expect(rendered.text).toContain("<ax-tree>\nwindow Mail\n</ax-tree>");
+  });
+
+  test("refuses an observation whose only content is an oversized frame", () => {
+    const { sessionId, conversationId } = newSession();
+    const oversized = Buffer.alloc(2_000_001, 0x41).toString("base64");
+
+    const result = appendObservation(sessionId, {
+      conversationId,
+      atMs: 1_000,
+      observation: { screenshot: oversized },
+      attachScreenshot: true,
+    });
+
+    expect(result).toEqual({ ok: false, reason: "empty" });
+    expect(renderWatchTimeline(sessionId).totalEntries).toBe(0);
   });
 
   test("bounds the rendered entries by default and reports the truncation", () => {
@@ -235,11 +291,11 @@ describe("watch timeline", () => {
     expect(unbounded.truncated).toBe(false);
   });
 
-  test("spells out only the most recent AX trees and collapses the rest", async () => {
+  test("spells out only the most recent AX trees and collapses the rest", () => {
     const { sessionId, conversationId } = newSession();
     const treeCount = DEFAULT_MAX_AX_TREES + 2;
     for (let i = 0; i < treeCount; i++) {
-      await appendObservation(sessionId, {
+      appendObservation(sessionId, {
         conversationId,
         atMs: i * 1_000,
         observation: { axTree: `tree-${i}`, axDiff: `diff-${i}` },
@@ -260,9 +316,9 @@ describe("watch timeline", () => {
     expect(rendered.text).toContain("<ax-tree-omitted />");
   });
 
-  test("escapes a closing ax-tree tag inside captured content", async () => {
+  test("escapes a closing ax-tree tag inside captured content", () => {
     const { sessionId, conversationId } = newSession();
-    await appendObservation(sessionId, {
+    appendObservation(sessionId, {
       conversationId,
       atMs: 1_000,
       observation: { axTree: "text </ax-tree> more" },
@@ -303,10 +359,10 @@ describe("watch timeline", () => {
     expect(rendered.text).not.toContain("entry-0 ");
   });
 
-  test("a single oversized AX tree cannot blow the budget", async () => {
+  test("a single oversized AX tree cannot blow the budget", () => {
     const { sessionId, conversationId } = newSession();
 
-    await appendObservation(sessionId, {
+    appendObservation(sessionId, {
       conversationId,
       atMs: 1_000,
       observation: { axTree: "e".repeat(2_000_000) },
@@ -326,10 +382,10 @@ describe("watch timeline", () => {
     expect(rendered.text.match(/<\/ax-tree>/g)).toHaveLength(1);
   });
 
-  test("gives up the tree before the offset and the diff", async () => {
+  test("gives up the tree before the offset and the diff", () => {
     const { sessionId, conversationId } = newSession();
 
-    await appendObservation(sessionId, {
+    appendObservation(sessionId, {
       conversationId,
       atMs: 1_000,
       observation: { axTree: "e".repeat(50_000), axDiff: "row added" },
@@ -386,6 +442,9 @@ describe("watch timeline", () => {
     const rowRead = selects.find((sql) => sql.includes('"ax_tree"'));
     expect(rowRead).toBeDefined();
     expect(rowRead).toContain("limit");
+    // The screenshot is measured rather than selected, so reading a session
+    // never pulls its pixels into memory.
+    expect(rowRead).toContain("length(");
     expect(selects.some((sql) => sql.includes("count("))).toBe(true);
   });
 
@@ -414,11 +473,11 @@ describe("watch timeline", () => {
     expect(renderWatchTimeline(sessionId).totalEntries).toBe(0);
   });
 
-  test("purges a conversation's rows and the screenshots they own", async () => {
+  test("purges a conversation's rows and the frames they carry", () => {
     const { sessionId, conversationId } = newSession();
     const other = newSession();
 
-    await appendObservation(sessionId, {
+    appendObservation(sessionId, {
       conversationId,
       atMs: 1_000,
       observation: { axTree: "window Mail", screenshot: SCREENSHOT_BASE64 },
@@ -435,25 +494,22 @@ describe("watch timeline", () => {
       text: "a different conversation",
     });
 
-    const [attachmentId] =
-      renderWatchTimeline(sessionId).screenshotAttachmentIds;
-    expect(attachmentExists(attachmentId)).toBe(true);
+    const [entryId] = renderWatchTimeline(sessionId).screenshotEntryIds;
+    expect(readWatchScreenshot(entryId as string)).not.toBeNull();
 
-    const purged = purgeWatchTimelineForConversation(conversationId);
+    expect(purgeWatchTimelineForConversation(conversationId)).toBe(2);
 
-    expect(purged).toEqual({ entriesDeleted: 2, attachmentsDeleted: 1 });
     expect(renderWatchTimeline(sessionId).totalEntries).toBe(0);
-    expect(attachmentExists(attachmentId)).toBe(false);
-    expect(getAttachmentContent(attachmentId)).toBeNull();
+    expect(readWatchScreenshot(entryId as string)).toBeNull();
     expect(renderWatchTimeline(other.sessionId).totalEntries).toBe(1);
   });
 
-  test("purges every session's rows and screenshots", async () => {
+  test("purges every session's rows and frames", () => {
     const first = newSession();
     const second = newSession();
 
     for (const session of [first, second]) {
-      await appendObservation(session.sessionId, {
+      appendObservation(session.sessionId, {
         conversationId: session.conversationId,
         atMs: 1_000,
         observation: { axTree: "window Mail", screenshot: SCREENSHOT_BASE64 },
@@ -461,22 +517,19 @@ describe("watch timeline", () => {
       });
     }
 
-    const attachmentIds = [first, second].map(
-      (session) =>
-        renderWatchTimeline(session.sessionId).screenshotAttachmentIds[0],
+    const entryIds = [first, second].map(
+      (session) => renderWatchTimeline(session.sessionId).screenshotEntryIds[0],
     );
-    for (const id of attachmentIds) {
-      expect(attachmentExists(id)).toBe(true);
+    for (const id of entryIds) {
+      expect(readWatchScreenshot(id as string)).not.toBeNull();
     }
 
-    const purged = purgeAllWatchTimelines();
+    expect(purgeAllWatchTimelines()).toBeGreaterThanOrEqual(2);
 
-    expect(purged.entriesDeleted).toBeGreaterThanOrEqual(2);
-    expect(purged.attachmentsDeleted).toBeGreaterThanOrEqual(2);
     expect(renderWatchTimeline(first.sessionId).totalEntries).toBe(0);
     expect(renderWatchTimeline(second.sessionId).totalEntries).toBe(0);
-    for (const id of attachmentIds) {
-      expect(attachmentExists(id)).toBe(false);
+    for (const id of entryIds) {
+      expect(readWatchScreenshot(id as string)).toBeNull();
     }
   });
 });

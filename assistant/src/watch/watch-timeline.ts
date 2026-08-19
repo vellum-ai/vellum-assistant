@@ -20,20 +20,27 @@
  * retrospective gets one interleaved timeline no matter which write landed
  * first.
  *
- * Screenshots go to the attachments store and the row keeps only the id. A
- * half-hour session's frames are tens of megabytes, which belong on disk
- * behind an id rather than base64 in a SQLite column.
+ * A screenshot lives in the row it belongs to, so an entry has one home and
+ * one lifetime and a purge is a single `DELETE`. The frames afford that:
+ * `attachScreenshot` is caller-gated, and the host captures at 960x540
+ * (`HostCuExecutor.swift`), which is tens of kilobytes of JPEG rather than the
+ * megabytes a full-resolution frame would be. Reads that only want the text
+ * select around the column, so a session's pixels reach memory only when a
+ * caller asks for a specific frame through {@link readWatchScreenshot}.
+ *
+ * Deletion needs no coordination beyond ordering. An append runs to completion
+ * in one synchronous step, so nothing can land between its existence check and
+ * its insert; every purge runs after the conversation rows it covers are
+ * already gone. An append therefore either finishes before the purge, and is
+ * swept by it, or starts after it and is refused by
+ * {@link conversationStillExists}.
  */
 
 import { randomUUID } from "node:crypto";
 
-import { count, desc, eq, type SQL } from "drizzle-orm";
+import { count, desc, eq, type SQL, sql } from "drizzle-orm";
 
 import { escapeAxTreeContent } from "../context/outbound-sanitize.js";
-import {
-  deleteAttachment,
-  uploadAttachmentFromBytes,
-} from "../persistence/attachments-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { conversations } from "../persistence/schema/conversations.js";
 import { watchTimelineEntries } from "../persistence/schema/watch.js";
@@ -44,7 +51,20 @@ const log = getLogger("watch-timeline");
 const NARRATION_LABEL = "narration:";
 const OBSERVATION_LABEL = "screen:";
 
-const SCREENSHOT_MIME = "image/jpeg";
+/** The format the host captures a watch screenshot in. */
+export const WATCH_SCREENSHOT_MIME = "image/jpeg";
+
+/**
+ * Bytes of screenshot a single entry may carry.
+ *
+ * The host captures at 960x540 (`HostCuExecutor.swift`), which lands a JPEG
+ * around 50-150 KB, so the cap is an order of magnitude of headroom over an
+ * ordinary frame and exists to bound the pathological one. A frame over it is
+ * dropped rather than stored, on the same terms as a frame that failed to
+ * decode: the entry keeps its tree and its diff, and an entry that had nothing
+ * else is refused.
+ */
+const MAX_SCREENSHOT_BYTES = 2_000_000;
 
 /** Stands in for an AX tree the render bound left out. */
 const AX_TREE_OMITTED = "<ax-tree-omitted />";
@@ -142,7 +162,11 @@ export interface WatchObservationInput {
 
 export type WatchEntryKind = "narration" | "observation";
 
-/** One persisted timeline row. */
+/**
+ * One persisted timeline row, without its screenshot. The frame is reachable
+ * by id through {@link readWatchScreenshot}, so reading a session does not
+ * hydrate its pixels.
+ */
 export interface WatchTimelineEntry {
   readonly id: string;
   readonly sessionId: string;
@@ -152,7 +176,8 @@ export interface WatchTimelineEntry {
   readonly text: string;
   readonly axTree: string | null;
   readonly axDiff: string | null;
-  readonly screenshotAttachmentId: string | null;
+  /** Size of the entry's screenshot, or null when it has none. */
+  readonly screenshotBytes: number | null;
   readonly createdAt: number;
 }
 
@@ -164,7 +189,6 @@ export type WatchAppendResult =
         | "empty"
         | "observation_failed"
         | "conversation_missing"
-        | "store_wiped"
         | "write_failed";
     };
 
@@ -190,13 +214,11 @@ export interface WatchTimelineRender {
    * entry's own content short.
    */
   readonly truncated: boolean;
-  /** Attachment ids of the rendered entries' screenshots, oldest first. */
-  readonly screenshotAttachmentIds: readonly string[];
-}
-
-export interface WatchTimelinePurgeResult {
-  readonly entriesDeleted: number;
-  readonly attachmentsDeleted: number;
+  /**
+   * Ids of the rendered entries that carry a screenshot, oldest first, ready
+   * for {@link readWatchScreenshot}.
+   */
+  readonly screenshotEntryIds: readonly string[];
 }
 
 /**
@@ -221,64 +243,15 @@ function normalizeAtMs(atMs: number): number {
   return Number.isFinite(atMs) ? Math.max(0, Math.floor(atMs)) : 0;
 }
 
-function toEntry(row: typeof watchTimelineEntries.$inferSelect) {
-  return {
-    ...row,
-    kind: row.kind as WatchEntryKind,
-  } satisfies WatchTimelineEntry;
-}
-
-/**
- * Full wipes running in this process, and the epoch each one advances.
- *
- * A full wipe is a sequence of deletes rather than one statement, and an
- * append is not instantaneous either, so the two interleave in both
- * directions. {@link conversationStillExists} covers only the ordering where
- * the conversation row is already gone by the time the append writes; an
- * append reaching its insert while the wipe is still working through the
- * tables ahead of `conversations` passes that check and writes a row the wipe
- * has already swept past.
- *
- * The epoch covers the rest. An append captures it as it begins and refuses to
- * insert when a wipe is in flight or the epoch has moved since, so a row lands
- * only when no wipe overlapped the append at any point.
- */
-let wipesInFlight = 0;
-let wipeEpoch = 0;
-
-/**
- * Run a full wipe with watch appends refused for its whole duration.
- *
- * The wrapper spans the wipe rather than the timeline purge alone: the purge
- * is one step partway through the sequence, and an append landing after it
- * still has a live `conversations` row to pass the existence check against.
- */
-export async function withWatchTimelineWipe<T>(
-  wipe: () => Promise<T>,
-): Promise<T> {
-  wipesInFlight += 1;
-  wipeEpoch += 1;
-  try {
-    return await wipe();
-  } finally {
-    wipesInFlight -= 1;
-  }
-}
-
-/** Whether an append that began at `epoch` is still clear of every wipe. */
-function appendSurvivedWipes(epoch: number): boolean {
-  return wipesInFlight === 0 && epoch === wipeEpoch;
-}
-
 /**
  * Whether the conversation an entry is keyed to is still in the store.
  *
- * The check is a read rather than a foreign key because the two would want
- * opposite things from a delete. `purgeEntries` reads each row's
- * `screenshotAttachmentId` and unlinks the staged frame before dropping the
- * row, and it runs after the conversation row is gone; a cascade would have
- * removed those rows first and left the frames on disk as files nothing points
- * at.
+ * This is what keeps an append from outliving a delete. Every purge runs after
+ * the conversation rows it covers are gone, so an append that starts once a
+ * purge could no longer reach it finds nothing to key itself to and is
+ * refused. The check is a read rather than a foreign key because a cascade
+ * would delete on the store's terms rather than refuse on the append's, and a
+ * cascade cannot refuse a row that arrives afterwards at all.
  */
 function conversationStillExists(conversationId: string): boolean {
   return (
@@ -290,42 +263,30 @@ function conversationStillExists(conversationId: string): boolean {
   );
 }
 
+/** The row an append writes, screenshot included. */
+type WatchTimelineRow = typeof watchTimelineEntries.$inferInsert;
+
 /**
- * Persist one entry, refusing an entry a deletion has overtaken.
+ * Persist one entry, refusing one a deletion has overtaken.
  *
- * An append is not instantaneous: an observation stores its screenshot before
- * it writes its row, and a deletion landing inside that gap would leave a row
- * keyed to a conversation that no longer exists. Nothing could reach that row
- * afterwards, because every purge is scoped to a conversation or to the whole
- * store, so the entry and the frame it owns would survive the deletion
- * indefinitely. Both guards make the write the point where that is noticed:
- * `epochAtAppendStart` covers a full wipe, the existence check covers a
- * single-conversation delete.
+ * The check and the insert are one synchronous step, so no purge can run
+ * between them: the entry either predates the purge that covers it or is
+ * turned away here.
  */
-function insertEntry(
-  entry: WatchTimelineEntry,
-  epochAtAppendStart: number,
-): WatchAppendResult {
-  if (!appendSurvivedWipes(epochAtAppendStart)) {
+function insertEntry(row: WatchTimelineRow): WatchAppendResult {
+  if (!conversationStillExists(row.conversationId)) {
     log.debug(
-      { sessionId: entry.sessionId, conversationId: entry.conversationId },
-      "Dropping a watch timeline entry that spans a full wipe",
-    );
-    return { ok: false, reason: "store_wiped" };
-  }
-  if (!conversationStillExists(entry.conversationId)) {
-    log.debug(
-      { sessionId: entry.sessionId, conversationId: entry.conversationId },
+      { sessionId: row.sessionId, conversationId: row.conversationId },
       "Dropping a watch timeline entry for a conversation that is gone",
     );
     return { ok: false, reason: "conversation_missing" };
   }
   try {
-    getDb().insert(watchTimelineEntries).values(entry).run();
-    return { ok: true, entryId: entry.id };
+    getDb().insert(watchTimelineEntries).values(row).run();
+    return { ok: true, entryId: row.id };
   } catch (err) {
     log.warn(
-      { err, sessionId: entry.sessionId, kind: entry.kind },
+      { err, sessionId: row.sessionId, kind: row.kind },
       "Failed to persist a watch timeline entry",
     );
     return { ok: false, reason: "write_failed" };
@@ -333,31 +294,31 @@ function insertEntry(
 }
 
 /**
- * Store an observation's screenshot and return its attachment id, or null when
- * it could not be stored.
+ * Decode an observation's screenshot into the bytes the row carries, or null
+ * when there is nothing worth storing.
  *
  * A session degrades to a timeline with fewer images rather than to no
- * timeline, so a failed upload logs and leaves the entry's screenshot null.
+ * timeline, so a frame that decodes to nothing or overruns
+ * {@link MAX_SCREENSHOT_BYTES} logs and leaves the entry's screenshot null.
  */
-async function storeScreenshot(
+function decodeScreenshot(
   sessionId: string,
   atMs: number,
   base64: string,
-): Promise<string | null> {
-  try {
-    const stored = await uploadAttachmentFromBytes(
-      `watch-screen-${atMs}.jpg`,
-      SCREENSHOT_MIME,
-      Buffer.from(base64, "base64"),
-    );
-    return stored.id;
-  } catch (err) {
+): Buffer | null {
+  const bytes = Buffer.from(base64, "base64");
+  if (bytes.length === 0) {
+    log.warn({ sessionId, atMs }, "Discarding an undecodable watch screenshot");
+    return null;
+  }
+  if (bytes.length > MAX_SCREENSHOT_BYTES) {
     log.warn(
-      { err, sessionId, atMs },
-      "Failed to store a watch observation screenshot",
+      { sessionId, atMs, bytes: bytes.length },
+      "Discarding a watch screenshot over the per-entry size cap",
     );
     return null;
   }
+  return bytes;
 }
 
 /** Append what the user said at `atMs` milliseconds into the session. */
@@ -365,26 +326,22 @@ export function appendNarration(
   sessionId: string,
   options: { conversationId: string; text: string; atMs: number },
 ): WatchAppendResult {
-  const epochAtAppendStart = wipeEpoch;
   const text = options.text.trim();
   if (text.length === 0) {
     return { ok: false, reason: "empty" };
   }
-  return insertEntry(
-    {
-      id: randomUUID(),
-      sessionId,
-      conversationId: options.conversationId,
-      atMs: normalizeAtMs(options.atMs),
-      kind: "narration",
-      text,
-      axTree: null,
-      axDiff: null,
-      screenshotAttachmentId: null,
-      createdAt: Date.now(),
-    },
-    epochAtAppendStart,
-  );
+  return insertEntry({
+    id: randomUUID(),
+    sessionId,
+    conversationId: options.conversationId,
+    atMs: normalizeAtMs(options.atMs),
+    kind: "narration",
+    text,
+    axTree: null,
+    axDiff: null,
+    screenshot: null,
+    createdAt: Date.now(),
+  });
 }
 
 /**
@@ -408,7 +365,7 @@ export function appendNarration(
  * app: requiring a tree or a diff would make watching one produce an empty
  * timeline while the frames the user asked for were being discarded.
  */
-export async function appendObservation(
+export function appendObservation(
   sessionId: string,
   options: {
     conversationId: string;
@@ -417,8 +374,7 @@ export async function appendObservation(
     /** Store the observation's screenshot. Defaults to false. */
     attachScreenshot?: boolean;
   },
-): Promise<WatchAppendResult> {
-  const epochAtAppendStart = wipeEpoch;
+): WatchAppendResult {
   const { observation } = options;
   if (observation.executionError) {
     log.debug(
@@ -427,47 +383,56 @@ export async function appendObservation(
     );
     return { ok: false, reason: "observation_failed" };
   }
-  const screenshot =
+  const captured =
     options.attachScreenshot === true ? observation.screenshot : undefined;
-  if (!observation.axTree && !observation.axDiff && !screenshot) {
+  if (!observation.axTree && !observation.axDiff && !captured) {
     return { ok: false, reason: "empty" };
   }
 
   const atMs = normalizeAtMs(options.atMs);
-  const screenshotAttachmentId = screenshot
-    ? await storeScreenshot(sessionId, atMs, screenshot)
+  const screenshot = captured
+    ? decodeScreenshot(sessionId, atMs, captured)
     : null;
 
-  // A screenshot-only observation whose upload failed carries nothing at all,
-  // so it falls back to the empty case rather than persisting a blank row.
-  if (!observation.axTree && !observation.axDiff && !screenshotAttachmentId) {
+  // A screenshot-only observation whose frame was discarded carries nothing at
+  // all, so it falls back to the empty case rather than persisting a blank row.
+  if (!observation.axTree && !observation.axDiff && !screenshot) {
     return { ok: false, reason: "empty" };
   }
 
-  const result = insertEntry(
-    {
-      id: randomUUID(),
-      sessionId,
-      conversationId: options.conversationId,
-      atMs,
-      kind: "observation",
-      text: "",
-      axTree: observation.axTree ?? null,
-      axDiff: observation.axDiff ?? null,
-      screenshotAttachmentId,
-      createdAt: Date.now(),
-    },
-    epochAtAppendStart,
-  );
+  return insertEntry({
+    id: randomUUID(),
+    sessionId,
+    conversationId: options.conversationId,
+    atMs,
+    kind: "observation",
+    text: "",
+    axTree: observation.axTree ?? null,
+    axDiff: observation.axDiff ?? null,
+    screenshot,
+    createdAt: Date.now(),
+  });
+}
 
-  // A row that did not land leaves its screenshot owned by nothing, so the
-  // upload is undone rather than left staged on disk. The refusal runs in the
-  // upload's own continuation, so the attachment row is always still there for
-  // `deleteAttachment` to unlink the file through.
-  if (!result.ok && screenshotAttachmentId) {
-    deleteAttachment(screenshotAttachmentId);
+/**
+ * Read one entry's screenshot, or null when it has none.
+ *
+ * Frames are fetched one at a time because a render's worth of them is the
+ * only part of a timeline large enough to matter in memory, and a caller
+ * attaching images knows which moments it wants.
+ */
+export function readWatchScreenshot(
+  entryId: string,
+): { mimeType: string; bytes: Buffer } | null {
+  const row = getDb()
+    .select({ screenshot: watchTimelineEntries.screenshot })
+    .from(watchTimelineEntries)
+    .where(eq(watchTimelineEntries.id, entryId))
+    .get();
+  if (!row?.screenshot) {
+    return null;
   }
-  return result;
+  return { mimeType: WATCH_SCREENSHOT_MIME, bytes: row.screenshot };
 }
 
 /** How many entries the session has, including any a read leaves out. */
@@ -490,6 +455,9 @@ function countEntries(sessionId: string): number {
  * descending order is the exact inverse of the ascending one the rows are
  * rendered in, so taking the newest `limit` and reversing them gives the same
  * tail an ordered read would end with.
+ *
+ * The screenshot column is measured rather than selected, so the render learns
+ * which entries have a frame and how large it is without pulling the pixels.
  */
 function readNewestEntries(
   sessionId: string,
@@ -499,7 +467,20 @@ function readNewestEntries(
     return [];
   }
   const rows = getDb()
-    .select()
+    .select({
+      id: watchTimelineEntries.id,
+      sessionId: watchTimelineEntries.sessionId,
+      conversationId: watchTimelineEntries.conversationId,
+      atMs: watchTimelineEntries.atMs,
+      kind: watchTimelineEntries.kind,
+      text: watchTimelineEntries.text,
+      axTree: watchTimelineEntries.axTree,
+      axDiff: watchTimelineEntries.axDiff,
+      screenshotBytes: sql<
+        number | null
+      >`length(${watchTimelineEntries.screenshot})`,
+      createdAt: watchTimelineEntries.createdAt,
+    })
     .from(watchTimelineEntries)
     .where(eq(watchTimelineEntries.sessionId, sessionId))
     .orderBy(
@@ -509,7 +490,7 @@ function readNewestEntries(
     )
     .limit(limit)
     .all()
-    .map(toEntry);
+    .map((row) => ({ ...row, kind: row.kind as WatchEntryKind }));
   rows.reverse();
   return rows;
 }
@@ -573,7 +554,7 @@ function renderEntry(
   if (!entry.axTree && !entry.axDiff) {
     notes.push(AX_TREE_UNAVAILABLE);
   }
-  if (entry.screenshotAttachmentId) {
+  if (entry.screenshotBytes !== null) {
     notes.push(SCREENSHOT_NOTE);
   }
 
@@ -641,8 +622,8 @@ function renderEntry(
  *
  * The result carries what the retrospective needs to decide how much of this
  * to use: how many entries the session actually has, whether anything was cut,
- * and the attachment ids of the screenshots among the entries rendered, so it
- * can attach the images it wants without a second query.
+ * and the ids of the rendered entries that have a screenshot, so it can fetch
+ * the images it wants and no others.
  */
 export function renderWatchTimeline(
   sessionId: string,
@@ -695,64 +676,52 @@ export function renderWatchTimeline(
     entries,
     totalEntries,
     truncated: clipped || entries.length < totalEntries,
-    screenshotAttachmentIds: entries
-      .map((entry) => entry.screenshotAttachmentId)
-      .filter((id): id is string => id !== null),
+    screenshotEntryIds: entries
+      .filter((entry) => entry.screenshotBytes !== null)
+      .map((entry) => entry.id),
   };
 }
 
 /**
- * Delete the timeline entries matching `where`, along with the screenshots
- * those entries own.
+ * Delete the timeline entries matching `where` and return how many went.
  *
- * Attachments go first. A row deleted before its attachment is a screenshot
- * nothing points at, which no later sweep can attribute to anything.
- * `deleteAttachment` unlinks the staged file with the row, so the frames leave
- * disk rather than surviving as unreferenced bytes under the workspace.
+ * One statement takes the narration, the screen, and the pixels together, and
+ * `RETURNING` counts them without a second pass. It runs in process and
+ * synchronously, which is what makes it uninterruptible: no append can slip
+ * between the rows this statement matches and the rows it removes.
  */
-function purgeEntries(where: SQL | undefined): WatchTimelinePurgeResult {
-  const db = getDb();
-  const rows = db
-    .select({
-      screenshotAttachmentId: watchTimelineEntries.screenshotAttachmentId,
-    })
-    .from(watchTimelineEntries)
+function purgeEntries(where: SQL | undefined): number {
+  return getDb()
+    .delete(watchTimelineEntries)
     .where(where)
-    .all();
-
-  let attachmentsDeleted = 0;
-  for (const row of rows) {
-    if (!row.screenshotAttachmentId) {
-      continue;
-    }
-    if (deleteAttachment(row.screenshotAttachmentId) === "deleted") {
-      attachmentsDeleted += 1;
-    }
-  }
-
-  db.delete(watchTimelineEntries).where(where).run();
-
-  return { entriesDeleted: rows.length, attachmentsDeleted };
+    .returning({ id: watchTimelineEntries.id })
+    .all().length;
 }
 
 /**
- * Delete every timeline entry belonging to a conversation, along with the
- * screenshots those entries own. Every conversation-delete path calls this:
- * the entries hold frames of the user's screen, so a delete that left them
- * behind would strand the conversation's most sensitive artifact on disk.
+ * Delete every timeline entry belonging to a conversation and return how many
+ * went. Every conversation-delete path calls this: the entries hold frames of
+ * the user's screen, so a delete that left them behind would strand the
+ * conversation's most sensitive artifact in the database.
+ *
+ * Call it after the `conversations` row is gone. An append that arrives later
+ * has nothing to key itself to and is refused, so the purge is the last thing
+ * that has to reach a timeline row rather than one step among several.
  */
 export function purgeWatchTimelineForConversation(
   conversationId: string,
-): WatchTimelinePurgeResult {
+): number {
   return purgeEntries(eq(watchTimelineEntries.conversationId, conversationId));
 }
 
 /**
- * Delete every timeline entry in the store, along with the screenshots those
- * entries own. The clear-all wipe's counterpart to
- * {@link purgeWatchTimelineForConversation}: a wipe that dropped the rows
- * alone would leave the frames behind as staged files no row points at.
+ * Delete every timeline entry in the store and return how many went. The
+ * clear-all wipe's counterpart to
+ * {@link purgeWatchTimelineForConversation}, with the same ordering
+ * requirement: it runs after `conversations` is emptied, so an append racing
+ * the wipe either lands before this statement and is swept by it or arrives
+ * afterwards and is refused.
  */
-export function purgeAllWatchTimelines(): WatchTimelinePurgeResult {
+export function purgeAllWatchTimelines(): number {
   return purgeEntries(undefined);
 }

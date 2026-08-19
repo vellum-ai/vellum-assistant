@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { blob, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 /**
  * One entry in a watch session's timeline: what the user narrated, or what
@@ -8,8 +8,9 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
  * ordered by `atMs`, the offset from the session's start, and only a rendered
  * summary reaches a model, composed by the retrospective that reads them.
  *
- * `screenshotAttachmentId` points at the attachments store rather than
- * carrying pixels, so a session's worth of frames stays out of the row.
+ * `screenshot` holds the frame itself, so the row is an entry's only home: one
+ * row, one lifetime, one delete. Reads that do not want the pixels select the
+ * other columns and leave this one alone.
  */
 export const watchTimelineEntries = sqliteTable("watch_timeline_entries", {
   id: text("id").primaryKey(),
@@ -22,6 +23,7 @@ export const watchTimelineEntries = sqliteTable("watch_timeline_entries", {
   text: text("text").notNull(),
   axTree: text("ax_tree"),
   axDiff: text("ax_diff"),
-  screenshotAttachmentId: text("screenshot_attachment_id"),
+  /** JPEG bytes of the screen at `atMs`, or NULL when none was kept. */
+  screenshot: blob("screenshot", { mode: "buffer" }),
   createdAt: integer("created_at").notNull(),
 });
