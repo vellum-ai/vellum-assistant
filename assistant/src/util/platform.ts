@@ -390,11 +390,12 @@ function assertTestPathIsEphemeral(dir: string): void {
   if (!isTestProcess) {
     return;
   }
-  // Escape hatch for the rare intentional run against a real workspace.
+  // Escape hatch for the rare intentional run against a real workspace,
+  // shared with assertTestDbIsIsolated() in persistence/db-connection.ts.
   // Deliberately NOT added to tools/terminal/safe-env.ts: a daemon-level
   // opt-out must not propagate into agent-spawned shells and disarm the
   // guard for tests run from there.
-  if (process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE === "1") {
+  if (process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS === "1") {
     return;
   }
   const tmpRoot = canonicalizeForWorkspaceGuard(tmpdir());
@@ -409,7 +410,7 @@ function assertTestPathIsEphemeral(dir: string): void {
         "`bun test` ran from a cwd without the repo bunfig.toml, so the test",
         "preload that redirects VELLUM_WORKSPACE_DIR to a tmpdir never loaded.",
         "Run tests from the assistant package root, or set",
-        "VELLUM_TEST_ALLOW_REAL_WORKSPACE=1 to bypass deliberately.",
+        "VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS=1 to bypass deliberately.",
       ].join("\n"),
     );
   }

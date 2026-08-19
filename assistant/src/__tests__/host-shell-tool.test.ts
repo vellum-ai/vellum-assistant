@@ -861,8 +861,8 @@ describe("host_bash — proxy delegation", () => {
     // With VELLUM_WORKSPACE_DIR unset, loadConfig resolves the real ~/.vellum
     // fallback (read-only here), so bypass the live-workspace guard for it.
     const originalAllowRealWorkspace =
-      process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE;
-    process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE = "1";
+      process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS;
+    process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS = "1";
 
     try {
       const proxyResult: ToolExecutionResult = {
@@ -884,9 +884,9 @@ describe("host_bash — proxy delegation", () => {
       });
     } finally {
       if (originalAllowRealWorkspace === undefined) {
-        delete process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE;
+        delete process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS;
       } else {
-        process.env.VELLUM_TEST_ALLOW_REAL_WORKSPACE =
+        process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS =
           originalAllowRealWorkspace;
       }
       restoreEnv(envSnapshot);
