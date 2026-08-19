@@ -16,7 +16,11 @@ import type {
 import { a2aTransport } from "./a2a/transport.js";
 import type { DirectDeliveryChannel } from "./callback-routing.js";
 import { channelForCallback } from "./callback-routing.js";
-import type { CallbackContext, ChannelTransport } from "./channel-transport.js";
+import type {
+  CallbackContext,
+  ChannelTransport,
+  ReactionTarget,
+} from "./channel-transport.js";
 import { discordTransport } from "./discord/transport.js";
 import { slackTransport } from "./slack/transport.js";
 import { telegramTransport } from "./telegram-bot/transport.js";
@@ -43,6 +47,29 @@ export function getTransportForCallback(
 ): ChannelTransport | undefined {
   const channel = channelForCallback(callbackUrl);
   return channel ? TRANSPORTS[channel] : undefined;
+}
+
+/** Whether the channel this callback addresses can carry emoji reactions. */
+export function supportsChannelReaction(callbackUrl: string): boolean {
+  return getTransportForCallback(callbackUrl)?.react !== undefined;
+}
+
+/**
+ * Add or remove one of the assistant's own reactions on a message.
+ *
+ * Resolves to nothing when the channel has none, the same as typing: a
+ * reaction is an acknowledgement, and a channel that cannot show one is not a
+ * failed delivery.
+ */
+export async function sendChannelReaction(
+  callbackUrl: string,
+  target: ReactionTarget,
+): Promise<ChannelDeliveryResult> {
+  const transport = getTransportForCallback(callbackUrl);
+  if (!transport?.react) {
+    return { ok: true };
+  }
+  return transport.react(callbackContext(callbackUrl), target);
 }
 
 function callbackContext(callbackUrl: string): CallbackContext {
@@ -92,9 +119,6 @@ export async function deliverDirect(
   const ctx = callbackContext(callbackUrl);
   if (payload.slackStream && transport.streamReply) {
     return transport.streamReply(ctx, payload);
-  }
-  if (payload.reaction && transport.sendReaction) {
-    return transport.sendReaction(ctx, payload);
   }
   if (payload.assistantThreadStatus && transport.setThreadStatus) {
     return transport.setThreadStatus(ctx, payload);

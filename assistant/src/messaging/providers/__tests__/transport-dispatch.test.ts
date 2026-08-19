@@ -57,8 +57,13 @@ mock.module("../../../util/logger.js", () => ({
   getLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }),
 }));
 
-const { deliverDirect, isDirectDelivery, getTransportForCallback } =
-  await import("../index.js");
+const {
+  deliverDirect,
+  sendChannelReaction,
+  supportsChannelReaction,
+  isDirectDelivery,
+  getTransportForCallback,
+} = await import("../index.js");
 
 const BASE = "https://gateway.internal";
 
@@ -134,17 +139,14 @@ describe("Slack sub-operation selection", () => {
     expect(opts.threadTs).toBe("1700.9");
   });
 
-  test("reaction routes to sendSlackReaction, not the text path", async () => {
-    await deliverDirect(
-      `${BASE}/deliver/slack`,
-      payload({
-        reaction: {
-          action: "add",
-          name: "white_check_mark",
-          messageTs: "1700.5",
-        },
-      }),
-    );
+  test("sendChannelReaction reaches Slack without touching the text path", async () => {
+    await sendChannelReaction(`${BASE}/deliver/slack`, {
+      chatId: "C1",
+      messageId: "1700.5",
+      emoji: "white_check_mark",
+      action: "add",
+    });
+
     expect(slack.sendSlackReaction).toHaveBeenCalledTimes(1);
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
   });
@@ -191,15 +193,23 @@ describe("Slack sub-operation selection", () => {
 });
 
 describe("capability gating across channels", () => {
-  test("a reaction payload to Telegram falls through to deliver (no sendReaction)", async () => {
-    await deliverDirect(
-      `${BASE}/deliver/telegram`,
-      payload({
-        text: "hi",
-        reaction: { action: "add", name: "x", messageTs: "1" },
-      }),
-    );
-    expect(telegram.sendTelegramReply).toHaveBeenCalledTimes(1);
+  test("the reaction capability is read from the transport, not the channel name", async () => {
+    // Slack is the only channel that implements it, because the only producer
+    // is Slack's own acknowledgement fallback. A channel that implements the
+    // method starts being asked without a caller changing.
+    expect(supportsChannelReaction(`${BASE}/deliver/slack`)).toBe(true);
+    expect(supportsChannelReaction(`${BASE}/deliver/telegram`)).toBe(false);
+
+    const target = {
+      chatId: "C1",
+      messageId: "1",
+      emoji: "eyes",
+      action: "add",
+    } as const;
+    expect(
+      await sendChannelReaction(`${BASE}/deliver/telegram`, target),
+    ).toEqual({ ok: true });
+    expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
   });
 
   test("typing to Telegram routes to its typing indicator", async () => {
