@@ -11,6 +11,7 @@ import {
 import { getLocalSetting, watchSetting } from "@/utils/local-settings";
 import {
   setFnPushToTalkEnabled,
+  setConfigurablePushToTalkActive,
   setNativePushToTalkActivator,
   supportsConfigurablePushToTalk,
   supportsFnPushToTalk,
@@ -63,6 +64,9 @@ export function useNativePushToTalkRegistration(): void {
             return;
           }
           const ok = await apply(next);
+          if (configurable) {
+            setConfigurablePushToTalkActive(ok && next.kind !== "off");
+          }
           if (!ok) {
             return;
           }
@@ -86,6 +90,7 @@ export function useNativePushToTalkRegistration(): void {
 
     return () => {
       disposed = true;
+      setConfigurablePushToTalkActive(false);
       unsubscribeSetting();
       void (configurable
         ? setNativePushToTalkActivator(null)

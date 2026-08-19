@@ -14,6 +14,7 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
     private readonly object _gate = new();
     private readonly PushToTalkChordTracker _tracker = new();
     private Timer? _holdTimer;
+    private long _holdGeneration;
     private GlobalKeyboardHook? _hook;
 
     public IReadOnlyCollection<string> Methods { get; } = [SetMethod];
@@ -29,6 +30,7 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
         }
         if (!TryPlanChord(parameters, out var keys, out var reason))
         {
+            Disable();
             return ValueTask.FromResult<object?>(new SetResponse(false, false, reason));
         }
 
@@ -53,6 +55,11 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
     }
 
     public void Dispose()
+    {
+        Disable();
+    }
+
+    private void Disable()
     {
         PushToTalkTransition transition;
         lock (_gate)
@@ -96,7 +103,12 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
             if (transition == PushToTalkTransition.Pending)
             {
                 CancelTimer();
-                _holdTimer = new Timer(_ => ActivatePending(), null, HoldDelayMs, Timeout.Infinite);
+                var generation = _holdGeneration;
+                _holdTimer = new Timer(
+                    _ => ActivatePending(generation),
+                    null,
+                    HoldDelayMs,
+                    Timeout.Infinite);
             }
             else if (!_tracker.Pending)
             {
@@ -106,11 +118,15 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
         Emit(transition);
     }
 
-    private void ActivatePending()
+    private void ActivatePending(long generation)
     {
         PushToTalkTransition transition;
         lock (_gate)
         {
+            if (generation != _holdGeneration)
+            {
+                return;
+            }
             _holdTimer?.Dispose();
             _holdTimer = null;
             transition = _tracker.ActivatePending();
@@ -120,6 +136,7 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
 
     private void CancelTimer()
     {
+        _holdGeneration += 1;
         _holdTimer?.Dispose();
         _holdTimer = null;
     }
@@ -177,7 +194,7 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
                 .ToList();
             if (request.Activator.Kind == "key" && request.Activator.Label is { Length: > 0 } label)
             {
-                planned.Add(KeyPlanner.ResolveKey(label));
+                planned.Add(PushToTalkKeyPlanner.ResolveKey(label));
             }
             else if (request.Activator.Kind != "modifierOnly")
             {
@@ -233,6 +250,7 @@ internal sealed partial class GlobalKeyboardHook : IDisposable
 
     private readonly Action<ushort, bool> _onKey;
     private readonly HookProc _callback;
+    private readonly PhysicalKeyTracker _physicalKeys = new();
     private Thread? _thread;
     private uint _threadId;
     private nint _hook;
@@ -305,21 +323,20 @@ internal sealed partial class GlobalKeyboardHook : IDisposable
                 var up = message is KeyUp or SystemKeyUp;
                 if (down || up)
                 {
-                    _onKey(NormalizeKey((ushort)input.VirtualKey), down);
+                    ForwardPhysicalKey((ushort)input.VirtualKey, down);
                 }
             }
         }
         return CallNextHookEx(_hook, code, message, data);
     }
 
-    private static ushort NormalizeKey(ushort key) => key switch
+    private void ForwardPhysicalKey(ushort physicalKey, bool down)
     {
-        0xA0 or 0xA1 => 0x10,
-        0xA2 or 0xA3 => 0x11,
-        0xA4 or 0xA5 => 0x12,
-        0x5C => 0x5B,
-        _ => key,
-    };
+        if (_physicalKeys.Observe(physicalKey, down) is { } transition)
+        {
+            _onKey(transition.Key, transition.Down);
+        }
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct LowLevelKeyboardInput

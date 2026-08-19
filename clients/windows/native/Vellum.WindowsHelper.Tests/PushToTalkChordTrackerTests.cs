@@ -10,6 +10,8 @@ public static class PushToTalkChordTrackerTests
         ExtraKeyCancelsPendingActivation();
         ChordActivatesImmediately();
         ReconfigurationReleasesActiveChord();
+        ResolvesBrowserKeyLabels();
+        KeepsSidedModifiersPressed();
     }
 
     private static void SingleKeyRequiresHold()
@@ -46,6 +48,22 @@ public static class PushToTalkChordTrackerTests
         tracker.KeyDown(0x11);
         tracker.KeyDown(0x10);
         Assert(tracker.Configure([0x12]) == PushToTalkTransition.Up);
+    }
+
+    private static void ResolvesBrowserKeyLabels()
+    {
+        Assert(PushToTalkKeyPlanner.ResolveKey(" ") == 0x20);
+        Assert(PushToTalkKeyPlanner.ResolveKey("ArrowUp") == 0x26);
+        Assert(PushToTalkKeyPlanner.ResolveKey("?") == 0xBF);
+    }
+
+    private static void KeepsSidedModifiersPressed()
+    {
+        var tracker = new PhysicalKeyTracker();
+        Assert(tracker.Observe(0xA2, true) == new PhysicalKeyTransition(0x11, true));
+        Assert(tracker.Observe(0xA3, true) is null);
+        Assert(tracker.Observe(0xA2, false) is null);
+        Assert(tracker.Observe(0xA3, false) == new PhysicalKeyTransition(0x11, false));
     }
 
     private static void Assert(bool condition)

@@ -11,7 +11,9 @@ import {
 } from "@/utils/ptt-activator";
 import { getLocalSetting, watchSetting } from "@/utils/local-settings";
 import {
+  isConfigurablePushToTalkActive,
   subscribeToHotkeyEvents,
+  subscribeToConfigurablePushToTalk,
   supportsConfigurablePushToTalk,
   supportsFnPushToTalk,
   type HotkeyEvent,
@@ -183,6 +185,9 @@ export function usePushToTalk(
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (nativeConfigurable && isConfigurablePushToTalkActive()) {
+        return;
+      }
       if (event.repeat) {
         return;
       }
@@ -226,6 +231,9 @@ export function usePushToTalk(
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
+      if (nativeConfigurable && isConfigurablePushToTalkActive()) {
+        return;
+      }
       const activator = activatorRef.current;
       if (activator.kind === "off") {
         return;
@@ -268,6 +276,9 @@ export function usePushToTalk(
     };
 
     const handleNativeHotkey = (event: HotkeyEvent) => {
+      if (nativeConfigurable && !isConfigurablePushToTalkActive()) {
+        return;
+      }
       if (
         (!nativeConfigurable &&
           (!nativeFnAvailable ||
@@ -307,21 +318,29 @@ export function usePushToTalk(
       readActivator,
     );
     const unsubscribeNative = subscribeToHotkeyEvents(handleNativeHotkey);
+    const unsubscribeRegistration = subscribeToConfigurablePushToTalk(
+      (active) => {
+        if (!active) {
+          return;
+        }
+        cancelHold();
+        if (activeRef.current && activeOriginRef.current === "dom") {
+          stopActiveTarget();
+        }
+      },
+    );
 
-    if (!nativeConfigurable) {
-      window.addEventListener("keydown", handleKeyDown);
-      window.addEventListener("keyup", handleKeyUp);
-    }
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
     window.addEventListener("blur", handleBlur);
 
     return () => {
-      if (!nativeConfigurable) {
-        window.removeEventListener("keydown", handleKeyDown);
-        window.removeEventListener("keyup", handleKeyUp);
-      }
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("blur", handleBlur);
       unsubscribeSetting();
       unsubscribeNative();
+      unsubscribeRegistration();
       cancelHold();
       if (activeRef.current) {
         stopActiveTarget();

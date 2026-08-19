@@ -12,6 +12,7 @@ import {
   PTT_HOLD_DELAY_MS,
   usePushToTalk,
 } from "@/domains/chat/voice/use-push-to-talk";
+import { setConfigurablePushToTalkActive } from "@/runtime/hotkey";
 
 interface PushToTalkTarget {
   start: () => void;
@@ -35,6 +36,7 @@ function focusedTextarea(): HTMLTextAreaElement {
 
 beforeEach(() => {
   localStorage.clear();
+  setConfigurablePushToTalkActive(false);
 });
 
 afterEach(() => {
@@ -42,6 +44,7 @@ afterEach(() => {
   delete window.vellum;
   document.body.innerHTML = "";
   localStorage.clear();
+  setConfigurablePushToTalkActive(false);
 });
 
 describe("usePushToTalk", () => {
@@ -127,6 +130,7 @@ describe("usePushToTalk", () => {
       serializeActivator(CTRL_PTT_ACTIVATOR),
     );
     const target = { start: mock(() => {}), stop: mock(() => {}) };
+    setConfigurablePushToTalkActive(true);
     renderPushToTalk(target);
 
     fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
@@ -139,5 +143,29 @@ describe("usePushToTalk", () => {
     expect(target.start).toHaveBeenCalledTimes(1);
     act(() => listener?.({ kind: "pushToTalk", state: "up" }));
     expect(target.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps focused-window PTT when native registration is inactive", async () => {
+    window.vellum = {
+      platform: "electron",
+      helper: {
+        hotkey: {
+          setPushToTalk: async () => ({ ok: false, reason: "unavailable" }),
+          onEvent: () => () => undefined,
+        },
+      },
+    } as unknown as typeof window.vellum;
+    localStorage.setItem(
+      LS_PTT_ACTIVATION_KEY,
+      serializeActivator(CTRL_PTT_ACTIVATOR),
+    );
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    renderPushToTalk(target);
+
+    fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
+    await act(async () => {
+      await wait(PTT_HOLD_DELAY_MS + 25);
+    });
+    expect(target.start).toHaveBeenCalledTimes(1);
   });
 });

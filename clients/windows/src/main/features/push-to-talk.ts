@@ -9,10 +9,13 @@ import {
   HELPER_HOTKEY_EVENT,
   HELPER_HOTKEY_SET_PTT,
   type HotkeyEvent,
+  type PushToTalkActivator,
   type PushToTalkRegistrationResult,
 } from "@vellumai/ipc-contract";
 
 import { handle } from "../ipc.client";
+import log from "../logger";
+import { current } from "../main-window";
 import { getWindowsHelperClient } from "../windows-helper";
 
 const modifierSchema = z.enum([
@@ -42,6 +45,7 @@ const eventSchema = z.object({ state: z.enum(["down", "up"]) });
 
 let owner: Electron.WebContents | null = null;
 let pressed = false;
+let registeredActivator: PushToTalkActivator | null = null;
 
 const sendState = (state: HotkeyEvent["state"]): void => {
   if (!owner || owner.isDestroyed()) {
@@ -64,21 +68,43 @@ const feature: CapabilityModule<DesktopCapabilityRegistry> = {
       if (state.status !== "running" && pressed) {
         sendState("up");
       }
+      if (
+        state.status === "running" &&
+        registeredActivator &&
+        owner &&
+        !owner.isDestroyed()
+      ) {
+        void helper
+          .call("hotkey.setPushToTalk", { activator: registeredActivator })
+          .catch((error: unknown) => {
+            log.warn("[push-to-talk] failed to restore binding:", error);
+          });
+      }
     });
 
     handle(
       HELPER_HOTKEY_SET_PTT,
       z.tuple([activatorSchema.nullable()]),
       async ([activator], event): Promise<PushToTalkRegistrationResult> => {
+        if (event.sender !== current()?.webContents) {
+          return { ok: false, reason: "Main window owns push-to-talk" };
+        }
         const result = resultSchema.parse(
           await helper.call("hotkey.setPushToTalk", { activator }),
         );
-        if (result.ok) {
+        if (!result.ok) {
           if (pressed) {
             sendState("up");
           }
-          owner = result.enabled ? event.sender : null;
+          owner = null;
+          registeredActivator = null;
+          return result;
         }
+        if (pressed) {
+          sendState("up");
+        }
+        owner = result.enabled ? event.sender : null;
+        registeredActivator = result.enabled ? activator : null;
         return result;
       },
     );
@@ -86,6 +112,7 @@ const feature: CapabilityModule<DesktopCapabilityRegistry> = {
     app.once("before-quit", () => {
       owner = null;
       pressed = false;
+      registeredActivator = null;
       helper.shutdown();
     });
   },
