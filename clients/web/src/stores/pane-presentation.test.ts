@@ -17,6 +17,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   panePresentation,
+  viewerPanePresentation,
   type PanePosition,
   type PanePresentation,
 } from "@/stores/pane-presentation";
@@ -176,5 +177,69 @@ describe("panePresentation", () => {
         isNarrow: true,
       }),
     ).toBe("full");
+  });
+});
+
+describe("viewerPanePresentation reads the stored fields", () => {
+  const MAIN_VIEWS = ["chat", "app", "app-editing", "document"];
+  const BOOLS = [false, true];
+
+  /** The side-by-side layout's own condition, before it read an arrangement. */
+  function rendersSplit(
+    mainView: string,
+    hasApp: boolean,
+    hasBoundConversation: boolean,
+  ): boolean {
+    return mainView === "app-editing" && hasApp && hasBoundConversation;
+  }
+
+  /** The strip's own condition, before it read an arrangement. */
+  function rendersStrip(
+    mainView: string,
+    hasApp: boolean,
+    isAppMinimized: boolean,
+  ): boolean {
+    return mainView === "app" && isAppMinimized && hasApp;
+  }
+
+  for (const mainView of MAIN_VIEWS) {
+    for (const hasApp of BOOLS) {
+      for (const hasBoundConversation of BOOLS) {
+        for (const isAppMinimized of BOOLS) {
+          const fields = {
+            mainView,
+            hasApp,
+            hasBoundConversation,
+            isAppMinimized,
+          };
+          const label = `${mainView}, app=${hasApp}, bound=${hasBoundConversation}, minimized=${isAppMinimized}`;
+
+          it(`${label}: side matches the split's condition`, () => {
+            expect(viewerPanePresentation(fields) === "side").toBe(
+              rendersSplit(mainView, hasApp, hasBoundConversation),
+            );
+          });
+
+          it(`${label}: bottom matches the strip's condition`, () => {
+            expect(viewerPanePresentation(fields) === "bottom").toBe(
+              rendersStrip(mainView, hasApp, isAppMinimized),
+            );
+          });
+        }
+      }
+    }
+  }
+
+  it("reports no secondary once the viewer has moved off the app", () => {
+    for (const mainView of ["chat", "document", "skill-detail"]) {
+      expect(
+        viewerPanePresentation({
+          mainView,
+          hasApp: true,
+          hasBoundConversation: true,
+          isAppMinimized: false,
+        }),
+      ).toBe("single");
+    }
   });
 });

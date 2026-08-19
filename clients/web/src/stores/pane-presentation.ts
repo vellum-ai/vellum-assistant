@@ -54,3 +54,61 @@ export function panePresentation({
   }
   return position;
 }
+
+/**
+ * The fields the viewer stores about an app and the conversation beside it.
+ */
+export interface ViewerPaneFields {
+  /** The viewer's main view. */
+  mainView: string;
+  /** Whether an app is loaded into the viewer. */
+  hasApp: boolean;
+  /** Whether a conversation is bound to the pane beside the app. */
+  hasBoundConversation: boolean;
+  /** Whether the app is parked to its strip. */
+  isAppMinimized: boolean;
+}
+
+/**
+ * Read the stored fields as the arrangement they describe.
+ *
+ * The viewport is not consulted. The stored arrangement already reflects the
+ * room available when it was chosen, since every path into the side-by-side
+ * layout refuses a viewport with no space for two columns, so narrowing it
+ * again here would answer a question nobody asked. A position the user sets
+ * directly is a different matter, and {@link panePresentation} takes the
+ * viewport for that reason.
+ */
+export function viewerPanePresentation({
+  mainView,
+  hasApp,
+  hasBoundConversation,
+  isAppMinimized,
+}: ViewerPaneFields): PanePresentation {
+  if (!hasApp || (mainView !== "app" && mainView !== "app-editing")) {
+    return "single";
+  }
+  // Which surface is the secondary depends on the arrangement. Beside the
+  // app and behind it, the secondary is the conversation, so an unbound one
+  // means there is no second surface at all. Parked to the strip, the app is
+  // itself the secondary and the conversation has the surface.
+  if (mainView === "app-editing") {
+    return panePresentation({
+      hasSecondary: hasBoundConversation,
+      position: "side",
+      isNarrow: false,
+    });
+  }
+  if (isAppMinimized) {
+    return panePresentation({
+      hasSecondary: true,
+      position: "bottom",
+      isNarrow: false,
+    });
+  }
+  return panePresentation({
+    hasSecondary: hasBoundConversation,
+    position: "full",
+    isNarrow: false,
+  });
+}
