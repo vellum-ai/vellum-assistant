@@ -1,3 +1,5 @@
+import type { SlackReplyExtras } from "@vellumai/gateway-client";
+
 import { stripVellumLinks } from "../daemon/assistant-attachments.js";
 import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
@@ -148,9 +150,9 @@ export async function deliverRenderedReplyViaCallback(
 
   // Slack's per-message coordinates. `undefined` when none apply, so a payload
   // for another channel carries no empty Slack object.
-  const slackExtras = (
+  const buildSlackExtras = (
     ts: string | undefined,
-  ): { ephemeral?: boolean; user?: string; messageTs?: string } | undefined =>
+  ): SlackReplyExtras | undefined =>
     ephemeral || user || ts ? { ephemeral, user, messageTs: ts } : undefined;
 
   const deliverableSegments = toDeliverableTextSegments(
@@ -174,7 +176,7 @@ export async function deliverRenderedReplyViaCallback(
           chatId,
           attachments: replyAttachments,
           assistantId,
-          slack: slackExtras(messageTs),
+          slack: buildSlackExtras(messageTs),
         },
       );
       if (result.ts) {
@@ -192,7 +194,7 @@ export async function deliverRenderedReplyViaCallback(
           chatId,
           attachments: replyAttachments,
           assistantId,
-          slack: slackExtras(messageTs),
+          slack: buildSlackExtras(messageTs),
         },
       );
       const deliveredTs = result.ts ?? messageTs;
@@ -223,7 +225,7 @@ export async function deliverRenderedReplyViaCallback(
         useBlocks: true,
         attachments: isLastSegment ? replyAttachments : undefined,
         assistantId,
-        slack: slackExtras(isFirstSegment ? currentMessageTs : undefined),
+        slack: buildSlackExtras(isFirstSegment ? currentMessageTs : undefined),
       },
     );
 

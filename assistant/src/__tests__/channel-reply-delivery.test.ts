@@ -2,13 +2,7 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
 import type { RuntimeAttachmentMetadata } from "../runtime/http-types.js";
-
-/** The Slack extras off a captured wire payload. */
-function slackExtrasOf(
-  payload: Record<string, unknown>,
-): Record<string, unknown> | undefined {
-  return payload.slack as Record<string, unknown> | undefined;
-}
+import { slackExtrasOf } from "./channel-reply-test-helpers.js";
 
 type DeliveryCall = {
   callbackUrl: string;

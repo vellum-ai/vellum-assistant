@@ -28,19 +28,13 @@ mock.module("./gateway-client.js", () => ({
   },
 }));
 
+import { slackExtrasOf } from "../__tests__/channel-reply-test-helpers.js";
 import type { AssistantEvent } from "../api/index.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js";
 import {
   createSlackReplySession,
   shouldStreamSlackReply,
 } from "./slack-reply-session.js";
-
-/** The Slack extras off a captured wire payload. */
-function slackExtrasOf(
-  payload: Record<string, unknown>,
-): Record<string, unknown> | undefined {
-  return payload.slack as Record<string, unknown> | undefined;
-}
 
 const CHANNEL = "D-STREAM";
 const THREAD_TS = "1700000000.000001";

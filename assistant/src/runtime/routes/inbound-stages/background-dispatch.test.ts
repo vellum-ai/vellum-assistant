@@ -107,6 +107,7 @@ mock.module("../../channel-reply-delivery.js", () => ({
   },
 }));
 
+import { slackExtrasOf } from "../../../__tests__/channel-reply-test-helpers.js";
 import type { Conversation } from "../../../daemon/conversation.js";
 import { CONVERSATION_BUSY_MESSAGE } from "../../../daemon/conversation-messaging.js";
 import {
@@ -122,13 +123,6 @@ import {
   shouldStartSlackThinkingStatusImmediately,
 } from "./background-dispatch.js";
 import { __resetChannelTurnAdmissionForTests } from "./channel-turn-admission.js";
-
-/** The Slack extras off a captured wire payload. */
-function slackExtrasOf(
-  payload: Record<string, unknown>,
-): Record<string, unknown> | undefined {
-  return payload.slack as Record<string, unknown> | undefined;
-}
 
 beforeEach(() => {
   __resetChannelTurnAdmissionForTests();

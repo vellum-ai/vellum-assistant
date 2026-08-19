@@ -184,15 +184,9 @@ import {
   waitForInlineGrant,
 } from "../tools/tool-approval-handler.js";
 import type { ToolContext } from "../tools/types.js";
+import { slackExtrasOf } from "./channel-reply-test-helpers.js";
 import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 import { setConfig } from "./helpers/set-config.js";
-
-/** The Slack extras off a captured wire payload. */
-function slackExtrasOf(
-  payload: Record<string, unknown>,
-): Record<string, unknown> | undefined {
-  return payload.slack as Record<string, unknown> | undefined;
-}
 
 await initializeDb();
 
