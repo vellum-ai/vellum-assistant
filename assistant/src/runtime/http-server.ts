@@ -92,6 +92,10 @@ import {
   startInferenceProfileSessionReaper,
   stopInferenceProfileSessionReaper,
 } from "./routes/inference-profile-session-reaper.js";
+import {
+  activeWatchStreamSessions,
+  WatchStreamSession,
+} from "./routes/watch-routes.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -165,6 +169,25 @@ interface LiveVoiceWebSocketData {
   wsType: "live-voice";
 }
 
+/**
+ * WebSocket data attached to `/v1/watch/stream` connections. The `wsType`
+ * discriminator routes frames to the watch session orchestrator instead of
+ * the other WebSocket handlers.
+ */
+interface WatchStreamWebSocketData {
+  wsType: "watch-stream";
+  mimeType: string;
+  sampleRate?: number;
+  /** Conversation the session's timeline is keyed on, when the client names one. */
+  conversationId?: string;
+  /** Desktop client to observe, when the actor has more than one connected. */
+  clientId?: string;
+  /** The session ID for tracking in the active sessions registry. */
+  sessionId: string;
+  /** Bound at open time so the close handler tears down the exact session. */
+  session?: WatchStreamSession;
+}
+
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
@@ -203,7 +226,8 @@ export class RuntimeHttpServer {
     type AllWebSocketData =
       | MediaStreamWebSocketData
       | SttStreamWebSocketData
-      | LiveVoiceWebSocketData;
+      | LiveVoiceWebSocketData
+      | WatchStreamWebSocketData;
     this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
@@ -314,6 +338,30 @@ export class RuntimeHttpServer {
             log.info("Live voice WebSocket opened");
             return;
           }
+          if (data.wsType === "watch-stream") {
+            const watchData = data;
+            log.info(
+              {
+                sessionId: watchData.sessionId,
+                mimeType: watchData.mimeType,
+              },
+              "Watch stream WebSocket opened",
+            );
+            const session = new WatchStreamSession(ws, {
+              mimeType: watchData.mimeType,
+              ...(watchData.sampleRate !== undefined
+                ? { sampleRate: watchData.sampleRate }
+                : {}),
+              ...(watchData.conversationId
+                ? { conversationId: watchData.conversationId }
+                : {}),
+              ...(watchData.clientId ? { clientId: watchData.clientId } : {}),
+            });
+            watchData.session = session;
+            activeWatchStreamSessions.set(watchData.sessionId, session);
+            void session.start();
+            return;
+          }
           log.warn("WebSocket opened with unknown data type — closing");
           ws.close(1008, "Unknown WebSocket type");
         },
@@ -350,6 +398,18 @@ export class RuntimeHttpServer {
               ws as ServerWebSocket<LiveVoiceWebSocketData>,
             );
             void connection?.handleMessage(message);
+            return;
+          }
+          if (data.wsType === "watch-stream") {
+            const session = data.session;
+            if (!session) {
+              return;
+            }
+            if (typeof message === "string") {
+              session.handleMessage(message);
+            } else {
+              session.handleBinaryAudio(message);
+            }
             return;
           }
           log.warn("WebSocket message on unknown data type — closing");
@@ -420,6 +480,29 @@ export class RuntimeHttpServer {
               "Live voice WebSocket closed",
             );
             connection?.release();
+            return;
+          }
+          if (data.wsType === "watch-stream") {
+            const watchData = data;
+            log.info(
+              {
+                sessionId: watchData.sessionId,
+                code,
+                reason: reason?.toString(),
+              },
+              "Watch stream WebSocket closed",
+            );
+            const session = watchData.session;
+            if (session) {
+              session.handleClose(code, reason?.toString());
+              // Only drop our own session from the registry, since a
+              // reconnect may have already replaced it under a new id.
+              if (
+                activeWatchStreamSessions.get(watchData.sessionId) === session
+              ) {
+                activeWatchStreamSessions.delete(watchData.sessionId);
+              }
+            }
             return;
           }
           log.warn(
@@ -542,6 +625,11 @@ export class RuntimeHttpServer {
       activeSttStreamSessions.delete(sessionId);
     }
 
+    for (const [sessionId, session] of activeWatchStreamSessions) {
+      session.destroy();
+      activeWatchStreamSessions.delete(sessionId);
+    }
+
     const liveVoiceManager = getLiveVoiceSessionManager();
     const liveVoiceSessionId = liveVoiceManager.activeSessionId;
     if (liveVoiceSessionId) {
@@ -633,6 +721,16 @@ export class RuntimeHttpServer {
       req.headers.get("upgrade")?.toLowerCase() === "websocket"
     ) {
       return this.handleLiveVoiceUpgrade(req, server);
+    }
+
+    // WebSocket upgrade for watch narration capture, under the same
+    // private-network restrictions and gateway-service token verification as
+    // STT streaming.
+    if (
+      path === "/v1/watch/stream" &&
+      req.headers.get("upgrade")?.toLowerCase() === "websocket"
+    ) {
+      return this.handleWatchStreamUpgrade(req, server);
     }
 
     // Twilio webhook endpoints — before auth check because Twilio
@@ -919,6 +1017,61 @@ export class RuntimeHttpServer {
     if (!upgraded) {
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
+    return undefined!;
+  }
+
+  /**
+   * Handle WebSocket upgrade for `/v1/watch/stream`.
+   *
+   * Gated exactly as `/v1/stt/stream` is: private network peers and origins
+   * only, then a gateway service token. The gateway owns downstream client
+   * auth and dials this upstream on the client's behalf.
+   */
+  private handleWatchStreamUpgrade(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Response {
+    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
+      return httpError(
+        "FORBIDDEN",
+        "Direct watch stream access disabled: only private network peers allowed",
+        403,
+      );
+    }
+
+    const tokenError = this.verifyGatewayServiceToken(req);
+    if (tokenError) {
+      return tokenError;
+    }
+
+    const wsUrl = new URL(req.url);
+    const mimeType = wsUrl.searchParams.get("mimeType");
+    if (!mimeType) {
+      return new Response("Missing required query parameter: mimeType", {
+        status: 400,
+      });
+    }
+
+    const sampleRateRaw = wsUrl.searchParams.get("sampleRate");
+    const sampleRate = sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined;
+    const conversationId =
+      wsUrl.searchParams.get("conversationId")?.trim() || undefined;
+    const clientId = wsUrl.searchParams.get("clientId")?.trim() || undefined;
+
+    const upgraded = server.upgrade(req, {
+      data: {
+        wsType: "watch-stream",
+        mimeType,
+        sampleRate,
+        conversationId,
+        clientId,
+        sessionId: crypto.randomUUID(),
+      } satisfies WatchStreamWebSocketData,
+    });
+    if (!upgraded) {
+      return new Response("WebSocket upgrade failed", { status: 500 });
+    }
+    // Bun's WebSocket upgrade consumes the request, so no Response is sent.
     return undefined!;
   }
 
