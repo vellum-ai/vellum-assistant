@@ -291,6 +291,72 @@ describe("AddToChatSheet: a pick that outlives its render", () => {
     expect(stale.mock.calls.map((call) => call[0])).toEqual([[first]]);
     expect(live.mock.calls.map((call) => call[0])).toEqual([[second]]);
   });
+
+  test("drops the rest of a selection once the sheet is gone", async () => {
+    // `ChatPage` swaps the whole active view out for a connecting state, so an
+    // assistant switch or a transport blip takes this sheet with it. The ref
+    // above freezes at that point, and delivering through it would queue the
+    // rest of the files against the assistant the user has left.
+    mockNativePickersAvailable = true;
+    const first = new File(["x"], "before.jpg", { type: "image/jpeg" });
+    const second = new File(["y"], "after.jpg", { type: "image/jpeg" });
+    let deliverSecond: (() => void) | undefined;
+    let reachedThird = false;
+    mockPickMedia = async (onFile) => {
+      onFile(first);
+      await new Promise<void>((resolve) => {
+        deliverSecond = resolve;
+      });
+      onFile(second);
+      reachedThird = true;
+      return EMPTY_PICK;
+    };
+
+    const onAttachFiles = mock((files: FileList | File[]) => Array.from(files));
+    const { unmount } = renderSheet({ onAttachFiles });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Photo Library"));
+    });
+    expect(onAttachFiles).toHaveBeenCalledTimes(1);
+
+    // WHEN the chat view goes away mid-selection
+    unmount();
+    await act(async () => {
+      deliverSecond?.();
+    });
+
+    // THEN nothing more is queued, and the read is abandoned rather than run
+    // to the end for a surface that cannot hold any of it
+    expect(onAttachFiles).toHaveBeenCalledTimes(1);
+    expect(reachedThird).toBe(false);
+  });
+
+  test("says nothing to a surface that has gone", async () => {
+    // The failure toast and the Sentry report both address a composer that is
+    // still there. Reporting into a view the user has left is noise about work
+    // they did not see fail.
+    mockNativePickersAvailable = true;
+    let fail: (() => void) | undefined;
+    mockPickMedia = async () => {
+      await new Promise<void>((resolve) => {
+        fail = resolve;
+      });
+      throw new Error("Unable to copy file to temp directory");
+    };
+    const { unmount } = renderSheet();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Photo Library"));
+    });
+    unmount();
+    await act(async () => {
+      fail?.();
+    });
+
+    expect(captureErrorSpy).not.toHaveBeenCalled();
+    expect(requestComposerFocusSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("AddToChatSheet: native pickers", () => {

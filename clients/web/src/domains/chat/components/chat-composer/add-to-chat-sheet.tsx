@@ -52,6 +52,14 @@ function AddToChatRow({ icon: Icon, label, onSelect }: AddToChatRowProps) {
  */
 const RESTORE_FOCUS = { alwaysRestoreFocus: true } as const;
 
+/** Thrown to abandon a native pick whose sheet is no longer on screen. */
+class PickAbandoned extends Error {
+  constructor() {
+    super("The pick's surface unmounted before it finished.");
+    this.name = "PickAbandoned";
+  }
+}
+
 interface AddToChatSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -130,14 +138,35 @@ export function AddToChatSheet({
     onAttachFilesRef.current = onAttachFiles;
   }, [onAttachFiles]);
 
+  // The ref covers a callback that changes under a mounted sheet. It cannot
+  // cover one that stops arriving: `ChatPage` swaps the whole active view out
+  // for a connecting state, so an assistant switch or a transport blip takes
+  // this sheet with it and freezes the ref on the way. Delivery after that
+  // point would queue against the assistant the user has left.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   /**
    * Hands one picked file over and answers whether it was kept.
    *
    * Only an explicit empty answer frees the allowance. A caller that says
    * nothing is taken to have kept the file, which is the safe direction:
    * silence cannot uncap the budget.
+   *
+   * Throwing once the sheet is gone rather than returning is what stops the
+   * rest of a selection being read for nobody: `readPicked` abandons its loop
+   * on a throw and sweeps every temporary copy the picker made on the way out,
+   * which is the same path a failed read already takes.
    */
   const attachPickedFile = useCallback((file: File): boolean => {
+    if (!mountedRef.current) {
+      throw new PickAbandoned();
+    }
     const kept = onAttachFilesRef.current([file]);
     return kept === undefined || kept.length > 0;
   }, []);
@@ -162,42 +191,59 @@ export function AddToChatSheet({
    * a selection, an empty return, and the rejection the plugins raise on
    * cancel alike.
    */
-  const closeThenPickNative =
+  const closeThenPickNative = useCallback(
     (pick: (onFile: OnPickedFile) => Promise<PickOutcome>) =>
-    async (): Promise<void> => {
-      onOpenChange(false);
-      setNativePickInFlight(true);
-      try {
-        // Handed on one at a time rather than collected: the picker reads the
-        // next file only after this one has left it, so a multi-select never
-        // sits decoded in the picker all at once.
-        const { tooLarge, pickFull } = await pick(attachPickedFile);
-        // Refused by the picker, so the composer never sees them and cannot
-        // report them itself. The two reasons are told apart because a file
-        // turned away for the company it was picked with attaches fine on its
-        // own, and "too large" would send the user off shrinking it for
-        // nothing.
-        if (tooLarge.length > 0) {
-          toast.error(t("addToChatSheet.tooLarge", { count: tooLarge.length }));
+      async (): Promise<void> => {
+        onOpenChange(false);
+        setNativePickInFlight(true);
+        try {
+          // Handed on one at a time rather than collected: the picker reads the
+          // next file only after this one has left it, so a multi-select never
+          // sits decoded in the picker all at once.
+          const { tooLarge, pickFull } = await pick(attachPickedFile);
+          if (!mountedRef.current) {
+            return;
+          }
+          // Refused by the picker, so the composer never sees them and cannot
+          // report them itself. The two reasons are told apart because a file
+          // turned away for the company it was picked with attaches fine on its
+          // own, and "too large" would send the user off shrinking it for
+          // nothing.
+          if (tooLarge.length > 0) {
+            toast.error(
+              t("addToChatSheet.tooLarge", { count: tooLarge.length }),
+            );
+          }
+          if (pickFull.length > 0) {
+            toast.error(
+              t("addToChatSheet.pickFull", { count: pickFull.length }),
+            );
+          }
+        } catch (error) {
+          // A dismissal is a rejection too, and not worth reporting: the user
+          // closed a sheet they opened. An abandoned pick is the same in kind,
+          // raised here rather than by the picker. Anything else is a real
+          // failure (an iOS temporary-copy or unsupported-type error, an Android
+          // picker fault, a failed read) and would otherwise look identical to
+          // picking nothing, so it is reported and shown.
+          if (error instanceof PickAbandoned || !mountedRef.current) {
+            return;
+          }
+          if (!isPickerDismissal(error)) {
+            captureError(error, { context: "add_to_chat_sheet_native_picker" });
+            toast.error(t("addToChatSheet.pickFailed"));
+          }
+        } finally {
+          // Both are owed to a sheet that is still standing. A departed one has
+          // no keyboard to take back and no row left to hold up.
+          if (mountedRef.current) {
+            requestComposerFocus();
+            setNativePickInFlight(false);
+          }
         }
-        if (pickFull.length > 0) {
-          toast.error(t("addToChatSheet.pickFull", { count: pickFull.length }));
-        }
-      } catch (error) {
-        // A dismissal is a rejection too, and not worth reporting: the user
-        // closed a sheet they opened. Anything else is a real failure (an iOS
-        // temporary-copy or unsupported-type error, an Android picker fault, a
-        // failed read) and would otherwise look identical to picking nothing,
-        // so it is reported and shown.
-        if (!isPickerDismissal(error)) {
-          captureError(error, { context: "add_to_chat_sheet_native_picker" });
-          toast.error(t("addToChatSheet.pickFailed"));
-        }
-      } finally {
-        requestComposerFocus();
-        setNativePickInFlight(false);
-      }
-    };
+      },
+    [attachPickedFile, onOpenChange, t],
+  );
 
   const pickerUp =
     nativePickInFlight ||
