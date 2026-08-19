@@ -160,7 +160,7 @@ export function parseActivator(
         : ["shift"],
     };
   }
-  if (raw === "off") {
+  if (raw === "off" || raw === "none") {
     return { kind: "off" };
   }
   try {

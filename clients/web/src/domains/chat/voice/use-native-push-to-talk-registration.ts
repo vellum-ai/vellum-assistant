@@ -1,59 +1,43 @@
 import { useEffect } from "react";
 
 import {
-  FN_PTT_ACTIVATOR,
   LS_PTT_ACTIVATION_KEY,
-  isFnPushToTalkActivator,
   parseActivator,
   serializeActivator,
   type PTTActivator,
 } from "@/utils/ptt-activator";
 import { getLocalSetting, watchSetting } from "@/utils/local-settings";
 import {
-  setFnPushToTalkEnabled,
   setConfigurablePushToTalkActive,
   setNativePushToTalkActivator,
   supportsConfigurablePushToTalk,
-  supportsFnPushToTalk,
-  supportsNativePushToTalk,
   subscribeToPushToTalkRegistration,
 } from "@/runtime/hotkey";
 import { isPopoutWindow } from "@/runtime/popout-window";
 
-function desiredActivator(fnAvailable: boolean): PTTActivator {
+function desiredActivator(): PTTActivator {
   const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
-  return raw
-    ? parseActivator(raw, { preserveFunction: fnAvailable })
-    : fnAvailable
-      ? FN_PTT_ACTIVATOR
-      : { kind: "off" };
+  return raw ? parseActivator(raw) : { kind: "off" };
 }
 
 export function useNativePushToTalkRegistration(): void {
   useEffect(() => {
-    if (typeof window === "undefined" || !supportsNativePushToTalk()) {
+    if (typeof window === "undefined" || !supportsConfigurablePushToTalk()) {
       return;
     }
 
-    const configurable = supportsConfigurablePushToTalk();
-    if (configurable && isPopoutWindow(window.location.search)) {
+    if (isPopoutWindow(window.location.search)) {
       setConfigurablePushToTalkActive(true);
       return () => setConfigurablePushToTalkActive(false);
     }
-    const fnAvailable = supportsFnPushToTalk();
     let disposed = false;
-    let desired = desiredActivator(fnAvailable);
+    let desired = desiredActivator();
     let appliedKey: string | null = null;
     let syncInFlight: Promise<void> | null = null;
 
     const apply = async (activator: PTTActivator): Promise<boolean> => {
-      if (configurable) {
-        return setNativePushToTalkActivator(
-          activator.kind === "off" ? null : activator,
-        );
-      }
-      return setFnPushToTalkEnabled(
-        fnAvailable && isFnPushToTalkActivator(activator),
+      return setNativePushToTalkActivator(
+        activator.kind === "off" ? null : activator,
       );
     };
 
@@ -70,9 +54,7 @@ export function useNativePushToTalkRegistration(): void {
             return;
           }
           const ok = await apply(next);
-          if (configurable) {
-            setConfigurablePushToTalkActive(ok && next.kind !== "off");
-          }
+          setConfigurablePushToTalkActive(ok && next.kind !== "off");
           if (!ok) {
             appliedKey = null;
             return;
@@ -85,7 +67,7 @@ export function useNativePushToTalkRegistration(): void {
     };
 
     const updateDesiredRegistration = () => {
-      desired = desiredActivator(fnAvailable);
+      desired = desiredActivator();
       sync();
     };
 
@@ -94,18 +76,16 @@ export function useNativePushToTalkRegistration(): void {
       LS_PTT_ACTIVATION_KEY,
       updateDesiredRegistration,
     );
-    const unsubscribeRegistration = configurable
-      ? subscribeToPushToTalkRegistration(setConfigurablePushToTalkActive)
-      : () => undefined;
+    const unsubscribeRegistration = subscribeToPushToTalkRegistration(
+      setConfigurablePushToTalkActive,
+    );
 
     return () => {
       disposed = true;
       setConfigurablePushToTalkActive(false);
       unsubscribeSetting();
       unsubscribeRegistration();
-      void (configurable
-        ? setNativePushToTalkActivator(null)
-        : setFnPushToTalkEnabled(false));
+      void setNativePushToTalkActivator(null);
     };
   }, []);
 }

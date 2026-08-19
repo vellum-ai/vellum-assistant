@@ -13,6 +13,7 @@ import {
   usePushToTalk,
 } from "@/domains/chat/voice/use-push-to-talk";
 import { setConfigurablePushToTalkActive } from "@/runtime/hotkey";
+import { setLocalSetting } from "@/utils/local-settings";
 
 interface PushToTalkTarget {
   start: () => void;
@@ -68,6 +69,63 @@ describe("usePushToTalk", () => {
 
     fireEvent.keyUp(textarea, { key: "Control" });
     expect(target.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("starts a multi-modifier chord immediately", () => {
+    localStorage.setItem(
+      LS_PTT_ACTIVATION_KEY,
+      serializeActivator({
+        kind: "modifierOnly",
+        modifiers: ["control", "shift"],
+      }),
+    );
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    renderPushToTalk(target);
+
+    fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
+    fireEvent.keyDown(window, {
+      key: "Shift",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+
+    expect(target.start).toHaveBeenCalledTimes(1);
+    fireEvent.keyUp(window, { key: "Shift", ctrlKey: true });
+    expect(target.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("stops an active hold when its binding changes", async () => {
+    localStorage.setItem(
+      LS_PTT_ACTIVATION_KEY,
+      serializeActivator(CTRL_PTT_ACTIVATOR),
+    );
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    renderPushToTalk(target);
+
+    fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
+    await act(async () => {
+      await wait(PTT_HOLD_DELAY_MS + 25);
+    });
+    expect(target.start).toHaveBeenCalledTimes(1);
+
+    setLocalSetting(
+      LS_PTT_ACTIVATION_KEY,
+      serializeActivator({ kind: "modifierOnly", modifiers: ["option"] }),
+    );
+    expect(target.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps the legacy none value disabled", async () => {
+    localStorage.setItem(LS_PTT_ACTIVATION_KEY, "none");
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    renderPushToTalk(target);
+
+    fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
+    await act(async () => {
+      await wait(PTT_HOLD_DELAY_MS + 25);
+    });
+
+    expect(target.start).not.toHaveBeenCalled();
   });
 
   test("keeps key activators disabled inside editable targets", async () => {

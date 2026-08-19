@@ -1,11 +1,9 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 import {
-  FN_PTT_ACTIVATOR,
   LS_PTT_ACTIVATION_KEY,
   eventActivatesPTT,
   eventDeactivatesPTT,
-  isFnPushToTalkActivator,
   parseActivator,
   type PTTActivator,
 } from "@/utils/ptt-activator";
@@ -15,7 +13,6 @@ import {
   subscribeToHotkeyEvents,
   subscribeToConfigurablePushToTalk,
   supportsConfigurablePushToTalk,
-  supportsFnPushToTalk,
   type HotkeyEvent,
 } from "@/runtime/hotkey";
 
@@ -53,8 +50,8 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
-/** Minimum hold duration (ms) before PTT activates, matching macOS PTTActivator. */
-const PTT_HOLD_DELAY_MS = 300;
+/** Minimum hold duration before a single-input PTT binding activates. */
+const PTT_HOLD_DELAY_MS = 100;
 
 /**
  * Play a short activation blip via the Web Audio API to provide audible
@@ -110,14 +107,13 @@ function playActivationBlip(): void {
 /**
  * Listens for the saved PTT activator on `window` keydown/keyup and drives
  * the provided voice-input handle. Hold-to-talk: key-down starts recording
- * after a 300 ms hold delay, key-up stops it. Only fires while the Vellum
- * tab has focus. Electron's app-level native Fn bridge bypasses this DOM path
- * so the desktop app can keep PTT active while it is in the background.
+ * after a 100 ms hold delay, key-up stops it. Multi-input chords activate as
+ * soon as their final key arrives. Only fires while the Vellum tab has focus
+ * unless a configurable desktop host owns the binding globally.
  *
- * The 300 ms hold delay prevents accidental activation from quick taps and
- * system shortcuts (matching the macOS `PTTActivator` behaviour). If
- * another non-modifier key is pressed during the hold window, activation
- * is cancelled (the user is likely typing a shortcut like Ctrl+C).
+ * The 100 ms hold delay prevents accidental activation from quick taps. If
+ * another non-modifier key is pressed during the hold window, activation is
+ * cancelled (the user is likely typing a shortcut like Ctrl+C).
  *
  * Storage lives in `localStorage` under `LS_PTT_ACTIVATION_KEY`; the hook
  * re-reads on `storage` events so PTT picks up changes made in the settings
@@ -143,15 +139,10 @@ export function usePushToTalk(
       return;
     }
 
-    const nativeFnAvailable = supportsFnPushToTalk();
     const nativeConfigurable = supportsConfigurablePushToTalk();
     const readActivator = () => {
       const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
-      activatorRef.current = raw
-        ? parseActivator(raw, { preserveFunction: nativeFnAvailable })
-        : nativeFnAvailable
-          ? FN_PTT_ACTIVATOR
-          : { kind: "off" };
+      activatorRef.current = raw ? parseActivator(raw) : { kind: "off" };
     };
     readActivator();
 
@@ -215,6 +206,13 @@ export function usePushToTalk(
       }
 
       holdingRef.current = true;
+      const inputCount =
+        activator.modifiers.length + (activator.kind === "key" ? 1 : 0);
+      if (inputCount > 1) {
+        holdingRef.current = false;
+        startActiveTarget("dom");
+        return;
+      }
       holdTimerRef.current = setTimeout(() => {
         holdTimerRef.current = null;
         if (!holdingRef.current) {
@@ -279,11 +277,7 @@ export function usePushToTalk(
       if (nativeConfigurable && !isConfigurablePushToTalkActive()) {
         return;
       }
-      if (
-        (!nativeConfigurable &&
-          (!nativeFnAvailable ||
-            !isFnPushToTalkActivator(activatorRef.current)))
-      ) {
+      if (!nativeConfigurable) {
         return;
       }
       if (event.state === "down") {
@@ -305,18 +299,21 @@ export function usePushToTalk(
       // Dropping focus while in the hold window — cancel.
       cancelHold();
 
-      // DOM keyup can be lost when the page blurs. Native Fn events are
-      // delivered by the host helper while the app is in the background, so
-      // leave those sessions running until the helper sends the up event.
+      // DOM keyup can be lost when the page blurs. Native events are delivered
+      // while the app is in the background, so leave those sessions running
+      // until the helper sends the up event.
       if (activeRef.current && activeOriginRef.current !== "native") {
         stopActiveTarget();
       }
     };
 
-    const unsubscribeSetting = watchSetting(
-      LS_PTT_ACTIVATION_KEY,
-      readActivator,
-    );
+    const unsubscribeSetting = watchSetting(LS_PTT_ACTIVATION_KEY, () => {
+      cancelHold();
+      if (activeRef.current) {
+        stopActiveTarget();
+      }
+      readActivator();
+    });
     const unsubscribeNative = subscribeToHotkeyEvents(handleNativeHotkey);
     const unsubscribeRegistration = subscribeToConfigurablePushToTalk(
       (active) => {

@@ -2,7 +2,6 @@ import { Info } from "lucide-react";
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -16,12 +15,10 @@ import { useTranslation } from "@/i18n";
 import {
   isConfigurablePushToTalkActive,
   subscribeToConfigurablePushToTalk,
-  supportsFnPushToTalk,
 } from "@/runtime/hotkey";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
   CTRL_PTT_ACTIVATOR,
-  FN_PTT_ACTIVATOR,
   LS_PTT_ACTIVATION_KEY,
   activatorDisplayName,
   activatorsEqual,
@@ -48,16 +45,10 @@ const PTT_PRESETS: ReadonlyArray<{ label: string; activator: PTTActivator }> = [
   },
 ];
 
-const FN_PTT_PRESET: { label: string; activator: PTTActivator } = {
-  label: "Fn",
-  activator: FN_PTT_ACTIVATOR,
-};
-
 const labelClasses = "text-body-small-default text-[var(--content-tertiary)]";
 
 export function PushToTalkCard() {
   const { t } = useTranslation("settings");
-  const fnConfigurable = supportsFnPushToTalk();
   const [nativeActive, setNativeActive] = useState(
     isConfigurablePushToTalkActive,
   );
@@ -68,22 +59,15 @@ export function PushToTalkCard() {
   const [activator, setActivator] = useState<PTTActivator>(() => {
     const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
     return raw
-      ? parseActivator(raw, { preserveFunction: fnConfigurable })
-      : fnConfigurable
-        ? FN_PTT_PRESET.activator
-        : { kind: "off" };
+      ? parseActivator(raw)
+      : { kind: "off" };
   });
   const [isRecording, setIsRecording] = useState(false);
   const [pendingModifiers, setPendingModifiers] = useState<PTTModifier[]>([]);
   const recordingZoneRef = useRef<HTMLDivElement | null>(null);
   const nonModifierPressedRef = useRef(false);
-  const presets = useMemo(
-    () => (fnConfigurable ? [FN_PTT_PRESET, ...PTT_PRESETS] : PTT_PRESETS),
-    [fnConfigurable],
-  );
-
   const enabled = activator.kind !== "off";
-  const showFocusedTabNote = enabled && !fnConfigurable && !nativeActive;
+  const showFocusedTabNote = enabled && !nativeActive;
 
   const selectActivator = useCallback((next: PTTActivator) => {
     setActivator(next);
@@ -108,9 +92,6 @@ export function PushToTalkCard() {
   const collectModifiers = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>): PTTModifier[] => {
       const modifiers: PTTModifier[] = [];
-      if (fnConfigurable && event.getModifierState("Fn")) {
-        modifiers.push("function");
-      }
       if (event.ctrlKey) {
         modifiers.push("control");
       }
@@ -125,7 +106,7 @@ export function PushToTalkCard() {
       }
       return modifiers;
     },
-    [fnConfigurable],
+    [],
   );
 
   const handleCaptureKeyDown = useCallback(
@@ -139,17 +120,8 @@ export function PushToTalkCard() {
       }
 
       const modifiers = collectModifiers(event);
-      if (["Control", "Alt", "Shift", "Meta", "Fn"].includes(event.key)) {
-        setPendingModifiers(
-          modifiers.includes("function")
-            ? FN_PTT_ACTIVATOR.modifiers
-            : sortModifiers(modifiers),
-        );
-        return;
-      }
-
-      if (modifiers.includes("function")) {
-        selectActivator(FN_PTT_ACTIVATOR);
+      if (["Control", "Alt", "Shift", "Meta"].includes(event.key)) {
+        setPendingModifiers(sortModifiers(modifiers));
         return;
       }
 
@@ -171,7 +143,7 @@ export function PushToTalkCard() {
       event.preventDefault();
       event.stopPropagation();
 
-      if (!["Control", "Alt", "Shift", "Meta", "Fn"].includes(event.key)) {
+      if (!["Control", "Alt", "Shift", "Meta"].includes(event.key)) {
         return;
       }
       if (nonModifierPressedRef.current) {
@@ -180,10 +152,7 @@ export function PushToTalkCard() {
         return;
       }
 
-      if (
-        collectModifiers(event).length === 0 &&
-        pendingModifiers.length > 0
-      ) {
+      if (collectModifiers(event).length === 0 && pendingModifiers.length > 0) {
         selectActivator({
           kind: "modifierOnly",
           modifiers: pendingModifiers,
@@ -210,7 +179,10 @@ export function PushToTalkCard() {
   }, [cancelRecording, isRecording]);
 
   const isCustom =
-    enabled && !presets.some((preset) => activatorsEqual(preset.activator, activator));
+    enabled &&
+    !PTT_PRESETS.some((preset) =>
+      activatorsEqual(preset.activator, activator),
+    );
 
   return (
     <DetailCard
@@ -221,13 +193,7 @@ export function PushToTalkCard() {
         <Toggle
           checked={enabled}
           onChange={(next: boolean) => {
-            selectActivator(
-              next
-                ? fnConfigurable
-                  ? FN_PTT_PRESET.activator
-                  : CTRL_PTT_ACTIVATOR
-                : { kind: "off" },
-            );
+            selectActivator(next ? CTRL_PTT_ACTIVATOR : { kind: "off" });
           }}
           label={t("voicePage.enablePushToTalk")}
         />
@@ -244,7 +210,7 @@ export function PushToTalkCard() {
               onKeyUp={isRecording ? handleCaptureKeyUp : undefined}
               className="flex flex-wrap items-center gap-2 focus:outline-none"
             >
-              {presets.map((preset) => (
+              {PTT_PRESETS.map((preset) => (
                 <ActivationKeyOption
                   key={preset.label}
                   label={preset.label}

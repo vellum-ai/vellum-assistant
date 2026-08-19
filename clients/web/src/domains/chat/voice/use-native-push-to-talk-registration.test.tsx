@@ -40,6 +40,26 @@ test("disables configurable push-to-talk in popouts", async () => {
   expect(isConfigurablePushToTalkActive()).toBe(true);
 });
 
+test("leaves the Talk control as the sole Fn owner", () => {
+  const registrations: boolean[] = [];
+  window.vellum = {
+    platform: "electron",
+    helper: {
+      hotkey: {
+        fnPushToTalk: async (enabled: boolean) => {
+          registrations.push(enabled);
+          return { ok: true, enabled };
+        },
+        onEvent: () => () => undefined,
+      },
+    },
+  } as unknown as typeof window.vellum;
+
+  renderHook(() => useNativePushToTalkRegistration());
+
+  expect(registrations).toHaveLength(0);
+});
+
 test("retries a prior chord after a failed binding change", async () => {
   const registrations: unknown[] = [];
   let registrationListener = (_active: boolean): void => undefined;
