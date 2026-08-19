@@ -1,9 +1,6 @@
 /**
  * Tests for the live-workspace guard in util/platform.ts: a test process must
  * never resolve the workspace to a directory outside os.tmpdir().
- *
- * The guard memoizes successful validations per directory string, so each
- * assertion uses a distinct path rather than reusing one across tests.
  */
 
 import { rmSync, symlinkSync } from "node:fs";
