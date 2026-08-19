@@ -56,6 +56,7 @@ const sampleEventsSchema = z.object({
 const sampleMemoryStatSchema = z.object({
   anonBytes: z.number().nullable(),
   fileBytes: z.number().nullable(),
+  inactiveFileBytes: z.number().nullable(),
   kernelBytes: z.number().nullable(),
   slabReclaimableBytes: z.number().nullable(),
   slabUnreclaimableBytes: z.number().nullable(),
