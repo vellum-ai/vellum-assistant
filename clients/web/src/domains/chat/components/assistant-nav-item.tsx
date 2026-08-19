@@ -30,7 +30,7 @@
 
 import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
 import { Brain, Plus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
 import {
@@ -38,6 +38,7 @@ import {
   PanelItem,
   panelItemWashStyle,
   SIDE_MENU_TILE_SIZE,
+  Tooltip,
   type CustomPropertyStyle,
 } from "@vellumai/design-library";
 
@@ -45,6 +46,7 @@ import {
   SIDEBAR_CHIP_GAP,
   SIDEBAR_CHIP_SIZE as CHIP_SIZE,
 } from "@/components/sidebar-nav-geometry";
+import { newChatShortcutHint } from "@/domains/chat/new-chat-shortcut";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { eyeStyleBaseWidth } from "@/utils/assistant-eyes";
@@ -59,6 +61,29 @@ const sleep = (ms: number): Promise<void> =>
 
 const jitter = (base: number, spread: number): number =>
   base + Math.random() * spread;
+
+function NewChatTooltip({
+  children,
+  side,
+}: {
+  children: ReactElement;
+  side: "right" | "top";
+}) {
+  const hint = newChatShortcutHint();
+  return (
+    <Tooltip
+      content={
+        <span className="inline-flex items-center gap-1.5">
+          New Chat
+          <span className="opacity-80">{hint}</span>
+        </span>
+      }
+      side={side}
+    >
+      {children}
+    </Tooltip>
+  );
+}
 
 interface EyeArt {
   id: string;
@@ -219,47 +244,51 @@ export function AssistantNavItem({
         }
       : undefined;
   const newConversationRow = !showNewConversation ? null : collapsed ? (
-    <button
-      type="button"
-      onClick={onNewConversation}
-      title="New Chat"
-      data-tour-id="new-chat"
-      className={cn(
-        "group relative flex shrink-0 self-center cursor-pointer items-center justify-center overflow-hidden select-none",
-        "rounded-full",
-        "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
-        "transition-colors duration-150 active:scale-[0.98]",
-        "bg-[var(--panel-item-bg,var(--surface-lift))]",
-        "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
-      )}
-      style={{
-        ...newConversationTint,
-        width: SIDE_MENU_TILE_SIZE,
-        height: SIDE_MENU_TILE_SIZE,
-      }}
-    >
-      {/* 14px, not the section headers' 12px - the plus glyph carries less
-          ink than the pin/chat icons, so it needs the extra 2px to read at
-          the same weight beside them. Color matches the expanded pill's
-          plus: the assistant's own accent via `--panel-item-icon-fg`
-          (spread into this button's style from `newConversationTint`
-          above), falling back to the usual tertiary gray with no
-          character avatar to draw a hue from. */}
-      <Plus
-        aria-hidden="true"
-        className="h-3.5 w-3.5"
-        style={{ color: "var(--panel-item-icon-fg, var(--content-tertiary))" }}
-      />
-    </button>
+    <NewChatTooltip side="right">
+      <button
+        type="button"
+        onClick={onNewConversation}
+        aria-label="New Chat"
+        data-tour-id="new-chat"
+        className={cn(
+          "group relative flex shrink-0 self-center cursor-pointer items-center justify-center overflow-hidden select-none",
+          "rounded-full",
+          "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
+          "transition-colors duration-150 active:scale-[0.98]",
+          "bg-[var(--panel-item-bg,var(--surface-lift))]",
+          "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
+        )}
+        style={{
+          ...newConversationTint,
+          width: SIDE_MENU_TILE_SIZE,
+          height: SIDE_MENU_TILE_SIZE,
+        }}
+      >
+        {/* 14px, not the section headers' 12px - the plus glyph carries less
+            ink than the pin/chat icons, so it needs the extra 2px to read at
+            the same weight beside them. Color matches the expanded pill's
+            plus: the assistant's own accent via `--panel-item-icon-fg`
+            (spread into this button's style from `newConversationTint`
+            above), falling back to the usual tertiary gray with no
+            character avatar to draw a hue from. */}
+        <Plus
+          aria-hidden="true"
+          className="h-3.5 w-3.5"
+          style={{ color: "var(--panel-item-icon-fg, var(--content-tertiary))" }}
+        />
+      </button>
+    </NewChatTooltip>
   ) : (
-    <PanelItem
-      shape="pill"
-      icon={Plus}
-      label="New Chat"
-      onSelect={onNewConversation}
-      style={newConversationTint}
-      data-tour-id="new-chat"
-    />
+    <NewChatTooltip side="top">
+      <PanelItem
+        shape="pill"
+        icon={Plus}
+        label="New Chat"
+        onSelect={onNewConversation}
+        style={newConversationTint}
+        data-tour-id="new-chat"
+      />
+    </NewChatTooltip>
   );
 
   /* An uploaded image stands in for the character avatar this row otherwise

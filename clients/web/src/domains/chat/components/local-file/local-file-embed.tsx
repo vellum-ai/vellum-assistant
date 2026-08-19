@@ -20,6 +20,7 @@ import { localFileKindFromFilename } from "@/domains/chat/components/local-file/
 import { MAX_INLINE_MEDIA_BYTES } from "@/domains/chat/components/local-file/local-file-limits";
 import { LocalFileMenu } from "@/domains/chat/components/local-file/local-file-menu";
 import { resolveLocalFileTarget } from "@/domains/chat/components/local-file/local-file-target";
+import { t } from "@/i18n";
 import {
   useLocalFileInfo,
   useLocalFileObjectUrl,
@@ -100,7 +101,7 @@ export function LocalFileEmbed({
       await el.requestPictureInPicture();
     } catch {
       el.disablePictureInPicture = true;
-      toast.error("Picture in Picture isn't available");
+      toast.error(t("chat:localFileEmbed.pictureInPictureUnavailable"));
       return;
     }
     el.addEventListener(

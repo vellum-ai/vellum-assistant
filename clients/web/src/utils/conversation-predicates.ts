@@ -30,7 +30,12 @@ export function isConversationPinned(conversation: Conversation): boolean {
   );
 }
 
-export function isBackgroundConversation(conversation: Conversation): boolean {
+export function isBackgroundConversation(
+  conversation: Pick<
+    Conversation,
+    "surfacedAt" | "conversationType" | "groupId"
+  >,
+): boolean {
   // Surfaced conversations (`surfacedAt != null`) are explicitly promoted
   // into the Recents grouping, so they get full foreground treatment —
   // unread badges, mark read/unread, next-conversation selection — even

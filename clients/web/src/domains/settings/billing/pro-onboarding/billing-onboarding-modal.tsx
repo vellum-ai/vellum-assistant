@@ -14,6 +14,7 @@ import {
   readPurchasedCheckoutIntent,
   type CheckoutIntent,
 } from "@/lib/billing/checkout-intent";
+import { useTranslation } from "@/i18n";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -122,6 +123,7 @@ export function BillingOnboardingModal({
   mode = "checkout",
   resizeContext,
 }: BillingOnboardingModalProps) {
+  const { t } = useTranslation("settings");
   const isResize = mode === "resize";
   const queryClient = useQueryClient();
   const [step, setStep] = useState<WizardStep>("provisioning");
@@ -503,10 +505,10 @@ export function BillingOnboardingModal({
         // confirm is open closes it declaratively, so its buttons can't act
         // after the wizard has advanced past provisioning.
         open={backgroundConfirmOpen && machineBusy}
-        title="Continue in the background?"
+        title={t("billingOnboardingModal.backgroundConfirmTitle")}
         message={copy.backgroundConfirmMessage}
-        confirmLabel="Continue"
-        cancelLabel="Keep waiting"
+        confirmLabel={t("billingOnboardingModal.backgroundConfirmContinue")}
+        cancelLabel={t("billingOnboardingModal.backgroundConfirmKeepWaiting")}
         onConfirm={confirmBackgroundExit}
         onCancel={cancelBackgroundExit}
       />

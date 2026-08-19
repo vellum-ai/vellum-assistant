@@ -1,35 +1,34 @@
 /**
  * Low-level read/write helpers over the conversation query caches.
  *
- * Conversations are split across multiple `ConversationListPage` caches
- * (`{conversations, hasMore}`), each identified by a query key under the
- * shared prefix `["conversation-list", assistantId, ...discriminator]`.
- * `hasMore` marks a cache as a *window*, a prefix of the true list whose
- * older rows load on demand; a drained list is a page with nothing beyond
- * it. One shape for both is what keeps every helper here shape-blind:
- * updaters operate on the rows and the window flag rides along.
+ * Every conversation list cache is one `GET /v1/conversations` read scoped
+ * by a {@link ConversationListFilter} and keyed by the generated key for
+ * that request (`conversation-list-keys.ts`); the cached value is a
+ * `ConversationListPage` (`{conversations, hasMore}`). `hasMore` marks a
+ * cache as a *window*, a prefix of the true list whose older rows load on
+ * demand; a drained list is a page with nothing beyond it. One shape for
+ * both is what keeps every helper here shape-blind: updaters operate on the
+ * rows and the window flag rides along.
  *
- * - **Foreground** (`"foreground"`) — the primary list that gates the
- *   initial chat render. Always fetched.
- * - **Background** (`"background"`) — background jobs only. Fetched
- *   lazily when the user reveals the Background sidebar section.
- * - **Scheduled** (`"scheduled"`) — scheduled jobs only. Fetched lazily
- *   when the user reveals the Scheduled sidebar section.
- * - **Archived** (`"archived"`) — archived conversations. Fetched
- *   lazily when the user opens the archive view.
- * - **Section** (`"section", groupId, originChannel`): one sidebar section's
- *   rows, fetched through the server filter that defines the section. Pinned,
- *   each custom group, each channel, and Chats each key their own entry.
- *   Membership here is the server's answer, not a client-side filter, so a
- *   local change to the fields that filter reads has to move the row between
- *   these caches. See `utils/section-membership.ts`.
+ * The caches that exist at any moment are whatever filters are mounted:
+ *
+ * - The four **buckets** (foreground `{}`, background, scheduled, archived):
+ *   whole-list reads for the surfaces that need every row of a type.
+ *   Foreground gates the initial chat render; the others mount when their
+ *   sidebar section or the archive view is revealed.
+ * - One **section** cache per sidebar section (a group and/or channel
+ *   filter): Pinned, each custom group, each channel, and Chats each key
+ *   their own entry. Membership here is the server's answer, not a
+ *   client-side filter, so a local change to the fields that filter reads
+ *   has to move the row between these caches. See
+ *   `utils/section-membership.ts`.
  *
  * A conversation lives in exactly one cache, so the cross-cache helpers
  * (`findConversation`, `getConversations`, `patchConversation`,
  * `updateAllConversationCaches`) discover and operate on every active
- * cache via TanStack Query's prefix matching — no manual registry.
- * Adding a new cache type automatically participates in all cross-cache
- * operations.
+ * cache via TanStack Query's partial key matching against the list prefix
+ * (`conversationListPrefix`), never a registry. A new filter participates
+ * in every cross-cache operation by construction.
  *
  * References:
  * - https://tanstack.com/query/latest/docs/framework/react/guides/updates-from-mutation-responses
@@ -39,14 +38,14 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import {
-  archivedConversationsQueryKey,
-  backgroundConversationsQueryKey,
-  conversationListPrefix,
-  conversationsQueryKey,
-  scheduledConversationsQueryKey,
   sidebarSectionsQueryKey,
   unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
+import {
+  type ConversationListFilter,
+  conversationListPrefix,
+  conversationListQueryKey,
+} from "@/utils/conversation-list-keys";
 import {
   ensureSectionInIndex,
   patchAffectsMembership,
@@ -197,63 +196,27 @@ function updateCache(
 }
 
 /**
- * Apply `updater` to the foreground conversation cache. Used for writes
- * that only ever target foreground rows (draft creation, new-conversation
- * insertion).
+ * Apply `updater` to the one list cache `filter` names. For writes that
+ * target a known bucket (draft creation and new-conversation insertion go
+ * to the foreground list; a scheduled or background run to its own).
  */
-export function updateConversationsCache(
+export function updateConversationListCache(
   queryClient: QueryClient,
   assistantId: string | null,
-  updater: ConversationUpdater,
-): void {
-  updateCache(queryClient, conversationsQueryKey(assistantId), updater);
-}
-
-/**
- * Apply `updater` to the background conversation cache.
- */
-export function updateBackgroundConversationsCache(
-  queryClient: QueryClient,
-  assistantId: string | null,
+  filter: ConversationListFilter,
   updater: ConversationUpdater,
 ): void {
   updateCache(
     queryClient,
-    backgroundConversationsQueryKey(assistantId),
+    conversationListQueryKey(assistantId, filter),
     updater,
   );
-}
-
-/**
- * Apply `updater` to the scheduled conversation cache.
- */
-export function updateScheduledConversationsCache(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  updater: ConversationUpdater,
-): void {
-  updateCache(
-    queryClient,
-    scheduledConversationsQueryKey(assistantId),
-    updater,
-  );
-}
-
-/**
- * Apply `updater` to the archived conversation cache.
- */
-export function updateArchivedConversationsCache(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  updater: ConversationUpdater,
-): void {
-  updateCache(queryClient, archivedConversationsQueryKey(assistantId), updater);
 }
 
 /**
  * Apply `updater` to ALL active conversation caches for the given
  * assistant. Uses TanStack Query's prefix matching to dynamically
- * discover which caches exist — no static enumeration. Only caches that
+ * discover which caches exist, never a static enumeration. Only caches that
  * TanStack Query is actively tracking are patched; unmounted queries
  * refetch fresh data when they re-mount.
  *

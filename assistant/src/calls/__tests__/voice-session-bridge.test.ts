@@ -72,6 +72,7 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
+import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../../plugin-api/constants.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import {
   CALL_OPENING_MARKER,
@@ -362,6 +363,10 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     // not merely echo-suppressed live.
     const fake = makeFakeConversation({ processing: false });
     fakeConversation = fake.conversation;
+    let runOptions: Record<string, unknown> | undefined;
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      runOptions = args[2] as Record<string, unknown>;
+    };
 
     await startVoiceTurn({
       ...makeTurnOptions(),
@@ -374,7 +379,11 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     expect(fake.lastPersistOpts()?.metadata).toEqual({
       voiceSessionTurn: true,
       hidden: true,
+      messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
     });
+    expect(runOptions?.messageKind).toBe(
+      VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
+    );
   });
 
   test("the opener prompt is persisted un-hidden (unchanged)", async () => {

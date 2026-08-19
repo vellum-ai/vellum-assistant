@@ -28,21 +28,13 @@ function sanitizeFrontmatterValue(value: string): string {
 }
 
 /**
- * Self-correcting error for a scaffold call with no activation hints. When the
- * skill already exists and declares hints, they are quoted so the retry can
- * carry them forward instead of inventing new ones.
+ * Self-correcting error for a scaffold call with no activation hints. Matches
+ * the shape of the schema validator's required-field error, which is what a
+ * call through the registered tool hits first; this covers direct callers and
+ * an explicit empty list, which the schema's presence check accepts.
  */
-function missingActivationHintsMessage(
-  skillId: string,
-  currentHints: string[] | undefined,
-): string {
-  const base =
-    'activation_hints is required: pass 1-4 short trigger phrases stating the intent this skill serves (for example "user asks to deploy staging") so it can be found later by intent, not just by name.';
-  if (!currentHints || currentHints.length === 0) {
-    return base;
-  }
-  return `${base} Scaffolding rewrites the whole SKILL.md, and skill "${skillId}" currently declares ${JSON.stringify(currentHints)}; pass them again, revised if the procedure changed.`;
-}
+const MISSING_ACTIVATION_HINTS =
+  'activation_hints is required: pass 1-4 short trigger phrases stating the intent this skill serves (for example "user asks to deploy staging") so it can be found later by intent, not just by name.';
 
 /**
  * Validate + normalize a string-array input (sanitize, drop blanks, dedupe).
@@ -163,11 +155,7 @@ export async function executeScaffoldManagedSkill(
   input: Record<string, unknown>,
   context: ToolContext,
   deps: {
-    loadCatalog?: () => {
-      id: string;
-      source: SkillSource;
-      activationHints?: string[];
-    }[];
+    loadCatalog?: () => { id: string; source: SkillSource }[];
     getConversation?: (
       id: string,
     ) => { forkParentConversationId: string | null } | null;
@@ -208,8 +196,7 @@ export async function executeScaffoldManagedSkill(
 
   // Validate and normalize the string-array inputs. `includes` lists child
   // skill IDs; activation_hints / avoid_when become the skill's "Use when:" /
-  // "Avoid when:" retrieval signal in memory. Shape errors surface here;
-  // activation_hints' presence is enforced below, once ownership is settled.
+  // "Avoid when:" retrieval signal in memory.
   const includesResult = normalizeOptionalStringArray(
     input.includes,
     "includes",
@@ -227,6 +214,14 @@ export async function executeScaffoldManagedSkill(
     return { content: `Error: ${activationHintsResult.error}`, isError: true };
   }
   const activationHints = activationHintsResult.value;
+  // Hints are the skill's "Use when:" retrieval text, and scaffolding rewrites
+  // the whole SKILL.md, so a write without them leaves (or strips) none.
+  if (!activationHints) {
+    return {
+      content: `Error: ${MISSING_ACTIVATION_HINTS}`,
+      isError: true,
+    };
+  }
 
   const avoidWhenResult = normalizeOptionalStringArray(
     input.avoid_when,
@@ -331,8 +326,6 @@ export async function executeScaffoldManagedSkill(
     join(getManagedSkillDir(id), "SKILL.md"),
   );
 
-  const loadCatalog = deps.loadCatalog ?? (() => loadSkillCatalog());
-
   // Ownership backstop (retrospective origin only): the retrospective may author
   // a skill ONLY if it owns it. Fail closed on either of two collisions.
   if (fromRetrospective) {
@@ -343,6 +336,7 @@ export async function executeScaffoldManagedSkill(
     // create AND overwrite. The prompt directs the model to skip when an
     // existing skill of any source already covers the procedure; this enforces
     // it.
+    const loadCatalog = deps.loadCatalog ?? (() => loadSkillCatalog());
     const nonManagedOwner = loadCatalog().find(
       (s) => s.id === id && s.source !== "managed",
     );
@@ -369,21 +363,6 @@ export async function executeScaffoldManagedSkill(
         isError: true,
       };
     }
-  }
-
-  // Hints are the skill's "Use when:" retrieval text, and scaffolding rewrites
-  // the whole SKILL.md, so an overwrite without them would strip the ones the
-  // skill has. Checked after the ownership backstop so a caller that may not
-  // touch the skill at all hears that first.
-  if (!activationHints) {
-    const currentHints = managedSkillExistedBefore
-      ? loadCatalog().find((s) => s.id === id && s.source === "managed")
-          ?.activationHints
-      : undefined;
-    return {
-      content: `Error: ${missingActivationHintsMessage(id, currentHints)}`,
-      isError: true,
-    };
   }
 
   // Conversation lineage (retrospective origin only). The retrospective runs

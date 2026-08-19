@@ -80,10 +80,45 @@ describe("handleConfirmationRequest", () => {
     expect(state.pendingConfirmation).toMatchObject({ requestId: "cr-1" });
   });
 
-  it("wires the interaction store to the matched tool call (reducer folds the marker)", () => {
+  it("wires the interaction store to the tool call the confirmation names", () => {
     // The reducer attaches the inline marker onto the snapshot (covered in
     // rolling-snapshot.test.ts); the handler only derives the matched tool-call id
     // read-only to wire the interaction store.
+    seedSnapshot([
+      {
+        id: "a-1",
+        role: "assistant",
+        ...textBody(""),
+        timestamp: 1,
+        toolCalls: [runningToolCall("tc-1")],
+      },
+    ]);
+    const ctx = makeCtx();
+    handleConfirmationRequest(
+      {
+        type: "confirmation_request",
+        requestId: "cr-1",
+        toolName: "bash",
+        input: { command: "ls" },
+        riskLevel: "low",
+        allowlistOptions: [],
+        scopeOptions: [],
+        toolUseId: "tc-1",
+      },
+      ctx,
+    );
+
+    expect(useInteractionStore.getState().inlineConfirmationToolCallId).toBe(
+      "tc-1",
+    );
+    expect(ctx.setConfirmationToolCall).toHaveBeenCalledWith("cr-1", "tc-1");
+  });
+
+  it("wires nothing when the confirmation names no tool call", () => {
+    // `toolUseId` is absent exactly when the prompt belongs to no tool call
+    // (ACP route approvals), so there is nothing to wire. Binding it to
+    // whichever call happens to be running hides the prompt whenever that
+    // call is one the transcript does not draw.
     seedSnapshot([
       {
         id: "a-1",
@@ -107,10 +142,10 @@ describe("handleConfirmationRequest", () => {
       ctx,
     );
 
-    expect(useInteractionStore.getState().inlineConfirmationToolCallId).toBe(
-      "tc-1",
-    );
-    expect(ctx.setConfirmationToolCall).toHaveBeenCalledWith("cr-1", "tc-1");
+    expect(
+      useInteractionStore.getState().inlineConfirmationToolCallId,
+    ).toBeNull();
+    expect(ctx.setConfirmationToolCall).not.toHaveBeenCalled();
   });
 });
 

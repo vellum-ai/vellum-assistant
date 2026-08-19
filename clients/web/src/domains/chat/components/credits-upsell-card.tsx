@@ -2,10 +2,6 @@ import { useNavigate } from "react-router";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
-import {
-  isBillingCtaUpgradeArm,
-  useBillingCtaExperimentArm,
-} from "@/hooks/use-billing-cta-experiment";
 import { useIsFreePlan } from "@/hooks/use-is-free-plan";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
@@ -13,14 +9,14 @@ import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useAddCreditsModalStore } from "@/stores/add-credits-modal-store";
 import { routes } from "@/utils/routes";
 
-/** Free-plan copy in the `upgrade-cta` experiment arm. */
+/** Free-plan copy: the wall points at plans rather than at credits. */
 export const UPGRADE_COPY = {
   title: "You’re out of Free credits",
   subtitle: "Upgrade your plan to keep the conversation going.",
   ctaLabel: "View plans",
 };
 
-/** The default credit-wall copy: control arm, or any paid plan. */
+/** The default credit-wall copy: any paid or unresolved plan. */
 export const ADD_CREDITS_COPY = {
   title: "You’re out of credits",
   subtitle: "Add credits to pick up where you left off.",
@@ -46,12 +42,10 @@ export function CreditsUpsellCard() {
   // fetch inside `useIsFreePlan`: without a platform session `useIsOrgReady`
   // still reports ready, so an ungated fetch would fire unauthenticated.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
-  const billingCtaArm = useBillingCtaExperimentArm();
   const isFreePlan = useIsFreePlan(platformGate === "full");
-  // Upgrade CTA shows ONLY in the experiment upgrade arm AND for a free-plan
-  // org; an unknown/unresolved plan / unhydrated flags count as paid.
-  const isUpgrade =
-    isBillingCtaUpgradeArm(billingCtaArm) && isFreePlan === true;
+  // Upgrade CTA shows ONLY for a free-plan org; an unknown/unresolved plan
+  // counts as paid.
+  const isUpgrade = isFreePlan === true;
   const copy = isUpgrade ? UPGRADE_COPY : ADD_CREDITS_COPY;
 
   // Native Android is consumption-only: purchase entry points (add credits,

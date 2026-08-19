@@ -31,7 +31,10 @@ import type {
   HookFunction,
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
-import { updateMessageMetadata } from "@vellumai/plugin-api";
+import {
+  updateMessageMetadata,
+  VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
+} from "@vellumai/plugin-api";
 
 import type { MemoryRecalledEvent } from "../../../../api/events/memory-recalled.js";
 import { getConfig } from "../../../../config/loader.js";
@@ -48,6 +51,7 @@ import { timeLatencySubSpan } from "../../../../daemon/turn-latency-sub-spans.js
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
+import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
 
 /**
@@ -67,6 +71,39 @@ export function shouldRunLegacyMemoryRetrieval(params: {
   memoryV3Live: boolean;
 }): boolean {
   return params.isTrustedActor && !params.memoryV3Live;
+}
+
+/**
+ * The voice escalation continuation is a model-control message, not a
+ * retrieval query. Route memory on the latest preceding user message and strip
+ * the runtime context that was frozen onto it during its original turn.
+ */
+function legacyRetrievalRoutingMessages(
+  messages: UserPromptSubmitContext["latestMessages"],
+  routeOnPreviousUser: boolean,
+): UserPromptSubmitContext["latestMessages"] {
+  if (!routeOnPreviousUser) {
+    return messages;
+  }
+
+  for (let i = messages.length - 2; i >= 0; i -= 1) {
+    if (messages[i]?.role !== "user") {
+      continue;
+    }
+    const candidate = stripTailInjectionsForReinjection(
+      messages.slice(0, i + 1),
+    );
+    const tail = candidate[candidate.length - 1];
+    if (
+      tail?.role === "user" &&
+      tail.content.some(
+        (block) => block.type === "text" && block.text.trim().length > 0,
+      )
+    ) {
+      return candidate;
+    }
+  }
+  return [];
 }
 
 /**
@@ -263,10 +300,11 @@ async function persistInjectionBlocks(
  * runs for every actor, writing the fully injected result back onto
  * `latestMessages` and persisting the assembled blocks.
  *
- * Memory retrieval blocks the turn — there is no soft timeout here. Memory is
- * critical context, and silently dropping it produces a worse outcome than a
- * slower turn. Cancellation still works via `ctx.signal`, which is threaded
- * into `prepareMemory`.
+ * Memory retrieval ordinarily blocks the turn. The voice front door is the
+ * latency-sensitive exception: it keeps carried memory in the front prompt
+ * and defers current-turn retrieval to the escalated leg when one is needed.
+ * Cancellation still works via the live conversation signal for ordinary
+ * retrieval.
  */
 const userPromptSubmitMemoryRetrieval: HookFunction<
   UserPromptSubmitContext
@@ -292,9 +330,14 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   // fallback — a v3 empty/failed selection yields no NEW injected memory that
   // turn (prior turns' frozen v3 cards still ride history).
   const memoryV3Live = isMemoryV3Live(config);
+  const isVoiceFrontDoor = conversation?.currentCallSite === "voiceFrontDoor";
+  if (isVoiceFrontDoor && conversation) {
+    conversation.graphMemory.recordPkbQueryVectors(undefined, undefined);
+  }
   let v2BlockPersisted = false;
   if (
     shouldRunLegacyMemoryRetrieval({ isTrustedActor, memoryV3Live }) &&
+    !isVoiceFrontDoor &&
     conversation &&
     abortSignal
   ) {
@@ -311,6 +354,11 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
           config,
           abortSignal,
           broadcastMessage,
+          legacyRetrievalRoutingMessages(
+            ctx.latestMessages,
+            ctx.isHiddenPrompt === true &&
+              ctx.messageKind === VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
+          ),
         ),
     );
 

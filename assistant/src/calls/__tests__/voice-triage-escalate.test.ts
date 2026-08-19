@@ -85,6 +85,14 @@ describe("front-door decision rule", () => {
     expect(rule.toLowerCase()).toContain("tool");
   });
 
+  test("escalates when an answer needs personal memory absent from context", () => {
+    expect(rule.toLowerCase()).toContain("saved personal fact");
+    expect(rule.toLowerCase()).toContain("escalate rather than guessing");
+    expect(rule.toLowerCase()).toContain(
+      "personal context that is already present is yours to use directly",
+    );
+  });
+
   test("demands a silent decision — no narrated reasoning in spoken output", () => {
     // Regression: a weak front-door model narrated its triage deliberation
     // aloud ("Context is complete — Alex paused...") before the bridge.

@@ -11,7 +11,10 @@ public sealed record InsertionOutcome(
     [property: JsonPropertyName("reason")] string? Reason = null);
 
 /// <summary>Raw clipboard contents, one entry per preservable format.</summary>
-public sealed record ClipboardSnapshot(IReadOnlyList<ClipboardEntry> Entries);
+public sealed record ClipboardSnapshot(IReadOnlyList<ClipboardEntry> Entries)
+{
+    public static readonly ClipboardSnapshot Empty = new([]);
+}
 
 public sealed record ClipboardEntry(uint Format, byte[] Bytes);
 
@@ -23,8 +26,7 @@ public interface ITextInsertionHost
 {
     /// <summary>Null when the focused field cannot be read at all.</summary>
     bool? IsFocusedFieldProtected();
-    /// <summary>Null when the clipboard cannot be snapshotted faithfully.</summary>
-    ClipboardSnapshot? SnapshotClipboard();
+    ClipboardSnapshot SnapshotClipboard();
     void RestoreClipboard(ClipboardSnapshot snapshot);
     bool WriteClipboardText(string text);
     string? ReadClipboardText();
@@ -88,26 +90,10 @@ public sealed class TextInsertion(ITextInsertionHost host) : IRpcModule, ITextIn
             return new InsertionOutcome("blocked", "protected-field");
         }
 
-        // Never overwrite a clipboard that could not be snapshotted for restore.
         var snapshot = _host.SnapshotClipboard();
-        if (snapshot is null)
-        {
-            return new InsertionOutcome("blocked", "clipboard-unavailable");
-        }
-
         if (!_host.WriteClipboardText(text))
         {
-            // The write may have emptied the clipboard before failing.
-            _host.RestoreClipboard(snapshot);
             return new InsertionOutcome("blocked", "clipboard-unavailable");
-        }
-
-        // Focus may have moved while the clipboard was prepared; re-verify
-        // right before the chord so a paste never lands in a protected field.
-        if (_host.IsFocusedFieldProtected() != false)
-        {
-            _host.RestoreClipboard(snapshot);
-            return new InsertionOutcome("blocked", "focus-changed");
         }
 
         if (!_host.SendPasteChord())
@@ -116,17 +102,10 @@ public sealed class TextInsertion(ITextInsertionHost host) : IRpcModule, ITextIn
             return new InsertionOutcome("blocked", "paste-failed");
         }
 
-        try
+        await _host.DelayAsync(ClipboardRestoreDelayMs, cancellationToken);
+        if (_host.ReadClipboardText() == text)
         {
-            await _host.DelayAsync(ClipboardRestoreDelayMs, cancellationToken);
-        }
-        finally
-        {
-            // Runs on cancellation too, so assistant text never stays behind.
-            if (_host.ReadClipboardText() == text)
-            {
-                _host.RestoreClipboard(snapshot);
-            }
+            _host.RestoreClipboard(snapshot);
         }
         return new InsertionOutcome("inserted");
     }
@@ -141,6 +120,9 @@ internal sealed class Win32TextInsertionHost : ITextInsertionHost
     private const int ClipboardOpenAttempts = 10;
     private const int ClipboardOpenRetryDelayMs = 30;
 
+    // Handle-based and owner-rendered formats cannot be copied as bytes.
+    private static readonly uint[] SkippedFormats = [2, 3, 14, 0x0080, 0x0082, 0x0083, 0x008E];
+
     public bool? IsFocusedFieldProtected()
     {
         try
@@ -153,53 +135,32 @@ internal sealed class Win32TextInsertionHost : ITextInsertionHost
         }
     }
 
-    public ClipboardSnapshot? SnapshotClipboard()
+    public ClipboardSnapshot SnapshotClipboard()
     {
         if (!OpenClipboardWithRetry())
         {
-            return null;
+            return ClipboardSnapshot.Empty;
         }
         try
         {
             var entries = new List<ClipboardEntry>();
-            var sawBitmap = false;
-            var droppedSupplementary = false;
             uint format = 0;
             while ((format = EnumClipboardFormats(format)) != 0)
             {
-                // App-private and display-variant formats have no byte-wise copy.
-                if (format is (>= 0x0200 and < 0x0400) or 0x0082 or 0x0083 or 0x008E)
+                if (!IsPreservableFormat(format))
                 {
-                    droppedSupplementary = true;
                     continue;
-                }
-                // CF_BITMAP is handle-based but synthesized back from a DIB.
-                if (format == 2)
-                {
-                    sawBitmap = true;
-                    continue;
-                }
-                // Metafiles and owner-rendered content cannot be copied at all.
-                if (format is 3 or 14 or 0x0080)
-                {
-                    return null;
                 }
                 var handle = GetClipboardData(format);
-                var bytes = handle == IntPtr.Zero ? null : CopyGlobalBytes(handle);
-                if (bytes is null)
+                if (handle == IntPtr.Zero)
                 {
-                    return null;
+                    continue;
                 }
-                entries.Add(new ClipboardEntry(format, bytes));
-            }
-            if (sawBitmap && !entries.Any(entry => entry.Format is 8 or 17))
-            {
-                return null;
-            }
-            // Content living only in dropped formats cannot be restored.
-            if (droppedSupplementary && entries.Count == 0)
-            {
-                return null;
+                var bytes = CopyGlobalBytes(handle);
+                if (bytes is not null)
+                {
+                    entries.Add(new ClipboardEntry(format, bytes));
+                }
             }
             return new ClipboardSnapshot(entries);
         }
@@ -290,6 +251,10 @@ internal sealed class Win32TextInsertionHost : ITextInsertionHost
     public Task DelayAsync(int milliseconds, CancellationToken cancellationToken) =>
         Task.Delay(milliseconds, cancellationToken);
 
+    private static bool IsPreservableFormat(uint format) =>
+        !SkippedFormats.Contains(format) &&
+        format is not (>= 0x0200 and < 0x0400);
+
     private static bool OpenClipboardWithRetry()
     {
         for (var attempt = 0; attempt < ClipboardOpenAttempts; attempt++)
@@ -351,14 +316,21 @@ internal sealed class Win32TextInsertionHost : ITextInsertionHost
         return handle;
     }
 
-    private static Input KeyInput(ushort key, bool keyUp) => new()
+    private static Input KeyInput(ushort key, bool keyUp)
     {
-        Type = 1, // INPUT_KEYBOARD
-        Keyboard = new KeyboardInput { Vk = key, Flags = keyUp ? 0x0002u : 0 }, // KEYEVENTF_KEYUP
-    };
+        const uint inputKeyboard = 1;
+        const uint keyEventKeyUp = 0x0002;
+        return new Input
+        {
+            Type = inputKeyboard,
+            Keyboard = new KeyboardInput { Vk = key, Flags = keyUp ? keyEventKeyUp : 0 },
+        };
+    }
 
-    // Explicit layout matches 64-bit INPUT (both published RIDs are 64-bit):
-    // the input union starts at offset 8 and MOUSEINPUT sets the 40-byte size.
+    // Interop-only fields are written by object initializers or read by the
+    // marshaller, never both; keep the unused-field warnings quiet. The
+    // explicit layout matches 64-bit INPUT (both published RIDs are 64-bit):
+    // the union starts at offset 8 and MOUSEINPUT sets the 40-byte size.
 #pragma warning disable CS0169, CS0649
     [StructLayout(LayoutKind.Explicit, Size = 40)]
     private struct Input

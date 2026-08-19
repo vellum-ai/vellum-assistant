@@ -25,7 +25,6 @@ import {
   type RiskAssessment,
   type RiskClassifier,
   type ScopeOption,
-  type UserRule,
 } from "./risk-types.js";
 import { cachedParse } from "./shell-identity.js";
 import { getTrustRuleCache } from "./trust-rule-cache.js";
@@ -53,8 +52,10 @@ export function escalateOne(risk: Risk): Risk {
 export { riskOrd, maxRisk };
 
 // ── Compiled regex cache ─────────────────────────────────────────────────────
-// The registry is static, so we can compile and cache RegExp instances for
-// arg rules' valuePatterns. This avoids re-compiling on every classify call.
+// Arg rules declare their `valuePattern` as a regex string in the command
+// registry, which is static, so a compiled RegExp is valid for the life of the
+// process and needs no invalidation. This is the only regex left in the rule
+// path: trust rules themselves are matched by exact string.
 
 const compiledPatterns = new Map<string, RegExp>();
 
@@ -65,11 +66,6 @@ function getCompiledPattern(pattern: string): RegExp {
     compiledPatterns.set(pattern, re);
   }
   return re;
-}
-
-/** Clear the compiled regex cache. Exposed for tests and hot-swap scenarios. */
-export function clearCompiledPatterns(): void {
-  compiledPatterns.clear();
 }
 
 // ── Arg rule matching ────────────────────────────────────────────────────────
@@ -279,23 +275,10 @@ function resolveSubcommand(
  */
 export function classifySegment(
   segment: CommandSegment,
-  userRules: UserRule[],
   registry: Record<string, CommandRiskSpec>,
   toolName: "bash" | "host_bash" = "bash",
 ): { risk: Risk; reason: string; matchType: RiskAssessment["matchType"] } {
-  // 1. Check user rules first (highest priority — short-circuits remaining pipeline).
-  // Sort by pattern length descending so more specific regex patterns win.
-  const sortedUserRules = userRules
-    .slice()
-    .sort((a, b) => b.pattern.length - a.pattern.length);
-  for (const rule of sortedUserRules) {
-    const re = getCompiledPattern(rule.pattern);
-    if (re.test(segment.command)) {
-      return { risk: rule.risk, reason: rule.label, matchType: "user_rule" };
-    }
-  }
-
-  // 1b. Short-circuit on user-defined trust rules from the cache.
+  // 1. Short-circuit on user-defined trust rules from the cache.
   // Rules with origin="user_defined" (created by the user) bypass the
   // classification pipeline entirely, including arg-rule escalation.
   // Rules with userModified=true (seeded defaults the user adjusted) fall
@@ -383,12 +366,7 @@ export function classifySegment(
           args: inner.args,
           operator: segment.operator,
         };
-        const innerResult = classifySegment(
-          innerSegment,
-          userRules,
-          registry,
-          toolName,
-        );
+        const innerResult = classifySegment(innerSegment, registry, toolName);
         return {
           risk: maxRisk(spec.baseRisk as Risk, innerResult.risk),
           reason:
@@ -985,14 +963,11 @@ export function scopeOptionsToAllowlistOptions(
  */
 export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
   private readonly registry: Record<string, CommandRiskSpec>;
-  private readonly userRules: UserRule[];
 
   constructor(
     registry: Record<string, CommandRiskSpec> = DEFAULT_COMMAND_REGISTRY,
-    userRules: UserRule[] = [],
   ) {
     this.registry = registry;
-    this.userRules = userRules;
   }
 
   async classify(input: BashClassifierInput): Promise<RiskAssessment> {
@@ -1025,6 +1000,8 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
           reason: fullRule.description,
           scopeOptions: [],
           matchType: "user_rule",
+          // No ladder: this branch runs before the parse the ladder is built
+          // from, so a prompted invocation on this path offers nothing to save.
           allowlistOptions: [],
         };
       }
@@ -1040,12 +1017,7 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
 
     // Classify each segment
     for (const segment of parsed.segments) {
-      const result = classifySegment(
-        segment,
-        this.userRules,
-        this.registry,
-        toolName,
-      );
+      const result = classifySegment(segment, this.registry, toolName);
       if (riskOrd(result.risk) > riskOrd(maxRiskLevel)) {
         maxRiskLevel = result.risk;
         maxReason = result.reason;

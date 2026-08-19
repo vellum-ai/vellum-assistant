@@ -8,14 +8,18 @@
  * non-null Set is an allowlist, `null` means no restriction. This suite locks
  * the contract that the hook gather sites honor it:
  *  - `getHooksFor(name, { conversationId })` resolves the conversation's scope
- *    and excludes in-process default-plugin hooks outside it; omitting the
+ *    and excludes user-plugin hooks outside it. First-party default plugins
+ *    always remain (they are core runtime, not per-chat toggles). Omitting the
  *    conversationId imposes no restriction.
+ *  - `getUserHooksFor` returns those same in-process default-plugin hooks
+ *    (plus user-land hooks), not only filesystem plugins.
  *  - `collectUserHookEntries(name, dirs, set)` excludes user-land plugin hooks
  *    outside the set, while standalone workspace hooks (not owned by a plugin)
  *    still run.
  *
  * The per-chat scope layers on top of (does not replace) the global
- * `.disabled` sentinel check — a plugin excluded by either is excluded.
+ * `.disabled` sentinel check. A user plugin excluded by either is excluded.
+ * A first-party default plugin is excluded only by `.disabled`.
  * Injectors are intentionally NOT per-chat scoped (see
  * `getRegisteredInjectors`): they run inside already-scoped plugin hooks, and
  * every injector-contributing plugin is a first-party default.
@@ -39,7 +43,8 @@ import {
   collectUserHookEntries,
   resetHookCacheForTests,
 } from "../hooks/hook-loader.js";
-import { getHooksFor } from "../hooks/registry.js";
+import { getHooksFor, getUserHooksFor } from "../hooks/registry.js";
+import { resetPluginCacheForTests } from "../plugins/mtime-cache.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,
@@ -66,6 +71,7 @@ function buildPlugin(
 describe("getHooksFor per-chat plugin scope (in-process default hooks)", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
+    resetPluginCacheForTests();
     resolveScopeMock.mockReset();
     resolveScopeMock.mockImplementation(() => null);
   });
@@ -135,6 +141,52 @@ describe("getHooksFor per-chat plugin scope (in-process default hooks)", () => {
     expect(
       await getHooksFor("user-prompt-submit", { conversationId: "c1" }),
     ).toHaveLength(0);
+  });
+
+  test("getUserHooksFor returns in-process default plugin hooks", async () => {
+    registerPlugin(
+      buildPlugin("default-memory", {
+        "user-prompt-submit": () => Promise.resolve(),
+      }),
+    );
+    expect(await getUserHooksFor("user-prompt-submit")).toHaveLength(1);
+  });
+
+  test("a first-party default plugin's hooks run even when the chat scope omits it", async () => {
+    let ran = 0;
+    registerPlugin(
+      buildPlugin("default-memory", {
+        "user-prompt-submit": () => {
+          ran++;
+          return Promise.resolve();
+        },
+      }),
+    );
+    resolveScopeMock.mockImplementation(() => new Set(["user-a"]));
+
+    const hooks = await getHooksFor("user-prompt-submit", {
+      conversationId: "c1",
+    });
+    expect(hooks).toHaveLength(1);
+    await hooks[0]!({});
+    expect(ran).toBe(1);
+  });
+
+  test("a workspace-disabled first-party default is still excluded", async () => {
+    registerPlugin(
+      buildPlugin("default-memory", {
+        "user-prompt-submit": () => Promise.resolve(),
+      }),
+    );
+    const dir = join(getWorkspacePluginsDir(), "default-memory");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".disabled"), "");
+    try {
+      expect(await getHooksFor("user-prompt-submit")).toHaveLength(0);
+      expect(await getUserHooksFor("user-prompt-submit")).toHaveLength(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

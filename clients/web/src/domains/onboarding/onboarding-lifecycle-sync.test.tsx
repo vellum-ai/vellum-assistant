@@ -99,7 +99,7 @@ mock.module("@/utils/avatar-svg-compositor", () => ({
   composeSvg: () => "<svg />",
 }));
 
-mock.module("@/domains/onboarding/components/onboarding-layout", () => ({
+mock.module("@/components/onboarding-layout", () => ({
   OnboardingLayout: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),

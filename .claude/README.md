@@ -10,7 +10,7 @@ Most commands, phases, and scripts are shared from the [`claude-skills`](https:/
 path/to/claude-skills/setup
 ```
 
-This creates symlinks for 18 commands, 7 phase files, and 6 utility scripts. See the [claude-skills README](https://github.com/vellum-ai/claude-skills) for the full command reference.
+This creates the command, phase-file, and utility-script symlinks. See the [claude-skills README](https://github.com/vellum-ai/claude-skills) for the full, current command reference.
 
 Re-run `setup` after pulling updates to the claude-skills repo.
 
@@ -79,13 +79,12 @@ The only exception is `/check-reviews` since that's not a time-sensitive command
 
 ## Typical workflow
 
-3 shells with Claude Code open, one for each of work/swarm, check-reviews, and brainstorm.
+3 shells with Claude Code open, one for each of do/swarm, check-reviews, and brainstorm.
 
-### Work / Swarm
+### Do / Swarm
 
 ```
-/work
-/work Fix the broken login flow
+/do Fix the broken login flow
 /swarm 4 20
 ```
 
@@ -105,6 +104,6 @@ The only exception is `/check-reviews` since that's not a time-sensitive command
 
 ## Using with other coding agents
 
-These commands are designed for Claude Code, but you can use them in other coding agents by telling them to follow the instructions in the corresponding command file (e.g., `Follow the instructions in .claude/commands/work.md`).
+These commands are designed for Claude Code, but you can use them in other coding agents by telling them to follow the instructions in the corresponding command file (e.g., `Follow the instructions in .claude/commands/do.md`).
 
 The swarm command specifically relies on Claude Code's Agent Teams, so you might not be able to use it in other agents.

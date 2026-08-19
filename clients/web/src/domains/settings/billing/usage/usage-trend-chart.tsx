@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type MouseEvent } from "react";
 
 import { formatCost } from "@/domains/settings/billing/usage/format";
+import { t, useTranslation } from "@/i18n";
 import {
   buildUsageSeriesLegend,
   sortUsageSeriesBuckets,
@@ -88,6 +89,7 @@ export function UsageTrendChart({
   isHourly,
   legendItems,
 }: UsageTrendChartProps) {
+  const { t: translate } = useTranslation("settings");
   const [tooltip, setTooltip] = useState<SegmentTooltip | null>(null);
   const sorted = useMemo(() => sortUsageSeriesBuckets(buckets), [buckets]);
   const bucketLegend = useMemo(
@@ -120,8 +122,12 @@ export function UsageTrendChart({
   if (sorted.length === 0) {
     const emptyState = (
       <EmptyState
-        title={isHourly ? "No hourly data" : "No daily data"}
-        subtitle="No usage recorded in this time range"
+        title={
+          isHourly
+            ? translate("usageTrendChart.noHourlyData")
+            : translate("usageTrendChart.noDailyData")
+        }
+        subtitle={translate("usageTrendChart.noUsageInRange")}
       />
     );
     if (visibleLegendItems.length === 0) {
@@ -270,7 +276,7 @@ function StackedBar({
   if (nonEmptyGroups.length === 0 && !hasGroupedData && !hasLegendOverride) {
     const bucketLabel = formatBucketLabel(bucket);
     const tooltipContent = {
-      label: "Total",
+      label: t("settings:usageTrendChart.total"),
       bucketLabel,
       cost: formatCost(bucket.totalEstimatedCostUsd),
     };

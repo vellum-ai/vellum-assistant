@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
-import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
+import { conversationListQueryKey } from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -48,7 +48,7 @@ async function isProcessing(inputs: {
     defaultOptions: { queries: { retry: false } },
   });
   queryClient.setQueryData(
-    conversationsQueryKey(ASSISTANT_ID),
+    conversationListQueryKey(ASSISTANT_ID),
     listPage([
       {
         conversationId: CONVERSATION_ID,

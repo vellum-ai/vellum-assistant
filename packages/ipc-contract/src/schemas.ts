@@ -104,4 +104,9 @@ export const companionTurnsSchema = z.array(companionTurnSchema).max(40);
 export const companionContextSchema = z.object({
   assistantName: z.string(),
   turns: companionTurnsSchema,
+  // Defaulted rather than required so a renderer that predates the field still
+  // publishes a valid context: the tail it sends is worth drawing, and the
+  // honest answer for a publisher that cannot report a turn is that it is not
+  // reporting one.
+  working: z.boolean().default(false),
 });

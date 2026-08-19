@@ -23,6 +23,7 @@ let package = Package(
         .package(name: "CapacitorNetwork", path: "../../../../node_modules/.bun/@capacitor+network@8.0.0+33da1c2fb16abc29/node_modules/@capacitor/network"),
         .package(name: "CapacitorPushNotifications", path: "../../../../node_modules/.bun/@capacitor+push-notifications@8.0.3+33da1c2fb16abc29/node_modules/@capacitor/push-notifications"),
         .package(name: "CapacitorShare", path: "../../../../node_modules/.bun/@capacitor+share@8.0.1+33da1c2fb16abc29/node_modules/@capacitor/share"),
+        .package(name: "CapawesomeCapacitorFilePicker", path: "../../../../node_modules/.bun/@capawesome+capacitor-file-picker@8.0.4+33da1c2fb16abc29/node_modules/@capawesome/capacitor-file-picker"),
         .package(name: "SentryCapacitor", path: "../../../../node_modules/.bun/@sentry+capacitor@4.1.0+1184c339b098859f/node_modules/@sentry/capacitor"),
         .package(name: "CapacitorPluginSafeArea", path: "../../../../node_modules/.bun/capacitor-plugin-safe-area@5.0.0+33da1c2fb16abc29/node_modules/capacitor-plugin-safe-area")
     ],
@@ -43,6 +44,7 @@ let package = Package(
                 .product(name: "CapacitorNetwork", package: "CapacitorNetwork"),
                 .product(name: "CapacitorPushNotifications", package: "CapacitorPushNotifications"),
                 .product(name: "CapacitorShare", package: "CapacitorShare"),
+                .product(name: "CapawesomeCapacitorFilePicker", package: "CapawesomeCapacitorFilePicker"),
                 .product(name: "SentryCapacitor", package: "SentryCapacitor"),
                 .product(name: "CapacitorPluginSafeArea", package: "CapacitorPluginSafeArea")
             ]

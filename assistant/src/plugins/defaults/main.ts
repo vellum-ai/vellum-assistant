@@ -29,6 +29,7 @@ const DEFAULTS_DIR = resolveBundledDir(import.meta.dir, ".", "default-plugins");
 const DEFAULT_PLUGIN_NAMESPACE_PREFIX = "default-";
 
 let cachedNames: readonly string[] | null = null;
+let cachedNameSet: ReadonlySet<string> | null = null;
 let cachedDirToManifest: ReadonlyMap<string, string> | null = null;
 
 /**
@@ -58,8 +59,22 @@ export function getAllDefaultPluginNames(): readonly string[] {
       }
     }
     cachedNames = names.sort();
+    cachedNameSet = new Set(cachedNames);
   }
   return cachedNames;
+}
+
+/**
+ * Whether `name` is one of the first-party default plugins that ship in
+ * `plugins/defaults/` (e.g. `default-memory`). Used by hook collection so
+ * those plugins' hooks are not dropped by a per-chat allowlist that only
+ * names user-installed plugins.
+ */
+export function isFirstPartyDefaultPlugin(name: string): boolean {
+  if (cachedNameSet === null) {
+    getAllDefaultPluginNames();
+  }
+  return cachedNameSet !== null && cachedNameSet.has(name);
 }
 
 /**

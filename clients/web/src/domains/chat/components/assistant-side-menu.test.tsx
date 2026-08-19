@@ -48,10 +48,7 @@ function setSectionRows(conversations: Conversation[]) {
  * for "no group claimed it" AND its own `origin_channel`. Honoring only the
  * group would hand every channel card the whole ungrouped bucket.
  */
-function rowsMatching(filter: {
-  groupId?: string;
-  originChannel?: string;
-}): Conversation[] {
+function rowsMatching(filter: ConversationListFilter): Conversation[] {
   if (filter.groupId === "system:pinned") {
     return sectionSource.filter((c) => c.isPinned);
   }
@@ -84,12 +81,13 @@ mock.module(
     useSidebarSectionsQuery: () => null,
     useSectionConversationListQuery: (
       _assistantId: string | null,
-      filter: { groupId?: string; originChannel?: string },
-    ) => ({
-      conversations: rowsMatching(filter),
+      filter: ConversationListFilter | null,
+    ): ConversationQueries.ConversationListQueryResult => ({
+      conversations: filter === null ? [] : rowsMatching(filter),
       isLoading: false,
       isPending: false,
       isError: false,
+      error: null,
       // A resolved query. Omitting this reads as falsy, which would send every
       // section back to its derived rows and pass these tests for the wrong
       // reason: green because nothing is filtered, not because it is.
@@ -98,6 +96,7 @@ mock.module(
       // load-more path, and a stub window would mount sentinels under every
       // section.
       hasMore: false,
+      refetch: () => {},
     }),
   }),
 );
@@ -132,6 +131,7 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
+import type { ConversationListFilter } from "@/utils/conversation-list-keys";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { CONVERSATION_LIST_VIRTUALIZE_THRESHOLD } from "@/domains/chat/components/conversation-nav-section";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
@@ -872,10 +872,14 @@ describe("AssistantSideMenu · native mobile floating glyph row", () => {
 
   test("the glyph row carries the floating placement utilities", () => {
     const container = overlayDom();
-    const row = classTokens(glyph(container, "Close navigation").parentElement);
+    // Queried by its own marker rather than walked up from a glyph, so the
+    // row keeps its contract when the clusters inside it are regrouped.
+    const row = classTokens(
+      container.querySelector('[data-slot="side-menu-glyph-row"]'),
+    );
 
     expect(row).toContain("native-mobile:absolute");
-    expect(row).toContain("native-mobile:inset-x-4");
+    expect(row).toContain("native-mobile:inset-x-3");
     expect(row).toContain("native-mobile:top-4");
     expect(row).toContain("native-mobile:z-10");
     expect(row).toContain("native-mobile:pointer-events-none");
@@ -897,14 +901,20 @@ describe("AssistantSideMenu · native mobile floating glyph row", () => {
       overlayDom().querySelector('[data-slot="side-menu-body"]'),
     );
 
-    expect(body).toContain("native-mobile:pt-14");
+    // The reserve is the glyph row's own extent, measured off the 40px touch
+    // target an icon-only Button takes on a coarse pointer (its 16px offset
+    // plus that height, less the overlay inset this scrollport already sits
+    // behind). Sizing it off the mock's 32px box instead leaves the bottom
+    // 8px of each glyph over fully opaque content.
+    expect(body).toContain("native-mobile:pt-11");
     // Complete declarations, so the fade geometry is pinned too: a different
-    // stop or gradient direction is a different token.
+    // stop or gradient direction is a different token. The stop tracks the
+    // reserve, so a row is clear of the glyphs exactly when it is opaque.
     expect(body).toContain(
-      "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
+      "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)]",
     );
     expect(body).toContain(
-      "native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
+      "native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)]",
     );
   });
 });
@@ -1328,6 +1338,30 @@ describe("AssistantSideMenu · section spacing", () => {
   });
 });
 
+describe("AssistantSideMenu · section card surface", () => {
+  /* A conversation row rests transparent, so on touch the swipe layer wrapping
+     it is what actually paints behind the label. Left to its own default that
+     layer takes the panel surface, which is a different colour from the card,
+     and every row in the card reads as a sunken band. The card publishes its
+     own fill so the layer matches whatever the card is. */
+  test("every section card names the fill its swipeable rows sit on", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+      }),
+    );
+
+    const cards = sectionCards(container);
+    expect(cards).toHaveLength(4);
+    for (const card of cards) {
+      expect(card.className).toContain(
+        "[--swipe-reveal-bg:var(--surface-lift)]",
+      );
+    }
+  });
+});
+
 describe("AssistantSideMenu · default section order", () => {
   // The point of LUM-2909: groups are the deliberate organization layer, so
   // they lead rather than sitting under channel sections that come and go.
@@ -1366,12 +1400,11 @@ describe("AssistantSideMenu · default section order", () => {
   });
 });
 
-/* Membership in `sidebar.sections` and what renders have to be decided by
-   one predicate. When they were two - the list built unconditionally, the
-   section returning `null` when its query came back empty - `curatedSectionCount`
-   counted an entry nothing drew, so the curated rule appeared over an empty
-   tier and the header menu offered a move that swapped with an off-screen
-   section. */
+/* Membership in `sidebar.sections` and what renders are decided by one
+   predicate. Were they two, a section could be listed while drawing
+   nothing, and the header menu's move-up/move-down nudges count listed
+   entries: the menu would offer a move that swapped with a section the
+   user cannot see. */
 describe("AssistantSideMenu · a listed section is a rendered section", () => {
   test("a custom group with no conversations still renders its header", () => {
     const html = renderMenu({

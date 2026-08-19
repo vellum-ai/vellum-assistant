@@ -19,6 +19,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import {
   navigateToConversation,
+  navigateToNewConversation,
   revealConversationView,
 } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
@@ -33,10 +34,10 @@ import { routes } from "@/utils/routes";
  *
  * - `deeplink.openThread` → `ensureMainWindowVisible()` +
  *   `navigateToConversation()`
- * - `deeplink.sendToThread` → same navigation into the *target* thread,
- *   with the message parked in `usePendingDeepLinkStore` and the composer
- *   focused: pre-filled, never auto-sent, per the caller-identity note
- *   below.
+ * - `deeplink.sendToThread` → same navigation into the *target* thread.
+ *   With proven provenance the message is parked as a send request the
+ *   chat domain fulfils on arrival; otherwise it is parked as a composer
+ *   pre-fill with focus requested. See the provenance note below.
  * - `deeplink.send` → `ensureMainWindowVisible()` + navigate to
  *   `/assistant` + park the message in `usePendingDeepLinkStore`
  *   for `ChatPage`'s composer-domain hook to consume on mount.
@@ -54,7 +55,9 @@ import { routes } from "@/utils/routes";
  *   cold-launch case, see `start-voice-request.ts`). `mode: "resume"`
  *   just navigates back to a running session's conversation. A `prompt`
  *   (Siri's "Ask …" intent, which collects the question before the app is
- *   up) pre-fills the composer, and no session starts for it; see below.
+ *   up) is asked as a text turn when its provenance is proven and
+ *   pre-fills the composer otherwise; no session starts for it either
+ *   way. See below.
  * - `deeplink.connect` → `ensureMainWindowVisible()` + park the request
  *   in the connect-dialog store + navigate to the assistant chooser,
  *   which opens its Connect a Remote Assistant dialog off that store: a
@@ -63,11 +66,31 @@ import { routes } from "@/utils/routes";
  *   pairing) gets guidance naming the host instead.
  * - `deeplink.unknown` → Sentry breadcrumb.
  *
- * ## Why a start-voice `prompt` pre-fills the composer and starts nothing
+ * ## Deep-link text: proven provenance sends, anything else pre-fills
  *
- * Two independent constraints shape the prompt branch.
+ * A custom URL scheme carries no caller identity: any installed app or web
+ * page can open `<scheme>://voice?prompt=…` or `<scheme>://thread/<id>?message=…`,
+ * so acting on such text automatically would let an arbitrary link put words
+ * in the user's mouth and run a tool-capable turn with them. The parser
+ * bounds the *shape* of the text (`sanitizeDeepLinkText`); it cannot vouch
+ * for its *intent*. So by default deep-linked text lands visibly in the
+ * composer (the `deeplink.send` park) with focus requested, one tap from
+ * sent, and only the user sends it.
  *
- * No voice session starts for it, because a live-voice session has no
+ * The iOS shell can prove one origin, though. App Intents (a Shortcut, Siri,
+ * the Action Button) run in-process on the user's explicit action and hand
+ * their URL to the delegate directly; every URL from outside the process
+ * enters through two methods where the shell strips the provenance marker
+ * (`CommandURLProvenance.swift`, LUM-3281). The Capacitor source honors the
+ * marker only on iOS, so `provenance: "intent"` on a payload means exactly
+ * "the user ran an intent". That text may be sent for them: a voice prompt
+ * as a text turn in a fresh conversation, a thread message into its thread
+ * once the chat domain confirms the target exists (`useDeepLinkThreadSend`).
+ * Everything with `provenance: null` keeps the pre-fill contract.
+ *
+ * ## Why a start-voice `prompt` starts no session, even when proven
+ *
+ * A live-voice session has no
  * representation of a *text* user turn. Its wire protocol
  * (`domains/chat/voice/live-voice/protocol.ts`, mirroring
  * `assistant/src/live-voice/protocol.ts`) carries control frames plus raw PCM
@@ -80,22 +103,14 @@ import { routes } from "@/utils/routes";
  * a bug class of its own (missing `user_message_echo`, an unpersisted
  * conversation row, a missing `trustContext`). A session started alongside
  * the prompt could not hear the question, and its full-screen room would
- * hide the pre-fill.
+ * hide the pre-fill. So a proven prompt is asked as a *text* turn; the
+ * spoken answer waits on JARVIS-1522's seed-turn seam, and the
+ * `deeplink.startVoice` handler marks the line that changes when it lands.
  *
- * And the prompt is never auto-sent. A custom URL scheme carries no caller
- * identity: any installed app or web page can open `<scheme>://voice?prompt=…`,
- * so an automatic send would let an arbitrary link put words in the user's
- * mouth and run a tool-capable turn with them. The parser bounds the *shape*
- * of the text (`sanitizeStartVoicePrompt`); only the user can vouch for its
- * *intent*. The question therefore lands visibly in the composer (the
- * `deeplink.send` park) with focus requested, one tap from sent. Auto-asking
- * becomes safe only when the native shell can prove a link came from the Siri
- * intent rather than an external open; that provenance seam and the
- * voice-first spoken answer are both JARVIS-1522 design space.
- *
- * A prompt arriving while a call is already live parks the same way, minus
- * the navigation and focus: the call is surfaced and the text waits in the
- * owning composer. The composer pre-fill itself stays in the chat domain
+ * A prompt arriving while a call is already live parks as a pre-fill
+ * regardless of provenance, minus the navigation and focus: the call is
+ * surfaced and the text waits in the owning composer, because there is no
+ * way to hand it to the running session. The composer pre-fill itself stays in the chat domain
  * (`useDeepLinkConsumer`) because it owns `setInput`. This hook stays
  * generic; chat-specific store handling lives in the shared
  * `navigateToConversation` util.
@@ -154,20 +169,31 @@ export function useGlobalDeepLinkConsumer(): void {
     openThread(threadId);
   });
 
-  // The iOS "Send Message to Chat" Shortcuts action: land in the chosen
-  // thread with the message pre-filled and focused, one tap from sent. The
-  // same interim contract as the start-voice prompt above, for the same
-  // reason: a custom-scheme link carries no caller identity, so nothing a
-  // deep link delivers may become a tool-capable turn without the user
-  // pressing send. When the native shell can prove a link came from the
-  // intent rather than an external open (JARVIS-1522's provenance seam),
-  // this is where a proven-provenance send would slot in.
-  useBusSubscription("deeplink.sendToThread", ({ threadId, message }) => {
-    void ensureMainWindowVisible();
-    usePendingDeepLinkStore.getState().setPendingComposerMessage(message);
-    openThread(threadId);
-    requestComposerFocus();
-  });
+  // The iOS "Send Message to Chat" Shortcuts action. What happens to the
+  // message depends on whether the shell proved an App Intent produced the
+  // link (see the provenance note above the hook):
+  //
+  // - Proven: park a send request and land in the thread. The chat domain
+  //   (`useDeepLinkThreadSend`) sends it once the target is confirmed to
+  //   exist and pre-fills instead when it is not, so a stale picker id
+  //   cannot mint a new conversation. Nothing sends from here directly.
+  // - Unproven: pre-fill and focus, one tap from sent, exactly as before.
+  useBusSubscription(
+    "deeplink.sendToThread",
+    ({ threadId, message, provenance }) => {
+      void ensureMainWindowVisible();
+      if (provenance === "intent") {
+        usePendingDeepLinkStore
+          .getState()
+          .setPendingThreadSend(threadId, message);
+        openThread(threadId);
+        return;
+      }
+      usePendingDeepLinkStore.getState().setPendingComposerMessage(message);
+      openThread(threadId);
+      requestComposerFocus();
+    },
+  );
 
   // `mode` is deliberately not read. The two modes have collapsed onto the
   // same behavior — `resume` degrades to `new` with nothing running, and `new`
@@ -176,7 +202,7 @@ export function useGlobalDeepLinkConsumer(): void {
   // back the moment there is a product answer for what "new conversation"
   // should do to a call in progress; the field stays on the payload for that,
   // and because the URL contract is shared with the native producers.
-  useBusSubscription("deeplink.startVoice", ({ prompt }) => {
+  useBusSubscription("deeplink.startVoice", ({ prompt, provenance }) => {
     void ensureMainWindowVisible();
     const session = useLiveVoiceStore.getState();
     // A running session is surfaced, never doubled — for *either* mode. The
@@ -228,10 +254,22 @@ export function useGlobalDeepLinkConsumer(): void {
       }
       return;
     }
-    // A prompt with no call in progress: pre-fill and focus, never auto-send,
-    // and start no session. Both constraints are explained in the note above
-    // the hook.
+    // A prompt with no call in progress starts no session either way (the
+    // protocol has no text turn; see the note above the hook). What happens
+    // to the text depends on provenance:
+    //
+    // - Proven intent (Siri collected it on the user's explicit action):
+    //   ask it as a text turn in a fresh conversation. `navigateToNewConversation`
+    //   mints a *registered* draft and rides the `?prompt=` auto-send, the
+    //   pathway quick input and the launch buttons use, so no target-integrity
+    //   question arises. The answer is text, not speech, until JARVIS-1522
+    //   gives the voice session a seed turn.
+    // - Unproven: pre-fill and focus, one tap from sent.
     if (prompt !== null) {
+      if (provenance === "intent") {
+        navigateToNewConversation(navigateRef.current, { prompt });
+        return;
+      }
       usePendingDeepLinkStore.getState().setPendingComposerMessage(prompt);
       navigateRef.current(routes.assistant);
       requestComposerFocus();

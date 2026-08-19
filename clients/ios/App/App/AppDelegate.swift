@@ -11,13 +11,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // here as well as through `application(_:open:)`. Persist the origin
         // now, synchronously, so the bridge boots straight to it — by the time
         // the `open:` call lands, `instanceDescriptor()` may already have run.
-        if let url = launchOptions?[.url] as? URL, !handleConnectDeepLink(url) {
-            // Every *other* custom-scheme launch URL (a `voice` or `thread`
-            // link from an App Intent, the Live Activity, or Safari) is
-            // stashed as a *backstop*, not as the delivery. See `launchURL`
-            // for why it is both kept and deduped.
-            launchURL = url
-            pendingCommandURL = url
+        // A launch URL came from outside the process, so it may not carry the
+        // in-process provenance marker; strip before storing so the dedupe
+        // below compares like with like, and drop a URL that cannot be
+        // stripped. See `CommandURLProvenance`.
+        if let rawURL = launchOptions?[.url] as? URL,
+           let url = CommandURLProvenance.stripped(rawURL) {
+            if !handleConnectDeepLink(url) {
+                // Every *other* custom-scheme launch URL (a `voice` or `thread`
+                // link from the Live Activity or Safari; App Intents never
+                // arrive this way, they run in-process) is stashed as a
+                // *backstop*, not as the delivery. See `launchURL` for why it
+                // is both kept and deduped.
+                launchURL = url
+                pendingCommandURL = url
+            }
         }
         return true
     }
@@ -41,7 +49,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         VoiceLiveActivityPlugin.endRunningActivityBeforeTermination()
     }
 
-    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+    func application(_ app: UIApplication, open rawURL: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        // This and `launchOptions[.url]` are the only two ways a custom-scheme
+        // URL enters from outside the process, so this is where an external
+        // open loses any claim to intent provenance, and where one that cannot
+        // be stripped is refused rather than forwarded. See
+        // `CommandURLProvenance`.
+        guard let url = CommandURLProvenance.stripped(rawURL) else {
+            return false
+        }
         if handleConnectDeepLink(url) {
             return true
         }
@@ -260,13 +276,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     /// Hand a command URL to the web layer, deferring until the bridge web
     /// view exists.
     ///
-    /// Called by the App Intents (the voice intents via
+    /// Called only by the App Intents (the voice intents via
     /// `VoiceModeDeepLink.route()`, `SendMessageToChatIntent` via
     /// `ThreadDeepLink.route()`), which run in-process and therefore never
-    /// pass through `application(_:open:)`, and by the terminated-launch
-    /// path in `didFinishLaunchingWithOptions`.
+    /// pass through `application(_:open:)`. That exclusivity is load-bearing:
+    /// it is what lets this method vouch for the URL by adding the provenance
+    /// marker the external entry points strip (see `CommandURLProvenance`).
+    /// Do not route anything that arrived from outside the process through
+    /// here; the terminated-launch path in `didFinishLaunchingWithOptions`
+    /// deliberately stashes into `pendingCommandURL` directly instead.
     func deliverCommandURL(_ url: URL) {
-        pendingCommandURL = url
+        pendingCommandURL = CommandURLProvenance.marked(url)
         deliverPendingCommandURL()
     }
 

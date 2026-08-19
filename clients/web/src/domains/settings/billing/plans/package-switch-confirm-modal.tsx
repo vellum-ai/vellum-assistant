@@ -11,6 +11,7 @@ import { packageHighlights } from "@/domains/settings/billing/plan-spec";
 import { packageSwitchCopy } from "@/domains/settings/billing/plans/package-switch-copy";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
 import { formatMonthly } from "@/domains/settings/components/tier-pricing";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -53,6 +54,7 @@ export function PackageSwitchConfirmModal({
   onCancel,
   onConfirm,
 }: PackageSwitchConfirmModalProps) {
+  const { t } = useTranslation("settings");
   const cancelRef = useRef<HTMLButtonElement>(null);
   const noteId = useId();
   const copy = packageSwitchCopy(
@@ -221,7 +223,7 @@ export function PackageSwitchConfirmModal({
             onClick={onCancel}
             disabled={pending}
           >
-            Cancel
+            {t("packageSwitchConfirmModal.cancel")}
           </Button>
         </Modal.Footer>
       </Modal.Content>

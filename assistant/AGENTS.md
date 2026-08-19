@@ -2,7 +2,7 @@
 
 For error handling conventions (throw vs result objects vs null), see [docs/error-handling.md](docs/error-handling.md).
 
-Subdirectory-scoped rules live in local AGENTS.md files: `src/cli/`, `src/runtime/`, `src/approvals/`, `src/notifications/`, `src/plugins/`, `src/workspace/migrations/`.
+Subdirectory-scoped rules live in local AGENTS.md files: `src/cli/`, `src/runtime/`, `src/approvals/`, `src/notifications/`, `src/permissions/`, `src/plugins/`, `src/workspace/migrations/`.
 
 ## Adding new environment variables
 
@@ -67,7 +67,7 @@ Three response shapes are supported:
 - **Binary**: a JSON envelope with `headers: { "content-length": "<n>" }` followed by one binary frame of exactly `n` bytes.
 - **Chunked streaming**: a JSON envelope with `headers: { "transfer-encoding": "chunked" }` followed by one or more binary frames, terminated by a zero-length frame.
 
-The server auto-detects legacy newline-delimited JSON from old CLI clients and handles it transparently. New code must use length-prefixed framing via `writeMessage()` / `IpcFrameReader` in `src/ipc/ipc-framing.ts`.
+The server auto-detects legacy newline-delimited JSON from old CLI clients and handles it transparently. New code must use length-prefixed framing via `writeMessage()` / `IpcFrameReader` from `@vellumai/ipc-server-utils` (`packages/ipc-server-utils/src/ipc-framing.ts`).
 
 ### CLI ↔ daemon version skew
 
@@ -75,7 +75,7 @@ The CLI and daemon are always shipped and upgraded together — there is no vers
 
 ### IPC-only routes
 
-Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array). These are tool/CLI-specific methods (e.g. `wake_conversation`, `upsert_contact`) that have no HTTP counterpart. They follow the existing pattern: define in `src/ipc/routes/`, register in `src/ipc/routes/index.ts`.
+Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array). These are tool/CLI-specific methods (e.g. `wake_conversation`, `upsert_contact`) that have no HTTP counterpart. They follow the existing pattern: define a `*_IPC_METHODS` map in `src/ipc/routes/` and add it to the list `AssistantIpcServer` iterates in `src/ipc/assistant-server.ts` (there is no index file; each map is imported by hand).
 
 The module-level dependency-injection pattern (`registerFooDeps()`) used by some IPC routes is a known antipattern. New IPC-only routes should avoid it.
 

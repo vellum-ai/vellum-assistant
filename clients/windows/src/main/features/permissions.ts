@@ -25,6 +25,7 @@ import {
 import { handle } from "../ipc.client";
 import log from "../logger";
 import { current } from "../main-window";
+import { getWindowsHelperClient } from "../windows-helper";
 
 /**
  * Provider backed by the Vellum.WindowsHelper sidecar (`permissions.state`
@@ -46,9 +47,37 @@ export const configureWindowsPermissionsNative = (
   nativeProvider = provider;
 };
 
+const nativeStatusSchema = z.object({
+  microphone: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
+  speechRecognition: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
+  notifications: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
+});
+
+const nativeInsertionSchema = z.object({
+  status: z.string(),
+  reason: z.string().nullable().optional(),
+});
+
+const createNativeProvider = (): WindowsPermissionsNativeProvider => ({
+  async queryPermissions() {
+    return nativeStatusSchema.parse(
+      await getWindowsHelperClient().call("permissions.state"),
+    );
+  },
+  async insertText(text) {
+    const result = nativeInsertionSchema.parse(
+      await getWindowsHelperClient().call("text.insert", { text }),
+    );
+    return result.reason === null || result.reason === undefined
+      ? { status: result.status }
+      : { status: result.status, reason: result.reason };
+  },
+});
+
 const kindSchema = z.enum(SYSTEM_PERMISSION_KINDS);
 
-// Deep links for the kinds Windows can gate; others use the privacy hub.
+// Settings deep links for the kinds a Windows user can actually change;
+// absent kinds have no Windows permission concept or remediation surface.
 const SETTINGS_URIS: Partial<Record<SystemPermissionKind, string>> = {
   microphone: "ms-settings:privacy-microphone",
   speechRecognition: "ms-settings:privacy-speech",
@@ -83,16 +112,21 @@ class WindowsPermissionsService {
     return state;
   }
 
-  // Windows has no programmatic permission prompt for desktop apps.
+  // Windows has no programmatic permission prompt for desktop apps; the
+  // only request path is the matching Settings page.
   request(kind: SystemPermissionKind): Promise<SystemPermissionStateItem> {
     return this.openSettings(kind);
   }
 
-  // Settings changes are picked up by the refresh on window focus.
+  // A change made in Windows Settings is picked up by the refresh that runs
+  // when the app window regains focus.
   async openSettings(
     kind: SystemPermissionKind,
   ): Promise<SystemPermissionStateItem> {
-    await shell.openExternal(SETTINGS_URIS[kind] ?? PRIVACY_SETTINGS_URI);
+    const uri = SETTINGS_URIS[kind];
+    if (uri) {
+      await shell.openExternal(uri);
+    }
     return (await this.refresh())[kind];
   }
 
@@ -124,7 +158,7 @@ class WindowsPermissionsService {
       kind,
       status,
       canRequest: false,
-      canOpenSettings: status !== "granted",
+      canOpenSettings: kind in SETTINGS_URIS && status !== "granted",
       requiresRestart: false,
     };
   }
@@ -177,6 +211,7 @@ const insertIntoFrontApp = async (
 const permissionsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "permissions",
   install: () => {
+    configureWindowsPermissionsNative(createNativeProvider());
     const service = new WindowsPermissionsService();
 
     handle(PERMISSIONS_GET_STATE, z.tuple([]), () => service.refresh());
@@ -193,6 +228,7 @@ const permissionsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
     handle(TEXT_INSERT, z.tuple([z.string()]), ([text]) =>
       insertIntoFrontApp(text),
     );
+    // Windows has no automation permission pane; land on the privacy hub.
     handle(TEXT_OPEN_SETTINGS, z.tuple([]), () =>
       shell.openExternal(PRIVACY_SETTINGS_URI),
     );

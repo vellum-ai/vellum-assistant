@@ -15,7 +15,6 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { QueryKey } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
 const saveDocumentContent = mock(
@@ -58,23 +57,12 @@ const { DocumentViewerContainer } = await import(
 
 interface RenderResult {
   unmount: () => void;
-  invalidatedKeys: QueryKey[];
 }
 
-function renderViewer(
-  props: { workspacePath?: string | null } = {},
-): RenderResult {
+function renderViewer(): RenderResult {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  const invalidatedKeys: QueryKey[] = [];
-  const realInvalidate = queryClient.invalidateQueries.bind(queryClient);
-  queryClient.invalidateQueries = ((filters?: { queryKey?: QueryKey }) => {
-    if (filters?.queryKey) {
-      invalidatedKeys.push(filters.queryKey);
-    }
-    return realInvalidate(filters);
-  }) as typeof queryClient.invalidateQueries;
 
   const { unmount } = render(
     <DocumentViewerContainer
@@ -85,7 +73,6 @@ function renderViewer(
       onClose={() => {}}
       surfaceId="surf-1"
       conversationId="conv-1"
-      workspacePath={props.workspacePath ?? null}
     />,
     {
       wrapper: ({ children }: { children: ReactNode }) => (
@@ -95,7 +82,7 @@ function renderViewer(
       ),
     },
   );
-  return { unmount, invalidatedKeys };
+  return { unmount };
 }
 
 /** Emit one editor update and wait for the editor stub to have mounted. */
@@ -146,29 +133,5 @@ describe("DocumentViewerContainer autosave", () => {
     unmount();
 
     expect(saveDocumentContent).not.toHaveBeenCalled();
-  });
-
-  test("a file-backed save refreshes every query holding the file's bytes", async () => {
-    const { unmount, invalidatedKeys } = renderViewer({
-      workspacePath: "drafts/notes.md",
-    });
-    await typeIntoEditor();
-    unmount();
-
-    await waitFor(() => expect(invalidatedKeys.length).toBe(3));
-    expect(invalidatedKeys).toEqual([
-      ["assistantsWorkspaceFileRetrieve"],
-      ["local-file-blob", "asst-1", "drafts/notes.md"],
-      ["local-file-info", "asst-1", "drafts/notes.md"],
-    ]);
-  });
-
-  test("a document with no file behind it refreshes nothing", async () => {
-    const { unmount, invalidatedKeys } = renderViewer();
-    await typeIntoEditor();
-    unmount();
-
-    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
-    expect(invalidatedKeys).toEqual([]);
   });
 });

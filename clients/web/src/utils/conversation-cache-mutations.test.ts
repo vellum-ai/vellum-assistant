@@ -7,14 +7,16 @@ import type {
 } from "@/types/conversation-types";
 import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
 import {
-  conversationsQueryKey,
-  backgroundConversationsQueryKey,
-  scheduledConversationsQueryKey,
-  archivedConversationsQueryKey,
   sidebarSectionsQueryKey,
   type ConversationListPage,
   type SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
+import {
+  ARCHIVED_FILTER,
+  BACKGROUND_FILTER,
+  conversationListQueryKey,
+  SCHEDULED_FILTER,
+} from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
@@ -63,26 +65,29 @@ function makeGroup(
 }
 
 function seedForeground(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(conversationsQueryKey(ASSISTANT_ID), listPage(conversations));
+  qc.setQueryData(
+    conversationListQueryKey(ASSISTANT_ID),
+    listPage(conversations),
+  );
 }
 
 function seedBackground(qc: QueryClient, conversations: Conversation[]) {
   qc.setQueryData(
-    backgroundConversationsQueryKey(ASSISTANT_ID),
+    conversationListQueryKey(ASSISTANT_ID, BACKGROUND_FILTER),
     listPage(conversations),
   );
 }
 
 function seedScheduled(qc: QueryClient, conversations: Conversation[]) {
   qc.setQueryData(
-    scheduledConversationsQueryKey(ASSISTANT_ID),
+    conversationListQueryKey(ASSISTANT_ID, SCHEDULED_FILTER),
     listPage(conversations),
   );
 }
 
 function seedArchived(qc: QueryClient, conversations: Conversation[]) {
   qc.setQueryData(
-    archivedConversationsQueryKey(ASSISTANT_ID),
+    conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
     listPage(conversations),
   );
 }
@@ -96,15 +101,16 @@ function seedGroups(qc: QueryClient, groups: ConversationGroup[]) {
 
 function getForeground(qc: QueryClient): Conversation[] {
   return (
-    qc.getQueryData<ConversationListPage>(conversationsQueryKey(ASSISTANT_ID))
-      ?.conversations ?? []
+    qc.getQueryData<ConversationListPage>(
+      conversationListQueryKey(ASSISTANT_ID),
+    )?.conversations ?? []
   );
 }
 
 function getBackground(qc: QueryClient): Conversation[] {
   return (
     qc.getQueryData<ConversationListPage>(
-      backgroundConversationsQueryKey(ASSISTANT_ID),
+      conversationListQueryKey(ASSISTANT_ID, BACKGROUND_FILTER),
     )?.conversations ?? []
   );
 }
@@ -112,7 +118,7 @@ function getBackground(qc: QueryClient): Conversation[] {
 function getScheduled(qc: QueryClient): Conversation[] {
   return (
     qc.getQueryData<ConversationListPage>(
-      scheduledConversationsQueryKey(ASSISTANT_ID),
+      conversationListQueryKey(ASSISTANT_ID, SCHEDULED_FILTER),
     )?.conversations ?? []
   );
 }
@@ -120,7 +126,7 @@ function getScheduled(qc: QueryClient): Conversation[] {
 function getArchived(qc: QueryClient): Conversation[] {
   return (
     qc.getQueryData<ConversationListPage>(
-      archivedConversationsQueryKey(ASSISTANT_ID),
+      conversationListQueryKey(ASSISTANT_ID, ARCHIVED_FILTER),
     )?.conversations ?? []
   );
 }
@@ -1089,14 +1095,11 @@ describe("applySurfacedConversation", () => {
       conversationType: "background",
     });
     seedBackground(qc, [bg]);
-    // Chats section contents cache: {groupId: system:all, no channel}.
-    const chatsKey = [
-      "conversation-list",
-      ASSISTANT_ID,
-      "section",
-      "system:all",
-      "vellum",
-    ] as const;
+    // Chats section contents cache: {groupId: system:all, channel: vellum}.
+    const chatsKey = conversationListQueryKey(ASSISTANT_ID, {
+      groupId: "system:all",
+      originChannel: "vellum",
+    });
     qc.setQueryData(chatsKey, listPage([]));
 
     applySurfacedConversation(qc, ASSISTANT_ID, bg, 4242);

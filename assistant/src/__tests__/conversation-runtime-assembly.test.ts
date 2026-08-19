@@ -4024,6 +4024,59 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).not.toContain("private guardian-only context");
   });
 
+  // Slack builds provider history from rows rather than `this.messages`, so a
+  // guardian card dropped only at `Conversation.loadFromDb` would still reach
+  // the model here -- the channel the incident happened on.
+  test("loadSlackChronologicalContext drops guardian card rows", () => {
+    const caps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const cardRow: MessageRow = {
+      id: "m-card",
+      conversationId: "conv-1",
+      role: "assistant",
+      content: [
+        {
+          type: "ui_surface",
+          surfaceId: "tool-approval-req-1",
+          surfaceType: "card",
+          title: "Tool Approval",
+          data: {},
+          display: "inline",
+        },
+        { type: "text", text: "Tool Approval card body" },
+      ],
+      createdAt: 1700000035_000,
+      metadata: null,
+      clientMessageId: null,
+      finalized: 1,
+    } as MessageRow;
+    const rows: MessageRow[] = [
+      userRow({
+        id: "asked",
+        createdAt: 1700000030_000,
+        text: "please run it",
+        slackMeta: buildSlackMeta({ channelTs: T2, displayName: "carol" }),
+      }),
+      cardRow,
+    ];
+
+    const result = loadSlackChronologicalContext("conv-1", caps, {
+      loader: () => rows,
+      trustClass: "guardian",
+    });
+
+    expect(result).not.toBeNull();
+    const renderedText = JSON.stringify(result!.messages);
+    expect(renderedText).toContain("please run it");
+    expect(renderedText).not.toContain("Tool Approval card body");
+    expect(renderedText).not.toContain("tool-approval-req-1");
+  });
+
   test("loadSlackChronologicalContext preserves summary and filters by Slack watermark", () => {
     const caps: ChannelCapabilities = {
       channel: "slack",

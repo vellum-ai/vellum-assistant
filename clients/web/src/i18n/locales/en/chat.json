@@ -7,12 +7,19 @@
     "title": "Add to chat",
     "closeAriaLabel": "Close",
     "camera": "Camera",
-    "gallery": "Find in Gallery",
-    "files": "Files"
+    "gallery": "Photo Library",
+    "files": "Files",
+    "pickFailed": "Could not add that file. Please try again.",
+    "tooLarge": "{count, plural, one {# file is too large to attach} other {# files are too large to attach}}",
+    "pickFull": "{count, plural, one {# file did not fit in this batch. Add it on its own.} other {# files did not fit in this batch. Add them separately.}}"
   },
   "allowOptionsMenu": {
     "allowAndCreateRule": "Allow & Create Rule",
     "trigger": "More allow options"
+  },
+  "appAssetActions": {
+    "appExported": "App exported",
+    "shareFailed": "Failed to share app"
   },
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again."
@@ -145,6 +152,10 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Trigger"
   },
+  "composerSettingsMenu": {
+    "profileSwitchFailed": "Profile created, but couldn't switch to it",
+    "profileSwitchFallback": "Failed to switch profile. Please try again."
+  },
   "conversationActions": {
     "archive": "Archive",
     "copyConversation": "Copy Full Conversation",
@@ -179,8 +190,17 @@
     "copied": "Copied",
     "copyFailed": "Could not copy to the clipboard."
   },
+  "copyIdToClipboard": {
+    "conversationCopied": "Conversation ID copied to clipboard.",
+    "conversationFailed": "Couldn't copy the conversation ID.",
+    "groupCopied": "Group ID copied to clipboard.",
+    "groupFailed": "Couldn't copy the group ID."
+  },
   "detailPanelStopButton": {
     "tooltip": "Stop"
+  },
+  "documentAssetActions": {
+    "pdfDownloadFailed": "Failed to download PDF"
   },
   "exportProgressModal": {
     "cancel": "Cancel",
@@ -198,6 +218,24 @@
     "titleDone": "Export complete",
     "titleError": "Export failed",
     "titleRunning": "Exporting inspector data"
+  },
+  "fileDownload": {
+    "failed": "Failed to download file"
+  },
+  "groupActions": {
+    "archiveAll": "Archive All…",
+    "copyGroupId": "Copy group ID",
+    "deleteGroup": "Delete group",
+    "deleteGroupWithConversations": "Delete group…",
+    "groupByChannel": "Group by channel",
+    "markAllRead": "Mark All as Read",
+    "moveSectionDown": "Move Section Down",
+    "moveSectionUp": "Move Section Up",
+    "rename": "Rename",
+    "ungroup": "Ungroup"
+  },
+  "groupActionsSheet": {
+    "title": "{name} actions"
   },
   "inspectPage": {
     "accessDenied": "Inspector is available to Vellum staff, or when the settings-developer-nav developer flag is enabled.",
@@ -246,6 +284,12 @@
     "chipUpstreamType": "Upstream type",
     "noResponse": "The provider rejected this call and returned no response.",
     "title": "Call failed"
+  },
+  "localFileEmbed": {
+    "pictureInPictureUnavailable": "Picture in Picture isn't available"
+  },
+  "localFileLink": {
+    "unavailable": "This file isn't available here"
   },
   "memoryRouterPlaygroundPage": {
     "addOlderPairButton": "+ Add older pair",
@@ -505,6 +549,9 @@
     "responsePayload": "Response payload",
     "retry": "Retry"
   },
+  "redactedCredentialChip": {
+    "revealFailed": "Couldn't reveal {name}."
+  },
   "responseTab": {
     "argumentsPreview": "Arguments preview",
     "copySectionAria": "Copy section content",
@@ -549,5 +596,21 @@
     "noInputSchema": "No input schema - this tool takes no structured input.",
     "required": "required",
     "settings": "Settings"
+  },
+  "transcriptMessageBody": {
+    "fileUnavailable": "File not available for download",
+    "fileUnavailableHostTimeout": "File not available for download (host file approval may have timed out)"
+  },
+  "useConversationLoader": {
+    "authFailed": "Failed to authenticate user."
+  },
+  "useConversationSecondaryActions": {
+    "assistantBusy": "Your assistant is busy. Try again when it finishes replying.",
+    "retryFailed": "Couldn't retry the response",
+    "summarizeFailed": "Couldn't summarize the conversation"
+  },
+  "useSendMessage": {
+    "commandFailed": "Couldn't run that command. Please try again.",
+    "doctorUnavailable": "The Doctor isn't available on this assistant."
   }
 }

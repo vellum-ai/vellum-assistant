@@ -5,6 +5,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
@@ -18,6 +19,14 @@ interface UseAttachmentFilePickerOptions {
   accept?: string;
   /** `capture` attribute, e.g. `"environment"` for the rear camera. */
   capture?: boolean | "user" | "environment";
+  /**
+   * Restore the composer's focus on close whatever held it when the picker
+   * opened. For a caller that takes focus itself on the way to the picker: the
+   * add-to-chat sheet traps focus, so the open-time sample would always read
+   * "nothing to put back" and the sheet would stop returning a keyboard it
+   * returns today.
+   */
+  alwaysRestoreFocus?: boolean;
 }
 
 interface UseAttachmentFilePickerResult {
@@ -25,6 +34,13 @@ interface UseAttachmentFilePickerResult {
   openPicker: () => void;
   /** Hidden `<input type="file">` the caller must render. */
   inputNode: ReactElement;
+  /**
+   * True from the moment the picker is opened until it closes. The native
+   * picker takes the web view's first responder, which on iOS arrives in the
+   * DOM as the composer losing focus, so a caller that gates layout on its own
+   * focus has to hold that gate open for this instead.
+   */
+  pickerOpen: boolean;
 }
 
 /**
@@ -33,37 +49,41 @@ interface UseAttachmentFilePickerResult {
  * `openPicker()` from their own trigger.
  *
  * On iOS (Capacitor WKWebView), clicking the hidden `<input type="file">`
- * presents the native document/photo picker, which resigns the web view's
- * first responder, dismissing the soft keyboard and collapsing the
- * keyboard-aware layout (`root-layout.tsx` sizes the shell from
- * `visualViewport`). The native picker and the keyboard are mutually
- * exclusive first responders, so the keyboard cannot stay up *during* the
- * picker. Instead we re-focus the composer the moment the picker closes,
- * keyed off the file input's own events so the signal is tied to the picker
- * (not to app foregrounding, which also fires when the app is backgrounded
- * and returned to while the picker is still open):
+ * presents the native document/photo picker, and WebKit resigns the web
+ * view's first responder to do it: `WKFileUploadPanel.mm` resigns in the
+ * completion handlers of both the file menu's display animation and the
+ * picker's presentation. The keyboard therefore cannot stay up during the
+ * picker, and no input attribute, plugin call or config reaches that decision.
+ *
+ * The way back is a DOM focus: `Keyboard.show()` is Android only, while the
+ * Capacitor shell disables `keyboardShouldRequireUserInteraction`, so
+ * focusing the textarea raises the keyboard with no gesture.
+ *
+ * Close signals, in order of precision:
  *
  * - `change`: a file was selected.
  * - `cancel`: the picker was dismissed without a selection (WebKit / Safari
  *   16.4+). Precise: tied to the picker dismissal itself.
- * - one-shot `window` `focus`: fallback for iOS 15 through 16.3 WKWebViews
- *   (the app's deployment target is iOS 15) that predate the `cancel` event.
- *   Armed on picker open and removed after firing once, so a later real
- *   `cancel` on newer engines still works and the fallback can't linger.
- *   `focus` fires when the web view regains first responder as the picker
- *   closes.
+ * - one-shot `window` `focus`: for engines predating `cancel`, and armed off
+ *   the native iOS shell only. That shell builds against iOS 17 and WKWebView
+ *   tracks the OS, so `cancel` is always there; arming this too would add a
+ *   close signal that also fires on plain app foregrounding, ending the
+ *   session while the picker is still on screen.
  *
- * `requestComposerFocus()` is idempotent and a no-op on desktop (the textarea
- * is already focused there and the OS file dialog doesn't steal focus), so
- * running it from more than one of these paths is harmless.
  */
 export function useAttachmentFilePicker({
   onFiles,
   multiple = false,
   accept,
   capture,
+  alwaysRestoreFocus = false,
 }: UseAttachmentFilePickerOptions): UseAttachmentFilePickerResult {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // The picker's own lifetime, which outlives the composer's focus: presenting
+  // it dismisses the keyboard, and `useComposerFocusWithin` reads that dismiss
+  // as focus returning to the body. Without this the composer would rearrange
+  // itself for an idle composer while the picker it opened is still up.
+  const [pickerOpen, setPickerOpen] = useState(false);
   // Kept in a ref so an unmemoized caller callback doesn't remint `inputNode`,
   // which would remount the input mid-picker for consumers that render it.
   const onFilesRef = useRef(onFiles);
@@ -82,6 +102,7 @@ export function useAttachmentFilePicker({
     disarmFocusFallbackRef.current?.();
     disarmFocusFallbackRef.current = null;
     requestComposerFocus();
+    setPickerOpen(false);
   }, []);
 
   const openPicker = useCallback(() => {
@@ -95,8 +116,9 @@ export function useAttachmentFilePicker({
     window.addEventListener("focus", onFocus, { once: true });
     disarmFocusFallbackRef.current = () =>
       window.removeEventListener("focus", onFocus);
+    setPickerOpen(true);
     inputRef.current?.click();
-  }, [refocusComposer]);
+  }, [alwaysRestoreFocus, refocusComposer]);
 
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -147,5 +169,5 @@ export function useAttachmentFilePicker({
     [multiple, accept, capture, handleChange],
   );
 
-  return { openPicker, inputNode };
+  return { openPicker, inputNode, pickerOpen };
 }

@@ -1,13 +1,14 @@
 /**
  * Consolidates keyboard-focus behaviors for the chat composer textarea:
  *
- * 1. **Electron host focus** — listens for `COMPOSER_FOCUS_EVENT` window
- *    events dispatched by the `useVellumCommands` hook in `chat-layout.tsx`
- *    (File > Current Conversation menu). Also drains any pending focus
- *    request that fired before this component mounted (e.g. the command
- *    was invoked from `/assistant/home` and chat-layout navigated here).
+ * 1. Host focus relay: listens for `COMPOSER_FOCUS_EVENT` window events
+ *    dispatched by the `useVellumCommands` hook in `chat-layout.tsx`
+ *    (File > Current Conversation / New Chat). Also drains any pending
+ *    focus request that fired before this component mounted (e.g. the
+ *    command was invoked from `/assistant/home` and chat-layout navigated
+ *    here).
  *
- * 2. **Typing auto-focus** — when the user starts typing with no focused
+ * 2. Typing auto-focus: when the user starts typing with no focused
  *    input and no modal open, captures the keypress and forwards it to
  *    the composer, focusing the textarea first.
  */
@@ -25,7 +26,7 @@ import { useComposerStore } from "@/domains/chat/composer-store";
 export function useComposerKeyboard(
   inputRef: MutableRefObject<HTMLTextAreaElement | null>,
 ): void {
-  // 1. Electron host focus relay + pending-focus drain.
+  // 1. Host focus relay + pending-focus drain.
   useEffect(() => {
     const focusInput = () => inputRef.current?.focus();
     const handleFocusRequest = () => {
@@ -40,7 +41,7 @@ export function useComposerKeyboard(
       window.removeEventListener(COMPOSER_FOCUS_EVENT, handleFocusRequest);
   }, [inputRef]);
 
-  // 2. Typing auto-focus — redirect keypresses to the composer.
+  // 2. Typing auto-focus: redirect keypresses to the composer.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const inputEl = inputRef.current;

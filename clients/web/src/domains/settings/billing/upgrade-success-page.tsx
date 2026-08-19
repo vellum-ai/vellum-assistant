@@ -6,6 +6,7 @@ import { Navigate, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
+import { useTranslation } from "@/i18n";
 import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
@@ -36,6 +37,7 @@ export const POLL_TIMEOUT_MS = 10_000;
 export const SUCCESS_REDIRECT_DELAY_MS = 2500;
 
 export function UpgradeSuccessPage() {
+  const { t } = useTranslation("settings");
   // Same predicate as the billing page itself for the page-level chrome.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   // Strict hosting predicate for the *Fetch*-tier `enabled` below.
@@ -146,7 +148,7 @@ export function UpgradeSuccessPage() {
     return (
       <div className="max-w-4xl space-y-6">
         <PlatformLoginNotice>
-          Log in to the Vellum platform to manage billing and usage.
+          {t("upgradeSuccessPage.platformLoginNotice")}
         </PlatformLoginNotice>
       </div>
     );
@@ -163,8 +165,7 @@ export function UpgradeSuccessPage() {
     return (
       <div className="max-w-4xl space-y-6">
         <Notice tone="warning">
-          We can&apos;t confirm your upgrade for the current assistant. Return
-          to billing to retry.
+          {t("upgradeSuccessPage.cantConfirmUpgrade")}
         </Notice>
         <div className="flex justify-end">
           <Button
@@ -172,7 +173,7 @@ export function UpgradeSuccessPage() {
             data-testid="upgrade-success-go-to-billing"
             onClick={goToBilling}
           >
-            Go to billing
+            {t("upgradeSuccessPage.goToBilling")}
           </Button>
         </div>
       </div>
@@ -198,7 +199,7 @@ export function UpgradeSuccessPage() {
               data-testid="upgrade-success-go-to-billing"
               onClick={goToBilling}
             >
-              Go to billing
+              {t("upgradeSuccessPage.goToBilling")}
             </Button>
           </div>
         )}
@@ -208,6 +209,8 @@ export function UpgradeSuccessPage() {
 }
 
 function PendingState() {
+  const { t } = useTranslation("settings");
+
   return (
     <div className="flex flex-col items-center gap-3 py-6 text-center">
       <Loader2
@@ -215,21 +218,22 @@ function PendingState() {
         aria-hidden="true"
       />
       <Typography variant="title-small" as="h1">
-        Finalizing your upgrade…
+        {t("upgradeSuccessPage.finalizingTitle")}
       </Typography>
       <Typography
         variant="body-medium-lighter"
         as="p"
         className="text-[var(--content-secondary)]"
       >
-        Stripe is confirming your subscription. This usually takes a few
-        seconds.
+        {t("upgradeSuccessPage.finalizingBody")}
       </Typography>
     </div>
   );
 }
 
 function SuccessState() {
+  const { t } = useTranslation("settings");
+
   return (
     <div className="flex flex-col items-center gap-3 py-6 text-center">
       <CheckCircle2
@@ -237,30 +241,32 @@ function SuccessState() {
         aria-hidden="true"
       />
       <Typography variant="title-small" as="h1">
-        Welcome to Pro
+        {t("upgradeSuccessPage.welcomeTitle")}
       </Typography>
       <Typography
         variant="body-medium-lighter"
         as="p"
         className="text-[var(--content-secondary)]"
       >
-        Your Pro plan is active. You&apos;ll be redirected back to billing in a
-        moment.
+        {t("upgradeSuccessPage.successBody")}
       </Typography>
     </div>
   );
 }
 
 function ProcessingFallbackState() {
+  const { t } = useTranslation("settings");
+
   return (
     <Notice tone="warning">
-      We&apos;re processing your upgrade — refresh in a moment to see your new
-      plan.
+      {t("upgradeSuccessPage.processingFallback")}
     </Notice>
   );
 }
 
 function FetchErrorState() {
+  const { t } = useTranslation("settings");
+
   return (
     <div className="flex flex-col items-center gap-3 py-6 text-center">
       <AlertCircle
@@ -268,15 +274,14 @@ function FetchErrorState() {
         aria-hidden="true"
       />
       <Typography variant="title-small" as="h1">
-        Couldn&apos;t reach billing
+        {t("upgradeSuccessPage.fetchErrorTitle")}
       </Typography>
       <Typography
         variant="body-medium-lighter"
         as="p"
         className="text-[var(--content-secondary)]"
       >
-        We hit a problem checking your subscription. Your upgrade may still be
-        processing — return to billing to refresh.
+        {t("upgradeSuccessPage.fetchErrorBody")}
       </Typography>
     </div>
   );

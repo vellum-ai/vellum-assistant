@@ -320,6 +320,8 @@ export async function runAgentLoopImpl(
      * the turn.
      */
     isHiddenPrompt?: boolean;
+    /** Daemon-authored kind of the user row that triggered this turn. */
+    messageKind?: string;
     /**
      * Row the end-of-turn reply notification should treat as the prompt this
      * turn answers. Defaults to `userMessageId`; a coalesced batch overrides it
@@ -1202,6 +1204,7 @@ export async function runAgentLoopImpl(
       requestId: reqId,
       prompt: options?.titleText ?? content,
       isHiddenPrompt: options?.isHiddenPrompt === true,
+      messageKind: options?.messageKind,
       originalMessages: Object.freeze([...ctx.messages]),
       latestMessages: ctx.messages,
       modelProfileKey,

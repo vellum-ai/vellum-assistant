@@ -1,9 +1,21 @@
 import { readFile } from "node:fs/promises";
 
+import type {
+  RiskAllowlistOption,
+  RiskDirectoryScopeOption,
+  RiskPatternScopeOption,
+} from "@vellumai/gateway-client";
+
 import { getConfig } from "../config/loader.js";
+import {
+  classifyRisk,
+  type RiskClassificationWithMeta,
+} from "../permissions/checker.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
-import { RiskLevel } from "../permissions/types.js";
-import { runInPluginContext } from "../plugins/plugin-execution-context.js";
+import {
+  runInPluginContext,
+  runOutsidePluginContext,
+} from "../plugins/plugin-execution-context.js";
 import { TokenExpiredError } from "../security/token-manager.js";
 import {
   recordToolError,
@@ -30,6 +42,7 @@ import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
 import { ToolApprovalHandler } from "./tool-approval-handler.js";
 import { resolveToolInvocationAlias } from "./tool-name-aliases.js";
 import { recordToolCompletion } from "./tool-profiler.js";
+import { RISK_LEVEL_UNCLASSIFIED } from "./tool-types.js";
 import { type ToolContext, type ToolExecutionResult } from "./types.js";
 
 export class ToolExecutor {
@@ -60,18 +73,34 @@ export class ToolExecutor {
   ): Promise<ToolExecutionResult> {
     const startTime = Date.now();
     let decision = "allow";
-    let riskLevel: string = RiskLevel.Low;
+    // The invocation's one classification, taken before the gates so every
+    // audit row this call can produce (gate denial, gate error, grant-consumed
+    // execution, permission decision) records the risk of what the model asked
+    // for, then handed down to `checkPermission`. A classification that does
+    // not complete (aborted, gateway unreachable) is recorded as such rather
+    // than as a level; the permission check still requires one and fails
+    // closed on its own.
+    let classification: RiskClassificationWithMeta | undefined;
+    try {
+      classification = await classifyRisk(
+        name,
+        input,
+        context.workingDir,
+        undefined,
+        undefined,
+        context.signal,
+      );
+    } catch {
+      // Stays undefined; the audit row records RISK_LEVEL_UNCLASSIFIED.
+    }
+    let riskLevel: string = classification?.level ?? RISK_LEVEL_UNCLASSIFIED;
     let permRiskMeta:
       | {
           riskLevel: string;
           riskReason: string;
-          riskScopeOptions: Array<{ pattern: string; label: string }>;
-          riskAllowlistOptions?: Array<{
-            label: string;
-            description: string;
-            pattern: string;
-          }>;
-          riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
+          riskScopeOptions: RiskPatternScopeOption[];
+          riskAllowlistOptions?: RiskAllowlistOption[];
+          riskDirectoryScopeOptions?: RiskDirectoryScopeOption[];
           isContainerized?: boolean;
         }
       | undefined;
@@ -106,6 +135,11 @@ export class ToolExecutor {
     // consumed; substitute the parsed value (with `.catch()` recoveries
     // applied) so validation and execution see the same input.
     if (gateResult.parsedInput) {
+      // The permission decision is about the input that runs, so a parse that
+      // reshaped it (a `.catch()` recovery) gets its own classification.
+      if (!Bun.deepEquals(input, gateResult.parsedInput)) {
+        classification = undefined;
+      }
       input = gateResult.parsedInput;
     }
 
@@ -189,6 +223,7 @@ export class ToolExecutor {
           context,
           startTime,
           computePreviewDiff,
+          classification,
         );
 
         riskLevel = permResult.riskLevel;
@@ -235,15 +270,18 @@ export class ToolExecutor {
       const execContext = context;
 
       // Mark the owning plugin as in context (via AsyncLocalStorage) so host
-      // APIs the tool reaches — e.g. resolveCredential — can scope to it. The
+      // APIs the tool reaches, e.g. resolveCredential, can scope to it. The
       // context must be established around the `execute()` call itself so the
-      // returned promise carries the binding across its awaits. Non-plugin
-      // tools (default/skill/mcp/workspace) establish no context.
+      // returned promise carries the binding across its awaits. A non-plugin
+      // tool (default/skill/mcp/workspace) runs with the context explicitly
+      // cleared rather than merely unset: the turn may have been started by a
+      // plugin (a route handler calling `runConversationTurn`), and this tool
+      // is host code that must not inherit that plugin's identity.
       const owner = getToolOwner(name);
       const execPromise =
         owner?.kind === "plugin"
           ? runInPluginContext(owner.id, () => tool.execute(input, execContext))
-          : tool.execute(input, execContext);
+          : runOutsidePluginContext(() => tool.execute(input, execContext));
 
       let execResult: ToolExecutionResult = await executeWithTimeout(
         execPromise,
@@ -295,7 +333,7 @@ export class ToolExecutor {
         safeResult.isError,
       );
 
-      // Merge risk metadata from the classifier assessment cache onto the
+      // Merge the classification's risk metadata onto the
       // tool result so downstream consumers (AgentEvent → handleToolResult →
       // ToolResult SSE message) can forward it to the client.
       if (permRiskMeta) {
