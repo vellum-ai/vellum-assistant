@@ -25,6 +25,24 @@ mock.module("react-router", () => ({
   useNavigate: () => navigateMock,
 }));
 
+// Simulates `setLocalNumber` swallowing a failed storage write (private
+// browsing, quota): the real helper catches the error and stores nothing.
+let failStorageWrites = false;
+const actualLocalSettings = await import("@/utils/local-settings");
+// Snapshot before mock.module rebinds the namespace, or the wrapper below
+// would call itself through the live binding.
+const realSetLocalNumber = actualLocalSettings.setLocalNumber;
+
+mock.module("@/utils/local-settings", () => ({
+  ...actualLocalSettings,
+  setLocalNumber: (key: string, value: number) => {
+    if (failStorageWrites) {
+      return;
+    }
+    realSetLocalNumber(key, value);
+  },
+}));
+
 const { ResourcePressureBannerSlot } = await import(
   "@/domains/chat/components/resource-pressure-banner-slot"
 );
@@ -91,6 +109,7 @@ function queryBanner() {
 
 beforeEach(() => {
   nativeAndroid = false;
+  failStorageWrites = false;
   navigateMock.mockClear();
   localStorage.clear();
 });
@@ -141,6 +160,20 @@ describe("ResourcePressureBannerSlot", () => {
     expect(storedUntil).toBeGreaterThanOrEqual(before + WEEK_MS);
     expect(storedUntil).toBeLessThanOrEqual(after + WEEK_MS);
     expect(localStorage.getItem(SUPPRESSED_KEY)).toBeNull();
+  });
+
+  test("dismiss keeps the banner hidden when storage writes fail", () => {
+    failStorageWrites = true;
+    const view = render(slot(elevatedStatus));
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    expect(queryBanner()).toBeNull();
+    expect(localStorage.getItem(DISMISSED_UNTIL_KEY)).toBeNull();
+
+    view.rerender(slot(okStatus));
+    view.rerender(slot(elevatedStatus));
+    expect(queryBanner()).toBeNull();
   });
 
   test("a still-valid cooldown suppresses a fresh elevated episode", () => {

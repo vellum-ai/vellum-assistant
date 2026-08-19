@@ -10,7 +10,7 @@
  * "Don't show again" persists permanently and is never auto-cleared.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useNavigate } from "react-router";
 
@@ -85,6 +85,12 @@ export function ResourcePressureBannerSlot({
     readSuppressed(suppressedKey),
   );
 
+  // In-memory fallback for the cooldown deadline. `setLocalNumber` swallows
+  // storage failures (private browsing, quota), and treating the missing
+  // stored value as an expired cooldown would resurface the banner right
+  // after a dismiss. The ref keeps the dismissal honored while mounted.
+  const inMemoryDeadlineRef = useRef(0);
+
   // The slot stays mounted across assistant switches, and the first render
   // can happen before the assistant id resolves. Re-seed both flags from
   // storage whenever the keys change so one assistant's in-memory dismissal
@@ -92,6 +98,7 @@ export function ResourcePressureBannerSlot({
   // suppress / cooldown state. (`Date.now()` is impure, so the re-read lives
   // in an effect rather than in render.)
   useEffect(() => {
+    inMemoryDeadlineRef.current = 0;
     setCooldownActive(readCooldownActive(dismissedUntilKey));
     setSuppressed(readSuppressed(suppressedKey));
   }, [dismissedUntilKey, suppressedKey]);
@@ -102,12 +109,18 @@ export function ResourcePressureBannerSlot({
   // beyond the setTimeout range re-arm in chunks. (`Date.now()` is impure,
   // so the arithmetic lives in the effect rather than in render.)
   useEffect(() => {
-    if (!cooldownActive || !dismissedUntilKey) {
+    if (!cooldownActive) {
       return;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const arm = () => {
-      const remainingMs = getLocalNumber(dismissedUntilKey, 0) - Date.now();
+      // The deadline is whichever of the stored and in-memory values is
+      // later; a swallowed storage write leaves the stored value at 0.
+      const deadline = Math.max(
+        dismissedUntilKey ? getLocalNumber(dismissedUntilKey, 0) : 0,
+        inMemoryDeadlineRef.current,
+      );
+      const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) {
         setCooldownActive(false);
         return;
@@ -131,8 +144,10 @@ export function ResourcePressureBannerSlot({
         setSuppressed(true);
         return;
       }
+      const deadline = Date.now() + DISMISS_COOLDOWN_MS;
+      inMemoryDeadlineRef.current = deadline;
       if (dismissedUntilKey) {
-        setLocalNumber(dismissedUntilKey, Date.now() + DISMISS_COOLDOWN_MS);
+        setLocalNumber(dismissedUntilKey, deadline);
       }
       setCooldownActive(true);
     },
