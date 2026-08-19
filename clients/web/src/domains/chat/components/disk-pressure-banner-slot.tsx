@@ -35,7 +35,7 @@ import { routes } from "@/utils/routes";
 // Shared visibility hook
 // ---------------------------------------------------------------------------
 
-interface DiskPressureBannerVisibility {
+export interface DiskPressureBannerVisibility {
   /** Banner mode the slot renders, or null when the slot renders nothing. */
   visibleMode: DiskPressureBannerMode | null;
   /** Dismisses the warning banner; `permanent` maps to "Don't show again". */
@@ -53,13 +53,12 @@ function readFlag(key: string | null): boolean {
  * Single source of truth for whether the disk-pressure banner is visible.
  *
  * Encapsulates the monitor mode plus the per-assistant localStorage-backed
- * dismiss / suppress flags. The slot consumes this hook to decide what to
- * render, and callers gating other banners on disk precedence consume it to
- * learn whether the slot actually renders, so the two can never drift.
- *
- * Multiple hook instances stay in sync through {@link watchSetting}: a
- * dismissal written by the slot's instance notifies every other mounted
- * instance (same-tab via the pref-changed event, cross-tab via `storage`).
+ * dismiss / suppress flags. The chat route calls it ONCE and hands the
+ * result to both the slot (via its `visibility` prop) and the precedence
+ * gate for other banners, so the two read the same in-memory state even
+ * when a storage write fails and no {@link watchSetting} notification
+ * fires. Other mounted surfaces stay in sync through {@link watchSetting}
+ * (same-tab via the pref-changed event, cross-tab via `storage`).
  */
 export function useDiskPressureBannerVisibility(
   diskPressure: UseDiskPressureMonitorResult,
@@ -136,27 +135,9 @@ export function useDiskPressureBannerVisibility(
   // Only the warning variant is dismissible; acknowledgement-required and
   // cleanup always render while their mode is active.
   const visibleMode =
-    mode === "warning" && (warningDismissed || warningSuppressed)
-      ? null
-      : mode;
+    mode === "warning" && (warningDismissed || warningSuppressed) ? null : mode;
 
   return { visibleMode, dismissWarning };
-}
-
-/**
- * Whether {@link DiskPressureBannerSlot} currently renders a banner.
- *
- * For callers that only need the boolean (e.g. to yield another banner's
- * space while the disk banner is on screen).
- */
-export function useDiskPressureBannerVisible(
-  diskPressure: UseDiskPressureMonitorResult,
-  assistantId: string | null,
-): boolean {
-  return (
-    useDiskPressureBannerVisibility(diskPressure, assistantId).visibleMode !==
-    null
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -165,7 +146,11 @@ export function useDiskPressureBannerVisible(
 
 export interface DiskPressureBannerSlotProps {
   diskPressure: UseDiskPressureMonitorResult;
-  assistantId: string | null;
+  /**
+   * The caller's single {@link useDiskPressureBannerVisibility} instance,
+   * shared with the precedence gate so both read the same dismissal state.
+   */
+  visibility: DiskPressureBannerVisibility;
   /** `"active"` for platform-hosted assistants that have an upgrade path. */
   assistantStateKind: string;
 }
@@ -176,16 +161,13 @@ export interface DiskPressureBannerSlotProps {
 
 export function DiskPressureBannerSlot({
   diskPressure,
-  assistantId,
+  visibility,
   assistantStateKind,
 }: DiskPressureBannerSlotProps) {
   const navigate = useNavigate();
   const isNativeAndroid = useIsNativeAndroid();
 
-  const { visibleMode, dismissWarning } = useDiskPressureBannerVisibility(
-    diskPressure,
-    assistantId,
-  );
+  const { visibleMode, dismissWarning } = visibility;
 
   if (!diskPressure.status || !visibleMode) {
     return null;

@@ -43,7 +43,7 @@ import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-d
 import type { SendChatMessageOptions } from "@/domains/chat/hooks/use-send-message";
 import {
   DiskPressureBannerSlot,
-  useDiskPressureBannerVisible,
+  useDiskPressureBannerVisibility,
 } from "@/domains/chat/components/disk-pressure-banner-slot";
 import { ResourcePressureBannerSlot } from "@/domains/chat/components/resource-pressure-banner-slot";
 import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge";
@@ -1119,16 +1119,19 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Disk pressure banner (localStorage-backed dismiss/suppress)
   // -------------------------------------------------------------------------
-  // Shares the slot's dismissal logic so the precedence gate below tracks
-  // what the slot actually renders, not just the raw monitor mode.
-  const diskPressureBannerVisible = useDiskPressureBannerVisible(
+  // One visibility instance is shared between the slot and the precedence
+  // gate below, so the gate tracks what the slot actually renders even when
+  // a dismissal's storage write fails and no cross-instance notification
+  // fires.
+  const diskPressureVisibility = useDiskPressureBannerVisibility(
     diskPressure,
     assistantId,
   );
+  const diskPressureBannerVisible = diskPressureVisibility.visibleMode !== null;
   const diskPressureBannerSlot = (
     <DiskPressureBannerSlot
       diskPressure={diskPressure}
-      assistantId={assistantId}
+      visibility={diskPressureVisibility}
       assistantStateKind={assistantState.kind}
     />
   );
