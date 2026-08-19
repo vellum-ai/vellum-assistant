@@ -170,6 +170,39 @@ function buildToolResultAttachments(
   return attachments;
 }
 
+/**
+ * The tool-result images `toolCalls` still owe a strip, given the end-of-turn
+ * `messageAttachments` that render their own interactive chips below the body.
+ *
+ * An image must render exactly once. A referenced image carries a real
+ * workspace attachment id, so it is matched against the message's attachments
+ * by id and dropped only when that same image is already shown there. Legacy
+ * inline base64 has no id to match on — its `tool-image:` key is synthesized
+ * client-side and can never equal an attachment id — so it keeps the older
+ * blunt rule: any end-of-turn attachments at all suppress it.
+ *
+ * Scoping that blunt rule to the legacy shape is what stops one unrelated
+ * attachment (a file the turn wrote, a user upload on the same message) from
+ * suppressing every referenced image the turn produced, which left the strip
+ * empty while the group that would have held it still counted as pinned.
+ *
+ * Pure, and the single source of truth for both the render and the transcript's
+ * decision to pin the group holding it, so the two cannot disagree.
+ */
+export function resolveToolResultImages(
+  toolCalls: ChatMessageToolCall[],
+  messageAttachments: readonly DisplayAttachment[] | undefined,
+): DisplayAttachment[] {
+  const shown = buildToolResultAttachments(toolCalls);
+  if (!messageAttachments?.length) {
+    return shown;
+  }
+  const attachedIds = new Set(messageAttachments.map((a) => a.id));
+  return shown.filter(
+    (image) => image.previewUrl === null && !attachedIds.has(image.id),
+  );
+}
+
 export function hasToolResultImages(toolCalls: ChatMessageToolCall[]): boolean {
   return toolCalls.some((toolCall) => {
     const { refIds, base64Images } = toolResultImageInputs(toolCall);
@@ -278,9 +311,10 @@ const ReferencedToolResultImage: FC<{
 
 interface ToolResultImagesProps {
   toolCalls: ChatMessageToolCall[];
-  /** When true, end-of-turn `message.attachments` have arrived and render the
-   *  interactive chips, so the mid-turn strip suppresses itself. */
-  hasAttachments: boolean;
+  /** The message's end-of-turn attachments, which render their own interactive
+   *  chips below the body. An image already shown there is dropped from this
+   *  strip — see {@link resolveToolResultImages} for how the two are matched. */
+  messageAttachments?: readonly DisplayAttachment[];
   assistantId?: string | null;
 }
 
@@ -295,12 +329,12 @@ interface ToolResultImagesProps {
  */
 export const ToolResultImages: FC<ToolResultImagesProps> = ({
   toolCalls,
-  hasAttachments,
+  messageAttachments,
   assistantId,
 }) => {
   const attachments = useMemo(
-    () => (hasAttachments ? [] : buildToolResultAttachments(toolCalls)),
-    [toolCalls, hasAttachments],
+    () => resolveToolResultImages(toolCalls, messageAttachments),
+    [toolCalls, messageAttachments],
   );
   const { openPreview, previewModal } = useAttachmentPreview(
     assistantId,

@@ -11,6 +11,7 @@ import type { ReactElement } from "react";
 
 import * as daemonSdk from "@/generated/daemon/sdk.gen";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { DisplayAttachment } from "@/types/attachment-types";
 
 type ContentResult = { data: Blob | null; error: { message: string } | null };
 
@@ -52,7 +53,10 @@ const { ToolResultImages } =
 
 function renderStrip(
   toolCalls: ChatMessageToolCall[],
-  opts: { hasAttachments?: boolean; assistantId?: string | null } = {},
+  opts: {
+    messageAttachments?: DisplayAttachment[];
+    assistantId?: string | null;
+  } = {},
 ): void {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -62,7 +66,7 @@ function renderStrip(
     <QueryClientProvider client={client}>
       <ToolResultImages
         toolCalls={toolCalls}
-        hasAttachments={opts.hasAttachments ?? false}
+        messageAttachments={opts.messageAttachments}
         assistantId={assistantId}
       />
     </QueryClientProvider>
@@ -150,7 +154,18 @@ describe("ToolResultImages referenced media", () => {
     expect(saveFileMock.mock.calls[0]![1]).toBe("file-read.png");
   });
 
-  test("suppresses itself once end-of-turn attachments have arrived", () => {
+  /** A message attachment chip carrying `id`. */
+  function attachment(id: string): DisplayAttachment {
+    return {
+      id,
+      filename: `${id}.png`,
+      mimeType: "image/png",
+      sizeBytes: 1,
+      previewUrl: null,
+    };
+  }
+
+  test("drops a referenced image the end-of-turn attachments already show", () => {
     const toolCall: ChatMessageToolCall = {
       id: "tc-suppressed",
       name: "media_generate_image",
@@ -159,10 +174,32 @@ describe("ToolResultImages referenced media", () => {
       imageAttachmentIds: ["att-xyz"],
       completedAt: 1,
     };
-    renderStrip([toolCall], { hasAttachments: true });
+    renderStrip([toolCall], { messageAttachments: [attachment("att-xyz")] });
 
     expect(screen.queryByTestId("tool-result-image")).toBeNull();
     expect(screen.queryByTestId("tool-result-image-placeholder")).toBeNull();
     expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
+  });
+
+  test("keeps a referenced image an unrelated attachment does not cover", () => {
+    // The blunt rule dropped every image as soon as the message carried any
+    // attachment at all — a file the turn wrote, a user upload — so a generated
+    // image vanished from a turn that never showed it anywhere else.
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-kept",
+      name: "media_generate_image",
+      input: {},
+      result: "Generated 1 image",
+      imageAttachmentIds: ["att-image"],
+      completedAt: 1,
+    };
+    renderStrip([toolCall], {
+      messageAttachments: [attachment("att-unrelated-doc")],
+    });
+
+    expect(
+      screen.queryByTestId("tool-result-image") ??
+        screen.queryByTestId("tool-result-image-placeholder"),
+    ).not.toBeNull();
   });
 });

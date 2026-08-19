@@ -1,26 +1,30 @@
 /**
- * A link back to a document the assistant changed during a turn, rendered at
- * the end of that turn's response.
+ * The card for a document the assistant created or changed during a turn,
+ * rendered at the end of that turn's response.
  *
- * The link is derived durably from the turn's tool calls, which persist on the
- * message, and is hidden reactively while the document is visible. It does not
- * depend on point-in-time closed-ness captured when the turn finished: that
- * does not survive a reload, and on mobile the editor is a full-screen overlay,
- * so a visible transcript already means the editor is closed.
+ * This is the single affordance a response owes each document it touched. The
+ * daemon also emits an inline `document_preview` surface where the tool ran,
+ * but the transcript does not draw that one (see `resolve-response-documents.ts`
+ * and `transcript-message-body.tsx`): one document produced two cards in the
+ * same response, at two different sizes, whenever a create was followed by an
+ * edit.
+ *
+ * The card is derived durably from the turn's tool calls and the response's
+ * preview surfaces, which both persist on the message, so it survives a reload.
+ * It stays put while the document is open: a document is an artifact of the
+ * turn that produced it, so the row that names it should not appear and vanish
+ * as the viewer opens and closes.
  *
  * The name comes from the documents query rather than the tool result, so the
- * link reads the same title the assets list and the Library show, including
- * after a rename. The link waits for that query and stays away from a document
- * no resolved list carries, so it never offers to open something that has been
+ * card reads the same title the assets list and the Library show, including
+ * after a rename. It waits for that query and stays away from a document no
+ * resolved list carries, so it never offers to open something that has been
  * deleted.
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUpRight, FileText } from "lucide-react";
 
-import { Button } from "@vellumai/design-library/components/button";
-
-import { useIsDocumentOpen } from "@/domains/chat/components/local-file/open-local-file";
+import { DocumentCard } from "@/domains/chat/components/document-card";
 import { documentsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { DocumentsGetResponse } from "@/generated/daemon/types.gen";
 
@@ -120,31 +124,22 @@ export function DocumentReopenLink({
   conversationId,
   onOpenDocument,
 }: DocumentReopenLinkProps) {
-  const isOpen = useIsDocumentOpen(surfaceId);
   const displayName = useDocumentDisplayName(
     surfaceId,
     assistantId,
     conversationId,
   );
 
-  if (isOpen || displayName == null) {
+  if (displayName == null) {
     return null;
   }
 
   return (
-    <Button
-      variant="ghost"
-      size="compact"
-      className="mt-2 max-w-full gap-2 rounded-lg"
-      aria-label={`Open ${displayName}`}
-      data-testid="document-reopen-link"
-      onClick={() => onOpenDocument(surfaceId)}
-    >
-      <FileText className="h-4 w-4 shrink-0 text-[var(--content-quiet)]" />
-      <span className="min-w-0 truncate text-title-small text-[var(--content-strong)]">
-        {displayName}
-      </span>
-      <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[var(--content-faint)]" />
-    </Button>
+    <DocumentCard
+      documentName={displayName}
+      onOpen={() => onOpenDocument(surfaceId)}
+      ariaLabel={`Open ${displayName}`}
+      testId="document-reopen-link"
+    />
   );
 }

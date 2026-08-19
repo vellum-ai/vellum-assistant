@@ -14,7 +14,7 @@ import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachmen
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import {
-  hasToolResultImages,
+  resolveToolResultImages,
   ToolResultImages,
 } from "@/domains/chat/components/chat-attachments/tool-result-images";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -46,7 +46,7 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
-import { DocumentReopenLink } from "@/domains/chat/transcript/document-reopen-link";
+import { ResponseArtifactCard } from "@/domains/chat/transcript/response-artifact-card";
 import { hasRenderableAnswer } from "@/domains/chat/answered-question";
 import { AnsweredQuestionCard } from "@/domains/chat/components/answered-question-card";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
@@ -154,7 +154,7 @@ export function TranscriptMessageBody({
   onStopSubagent,
   onWorkflowClick,
   onStopWorkflow,
-  changedDocumentIds,
+  responseArtifacts,
   isStreaming = false,
   isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
@@ -763,7 +763,7 @@ export function TranscriptMessageBody({
   const renderToolResultImages = (toolCalls: ChatMessageToolCall[]) => (
     <ToolResultImages
       toolCalls={toolCalls}
-      hasAttachments={hasAttachments}
+      messageAttachments={message.attachments}
       assistantId={assistantId}
     />
   );
@@ -901,8 +901,7 @@ export function TranscriptMessageBody({
     items: Array<{ kind: "text" | "nonText"; node: ReactNode }>,
   ): ReactNode => {
     type Slot =
-      | { kind: "bubble"; nodes: ReactNode[] }
-      | { kind: "raw"; node: ReactNode };
+      { kind: "bubble"; nodes: ReactNode[] } | { kind: "raw"; node: ReactNode };
     const slots: Slot[] = [];
     let textRun: ReactNode[] = [];
 
@@ -1148,7 +1147,11 @@ export function TranscriptMessageBody({
 
     const { toolCalls } = activityItemsToCardData(group.items);
     const hasVisibleOutputOrControl =
-      hasToolResultImages(toolCalls) ||
+      // Pinned only when the strip actually draws something. Asking whether the
+      // group *has* images pinned it even when every one of them was already
+      // shown by the end-of-turn attachments, which left the group parked
+      // outside "Earlier activity" rendering nothing but its own activity row.
+      resolveToolResultImages(toolCalls, message.attachments).length > 0 ||
       toolCalls.some(
         (toolCall) =>
           isToolCallRunning(toolCall) ||
@@ -1160,95 +1163,91 @@ export function TranscriptMessageBody({
       );
     return hasVisibleOutputOrControl ? [] : [groupIndex];
   });
-  // One entry per contiguous run a single disclosure would cover. Relies on
-  // `collapsibleGroupIndexes` being ascending (it is built by walking `groups`
-  // in order), so a gap means a new run. `end` is exclusive, matching `slice`.
-  const collapsibleRuns: Array<{ start: number; end: number }> = [];
-  for (const groupIndex of collapsibleGroupIndexes) {
-    const openRun = collapsibleRuns[collapsibleRuns.length - 1];
-    if (openRun?.end === groupIndex) {
-      openRun.end = groupIndex + 1;
-    } else {
-      collapsibleRuns.push({ start: groupIndex, end: groupIndex + 1 });
-    }
-  }
-  // Per disclosed run: where it ends, and which of its groups render a row.
-  // A group that renders nothing stays *inside* the run — dropping it would
-  // split one disclosure into two — but claims no timeline slot, which would
-  // otherwise put a lone glyph against blank space.
+  // Which collapsible groups actually render a row. A group that renders
+  // nothing is still swallowed by the disclosure, but claims no timeline slot,
+  // which would otherwise put a lone glyph against blank space.
+  const collapsibleRowIndexes = collapsibleGroupIndexes.filter((groupIndex) =>
+    groupRendersRow(groups[groupIndex]!, groupIndex),
+  );
+  // A disclosure over one lone activity row does not earn its keep: that row is
+  // already a single one-line link (`SingleActivity`'s bare "Thinking" / tool
+  // link, or `MultiActivityGroup`'s header) whose reasoning and step timeline
+  // live in a drawer, so collapsing it swaps one line of chrome for another.
+  // Two or more rows, or a single row of prose, still collapse.
+  const earnsDisclosure =
+    collapsibleRowIndexes.length > 1 ||
+    (collapsibleRowIndexes.length === 1 &&
+      groups[collapsibleRowIndexes[0]!]?.type !== "activity");
+  // Every group the disclosure swallows, collected message-wide rather than per
+  // contiguous run, and resolved before the render pass so a group knows it is
+  // collapsed while it renders — prose reads that to drop to the muted, smaller
+  // collapsed tone.
   //
-  // `disclosedGroupIndexes` is every group a disclosure will swallow, resolved
-  // before the render pass so a group knows it is collapsed while it renders —
-  // prose reads that to drop to the muted, smaller collapsed tone.
-  const disclosedRunByStart = new Map<number, number>();
-  const disclosedRunRows = new Map<number, number[]>();
-  const disclosedGroupIndexes = new Set<number>();
-  for (const run of collapsibleRuns) {
-    const rowIndexes: number[] = [];
-    for (let index = run.start; index < run.end; index += 1) {
-      if (groupRendersRow(groups[index]!, index)) {
-        rowIndexes.push(index);
-      }
-    }
-    // A run that renders one lone activity row does not earn a disclosure. That
-    // row is already a single one-line link (`SingleActivity`'s bare "Thinking"
-    // / tool link, or `MultiActivityGroup`'s header) whose reasoning and step
-    // timeline live in a drawer, so collapsing it swaps one line of chrome for
-    // another. Runs rendering two or more rows, and any run containing prose,
-    // still collapse.
-    const earnsDisclosure =
-      rowIndexes.length > 1 ||
-      (rowIndexes.length === 1 && groups[rowIndexes[0]!]?.type !== "activity");
-    if (!earnsDisclosure) {
-      continue;
-    }
-    disclosedRunByStart.set(run.start, run.end);
-    disclosedRunRows.set(run.start, rowIndexes);
-    for (let index = run.start; index < run.end; index += 1) {
-      disclosedGroupIndexes.add(index);
-    }
-  }
+  // Per-run collection let a pinned group — a surface, a running tool, a result
+  // image, an inline process card — split the run around it, and the groups
+  // stranded on the far side often rendered a single activity row, which does
+  // not earn a disclosure of its own. That left one message showing the same
+  // kind of row twice over: indented inside a disclosure, and flush at the
+  // margin below it. Message-wide there is exactly one disclosure, anchored
+  // where the first collapsible group sits, and pinned groups keep their
+  // positions around it.
+  //
+  // The trade is ordering: a collapsed group that ran *after* a pinned one
+  // still reads above it once the disclosure is open, because one disclosure
+  // cannot interleave with what it does not contain. Closed — which is how a
+  // settled turn renders — nothing moves.
+  const disclosedGroupIndexes = new Set<number>(
+    earnsDisclosure ? collapsibleGroupIndexes : [],
+  );
+  const disclosureAnchorIndex = earnsDisclosure
+    ? collapsibleGroupIndexes[0]
+    : undefined;
+
   const renderedGroups = groups.map((group, gi) =>
     renderGroupNode(group, gi, disclosedGroupIndexes.has(gi)),
   );
   const assistantContent: ReactNode[] = [];
-  for (let groupIndex = 0; groupIndex < renderedGroups.length; ) {
-    const runEndIndex = disclosedRunByStart.get(groupIndex);
-    if (runEndIndex === undefined) {
-      assistantContent.push(renderedGroups[groupIndex]);
-      groupIndex += 1;
+  for (
+    let groupIndex = 0;
+    groupIndex < renderedGroups.length;
+    groupIndex += 1
+  ) {
+    if (groupIndex === disclosureAnchorIndex) {
+      assistantContent.push(
+        <AssistantContentDisclosure
+          key={`earlier-activity-${groupIndex}`}
+          isStreaming={isStreaming}
+          items={collapsibleRowIndexes.map((rowIndex) => ({
+            key: `earlier-activity-item-${rowIndex}`,
+            node: renderedGroups[rowIndex],
+            iconName: disclosureIconForGroup(groups[rowIndex]!),
+          }))}
+        />,
+      );
       continue;
     }
-    assistantContent.push(
-      <AssistantContentDisclosure
-        key={`earlier-activity-${groupIndex}`}
-        isStreaming={isStreaming}
-        items={(disclosedRunRows.get(groupIndex) ?? []).map((rowIndex) => ({
-          key: `earlier-activity-item-${rowIndex}`,
-          node: renderedGroups[rowIndex],
-          iconName: disclosureIconForGroup(groups[rowIndex]!),
-        }))}
-      />,
-    );
-    // The disclosure renders the rest of its run, so resume past it.
-    groupIndex = runEndIndex;
+    // Rendered inside the disclosure at the anchor above.
+    if (disclosedGroupIndexes.has(groupIndex)) {
+      continue;
+    }
+    assistantContent.push(renderedGroups[groupIndex]);
   }
 
   // Resolved across the whole response by `Transcript` and handed only to the
-  // message that ends it. Without a handler the link opens nothing, so it does
-  // not render.
-  const documentReopenLinks =
-    isAssistant && onOpenDocument
-      ? changedDocumentIds?.map((surfaceId) => (
-          <DocumentReopenLink
-            key={`document-reopen-${surfaceId}`}
-            surfaceId={surfaceId}
-            assistantId={assistantId}
-            conversationId={conversationId}
-            onOpenDocument={onOpenDocument}
-          />
-        ))
-      : null;
+  // message that ends it. Each kind's card decides for itself whether it can
+  // render — without an opener it opens nothing, so it does not.
+  const responseArtifactCards = isAssistant
+    ? responseArtifacts?.map((artifact) => (
+        <ResponseArtifactCard
+          key={`artifact-${artifact.kind}-${artifact.id}`}
+          artifact={artifact}
+          assistantId={assistantId}
+          conversationId={conversationId}
+          onOpenDocument={onOpenDocument}
+          onOpenApp={onOpenApp}
+        />
+      ))
+    : null;
 
   return (
     <div
@@ -1277,8 +1276,8 @@ export function TranscriptMessageBody({
           />
         )}
         {/* Outside the `AssistantContentDisclosure` collapse, so a turn whose
-            document edit lands in "Earlier activity" still ends with the link. */}
-        {documentReopenLinks}
+            asset work lands in "Earlier activity" still ends with its cards. */}
+        {responseArtifactCards}
         {trailer}
       </div>
       {vellumFileModal}
