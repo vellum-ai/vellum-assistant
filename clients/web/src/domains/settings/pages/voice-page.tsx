@@ -20,6 +20,7 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { ListeningLanguageCard } from "@/domains/settings/pages/listening-language-card";
 import { ActivationKeyOption } from "@/domains/settings/pages/activation-key-option";
 import { PushToTalkCard } from "@/domains/settings/pages/push-to-talk-card";
+import { supportsKeyboardActivation } from "@/utils/keyboard-activation-host";
 import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -118,7 +119,7 @@ export function VoiceSections() {
         <MicrophoneCard />
         <ListeningLanguageCard />
         <VoiceModeShortcutCard />
-        <PushToTalkCard />
+        {supportsKeyboardActivation() && <PushToTalkCard />}
         <ConversationTuningCard />
       </VoiceSection>
 

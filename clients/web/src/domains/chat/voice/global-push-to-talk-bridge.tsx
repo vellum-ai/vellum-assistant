@@ -10,7 +10,7 @@ import { createDraftConversationId } from "@/domains/chat/utils/conversation-sel
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { postDictation } from "@/domains/chat/voice/dictation-api";
 import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
-import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
+import { supportsKeyboardActivation } from "@/utils/keyboard-activation-host";
 import { useNativePushToTalkRegistration } from "@/domains/chat/voice/use-native-push-to-talk-registration";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { usePushToTalk } from "@/domains/chat/voice/use-push-to-talk";

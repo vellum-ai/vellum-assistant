@@ -40,6 +40,11 @@ mock.module("@/components/speech/use-managed-voice-selection", () => ({
   }),
 }));
 
+const keyboardActivation = { supported: true };
+mock.module("@/utils/keyboard-activation-host", () => ({
+  supportsKeyboardActivation: () => keyboardActivation.supported,
+}));
+
 // The listening-language card reads daemon config through React Query too.
 // Hoisted with the mocks above (a mid-file `mock.module` does not re-link on
 // CI's bun), so its shape is swapped through this mutable seed instead.
@@ -71,6 +76,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  keyboardActivation.supported = true;
   languageSelection.available = false;
   languageSelection.currentCode = "multi";
   languageSelection.configuredProviderId = "deepgram";
@@ -316,6 +322,16 @@ describe("VoiceSections microphone picker", () => {
       expect(micTrigger().textContent).toContain("not connected"),
     );
     expect(localStorage.getItem("vellum:voice:inputDeviceId")).toBe("mic-gone");
+  });
+});
+
+describe("VoiceSections push-to-talk availability", () => {
+  test("hides push-to-talk when the host has no keyboard activation", () => {
+    keyboardActivation.supported = false;
+
+    renderPage();
+
+    expect(screen.queryByText("Push to Talk")).toBe(null);
   });
 });
 
