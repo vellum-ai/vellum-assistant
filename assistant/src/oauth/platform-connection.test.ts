@@ -102,6 +102,40 @@ describe("PlatformOAuthConnection", () => {
     expect(result.body).toEqual(upstreamBody);
   });
 
+  test("decodes base64 binary proxy bodies into a Buffer", async () => {
+    const binary = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00,
+    ]);
+
+    const client = makeMockClient(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({
+            status: 200,
+            headers: { "Content-Type": "application/octet-stream" },
+            body: binary.toString("base64"),
+            body_encoding: "base64",
+          }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({
+      ...DEFAULT_OPTIONS,
+      client,
+    });
+    const result = await conn.request({
+      method: "GET",
+      path: "/drive/v3/files/file-123",
+      query: { alt: "media" },
+    });
+
+    expect(result.status).toBe(200);
+    expect(Buffer.isBuffer(result.body)).toBe(true);
+    expect(Buffer.from(result.body as Uint8Array).equals(binary)).toBe(true);
+  });
+
   test("forwards per-request baseUrl when provided", async () => {
     const client = makeMockClient(
       mock(async (_url: string | URL | Request, init?: RequestInit) => {
