@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { ChannelMessageMetadata } from "../../channel-message-metadata.js";
+
 /**
  * Typed Slack message metadata stored flat in the `messages.metadata` column
  * alongside whatever other top-level keys the broader metadata envelope
@@ -286,6 +288,46 @@ export function readSlackMetadataFromMessageMetadata(
   }
 
   return opts?.allowFlatLegacy ? readSlackMetadata(metadata) : null;
+}
+
+/**
+ * Present a Slack row's stored metadata as the channel-neutral shape.
+ *
+ * Slack spelled the structural facts in its own vocabulary, so rows written
+ * before the neutral shape existed are read through here rather than
+ * rewritten. `channelTs` is the row's own provider id and `targetChannelTs`
+ * the id of the message a reaction was attached to; both are Slack `ts`
+ * strings, which is a Slack detail of the id format, not of the fact.
+ *
+ * Slack keeps the rest of its envelope (file markers, timezone labels,
+ * channel name, actor id): those are either Slack's own or have no second
+ * channel asking for them yet.
+ */
+export function slackMetadataAsChannelMetadata(
+  meta: SlackMessageMetadata,
+): ChannelMessageMetadata {
+  return {
+    source: "slack",
+    chatId: meta.channelId,
+    messageId: meta.channelTs,
+    ...(meta.threadTs ? { threadId: meta.threadTs } : {}),
+    ...(meta.displayName ? { displayName: meta.displayName } : {}),
+    eventKind: meta.eventKind,
+    ...(meta.reaction
+      ? {
+          reaction: {
+            targetMessageId: meta.reaction.targetChannelTs,
+            emoji: meta.reaction.emoji,
+            op: meta.reaction.op,
+            ...(meta.reaction.actorDisplayName
+              ? { actorDisplayName: meta.reaction.actorDisplayName }
+              : {}),
+          },
+        }
+      : {}),
+    ...(meta.editedAt !== undefined ? { editedAt: meta.editedAt } : {}),
+    ...(meta.deletedAt !== undefined ? { deletedAt: meta.deletedAt } : {}),
+  };
 }
 
 /**
