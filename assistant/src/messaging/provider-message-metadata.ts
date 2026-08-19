@@ -6,6 +6,10 @@ import { CHANNEL_IDS } from "../channels/types.js";
  * What a stored channel message row knows about itself, in terms no single
  * provider owns.
  *
+ * "Provider" here is the channel sense, the one `messaging/providers/*` uses:
+ * Slack, Telegram, Discord. It is not the inference sense in `providers/*`,
+ * whose `providerMetadata` rides on a content block and describes a model.
+ *
  * Named for the provider rather than the channel because `channel metadata`
  * is already taken: `buildChannelMetadata` builds the whole envelope a
  * message row carries (provenance, `userMessageChannel`, interfaces), and
