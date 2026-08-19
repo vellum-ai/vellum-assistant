@@ -74,7 +74,15 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   filingAgent: { profile: "cost-optimized" },
   memoryExtraction: { profile: "cost-optimized" },
   memoryRetrieval: { profile: "cost-optimized" },
-  memoryRetrospective: { profile: "cost-optimized" },
+  // A retrospective sends the forked conversation plus its review
+  // instruction, dedup list, and the source's full tool surface, so its input
+  // is strictly larger than the turn the source last fit into the same
+  // budget. The resolver clamps this to the model's catalogued window, so an
+  // uncatalogued model keeps the conservative default.
+  memoryRetrospective: {
+    profile: "cost-optimized",
+    contextWindow: { maxInputTokens: 1000000 },
+  },
   memoryV2Migration: { profile: "cost-optimized" },
   memoryV2Sweep: { profile: "cost-optimized" },
   memoryV2Consolidation: { profile: "balanced" },

@@ -267,6 +267,24 @@ describe("shipped call-site tuning", () => {
     expect(resolved.contextWindow.maxInputTokens).toBe(1000000);
   });
 
+  test("the retrospective keeps its shipped budget through a repoint", () => {
+    const resolved = resolveCallSiteConfig(
+      "memoryRetrospective",
+      LLMSchema.parse({
+        profiles: { mine: completeCustom },
+        callSites: { memoryRetrospective: { profile: "mine" } },
+        ...anthropicDp,
+      }),
+    );
+    // A retrospective's input is larger than the source turn it reviews, so
+    // its ceiling is call-site-owned: a profile naming the generic default
+    // must not pull the call site back down to it.
+    expect(resolved.contextWindow.maxInputTokens).toBe(1000000);
+    expect(resolved.contextWindow.maxInputTokens).toBeGreaterThan(
+      schemaBase.contextWindow.maxInputTokens,
+    );
+  });
+
   test("an explicit workspace field beats the shipped one, field by field", () => {
     const resolved = resolveCallSiteConfig(
       "recall",
