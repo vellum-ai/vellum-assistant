@@ -342,6 +342,22 @@ describe("the companion surface's Watch action", () => {
   });
 
   /**
+   * A reader gets none of what this PR spends on the state: not the amber ring,
+   * not the held-down background. The pressed state is the whole of what
+   * reaches them, so it is what says a session is running and that the press
+   * they are on will end it.
+   */
+  test("reports its pressed state while the session runs", () => {
+    const { container } = render(<CompanionSurface phase="hover" watching />);
+    expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("reports the state it is actually in while nothing runs", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(watchOf(container).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  /**
    * `classList` rather than a substring, because every control carries
    * `hover:bg-white/15` and a substring match would pass on the hover rule
    * alone.
@@ -548,5 +564,74 @@ describe("the companion surface's capture indicator across phases", () => {
       <CompanionSurface phase="call" call={LISTENING_CALL} />,
     );
     expect(ringOf(container)).toBeNull();
+  });
+});
+
+/**
+ * What the surface claims to be a toggle, which is one control.
+ *
+ * `active` draws a control as though a pointer were on it, which the demo reel
+ * stages on Talk and Type to show a hand reaching for one. That is a look, and
+ * a look reported as a pressed state would tell a reader that Talk is switched
+ * on because a clip wanted it lit. Watch is the only control here that is
+ * genuinely on or off, so it is the only one that says so.
+ */
+describe("the companion surface's pressed states", () => {
+  const buttonsOf = (container: HTMLElement): HTMLButtonElement[] =>
+    Array.from(container.querySelectorAll<HTMLButtonElement>("button"));
+
+  const named = (container: HTMLElement, label: string): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${label}"]`,
+    );
+    if (!found) {
+      throw new Error(`Expected ${label} to render`);
+    }
+    return found;
+  };
+
+  test("leaves the spotlit control unpressed, since a highlight is not a state", () => {
+    for (const spotlight of ["talk", "type"] as const) {
+      const { container } = render(
+        <CompanionSurface phase="hover" spotlight={spotlight} />,
+      );
+      expect(named(container, "Talk").getAttribute("aria-pressed")).toBeNull();
+      expect(named(container, "Type").getAttribute("aria-pressed")).toBeNull();
+      cleanup();
+    }
+  });
+
+  /**
+   * The look and the announced state come from one input on Watch, so a
+   * spotlight that drew a control held down without saying so is exactly the
+   * split this separation exists to keep.
+   */
+  test("still draws the spotlit control held down", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" spotlight="talk" />,
+    );
+    expect(named(container, "Talk").classList.contains("bg-white/15")).toBe(
+      true,
+    );
+  });
+
+  test("claims no pressed state anywhere on the call row", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" watching call={LISTENING_CALL} />,
+    );
+    for (const button of buttonsOf(container)) {
+      expect(button.getAttribute("aria-pressed")).toBeNull();
+    }
+  });
+
+  /**
+   * The stop control goes one way and exists only while there is a session to
+   * end, so it is an action. Its name is what tells a reader that something is
+   * being watched and that this is the way out of it.
+   */
+  test("leaves the stop control an action rather than a toggle", () => {
+    const { container } = render(<CompanionSurface phase="typing" watching />);
+    const stop = named(container, "Stop watching");
+    expect(stop.getAttribute("aria-pressed")).toBeNull();
   });
 });

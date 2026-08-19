@@ -972,12 +972,15 @@ function IdleBody({
         onClick={onType}
       />
       {/* Held down for as long as the session runs, so the row says which
-          control is holding the pill open and which press ends it. */}
+          control is holding the pill open and which press ends it. `pressed`
+          rather than `active`, because this one is a state and not a look: a
+          reader is told a session is running, where everything else this
+          surface does about it is a colour they never receive. */}
       <PillButton
         icon={<Eye className="size-4" />}
         label="Watch"
         showLabel
-        active={watching}
+        pressed={watching}
         onClick={onWatch}
       />
     </>
@@ -1154,6 +1157,11 @@ function ApprovalBody({
  * drifted between the composer and the call row would be two different controls
  * to anyone reading the surface rather than looking at it, and this is the
  * control a user reaches for precisely when they want the reading to stop.
+ *
+ * An action rather than a toggle, and so no pressed state: it goes one way, and
+ * it is drawn only while there is a session for it to end. Its name is what
+ * tells a reader both of those things at once, since a control offering to stop
+ * the watching is only there when something is being watched.
  */
 function StopWatchingButton({ onWatch }: { onWatch?: () => void }) {
   return (
@@ -1171,6 +1179,16 @@ function StopWatchingButton({ onWatch }: { onWatch?: () => void }) {
  * `label` is always the accessible name; it is only drawn when the pill has
  * room for words, which is why the call's controls are icon-only without being
  * unlabelled.
+ *
+ * **`active` and `pressed` are two props because they are two different
+ * claims.** `active` is a look: the demo reel draws a control as though a
+ * pointer were on it, and a highlight staged for a recording is not a state the
+ * control is in. `pressed` is the control's own on or off, which is a state,
+ * and reporting a highlight as one would tell a reader that Talk is switched on
+ * because a clip wanted it lit.
+ *
+ * `pressed` draws the same held-down look, so the state a looking user reads
+ * off the background and the state a reader is told cannot come apart.
  */
 function PillButton({
   icon,
@@ -1178,20 +1196,32 @@ function PillButton({
   tone,
   showLabel = false,
   active = false,
+  pressed,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
   tone?: "positive" | "negative";
   showLabel?: boolean;
-  /** Held down, for a control whose surface is currently open. */
+  /** Drawn as though the pointer were on it. A look, not a state. */
   active?: boolean;
+  /**
+   * On or off, for a control that genuinely toggles.
+   *
+   * Undefined for everything that does not, which is most of this surface: a
+   * button reporting a state it does not have is one assistive technology
+   * describes wrongly. Where it is set it carries the whole of that state to a
+   * reader, since the ring and the held-down background are both things only a
+   * looking user gets.
+   */
+  pressed?: boolean;
   onClick?: () => void;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
+      aria-pressed={pressed}
       title={label}
       onClick={onClick}
       // A press on a control is not the start of a drag. Without this the
@@ -1200,7 +1230,7 @@ function PillButton({
         event.stopPropagation();
       }}
       className={`flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
-        active ? "bg-white/15" : ""
+        active || pressed === true ? "bg-white/15" : ""
       } ${
         tone === "negative"
           ? "text-[#ff6b6b]"

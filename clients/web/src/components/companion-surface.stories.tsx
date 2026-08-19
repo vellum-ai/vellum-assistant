@@ -189,6 +189,11 @@ export const Hover: Story = {
  * The phase and the flag are both set because they answer different questions.
  * Turn `watching` off and the pill stays open on a row nothing is running
  * behind, which is what the phase alone means.
+ *
+ * Watch is the one control on this surface that is genuinely on or off, so it
+ * is the one that reports a pressed state. Everything else the surface says
+ * about a running session is a colour, and a colour reaches nobody who is
+ * reading the page rather than looking at it.
  */
 export const Watching: Story = {
   args: { phase: "watching", watching: true, hovered: false },
