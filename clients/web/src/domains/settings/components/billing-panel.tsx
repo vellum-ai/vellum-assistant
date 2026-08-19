@@ -15,7 +15,7 @@ import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { StatSquare } from "@vellumai/design-library/components/stat-square";
 import { Toggle } from "@vellumai/design-library/components/toggle";
-import { Typography } from "@vellumai/design-library/components/typography";
+import { BillingSectionHeader } from "./billing-section-header";
 import {
   DAILY_CREDIT_LIMIT_ANCHOR_ID,
   DailyCreditLimitCard,
@@ -104,43 +104,31 @@ export function BillingPanel() {
     bootstrapMutate,
   ]);
 
-  const creditBalanceHeader = (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-      <div className="min-w-0">
-        <Typography
-          as="h2"
-          variant="title-medium"
-          className="text-[var(--content-emphasised)]"
-        >
-          Credit Balance
-        </Typography>
-        <Typography
-          as="p"
-          variant="body-medium-default"
-          className="mt-2 text-[var(--content-tertiary)]"
-        >
-          Quick overview of your balances and other things
-        </Typography>
-      </div>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="outlined"
-          leftIcon={<Coins className="h-4 w-4" aria-hidden />}
-          onClick={() => setReferralOpen(true)}
-          data-testid="earn-credits-button"
-        >
-          Earn Free Credits
-        </Button>
-        <Button
-          variant="primary"
-          onClick={() => setAddCreditsOpen(true)}
-          disabled={isLoading || !summary}
-          data-testid="add-credits-button"
-        >
-          Add Credits
-        </Button>
-      </div>
-    </div>
+  const creditsHeader = (
+    <BillingSectionHeader
+      title="Credits"
+      subtitle="Quick overview of your balances and other things"
+      actions={
+        <>
+          <Button
+            variant="outlined"
+            leftIcon={<Coins className="h-4 w-4" aria-hidden />}
+            onClick={() => setReferralOpen(true)}
+            data-testid="earn-credits-button"
+          >
+            Earn Free Credits
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => setAddCreditsOpen(true)}
+            disabled={isLoading || !summary}
+            data-testid="add-credits-button"
+          >
+            Add Credits
+          </Button>
+        </>
+      }
+    />
   );
 
   const renderBalanceBox = (): ReactNode => {
@@ -148,16 +136,16 @@ export function BillingPanel() {
       return null;
     }
     const effectiveNeg = parseFloat(summary.effective_balance) < 0;
+    const formatted = formatCreditsShort(summary.effective_balance);
+    const display = formatted.startsWith("-")
+      ? `-$${formatted.slice(1)}`
+      : `$${formatted}`;
     return (
       <div className="mt-4">
         <StatSquare
           icon={<Coins className="h-4 w-4" aria-hidden />}
-          value={
-            <span data-testid="effective-balance">
-              {formatCreditsShort(summary.effective_balance)}
-            </span>
-          }
-          label="Balance"
+          value={<span data-testid="effective-balance">{display}</span>}
+          label="Credits"
           tone={effectiveNeg ? "negative" : "default"}
         />
       </div>
@@ -207,19 +195,9 @@ export function BillingPanel() {
   return (
     <>
       <Card padding="md">
-        {creditBalanceHeader}
+        {creditsHeader}
         {renderBalanceBody()}
         <div className="mt-6">
-          <div className="flex flex-col gap-4">
-            <Toggle
-              checked={lowBalanceExpanded}
-              onChange={setLowBalanceExpanded}
-              label="Custom low balance alert"
-            />
-            {lowBalanceExpanded && <LowBalanceAlertCard />}
-          </div>
-        </div>
-        <div className="mt-6 border-t border-[var(--border-base)] pt-6">
           <AutoTopUpCard />
         </div>
         <div
@@ -227,6 +205,16 @@ export function BillingPanel() {
           className="mt-6 scroll-mt-4 border-t border-[var(--border-base)] pt-6"
         >
           <DailyCreditLimitCard />
+        </div>
+        <div className="mt-6 border-t border-[var(--border-base)] pt-6">
+          <div className="flex flex-col gap-4">
+            <Toggle
+              checked={lowBalanceExpanded}
+              onChange={setLowBalanceExpanded}
+              label="Custom Low Balance Alert"
+            />
+            {lowBalanceExpanded && <LowBalanceAlertCard />}
+          </div>
         </div>
       </Card>
 

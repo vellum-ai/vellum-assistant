@@ -228,7 +228,7 @@ export function DailyCreditLimitCard() {
           disabled={
             updateMutation.isPending || (hasLimit && requiredByAutoTopUp)
           }
-          label="Set a daily credit limit"
+          label="Daily Credit Limit"
         />
 
         {requiredByAutoTopUp && (
@@ -236,8 +236,7 @@ export function DailyCreditLimitCard() {
             className="text-body-small-default text-[var(--content-tertiary)]"
             data-testid="daily-credit-limit-required-note"
           >
-            A daily credit limit is required while automatic top-ups are
-            enabled.
+            A daily credit limit is required while auto-reload is enabled.
           </p>
         )}
 

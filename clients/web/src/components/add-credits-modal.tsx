@@ -193,7 +193,7 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
               className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
               onClick={() => onOpenChange(false)}
             >
-              Configure Automatic Top-Ups
+              Configure Auto-Reload
               <ChevronRight className="size-4" />
             </Link>
 

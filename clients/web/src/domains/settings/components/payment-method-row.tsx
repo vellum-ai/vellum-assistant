@@ -23,14 +23,14 @@ export function PaymentMethodRow({
   return (
     <div
       data-testid="payment-method-row"
-      className="flex items-center justify-between gap-2 rounded-lg bg-[var(--surface-base)] pl-3 pr-2 py-1.5"
+      className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border-base)] pl-3 pr-2 py-1.5"
     >
       <div className="flex min-w-0 items-center gap-2">
         <CreditCard
           aria-hidden
           className="h-4 w-4 shrink-0 text-[var(--content-default)]"
         />
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-baseline gap-2">
           <Typography
             as="p"
             variant="body-medium-default"
@@ -51,7 +51,7 @@ export function PaymentMethodRow({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <Button
-          variant="outlined"
+          variant="ghost"
           onClick={onUpdateCard}
           data-testid="payment-method-update"
         >

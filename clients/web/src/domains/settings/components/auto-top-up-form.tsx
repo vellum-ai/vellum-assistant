@@ -223,7 +223,7 @@ export function AutoTopUpForm({
             type="number"
             step="1"
             label="Monthly spending cap"
-            helperText="Pauses auto top-ups for the rest of the month once spending reaches this amount. Manual purchases also count toward the total. Leave empty for no limit."
+            helperText="Pauses auto-reload for the rest of the month once spending reaches this amount. Manual purchases also count toward the total. Leave empty for no limit."
             value={values.monthly_cap_usd}
             onChange={onChange("monthly_cap_usd")}
             onBlur={onBlur("monthly_cap_usd")}
@@ -261,7 +261,7 @@ export function AutoTopUpForm({
           data-testid="auto-top-up-default-daily-limit-note"
         >
           A default daily credit limit of ${DEFAULT_DAILY_CREDIT_LIMIT_USD} per
-          day will be applied. You can adjust it under Daily credit limit.
+          day will be applied. You can adjust it under Daily Credit Limit.
         </Notice>
       )}
     </div>
