@@ -16,6 +16,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router";
 
 import { cn, toast } from "@vellumai/design-library";
 
@@ -24,7 +25,9 @@ import { useSwitchableAssistants } from "@/assistant/use-switchable-assistants";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { AssistantSwitcherRow } from "@/domains/chat/components/assistant-switcher-row";
 import { captureError } from "@/lib/sentry/capture-error";
+import { useConversationStore } from "@/stores/conversation-store";
 import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
+import { routes } from "@/utils/routes";
 
 interface AssistantSwitcherProps {
   assistantId: string | null;
@@ -49,6 +52,7 @@ export function AssistantSwitcher({
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const reduce = useReducedMotion();
   const listId = useId();
+  const navigate = useNavigate();
 
   /* A completed switch, a shrinking list, and the rail collapsing all fold
      the card away: the pill (or the rail's tile) is the only resting state.
@@ -77,6 +81,15 @@ export function AssistantSwitcher({
     try {
       await switchToResolvedAssistant(assistant);
       setExpanded(false);
+      /* Leave the old assistant's conversation behind: the loader gives an
+         explicit URL conversation id top priority even across an assistant
+         switch, so an id left in the route (or the store, which the async
+         landing fallback defers to) would be requested from, and persisted
+         against, the new assistant. Landing on the assistant route lets the
+         loader resolve the new assistant's own last-viewed conversation,
+         the same landing the chooser screen navigates to. */
+      useConversationStore.getState().setActiveConversationId(null);
+      void navigate(routes.assistant, { replace: true });
     } catch (error) {
       captureError(error, { context: "assistantSwitcher.switch" });
       toast.error(t("assistantSwitcher.switchFailed"));

@@ -8,23 +8,32 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import * as reactRouter from "react-router";
 
+import { useConversationStore } from "@/stores/conversation-store";
 import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
+import { routes } from "@/utils/routes";
 
 const CURRENT: ResolvedAssistant = {
   id: "a1",
-  name: "Mel Gibson",
+  name: "Alice",
   isLocal: false,
   isPlatformHosted: true,
   isPaired: false,
 };
 const OTHER: ResolvedAssistant = {
   id: "a2",
-  name: "Jimmy Buckets",
+  name: "Bob",
   isLocal: false,
   isPlatformHosted: true,
   isPaired: false,
 };
+
+const navigateMock = mock((_to: string, _opts?: { replace?: boolean }) => {});
+mock.module("react-router", () => ({
+  ...reactRouter,
+  useNavigate: () => navigateMock,
+}));
 
 let switchable: { assistants: ResolvedAssistant[]; canSwitch: boolean } = {
   assistants: [],
@@ -66,7 +75,7 @@ function renderSwitcher(
   return render(
     <AssistantSwitcher
       assistantId="a1"
-      label="Mel Gibson"
+      label="Alice"
       active={false}
       onSelect={() => {}}
       {...props}
@@ -79,6 +88,8 @@ beforeEach(() => {
   switchMock.mockClear();
   switchMock.mockImplementation(async () => {});
   captureErrorMock.mockClear();
+  navigateMock.mockClear();
+  useConversationStore.setState({ activeConversationId: null });
 });
 
 afterEach(() => {
@@ -91,7 +102,7 @@ describe("AssistantSwitcher chevron visibility", () => {
     const { queryByLabelText, getByText } = renderSwitcher();
 
     expect(queryByLabelText("Switch assistant")).toBeNull();
-    expect(getByText("Mel Gibson")).toBeTruthy();
+    expect(getByText("Alice")).toBeTruthy();
   });
 
   test("no chevron on the collapsed rail", () => {
@@ -114,8 +125,8 @@ describe("AssistantSwitcher expanded card", () => {
 
     fireEvent.click(getByLabelText("Switch assistant"));
 
-    expect(getByLabelText("Mel Gibson, current assistant")).toBeTruthy();
-    expect(getByText("Jimmy Buckets")).toBeTruthy();
+    expect(getByLabelText("Alice, current assistant")).toBeTruthy();
+    expect(getByText("Bob")).toBeTruthy();
     const collapse = getByLabelText("Hide assistants");
     expect(collapse.getAttribute("aria-expanded")).toBe("true");
   });
@@ -126,34 +137,47 @@ describe("AssistantSwitcher expanded card", () => {
     fireEvent.click(getByLabelText("Switch assistant"));
     fireEvent.click(getByLabelText("Hide assistants"));
 
-    expect(queryByText("Jimmy Buckets")).toBeNull();
+    expect(queryByText("Bob")).toBeNull();
   });
 
-  test("selecting a row switches and collapses on success", async () => {
+  test("selecting a row switches, collapses, and lands on the assistant route", async () => {
+    useConversationStore.setState({ activeConversationId: "conv-old" });
     const { getByLabelText, queryByText } = renderSwitcher();
 
     fireEvent.click(getByLabelText("Switch assistant"));
-    fireEvent.click(getByLabelText("Switch to Jimmy Buckets"));
+    fireEvent.click(getByLabelText("Switch to Bob"));
 
     expect(switchMock).toHaveBeenCalledTimes(1);
     expect(switchMock.mock.calls[0]?.[0]).toEqual(OTHER);
     await waitFor(() => {
-      expect(queryByText("Jimmy Buckets")).toBeNull();
+      expect(queryByText("Bob")).toBeNull();
+    });
+    /* The old assistant's conversation must not survive the switch: the
+       loader would otherwise request it from, and persist it against, the
+       new assistant (URL ids outrank everything, across assistants). */
+    expect(useConversationStore.getState().activeConversationId).toBeNull();
+    expect(navigateMock).toHaveBeenCalledWith(routes.assistant, {
+      replace: true,
     });
   });
 
-  test("a failed switch reports, stays expanded for a retry", async () => {
+  test("a failed switch reports, stays expanded, and stays put", async () => {
     switchMock.mockImplementation(async () => {
       throw new Error("boom");
     });
+    useConversationStore.setState({ activeConversationId: "conv-old" });
     const { getByLabelText, getByText } = renderSwitcher();
 
     fireEvent.click(getByLabelText("Switch assistant"));
-    fireEvent.click(getByLabelText("Switch to Jimmy Buckets"));
+    fireEvent.click(getByLabelText("Switch to Bob"));
 
     await waitFor(() => {
       expect(captureErrorMock).toHaveBeenCalledTimes(1);
     });
-    expect(getByText("Jimmy Buckets")).toBeTruthy();
+    expect(getByText("Bob")).toBeTruthy();
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "conv-old",
+    );
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });
