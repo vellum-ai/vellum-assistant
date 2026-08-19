@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, renderHook } from "@testing-library/react";
 import { type RefObject } from "react";
+import type { HotkeyEvent } from "@vellumai/ipc-contract";
 
 import {
   CTRL_PTT_ACTIVATOR,
@@ -106,7 +107,7 @@ describe("usePushToTalk", () => {
   });
 
   test("uses native events without also listening to focused-window keys", async () => {
-    let listener: ((event: { kind: "pushToTalk"; state: "down" | "up" }) => void) | null = null;
+    let listener: ((event: HotkeyEvent) => void) | null = null;
     window.vellum = {
       platform: "electron",
       helper: {
