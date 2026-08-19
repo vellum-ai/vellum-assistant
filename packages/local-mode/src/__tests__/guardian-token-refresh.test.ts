@@ -115,6 +115,29 @@ describe("getGuardianAccessToken refresh spawn", () => {
     });
   });
 
+  test("a labeled CLI 403 is a local confidentiality refusal, not a spent credential", async () => {
+    const pending = getGuardianAccessToken(
+      "asst-1",
+      configDir,
+      invocation,
+      true,
+    );
+    await tick();
+    lastChild.stderr.emit(
+      "data",
+      Buffer.from(
+        `${formatGuardianRefreshCliFailure(403, "Refusing to refresh the guardian token over an insecure URL")}\n`,
+      ),
+    );
+    lastChild.emit("close", 1);
+
+    expect(await pending).toEqual({
+      ok: false,
+      status: 403,
+      error: "Refusing to refresh the guardian token over an insecure URL",
+    });
+  });
+
   test("an unlabeled non-zero CLI exit is a 503, not a 401", async () => {
     const pending = getGuardianAccessToken(
       "asst-1",

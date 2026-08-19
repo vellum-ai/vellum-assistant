@@ -386,8 +386,8 @@ function refreshToken(
       } else {
         // This spawn only runs when the on-disk refresh token is still
         // unexpired. A non-zero CLI exit is therefore a transport or
-        // gateway-availability failure unless the CLI labels a real HTTP
-        // rejection (401/403) via the machine-readable stderr line.
+        // gateway-availability failure unless the CLI labels a spent
+        // credential (401) or a local confidentiality refusal (403).
         finish(parseGuardianRefreshCliFailure(stdout, stderr));
       }
     });

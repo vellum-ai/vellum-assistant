@@ -339,18 +339,14 @@ function classifyRefreshThrownError(error: unknown): GuardianTokenRefreshResult 
 }
 
 function classifyRefreshHttpStatus(status: number): GuardianTokenRefreshResult {
-  if (status === 401) {
+  // The guardian refresh route uses 403 for revoked, reused, or
+  // device-mismatched tokens. That is a spent credential, not a
+  // loopback-boundary refusal, so hosts treat it as 401.
+  if (status === 401 || status === 403) {
     return {
       ok: false,
       status: 401,
       error: "Failed to refresh guardian token",
-    };
-  }
-  if (status === 403) {
-    return {
-      ok: false,
-      status: 403,
-      error: "Assistant gateway refused the token refresh",
     };
   }
   if (status >= 500) {
@@ -370,8 +366,12 @@ function classifyRefreshHttpStatus(status: number): GuardianTokenRefreshResult {
 /**
  * Call POST /v1/guardian/refresh on the remote gateway to obtain a new
  * access token using an existing (possibly expired) access token for auth.
- * Returns a structured result so hosts can tell a spent credential (401)
- * from an unreachable gateway (503) instead of collapsing both to null.
+ * Returns a structured result so hosts can tell a spent credential (401,
+ * including a refresh-endpoint 403 for revoked/reused/device-mismatched
+ * tokens) from an unreachable gateway (503) instead of collapsing both
+ * to null. 403 is reserved for a local confidentiality refusal (insecure
+ * URL). Loopback and paired-token refusals are also 403, and they are
+ * decided on the host before this refresh runs.
  *
  * Concurrency-safe: the gateway rotates refresh tokens and treats reuse of an
  * already-rotated token as replay (revoking the whole token family), so two

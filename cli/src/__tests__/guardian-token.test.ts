@@ -463,6 +463,44 @@ describe("refreshGuardianToken", () => {
     });
   });
 
+  test("an HTTP 403 from the refresh route is a spent credential, not a loopback refusal", async () => {
+    seed(future());
+    globalThis.fetch = (async (_url: unknown, _init?: RequestInit) =>
+      new Response("", { status: 403 })) as typeof fetch;
+
+    expect(
+      await refreshGuardianTokenResult("https://gw.example.com", "px"),
+    ).toEqual({
+      ok: false,
+      status: 401,
+      error: "Failed to refresh guardian token",
+    });
+  });
+
+  test("an insecure gateway URL is a local 403, not a spent credential", async () => {
+    seed(future());
+    let called = false;
+    globalThis.fetch = (async (_url: unknown, _init?: RequestInit) => {
+      called = true;
+      return new Response("", { status: 200 });
+    }) as typeof fetch;
+
+    const origWarn = console.warn;
+    console.warn = () => {};
+    try {
+      expect(
+        await refreshGuardianTokenResult("http://10.0.0.5:7830", "px"),
+      ).toEqual({
+        ok: false,
+        status: 403,
+        error: "Refusing to refresh the guardian token over an insecure URL",
+      });
+    } finally {
+      console.warn = origWarn;
+    }
+    expect(called).toBe(false);
+  });
+
   test("an HTTP 503 from a still-starting gateway is retryable", async () => {
     seed(future());
     globalThis.fetch = (async (_url: unknown, _init?: RequestInit) =>
