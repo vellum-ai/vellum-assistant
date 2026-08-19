@@ -147,6 +147,37 @@ test("dictation partials route to the owner and gate pushed audio", async () => 
   });
 });
 
+test("a replaced owner cannot stop the active dictation", async () => {
+  const replaced = makeSender();
+  const active = makeSender();
+  await handlers["vellum:helper:dictation:setPartials"]!(
+    [true, undefined, true],
+    { sender: replaced },
+  );
+  await handlers["vellum:helper:dictation:setPartials"]!(
+    [true, undefined, true],
+    { sender: active },
+  );
+
+  expect(replaced.send).toHaveBeenCalledWith(
+    "vellum:helper:dictation:finalized",
+    { text: "" },
+  );
+  expect(
+    await handlers["vellum:helper:dictation:setPartials"]!(
+      [false, undefined, undefined],
+      { sender: replaced },
+    ),
+  ).toEqual({ ok: true, enabled: false });
+  expect(fakeClient.calls).toHaveLength(2);
+
+  fakeClient.notifications.get("dictation.partial")!({ text: "active" });
+  expect(active.send).toHaveBeenCalledWith(
+    "vellum:helper:dictation:partial",
+    { text: "active" },
+  );
+});
+
 test("a helper crash drops the session owners", async () => {
   const owner = makeSender();
   await handlers["vellum:helper:dictation:setPartials"]!(

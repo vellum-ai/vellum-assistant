@@ -49,13 +49,17 @@ const getClient = (): NativeSidecarClient => (client ??= clientFactory());
 
 let installed = false;
 const dictationOwners = new DictationOwnerRouter();
+let dictationPartialsQueue: Promise<void> = Promise.resolve();
 
-const setDictationPartials = async (
+const applyDictationPartials = async (
   sender: WebContents,
   enable: boolean,
   deviceName?: string,
   pushAudio?: boolean,
 ): Promise<DictationPartialsResult> => {
+  if (!enable && !dictationOwners.ownsPartials(sender)) {
+    return { ok: true, enabled: false };
+  }
   try {
     const result = HELPER_RESULT_SCHEMA.safeParse(
       await getClient().call("dictation.setPartials", {
@@ -72,7 +76,15 @@ const setDictationPartials = async (
     if (enable && !result.data.enabled) {
       return { ok: false, reason: result.data.reason ?? "unavailable" };
     }
-    dictationOwners.setOwner(sender, enable);
+    const previousOwner = dictationOwners.setOwner(sender, enable);
+    if (
+      enable &&
+      previousOwner &&
+      previousOwner !== sender &&
+      !previousOwner.isDestroyed()
+    ) {
+      previousOwner.send("vellum:helper:dictation:finalized", { text: "" });
+    }
     return { ok: true, enabled: result.data.enabled };
   } catch (err) {
     return {
@@ -80,6 +92,22 @@ const setDictationPartials = async (
       reason: err instanceof Error ? err.message : String(err),
     };
   }
+};
+
+const setDictationPartials = (
+  sender: WebContents,
+  enable: boolean,
+  deviceName?: string,
+  pushAudio?: boolean,
+): Promise<DictationPartialsResult> => {
+  const operation = dictationPartialsQueue.then(() =>
+    applyDictationPartials(sender, enable, deviceName, pushAudio),
+  );
+  dictationPartialsQueue = operation.then(
+    () => undefined,
+    () => undefined,
+  );
+  return operation;
 };
 
 const handleHelperState = (state: NativeSidecarState): void => {
@@ -193,6 +221,7 @@ export const __resetForTesting = (
 ): void => {
   installed = false;
   dictationOwners.clear();
+  dictationPartialsQueue = Promise.resolve();
   client = null;
   clientFactory = factory ?? getWindowsHelperClient;
 };
