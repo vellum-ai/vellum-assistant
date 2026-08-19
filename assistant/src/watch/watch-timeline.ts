@@ -826,8 +826,15 @@ const MAX_SWEEP_PASSES = 100;
  * A short page means the orphan set is exhausted, so the drain stops there
  * rather than paying for a pass that finds nothing. A failing page reports zero
  * and ends the drain; the next startup tries again.
+ *
+ * Async only to yield between pages. A page is a synchronous select and a
+ * synchronous delete of rows carrying image blobs, and the caller runs at
+ * startup with the HTTP server already bound, so a multi-page drain that never
+ * came up for air would hold the event loop through every one of them and stall
+ * requests the server has begun accepting. Yielding costs a macrotask per page
+ * and gives that time back.
  */
-export function drainOrphanedWatchTimelineEntries(): number {
+export async function drainOrphanedWatchTimelineEntries(): Promise<number> {
   let total = 0;
   for (let pass = 0; pass < MAX_SWEEP_PASSES; pass += 1) {
     const swept = sweepOrphanedWatchTimelineEntries();
@@ -835,6 +842,7 @@ export function drainOrphanedWatchTimelineEntries(): number {
     if (swept < MAX_SWEEP_ENTRIES) {
       break;
     }
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
   return total;
 }

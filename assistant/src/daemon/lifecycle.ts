@@ -395,7 +395,7 @@ export async function runDaemon(): Promise<void> {
     // it drains rather than taking one page. Best-effort inside the sweep,
     // which reports zero rather than throwing.
     try {
-      const sweptWatchEntries = drainOrphanedWatchTimelineEntries();
+      const sweptWatchEntries = await drainOrphanedWatchTimelineEntries();
       if (sweptWatchEntries > 0) {
         log.info(
           { sweptWatchEntries },

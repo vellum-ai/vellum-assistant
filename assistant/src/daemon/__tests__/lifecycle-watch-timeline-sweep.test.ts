@@ -31,6 +31,11 @@ describe("lifecycle watch-timeline sweep wiring", () => {
     const sweepIndex = source.indexOf("drainOrphanedWatchTimelineEntries()");
     expect(sweepIndex).toBeGreaterThan(-1);
 
+    // The drain yields between pages, so the call has to be awaited. Without
+    // the await the count is a pending promise, which compares false against
+    // zero, and the pass reports nothing swept however much it removed.
+    expect(source).toContain("await drainOrphanedWatchTimelineEntries()");
+
     // `startRuntimeHttpServerBackgroundSweeps()` is the point where lifecycle
     // has established that migrations settled, so a call after it runs against
     // a database whose tables exist.

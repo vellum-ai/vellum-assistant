@@ -549,11 +549,11 @@ describe("watch timeline orphan sweep", () => {
       .run(conversationId);
   }
 
-  test("drains a backlog larger than one sweep page", () => {
+  test("drains a backlog larger than one sweep page", async () => {
     // A single sweep is deliberately one page. Startup drains, because on an
     // install where database maintenance never runs it is the only pass the
     // residue will ever see.
-    drainOrphanedWatchTimelineEntries();
+    await drainOrphanedWatchTimelineEntries();
 
     const { sessionId, conversationId } = newSession();
     const PAGE = 5_000;
@@ -584,7 +584,7 @@ describe("watch timeline orphan sweep", () => {
     ).toEqual({ n: TOTAL - PAGE });
 
     // The drain finishes the job, which takes two more pages.
-    expect(drainOrphanedWatchTimelineEntries()).toBe(TOTAL - PAGE);
+    expect(await drainOrphanedWatchTimelineEntries()).toBe(TOTAL - PAGE);
     expect(
       sqlite
         .query(
