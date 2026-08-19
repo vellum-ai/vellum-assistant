@@ -17,6 +17,8 @@ export interface HostProxySseOptions {
   authHeaders: () => Record<string, string>;
   /** Platform identity headers included on every connect attempt. */
   clientHeaders?: () => Record<string, string>;
+  /** Compatibility identity used when the primary interface is rejected. */
+  fallbackClientHeaders?: () => Record<string, string>;
   /** Injectable fetch for testing. Defaults to globalThis.fetch. */
   fetch?: typeof globalThis.fetch;
   /** Override idle timeout for testing. */
@@ -49,6 +51,7 @@ export class HostProxySseClient {
   private readonly eventsUrl: string;
   private readonly authHeaders: () => Record<string, string>;
   private readonly clientHeaders: () => Record<string, string>;
+  private readonly fallbackClientHeaders: (() => Record<string, string>) | null;
   private readonly fetchFn: typeof globalThis.fetch;
   private readonly idleTimeoutMs: number;
   private readonly idleCheckIntervalMs: number;
@@ -63,11 +66,13 @@ export class HostProxySseClient {
   private lastTrafficAt = 0;
   private _connected = false;
   private shouldReconnect = false;
+  private usingFallbackClientHeaders = false;
 
   constructor(options: HostProxySseOptions) {
     this.eventsUrl = options.eventsUrl;
     this.authHeaders = options.authHeaders;
     this.clientHeaders = options.clientHeaders ?? (() => ({}));
+    this.fallbackClientHeaders = options.fallbackClientHeaders ?? null;
     this.fetchFn = options.fetch ?? globalThis.fetch;
     this.idleTimeoutMs = options.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
     this.idleCheckIntervalMs = options.idleCheckIntervalMs ?? IDLE_CHECK_INTERVAL_MS;
@@ -113,7 +118,9 @@ export class HostProxySseClient {
 
     const headers: Record<string, string> = {
       Accept: "text/event-stream, application/json",
-      ...this.clientHeaders(),
+      ...(this.usingFallbackClientHeaders && this.fallbackClientHeaders
+        ? this.fallbackClientHeaders()
+        : this.clientHeaders()),
       ...this.authHeaders(),
     };
 
@@ -129,6 +136,15 @@ export class HostProxySseClient {
   private async handleResponse(response: Response): Promise<void> {
     if (!response.ok || !response.body) {
       this._connected = false;
+      if (
+        response.status === 400 &&
+        this.fallbackClientHeaders &&
+        !this.usingFallbackClientHeaders
+      ) {
+        this.usingFallbackClientHeaders = true;
+        this.startStream();
+        return;
+      }
       this.scheduleReconnect();
       return;
     }

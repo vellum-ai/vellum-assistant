@@ -34,12 +34,17 @@ export const createWindowsHostProxyRuntime = (
 ): HostProxyRuntime => {
   const { getClientId, computerUseExecutors, ...runtimeSources } = sources;
   const browserExecutor = new HostBrowserExecutor();
+  const clientHeaders = createHostProxyClientHeaders({
+    getClientId,
+    getMachineName: hostname,
+    interfaceId: "windows",
+  });
   return {
     ...runtimeSources,
-    ...createHostProxyClientHeaders({
-      getClientId,
-      getMachineName: hostname,
-      interfaceId: "windows",
+    ...clientHeaders,
+    sseFallbackClientHeaders: () => ({
+      ...clientHeaders.sseClientHeaders(),
+      "X-Vellum-Interface-Id": "macos",
     }),
     executors: {
       host_bash: hostBashExecutor,
