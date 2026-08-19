@@ -104,6 +104,48 @@ describe("initWindowsTitleBarOverlay", () => {
     ]);
   });
 
+  test("republishes when a workspace theme overrides the tokens", async () => {
+    /**
+     * Tests that an assistant's authored colors reach the overlay too: they
+     * layer onto the base theme as inline custom properties, leaving
+     * `data-theme` untouched.
+     */
+    // GIVEN a synced dark-theme window
+    applyTheme("dark");
+    startSync();
+    await flushMutations();
+
+    // WHEN a workspace theme's background and text land on the root
+    const root = document.documentElement;
+    root.style.setProperty("--surface-base", "#2B1B3D");
+    root.style.setProperty("--content-default", "#F3E9FF");
+
+    // THEN the authored colors are published over the base theme's
+    await flushMutations();
+    expect(published).toEqual([
+      { color: "#17191C", symbolColor: "#F6F5F4" },
+      { color: "#2B1B3D", symbolColor: "#F3E9FF" },
+    ]);
+  });
+
+  test("publishes nothing when a root mutation leaves the colors alone", async () => {
+    /**
+     * Tests that unrelated inline custom properties (the root carries several)
+     * do not walk the overlay through redundant repaints.
+     */
+    // GIVEN a synced dark-theme window
+    applyTheme("dark");
+    startSync();
+    await flushMutations();
+
+    // WHEN an unrelated custom property changes on the root
+    document.documentElement.style.setProperty("--primary-base", "#e8a04c");
+
+    // THEN the colors already painted are not republished
+    await flushMutations();
+    expect(published).toEqual([{ color: "#17191C", symbolColor: "#F6F5F4" }]);
+  });
+
   test("stays quiet until the effective theme is resolved", async () => {
     /**
      * Tests that no colors are published before the theme is applied, so a

@@ -168,14 +168,22 @@ mock.module("@vellumai/electron-desktop/window-state", () => ({
   writeTitleBarOverlayColors: writeTitleBarOverlayColorsMock,
 }));
 
-const invokeHandlers = new Map<string, (args: unknown[]) => unknown>();
+/** The sender identity `ipcMain.handle` hands a privileged handler. */
+interface InvokeEventStub {
+  sender: unknown;
+}
+
+const invokeHandlers = new Map<
+  string,
+  (args: unknown[], event: InvokeEventStub) => unknown
+>();
 const eventHandlers = new Map<string, (args: unknown[]) => void>();
 
 mock.module("./ipc.client", () => ({
   handle: (
     channel: string,
     _schema: unknown,
-    handler: (args: unknown[]) => unknown,
+    handler: (args: unknown[], event: InvokeEventStub) => unknown,
   ) => {
     invokeHandlers.set(channel, handler);
   },
@@ -290,7 +298,9 @@ describe("Windows main window", () => {
 
     expect(invokeHandlers.has(MAIN_WINDOW_SET_TITLE_BAR_OVERLAY)).toBe(true);
 
-    invokeHandlers.get(MAIN_WINDOW_SET_ONBOARDING)?.([true]);
+    invokeHandlers.get(MAIN_WINDOW_SET_ONBOARDING)?.([true], {
+      sender: constructed[0]?.webContents,
+    });
     expect(writeOnboardingActiveMock).toHaveBeenCalledWith(true);
 
     eventHandlers.get(IDENTITY_NAME)?.(["  Alice  "]);
@@ -343,10 +353,11 @@ describe("Windows main window", () => {
     // GIVEN a running window
     installMainWindow();
 
-    // WHEN the renderer publishes the dark theme's colors
-    invokeHandlers.get(MAIN_WINDOW_SET_TITLE_BAR_OVERLAY)?.([
-      { color: "#17191C", symbolColor: "#F6F5F4" },
-    ]);
+    // WHEN its renderer publishes the dark theme's colors
+    invokeHandlers.get(MAIN_WINDOW_SET_TITLE_BAR_OVERLAY)?.(
+      [{ color: "#17191C", symbolColor: "#F6F5F4" }],
+      { sender: constructed[0]?.webContents },
+    );
 
     // THEN the live window is repainted, keeping the title bar's height
     expect(constructed[0]?.setTitleBarOverlay).toHaveBeenCalledWith({
@@ -359,6 +370,27 @@ describe("Windows main window", () => {
       color: "#17191C",
       symbolColor: "#F6F5F4",
     });
+  });
+
+  test("ignores overlay colors from other windows", () => {
+    /**
+     * Tests that only the window wearing the overlay can color it. Auxiliary
+     * windows run the same renderer bundle: the offscreen theme-stage window
+     * applies arbitrary workspace tokens for screenshots, and painting or
+     * persisting those would leak a staged palette onto the visible window.
+     */
+    // GIVEN a running window
+    installMainWindow();
+
+    // WHEN some other window's renderer publishes colors
+    invokeHandlers.get(MAIN_WINDOW_SET_TITLE_BAR_OVERLAY)?.(
+      [{ color: "#e8a04c", symbolColor: "#17191C" }],
+      { sender: { staged: true } },
+    );
+
+    // THEN the overlay keeps its colors, and none are persisted
+    expect(constructed[0]?.setTitleBarOverlay).not.toHaveBeenCalled();
+    expect(writeTitleBarOverlayColorsMock).not.toHaveBeenCalled();
   });
 
   test("hides on close and allows close while quitting", () => {

@@ -9,7 +9,13 @@ import { isPopoutWindow } from "@/runtime/popout-window";
 
 export const WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX = 150;
 
-const THEME_ATTRIBUTE = "data-theme";
+/**
+ * The root attributes an effective theme arrives through: `data-theme` for the
+ * light / dark / velvet base (`applyThemePreference()`), and inline custom
+ * properties for a workspace theme's overrides layered on top of it
+ * (`applyWorkspaceThemeTokens()`).
+ */
+const THEME_ATTRIBUTES = ["data-theme", "style"];
 
 /**
  * The theme tokens the caption buttons are painted from: the surface every
@@ -21,7 +27,7 @@ function readOverlayColors(): TitleBarOverlayColors | null {
   // The attribute is stamped by `applyThemePreference()`. Until it lands the
   // effective theme is unknown, and reporting the `:root` fallback would flash
   // a light overlay onto a dark window.
-  if (!document.documentElement.hasAttribute(THEME_ATTRIBUTE)) {
+  if (!document.documentElement.hasAttribute("data-theme")) {
     return null;
   }
   const styles = getComputedStyle(document.documentElement);
@@ -45,7 +51,9 @@ function readOverlayColors(): TitleBarOverlayColors | null {
  *
  * No-op off the Windows desktop client: macOS draws traffic lights the system
  * themes itself, and web and Capacitor hosts have no window chrome. Pop-out
- * windows keep their native title bar and have no overlay to color.
+ * windows keep their native title bar and have no overlay to color. Colors
+ * published from any other auxiliary window are dropped by main, which paints
+ * the overlay only for the window that reported them.
  *
  * Returns a function that stops watching for theme changes.
  *
@@ -59,11 +67,21 @@ export function initWindowsTitleBarOverlay(): () => void {
     return () => undefined;
   }
 
+  let published: TitleBarOverlayColors | null = null;
   const publish = () => {
     const colors = readOverlayColors();
     if (!colors) {
       return;
     }
+    // The root's `style` carries more than theme tokens, so most mutations
+    // resolve to the colors already painted.
+    if (
+      colors.color === published?.color &&
+      colors.symbolColor === published?.symbolColor
+    ) {
+      return;
+    }
+    published = colors;
     void window.vellum?.mainWindow.setTitleBarOverlay?.(colors);
   };
 
@@ -71,7 +89,7 @@ export function initWindowsTitleBarOverlay(): () => void {
   const observer = new MutationObserver(publish);
   observer.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: [THEME_ATTRIBUTE],
+    attributeFilter: THEME_ATTRIBUTES,
   });
   return () => {
     observer.disconnect();

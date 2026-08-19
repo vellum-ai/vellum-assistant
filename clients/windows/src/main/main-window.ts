@@ -163,7 +163,7 @@ export const setOnboarding = (active: boolean): void => {
  * options, so the next launch builds its window themed instead of opening on
  * the system caption colors until the renderer reports its theme.
  */
-export const setTitleBarOverlay = (colors: TitleBarOverlayColors): void => {
+const setTitleBarOverlay = (colors: TitleBarOverlayColors): void => {
   writeTitleBarOverlayColors(colors);
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setTitleBarOverlay({ ...colors, height: TITLE_BAR_HEIGHT });
@@ -206,7 +206,14 @@ export const installMainWindow = (): void => {
   handle(
     MAIN_WINDOW_SET_TITLE_BAR_OVERLAY,
     z.tuple([titleBarOverlayColorsSchema]),
-    ([colors]) => {
+    ([colors], event) => {
+      // Only the window wearing the overlay describes it. Every window runs the
+      // same renderer bundle and reports whatever theme it applied: the
+      // offscreen theme-stage window stages arbitrary workspace tokens for
+      // screenshots, and auxiliary windows carry no workspace theme at all.
+      if (event.sender !== mainWindow?.webContents) {
+        return;
+      }
       setTitleBarOverlay(colors);
     },
   );
