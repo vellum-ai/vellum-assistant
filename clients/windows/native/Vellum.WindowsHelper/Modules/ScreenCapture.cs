@@ -22,29 +22,11 @@ public interface IScreenCaptureBackend
     CapturedImage CapturePixels(PixelRect bounds);
 }
 
-public sealed class ScreenCaptureModule : IRpcModule
+public sealed class ScreenCaptureService(IScreenCaptureBackend backend)
 {
-    private readonly IScreenCaptureBackend _backend;
-
-    public ScreenCaptureModule()
-        : this(new GdiScreenCapture())
+    public CaptureResult CaptureDisplay(int? displayId)
     {
-    }
-
-    public ScreenCaptureModule(IScreenCaptureBackend backend) => _backend = backend;
-
-    public IReadOnlyCollection<string> Methods { get; } = ["capture.display"];
-
-    public ValueTask<object?> InvokeAsync(string method, JsonElement? parameters, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var request = parameters?.Deserialize<CaptureParams>(AutomationJson.Options);
-        return ValueTask.FromResult<object?>(AutomationJson.ToElement(CaptureDisplay(request?.DisplayId)));
-    }
-
-    private CaptureResult CaptureDisplay(int? displayId)
-    {
-        var displays = _backend.GetDisplays();
+        var displays = backend.GetDisplays();
         var display = displayId is { } id
             ? displays.FirstOrDefault(candidate => candidate.Id == id)
             : displays.FirstOrDefault(candidate => candidate.Primary) ?? displays.FirstOrDefault();
@@ -55,16 +37,36 @@ public sealed class ScreenCaptureModule : IRpcModule
         }
         try
         {
-            var image = _backend.CapturePixels(display.Bounds);
+            var image = backend.CapturePixels(display.Bounds);
             return new CaptureResult(
                 image.PngBase64, image.WidthPx, image.HeightPx, display.Bounds, display.ScalePercent, null);
         }
         catch (Exception ex) when (ex is ExternalException or InvalidOperationException)
         {
-            // GDI capture denial and PNG encoding failures stay structured.
             return new CaptureResult(null, null, null, null, null,
                 new Unavailable(Unavailable.CaptureDenied, "The display could not be captured"));
         }
+    }
+}
+
+public sealed class ScreenCaptureModule : IRpcModule
+{
+    private readonly ScreenCaptureService _service;
+
+    public ScreenCaptureModule()
+        : this(new GdiScreenCapture())
+    {
+    }
+
+    public ScreenCaptureModule(IScreenCaptureBackend backend) => _service = new ScreenCaptureService(backend);
+
+    public IReadOnlyCollection<string> Methods { get; } = ["capture.display"];
+
+    public ValueTask<object?> InvokeAsync(string method, JsonElement? parameters, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var request = parameters?.Deserialize<CaptureParams>(AutomationJson.Options);
+        return ValueTask.FromResult<object?>(AutomationJson.ToElement(_service.CaptureDisplay(request?.DisplayId)));
     }
 
     private sealed record CaptureParams(int? DisplayId);

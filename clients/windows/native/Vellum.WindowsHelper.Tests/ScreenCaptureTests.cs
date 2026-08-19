@@ -1,3 +1,5 @@
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Vellum.WindowsHelper.Modules;
@@ -35,6 +37,15 @@ public static class ScreenCaptureTests
         var thrown = await InvokeAsync(new ScreenCaptureModule(new ThrowingBackend()), new { });
         Check(thrown.GetProperty("unavailable").GetProperty("code").GetString() == Unavailable.CaptureDenied,
             "capture failures return structured capture_denied");
+
+        var computerUse = new GdiComputerUseCaptureSource(
+            new ScreenCaptureService(new ImageBackend())).Capture(CancellationToken.None);
+        Check(computerUse.JpegBase64?.StartsWith("/9j/", StringComparison.Ordinal) == true,
+            "computer use emits JPEG data");
+        Check(computerUse is { ScreenshotWidthPx: 810, ScreenshotHeightPx: 540 },
+            "computer-use screenshots fit the observation budget");
+        Check(computerUse is { ScreenWidthPt: 960, ScreenHeightPt: 640 },
+            "computer use preserves logical display dimensions");
 
         Console.WriteLine("Screen capture tests passed");
     }
@@ -74,5 +85,20 @@ public static class ScreenCaptureTests
         public IReadOnlyList<DisplayInfo> GetDisplays() => [Primary];
 
         public CapturedImage CapturePixels(PixelRect bounds) => throw new ExternalException("denied");
+    }
+
+    private sealed class ImageBackend : IScreenCaptureBackend
+    {
+        public IReadOnlyList<DisplayInfo> GetDisplays() =>
+            [new DisplayInfo(0, new PixelRect(0, 0, 1200, 800), true, 125)];
+
+        public CapturedImage CapturePixels(PixelRect bounds)
+        {
+            using var bitmap = new Bitmap(bounds.Width, bounds.Height);
+            using var stream = new MemoryStream();
+            bitmap.Save(stream, ImageFormat.Png);
+            return new CapturedImage(
+                Convert.ToBase64String(stream.ToArray()), bounds.Width, bounds.Height);
+        }
     }
 }
