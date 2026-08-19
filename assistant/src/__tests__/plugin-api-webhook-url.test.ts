@@ -10,6 +10,7 @@
 
 import { describe, expect, spyOn, test } from "bun:test";
 
+import * as loader from "../config/loader.js";
 import * as registration from "../inbound/platform-callback-registration.js";
 import { resolveWebhookUrl } from "../plugin-api/webhook-url.js";
 import { runInPluginContext } from "../plugins/plugin-execution-context.js";
@@ -141,6 +142,29 @@ describe("resolveWebhookUrl", () => {
       "webhooks/plugins/imessage/events-comms",
     );
     spy.mockRestore();
+  });
+
+  test("hands out an ingress URL under exactly the path it claimed", async () => {
+    // The Velay tunnel forwards the request path verbatim and the gateway
+    // admits it only when it matches a claimed path byte for byte. A trailing
+    // slash on this URL would be rejected before the gateway ever saw it.
+    const configSpy = spyOn(loader, "getConfig").mockReturnValue({
+      ingress: { publicBaseUrl: "https://velay.vellum.ai/assistant-abc" },
+    } as ReturnType<typeof loader.getConfig>);
+    const spy = spyOn(registration, "resolveCallbackUrl").mockImplementation(
+      async (directUrl) => directUrl(),
+    );
+
+    const url = await resolveWebhookUrl({
+      plugin: "imessage",
+      path: "events-photon",
+    });
+
+    const claimedPath = `/${spy.mock.calls[0]![1]}`;
+    expect(claimedPath).toBe("/webhooks/plugins/imessage/events-photon");
+    expect(new URL(url).pathname).toBe(`/assistant-abc${claimedPath}`);
+    spy.mockRestore();
+    configSpy.mockRestore();
   });
 
   test("leaves a URL carrying a query string alone", async () => {
