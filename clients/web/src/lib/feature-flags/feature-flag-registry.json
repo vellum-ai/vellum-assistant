@@ -372,6 +372,14 @@
       "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. control = gpt-5.6-luna (the shipped pin); terra = gpt-5.6-terra; glm-5p2 = accounts/fireworks/models/glm-5p2. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to control.",
       "defaultEnabled": "control",
       "values": ["control", "terra", "glm-5p2"]
+    },
+    {
+      "id": "velay-webhooks",
+      "scope": "assistant",
+      "key": "velay-webhooks",
+      "label": "Velay Webhooks",
+      "description": "Platform pods resolve webhook callback URLs from the Velay-published ingress URL instead of registering platform callback routes. Falls back to platform callback registration while no tunnel URL is published.",
+      "defaultEnabled": false
     }
   ]
 }
