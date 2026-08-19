@@ -90,12 +90,11 @@ function registrationType(plugin: string, route: string): string {
 }
 
 /**
- * Keep a trailing slash on a resolved callback URL.
+ * Keep a trailing slash on a managed callback URL.
  *
  * Django in front of managed callbacks canonicalizes onto `/`. A vendor given
  * the slashless spelling is 301'd, and clients that follow a 301 on POST
- * typically retry as GET and drop the body. The gateway serves both spellings
- * of a plugin webhook, so the slashed URL is the one to hand out.
+ * typically retry as GET and drop the body.
  *
  * Query-bearing URLs are left alone: this resolver passes no query
  * parameters, and appending there would cut into the query rather than the
@@ -142,12 +141,22 @@ export async function resolveWebhookUrl(
 
   const callbackPath = `${PLUGIN_WEBHOOK_PREFIX}/${plugin}/${path}`;
 
+  let ingressUrl: string | undefined;
   const resolved = await resolveCallbackUrl(
-    () => `${getPublicBaseUrl(getConfig())}/${callbackPath}`,
+    () => {
+      ingressUrl = `${getPublicBaseUrl(getConfig())}/${callbackPath}`;
+      return ingressUrl;
+    },
     callbackPath,
     registrationType(plugin, path),
     undefined,
     sourceIdentifier,
   );
-  return withTrailingSlash(resolved);
+
+  // An ingress URL reaches the gateway through the tunnel, which forwards the
+  // request path verbatim and admits it only when it matches a claimed path
+  // byte for byte. The claim above is made under the slashless spelling, so
+  // that is the spelling to hand out. Only a managed callback URL goes through
+  // Django, so only that one is given the trailing slash.
+  return resolved === ingressUrl ? resolved : withTrailingSlash(resolved);
 }
