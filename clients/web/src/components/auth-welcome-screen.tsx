@@ -167,8 +167,16 @@ export function AuthWelcomeScreen({
         </p>
       )}
 
+      {/*
+        A failed handoff is the one thing that grows this column, and the wrap
+        composition has about a button's worth of room under it on a 640-tall
+        phone before the returning crowd. Spend the gap above the buttons on
+        the message rather than adding to the column: the error sits next to
+        what it is about either way, and the buttons stay clear of the crowd
+        through a message long enough to wrap three times.
+      */}
       <div
-        className="mt-15 flex w-full max-w-sm flex-col gap-3"
+        className={`${error ? "mt-4" : "mt-15"} flex w-full max-w-sm flex-col gap-3`}
         style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
       >
         <Button
