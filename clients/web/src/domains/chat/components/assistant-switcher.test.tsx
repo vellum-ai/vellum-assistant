@@ -223,14 +223,19 @@ describe("AssistantSwitcher expanded card", () => {
     fireEvent.click(getByLabelText("Switch assistant"));
     fireEvent.click(getByLabelText("Switch to Bob"));
 
-    expect(switchMock).toHaveBeenCalledTimes(1);
-    expect(switchMock.mock.calls[0]?.[0]).toEqual(OTHER);
-    expect(storeIdAtSwitch).toBeNull();
+    /* The synchronous half: store and route reset land before any await,
+       and the connect does not start until the navigation settles. */
+    expect(useConversationStore.getState().activeConversationId).toBeNull();
     expect(navigateMock.mock.calls[0]).toEqual([
       routes.assistant,
       { replace: true },
     ]);
+    expect(switchMock).not.toHaveBeenCalled();
+
     await flushSwitch();
+    expect(switchMock).toHaveBeenCalledTimes(1);
+    expect(switchMock.mock.calls[0]?.[0]).toEqual(OTHER);
+    expect(storeIdAtSwitch).toBeNull();
     expect(queryByText("Bob")).toBeNull();
     expect(useConversationStore.getState().activeConversationId).toBeNull();
   });

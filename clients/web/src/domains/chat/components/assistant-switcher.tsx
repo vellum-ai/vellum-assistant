@@ -130,8 +130,13 @@ export function AssistantSwitcher({
       useConversationStore.getState().activeConversationId;
     const previousPath = `${location.pathname}${location.search}${location.hash}`;
     useConversationStore.getState().setActiveConversationId(null);
-    void navigate(routes.assistant, { replace: true });
     try {
+      /* Awaited, not fired: the data router commits the URL change
+         asynchronously, and the connect must not start (and publish the
+         new selection) while the old conversation id is still mounted in
+         the route. Inside the try so an aborted navigation takes the same
+         restore path a failed connect does. */
+      await navigate(routes.assistant, { replace: true });
       await switchToResolvedAssistant(assistant);
       setExpanded(false);
       requestChevronFocus();
