@@ -53,6 +53,7 @@ export interface HostProxyRuntime {
     onReport: (state: PresenceState) => void,
   ) => () => void;
   sseClientHeaders: () => Record<string, string>;
+  sseFallbackClientHeaders?: () => Record<string, string>;
   posterClientHeaders: () => Record<string, string>;
   executors: Partial<Record<HostProxyExecutorKind, HostProxyExecutor>>;
   teardownExecutors?: () => void;
@@ -623,6 +624,7 @@ function openLocalConnection(
     eventsUrl,
     authHeaders,
     clientHeaders: requireRuntime().sseClientHeaders,
+    fallbackClientHeaders: requireRuntime().sseFallbackClientHeaders,
     onRefreshToken,
     onConnected: () => seedPresence(assistantId),
   });
@@ -673,6 +675,7 @@ function connectCloudAssistant(
     eventsUrl,
     authHeaders,
     clientHeaders: requireRuntime().sseClientHeaders,
+    fallbackClientHeaders: requireRuntime().sseFallbackClientHeaders,
     onConnected: () => seedPresence(assistantId),
   });
   const poster = new HostProxyPoster({
