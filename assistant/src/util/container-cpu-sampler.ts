@@ -78,6 +78,13 @@ export function computeCpuPercent(
   return Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
 }
 
+// Recent per-tick percents are retained so consumers with a coarser cadence
+// (the resource-pressure guard samples every 30s) can average the 5s windows
+// inside their own interval instead of reading one instantaneous value; a
+// workload that spikes in phase with the coarser cadence would otherwise
+// alias into a sustained-high reading.
+const RECENT_SAMPLE_RETENTION_MS = 5 * 60 * 1000;
+
 let _lastProcessCpuUsage: NodeJS.CpuUsage | null = sampleProcessCpuUsage();
 let _lastCgroupCpuUs: number | null = getContainerCpuUsageUs();
 let _lastCpuTime: number = Date.now();
@@ -86,10 +93,16 @@ let _cachedCpuPercent = 0;
 // is a placeholder 0 (still warming up, or neither cgroup counters nor
 // process.cpuUsage() deltas are readable), not a measurement.
 let _hasCpuSample = false;
+let _recentSamples: { at: number; percent: number }[] = [];
 
-function setCachedCpuPercent(percent: number): void {
+function setCachedCpuPercent(percent: number, at: number): void {
   _cachedCpuPercent = percent;
   _hasCpuSample = true;
+  _recentSamples.push({ at, percent });
+  const cutoff = at - RECENT_SAMPLE_RETENTION_MS;
+  while (_recentSamples.length > 0 && _recentSamples[0].at < cutoff) {
+    _recentSamples.shift();
+  }
 }
 
 function runCpuSamplerTick(now: number): void {
@@ -125,17 +138,22 @@ function runCpuSamplerTick(now: number): void {
     if (cgroupUs !== null && _lastCgroupCpuUs !== null) {
       setCachedCpuPercent(
         computeCpuPercent(cgroupUs - _lastCgroupCpuUs, elapsedMs, numCores),
+        now,
       );
     } else if (processDeltaUs !== null) {
       // cgroup CPU stats unavailable (e.g. gVisor) – fall back to process-level.
       setCachedCpuPercent(
         computeCpuPercent(processDeltaUs, elapsedMs, numCores),
+        now,
       );
     }
     _lastCgroupCpuUs = cgroupUs;
   } else if (processDeltaUs !== null) {
     // Non-platform: use process.cpuUsage() (accurate for single-process mode).
-    setCachedCpuPercent(computeCpuPercent(processDeltaUs, elapsedMs, numCores));
+    setCachedCpuPercent(
+      computeCpuPercent(processDeltaUs, elapsedMs, numCores),
+      now,
+    );
   }
 
   _lastCpuTime = now;
@@ -167,12 +185,37 @@ export function getCachedContainerCpuPercentOrNull(): number | null {
   return _hasCpuSample ? _cachedCpuPercent : null;
 }
 
+/**
+ * Mean of the per-tick percents recorded within the trailing `windowMs`,
+ * rounded to 2 decimal places, or null when no tick landed in the window.
+ * Coarser-cadence consumers use this instead of the instantaneous cache so
+ * a short spike aligned with their cadence cannot read as sustained load.
+ */
+export function getAverageContainerCpuPercentOrNull(
+  windowMs: number,
+): number | null {
+  const cutoff = Date.now() - windowMs;
+  let sum = 0;
+  let count = 0;
+  for (const sample of _recentSamples) {
+    if (sample.at >= cutoff) {
+      sum += sample.percent;
+      count += 1;
+    }
+  }
+  if (count === 0) {
+    return null;
+  }
+  return Math.round((sum / count) * 100) / 100;
+}
+
 export function __resetContainerCpuSamplerForTests(): void {
   _lastProcessCpuUsage = sampleProcessCpuUsage();
   _lastCgroupCpuUs = getContainerCpuUsageUs();
   _lastCpuTime = Date.now();
   _cachedCpuPercent = 0;
   _hasCpuSample = false;
+  _recentSamples = [];
 }
 
 export function __runContainerCpuSamplerTickForTests(nowMs: number): void {

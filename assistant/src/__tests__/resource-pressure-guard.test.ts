@@ -25,16 +25,22 @@ let mockedCachedCpuPercentOrNull: number | null = null;
 mock.module("../util/container-cpu-sampler.js", () => ({
   getCachedContainerCpuPercent: () => mockedCachedCpuPercentOrNull ?? 0,
   getCachedContainerCpuPercentOrNull: () => mockedCachedCpuPercentOrNull,
+  getAverageContainerCpuPercentOrNull: (_windowMs: number) =>
+    mockedCachedCpuPercentOrNull,
 }));
 
 mock.module("../util/cgroup-cpu.js", () => ({
   getContainerCpuCores: () => mockedCpuCores,
 }));
 
+let mockedMemoryLimitBytes: number | null = null;
+let mockedMemoryUsageBytes: number | null = null;
+let mockedMemoryStat: { reclaimableBytes: number | null } | null = null;
+
 mock.module("../util/cgroup-memory.js", () => ({
-  getContainerMemoryLimitBytes: () => null,
-  getContainerMemoryUsageBytes: () => null,
-  getContainerMemoryStat: () => null,
+  getContainerMemoryLimitBytes: () => mockedMemoryLimitBytes,
+  getContainerMemoryUsageBytes: () => mockedMemoryUsageBytes,
+  getContainerMemoryStat: () => mockedMemoryStat,
 }));
 
 const {
@@ -94,6 +100,9 @@ beforeEach(() => {
   broadcasts.length = 0;
   mockedCpuCores = 0;
   mockedCachedCpuPercentOrNull = null;
+  mockedMemoryLimitBytes = null;
+  mockedMemoryUsageBytes = null;
+  mockedMemoryStat = null;
   process.env.IS_PLATFORM = "true";
 });
 
@@ -286,6 +295,24 @@ describe("resource pressure guard", () => {
     expect(status!.memoryPercent).toBeNull();
     expect(status!.error).toBeTruthy();
     expect(status!.lastCheckedAt).toBeTruthy();
+  });
+
+  test("the default memory sampler is unavailable without a reclaimable breakdown", () => {
+    // Usage and limit are readable but memory.stat is not (cgroups v1, or
+    // missing v2 counters): the working set is unknowable, so the signal
+    // must read unavailable instead of assuming zero reclaimable cache.
+    mockedMemoryLimitBytes = 1000;
+    mockedMemoryUsageBytes = 950;
+    mockedMemoryStat = null;
+
+    let status = evaluateResourcePressureNow();
+    expect(status.state).toBe("unknown");
+    expect(status.memoryPercent).toBeNull();
+
+    mockedMemoryStat = { reclaimableBytes: 400 };
+    status = evaluateResourcePressureNow();
+    expect(status.state).toBe("ok");
+    expect(status.memoryPercent).toBe(55);
   });
 
   test("the default CPU sampler is unavailable until the rolling sampler warms up", () => {

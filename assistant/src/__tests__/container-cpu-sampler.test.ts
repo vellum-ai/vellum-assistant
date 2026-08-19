@@ -4,6 +4,7 @@ import {
   __resetContainerCpuSamplerForTests,
   __runContainerCpuSamplerTickForTests,
   computeCpuPercent,
+  getAverageContainerCpuPercentOrNull,
   getCachedContainerCpuPercent,
   getCachedContainerCpuPercentOrNull,
 } from "../util/container-cpu-sampler.js";
@@ -52,5 +53,33 @@ describe("getCachedContainerCpuPercentOrNull", () => {
     expect(sampled).not.toBeNull();
     expect(Number.isFinite(sampled!)).toBe(true);
     expect(sampled).toBe(getCachedContainerCpuPercent());
+  });
+});
+
+describe("getAverageContainerCpuPercentOrNull", () => {
+  test("returns null until a tick lands inside the window", () => {
+    __resetContainerCpuSamplerForTests();
+
+    expect(getAverageContainerCpuPercentOrNull(60_000)).toBeNull();
+  });
+
+  test("averages the ticks recorded within the trailing window", () => {
+    __resetContainerCpuSamplerForTests();
+
+    // A single recorded tick makes the average equal the last cached value.
+    __runContainerCpuSamplerTickForTests(Date.now() + 5_000);
+    const single = getAverageContainerCpuPercentOrNull(60_000);
+    expect(single).not.toBeNull();
+    expect(single).toBe(getCachedContainerCpuPercentOrNull());
+
+    // More ticks keep the average finite and within the recorded range; the
+    // exact value depends on real process CPU deltas, so only the invariant
+    // is asserted.
+    __runContainerCpuSamplerTickForTests(Date.now() + 10_000);
+    __runContainerCpuSamplerTickForTests(Date.now() + 15_000);
+    const averaged = getAverageContainerCpuPercentOrNull(60_000);
+    expect(averaged).not.toBeNull();
+    expect(Number.isFinite(averaged!)).toBe(true);
+    expect(averaged!).toBeGreaterThanOrEqual(0);
   });
 });

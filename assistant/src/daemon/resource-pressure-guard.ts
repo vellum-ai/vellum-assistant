@@ -23,7 +23,7 @@ import {
   getContainerMemoryStat,
   getContainerMemoryUsageBytes,
 } from "../util/cgroup-memory.js";
-import { getCachedContainerCpuPercentOrNull } from "../util/container-cpu-sampler.js";
+import { getAverageContainerCpuPercentOrNull } from "../util/container-cpu-sampler.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("resource-pressure-guard");
@@ -214,10 +214,15 @@ function defaultSampleCpuPercent(): number | null {
   if (getContainerCpuCores() <= 0) {
     return null;
   }
-  // Null while the rolling sampler is still warming up or CPU accounting is
-  // unreadable: a placeholder 0% would look like a real measurement and mask
-  // the signal being unavailable.
-  return getCachedContainerCpuPercentOrNull();
+  // Average the rolling sampler's 5s windows across this guard's own 30s
+  // cadence: reading one instantaneous value would let a short spike that
+  // happens to align with the guard's ticks alias into "sustained" load
+  // (and an out-of-phase one be missed). Null while the sampler is still
+  // warming up or CPU accounting is unreadable: a placeholder 0% would look
+  // like a real measurement and mask the signal being unavailable.
+  return getAverageContainerCpuPercentOrNull(
+    RESOURCE_PRESSURE_SAMPLE_INTERVAL_MS,
+  );
 }
 
 function defaultSampleMemory(): ResourcePressureMemorySample | null {
@@ -226,12 +231,20 @@ function defaultSampleMemory(): ResourcePressureMemorySample | null {
   if (limitBytes === null || limitBytes <= 0 || usageBytes === null) {
     return null;
   }
+  // Raw usage includes page cache the kernel can drop under pressure;
+  // counting it would false-positive, so the working set subtracts it.
+  // When the reclaimable breakdown is unreadable (cgroups v1, where
+  // memory.stat lives elsewhere, or missing v2 counters) the working set
+  // is unknowable: report the signal unavailable rather than assuming
+  // zero cache and flagging a cache-heavy container as under pressure.
+  const reclaimableBytes = getContainerMemoryStat()?.reclaimableBytes ?? null;
+  if (reclaimableBytes === null) {
+    return null;
+  }
   return {
     usageBytes,
     limitBytes,
-    // Raw usage includes page cache the kernel can drop under pressure;
-    // counting it would false-positive, so the working set subtracts it.
-    reclaimableBytes: getContainerMemoryStat()?.reclaimableBytes ?? 0,
+    reclaimableBytes,
   };
 }
 
