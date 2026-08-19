@@ -45,6 +45,11 @@ export function panePresentation({
   return position;
 }
 
+/** Whether the viewer is showing an app, in any arrangement. */
+export function isAppMainView(mainView: MainView): boolean {
+  return mainView === "app" || mainView === "app-editing";
+}
+
 /** The fields the viewer stores about an app and the conversation beside it. */
 export interface ViewerPaneFields {
   mainView: MainView;
@@ -66,7 +71,7 @@ export function viewerPanePresentation({
   hasBoundConversation,
   isAppMinimized,
 }: ViewerPaneFields): PanePresentation {
-  if (!hasApp || (mainView !== "app" && mainView !== "app-editing")) {
+  if (!hasApp || !isAppMainView(mainView)) {
     return "single";
   }
   // Which surface is the secondary depends on the arrangement. Beside the
