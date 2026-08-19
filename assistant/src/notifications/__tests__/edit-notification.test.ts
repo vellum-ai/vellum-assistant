@@ -52,8 +52,13 @@ const messageRewrites: Array<{ messageId: string; content: string }> = [];
 /** messageId -> the conversation it belongs to, for the scoped lookup. */
 const messageOwners = new Map<string, string>();
 
+let messageLookupShouldThrow = false;
+
 mock.module("../../persistence/conversation-crud.js", () => ({
   getMessageById: (messageId: string, conversationId?: string) => {
+    if (messageLookupShouldThrow) {
+      throw new Error("simulated message lookup failure");
+    }
     const owner = messageOwners.get(messageId);
     if (!owner || (conversationId && owner !== conversationId)) {
       return null;
@@ -161,6 +166,7 @@ beforeEach(() => {
   messageRewrites.length = 0;
   messageOwners.clear();
   messageOwners.set("msg-9", "conv-source-1");
+  messageLookupShouldThrow = false;
   adapterSupportsUpdate = true;
 });
 
@@ -465,6 +471,23 @@ describe("editNotification", () => {
 
       await editNotification({ id: FEED_ITEM_ID, body: "New body" });
 
+      expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("an ownership lookup failure does not abort the edit", async () => {
+      // The feed patch and any channel updates have already landed at this
+      // point, so the edit must still report them rather than throwing.
+      await appendFeedItem(makeItem(OWNED));
+      messageLookupShouldThrow = true;
+
+      const result = await editNotification({
+        id: FEED_ITEM_ID,
+        body: "Backup finished, 3 volumes",
+      });
+
+      expect(result).not.toBeNull();
+      expect(result!.feedItem.summary).toBe("Backup finished, 3 volumes");
+      expect(readItem()!.summary).toBe("Backup finished, 3 volumes");
       expect(messageRewrites).toHaveLength(0);
     });
 

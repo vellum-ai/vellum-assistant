@@ -29,6 +29,7 @@ let conversationRow: { conversationType: string } | null = null;
 let conversationLookupShouldThrow = false;
 let messageAppendShouldThrow = false;
 let messageRewriteShouldThrow = false;
+let messageLookupShouldThrow = false;
 
 mock.module("../../home/feed-writer.js", () => ({
   appendFeedItem: async (item: FeedItem) => {
@@ -57,6 +58,9 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     return { id: `msg-${messageAppends.length}` };
   },
   getMessageById: (messageId: string, conversationId?: string) => {
+    if (messageLookupShouldThrow) {
+      throw new Error("simulated message lookup failure");
+    }
     const owner = messageOwners.get(messageId);
     if (!owner || (conversationId && owner !== conversationId)) {
       return null;
@@ -135,6 +139,7 @@ beforeEach(() => {
   conversationLookupShouldThrow = false;
   messageAppendShouldThrow = false;
   messageRewriteShouldThrow = false;
+  messageLookupShouldThrow = false;
 });
 
 describe("writeHomeFeedItemForSignal", () => {
@@ -1291,6 +1296,21 @@ describe("writeHomeFeedItemForSignal", () => {
 
       expect(rewritten).toBe(true);
       expect(messageRewrites).toHaveLength(1);
+    });
+
+    test("reports no rewrite when the ownership lookup throws", () => {
+      // The edit has already patched the feed and run the channel updates by
+      // the time this runs, so a store that cannot answer must not abort it.
+      messageOwners.set("msg-9", "conv-source-1");
+      messageLookupShouldThrow = true;
+
+      const rewritten = updateFeedItemConversationMessage(
+        makeItem({ notificationConversationMessageId: "msg-9" }),
+        "Four things now.",
+      );
+
+      expect(rewritten).toBe(false);
+      expect(messageRewrites).toHaveLength(0);
     });
 
     test("reports no rewrite when the store write throws", () => {

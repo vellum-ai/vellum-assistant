@@ -300,10 +300,12 @@ async function appendSummaryToFeedTarget(
  * nothing and no row is written twice.
  *
  * The row holds the body, and the feed rewrites its summary only when the
- * patch carries one, so the caller applies this for body edits alone. Returns
- * whether a row was rewritten; a card with no message behind it, or whose
- * handle does not address a row in its own conversation, reports false rather
- * than failing the edit.
+ * patch carries one, so the caller applies this for body edits alone.
+ *
+ * Never throws. It runs last, after the feed patch and the channel updates
+ * have landed, so anything it cannot do is reported as "no rewrite" rather
+ * than failing an edit that has already partly applied. Returns whether a row
+ * was rewritten.
  */
 export function updateFeedItemConversationMessage(
   item: FeedItem,
@@ -317,26 +319,32 @@ export function updateFeedItemConversationMessage(
   if (alreadyRewritten?.has(messageId)) {
     return false;
   }
-  // Scoped to the card's own conversation so the handle can only ever address
-  // a row inside what the card opens, whatever put it in the metadata.
-  if (!item.conversationId || !getMessageById(messageId, item.conversationId)) {
-    log.warn(
-      { feedItemId: item.id, messageId },
-      "Feed item message handle does not address a row in its conversation, leaving it alone",
-    );
-    return false;
-  }
   try {
+    // Scoped to the card's own conversation so the handle can only ever
+    // address a row inside what the card opens, whatever put it in the
+    // metadata. Guarded with the write: a store that cannot answer the
+    // question is not grounds for failing an edit already applied to the feed
+    // and the channels.
+    if (
+      !item.conversationId ||
+      !getMessageById(messageId, item.conversationId)
+    ) {
+      log.warn(
+        { feedItemId: item.id, messageId },
+        "Feed item message handle does not address a row in its conversation, leaving it alone",
+      );
+      return false;
+    }
     updateMessageContent(messageId, body);
     log.info(
       { feedItemId: item.id, messageId },
-      "Rewrote the conversation message owned by an edited feed item",
+      "Rewrote the conversation message behind an edited feed item",
     );
     return true;
   } catch (err) {
     log.error(
       { err, feedItemId: item.id, messageId },
-      "Failed to rewrite the conversation message owned by an edited feed item",
+      "Failed to rewrite the conversation message behind an edited feed item",
     );
     return false;
   }
