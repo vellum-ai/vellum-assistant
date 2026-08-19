@@ -40,10 +40,10 @@ export const MOBILE_GHOST_WASH_CLASS =
  *
  * WebKit blurs the textarea on a press without focusing the pressed button, and
  * the mobile composer is gated on that focus: the pills row above the card goes
- * away and the disclaimer under it comes back in the same commit, all before the
- * tap's `click` is dispatched. A pill vanishes outright; the action row's 40px
- * controls shift far enough that the press lands off whichever one the finger
- * started on. Either way the tap does nothing but drop the keyboard.
+ * away before the tap's `click` is dispatched. A pill vanishes outright; the
+ * action row's 40px controls shift far enough that the press lands off
+ * whichever one the finger started on. Either way the tap does nothing but drop
+ * the keyboard.
  *
  * `mousedown` is the press to cancel, not `pointerdown`. WebKit drops the whole
  * compatibility sequence when `pointerdown` is cancelled, `click` included.

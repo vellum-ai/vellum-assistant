@@ -52,7 +52,7 @@ export interface VoiceLiveActivityContent {
   phase: ActiveLiveVoiceSessionState;
   /**
    * User-facing activity copy. Pass
-   * `liveVoiceSurfaceLabel(state, reconnecting, assistantAudioActive)` so the
+   * `liveVoiceSurfaceLabel(state, reconnecting, assistantAudioActive, muted)` so the
    * island shows exactly what the voice room shows; the native side
    * deliberately owns no phase wording of its own.
    */

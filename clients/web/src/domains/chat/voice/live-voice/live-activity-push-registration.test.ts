@@ -109,6 +109,26 @@ describe("registerLiveActivityPushToken content state", () => {
     expect(lastUpsertArg?.body.muted).toBe(true);
   });
 
+  /**
+   * The platform composes each push by looking a phase up in this map, so a
+   * table built as if the mic were live would push "Listening…" over the local
+   * "Muted" on the first phase change after iOS suspends the web view, which
+   * is the only state the island is ever seen in.
+   */
+  test("bakes the mute state into the pushed label table", async () => {
+    await registerLiveActivityPushToken({ ...REGISTRATION, muted: true });
+
+    expect(lastUpsertArg?.body.labels.listening).toBe("Muted");
+    // The assistant's own phases are unaffected by a muted mic.
+    expect(lastUpsertArg?.body.labels.thinking).toBe("Thinking…");
+  });
+
+  test("pushes the listening label unmuted when the mic is live", async () => {
+    await registerLiveActivityPushToken({ ...REGISTRATION, muted: false });
+
+    expect(lastUpsertArg?.body.labels.listening).toBe("Listening…");
+  });
+
   // The stored row is what every background push composes from, so a slow
   // first request landing after a fast second one would leave the island
   // rendering the state the user moved away from.
