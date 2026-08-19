@@ -107,19 +107,24 @@ const feature: CapabilityModule<DesktopCapabilityRegistry> = {
         if (event.sender !== current()?.webContents) {
           return { ok: false, reason: "Main window owns push-to-talk" };
         }
-        const result = resultSchema.parse(
-          await helper.call("hotkey.setPushToTalk", { activator }),
-        );
+        if (pressed) {
+          sendState("up");
+        }
+        owner = activator ? event.sender : null;
+        registeredActivator = activator;
+        let result: PushToTalkRegistrationResult;
+        try {
+          result = resultSchema.parse(
+            await helper.call("hotkey.setPushToTalk", { activator }),
+          );
+        } catch (error) {
+          sendRegistrationState(false);
+          throw error;
+        }
         if (!result.ok) {
-          if (pressed) {
-            sendState("up");
-          }
           owner = null;
           registeredActivator = null;
           return result;
-        }
-        if (pressed) {
-          sendState("up");
         }
         owner = result.enabled ? event.sender : null;
         registeredActivator = result.enabled ? activator : null;

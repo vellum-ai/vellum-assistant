@@ -81,6 +81,16 @@ public static class PushToTalkKeyPlanner
     public static ushort ResolveKey(string label) => label switch
     {
         " " or "Spacebar" => 0x20,
+        ")" => 0x30,
+        "!" => 0x31,
+        "@" => 0x32,
+        "#" => 0x33,
+        "$" => 0x34,
+        "%" => 0x35,
+        "^" => 0x36,
+        "&" => 0x37,
+        "*" => 0x38,
+        "(" => 0x39,
         "ArrowUp" => 0x26,
         "ArrowDown" => 0x28,
         "ArrowLeft" => 0x25,

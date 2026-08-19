@@ -55,6 +55,9 @@ public static class PushToTalkChordTrackerTests
         Assert(PushToTalkKeyPlanner.ResolveKey(" ") == 0x20);
         Assert(PushToTalkKeyPlanner.ResolveKey("ArrowUp") == 0x26);
         Assert(PushToTalkKeyPlanner.ResolveKey("?") == 0xBF);
+        Assert(PushToTalkKeyPlanner.ResolveKey("!") == 0x31);
+        Assert(PushToTalkKeyPlanner.ResolveKey("@") == 0x32);
+        Assert(PushToTalkKeyPlanner.ResolveKey(")") == 0x30);
     }
 
     private static void KeepsSidedModifiersPressed()

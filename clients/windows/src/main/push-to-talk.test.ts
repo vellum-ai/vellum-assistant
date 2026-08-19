@@ -118,4 +118,25 @@ test("restores the main window binding after a helper restart", async () => {
     "vellum:helper:hotkey:registration",
     false,
   );
+
+  const nextActivator = { kind: "modifierOnly", modifiers: ["option"] };
+  helper.call = mock((method: string, params: unknown) => {
+    helper.calls.push({ method, params });
+    return Promise.reject(new Error("helper exited"));
+  });
+  await expect(
+    handler!([nextActivator], { sender: mainSender }),
+  ).rejects.toThrow("helper exited");
+  await Promise.resolve();
+
+  helper.call = mock((method: string, params: unknown) => {
+    helper.calls.push({ method, params });
+    return Promise.resolve({ ok: true, enabled: true });
+  });
+  helper.stateListener!({ status: "running" });
+  await Promise.resolve();
+  expect(helper.calls).toContainEqual({
+    method: "hotkey.setPushToTalk",
+    params: { activator: nextActivator },
+  });
 });
