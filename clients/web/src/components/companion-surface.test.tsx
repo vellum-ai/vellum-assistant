@@ -1,9 +1,23 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "bun:test";
 
+import type { VoiceActivityState } from "@vellumai/ipc-contract";
+
 import { CompanionSurface, FALLBACK_WIDTHS } from "./companion-surface";
 
 afterEach(cleanup);
+
+/** The ordinary middle of a call: unmuted, listening, nothing to decide. */
+const LISTENING_CALL: VoiceActivityState = {
+  phase: "listening",
+  label: "Listening",
+  accentHex: "#5eead4",
+  muted: false,
+  outputMuted: false,
+  detail: "",
+  approvalRequestId: "",
+  assistantName: "Ziggy",
+};
 
 /**
  * The working ring: the surface's answer to "is it doing anything", drawn so it
@@ -141,19 +155,7 @@ describe("the companion surface's working ring", () => {
 
   test("stays dark while a call is waiting on the user", () => {
     const { container } = render(
-      <CompanionSurface
-        phase="call"
-        call={{
-          phase: "listening",
-          label: "Listening",
-          accentHex: "#5eead4",
-          muted: false,
-          outputMuted: false,
-          detail: "",
-          approvalRequestId: "",
-          assistantName: "Ziggy",
-        }}
-      />,
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
     );
     expect(ringOf(container)).toBeNull();
   });
@@ -390,6 +392,86 @@ describe("the pill a watch session holds open", () => {
 });
 
 /**
+ * The way out of a session, which has to reach as far as the indicator does.
+ *
+ * `watching` ranks below `typing` and `call`, so the idle row that carries
+ * Watch is not drawn in either of them while the ring still is. An indicator
+ * the user can see and cannot act on is a worse bargain than no indicator at
+ * all: it names something happening to them and withholds the means to end it.
+ * So both of those phases carry a stop control of their own, on the same
+ * `onWatch` the idle row presses.
+ */
+describe("the companion surface's stop control", () => {
+  const stopOf = (container: HTMLElement): HTMLButtonElement | null =>
+    container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Stop watching"]',
+    );
+
+  const required = (container: HTMLElement): HTMLButtonElement => {
+    const found = stopOf(container);
+    if (!found) {
+      throw new Error("Expected the stop control to render");
+    }
+    return found;
+  };
+
+  test("rides the composer while the user types", () => {
+    const { container } = render(<CompanionSurface phase="typing" watching />);
+    expect(stopOf(container)).not.toBeNull();
+  });
+
+  test("ends the session from the composer", () => {
+    let presses = 0;
+    const { container } = render(
+      <CompanionSurface
+        phase="typing"
+        watching
+        onWatch={() => {
+          presses += 1;
+        }}
+      />,
+    );
+    fireEvent.click(required(container));
+    expect(presses).toBe(1);
+  });
+
+  test("rides the call row too", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" watching call={LISTENING_CALL} />,
+    );
+    expect(stopOf(container)).not.toBeNull();
+  });
+
+  test("ends the session from the call row", () => {
+    let presses = 0;
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        watching
+        call={LISTENING_CALL}
+        onWatch={() => {
+          presses += 1;
+        }}
+      />,
+    );
+    fireEvent.click(required(container));
+    expect(presses).toBe(1);
+  });
+
+  test("is absent from the composer with no session to stop", () => {
+    const { container } = render(<CompanionSurface phase="typing" />);
+    expect(stopOf(container)).toBeNull();
+  });
+
+  test("is absent from the call row with no session to stop", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    expect(stopOf(container)).toBeNull();
+  });
+});
+
+/**
  * The ceiling the Electron canvas is sized to.
  *
  * `companion-window.ts` sizes its window once, for the widest state this
@@ -408,6 +490,25 @@ describe("the companion surface's width ceiling", () => {
     );
     expect(over).toEqual([]);
   });
+
+  /**
+   * The call row is the one the stop control grew, so the bound above is only
+   * worth anything if the entry it checks is the width of the row *with* the
+   * control on it. Five controls is what that row draws, and the card cannot
+   * grow the same way: it is a fixed width, and the composer's field gives up
+   * the space out of its own.
+   */
+  test("sizes the call entry for the row that carries the stop control", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" watching call={LISTENING_CALL} />,
+    );
+    expect(container.querySelectorAll("button")).toHaveLength(4);
+    expect(FALLBACK_WIDTHS.call).toBeGreaterThan(FALLBACK_WIDTHS.hover);
+  });
+
+  test("leaves the card exactly at the ceiling it was already at", () => {
+    expect(FALLBACK_WIDTHS.typing).toBe(CANVAS_CEILING);
+  });
 });
 
 /**
@@ -420,17 +521,6 @@ describe("the companion surface's width ceiling", () => {
  * capture is the failure this surface exists to prevent.
  */
 describe("the companion surface's capture indicator across phases", () => {
-  const LISTENING_CALL = {
-    phase: "listening",
-    label: "Listening",
-    accentHex: "#5eead4",
-    muted: false,
-    outputMuted: false,
-    detail: "",
-    approvalRequestId: "",
-    assistantName: "Ziggy",
-  } as const;
-
   test("survives the composer, which outranks the watching phase", () => {
     const { container } = render(<CompanionSurface phase="typing" watching />);
     expect(ringOf(container)).not.toBeNull();

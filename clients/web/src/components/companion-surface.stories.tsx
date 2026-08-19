@@ -202,8 +202,15 @@ export const Watching: Story = {
  * also the hardest geometry it has to hold, since the card is the one state
  * that is not a pill.
  *
+ * The way out survives with it, in the composer's own trailing controls: the
+ * idle row that carries Watch is not drawn here, and a ring the user can see
+ * and cannot act on is a worse bargain than no ring at all. It sits on this row
+ * rather than a row of its own because the card is already within ten points of
+ * the height main sized the canvas for.
+ *
  * **Turn `watching` off to see what an indicator drawn from the phase would
- * do.** The card goes dark while the screen is still being read.
+ * do.** The card goes dark, and the control goes with it, while the screen is
+ * still being read.
  */
 export const TypingWhileWatching: Story = {
   args: {
@@ -220,6 +227,10 @@ export const TypingWhileWatching: Story = {
  * Two things are live and the surface has one edge to say so with, so the
  * capture takes it: the creature already carries the turn in its own pose,
  * and a call is a thing the user started and can hear.
+ *
+ * The widest row the surface draws outside the card: the activity line and five
+ * controls, with the stop beside what the session is doing rather than beside
+ * End, since two stops in a row is a misclick that ends the wrong one.
  */
 export const InCallWhileWatching: Story = {
   args: { phase: "call", watching: true, call: DEMO_CALL },

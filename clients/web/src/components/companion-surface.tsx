@@ -3,6 +3,7 @@ import {
   AudioLines,
   Check,
   Eye,
+  EyeOff,
   Keyboard,
   Mic,
   MicOff,
@@ -204,7 +205,9 @@ export const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
   // The same row of controls hover draws, since the session is run from it
   // rather than from a row of its own.
   watching: 272,
-  call: 296,
+  // The row with the stop control on it, which is the widest a call draws: a
+  // watch session adds a fifth control to the four the call already has.
+  call: 332,
   typing: 360,
 };
 
@@ -623,8 +626,10 @@ export function CompanionSurface({
         {typing ? (
           <Composer
             assistantName={assistantName}
+            watching={watching}
             onSubmit={onSubmit}
             onCancel={onCancelTyping}
+            onWatch={onWatch}
           />
         ) : (
           <div
@@ -644,7 +649,12 @@ export function CompanionSurface({
             }}
           >
             {phase === "call" ? (
-              <CallBody call={call} onControl={onControl} />
+              <CallBody
+                call={call}
+                watching={watching}
+                onControl={onControl}
+                onWatch={onWatch}
+              />
             ) : (
               <IdleBody
                 spotlight={spotlight}
@@ -732,15 +742,28 @@ function RecentTurns({ turns }: { turns: CompanionTurn[] }) {
  * pressing Type changes what the pill contains without changing what the pill
  * is: empty, focused, or full of text, it is the same elongated single line as
  * the voice states. Growth happens above it, never to it.
+ *
+ * **It carries the stop control while a watch session runs**, because the card
+ * is the one state with no control row of its own and the ring around it says
+ * the screen is being read in every state. An indicator the user can see and
+ * cannot act on is a worse bargain than no indicator: it names something
+ * happening to them and withholds the means to end it. The row is where it fits
+ * without cost, since the card is a fixed {@link CARD_WIDTH} and the field
+ * takes the space out of its own flexible width rather than out of the card's,
+ * and a row added above would push the card past the canvas main sized for it.
  */
 function Composer({
   assistantName,
+  watching,
   onSubmit,
   onCancel,
+  onWatch,
 }: {
   assistantName: string;
+  watching: boolean;
   onSubmit?: (message: string) => void;
   onCancel?: () => void;
+  onWatch?: () => void;
 }) {
   // The draft is the composer's own and never leaves except as a submitted
   // message. Holding it in the page instead would re-render the whole surface,
@@ -795,6 +818,7 @@ function Composer({
         }}
         className="min-w-0 flex-1 bg-transparent text-[12px] text-white/85 placeholder:text-white/40 focus:outline-none"
       />
+      {watching && <StopWatchingButton onWatch={onWatch} />}
       {/* **The way out, and the way on, in one control.** With nothing typed
           there is nothing to send, so the trailing control is the way back to
           the pill; the moment there are words it becomes the way to send them.
@@ -984,15 +1008,25 @@ function IdleBody({
  */
 function CallBody({
   call,
+  watching,
   onControl,
+  onWatch,
 }: {
   call?: VoiceActivityState;
+  watching: boolean;
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
+  onWatch?: () => void;
 }) {
   // The confirmation takes the row rather than crowding into it. The turn is
   // stopped until it is answered, so it is the only thing here worth pressing,
   // and a pill that tried to carry five controls would make each of them a
   // smaller target than the decision deserves.
+  //
+  // The watch session's stop control is among what it excludes. The row already
+  // measures within a couple of points of the canvas ceiling, and what a canvas
+  // too narrow does is clip its trailing control, so adding one here risks
+  // clipping Deny. A blocked turn is reading nothing while it waits, and
+  // answering it lands back on the row that carries the stop.
   if (call !== undefined && call.approvalRequestId !== "") {
     return (
       <ApprovalBody
@@ -1021,6 +1055,10 @@ function CallBody({
       <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
         {line}
       </span>
+      {/* Beside what the session is doing rather than beside the end control:
+          two stops next to each other is a misclick that ends the wrong thing,
+          and only one of the two is irreversible. */}
+      {watching && <StopWatchingButton onWatch={onWatch} />}
       <PillButton
         icon={
           muted ? <MicOff className="size-4" /> : <Mic className="size-4" />
@@ -1105,6 +1143,25 @@ function ApprovalBody({
         }}
       />
     </>
+  );
+}
+
+/**
+ * End the watch session, on whichever row the user is looking at.
+ *
+ * One component for the two that draw it, because the label is the whole of
+ * what this control says. It carries no words, so an accessible name that
+ * drifted between the composer and the call row would be two different controls
+ * to anyone reading the surface rather than looking at it, and this is the
+ * control a user reaches for precisely when they want the reading to stop.
+ */
+function StopWatchingButton({ onWatch }: { onWatch?: () => void }) {
+  return (
+    <PillButton
+      icon={<EyeOff className="size-4" />}
+      label="Stop watching"
+      onClick={onWatch}
+    />
   );
 }
 
