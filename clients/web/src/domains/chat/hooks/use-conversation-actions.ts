@@ -393,10 +393,10 @@ export function useConversationActions({
         },
         throwOnError: true,
       });
-      /* The rows as the daemon stored them. Absent against one that predates
-         this field, which needs no version gate: no rows means nothing to
-         apply, and the settle reconciles from the optimistic placement's own
-         keys exactly as it did before. */
+      /* The rows as the daemon stored them. A daemon that does not serve this
+         field answers with none, which needs no version gate: no rows means
+         nothing to apply, and the settle reconciles from the optimistic
+         placement's own section keys. */
       return (data?.conversations ?? []).map(toConversation);
     },
     onMutate: async ({
@@ -452,11 +452,21 @@ export function useConversationActions({
         return;
       }
       for (const row of rows) {
+        /* The placement fields only. The response is authoritative about
+           where this write put the row, and a snapshot of everything else:
+           the daemon read those values before answering, so a rename, a
+           landing message, or a seen-state change between that read and this
+           patch would be reverted by applying them. Placement is the one part
+           of the row this request is the reason for. */
         for (const queryKey of patchConversation(
           queryClient,
           aid,
           row.conversationId,
-          row,
+          {
+            groupId: row.groupId,
+            isPinned: row.isPinned,
+            surfacedAt: row.surfacedAt,
+          },
         )) {
           placement.sectionKeys.set(hashKey(queryKey), queryKey);
         }
