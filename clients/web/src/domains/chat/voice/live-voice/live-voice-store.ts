@@ -38,7 +38,10 @@ import { createSelectors } from "@/utils/create-selectors";
  * - `idle` — no session (or a finished one cleaned up).
  * - `connecting` — minting a token / opening the socket, before `ready`.
  * - `listening` — mic is capturing and streaming PCM to the server.
- * - `transcribing` — push-to-talk released; waiting on the final transcript.
+ * - `transcribing` — the user's utterance closed; waiting on the final
+ *   transcript. Set by server VAD's `utterance_end` in hands-free and by the
+ *   turn-boundary `ptt_release` frame in manual mode. Carries no wording of its
+ *   own; see {@link LIVE_VOICE_STATE_LABELS}.
  * - `thinking` — server is generating the assistant response.
  * - `speaking` — TTS audio is queued/playing.
  * - `ending` — graceful teardown in progress.
@@ -63,12 +66,26 @@ export type LiveVoiceSessionState =
  * streams into the thread transcript like text chat, so surfaces only carry a
  * small label. `idle`/`failed` map to an empty label — hosts unmount their
  * voice UI in those states.
+ *
+ * `transcribing` deliberately shares `thinking`'s wording rather than having
+ * its own (JARVIS-1559). {@link toVoiceAvatarVisual} already collapses the two,
+ * so a distinct label left the avatar animating thinking and the eyes caption
+ * reading "Thinking" while the label beside them said "Transcribing…", for a
+ * window that is usually under a second and that offers the user nothing to do
+ * with the distinction. Mapped here rather than in {@link liveVoiceSurfaceLabel}
+ * so the phase has no wording of its own on any surface: the session pill and
+ * the composer's voice bar read this table directly and would otherwise keep
+ * the split alive.
+ *
+ * The phase itself stays. It stamps end-of-speech latency and gates the
+ * `utterance_discarded` return to `listening`, so collapsing the *state* would
+ * break both.
  */
 export const LIVE_VOICE_STATE_LABELS: Record<LiveVoiceSessionState, string> = {
   idle: "",
   connecting: "Connecting…",
   listening: "Listening…",
-  transcribing: "Transcribing…",
+  transcribing: "Thinking…",
   thinking: "Thinking…",
   speaking: "Speaking…",
   ending: "Ending…",
