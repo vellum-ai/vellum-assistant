@@ -15,6 +15,7 @@ import { getIsPlatform } from "../../config/env-registry.js";
 import { getConfig } from "../../config/loader.js";
 import {
   registerCallbackRoute,
+  registerLocalWebhookRoute,
   resolvePlatformCallbackRegistrationContext,
 } from "../../inbound/platform-callback-registration.js";
 import {
@@ -115,7 +116,8 @@ async function registerWithPlatform(
  *      Velay-published `ingress.publicBaseUrl` wins and platform
  *      registration is the fallback for any failure to resolve it —
  *      including an explicit `ingress.enabled: false`, matching
- *      `resolveCallbackUrl`'s pod behavior.
+ *      `resolveCallbackUrl`'s pod behavior. The subpath is claimed on the
+ *      gateway first, and a refused claim falls back the same way.
  *   2. **A configured public ingress wins** for everyone else. That URL is
  *      either the user's own tunnel (ngrok, a custom domain) or the Velay
  *      tunnel URL the gateway publishes into `ingress.publicBaseUrl`, so a
@@ -147,17 +149,23 @@ async function handleWebhooksRegister(
 
   if (getIsPlatform()) {
     if (isVelayWebhooksEnabled()) {
+      let baseUrl: string | undefined;
       try {
-        const baseUrl = getPublicBaseUrl(getConfig());
+        baseUrl = getPublicBaseUrl(getConfig());
+      } catch {
+        // No published tunnel URL yet (or ingress toggled off) — platform
+        // registration keeps webhooks working.
+      }
+      if (
+        baseUrl !== undefined &&
+        (await registerLocalWebhookRoute(webhookPath, type, sourceIdentifier))
+      ) {
         return {
           callbackUrl: `${baseUrl}/${webhookPath}`,
           type,
           path: webhookPath,
           mode: "self-hosted",
         };
-      } catch {
-        // No published tunnel URL yet (or ingress toggled off) — platform
-        // registration keeps webhooks working.
       }
     }
     return registerWithPlatform(webhookPath, type, sourceIdentifier);
