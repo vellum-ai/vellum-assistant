@@ -29,6 +29,7 @@ import {
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
+import { nativeAttachmentPickersAvailable } from "@/domains/chat/components/chat-attachments/native-attachment-pickers";
 import { AddToChatSheet } from "@/domains/chat/components/chat-composer/add-to-chat-sheet";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 import {
@@ -138,7 +139,12 @@ export interface ChatComposerProps {
   // (which depends on the active model) before queueing the upload. The rest of
   // the attachment lifecycle — the strip, the uploading/can-send derivation, and
   // removal — is read straight from the composer store below.
-  onAddAttachmentFiles: (files: FileList | File[]) => void;
+  /**
+   * Takes the picked files and answers with the ones it kept, where it filters
+   * at all. Returning nothing counts as keeping them, so a caller that does no
+   * filtering stays a plain callback and cannot free an allowance by accident.
+   */
+  onAddAttachmentFiles: (files: FileList | File[]) => File[] | void;
 
   // voice — optional; when `voiceInputRef` is omitted the voice button is
   // skipped entirely (matches the app-editing variant which has no voice).
@@ -768,6 +774,9 @@ export function ChatComposer({
   );
 
   const [addSheetOpen, setAddSheetOpen] = useState(false);
+  // Whether a picker the sheet launched is still up. The sheet closes itself
+  // before opening one, so its own flag above cannot answer for the pick.
+  const [addSheetPickerOpen, setAddSheetPickerOpen] = useState(false);
   // Latched on the first open and never reset. The sheet closes itself before
   // it hands off to the OS picker, so a shell that crossed the breakpoint while
   // that picker was up would take the sheet's hidden inputs with it.
@@ -781,15 +790,27 @@ export function ChatComposer({
   // Subscribed rather than read once: a convertible whose keyboard comes off
   // mid-session changes whether a press on the row carries focus with it.
   const pointerCoarseNow = usePointerCoarse();
-  // The Android shell is the one surface that still needs a list of its own.
-  // Capacitor's `BridgeWebChromeClient` only reaches a camera intent when the
-  // input carries `capture` AND an `image/*` or `video/*` accept
+  // Two shells want a list of their own, for different reasons.
+  //
+  // A shell holding the native pickers wants one because its rows go straight
+  // to the surface they name: the photo row opens the system photo picker and
+  // the files row the document browser, neither of which a file input can
+  // reach. Without them a row can only raise the OS chooser the plain input
+  // already raises, which is a list in front of a list.
+  //
+  // The Android shell wants one either way. Capacitor's
+  // `BridgeWebChromeClient` only reaches a camera intent when the input
+  // carries `capture` AND an `image/*` or `video/*` accept
   // (`onShowFileChooser`); anything else goes straight to `ACTION_GET_CONTENT`,
   // which is a document picker with no way to take a photo. WebKit's own sheet
   // offers the camera for a bare input, and Android in a browser gets
   // Chromium's chooser, which does the same.
+  //
+  // Read rather than subscribed: neither the shell a session runs in nor the
+  // plugins its build links can change mid-session.
   const isNativeAndroidShell = useIsNativeAndroid();
-  const usesAddSheet = isMobile && isNativeAndroidShell;
+  const usesAddSheet =
+    isMobile && (isNativeAndroidShell || nativeAttachmentPickersAvailable());
 
   // Whether a press on one of the row's controls has to hold the composer's
   // focus for the click behind it. Both halves are load-bearing and neither one
@@ -831,6 +852,7 @@ export function ChatComposer({
     composerFocusWithin ||
     settingsSheetOpen ||
     addSheetOpen ||
+    addSheetPickerOpen ||
     attachPickerOpen;
   // Whether a banner is standing over the card. Read off the box rather than
   // derived from props: most of that stack arrives through
@@ -1671,6 +1693,7 @@ export function ChatComposer({
               open={addSheetOpen}
               onOpenChange={handleAddSheetOpenChange}
               onAttachFiles={onAddAttachmentFiles}
+              onPickerOpenChange={setAddSheetPickerOpen}
             />
           )}
         </ComposerCompactProvider>

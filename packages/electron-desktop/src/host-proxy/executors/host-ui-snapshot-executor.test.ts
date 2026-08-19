@@ -1,26 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
 
-// Avoid pulling the electron-log file backend into the test process.
-mock.module("electron-log/main", () => {
-  const noop = () => {};
-  return {
-    default: {
-      info: noop,
-      warn: noop,
-      error: noop,
-      debug: noop,
-      initialize: noop,
-      transports: {
-        file: { maxSize: 0, fileName: "", format: "", getFile: () => ({ path: "" }) },
-      },
-    },
-  };
-});
-
 import { createHostUiSnapshotExecutor } from "./host-ui-snapshot-executor";
 import type { StagedCaptureFn } from "./host-ui-snapshot-executor";
-import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
-import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
+import type { HostProxyPoster } from "../poster";
+import type { HostProxySseMessage } from "../sse";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 

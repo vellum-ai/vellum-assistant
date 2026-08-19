@@ -54,6 +54,10 @@ import {
 import { installAvatarIpc } from "@vellumai/electron-desktop/avatar";
 import { installConnectivityProbe } from "@vellumai/electron-desktop/connectivity-probe";
 import { installIdentityIpc } from "@vellumai/electron-desktop/identity";
+import {
+  configureNotifications,
+  installNotifications,
+} from "@vellumai/electron-desktop/notifications";
 import { installPowerEvents } from "@vellumai/electron-desktop/power-events";
 import { configurePresenceRuntime } from "@vellumai/electron-desktop/presence-runtime";
 import {
@@ -103,7 +107,6 @@ import {
 } from "./move-to-applications";
 import { markRelocationSkipped } from "./install-location";
 import { installNativeAuth } from "./native-auth.client";
-import { installNotifications } from "./notifications";
 import { installPermissionsService } from "./permissions-service";
 import {
   installCompanionWindow,
@@ -484,6 +487,11 @@ app
     // panel. Distinct from `installShare`, which is the "send elsewhere" intent.
     installDownloads();
     installPowerEvents();
+    configureNotifications({
+      ipc: { handle },
+      ensureVisible: ensureMainWindowVisible,
+      logger: log,
+    });
     installNotifications();
     // Register the status channel before the tray installs so the tray's
     // initial render reflects any status the renderer publishes during
