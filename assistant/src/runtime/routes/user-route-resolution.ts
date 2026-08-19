@@ -67,6 +67,23 @@ export interface RouteLocation {
 }
 
 /**
+ * The manifest name of the plugin whose namespace an `/x/` route path falls in,
+ * or undefined for a workspace route.
+ *
+ * The dispatcher marks that plugin as in context for the handler's execution,
+ * so host APIs a route handler reaches (`resolveCredential`,
+ * `indexDocument`) scope to the owning plugin exactly as they do inside its
+ * hooks and tools.
+ */
+export function pluginNameForRoutePath(routePath: string): string | undefined {
+  const segments = routePath.split("/");
+  if (segments[0] !== PLUGIN_ROUTE_SEGMENT) {
+    return undefined;
+  }
+  return segments[1] || undefined;
+}
+
+/**
  * Resolve an `/x/` route path to the base directory + sub-path the handler file
  * is looked up under.
  *
@@ -87,7 +104,7 @@ export interface RouteLocation {
 export function resolveRouteLocation(routePath: string): RouteLocation | null {
   const segments = routePath.split("/");
   if (segments[0] === PLUGIN_ROUTE_SEGMENT) {
-    const pluginName = segments[1];
+    const pluginName = pluginNameForRoutePath(routePath);
     if (!pluginName) {
       return null;
     }

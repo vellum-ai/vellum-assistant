@@ -1018,7 +1018,9 @@ export function ResearchOnboardingRoute() {
       ? edgeAvatars
       : 0;
     return withHatchError(
-      <OnboardingStage>
+      // The backdrop animates this screen's color, so it publishes the shell's
+      // safe-area surface itself rather than the stage pinning a static one.
+      <OnboardingStage surface={null}>
         <OnboardingTonedBackdrop
           eyesBumpNonce={eyesBump}
           peekLevel={peekLevel}

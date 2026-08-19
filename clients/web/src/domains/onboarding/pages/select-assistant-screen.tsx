@@ -10,6 +10,7 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { refreshPlatformAssistantsIfStale } from "@/assistant/platform-assistants-sync";
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { retireAssistant } from "@/assistant/retire-service";
 import { isCurrentOrigin, switchToOrigin } from "@/assistant/switch-origin";
@@ -28,7 +29,7 @@ import {
 import { AddRemoteOriginDialog } from "@/domains/onboarding/components/add-remote-origin-dialog";
 import { ConnectAssistantDialog } from "@/domains/onboarding/components/connect-assistant-dialog";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
-import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { OnboardingLayout } from "@/components/onboarding-layout";
 import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
 import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
@@ -72,7 +73,15 @@ function assistantLabel(a: ResolvedAssistant): string {
   if (a.isPaired) {
     return "Paired Assistant";
   }
-  return a.isLocal ? "Local Assistant" : "Cloud Assistant";
+  if (a.isLocal && a.cloud === "local") {
+    // Lockfile-sourced local ids are friendly generated instance names;
+    // API-sourced hub registrations carry platform UUIDs instead.
+    return a.id;
+  }
+  if (a.isLocal) {
+    return "Local Assistant";
+  }
+  return "Cloud Assistant";
 }
 
 /** A hub-listed self-hosted entry lives on another machine; name its host. */
@@ -163,6 +172,7 @@ export function SelectAssistantScreen() {
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
   const assistantSwitcher = useClientFeatureFlagStore.use.assistantSwitcher();
+  const webRemoteIngress = useClientFeatureFlagStore.use.webRemoteIngress();
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
   const origins = useRememberedOriginsStore.use.origins();
   const originsHydrated = useRememberedOriginsStore.use.hydrated();
@@ -258,6 +268,13 @@ export function SelectAssistantScreen() {
   // sudden auto-connect to the sole remaining assistant would be jarring, so
   // the auto-skip stands down for the rest of the visit.
   const removedThisVisitRef = useRef(false);
+
+  // Post-hatch ingress provisioning can land after the last list fetch;
+  // refresh on mount so the new assistant shows up. Session and mode guards
+  // live in the sync module, so this is a no-op off a logged-in hub.
+  useEffect(() => {
+    void refreshPlatformAssistantsIfStale();
+  }, []);
 
   // Platform-mode access gate: the hub chooser exists only behind the
   // assistant-switcher flag, whose real value lands asynchronously, so a
@@ -847,8 +864,9 @@ export function SelectAssistantScreen() {
           )}
           {/* Hostless surfaces (hub browser, remote-gateway mode, native
               mobile) add origins by URL; local desktop clients keep the
-              bundle-paste connect flow above instead. */}
-          {assistantSwitcher && !localModeHostAvailable && (
+              bundle-paste connect flow above instead. The web-remote-ingress
+              client flag decides whether the affordance shows at all. */}
+          {assistantSwitcher && webRemoteIngress && !localModeHostAvailable && (
             <DashedActionButton
               icon={<Globe className="h-4 w-4" />}
               label={t("selectAssistantScreen.addRemote")}
@@ -1250,12 +1268,16 @@ function RemoteOriginCard({
   /** Opens the remove-from-this-device confirmation, when there is one. */
   onRemove?: () => void;
 }) {
+  const { t } = useTranslation("onboarding");
   const label = originLabel(origin);
+  const subtitleKey = current
+    ? "selectAssistantScreen.currentWithHost"
+    : "selectAssistantScreen.remoteWithHost";
   return (
     <ChooserCard
       icon={icon ?? <Globe className="h-5 w-5" />}
       title={label}
-      subtitle={`${current ? "Current" : "Remote"} · ${originHostname(origin)}`}
+      subtitle={t(subtitleKey, { host: originHostname(origin) })}
       selected={selected}
       tabStop={tabStop}
       onSelect={onSelect}

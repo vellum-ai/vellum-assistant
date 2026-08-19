@@ -22,12 +22,11 @@ import { createElement, type ReactNode } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
+import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
 import {
-  conversationsQueryKey,
-  sectionConversationsQueryKey,
-  type ConversationListPage,
-  type SectionConversationFilter,
-} from "@/utils/conversation-list-fetchers";
+  conversationListQueryKey,
+  type ConversationListFilter,
+} from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 
 type ReorderImpl = (opts: unknown) => Promise<{
@@ -63,8 +62,8 @@ const { useConversationActions } =
 // ---------------------------------------------------------------------------
 
 const ASSISTANT_ID = "asst-1";
-const PINNED: SectionConversationFilter = { groupId: "system:pinned" };
-const SLACK: SectionConversationFilter = {
+const PINNED: ConversationListFilter = { groupId: "system:pinned" };
+const SLACK: ConversationListFilter = {
   groupId: "system:all",
   originChannel: "slack",
 };
@@ -75,17 +74,17 @@ const SLACK_ROW: Conversation = {
   lastMessageAt: 1_000,
 };
 
-function setup(sections: Array<[SectionConversationFilter, Conversation[]]>) {
+function setup(sections: Array<[ConversationListFilter, Conversation[]]>) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   client.setQueryData<ConversationListPage>(
-    conversationsQueryKey(ASSISTANT_ID),
+    conversationListQueryKey(ASSISTANT_ID),
     listPage([SLACK_ROW]),
   );
   for (const [filter, rows] of sections) {
     client.setQueryData(
-      sectionConversationsQueryKey(ASSISTANT_ID, filter),
+      conversationListQueryKey(ASSISTANT_ID, filter),
       listPage(rows),
     );
   }
@@ -109,14 +108,11 @@ function setup(sections: Array<[SectionConversationFilter, Conversation[]]>) {
   return { result, client };
 }
 
-function idsIn(
-  client: QueryClient,
-  filter: SectionConversationFilter,
-): string[] {
+function idsIn(client: QueryClient, filter: ConversationListFilter): string[] {
   return (
     client
       .getQueryData<ConversationListPage>(
-        sectionConversationsQueryKey(ASSISTANT_ID, filter),
+        conversationListQueryKey(ASSISTANT_ID, filter),
       )
       ?.conversations.map((c) => c.conversationId) ?? []
   );
@@ -321,7 +317,7 @@ describe("pin/unpin placement", () => {
       [SLACK, [SLACK_ROW]],
       [PINNED, []],
     ]);
-    const pinnedKey = sectionConversationsQueryKey(ASSISTANT_ID, PINNED);
+    const pinnedKey = conversationListQueryKey(ASSISTANT_ID, PINNED);
 
     // A: pin. Its request resolves, but B starts before A settles.
     await act(async () => {
@@ -386,12 +382,13 @@ describe("pin/unpin placement", () => {
 
     await waitFor(() => {
       expect(
-        client.getQueryState(sectionConversationsQueryKey(ASSISTANT_ID, PINNED))
+        client.getQueryState(conversationListQueryKey(ASSISTANT_ID, PINNED))
           ?.isInvalidated,
       ).toBe(true);
     });
     expect(
-      client.getQueryState(conversationsQueryKey(ASSISTANT_ID))?.isInvalidated,
+      client.getQueryState(conversationListQueryKey(ASSISTANT_ID))
+        ?.isInvalidated,
     ).toBe(false);
   });
 });

@@ -50,8 +50,7 @@ mock.module("../../config.js", () => ({
   }),
 }));
 
-const { readMemoryV2StaticContent, shouldExposePersonalMemory } =
-  await import("../static-context.js");
+const { readMemoryV2StaticContent } = await import("../static-context.js");
 
 const MEMORY_FILES = [
   "essentials.md",
@@ -359,64 +358,5 @@ describe("readMemoryV2StaticContent Buffer cap", () => {
     expect(lines.filter((line) => line === "line-0")).toHaveLength(3);
     expect(lines.filter((line) => line === "line-29")).toHaveLength(3);
     expect(lines.some((line) => line.endsWith("entry-0"))).toBe(false);
-  });
-});
-
-describe("shouldExposePersonalMemory", () => {
-  test("allows guardian-trusted local conversations", () => {
-    expect(
-      shouldExposePersonalMemory({
-        sourceChannel: "vellum",
-        isTrustedActor: true,
-      }),
-    ).toBe(true);
-  });
-
-  test("allows local-channel conversations even when trust class is unknown (analyze runs, dev)", () => {
-    expect(
-      shouldExposePersonalMemory({
-        sourceChannel: "vellum",
-        isTrustedActor: false,
-      }),
-    ).toBe(true);
-  });
-
-  test("allows turns with no trust context (work-item task runs, internal background)", () => {
-    expect(
-      shouldExposePersonalMemory({
-        sourceChannel: undefined,
-        isTrustedActor: false,
-      }),
-    ).toBe(true);
-  });
-
-  const REMOTE_CHANNELS = [
-    "phone",
-    "slack",
-    "telegram",
-    "whatsapp",
-    "email",
-  ] as const;
-
-  test("allows guardian-trusted remote channels (user's own phone/Slack)", () => {
-    for (const channel of REMOTE_CHANNELS) {
-      expect(
-        shouldExposePersonalMemory({
-          sourceChannel: channel,
-          isTrustedActor: true,
-        }),
-      ).toBe(true);
-    }
-  });
-
-  test("blocks non-guardian remote-channel actors (the leak this gate exists to prevent)", () => {
-    for (const channel of REMOTE_CHANNELS) {
-      expect(
-        shouldExposePersonalMemory({
-          sourceChannel: channel,
-          isTrustedActor: false,
-        }),
-      ).toBe(false);
-    }
   });
 });

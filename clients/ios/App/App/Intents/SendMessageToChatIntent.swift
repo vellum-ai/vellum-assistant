@@ -1,18 +1,20 @@
 import AppIntents
 
-/// "Send Message to Chat": open a chosen existing conversation with a
-/// message staged in its composer, one tap from sent, continuing that
-/// conversation's context (LUM-3230).
+/// "Send Message to Chat": send a message into a chosen existing
+/// conversation, continuing that conversation's context (LUM-3230).
 ///
 /// The chat comes from `ChatEntity`'s picker (backed by the synced
 /// recent-chats cache) and the message is free-form text, so a Shortcuts
 /// automation can feed both. The pair rides a `<scheme>://thread/<id>` deep
-/// link into the SPA, which navigates to the conversation, pre-fills the
-/// composer, and focuses it. The final send deliberately stays with the
-/// user: a custom-scheme URL is openable by any app or web page, so nothing
-/// a deep link delivers may become a tool-capable turn on its own (the same
-/// interim contract as `AskVellumIntent`'s prompt; JARVIS-1522 tracks the
-/// provenance seam that could make a proven-intent link auto-send).
+/// link into the SPA, which navigates to the conversation and sends the
+/// message once it has confirmed the conversation still exists (a stale
+/// picker entry degrades to a pre-filled composer, nothing sent elsewhere).
+///
+/// The SPA sends on the intent's behalf only because the shell proves the
+/// link came from an intent: `AppDelegate.deliverCommandURL(_:)`, which only
+/// in-process intents call, marks the URL, and every externally opened URL
+/// has that marker stripped (`CommandURLProvenance`, LUM-3281). The same
+/// URL opened from Safari or another app therefore only pre-fills.
 ///
 /// The app must open for that to happen: the web view is the only executor
 /// this shell has, so this is a foreground intent, not a background send.
@@ -29,7 +31,7 @@ import AppIntents
 struct SendMessageToChatIntent: AppIntent {
     static var title: LocalizedStringResource = "Send Message to Chat"
     static var description = IntentDescription(
-        "Open a chosen Vellum chat with your message filled in, ready to send."
+        "Open a chosen Vellum chat and send your message there, continuing that conversation."
     )
 
     @Parameter(

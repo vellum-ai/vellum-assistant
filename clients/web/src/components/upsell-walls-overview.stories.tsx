@@ -13,9 +13,8 @@
  * Two things worth knowing before reading it:
  *
  *   - **Add credits vs Upgrade is one branch, not a redesign.** Every credit
- *     wall says "Add credits" unless the `experiment-billing-cta-2026-07-23`
- *     flag is on the `upgrade-cta` arm *and* the org is on the free (`base`)
- *     plan. Paid orgs keep "Add credits" in both arms.
+ *     wall says "Add credits" unless the org is on the free (`base`) plan.
+ *     Paid orgs keep "Add credits".
  *   - **Every non-credit upsell in the app routes to `routes.plans`**, the
  *     plans takeover. There is no second upsell destination.
  */
@@ -176,7 +175,7 @@ export const CreditWalls: Story = {
       <Group heading="Credit walls">
         <WallCase
           wall="Out of credits (default)"
-          trigger="Balance ≤ 0. Control arm, or any paid plan (an unresolved plan counts as paid)."
+          trigger="Balance ≤ 0 on any paid plan (an unresolved plan counts as paid)."
           cta={ADD_CREDITS_COPY.ctaLabel}
           destination="Add Credits modal → Stripe checkout"
         >
@@ -191,8 +190,8 @@ export const CreditWalls: Story = {
         </WallCase>
 
         <WallCase
-          wall="Out of credits (free plan, upgrade arm)"
-          trigger="Balance ≤ 0, experiment-billing-cta-2026-07-23 = upgrade-cta, AND plan_id = base."
+          wall="Out of credits (free plan)"
+          trigger="Balance ≤ 0 AND plan_id = base."
           cta={UPGRADE_COPY.ctaLabel}
           destination="/assistant/plans (plans takeover)"
         >

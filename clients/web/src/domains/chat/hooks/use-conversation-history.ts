@@ -434,10 +434,13 @@ export function useConversationHistory({
           interactions.pendingConfirmation &&
           !useInteractionStore.getState().pendingConfirmation
         ) {
-          const { state } = parsePendingConfirmationData(
-            interactions.pendingConfirmation as Record<string, unknown>,
-          );
-          useInteractionStore.getState().showConfirmation(state);
+          useInteractionStore
+            .getState()
+            .showConfirmation(
+              parsePendingConfirmationData(
+                interactions.pendingConfirmation as Record<string, unknown>,
+              ),
+            );
         }
         if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
           useConversationStore

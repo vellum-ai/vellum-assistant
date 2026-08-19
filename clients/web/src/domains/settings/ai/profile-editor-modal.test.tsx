@@ -1429,6 +1429,35 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     expect(optionLabels).toContain("openrouter/fusion");
   });
 
+  test("renders a bound openai-compatible model the connection list omits, and keeps Save enabled", () => {
+    // An openai-compatible profile can be bound to a pass-through id
+    // (gateway alias, unrefreshed model) that the connection's returned
+    // list does not include. The Model field still shows that id, and
+    // Save stays enabled.
+    const lmStudio = {
+      ...makeConnection("lm-studio", "openai-compatible"),
+      models: [{ id: "llama-3.1", displayName: "Llama 3.1" }],
+    } as unknown as ProviderConnection;
+
+    renderEdit(
+      {
+        name: "local-llm",
+        label: "Local LLM",
+        provider: "openai-compatible",
+        model: "gateway-alias",
+        provider_connection: "lm-studio",
+        status: "active",
+      },
+      lmStudio,
+    );
+
+    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
+    expect(triggerLabels).toContain("gateway-alias");
+    expect(triggerLabels).not.toContain("Select a model");
+    expect(document.body.textContent).not.toContain("Select a model.");
+    expect(getSaveBtn().disabled).toBe(false);
+  });
+
   test("clears a catalog model the connection's subscription filters out, rather than offering it", async () => {
     // A ChatGPT-subscription OpenAI connection only accepts the Codex-compatible
     // model set, so a profile pinned to an in-catalog but non-Codex model

@@ -16,6 +16,7 @@ import { useMemo } from "react";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
+import { isSubagentSpawnCall } from "@/domains/chat/transcript/message-content";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -77,15 +78,35 @@ export function useTranscriptData({
   );
 
   // --- Confirmation attachment check --------------------------------------
-  // A confirmation that is already attached to an inline tool-call chip
-  // should NOT also appear as a standalone transcript trailer row.
+  // The trailer row is the home for a prompt no chip is showing, so the two
+  // surfaces have to agree on one question: is this prompt on screen already?
+  //
+  // "Attached to a tool call" is not that question. A subagent spawn carries a
+  // prompt like any other call but renders no chip (`renderableToolCalls` in
+  // `transcript-message-body` filters it out in favour of the inline subagent
+  // card), so counting it as shown suppresses the trailer too and the user is
+  // asked to approve something with no visible prompt. Attachment is only
+  // "shown" when the carrying call is one the transcript actually draws.
+  //
+  // The other half of that filter, card-backing, is deliberately not mirrored.
+  // Every route into it turns true only once the call has run: a workflow or
+  // ACP id arrives on the launch event or in the result, a background-task id
+  // is parsed out of the result, and an answered question is answered. A
+  // pending prompt gates execution, so the call carrying one has not run and
+  // cannot be card-backed by any of the four. Mirroring it would also mean
+  // threading three store subscriptions into this hook to answer that.
+  //
+  // If that ever stops holding, the failure mode is this trailer going quiet
+  // again for the affected call, so a card-backing route that can precede
+  // execution needs mirroring here as well.
   const pendingConfirmationAttachedToToolCall = useMemo(
     () =>
       pendingConfirmation != null &&
       sanitizedMessages.some((m) =>
         m.toolCalls?.some(
           (tc) =>
-            tc.pendingConfirmation?.requestId === pendingConfirmation.requestId,
+            tc.pendingConfirmation?.requestId ===
+              pendingConfirmation.requestId && !isSubagentSpawnCall(tc),
         ),
       ),
     [pendingConfirmation, sanitizedMessages],

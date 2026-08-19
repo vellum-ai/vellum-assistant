@@ -1,5 +1,9 @@
 import { parseFrontmatterFields } from "../frontmatter.js";
 import type { PageIndexEntry } from "../substrate/page-index.js";
+import {
+  extractWikilinkTargets,
+  parseLinkEntry,
+} from "../substrate/page-links.js";
 import type { Slug } from "./types.js";
 
 /**
@@ -8,19 +12,20 @@ import type { Slug } from "./types.js";
  *
  * The graph unions THREE outbound-edge sources per article:
  *
- *   (a) The optional `links:` frontmatter — a YAML list of
- *       `"<target-slug> — <description>"` strings (split on the first
- *       ` — `, space-emdash-space). This is the authored, first-class edge
+ *   (a) The optional `links:` frontmatter, a YAML list of annotated
+ *       `"<target-slug> <sep> <description>"` strings (see
+ *       `substrate/page-links.ts`). This is the authored, first-class edge
  *       source: the curated description is carried through expansion so the
  *       orchestrator can use it directly as a select descriptor.
  *   (b) Inline `[[wikilink]]` targets parsed from the body.
- *   (c) `PageIndexEntry.edges` numeric ids resolved to slugs — the fallback
+ *   (c) `PageIndexEntry.edges` numeric ids resolved to slugs, the fallback
  *       for pages with no frontmatter `links`.
  *
  * All targets are resolved against the corpus slug set; unknown/dangling
- * targets are dropped. A curated description is stored per (source → target)
- * edge only when the `links` source supplied one; wikilink/numeric edges carry
- * no description (the orchestrator falls back to a section descriptor).
+ * targets are dropped (`PageIndex.danglingLinks` reports them). A curated
+ * description is stored per (source → target) edge only when the `links`
+ * source supplied one; wikilink/numeric edges carry no description (the
+ * orchestrator falls back to a section descriptor).
  *
  * The build is pure given a `pageRaw` reader callback (no hard-coded I/O), so
  * it is built once at lane-init and rebuilt by the maintain job, and is
@@ -34,13 +39,6 @@ const DEFAULT_HUB_DEGREE = 30;
 const DEFAULT_SEED_COUNT = 18;
 const DEFAULT_PER_SEED = 6;
 const DEFAULT_CAP = 45;
-
-/** Matches the space-emdash-space separator in a `links:` entry. */
-const LINK_SEPARATOR = " — ";
-
-/** Matches `[[target]]` wikilinks; captures the raw target before any `|`
- * display-text or `#section` anchor. */
-const WIKILINK_REGEX = /\[\[([^\]]+)\]\]/g;
 
 /**
  * The directed link-graph. `adjacency` maps each source slug to its outbound
@@ -77,48 +75,6 @@ interface BuildEdgeGraphOptions {
   /** In-degree above which an article is a hub. Defaults to
    * {@link DEFAULT_HUB_DEGREE}. */
   hubDegree?: number;
-}
-
-/**
- * Split one `links:` entry (`"<target-slug> — <description>"`) into its target
- * slug and curated description on the FIRST ` — ` (space-emdash-space).
- * Entries with no separator are bare target slugs and carry no description.
- */
-function parseLinkEntry(entry: string): {
-  target: Slug;
-  description: string | undefined;
-} {
-  const sep = entry.indexOf(LINK_SEPARATOR);
-  if (sep === -1) {
-    return { target: entry.trim(), description: undefined };
-  }
-  return {
-    target: entry.slice(0, sep).trim(),
-    description: entry.slice(sep + LINK_SEPARATOR.length).trim() || undefined,
-  };
-}
-
-/** Parse inline `[[wikilink]]` targets from a body. Strips `|display` and
- * `#anchor` suffixes; returns trimmed target slugs (possibly with duplicates,
- * deduped by the caller's map insertion). */
-function parseWikilinks(body: string): string[] {
-  const targets: string[] = [];
-  for (const match of body.matchAll(WIKILINK_REGEX)) {
-    let target = match[1];
-    const pipe = target.indexOf("|");
-    if (pipe !== -1) {
-      target = target.slice(0, pipe);
-    }
-    const hash = target.indexOf("#");
-    if (hash !== -1) {
-      target = target.slice(0, hash);
-    }
-    target = target.trim();
-    if (target) {
-      targets.push(target);
-    }
-  }
-  return targets;
 }
 
 /**
@@ -200,7 +156,7 @@ export async function buildEdgeGraph(
     // the whole raw text is the body.
     const body = parsed ? parsed.body : raw;
     if (body !== null) {
-      for (const target of parseWikilinks(body)) {
+      for (const target of extractWikilinkTargets(body)) {
         addEdge(source, target, undefined);
       }
     }

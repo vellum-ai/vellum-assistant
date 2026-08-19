@@ -24,9 +24,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Check, Square, Volume2 } from "lucide-react";
 
-import {
-  cn,
-} from "@vellumai/design-library";
+import { cn, CrossfadeStack } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
 
@@ -284,12 +282,15 @@ export function VoiceList({
                         voice.source}
                     </span>
                   )}
-                  {/* One fixed-width trailing slot the preview button and the
-                      selected-check share, so the provider badge never shifts
-                      between rows. At rest: the check on the selected row, empty
-                      otherwise. On hover/focus (or while previewing) the speaker
-                      takes over — so the selected row is previewable too. */}
-                  <div className="relative flex size-7 shrink-0 items-center justify-center">
+                  {/* One trailing slot the preview button and the selected-check
+                      share, floored at the row's icon width so the provider
+                      badge lines up between rows. At rest: the check on the
+                      selected row, empty otherwise. On hover, on focus, and
+                      while previewing, the speaker takes over, so the selected
+                      row is previewable too. Where there is no hover the slot
+                      seats both, so it sizes to them rather than clipping the
+                      check outside the row. */}
+                  <CrossfadeStack className="min-h-7 min-w-7">
                     {voice.sampleUrl !== "" && (
                       <Button
                         variant="ghost"
@@ -301,7 +302,7 @@ export function VoiceList({
                             : `Preview ${voice.description}`
                         }
                         data-reveal=""
-                        className="absolute inset-0"
+                        className="size-full"
                         // Preview / stop only — don't let the row's select fire.
                         onClick={(event) => {
                           event.stopPropagation();
@@ -325,7 +326,7 @@ export function VoiceList({
                         className="pointer-events-none size-4 text-[var(--system-positive-strong)]"
                       />
                     )}
-                  </div>
+                  </CrossfadeStack>
                 </div>
               );
             })}

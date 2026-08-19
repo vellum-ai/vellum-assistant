@@ -21,6 +21,11 @@ import { OnboardingPeekingEyes } from "@/domains/onboarding/components/onboardin
 import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { pickOverlayColors } from "@/domains/onboarding/onboarding-avatar-colors";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
+import { ONBOARDING_DARK_SURFACE } from "@/domains/onboarding/onboarding-step-layout";
+import {
+  cssTransitionFor,
+  usePublishPageSurface,
+} from "@/stores/page-surface-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 /**
@@ -114,7 +119,13 @@ const PEEKERS: {
   },
 ];
 
-const DARK_SURFACE = "#17191C";
+/**
+ * The canvas crossfade. Stated once for the backdrop itself and derived for the
+ * safe-area strips the app shell paints, so the two cannot drift apart. See
+ * `page-surface-store`.
+ */
+const CANVAS_FADE = { duration: 1, ease: "easeInOut" } as const;
+const CANVAS_FADE_CSS = cssTransitionFor(CANVAS_FADE);
 
 /** The team that peeks in from the top, persisting once it forms. */
 const TOP_TEAM = [
@@ -164,13 +175,16 @@ export function OnboardingTonedBackdrop({
   const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
 
   const { bg, peekColors } = useMemo(() => {
-    const fallback = { bg: "var(--surface-base)", peekColors: [] as string[] };
+    const fallback = {
+      bg: ONBOARDING_DARK_SURFACE,
+      peekColors: [] as string[],
+    };
     if (!components || !chosen) {
       return fallback;
     }
     const color = components.colors.find((c) => c.id === chosen.color);
     return {
-      bg: color?.hex ?? "var(--surface-base)",
+      bg: color?.hex ?? ONBOARDING_DARK_SURFACE,
       peekColors: pickOverlayColors(
         chosen.color,
         components.colors.map((c) => c.id),
@@ -179,15 +193,23 @@ export function OnboardingTonedBackdrop({
     };
   }, [components, chosen]);
 
+  // The backdrop, not the stage, owns this screen's canvas color, so it is what
+  // hands it to the app shell for the safe-area strips, on the same crossfade
+  // timing so the two arrive together. See `page-surface-store`.
+  // The crossfade applies to changes of target only, never to the arrival, so
+  // this matches the `initial={false}` below on both counts.
+  usePublishPageSurface(
+    darkBg ? ONBOARDING_DARK_SURFACE : bg,
+    reduce ? null : CANVAS_FADE_CSS,
+  );
+
   return (
     <>
       <motion.div
         className="absolute inset-0 z-0"
         initial={false}
-        animate={{ backgroundColor: darkBg ? DARK_SURFACE : bg }}
-        transition={
-          reduce ? { duration: 0 } : { duration: 1, ease: "easeInOut" }
-        }
+        animate={{ backgroundColor: darkBg ? ONBOARDING_DARK_SURFACE : bg }}
+        transition={reduce ? { duration: 0 } : CANVAS_FADE}
       />
 
       {/* The assistant's eyes peek up from the bottom (until they collapse into

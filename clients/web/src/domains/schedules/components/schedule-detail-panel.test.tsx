@@ -11,8 +11,9 @@
  *
  * Plugin-sourced treatment: sourced schedules hide the Delete affordance and
  * show plugin attribution in its place; user-created schedules keep the Delete
- * button. Run now is withheld from a plugin-sourced schedule that is turned
- * off, since the daemon refuses to run one whose plugin is disabled.
+ * button. An off schedule states why alongside that attribution. Run now is
+ * withheld from a plugin-sourced schedule that is turned off, since the daemon
+ * refuses to run one whose plugin is disabled.
  *
  * The generated daemon SDK is mocked so the config and runs queries resolve
  * without a daemon.
@@ -289,6 +290,24 @@ describe("ScheduleDetailPanel plugin-sourced treatment", () => {
       expect(getByText("Managed by plugin gmail")).toBeTruthy();
     });
     expect(queryByLabelText("Delete")).toBeNull();
+  });
+
+  // The armed case is the sibling test above: it matches the attribution
+  // exactly, so a reason appended to it would fail there.
+  test("an off plugin schedule says why alongside the attribution", async () => {
+    const { getByText } = renderPanel(
+      makeSchedule({
+        sourceKey: "plugin:gmail/poll-inbox",
+        enabled: false,
+        disarmReason: "declaration_removed",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        getByText("Managed by plugin gmail · off, removed from plugin"),
+      ).toBeTruthy();
+    });
   });
 });
 

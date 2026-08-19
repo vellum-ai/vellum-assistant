@@ -11,10 +11,7 @@ import {
   type SurfaceCompletionTone,
 } from "@/domains/chat/types/types";
 
-import {
-  attachConfirmationToToolCall,
-  ERROR_MESSAGES,
-} from "@/domains/chat/utils/chat";
+import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import {
   filterMessageSurfaces,
   mapMessageSurfaces,
@@ -156,8 +153,7 @@ export function completeSubmittedSurface(
       return prev;
     }
     const matchedAction = surface.actions?.find((a) => a.id === actionId);
-    const isCancellation =
-      actionId === "cancel" || actionId === "dismiss";
+    const isCancellation = actionId === "cancel" || actionId === "dismiss";
     const updated = [...prev];
     updated[i] = mapMessageSurfaces(prev[i]!, (s) =>
       s.surfaceId === surfaceId
@@ -235,11 +231,10 @@ export function parsePendingSecretState(
   };
 }
 
-export function parsePendingConfirmationData(raw: Record<string, unknown>): {
-  confData: Parameters<typeof attachConfirmationToToolCall>[1];
-  state: PendingConfirmationState;
-} {
-  const confData = {
+export function parsePendingConfirmationData(
+  raw: Record<string, unknown>,
+): PendingConfirmationState {
+  return {
     requestId: typeof raw.requestId === "string" ? raw.requestId : "",
     title: optionalString(raw.title),
     description: optionalString(raw.description),
@@ -255,12 +250,6 @@ export function parsePendingConfirmationData(raw: Record<string, unknown>): {
     input: optionalRecord(raw.input),
     toolUseId: optionalString(raw.toolUseId),
   };
-  const state: PendingConfirmationState = {
-    ...confData,
-    confirmLabel: optionalString(raw.confirmLabel),
-    denyLabel: optionalString(raw.denyLabel),
-  };
-  return { confData, state };
 }
 
 /** Generate a unique turn ID for correlating the send → reconcile lifecycle. */

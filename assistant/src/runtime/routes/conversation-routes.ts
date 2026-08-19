@@ -1849,6 +1849,11 @@ export async function handleSendMessage(
 
   // Resolve guardian context from the AuthContext's actorPrincipalId via the
   // gateway guardian binding: a vellum principal is the guardian or nobody.
+  //
+  // Resolved into a local; the conversation's slot is stamped only where this
+  // request commits to running a turn, since that write is what supplies the
+  // acting actor for a run and must not fire for a send that merely queues.
+  let resolvedTrustCtx: TrustContext;
   if (actorPrincipalId) {
     // Dev bypass (HTTP auth disabled): the synthetic "dev-bypass" principal
     // won't match any guardian binding. Resolve the real guardian principal and
@@ -1874,7 +1879,7 @@ export async function handleSendMessage(
           trustCtx = healed;
         }
       }
-      conversation.setTrustContext(trustCtx);
+      resolvedTrustCtx = trustCtx;
     } else {
       let trustCtx = withSourceChannel(
         sourceChannel,
@@ -1907,22 +1912,19 @@ export async function handleSendMessage(
           );
         }
       }
-      conversation.setTrustContext(trustCtx);
+      resolvedTrustCtx = trustCtx;
     }
   } else {
     // Service principals (svc_gateway) or tokens without an actor ID
     // get a minimal guardian context so downstream code has something.
-    conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
+    resolvedTrustCtx = { trustClass: "guardian", sourceChannel };
   }
 
-  // The trust this request's turn runs under, captured here rather than read
-  // back at the agent loop below. Every branch above has just written it and
-  // nothing awaits in between, so this is the resolved sender. Between here
-  // and the loop the conversation slot is writable by paths that do not own
-  // this turn (channel ingress for another actor, live-voice hydration,
-  // pointer elevation, the voice bridge), and the loop would otherwise
-  // re-read it and run this turn as whoever wrote last.
-  const turnTrustContext = conversation.trustContext;
+  // The trust this request's turn runs under: the sender resolved above,
+  // never a read of the shared slot. Between here and the loop that slot is
+  // writable by paths that do not own this turn (channel ingress for another
+  // actor, live-voice hydration, pointer elevation, the voice bridge).
+  const turnTrustContext = resolvedTrustCtx;
 
   const isInteractive = isInteractiveInterface(sourceInterface);
   // Translate the dev-bypass actor principal to the real guardian principal
@@ -2053,12 +2055,15 @@ export async function handleSendMessage(
         requestId: uuidv7(),
         metadata: greetingMeta,
         clientMessageId,
+        // This path answers and returns without starting a turn, so it never
+        // reaches the stamp below; name the sender on the row directly.
+        trustContext: resolvedTrustCtx,
         ...(clientOs ? { requestClientOs: clientOs } : {}),
       });
 
       const conversationId = mapping.conversationId;
       const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
-        trustContext: conversation.trustContext,
+        trustContext: resolvedTrustCtx,
       });
 
       const assistantMsg = createAssistantMessage(cannedGreeting);
@@ -2165,10 +2170,9 @@ export async function handleSendMessage(
 
   // Resolve the verified actor's external user ID and principal for inline
   // approval routing from the conversation's guardian context.
-  const verifiedActorExternalUserId =
-    conversation.trustContext?.guardianExternalUserId;
+  const verifiedActorExternalUserId = resolvedTrustCtx.guardianExternalUserId;
   const verifiedActorPrincipalId =
-    conversation.trustContext?.guardianPrincipalId ?? undefined;
+    resolvedTrustCtx.guardianPrincipalId ?? undefined;
 
   // Try to consume the message as a guardian approval/rejection reply.
   // On failure, degrade to the existing queue/auto-deny path rather than
@@ -2242,6 +2246,10 @@ export async function handleSendMessage(
       sourceActorPrincipalId,
       transport,
       clientMessageId,
+      // The sender's own trust, so the drain runs this message as the actor
+      // who sent it rather than as whoever the slot happens to hold when the
+      // queue is worked.
+      trustContext: resolvedTrustCtx,
     });
     if (enqueueResult.rejected) {
       return new RouteResponse(
@@ -2340,7 +2348,15 @@ export async function handleSendMessage(
   // matching in-memory pending interaction (e.g. prompter timeouts).
   await expireOrphanedGuardianRequests(mapping.conversationId);
 
-  // Conversation is idle — persist and fire agent loop immediately
+  // Conversation is idle — persist and fire agent loop immediately.
+  //
+  // Stamping the sender here rather than at resolution is what keeps the two
+  // in step: the slot hydrates and scopes the turn started just below
+  // (`ensureActorScopedHistory`, persisted provenance, the loop's own trust),
+  // so it must name whoever this request is about to run as. A request that
+  // queues instead returns above without stamping — it is not starting a run,
+  // and its actor rides the queue item to the drain.
+  conversation.setTrustContext(resolvedTrustCtx);
   conversation.setTurnChannelContext({
     userMessageChannel: sourceChannel,
     assistantMessageChannel: sourceChannel,

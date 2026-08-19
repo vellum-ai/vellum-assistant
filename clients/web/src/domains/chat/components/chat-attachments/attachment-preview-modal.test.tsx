@@ -37,7 +37,10 @@ const ATTACHMENT: DisplayAttachment = {
   previewUrl: null,
 };
 
-function renderModal(attachment: DisplayAttachment): void {
+function renderModal(
+  attachment: DisplayAttachment,
+  onClose: () => void = () => undefined,
+): void {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -45,7 +48,7 @@ function renderModal(attachment: DisplayAttachment): void {
     <QueryClientProvider client={client}>
       <AttachmentPreviewModal
         open
-        onClose={() => undefined}
+        onClose={onClose}
         attachment={attachment}
         assistantId="asst-1"
       />
@@ -148,5 +151,39 @@ describe("AttachmentPreviewModal content loading", () => {
     expect(video.getAttribute("src")).toBe("blob:preview-mock");
     expect(video.getAttribute("poster")).toBe("data:image/jpeg;base64,BBBB");
     expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The top bar is click-through so it cannot swallow clicks on the preview
+ * underneath it, which on a short viewport reaches under the bar. Its own
+ * content still has to take its own clicks: the filename label spans the whole
+ * middle of the bar, so a click-through label would put the backdrop under the
+ * pointer and dismiss the preview.
+ */
+describe("AttachmentPreviewModal top bar", () => {
+  // Asserted structurally: happy-dom does no pointer-events hit testing, so a
+  // synthetic click always lands on the element it is dispatched to and cannot
+  // distinguish a click-through label from an inert one.
+  test("takes pointer events on the filename label, not its full-width track", () => {
+    renderModal({ ...ATTACHMENT, previewUrl: "data:image/png;base64,AAAA" });
+
+    const label = screen.getByText("photo.png");
+    expect(label.className).toContain("pointer-events-auto");
+    expect(label.parentElement?.className).not.toContain("pointer-events-auto");
+  });
+
+  test("the close button still closes the preview", () => {
+    let closed = 0;
+    renderModal(
+      { ...ATTACHMENT, previewUrl: "data:image/png;base64,AAAA" },
+      () => {
+        closed += 1;
+      },
+    );
+
+    fireEvent.click(screen.getByLabelText("Close preview"));
+
+    expect(closed).toBe(1);
   });
 });

@@ -197,10 +197,15 @@ export const SwipeActionReveal = forwardRef<
         </div>
       ) : null}
 
-      {/* Content layer — slides over the action layers */}
+      {/* Content layer, sliding over the action layers. Its fill has to be
+          opaque so the actions stay hidden until a swipe reveals them, and it
+          has to match whatever surface the row sits on or the row reads as a
+          differently-coloured band. `--swipe-reveal-bg` lets that surface name
+          itself (the sidebar's section card publishes its own), falling back
+          to the panel surface a row rests on elsewhere. */}
       <div
         className={cn(
-          "relative bg-[var(--surface-overlay)] transition-transform",
+          "relative bg-[var(--swipe-reveal-bg,var(--surface-overlay))] transition-transform",
           isDragging && "transition-none",
         )}
         style={{

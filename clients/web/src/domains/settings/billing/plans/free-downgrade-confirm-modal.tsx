@@ -1,5 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -32,6 +33,7 @@ export function FreeDowngradeConfirmModal({
   onCancel,
   onConfirm,
 }: FreeDowngradeConfirmModalProps) {
+  const { t } = useTranslation("settings");
   const hasLostFeatures = lostFeatures.length > 0;
   return (
     <Modal.Root
@@ -44,7 +46,7 @@ export function FreeDowngradeConfirmModal({
     >
       <Modal.Content size="md" hideCloseButton>
         <Modal.Header icon={AlertTriangle}>
-          <Modal.Title>Downgrade to Base?</Modal.Title>
+          <Modal.Title>{t("freeDowngradeConfirmModal.title")}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Typography
@@ -53,8 +55,8 @@ export function FreeDowngradeConfirmModal({
             className="text-(--content-secondary)"
           >
             {hasLostFeatures
-              ? "Downgrading removes the following Pro features. You'll be taken to Stripe to cancel your subscription."
-              : "You'll be taken to Stripe to cancel your subscription."}
+              ? t("freeDowngradeConfirmModal.bodyWithFeatures")
+              : t("freeDowngradeConfirmModal.bodyCancelOnly")}
           </Typography>
           {hasLostFeatures ? (
             <ul className="mt-4 list-disc space-y-2 pl-5">
@@ -70,7 +72,7 @@ export function FreeDowngradeConfirmModal({
         </Modal.Body>
         <Modal.Footer>
           <Button variant="outlined" onClick={onCancel} disabled={pending}>
-            Cancel
+            {t("freeDowngradeConfirmModal.cancel")}
           </Button>
           <Button
             variant="danger"
@@ -78,7 +80,7 @@ export function FreeDowngradeConfirmModal({
             disabled={pending}
             data-testid="confirm-free-downgrade-button"
           >
-            Downgrade to Base
+            {t("freeDowngradeConfirmModal.confirm")}
           </Button>
         </Modal.Footer>
       </Modal.Content>

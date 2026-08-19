@@ -12,13 +12,16 @@
  *   list, or a cached list that lacks it) the full-page error state renders
  *   instead of a false "Skill not found",
  * - the back button restores the My Superpowers list's query string passed
- *   as router state (search/filter/category survive detail navigation).
+ *   as router state (search/filter/category survive detail navigation),
+ * - the desktop Files/History tab rides `?tab=`: a `?tab=history` deep link
+ *   opens on History, and a tab change writes the param back (deleting it
+ *   for the default Files tab).
  *
  * The generated SDK's `skillsGet` is mocked with a per-test deferred so a
  * case can hold the list refetch pending; the heavy `SkillDetail` /
  * `SkillDetailMobile` views are stubbed with light stand-ins exposing the
- * `onBack` wiring. Mounted via `@testing-library/react` (happy-dom — see
- * `clients/web/test-setup.ts`).
+ * `onBack` and tab wiring. Mounted via `@testing-library/react` (happy-dom,
+ * see `clients/web/test-setup.ts`).
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -32,6 +35,8 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
+import type * as SkillDetailModule from "@/domains/intelligence/components/skills/skill-detail";
+import { parseSkillDetailTab } from "@/domains/intelligence/components/skills/skill-detail";
 import type { SkillInfo } from "@/domains/intelligence/skills/types";
 import type { SkillsGetResponse } from "@/generated/daemon/types.gen";
 
@@ -83,24 +88,31 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   }),
 }));
 
-// Stub the heavy detail views — this suite targets the page's branching, not
-// the file browser. The stand-ins expose the `onBack` wiring under test.
-mock.module("@/domains/intelligence/components/skills/skill-detail", () => ({
-  SkillDetail: ({
-    skill,
-    onBack,
-  }: {
-    skill: SkillInfo;
-    onBack: () => void;
-  }) => (
-    <div>
-      <span>Detail: {skill.name}</span>
-      <button type="button" onClick={onBack}>
-        Back to skills
-      </button>
-    </div>
-  ),
-}));
+// Stub the heavy detail views: this suite targets the page's branching, not
+// the file browser. The stand-in exposes the `onBack` and tab wiring under
+// test. `parseSkillDetailTab` is the pure function the page reads `?tab=`
+// through, so the real one is passed through rather than stubbed.
+mock.module(
+  "@/domains/intelligence/components/skills/skill-detail",
+  (): Partial<typeof SkillDetailModule> => ({
+    parseSkillDetailTab,
+    SkillDetail: ({ skill, tab, onTabChange, onBack }) => (
+      <div>
+        <span>Detail: {skill.name}</span>
+        <span>Tab: {tab}</span>
+        <button type="button" onClick={() => onTabChange("history")}>
+          Open history
+        </button>
+        <button type="button" onClick={() => onTabChange("files")}>
+          Open files
+        </button>
+        <button type="button" onClick={onBack}>
+          Back to skills
+        </button>
+      </div>
+    ),
+  }),
+);
 mock.module(
   "@/domains/intelligence/components/skills/skill-detail-mobile",
   () => ({
@@ -141,17 +153,28 @@ function SuperpowersListLanding() {
   return <div>Superpowers list at: [{location.search}]</div>;
 }
 
+// Sentinel beside the detail route so tests can prove what a tab change wrote
+// to the URL.
+function DetailSearchProbe() {
+  const location = useLocation();
+  return <div>Detail search: [{location.search}]</div>;
+}
+
 function renderDetail({
   skillId,
+  search = "",
   listSearch,
   client = makeQueryClient(),
 }: {
   skillId: string;
+  /** Query string the detail route is entered with, e.g. `?tab=history`. */
+  search?: string;
   listSearch?: string;
   client?: QueryClient;
 }): void {
   const entry = {
     pathname: `/assistant/skills/${skillId}`,
+    search,
     state: listSearch === undefined ? null : { listSearch },
   };
   render(
@@ -160,7 +183,12 @@ function renderDetail({
         <Routes>
           <Route
             path="/assistant/skills/:skillId"
-            element={<SkillDetailPage />}
+            element={
+              <>
+                <SkillDetailPage />
+                <DetailSearchProbe />
+              </>
+            }
           />
           <Route
             path="/assistant/superpowers"
@@ -338,6 +366,76 @@ describe("SkillDetailPage back navigation", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Superpowers list at: []")).toBeTruthy();
+    });
+  });
+});
+
+describe("SkillDetailPage tab deep link", () => {
+  test("opens on Files with no ?tab= and on History with ?tab=history", async () => {
+    renderDetail({ skillId: "skill-1" });
+    await waitFor(() => {
+      expect(screen.getByText("Tab: files")).toBeTruthy();
+    });
+    cleanup();
+
+    renderDetail({ skillId: "skill-1", search: "?tab=history" });
+    await waitFor(() => {
+      expect(screen.getByText("Tab: history")).toBeTruthy();
+    });
+  });
+
+  test("falls back to Files for an unknown ?tab= value", async () => {
+    renderDetail({ skillId: "skill-1", search: "?tab=nope" });
+    await waitFor(() => {
+      expect(screen.getByText("Tab: files")).toBeTruthy();
+    });
+  });
+
+  test("a tab change writes ?tab=history and clears it for Files", async () => {
+    renderDetail({ skillId: "skill-1", search: "?other=1" });
+    await waitFor(() => {
+      expect(screen.getByText("Tab: files")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Open history"));
+    await waitFor(() => {
+      expect(screen.getByText("Tab: history")).toBeTruthy();
+    });
+    // Other params survive; only `tab` is written.
+    expect(
+      screen.getByText("Detail search: [?other=1&tab=history]"),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Open files"));
+    await waitFor(() => {
+      expect(screen.getByText("Tab: files")).toBeTruthy();
+    });
+    expect(screen.getByText("Detail search: [?other=1]")).toBeTruthy();
+  });
+
+  test("a tab change keeps the list search that Back restores", async () => {
+    // A tab change replaces the history entry; the router state carrying the
+    // list's query string has to ride along or Back lands on the plain list.
+    renderDetail({
+      skillId: "skill-1",
+      listSearch: "?filter=installed&category=email",
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Tab: files")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Open history"));
+    await waitFor(() => {
+      expect(screen.getByText("Tab: history")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Back to skills"));
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Superpowers list at: [?filter=installed&category=email]",
+        ),
+      ).toBeTruthy();
     });
   });
 });

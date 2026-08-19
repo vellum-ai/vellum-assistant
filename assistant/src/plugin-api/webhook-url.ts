@@ -90,22 +90,24 @@ function registrationType(plugin: string, route: string): string {
 }
 
 /**
- * Drop a trailing slash from a resolved callback URL.
+ * Keep a trailing slash on a resolved callback URL.
  *
- * The platform appends one to the callback URLs it hands back, and a provider
- * given `.../events-comms/` delivers to that spelling verbatim. The gateway
- * matches a plugin route against its declared path, which may never end in a
- * slash (see `IngressRouteSchema`), so the slash comes off once here rather
- * than at each plugin that registers a URL.
+ * Django in front of managed callbacks canonicalizes onto `/`. A vendor given
+ * the slashless spelling is 301'd, and clients that follow a 301 on POST
+ * typically retry as GET and drop the body. The gateway serves both spellings
+ * of a plugin webhook, so the slashed URL is the one to hand out.
  *
- * Only the path is ever trimmed: this resolver passes no query parameters, and
- * a URL carrying one is left alone rather than truncated.
+ * Query-bearing URLs are left alone: this resolver passes no query
+ * parameters, and appending there would cut into the query rather than the
+ * path. The callback path registered with the platform stays slashless. The
+ * platform strips slashes on store, and Django's path converter typically
+ * does not include the final `/` in the lookup key.
  */
-function withoutTrailingSlash(url: string): string {
+function withTrailingSlash(url: string): string {
   if (url.includes("?") || url.includes("#")) {
     return url;
   }
-  return url.replace(/\/+$/, "");
+  return url.endsWith("/") ? url : `${url}/`;
 }
 
 /**
@@ -147,5 +149,5 @@ export async function resolveWebhookUrl(
     undefined,
     sourceIdentifier,
   );
-  return withoutTrailingSlash(resolved);
+  return withTrailingSlash(resolved);
 }

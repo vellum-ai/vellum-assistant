@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { Navigate, useNavigate } from "react-router";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
+import { useTranslation } from "@/i18n";
 import {
   useActiveAssistantIsPlatformHosted,
   useActiveAssistantLifecycleIsLoading,
@@ -27,6 +28,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
  * abandoned-checkout bonus offer.
  */
 export function UpgradeCancelPage() {
+  const { t } = useTranslation("settings");
   // Defense in depth: this page is only reachable from a Stripe Checkout
   // session that started on the Billing tab (itself gated). But deep-link
   // or bookmark navigation can still land a self-hosted user here, together
@@ -78,7 +80,7 @@ export function UpgradeCancelPage() {
     return (
       <div className="max-w-4xl space-y-6">
         <PlatformLoginNotice>
-          Log in to the Vellum platform to manage billing and usage.
+          {t("upgradeCancelPage.platformLoginNotice")}
         </PlatformLoginNotice>
       </div>
     );
@@ -93,7 +95,7 @@ export function UpgradeCancelPage() {
     return (
       <div className="max-w-4xl space-y-6">
         <Notice tone="warning">
-          Billing isn&apos;t available for the current assistant state.
+          {t("upgradeCancelPage.billingUnavailable")}
         </Notice>
         <div className="flex justify-end">
           <Button
@@ -102,7 +104,7 @@ export function UpgradeCancelPage() {
               navigate(routes.settings.usageBilling, { replace: true })
             }
           >
-            Return to billing
+            {t("upgradeCancelPage.returnToBilling")}
           </Button>
         </div>
       </div>
@@ -113,10 +115,10 @@ export function UpgradeCancelPage() {
     <div className="max-w-4xl space-y-6">
       <Card padding="lg">
         <Typography as="h1" variant="title-large">
-          Upgrade canceled
+          {t("upgradeCancelPage.title")}
         </Typography>
         <Typography as="p" variant="body-medium-default" className="mt-2">
-          Returning you to billing settings…
+          {t("upgradeCancelPage.redirectingBody")}
         </Typography>
       </Card>
     </div>

@@ -99,6 +99,17 @@ graph LR
     failure-backoff-respecting);
   - manual "Run now" via `POST /v1/consolidation/run-now`.
     Failed runs enter an exponential backoff (transient vs billing curves).
+  - The agent writes pages through the file tools, so nothing validates a
+    page at write time. Two corpus-level defects are instead reported by the
+    page index and fed back into the next pass's prompt as repair steps:
+    pages the index could not parse (`PageIndex.parseFailures`) and
+    structural references (`links:`, inline `[[wikilinks]]`, `edges:`) whose
+    target page does not exist (`PageIndex.danglingLinks`). The read-side
+    graph drops a dangling reference silently, so the job also counts them
+    after each run (`danglingLinks` on the outcome, a warn line) without
+    withholding the reindex follow-ups: the pages that were written still
+    become retrievable. The `memory validate` CLI subcommand reports the same
+    list.
 - **Ingestion** (`substrate/ingest.ts`, exposed as `POST /v1/memory/ingest`;
   generated HTTP operation id `memory_ingest_post`, IPC method
   `memory_ingest`) is the second sanctioned writer of
@@ -110,11 +121,12 @@ graph LR
   minute, and its same-minute burst guard falls back to processing the
   whole buffer in a single oversized run. Ingest writes validated pages
   directly instead. Purely mechanical: each page is validated and reported
-  individually, writes hold the consolidation lock so a batch cannot
-  interleave with a consolidation pass, and a batch that wrote at least one
-  page enqueues the same reindex follow-ups as consolidation
-  (`memory_v2_reembed`, `memory_v3_maintain`). Consolidation remains the only
-  LLM-driven writer.
+  individually (a `links:`/`[[wikilink]]`/`edges:` target that is neither on
+  disk nor in the batch is a per-page warning, not a rejection), writes hold
+  the consolidation lock so a batch cannot interleave with a consolidation
+  pass, and a batch that wrote at least one page enqueues the same reindex
+  follow-ups as consolidation (`memory_v2_reembed`, `memory_v3_maintain`).
+  Consolidation remains the only LLM-driven writer.
 
 ### Ingestion tracks and provenance
 
@@ -171,6 +183,21 @@ Ingested pages carry provenance frontmatter with distinct consumers:
 - **v1 (legacy)**: PKB retrieval over the v1 Qdrant collection. All v1
   machinery (graph extraction, summarization, PKB indexing/filing, PKB
   injection) is suppressed while the substrate is active.
+
+#### Live voice front-door memory
+
+The live voice front door does not await current-turn memory retrieval. Its
+prompt hook skips legacy graph retrieval, and both v3 injectors skip
+orchestration for `voiceFrontDoor`. Frozen cards from prior turns and the static
+substrate context remain available. When the answer depends on a saved personal
+fact that is absent from that context, the front-door rule escalates instead of
+guessing.
+
+The escalated leg runs the ordinary memory pipeline before the quality model.
+V3 retrieval routes on the latest visible caller message, ignoring the hidden
+continuation message used to start that leg. The selector uses low effort to
+keep retrieval latency bounded. This keeps current-turn memory work off the
+front-door TTFT path without maintaining speculative cross-leg state.
 
 ### Boot-time maintenance
 

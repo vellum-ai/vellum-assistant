@@ -15,7 +15,6 @@ import {
   getReachable,
   invalidateEdgeIndex,
   totalEdgeCount,
-  validateEdgeTargets,
 } from "../edge-index.js";
 import { deletePage, writePage } from "../page-store.js";
 import type { ConceptPage } from "../types.js";
@@ -225,35 +224,6 @@ describe("getReachable", () => {
     const idx = await getEdgeIndex(workspaceDir);
     expect(getReachable(idx, "alice", 5, "out")).toEqual(new Set(["bob"]));
     expect(getReachable(idx, "bob", 5, "out")).toEqual(new Set(["alice"]));
-  });
-});
-
-// ---------------------------------------------------------------------------
-// validateEdgeTargets
-// ---------------------------------------------------------------------------
-
-describe("validateEdgeTargets", () => {
-  test("ok=true when every outgoing target has a known slug", async () => {
-    await writePage(workspaceDir, makePage("alice", ["bob"]));
-    await writePage(workspaceDir, makePage("bob"));
-
-    const idx = await getEdgeIndex(workspaceDir);
-    const result = validateEdgeTargets(idx, new Set(["alice", "bob"]));
-    expect(result).toEqual({ ok: true, missing: [] });
-  });
-
-  test("flags outgoing targets that don't correspond to a known slug", async () => {
-    await writePage(workspaceDir, makePage("alice", ["ghost", "bob"]));
-    await writePage(workspaceDir, makePage("bob", ["phantom"]));
-
-    const idx = await getEdgeIndex(workspaceDir);
-    const result = validateEdgeTargets(idx, new Set(["alice", "bob"]));
-
-    expect(result.ok).toBe(false);
-    expect(result.missing).toEqual([
-      { from: "alice", to: "ghost" },
-      { from: "bob", to: "phantom" },
-    ]);
   });
 });
 

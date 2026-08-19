@@ -29,9 +29,9 @@ struct RecentChat: Codable, Equatable {
 /// device-local to the same OS user, and the next confirmed list sync from
 /// whoever is signed in replaces it wholesale. Until that sync, the picker
 /// may show the previous account's or origin's titles; picking one produces
-/// an id the web layer cannot resolve, which lands on the conversation
-/// route's missing-thread state with nothing sent (the message only ever
-/// sits in the composer awaiting the user's tap).
+/// an id the web layer cannot confirm against its conversation list, so the
+/// send request demotes to a pre-filled composer on an empty conversation
+/// route (`useDeepLinkThreadSend`) and nothing is sent anywhere.
 enum RecentChatsStore {
     static let defaultsKey = "recentChats"
 

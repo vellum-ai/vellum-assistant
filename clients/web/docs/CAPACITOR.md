@@ -59,7 +59,7 @@ Native auth uses [`ASWebAuthenticationSession`](https://developer.apple.com/docu
 - **Protected (app) routes**: route protection middleware (see [`CONVENTIONS.md` § Route protection via middleware](./CONVENTIONS.md#route-protection-via-middleware)) redirects unauthenticated users to `/account/login?returnTo=…`. Individual pages should **not** render inline sign-in gates. Return `null` when `!isLoggedIn` and let the middleware handle the redirect. The branded login page (`/account/login`) renders a native login form (inside [`NativeSplash`](../src/components/native-splash.tsx)) on Capacitor iOS and a web login form on web.
 - **iOS login — single AuthKit button**: the iOS login form must use a single "Sign in" button that hands off to WorkOS AuthKit. Do NOT add individual provider buttons (Google/Apple/etc.) or otherwise pin the flow to a specific provider — see [Apple App Store Review Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Guideline 4.8 — Sign in with Apple](https://developer.apple.com/app-store/review/guidelines/#login-services). AuthKit hosts the provider selection, so the app never names a provider itself.
 - **Pre-fill identity-derived inputs from the auth claim**: when the platform / IdP returns identity claims on signup (Apple SIWA `given_name`/`family_name`, Google `given_name`/`family_name`, etc.), pre-fill any user-facing input that asks for that identity (e.g. "Your name") from the claim instead of forcing the user to retype it — [Apple Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Apple HIG: Sign in with Apple](https://developer.apple.com/design/human-interface-guidelines/sign-in-with-apple) treat asking again as a violation. The field stays editable so users can pick a preferred nickname.
-- **Auth failures carry a cause, never just "try again"**: a rejected auth flow reaches JS as a Capacitor error whose `code` is `AUTH_ERROR` and whose `data.authError` names why the platform refused the sign-in (`signup_closed`, `provider_signup`, `login_incomplete`, or allauth's own code on a 400). Both native shells classify the non-200 statuses the headless schema documents for `/_allauth/app/v1/auth/provider/token` — the exchange that runs *after* the auth sheet closes, and therefore the failure users report as "it errored the moment I signed in". Map codes to copy only in [`src/domains/account/native-auth-error.ts`](../src/domains/account/native-auth-error.ts), and route every auth-entry catch through its `nativeAuthErrorMessage()` / `isUserCancelledAuthError()` helpers plus a `captureError()` tagged with `nativeAuthErrorDetail()`. Adding a new refusal means a code in both `WorkOSAuth.sessionExchangeErrorCode` implementations (Swift and Java) and an entry in that map — an unmapped code degrades to the generic message rather than breaking.
+- **Auth failures carry a cause, never just "try again"**: a rejected auth flow reaches JS as a Capacitor error whose `code` is `AUTH_ERROR` and whose `data.authError` names why the platform refused the sign-in (`signup_closed`, `provider_signup`, `login_incomplete`, or allauth's own code on a 400). Both native shells classify the non-200 statuses the headless schema documents for `/_allauth/app/v1/auth/provider/token` (the exchange that runs *after* the auth sheet closes, and therefore the failure users report as "it errored the moment I signed in"). Map codes to catalog keys only in [`src/domains/account/native-auth-error.ts`](../src/domains/account/native-auth-error.ts), and route every auth-entry catch through its `nativeAuthErrorKey()` / `isUserCancelledAuthError()` helpers plus a `captureError()` tagged with `nativeAuthErrorDetail()`. Adding a new refusal means a code in both `WorkOSAuth.sessionExchangeErrorCode` implementations (Swift and Java) and an entry in that map; an unmapped code degrades to the generic message rather than breaking.
 - **Sign-in actions outside the app shell**: wrap sign-in links in a shared component that renders a native `startAuthFlow()` button on Capacitor iOS and a router `<Link>` on web — never a plain `<a href="/account/login">`, which on iOS would navigate the WKWebView away from the running SPA.
 - **Platform detection in JSX**: prefer the hook form (`useIsNativePlatform()`, `useIsNativeIOS()`) over the bare `isNativePlatform()` / `isNativeIOS()` functions. Capacitor injects `native-bridge.js` as a `WKUserScript` at `.atDocumentStart`, so the value is already correct on the first render and constant thereafter; there is no first-paint flicker to settle. The hook exists for render-safety, for consistency across the platform hooks, and so call sites stay correct if an SSR or prerender path is ever added. Inside effects and event handlers the bare function is fine. `useIsNativePlatform()` lives in [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts); the rest live in [`src/runtime/platform-detection.ts`](../src/runtime/platform-detection.ts), which is where new ones belong.
 
@@ -178,7 +178,7 @@ The shell registers **seven app-local** Capacitor plugins in [`MyViewController.
 | `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | iOS interruption events and Android audio-focus and microphone-service lifecycle. See the background-audio contract below |
 | `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | One ActivityKit activity on iOS or ongoing notification on Android |
 | `ApnsEnvironment` | [`src/runtime/apns-environment.ts`](../src/runtime/apns-environment.ts) | The build's real APNs entitlement environment (`development` / `production` / `unknown`), read from the embedded provisioning profile |
-| `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads in place. See the section below |
+| `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads without leaving the app. See the section below |
 | `RecentChats` | [`src/runtime/recent-chats.ts`](../src/runtime/recent-chats.ts) | Mirrors the sidebar conversation list (ids + titles) into a UserDefaults cache that backs the Shortcuts app's chat picker (`ChatEntityQuery`); synced from `ChatLayout` once the list query has resolved |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
@@ -259,13 +259,18 @@ References:
 
 The assistant chooser offers every origin this device knows about. On a native
 mobile shell those origins live natively, not in web storage, because the shell
-is the only thing that can point its `WKWebView` somewhere else without leaving
-the app, and because the same list is written by the native Settings pane and
-the `<scheme>://connect` deep link. The web side is
+is the only thing that can point its web view somewhere else without leaving
+the app, and because the same list is written by the `<scheme>://connect` deep
+link (and, on iOS, the native Settings pane). The web side is
 [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts);
 the native side is
 [`SelfHostedServersPlugin.swift`](../../../clients/ios/App/App/SelfHostedServersPlugin.swift)
-over [`SelfHostedServer.swift`](../../../clients/ios/App/App/SelfHostedServer.swift).
+over [`SelfHostedServer.swift`](../../../clients/ios/App/App/SelfHostedServer.swift)
+on iOS, and
+[`SelfHostedServersPlugin.java`](../../../clients/android/app/src/main/java/ai/vellum/assistant/SelfHostedServersPlugin.java)
+over
+[`SelfHostedServer.java`](../../../clients/android/app/src/main/java/ai/vellum/assistant/SelfHostedServer.java)
+on Android.
 
 The bridge contract:
 
@@ -274,17 +279,22 @@ The bridge contract:
 | `list()` | `{ servers: [{name?, url}], activeUrl, bakedUrl }` | `activeUrl` is the configured self-hosted slot (`null` means the shell serves its baked origin); `bakedUrl` is the Vellum Cloud origin the build ships with |
 | `add({url, name?})` | `{ ok }` | Deduped by canonical url. A nameless re-add keeps the stored label |
 | `remove({url})` | `{ ok }` | Forgetting the active url also clears the active slot, so the shell returns to the baked origin |
-| `switchTo({url?})` | `{ ok }` | Swaps the active slot and reloads in place. An absent or empty `url` returns to the baked origin |
+| `switchTo({url?})` | `{ ok }` | Swaps the active slot and reloads the shell onto it (see the per-surface list below). An absent or empty `url` returns to the baked origin |
+| `switchToPath({url?, path})` | `{ ok }` | `switchTo` plus an initial in-app route loaded relative to the destination's app entry URL. A malformed `path` (empty, absolute, containing `://`, or carrying a fragment) rejects up front; a path that passes those checks but fails route building still switches and falls back to the app entry URL |
 
-Only genuinely invalid caller input rejects (an `add` or `switchTo` url that
-fails `SelfHostedServer.validate`). Empty state resolves with an empty list and
-nulls, so there is no "not configured" error branch to write.
+Only genuinely invalid caller input rejects (an `add`/`switchTo`/`switchToPath`
+url that fails `SelfHostedServer.validate`, or a malformed `switchToPath`
+path). Empty state resolves with an empty list and nulls, so there is no "not
+configured" error branch to write.
 
 Urls cross the bridge in one canonical form: `SelfHostedServer.canonicalize` and
 the store's `normalizeOriginUrl` implement the same rules (lowercase scheme and
 host, userinfo dropped, trailing slashes stripped, query and fragment dropped,
 path and port preserved), so both sides agree on which strings mean the same
-server. Changing one means changing the other.
+HTTPS server. Changing one means changing the others. The one divergence is
+deliberate: the Android shell also accepts cleartext development hosts
+(`http://localhost` and friends) that `normalizeOriginUrl` rejects, so those
+entries live in the native list but never surface as chooser cards.
 
 **Switching is per surface, and every surface has a working answer.**
 
@@ -296,8 +306,10 @@ server. Changing one means changing the other.
   ([`main-window.ts`](../../macos/src/main/main-window.ts)) sends any
   cross-origin https target to the system browser, so the origin opens there.
 - Native mobile with the plugin: `nativeSwitchToOrigin` hands the url to the
-  shell, which reloads the web view in place. The user never leaves the app,
-  and a "Vellum Cloud" card sourced from `list().bakedUrl` is the way back.
+  shell. iOS reloads the `WKWebView` in place; Android recreates the activity
+  onto a rebuilt Capacitor config, so a brief relaunch flash is expected.
+  Either way the user never leaves the app, and a "Vellum Cloud" card sourced
+  from `list().bakedUrl` is the way back.
 - Native mobile without the plugin: the same navigation the browser takes. That
   leaves the app for the system browser, which is degraded but is exactly what
   the pair-page path already does there.
@@ -355,7 +367,7 @@ References:
 
 `WKWebView` on Capacitor iOS can hold a streaming `fetch` open at the network layer with no bytes flowing and no error surfaced to JavaScript, so the for-await loop blocks indefinitely and any reconnect/reconcile path gated on a fetch error never runs. Server heartbeats alone are not a liveness signal unless the client checks them.
 
-**Pair every long-lived stream (SSE, chunked fetch, WebSocket-equivalents) with a timer that resets on every received byte — including SSE comment frames, which most SDKs expose through `onSseEvent` even when they don't yield through the iterator — and force-reconnects after a bounded window of silence.** See `subscribeChatEvents` in the chat domain for the canonical pattern.
+**Pair every long-lived stream (SSE, chunked fetch, WebSocket-equivalents) with a timer that resets on every received byte (including SSE comment frames, which most SDKs expose through `onSseEvent` even when they don't yield through the iterator) and force-reconnects after a bounded window of silence.** The canonical pattern is [`src/lib/streaming/stream-watchdog.ts`](../src/lib/streaming/stream-watchdog.ts), armed per frame (comment frames included) by [`src/lib/streaming/stream-transport.ts`](../src/lib/streaming/stream-transport.ts).
 
 References:
 - MDN — [Using server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)

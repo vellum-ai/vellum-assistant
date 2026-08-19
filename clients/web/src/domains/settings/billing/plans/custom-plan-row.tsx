@@ -1,10 +1,8 @@
 import { SlidersHorizontal } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
-
-const GENERIC_DESCRIPTOR =
-  "Select custom CPU power, Ram and Storage. Or just throw in some tokens.";
 
 export interface CustomPlanRowProps {
   className?: string;
@@ -39,12 +37,13 @@ export function CustomPlanRow({
   isCurrent = false,
   currentSummary,
 }: CustomPlanRowProps) {
+  const { t } = useTranslation("settings");
   return (
     <div
       className={`flex w-full flex-col items-center gap-8 ${className ?? ""}`}
     >
       <p className="text-center text-[20px] font-medium text-[var(--content-tertiary)]">
-        Need something more tailored to your needs?
+        {t("customPlanRow.prompt")}
       </p>
       <div className="flex w-[840px] max-w-full flex-col items-start gap-4 rounded-2xl bg-[var(--surface-lift)] p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
         <div className="flex min-w-0 items-center gap-4">
@@ -57,16 +56,16 @@ export function CustomPlanRow({
           <div className="flex min-w-0 flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[16px] font-medium text-[var(--content-emphasised)]">
-                Custom Plan
+                {t("customPlanRow.title")}
               </span>
               {isCurrent ? (
                 <Tag className="bg-[var(--feed-digest-weak)] text-[var(--content-default)]">
-                  Your Current Plan
+                  {t("customPlanRow.currentPlanTag")}
                 </Tag>
               ) : null}
             </div>
             <span className="text-[14px] font-medium text-[var(--content-tertiary)]">
-              {currentSummary ?? GENERIC_DESCRIPTOR}
+              {currentSummary ?? t("customPlanRow.genericDescriptor")}
             </span>
           </div>
         </div>
@@ -76,7 +75,7 @@ export function CustomPlanRow({
             onClick={onConfigure}
             disabled={configureDisabled}
           >
-            Configure
+            {t("customPlanRow.configure")}
           </Button>
         </div>
       </div>

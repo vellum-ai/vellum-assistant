@@ -11,7 +11,6 @@ import {
 } from "../risk/bash-risk-classifier.js";
 import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry/index.js";
 import type { CommandSegment } from "../risk/shell-parser.js";
-import type { UserRule } from "../risk/risk-types.js";
 import "./test-preload.js";
 
 // ---------------------------------------------------------------------------
@@ -61,7 +60,6 @@ describe("risk rule cache integration", () => {
 
     const result = classifySegment(
       segment("git push"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -76,7 +74,6 @@ describe("risk rule cache integration", () => {
 
     const result = classifySegment(
       segment("git push"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -90,7 +87,7 @@ describe("risk rule cache integration", () => {
 
     initTrustRuleCache(store);
 
-    const result = classifySegment(segment("ls"), [], DEFAULT_COMMAND_REGISTRY);
+    const result = classifySegment(segment("ls"), DEFAULT_COMMAND_REGISTRY);
 
     expect(result.matchType).toBe("user_rule");
   });
@@ -104,7 +101,6 @@ describe("risk rule cache integration", () => {
     // git push --force should still escalate via arg rules (--force → high)
     const result = classifySegment(
       segment("git push --force"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -118,7 +114,6 @@ describe("risk rule cache integration", () => {
 
     const result = classifySegment(
       segment("git push"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -138,7 +133,6 @@ describe("risk rule cache integration", () => {
 
     const result = classifySegment(
       segment("git push"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -155,7 +149,6 @@ describe("risk rule cache integration", () => {
 
     const result = classifySegment(
       segment("git status"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -173,7 +166,6 @@ describe("risk rule cache integration", () => {
 
     const result = classifySegment(
       segment("git stash drop"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -196,7 +188,6 @@ describe("risk rule cache integration", () => {
     // (soft-deleted), then the cache's findBaseRisk falls back to "git stash"
     const result = classifySegment(
       segment("git stash drop"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -215,7 +206,6 @@ describe("risk rule cache integration", () => {
     // rules determined the final risk, matchType should be "registry".
     const result = classifySegment(
       segment("git push --force"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -240,7 +230,6 @@ describe("risk rule cache integration", () => {
 
     const result = classifySegment(
       segment("ls vellumtestfile extra"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -271,7 +260,6 @@ describe("risk rule cache integration", () => {
 
     const result = classifySegment(
       segment("cat /etc/passwd notes.txt"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -297,7 +285,6 @@ describe("risk rule cache integration", () => {
 
     const result = classifySegment(
       segment("rm -rf /tmp/test"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -329,7 +316,6 @@ describe("risk rule cache integration", () => {
     // never falling through to the broader prefix "action:rm".
     const result = classifySegment(
       segment("rm /tmp"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -346,7 +332,6 @@ describe("risk rule cache integration", () => {
 
     const result = classifySegment(
       segment("git push --force"),
-      [],
       DEFAULT_COMMAND_REGISTRY,
     );
 
@@ -379,52 +364,6 @@ describe("risk rule cache integration", () => {
     // Without the classify()-level check, rm -rf would escalate to "high"
     // via arg rules. The exact user_defined rule must short-circuit first.
     expect(result.riskLevel).toBe("low");
-    expect(result.matchType).toBe("user_rule");
-  });
-});
-
-// ── userRules param specificity ordering ──────────────────────────────────────
-
-describe("userRules param specificity ordering", () => {
-  beforeEach(() => {
-    resetGatewayDb();
-    resetTrustRuleCache();
-  });
-
-  afterEach(() => {
-    resetTrustRuleCache();
-    resetGatewayDb();
-  });
-
-  test("longer regex pattern wins over shorter when both match", () => {
-    const rules: UserRule[] = [
-      {
-        id: "r1",
-        pattern: "^git",
-        risk: "high",
-        label: "all git high",
-        createdAt: "",
-        source: "manual",
-      },
-      {
-        id: "r2",
-        pattern: "^git push",
-        risk: "low",
-        label: "git push low",
-        createdAt: "",
-        source: "manual",
-      },
-    ];
-
-    // Cache not initialized — only userRules[] param is active in step 1a.
-    const result = classifySegment(
-      segment("git push origin"),
-      rules,
-      DEFAULT_COMMAND_REGISTRY,
-    );
-
-    // "^git push" (length 9) beats "^git" (length 4)
-    expect(result.risk).toBe("low");
     expect(result.matchType).toBe("user_rule");
   });
 });

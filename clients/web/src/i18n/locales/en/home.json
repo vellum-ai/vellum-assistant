@@ -20,6 +20,7 @@
     "background": "Background",
     "system": "System"
   },
+  "homeRecapRow": { "actionsTitle": "Update Actions" },
   "homeTopHeader": { "title": "Activity" },
   "homeFeedFilterBar": { "ariaLabel": "Filter notifications" },
   "homeFeedList": {

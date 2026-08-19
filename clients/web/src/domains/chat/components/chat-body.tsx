@@ -30,10 +30,10 @@ import { Notice, type NoticeTone } from "@vellumai/design-library";
  * single visual group — matching the original centered layout — while
  * the composer **stays at the same position in the React tree** so its
  * state (focus, draft text, attachments) is preserved across the
- * empty→active transition. `safe center` falls back to start-alignment
- * when the group overflows; while the soft keyboard is open the empty
- * state bottom-anchors the group instead so the composer docks to the
- * keyboard edge.
+ * empty→active and undocked→docked (starters arriving) transitions. `safe
+ * center` falls back to start-alignment when the group overflows; while
+ * the soft keyboard is open the empty state bottom-anchors the group
+ * instead so the composer docks to the keyboard edge.
  *
  * See [React — Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state)
  * and [MDN — `justify-content: safe center`](https://developer.mozilla.org/en-US/docs/Web/CSS/justify-content).
@@ -245,21 +245,33 @@ export function ChatBody({
       : "[justify-content:safe_center]";
 
   // On the empty state the outer container is a plain scroll container.
-  // Group alignment lives on an inner `min-h-full` wrapper (the docked
-  // branch builds its own): alignment directly on the scroll container
-  // would make end-aligned content taller than the viewport overflow past
-  // the START edge, where scrolling cannot reach, leaving the greeting
-  // unreachable on short viewports while the keyboard is open.
+  // Group alignment lives on an inner `min-h-full` wrapper: alignment
+  // directly on the scroll container would make end-aligned content taller
+  // than the viewport overflow past the START edge, where scrolling cannot
+  // reach, leaving the greeting unreachable on short viewports while the
+  // keyboard is open.
   const outerClass = isEmptyState ? `${baseClass} overflow-y-auto` : baseClass;
 
-  // Inner wrapper for the non-docked layout. On the empty state it fills
-  // the first viewport (`min-h-full`) and carries the group alignment; on
-  // the active state it is a plain fill wrapper (`min-h-0 flex-1`) so the
-  // transcript keeps its height chain. It exists in both states so the
-  // composer keeps its tree position across the empty→active transition.
-  const nonDockedInnerClass = isEmptyState
-    ? `flex min-h-full flex-col ${nonDockedAlignmentClass}`
+  const isDockedEmpty = isEmptyState && dockStartersToBottom;
+
+  // The composer lives at outer > inner > group > stack in every branch, so
+  // flipping docked/undocked (starters arriving) or empty/active does not
+  // remount it and drop textarea focus. Empty + docked: inner is a
+  // min-h-full column and the group flexes + centers (or bottom-anchors
+  // while the keyboard is open). Empty + undocked: inner is the centered
+  // column and the group shrink-wraps. Active: both are flex-1 min-h-0 so
+  // the transcript still fills.
+  const innerClass = isEmptyState
+    ? isDockedEmpty
+      ? "flex min-h-full flex-col"
+      : `flex min-h-full flex-col ${nonDockedAlignmentClass}`
     : "flex min-h-0 flex-1 flex-col";
+
+  const groupClass = isDockedEmpty
+    ? `flex flex-1 flex-col ${keyboardOpen ? "justify-end" : "[justify-content:safe_center]"}`
+    : isEmptyState
+      ? "flex flex-col"
+      : "flex min-h-0 flex-1 flex-col";
 
   // Mirror the mounted banner — not the candidate slot — into the shared
   // store so tip surfaces stay mutually exclusive with nudge banners.
@@ -300,11 +312,12 @@ export function ChatBody({
     </div>
   );
 
-  // Composer stack — stays at the same tree position across the empty→active
-  // transition so React preserves its state (focus, draft text, attachments)
-  // and iOS Safari does not blur the input on first send (LUM-1506 / LUM-1516).
-  // `trailingStarters` lets the docked layout render the starters elsewhere
-  // (its own bottom dock) instead of directly below the composer.
+  // Composer stack stays at the same tree position across empty→active
+  // and undocked→docked so React preserves its state (focus, draft text,
+  // attachments) and iOS Safari does not blur the input on first send
+  // (LUM-1506 / LUM-1516). `trailingStarters` lets the docked layout
+  // render the starters elsewhere (its own bottom dock) instead of
+  // directly below the composer.
   const renderComposerStack = (trailingStarters: ReactNode) => (
     // The banner is a flow child here because it is an opaque full-width
     // card that always occupies its own height: the `flex-1` scroll area
@@ -375,43 +388,6 @@ export function ChatBody({
     </div>
   );
 
-  // Docked (suggestions-library) empty state: the first screen fills the
-  // viewport with the greeting + composer centered and the featured row
-  // pinned to its bottom; the categorized groups sit below the fold.
-  if (isEmptyState && dockStartersToBottom) {
-    return (
-      <div
-        className={outerClass}
-        style={bottomInset ? { paddingBottom: bottomInset } : undefined}
-        onDragEnter={dragHandlers.onDragEnter}
-        onDragOver={dragHandlers.onDragOver}
-        onDragLeave={dragHandlers.onDragLeave}
-        onDrop={dragHandlers.onDrop}
-      >
-        <div className="flex min-h-full flex-col">
-          {/* While the keyboard is open the group anchors to the bottom edge
-              (the shell bottom is the keyboard top), matching the transcript
-              layout; otherwise it centers in the first screen. */}
-          <div
-            className={`flex flex-1 flex-col ${keyboardOpen ? "justify-end" : "[justify-content:safe_center]"}`}
-          >
-            <ChatScrollArea {...scrollAreaProps} />
-            {renderComposerStack(null)}
-          </div>
-          {startersSlot &&
-            renderKeyboardCollapse(
-              "docked-starters",
-              <ChatColumn className="pb-3">{startersSlot}</ChatColumn>,
-            )}
-        </div>
-        {belowFoldSlot && (
-          <ChatColumn className="pt-2 pb-8">{belowFoldSlot}</ChatColumn>
-        )}
-        {dragOverlay}
-      </div>
-    );
-  }
-
   return (
     <div
       className={outerClass}
@@ -421,20 +397,31 @@ export function ChatBody({
       onDragLeave={dragHandlers.onDragLeave}
       onDrop={dragHandlers.onDrop}
     >
-      <div className={nonDockedInnerClass}>
-        <ChatScrollArea {...scrollAreaProps} />
+      <div className={innerClass}>
+        <div className={groupClass}>
+          <ChatScrollArea {...scrollAreaProps} />
 
-        {!isEmptyState && activeProcessOverlaysSlot && (
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
-            {/* Registry-driven row of active background-process overlays. The
-                caller owns which kinds it covers and their order; each overlay
-                self-gates on its own active ids. */}
-            {activeProcessOverlaysSlot}
-          </div>
-        )}
+          {!isEmptyState && activeProcessOverlaysSlot && (
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
+              {/* Registry-driven row of active background-process overlays. The
+                  caller owns which kinds it covers and their order; each overlay
+                  self-gates on its own active ids. */}
+              {activeProcessOverlaysSlot}
+            </div>
+          )}
 
-        {renderComposerStack(startersSlot)}
+          {renderComposerStack(isDockedEmpty ? null : startersSlot)}
+        </div>
+        {isDockedEmpty &&
+          startersSlot &&
+          renderKeyboardCollapse(
+            "docked-starters",
+            <ChatColumn className="pb-3">{startersSlot}</ChatColumn>,
+          )}
       </div>
+      {isDockedEmpty && belowFoldSlot ? (
+        <ChatColumn className="pt-2 pb-8">{belowFoldSlot}</ChatColumn>
+      ) : null}
       {dragOverlay}
     </div>
   );

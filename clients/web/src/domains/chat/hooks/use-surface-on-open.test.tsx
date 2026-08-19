@@ -18,7 +18,7 @@ import { createElement, type ReactNode } from "react";
 import type * as ConversationsApi from "@/domains/chat/api/conversations";
 import type { Conversation } from "@/types/conversation-types";
 import type { ConversationListPage } from "@/utils/conversation-list-fetchers";
-import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
+import { conversationListQueryKey } from "@/utils/conversation-list-keys";
 import { listPage } from "@/utils/conversation-list.test-helper";
 
 const surfaceCalls: Array<{ assistantId: string; conversationId: string }> = [];
@@ -86,7 +86,7 @@ describe("useSurfaceOnOpen", () => {
     const client = new QueryClient();
     const bg = conversation({ conversationType: "background" });
     client.setQueryData<ConversationListPage>(
-      conversationsQueryKey(ASSISTANT_ID),
+      conversationListQueryKey(ASSISTANT_ID),
       listPage([]),
     );
 
@@ -101,7 +101,7 @@ describe("useSurfaceOnOpen", () => {
       expect(
         client
           .getQueryData<ConversationListPage>(
-            conversationsQueryKey(ASSISTANT_ID),
+            conversationListQueryKey(ASSISTANT_ID),
           )
           ?.conversations.map((c) => c.surfacedAt),
       ).toEqual([4242]);
@@ -160,7 +160,7 @@ describe("useSurfaceOnOpen", () => {
   test("a failed surface leaves caches untouched and retries on the next open", async () => {
     const client = new QueryClient();
     client.setQueryData<ConversationListPage>(
-      conversationsQueryKey(ASSISTANT_ID),
+      conversationListQueryKey(ASSISTANT_ID),
       listPage([]),
     );
     surfaceImpl = async () => {
@@ -174,7 +174,7 @@ describe("useSurfaceOnOpen", () => {
     });
     expect(
       client.getQueryData<ConversationListPage>(
-        conversationsQueryKey(ASSISTANT_ID),
+        conversationListQueryKey(ASSISTANT_ID),
       ),
     ).toEqual(listPage([]));
 
@@ -196,7 +196,7 @@ describe("useSurfaceOnOpen", () => {
        fire a duplicate promotion for a run already being promoted. */
     const client = new QueryClient();
     client.setQueryData<ConversationListPage>(
-      conversationsQueryKey(ASSISTANT_ID),
+      conversationListQueryKey(ASSISTANT_ID),
       listPage([]),
     );
     const resolvers = new Map<string, (at: number) => void>();
@@ -246,7 +246,7 @@ describe("useSurfaceOnOpen", () => {
   test("a pending request blocks a duplicate while prop identity churns", async () => {
     const client = new QueryClient();
     client.setQueryData<ConversationListPage>(
-      conversationsQueryKey(ASSISTANT_ID),
+      conversationListQueryKey(ASSISTANT_ID),
       listPage([]),
     );
     let resolveSurface!: (at: number) => void;

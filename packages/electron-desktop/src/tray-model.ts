@@ -12,7 +12,11 @@ import {
   type Lockfile,
   type LockfileAssistant,
 } from "@vellumai/local-mode/contract";
-import type { VellumCommand } from "@vellumai/ipc-contract";
+import {
+  COMPANION_SIZES,
+  type CompanionSize,
+  type VellumCommand,
+} from "@vellumai/ipc-contract";
 
 import { onAvatarChange } from "./avatar";
 import { getName, onNameChange } from "./identity";
@@ -41,6 +45,8 @@ export interface TrayModelRuntime {
   ) => Pick<MenuItemConstructorOptions, "accelerator">;
   companionEnabled: () => boolean;
   companionHidden: () => boolean;
+  /** Which named size the companion surface is drawn at. */
+  companionSize: () => CompanionSize;
   dispatch: (command: VellumCommand) => void;
   featureEnabled: (flag: string) => boolean;
   getLockfile: () => Lockfile;
@@ -49,6 +55,7 @@ export interface TrayModelRuntime {
   openComponentGallery: () => void;
   removePairedLabel: string;
   setCompanionVisible: (visible: boolean) => void;
+  setCompanionSize: (size: CompanionSize) => void;
 }
 
 let runtime: TrayModelRuntime | null = null;
@@ -123,6 +130,21 @@ export interface TrayHandlers {
  * Resolve a user-facing display title for a lockfile assistant. Uses the
  * assistant name when present, falling back to a truncated id.
  */
+/**
+ * Menu wording for each companion size.
+ *
+ * Here rather than in the contract: the contract carries what the two processes
+ * send each other, and these are words on a menu. The point sizes are not in
+ * the labels: "88pt" means nothing next to a floating avatar, and the sizes
+ * are meant to be picked by looking at the result.
+ */
+const COMPANION_SIZE_LABELS: Record<CompanionSize, string> = {
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+  huge: "Huge",
+};
+
 const assistantDisplayTitle = (assistant: LockfileAssistant): string => {
   if (assistant.name) {
     return assistant.name;
@@ -357,6 +379,27 @@ const buildTrayMenu = (
             click: (item: Electron.MenuItem) => {
               trayRuntime.setCompanionVisible(item.checked);
             },
+          },
+          {
+            // Named steps rather than a slider, because the avatar's box is not
+            // a style: the canvas, the pill's reach and the card's height are
+            // all derived from it, so a continuous scale would be a layout
+            // nobody had ever looked at. Radio items, since the sizes are one
+            // choice and the menu has to show which one is in effect.
+            //
+            // Disabled rather than hidden while the surface is hidden: the item
+            // says the size is still something the companion has, and an item
+            // that comes and goes with the checkbox above it reads as a bug.
+            label: "Companion Size",
+            enabled: !trayRuntime.companionHidden(),
+            submenu: COMPANION_SIZES.map((size) => ({
+              label: COMPANION_SIZE_LABELS[size],
+              type: "radio" as const,
+              checked: trayRuntime.companionSize() === size,
+              click: () => {
+                trayRuntime.setCompanionSize(size);
+              },
+            })),
           },
         ]
       : []),

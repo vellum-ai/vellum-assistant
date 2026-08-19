@@ -500,6 +500,111 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
+  test("accepts an unmentioned thread_broadcast reply in a tracked thread", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      await Promise.all([
+        resolveSlackUser("U-mentioned", "xoxb-test"),
+        resolveSlackUser("U-reply", "xoxb-test"),
+      ]);
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-mention-broadcast",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-mention-broadcast",
+            event: {
+              type: "app_mention",
+              user: "U-mentioned",
+              text: "<@UBOT> can you help here?",
+              ts: "1700000000.000100",
+              channel: "C-thread",
+              thread_ts: "1700000000.000000",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(1);
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-broadcast-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-broadcast-reply",
+            event: {
+              type: "message",
+              subtype: "thread_broadcast",
+              user: "U-reply",
+              text: "following up in the thread and the channel",
+              ts: "1700000000.000250",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: "1700000000.000000",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(2);
+      expect(emitted[1].event.source.updateId).toBe("Ev-broadcast-reply");
+      expect(emitted[1].event.message.content).toBe(
+        "following up in the thread and the channel",
+      );
+      expect(emitted[1].threadTs).toBe("1700000000.000000");
+      expect(emitted[1].event.source.threadId).toBe("1700000000.000000");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("still drops a thread_broadcast reply in an untracked thread", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      await resolveSlackUser("U-reply", "xoxb-test");
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-untracked-broadcast",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-untracked-broadcast",
+            event: {
+              type: "message",
+              subtype: "thread_broadcast",
+              user: "U-reply",
+              text: "also send this to the channel",
+              ts: "1700000000.000260",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: "1700000000.000000",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread("1700000000.000000")).toBe(false);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("stamps payload-level team_id onto events lacking an inner team", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];

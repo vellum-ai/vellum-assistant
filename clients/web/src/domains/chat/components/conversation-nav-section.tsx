@@ -43,6 +43,7 @@ import {
   type CollapsibleNavSectionDrag,
 } from "@/components/collapsible-nav-section";
 import { SIDEBAR_SECTION_MAX_HEIGHT } from "@/components/sidebar-nav-geometry";
+import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
 import { ConversationRow } from "@/domains/chat/components/conversation-row";
 import { LoadMoreSentinel } from "@/domains/chat/components/load-more-sentinel";
 import {
@@ -51,6 +52,7 @@ import {
   renderGroupMenuItemsAsPanelItems,
   type GroupMenuItemsProps,
 } from "@/domains/chat/components/group-actions-menu";
+import { useTranslation } from "@/i18n";
 import type { Conversation } from "@/types/conversation-types";
 
 /**
@@ -216,22 +218,29 @@ export function ConversationNavSection({
   ...listProps
 }: ConversationNavSectionProps) {
   const hasMenu = groupMenu != null && hasAnyGroupMenuAction(groupMenu);
+  const { overlayCards } = useConversationListContext();
+  const { t } = useTranslation("chat");
 
   return (
     <CollapsibleNavSection.Section
       value={value}
+      card={overlayCards}
       icon={icon}
       label={label}
       trailing={trailing}
       contextMenuContent={
         hasMenu
-          ? renderGroupMenuItems({ Primitive: ContextMenu, ...groupMenu })
+          ? renderGroupMenuItems({ Primitive: ContextMenu, ...groupMenu, t })
           : undefined
       }
       touchMenuContent={
         hasMenu
           ? (close) =>
-              renderGroupMenuItemsAsPanelItems({ ...groupMenu, onClose: close })
+              renderGroupMenuItemsAsPanelItems({
+                ...groupMenu,
+                onClose: close,
+                t,
+              })
           : undefined
       }
       collapsedIndicator={collapsedIndicator}

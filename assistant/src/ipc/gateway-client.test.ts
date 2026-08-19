@@ -143,7 +143,7 @@ describe("ipcClassifyRisk retry", () => {
   const CLASSIFY_OK = {
     risk: "low",
     reason: "safe",
-    matchType: "none",
+    matchType: "registry",
     scopeOptions: [],
   };
   const emptyParams = {} as unknown as Parameters<typeof ipcClassifyRisk>[0];

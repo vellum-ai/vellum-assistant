@@ -1643,7 +1643,7 @@ function mapTogglePluginError(err: unknown): RouteError {
 
 /**
  * Converge plugin-declared schedules against the sentinel this route just
- * wrote, so a toggled plugin's rows disarm or re-arm now rather than at the
+ * wrote, so a disabled plugin's rows disarm now rather than at the
  * reconciler's next backstop sweep.
  *
  * Fire-and-forget: the toggle itself already succeeded on disk, so a reconcile
@@ -1671,15 +1671,27 @@ function reconcilePluginSchedulesInBackground(): void {
  * names WHICH resource is stale, not the new value. The origin client id is
  * threaded through for self-echo suppression.
  */
-function handleEnablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {
+async function handleEnablePlugin({
+  pathParams = {},
+  headers,
+}: RouteHandlerArgs) {
   try {
     enablePlugin(pathParams.name ?? "");
-    publishPluginsChanged(getOriginClientId(headers));
-    reconcilePluginSchedulesInBackground();
-    return { ok: true };
   } catch (err) {
     throw mapTogglePluginError(err);
   }
+  // A plugin the boot scan skipped for its sentinel has no hooks, tools or
+  // MCP servers in the caches, so clearing the sentinel is not enough to
+  // bring it up. Run the same imperative source reconcile the install and
+  // upgrade routes use, which activates the plugin and then converges its
+  // schedules and MCP servers. Awaited, like the install route, so a client
+  // that lists tools right after enabling sees the plugin up; the reconcile
+  // contains its own failures, so a broken plugin cannot turn a successful
+  // enable into a route error. The invalidation publishes after it for the
+  // same reason: refetching clients should see the post-activation state.
+  await reconcilePluginSourcesNow();
+  publishPluginsChanged(getOriginClientId(headers));
+  return { ok: true };
 }
 
 function handleDisablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {

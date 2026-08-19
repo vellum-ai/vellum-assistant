@@ -7,6 +7,11 @@
     <PublishSingleFile>true</PublishSingleFile>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- UI Automation client (System.Windows.Automation) for focused-field checks. -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+  </ItemGroup>
 </Project>

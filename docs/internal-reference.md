@@ -45,11 +45,11 @@ Detailed reference documentation for the Vellum Assistant platform. For an overv
 
 ### Git Hooks
 
-This repository includes git hooks to help maintain code quality and security. The hooks are installed by running the install script directly.
+This repository includes git hooks to help maintain code quality and security. They are wired up automatically: `assistant/`'s `postinstall` (and `setup.sh`) point `core.hooksPath` at `.githooks/`.
 
-To manually install or update hooks:
+To wire them up by hand:
 ```bash
-./.githooks/install.sh
+git config core.hooksPath .githooks
 ```
 
 See [.githooks/README.md](../.githooks/README.md) for more details about available hooks.
@@ -535,17 +535,14 @@ VELLUM_DAEMON_URL=http://localhost:8741 open -a Vellum
 
 ### Claude Code Workflow
 
-This repo includes Claude Code slash commands for agent-driven development. Most are shared from the [`claude-skills`](https://github.com/vellum-ai/claude-skills) repo via symlinks; repo-local commands live in `.claude/skills/<name>/` as local skill directories (see `.claude/README.md`).
+This repo includes Claude Code slash commands for agent-driven development. Most are shared from the [`claude-skills`](https://github.com/vellum-ai/claude-skills) repo via symlinks; repo-local commands live in `.claude/skills/<name>/` as local skill directories (see `.claude/README.md`). The tables below cover the commands this doc's workflows depend on; the `claude-skills` README is the complete, current reference, and a command listed there but not here is not deprecated.
 
 #### Single-task commands
 
 | Command | Purpose |
 |---------|---------|
 | `/do <description>` | Implement a change in an isolated worktree, create a PR, squash-merge it to main, and clean up. |
-| `/safe-do <description>` | Like `/do` but creates a PR without auto-merging — pauses for human review. Keeps the worktree for feedback. |
 | `/mainline` | Ship uncommitted changes already in your working tree to main via a squash-merged PR. |
-| `/ship-and-merge [title]` | Ship uncommitted changes via a PR with automated review feedback loop — waits for Codex/Devin reviews, fixes valid feedback (up to 3 rounds), and squash-merges. |
-| `/work` | Pick up the next task from `.private/TODO.md` (or a task you specify), implement it, PR it, and merge it. |
 
 #### Multi-task / parallel commands
 
@@ -556,36 +553,21 @@ This repo includes Claude Code slash commands for agent-driven development. Most
 | `/blitz <feature>` | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, then gates each PR on Codex/Devin review approval before merging (per-PR feedback loops with up to 3 fix cycles). Runs a **recursive sweep loop** (check reviews, swarm to address feedback, review and merge feedback PRs, repeat) until all PRs — including transitive feedback PRs — are fully reviewed with no remaining action items. Merges directly to main. Supports `--auto`, `--workers N`, `--skip-plan`, `--skip-reviews`. Pass `--skip-reviews` to merge PRs immediately without waiting for reviews (opt-in; default is to wait). Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. |
 | `/safe-blitz <feature>` | End-to-end feature delivery on a feature branch — plans, creates issues, executes milestones sequentially with per-milestone **direct-push feedback loops** (check reviews, push fixes directly to the milestone branch, re-request reviews, repeat until clean or 3 cycles), then automatically runs a final sweep on the entire feature branch (no user approval prompt). All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--workers N`, `--skip-plan`, `--branch NAME`. |
 | `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merges the feature branch PR into main, sets the project issue to Done, closes the issue, and deletes the local branch. Auto-detects the PR from current branch, open `feature/*` PRs, or project board "In Review" items. |
-| `/execute-plan <file>` | Sequential multi-PR rollout — reads a plan file from `.private/plans/`, executes each PR in order, mainlining each before moving to the next. |
 | `/check-reviews-and-swarm [workers] [max-tasks] [--namespace NAME]` | Combined review sweep + execution pass — runs review checks, then swarms on actionable feedback items. When `--namespace` is provided, it is passed to both `/check-reviews` (to filter PRs and prefix TODO items) and `/swarm` (to filter TODO items and namespace branches). When omitted, `/check-reviews` still infers namespaces from PR branch names matching `swarm/<NAME>/...`. |
 
-#### Human-in-the-loop plan execution
-
-A three-command workflow for executing plans one PR at a time with human review between each step. Each plan gets its own state file in `.private/safe-plan-state/`, so multiple plans can run concurrently in separate sessions.
+#### Plan execution
 
 | Command | Purpose |
 |---------|---------|
-| `/safe-execute-plan <file>` | Start a plan from `.private/plans/` — implements the next PR, creates it (without merging), automatically runs an **automated review feedback loop** (up to 3 fix cycles with Codex/Devin), then auto-initiates `/safe-check-review` after 60 seconds to await human merge approval. |
-| `/safe-check-review [file]` | Check the active plan PR for feedback from codex/devin/humans and CI. Runs an **automated feedback loop** (up to 3 fix cycles): fetches full review data (reviews, inline comments, review threads, reactions, CI checks), determines aggregate status including CI state and human unresolved threads, addresses `changes_requested` by pushing fixes, re-requests reviews, and polls for fresh responses — only concluding approved once all reviewers (bots and humans) and CI are green. Auto-detects the plan if only one is active. |
-| `/resume-plan [file]` | Merge the current PR, implement the next one, create it, and stop again. Repeats until the plan is complete. Auto-detects the plan if only one is active. |
-
-**Typical flow:**
-
-1. **`/safe-execute-plan MY_PLAN.md`** — starts the plan, creates PR 1, automatically handles Codex/Devin review feedback (up to 3 cycles), then auto-initiates `/safe-check-review` after 60 seconds
-2. **`/resume-plan MY_PLAN.md`** — merge PR 1 (automated reviews already complete), create PR 2, stop
-3. Repeat step 2 until the plan is complete
-
-The automated review loop in `/safe-execute-plan` triggers Codex and Devin reviews, waits for their feedback (up to 15 minutes for initial reviews, 10 minutes for subsequent cycles), addresses any `changes_requested` feedback by pushing fixes directly to the PR branch, and re-requests reviews — repeating up to 3 cycles. After the review loop completes, it waits 60 seconds then automatically invokes `/safe-check-review` to hand off to you for merge approval.
-
-Multiple plans can run in parallel — just specify the plan name to disambiguate.
+| `/create-plan <feature>` | Break a feature into a handoff-ready PR-by-PR plan with explicit dependency tracking for parallel execution. Writes a private draft to `.private/plans/<slug>.md`. |
+| `/run-plan <slug>` | Execute a plan from `.private/plans/<slug>.md` with dependency-aware parallel execution, self-review, and gap remediation. Attaches the full plan to implementation PRs as the durable papertrail. |
+| `/safe-check-review [file]` | Check the active safe-plan PR for review feedback from Codex, Devin, humans, and CI, and address it. |
 
 #### Utility
 
 | Command | Purpose |
 |---------|---------|
-| `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
 | `/release [bump]` | Cut a release in two steps: dispatch `create-release-branch.yml` (cuts `release/vX.Y.Z` from main → staging bake), then after the bake is green dispatch `release.yml` on the release branch for the full production release. |
-| `/triage [user\|assistant\|device]` | Search Sentry for recent errors and log reports by user, assistant, or device in the `vellum-assistant-brain` project, then cross-reference with Linear issues to produce a triage summary. |
 | `/update` | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary. |
 
 #### Review
@@ -602,8 +584,6 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 4. **`/swarm`** again — address the feedback
 
 Or for a focused feature: **`/blitz <feature>`** handles all of the above in one shot (plan, issues, swarm, sweep, report). Use **`/safe-blitz <feature>`** for the same workflow but with a feature branch and a final PR for manual review, then **`/safe-blitz-done`** to merge it when ready.
-
-For controlled, sequential plan execution with automated bot reviews and human merge approval: **`/safe-execute-plan <file>`** (creates PR + auto-handles Codex/Devin feedback + auto-initiates `/safe-check-review` after 60s) -> **`/resume-plan`** -> repeat.
 
 All workflows use squash-merge (no merge commits), worktree isolation for parallel work, and track state in `.private/TODO.md` and `.private/UNREVIEWED_PRS.md`.
 

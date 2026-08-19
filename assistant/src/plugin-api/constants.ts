@@ -40,6 +40,14 @@ export const HOOKS = {
 export type HookName = (typeof HOOKS)[keyof typeof HOOKS];
 
 /**
+ * Message kind for the hidden user row that starts a voice escalation leg.
+ * Hooks use this marker to distinguish the continuation instruction from
+ * other transcript-suppressed prompts without depending on host voice code.
+ */
+export const VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND =
+  "voice_escalation_continuation";
+
+/**
  * Appended (inside the `<system_notice>` wrapper) to the internal continuation /
  * completion nudge strings that re-query the model. Those notices are injected
  * as user-role turns; weaker models without a separate reasoning channel

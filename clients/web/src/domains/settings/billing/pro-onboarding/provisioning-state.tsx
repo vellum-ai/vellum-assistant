@@ -21,6 +21,7 @@ import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import type { ProvisioningDimensionFlags } from "@/lib/billing/provisioning-targets";
+import { useTranslation } from "@/i18n";
 import { SURFACE_GROUND } from "@/utils/avatar-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
@@ -343,11 +344,12 @@ function DimensionChip({
   pending?: boolean;
   testId?: string;
 }) {
+  const { t } = useTranslation("settings");
   let status: string | null = null;
   if (done) {
-    status = "Complete";
+    status = t("provisioningState.statusComplete");
   } else if (pending) {
-    status = "Pending";
+    status = t("provisioningState.statusPending");
   }
   return (
     <div
@@ -375,7 +377,7 @@ function DimensionChip({
           {from && (
             <>
               <span>{from}</span>
-              <span className="sr-only">to</span>
+              <span className="sr-only">{t("provisioningState.srOnlyTo")}</span>
               <ArrowRight
                 className="h-3 w-3 shrink-0 text-[var(--content-tertiary)]"
                 aria-hidden="true"
@@ -512,6 +514,7 @@ function ResourceChangeChips({
   allDone?: boolean;
   creditsOnly?: boolean;
 }) {
+  const { t } = useTranslation("settings");
   // Checkout reads the stashed intent, an in-place change carries its own
   // tiers, and a takeover runs in exactly one of those modes, so at most one of
   // these resolves.
@@ -540,7 +543,9 @@ function ResourceChangeChips({
     .join(", ");
   const [completedAtFirstPaint] = useState(completed);
   const announcement =
-    completed === completedAtFirstPaint ? "" : `${completed} complete`;
+    completed === completedAtFirstPaint
+      ? ""
+      : t("provisioningState.dimensionsComplete", { dimensions: completed });
 
   if (changes.length === 0) {
     return null;
@@ -574,12 +579,15 @@ function ResourceChangeChips({
 
 /** CONFIRMING chips: derived from the stashed intent before any API data lands. */
 function IntentChips({ intent }: { intent: CheckoutIntent }) {
+  const { t } = useTranslation("settings");
   if (intent.kind === "package") {
     const name =
       intent.packageKey.charAt(0).toUpperCase() + intent.packageKey.slice(1);
     return (
       <ChipRow>
-        <TextChip label={`${name} package`} />
+        <TextChip
+          label={t("provisioningState.packageChip", { name })}
+        />
       </ChipRow>
     );
   }
@@ -595,20 +603,22 @@ function IntentChips({ intent }: { intent: CheckoutIntent }) {
       {intent.machineTier != null && (
         <DimensionChip
           icon={Cpu}
-          label="Machine"
+          label={t("provisioningState.machineLabel")}
           to={MACHINE_TIER_LABEL[intent.machineTier] ?? intent.machineTier}
         />
       )}
       {intent.storageTier != null && (
         <DimensionChip
           icon={HardDrive}
-          label="Storage"
+          label={t("provisioningState.storageLabel")}
           to={intent.storageTier.toUpperCase()}
         />
       )}
       {intent.creditTier != null && (
         <TextChip
-          label={`${intent.creditTier.replace("credits_", "")} credits`}
+          label={t("provisioningState.creditsChip", {
+            count: intent.creditTier.replace("credits_", ""),
+          })}
         />
       )}
     </ChipRow>
@@ -636,6 +646,7 @@ export function ProvisioningState({
   dwellMs = PROVISION_MIN_DWELL_MS,
   phaseMinMs = PROVISION_PHASE_MIN_MS,
 }: ProvisioningStateProps) {
+  const { t } = useTranslation("settings");
   const copy = takeoverCopy(direction);
   const onCelebrationEndRef = useRef(onCelebrationEnd);
   useEffect(() => {
@@ -709,7 +720,7 @@ export function ProvisioningState({
     </div>
   );
 
-  function escapeButton(label = "Continue in the background") {
+  function escapeButton(label = t("provisioningState.continueInBackground")) {
     if (!escapeAvailable) {
       return null;
     }
@@ -749,7 +760,7 @@ export function ProvisioningState({
         <>
           <Copy
             status={copy.confirmingStatus}
-            caption="This might take a couple seconds."
+            caption={t("provisioningState.confirmingCaption")}
           />
           {intent && <IntentChips intent={intent} />}
           {escapeButton()}
@@ -764,8 +775,8 @@ export function ProvisioningState({
             status={copy.waitingStatus}
             caption={
               softWaiting
-                ? "Still working — this can take a minute or two."
-                : "This might take a couple seconds."
+                ? t("provisioningState.waitingCaptionLong")
+                : t("provisioningState.waitingCaptionShort")
             }
           />
           {resourceChips()}
@@ -777,7 +788,7 @@ export function ProvisioningState({
     if (heldState === "DONE") {
       return (
         <>
-          <Copy status="All done!" />
+          <Copy status={t("provisioningState.allDoneStatus")} />
           {resourceChips({ allDone: true })}
         </>
       );
@@ -790,7 +801,7 @@ export function ProvisioningState({
       // resource chip could only report a dimension that stayed put.
       return (
         <>
-          <Copy status="Your plan is ready" />
+          <Copy status={t("provisioningState.planReadyStatus")} />
           {resourceChips({ allDone: true, creditsOnly: true })}
         </>
       );
@@ -805,7 +816,9 @@ export function ProvisioningState({
         <>
           <Copy
             status={
-              snag ? copy.snagStatus : "This is taking longer than expected"
+              snag
+                ? copy.snagStatus
+                : t("provisioningState.takingLongerStatus")
             }
             caption={
               snag
@@ -814,11 +827,13 @@ export function ProvisioningState({
                     copy.snagCaption,
                     direction,
                   )
-                : "This may take a couple of minutes."
+                : t("provisioningState.stalledCaption")
             }
           />
           {resourceChips()}
-          {snag ? escapeButton("Retry in the background") : escapeButton()}
+          {snag
+            ? escapeButton(t("provisioningState.retryInBackground"))
+            : escapeButton()}
         </>
       );
     }
@@ -836,14 +851,14 @@ export function ProvisioningState({
               data-testid="onboarding-go-to-billing"
               onClick={confirm.onGoToBilling}
             >
-              Go to billing
+              {t("provisioningState.goToBilling")}
             </Button>
             <Button
               variant="primary"
               data-testid="onboarding-retry"
               onClick={confirm.onRetry}
             >
-              Try again
+              {t("provisioningState.tryAgain")}
             </Button>
           </div>
         </>
