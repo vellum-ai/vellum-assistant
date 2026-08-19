@@ -31,6 +31,13 @@ interface AssistantSwitcherRowProps {
    * (the current row).
    */
   supportsAvatarManifest?: boolean;
+  /**
+   * Whether this assistant's avatar can be fetched at all: a sibling
+   * behind a transport that cannot be addressed independently must not be
+   * asked, or the single active connection answers with the wrong
+   * assistant's avatar. `false` renders the fallback avatar.
+   */
+  avatarEnabled?: boolean;
   trailingAction?: ReactNode;
   onSelect: () => void;
 }
@@ -42,13 +49,14 @@ export function AssistantSwitcherRow({
   disabled = false,
   switching = false,
   supportsAvatarManifest,
+  avatarEnabled = true,
   trailingAction,
   onSelect,
 }: AssistantSwitcherRowProps) {
   const { t } = useTranslation("chat");
   const { components, traits, customImageUrl } = useAssistantAvatar(
     assistantId,
-    { supportsManifest: supportsAvatarManifest },
+    { supportsManifest: supportsAvatarManifest, enabled: avatarEnabled },
   );
 
   const label = isCurrent ? (

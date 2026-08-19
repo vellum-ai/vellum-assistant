@@ -26,6 +26,7 @@ import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { AssistantSwitcherRow } from "@/domains/chat/components/assistant-switcher-row";
 import { versionSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
 import { captureError } from "@/lib/sentry/capture-error";
+import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
 import { useConversationStore } from "@/stores/conversation-store";
 import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
@@ -187,6 +188,17 @@ export function AssistantSwitcher({
     </button>
   );
 
+  /* A sibling's avatar is only fetchable where the request can actually be
+     addressed to it: through the platform proxy, which routes by the id in
+     the path. With a self-hosted ingress active, the interceptor rewrites
+     every daemon request to that single gateway whatever id the path
+     carries, and it would answer with the ACTIVE assistant's avatar; a
+     local or paired sibling has no per-id platform route either. Those
+     rows keep the fallback avatar instead of showing a wrong one. */
+  const selfHostedActive = getSelfHostedIngressUrl() !== null;
+  const canFetchSiblingAvatar = (sibling: ResolvedAssistant) =>
+    sibling.isPlatformHosted && !selfHostedActive;
+
   const expansion = expanded ? (
     <div
       id={listId}
@@ -225,6 +237,7 @@ export function AssistantSwitcher({
               supportsAvatarManifest={versionSupportsAvatarStateManifest(
                 assistant.runtimeVersion ?? assistant.currentReleaseVersion,
               )}
+              avatarEnabled={canFetchSiblingAvatar(assistant)}
               onSelect={() => void handleSwitch(assistant)}
             />
           ))}

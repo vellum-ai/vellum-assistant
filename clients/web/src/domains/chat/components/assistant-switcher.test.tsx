@@ -62,13 +62,21 @@ mock.module("@/lib/sentry/capture-error", () => ({
   captureError: captureErrorMock,
 }));
 
+let selfHostedIngressUrl: string | null = null;
+mock.module("@/lib/self-hosted/connection", () => ({
+  getSelfHostedIngressUrl: () => selfHostedIngressUrl,
+}));
+
 const avatarCalls: Array<
-  [string | null, { supportsManifest?: boolean } | undefined]
+  [
+    string | null,
+    { supportsManifest?: boolean; enabled?: boolean } | undefined,
+  ]
 > = [];
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: (
     id: string | null,
-    options?: { supportsManifest?: boolean },
+    options?: { supportsManifest?: boolean; enabled?: boolean },
   ) => {
     avatarCalls.push([id, options]);
     return {
@@ -106,6 +114,7 @@ beforeEach(() => {
   captureErrorMock.mockClear();
   navigateMock.mockClear();
   avatarCalls.length = 0;
+  selfHostedIngressUrl = null;
   useConversationStore.setState({ activeConversationId: null });
 });
 
@@ -257,6 +266,40 @@ describe("AssistantSwitcher expanded card", () => {
         ([id, o]) =>
           id === "a1" && o !== undefined && o.supportsManifest === undefined,
       ),
+    ).toBe(true);
+  });
+
+  test("sibling avatars fetch only through an addressable transport", () => {
+    const PAIRED: ResolvedAssistant = {
+      id: "a4",
+      name: "Dana",
+      isLocal: false,
+      isPlatformHosted: false,
+      isPaired: true,
+    };
+    switchable = { assistants: [CURRENT, OTHER, PAIRED], canSwitch: true };
+    const first = renderSwitcher();
+
+    fireEvent.click(first.getByLabelText("Switch assistant"));
+
+    /* A platform sibling routes by the id in the path; a paired sibling
+       has no per-id platform route and keeps the fallback avatar. */
+    expect(
+      avatarCalls.some(([id, o]) => id === "a2" && o?.enabled === true),
+    ).toBe(true);
+    expect(
+      avatarCalls.some(([id, o]) => id === "a4" && o?.enabled === false),
+    ).toBe(true);
+    first.unmount();
+
+    /* With a self-hosted ingress active, every daemon request is rewritten
+       to that one gateway: no sibling is addressable. */
+    selfHostedIngressUrl = "https://gateway.example.com/ingress";
+    avatarCalls.length = 0;
+    const second = renderSwitcher();
+    fireEvent.click(second.getByLabelText("Switch assistant"));
+    expect(
+      avatarCalls.some(([id, o]) => id === "a2" && o?.enabled === false),
     ).toBe(true);
   });
 

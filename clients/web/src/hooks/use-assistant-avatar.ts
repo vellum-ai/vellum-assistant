@@ -36,6 +36,15 @@ export interface AssistantAvatarOptions {
    * `undefined` keeps the active-assistant gate.
    */
   supportsManifest?: boolean;
+  /**
+   * Skip the fetch entirely (`false`) and hand consumers the null avatar.
+   * For sibling assistants whose transport cannot be addressed
+   * independently: with a self-hosted ingress active, every daemon request
+   * is rewritten to that single gateway whatever assistant id the path
+   * carries, so a sibling fetch would return the ACTIVE assistant's
+   * avatar. Defaults to `true`.
+   */
+  enabled?: boolean;
 }
 
 /**
@@ -142,7 +151,7 @@ export function useAssistantAvatar(
 
       return { components, traits, customImageUrl: imageUrl };
     },
-    enabled: Boolean(assistantId),
+    enabled: Boolean(assistantId) && (options?.enabled ?? true),
     staleTime: Infinity,
     structuralSharing: false,
     // Retry transient failures (character-components or avatar-state) once
