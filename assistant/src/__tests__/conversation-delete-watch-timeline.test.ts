@@ -23,6 +23,69 @@ mock.module("../persistence/job-handlers/message-lexical.js", () => ({
   clearMessagesLexicalIndex: async () => {},
 }));
 
+/**
+ * Machinery for parking an append inside its screenshot upload and resuming it
+ * at a chosen point of a wipe.
+ *
+ * Which interleaving a race test actually runs is otherwise up to whenever an
+ * upload happens to resolve, and the interleaving that matters is a narrow
+ * one: the append has to write its row after the wipe's timeline purge, while
+ * `conversations` is still there for the append's own existence check to pass.
+ * Holding the upload and releasing it from inside the wipe pins that exactly.
+ */
+let heldUpload: Promise<void> | null = null;
+let releaseUpload: () => void = () => {};
+let appendDuringWipe: Promise<unknown> | null = null;
+
+function holdTheNextScreenshotUpload(): void {
+  heldUpload = new Promise<void>((resolve) => {
+    releaseUpload = () => {
+      heldUpload = null;
+      resolve();
+    };
+  });
+}
+
+const actualAttachments = await import("../persistence/attachments-store.js");
+// Held onto by value: `mock.module` replaces the module's own binding, so the
+// wrapper has to call the implementation it captured rather than the name.
+const realUpload = actualAttachments.uploadAttachmentFromBytes;
+mock.module("../persistence/attachments-store.js", () => ({
+  ...actualAttachments,
+  uploadAttachmentFromBytes: async (
+    filename: string,
+    mimeType: string,
+    bytes: Uint8Array,
+  ) => {
+    if (heldUpload) {
+      await heldUpload;
+    }
+    return await realUpload(filename, mimeType, bytes);
+  },
+}));
+
+// Every bulk delete in `clearAll` goes through `runAsyncSqlite`. The wrapper
+// runs the real statement; it only lets a held append complete first, on the
+// statement that follows the wipe's timeline purge.
+const actualAsyncQuery = await import("../persistence/db-async-query.js");
+const realRunAsyncSqlite = actualAsyncQuery.runAsyncSqlite;
+mock.module("../persistence/db-async-query.js", () => ({
+  ...actualAsyncQuery,
+  runAsyncSqlite: async (
+    sql: string,
+    label: string,
+    options?: Parameters<typeof actualAsyncQuery.runAsyncSqlite>[2],
+  ) => {
+    if (appendDuringWipe && sql === "DELETE FROM attachments") {
+      const held = appendDuringWipe;
+      appendDuringWipe = null;
+      releaseUpload();
+      await held;
+    }
+    return await realRunAsyncSqlite(sql, label, options);
+  },
+}));
+
 import {
   attachmentExists,
   getFilePathForAttachment,
@@ -173,5 +236,38 @@ describe("clearAll purges every watch timeline", () => {
 
     expectPurged(first);
     expectPurged(second);
+  });
+});
+
+describe("an append that spans a clear-all", () => {
+  test("is refused and leaves no row, no attachment, and no file", async () => {
+    const watched = await seedWatchedConversation("watched-clear-all-race");
+    const stagingDir = dirname(watched.filePath);
+    const filesBefore = new Set(readdirSync(stagingDir));
+
+    // The upload is in flight when the wipe starts, and it lands where the
+    // wipe is most exposed: after the timeline purge, with `conversations`
+    // still populated so the append's existence check has nothing to catch.
+    holdTheNextScreenshotUpload();
+    const pending = appendObservation(watched.sessionId, {
+      conversationId: watched.conversationId,
+      atMs: 3_000,
+      observation: { axTree: "window Mail", screenshot: SCREENSHOT_BASE64 },
+      attachScreenshot: true,
+    });
+    appendDuringWipe = pending;
+
+    await clearAll();
+    const result = await pending;
+
+    expect(result).toEqual({ ok: false, reason: "store_wiped" });
+    // Nothing the append carried outlives the wipe: not the timeline row, not
+    // the attachment row it staged its frame behind, not the frame itself.
+    expect(renderWatchTimeline(watched.sessionId).totalEntries).toBe(0);
+    expect(attachmentIds()).toHaveLength(0);
+    expect(
+      readdirSync(stagingDir).filter((name) => !filesBefore.has(name)),
+    ).toHaveLength(0);
+    expect(existsSync(watched.filePath)).toBe(false);
   });
 });

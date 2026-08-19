@@ -164,6 +164,7 @@ export type WatchAppendResult =
         | "empty"
         | "observation_failed"
         | "conversation_missing"
+        | "store_wiped"
         | "write_failed";
     };
 
@@ -228,6 +229,48 @@ function toEntry(row: typeof watchTimelineEntries.$inferSelect) {
 }
 
 /**
+ * Full wipes running in this process, and the epoch each one advances.
+ *
+ * A full wipe is a sequence of deletes rather than one statement, and an
+ * append is not instantaneous either, so the two interleave in both
+ * directions. {@link conversationStillExists} covers only the ordering where
+ * the conversation row is already gone by the time the append writes; an
+ * append reaching its insert while the wipe is still working through the
+ * tables ahead of `conversations` passes that check and writes a row the wipe
+ * has already swept past.
+ *
+ * The epoch covers the rest. An append captures it as it begins and refuses to
+ * insert when a wipe is in flight or the epoch has moved since, so a row lands
+ * only when no wipe overlapped the append at any point.
+ */
+let wipesInFlight = 0;
+let wipeEpoch = 0;
+
+/**
+ * Run a full wipe with watch appends refused for its whole duration.
+ *
+ * The wrapper spans the wipe rather than the timeline purge alone: the purge
+ * is one step partway through the sequence, and an append landing after it
+ * still has a live `conversations` row to pass the existence check against.
+ */
+export async function withWatchTimelineWipe<T>(
+  wipe: () => Promise<T>,
+): Promise<T> {
+  wipesInFlight += 1;
+  wipeEpoch += 1;
+  try {
+    return await wipe();
+  } finally {
+    wipesInFlight -= 1;
+  }
+}
+
+/** Whether an append that began at `epoch` is still clear of every wipe. */
+function appendSurvivedWipes(epoch: number): boolean {
+  return wipesInFlight === 0 && epoch === wipeEpoch;
+}
+
+/**
  * Whether the conversation an entry is keyed to is still in the store.
  *
  * The check is a read rather than a foreign key because the two would want
@@ -248,16 +291,28 @@ function conversationStillExists(conversationId: string): boolean {
 }
 
 /**
- * Persist one entry, refusing an entry whose conversation is gone.
+ * Persist one entry, refusing an entry a deletion has overtaken.
  *
  * An append is not instantaneous: an observation stores its screenshot before
- * it writes its row, and a delete landing inside that gap would leave a row
+ * it writes its row, and a deletion landing inside that gap would leave a row
  * keyed to a conversation that no longer exists. Nothing could reach that row
- * afterwards, because every purge is scoped to a conversation, so the entry
- * and the frame it owns would survive the delete indefinitely. The existence
- * check makes the write the point where a deleted conversation is noticed.
+ * afterwards, because every purge is scoped to a conversation or to the whole
+ * store, so the entry and the frame it owns would survive the deletion
+ * indefinitely. Both guards make the write the point where that is noticed:
+ * `epochAtAppendStart` covers a full wipe, the existence check covers a
+ * single-conversation delete.
  */
-function insertEntry(entry: WatchTimelineEntry): WatchAppendResult {
+function insertEntry(
+  entry: WatchTimelineEntry,
+  epochAtAppendStart: number,
+): WatchAppendResult {
+  if (!appendSurvivedWipes(epochAtAppendStart)) {
+    log.debug(
+      { sessionId: entry.sessionId, conversationId: entry.conversationId },
+      "Dropping a watch timeline entry that spans a full wipe",
+    );
+    return { ok: false, reason: "store_wiped" };
+  }
   if (!conversationStillExists(entry.conversationId)) {
     log.debug(
       { sessionId: entry.sessionId, conversationId: entry.conversationId },
@@ -310,22 +365,26 @@ export function appendNarration(
   sessionId: string,
   options: { conversationId: string; text: string; atMs: number },
 ): WatchAppendResult {
+  const epochAtAppendStart = wipeEpoch;
   const text = options.text.trim();
   if (text.length === 0) {
     return { ok: false, reason: "empty" };
   }
-  return insertEntry({
-    id: randomUUID(),
-    sessionId,
-    conversationId: options.conversationId,
-    atMs: normalizeAtMs(options.atMs),
-    kind: "narration",
-    text,
-    axTree: null,
-    axDiff: null,
-    screenshotAttachmentId: null,
-    createdAt: Date.now(),
-  });
+  return insertEntry(
+    {
+      id: randomUUID(),
+      sessionId,
+      conversationId: options.conversationId,
+      atMs: normalizeAtMs(options.atMs),
+      kind: "narration",
+      text,
+      axTree: null,
+      axDiff: null,
+      screenshotAttachmentId: null,
+      createdAt: Date.now(),
+    },
+    epochAtAppendStart,
+  );
 }
 
 /**
@@ -359,6 +418,7 @@ export async function appendObservation(
     attachScreenshot?: boolean;
   },
 ): Promise<WatchAppendResult> {
+  const epochAtAppendStart = wipeEpoch;
   const { observation } = options;
   if (observation.executionError) {
     log.debug(
@@ -384,21 +444,26 @@ export async function appendObservation(
     return { ok: false, reason: "empty" };
   }
 
-  const result = insertEntry({
-    id: randomUUID(),
-    sessionId,
-    conversationId: options.conversationId,
-    atMs,
-    kind: "observation",
-    text: "",
-    axTree: observation.axTree ?? null,
-    axDiff: observation.axDiff ?? null,
-    screenshotAttachmentId,
-    createdAt: Date.now(),
-  });
+  const result = insertEntry(
+    {
+      id: randomUUID(),
+      sessionId,
+      conversationId: options.conversationId,
+      atMs,
+      kind: "observation",
+      text: "",
+      axTree: observation.axTree ?? null,
+      axDiff: observation.axDiff ?? null,
+      screenshotAttachmentId,
+      createdAt: Date.now(),
+    },
+    epochAtAppendStart,
+  );
 
   // A row that did not land leaves its screenshot owned by nothing, so the
-  // upload is undone rather than left staged on disk.
+  // upload is undone rather than left staged on disk. The refusal runs in the
+  // upload's own continuation, so the attachment row is always still there for
+  // `deleteAttachment` to unlink the file through.
   if (!result.ok && screenshotAttachmentId) {
     deleteAttachment(screenshotAttachmentId);
   }
