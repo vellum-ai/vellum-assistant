@@ -1,11 +1,11 @@
 import { safeParseRecord } from "../util/json.js";
 import {
-  type ChannelMessageMetadata,
-  readChannelMessageMetadata,
-} from "./channel-message-metadata.js";
+  type ProviderMessageMetadata,
+  readProviderMessageMetadata,
+} from "./provider-message-metadata.js";
 import {
   readSlackMetadataFromMessageMetadata,
-  slackMetadataAsChannelMetadata,
+  slackMetadataAsProviderMetadata,
 } from "./providers/slack/message-metadata.js";
 
 /**
@@ -13,7 +13,7 @@ import {
  *
  * Two ways a row can carry it, in this order.
  *
- * `channelMeta` is the neutral shape written directly. This is the path that
+ * `providerMeta` is the neutral shape written directly. This is the path that
  * matters most: a channel we have no code for, a plugin channel above all,
  * can describe its own rows in it and every channel-agnostic reader
  * understands them. History assembly, the conversation route and the
@@ -23,7 +23,7 @@ import {
  * neutral shape and holds fields no other channel has an equivalent for, so
  * it keeps writing what it writes and loses nothing. That makes Slack the
  * exception rather than the pattern: a channel added from here writes
- * `channelMeta` and needs no adapter at all.
+ * `providerMeta` and needs no adapter at all.
  *
  * Normalizing on read rather than on write is what allows both. Writing stays
  * where provider detail legitimately lives, nothing is rewritten, and nothing
@@ -32,23 +32,23 @@ import {
  * A row with no recognized envelope, or one that fails validation, reads as
  * null: callers already treat absent metadata as "not a channel row".
  */
-export function readChannelMetadata(
+export function readProviderMetadata(
   metadata: string | null | undefined,
   opts?: { allowFlatLegacy?: boolean },
-): ChannelMessageMetadata | null {
+): ProviderMessageMetadata | null {
   if (!metadata) {
     return null;
   }
 
   // Malformed neutral metadata falls through to the provider envelopes rather
   // than failing the read outright.
-  const neutral = readChannelMessageMetadata(
-    safeParseRecord(metadata).channelMeta,
+  const neutral = readProviderMessageMetadata(
+    safeParseRecord(metadata).providerMeta,
   );
   if (neutral) {
     return neutral;
   }
 
   const slackMeta = readSlackMetadataFromMessageMetadata(metadata, opts);
-  return slackMeta ? slackMetadataAsChannelMetadata(slackMeta) : null;
+  return slackMeta ? slackMetadataAsProviderMetadata(slackMeta) : null;
 }

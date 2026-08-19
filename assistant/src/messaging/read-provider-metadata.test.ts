@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
 import {
-  type ChannelMessageMetadata,
   groupingMessageId,
-} from "./channel-message-metadata.js";
+  type ProviderMessageMetadata,
+} from "./provider-message-metadata.js";
 import type { SlackMessageMetadata } from "./providers/slack/message-metadata.js";
-import { readChannelMetadata } from "./read-channel-metadata.js";
+import { readProviderMetadata } from "./read-provider-metadata.js";
 
 const CHANNEL = "C0123CHANNEL";
 const MESSAGE_TS = "1700000000.000100";
@@ -23,21 +23,21 @@ function slackRow(
   };
 }
 
-describe("readChannelMetadata", () => {
+describe("readProviderMetadata", () => {
   it("reads a row that only has the legacy Slack envelope", () => {
-    // Rows written before `channelMeta` existed are mapped on read rather
+    // Rows written before `providerMeta` existed are mapped on read rather
     // than rewritten, so there is no migration.
     const metadata = JSON.stringify({
       slackMeta: JSON.stringify(slackRow({ threadTs: TARGET_TS })),
     });
 
-    expect(readChannelMetadata(metadata)).toEqual({
+    expect(readProviderMetadata(metadata)).toEqual({
       source: "slack",
       chatId: CHANNEL,
       messageId: MESSAGE_TS,
       threadId: TARGET_TS,
       eventKind: "message",
-    } satisfies ChannelMessageMetadata);
+    } satisfies ProviderMessageMetadata);
   });
 
   it("maps a reaction's target onto the neutral name", () => {
@@ -55,7 +55,7 @@ describe("readChannelMetadata", () => {
       ),
     });
 
-    const meta = readChannelMetadata(metadata);
+    const meta = readProviderMetadata(metadata);
     expect(meta?.eventKind).toBe("reaction");
     expect(meta?.reaction).toEqual({
       targetMessageId: TARGET_TS,
@@ -73,7 +73,7 @@ describe("readChannelMetadata", () => {
       slackMeta: JSON.stringify(slackRow()),
     });
 
-    const meta = readChannelMetadata(metadata);
+    const meta = readProviderMetadata(metadata);
     expect(meta).not.toBeNull();
     expect(meta?.threadId).toBeUndefined();
     expect(meta?.messageId).toBe(MESSAGE_TS);
@@ -84,7 +84,7 @@ describe("readChannelMetadata", () => {
     // here, so it describes its own rows directly and every channel-agnostic
     // reader understands them with no Vellum code naming that channel.
     const metadata = JSON.stringify({
-      channelMeta: JSON.stringify({
+      providerMeta: JSON.stringify({
         source: "plugin",
         chatId: "room-42",
         messageId: "evt-9",
@@ -95,10 +95,10 @@ describe("readChannelMetadata", () => {
           emoji: "tada",
           op: "added",
         },
-      } satisfies ChannelMessageMetadata),
+      } satisfies ProviderMessageMetadata),
     });
 
-    const meta = readChannelMetadata(metadata);
+    const meta = readProviderMetadata(metadata);
     expect(meta?.source).toBe("plugin");
     expect(meta?.reaction?.targetMessageId).toBe("evt-1");
     // Grouping is what history assembly keys on, so a reaction from an
@@ -111,14 +111,14 @@ describe("readChannelMetadata", () => {
       slackMeta: JSON.stringify(slackRow()),
     });
 
-    expect(groupingMessageId(readChannelMetadata(metadata)!)).toBe(MESSAGE_TS);
+    expect(groupingMessageId(readProviderMetadata(metadata)!)).toBe(MESSAGE_TS);
   });
 
   it("keeps provider fields the neutral schema does not name", () => {
     // The schema passes through, so a channel can carry its own fields on the
     // same object instead of getting a second envelope.
     const metadata = JSON.stringify({
-      channelMeta: JSON.stringify({
+      providerMeta: JSON.stringify({
         source: "slack",
         chatId: CHANNEL,
         messageId: MESSAGE_TS,
@@ -128,14 +128,14 @@ describe("readChannelMetadata", () => {
     });
 
     expect(
-      (readChannelMetadata(metadata) as Record<string, unknown> | null)
+      (readProviderMetadata(metadata) as Record<string, unknown> | null)
         ?.slackFiles,
     ).toEqual([{ name: "diagram.png" }]);
   });
 
   it("reads as null when the row carries neither envelope", () => {
-    expect(readChannelMetadata(JSON.stringify({ other: 1 }))).toBeNull();
-    expect(readChannelMetadata("not json")).toBeNull();
-    expect(readChannelMetadata(null)).toBeNull();
+    expect(readProviderMetadata(JSON.stringify({ other: 1 }))).toBeNull();
+    expect(readProviderMetadata("not json")).toBeNull();
+    expect(readProviderMetadata(null)).toBeNull();
   });
 });

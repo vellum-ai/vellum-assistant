@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { ChannelMessageMetadata } from "../../channel-message-metadata.js";
+import type { ProviderMessageMetadata } from "../../provider-message-metadata.js";
 
 /**
  * Typed Slack message metadata stored flat in the `messages.metadata` column
@@ -303,9 +303,9 @@ export function readSlackMetadataFromMessageMetadata(
  * channel name, actor id): those are either Slack's own or have no second
  * channel asking for them yet.
  */
-export function slackMetadataAsChannelMetadata(
+export function slackMetadataAsProviderMetadata(
   meta: SlackMessageMetadata,
-): ChannelMessageMetadata {
+): ProviderMessageMetadata {
   return {
     source: "slack",
     chatId: meta.channelId,

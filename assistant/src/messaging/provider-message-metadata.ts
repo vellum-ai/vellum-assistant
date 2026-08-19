@@ -6,6 +6,13 @@ import { CHANNEL_IDS } from "../channels/types.js";
  * What a stored channel message row knows about itself, in terms no single
  * provider owns.
  *
+ * Named for the provider rather than the channel because `channel metadata`
+ * is already taken: `buildChannelMetadata` builds the whole envelope a
+ * message row carries (provenance, `userMessageChannel`, interfaces), and
+ * this is one key inside that envelope. This is the neutral counterpart of
+ * `slackMeta`, so it reads as the generalization of what `providers/slack`
+ * stores.
+ *
  * Every channel needs the same facts to reconstruct a transcript: which chat
  * the row belongs to, the provider's id for the row itself, the thread it sits
  * in, whether it is a message or a reaction, and, when it is a reaction, which
@@ -25,7 +32,7 @@ import { CHANNEL_IDS } from "../channels/types.js";
  * anything named here.
  */
 
-const channelReactionMetadataSchema = z.object({
+const providerReactionMetadataSchema = z.object({
   /**
    * Provider id of the message this reaction was attached to, in the same
    * namespace as `messageId`. Resolution is keyed on it, so it is required.
@@ -36,7 +43,7 @@ const channelReactionMetadataSchema = z.object({
   actorDisplayName: z.string().optional(),
 });
 
-export const channelMessageMetadataSchema = z
+export const providerMessageMetadataSchema = z
   .object({
     source: z.enum(CHANNEL_IDS),
     /**
@@ -59,27 +66,27 @@ export const channelMessageMetadataSchema = z
      * targets and a delete stamps `deletedAt` on it, so neither appears here.
      */
     eventKind: z.enum(["message", "reaction"]),
-    reaction: channelReactionMetadataSchema.optional(),
+    reaction: providerReactionMetadataSchema.optional(),
     editedAt: z.number().optional(),
     deletedAt: z.number().optional(),
   })
   .passthrough();
 
-export type ChannelReactionMetadata = z.infer<
-  typeof channelReactionMetadataSchema
+export type ProviderReactionMetadata = z.infer<
+  typeof providerReactionMetadataSchema
 >;
-export type ChannelMessageMetadata = z.infer<
-  typeof channelMessageMetadataSchema
+export type ProviderMessageMetadata = z.infer<
+  typeof providerMessageMetadataSchema
 >;
 
 /**
- * Parse and validate a serialized `ChannelMessageMetadata`, the counterpart of
+ * Parse and validate a serialized `ProviderMessageMetadata`, the counterpart of
  * `readSlackMetadata` for the neutral shape. Anything that does not parse or
  * does not validate reads as null.
  */
-export function readChannelMessageMetadata(
+export function readProviderMessageMetadata(
   raw: unknown,
-): ChannelMessageMetadata | null {
+): ProviderMessageMetadata | null {
   if (typeof raw !== "string") {
     return null;
   }
@@ -89,7 +96,7 @@ export function readChannelMessageMetadata(
   } catch {
     return null;
   }
-  const result = channelMessageMetadataSchema.safeParse(parsed);
+  const result = providerMessageMetadataSchema.safeParse(parsed);
   return result.success ? result.data : null;
 }
 
@@ -98,6 +105,6 @@ export function readChannelMessageMetadata(
  * its target's for a reaction, so a reaction lands beside the message it was
  * attached to rather than in a block of its own.
  */
-export function groupingMessageId(meta: ChannelMessageMetadata): string {
+export function groupingMessageId(meta: ProviderMessageMetadata): string {
   return meta.reaction?.targetMessageId ?? meta.messageId;
 }
