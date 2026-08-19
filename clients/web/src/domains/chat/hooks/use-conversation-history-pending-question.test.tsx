@@ -55,6 +55,15 @@ function messagesWithMarker(): DisplayMessage[] {
 }
 
 let currentMessages: DisplayMessage[] = [];
+/**
+ * Bumped to commit a second snapshot. Mounting is not enough to test a retire:
+ * the hook's first effect runs `switchToConversation`, which calls
+ * `resetAll()` on the interaction store, so a card seeded before render is
+ * wiped before the reconcile ever sees it. A card only coexists with a
+ * committed snapshot the way it does in production: raised while the
+ * conversation is already open, then a later snapshot commits.
+ */
+let dataUpdatedAt = 1;
 
 function paginationStub(): HistoryPaginationResult {
   return {
@@ -74,7 +83,7 @@ function paginationStub(): HistoryPaginationResult {
     removeCache: () => {},
     latestPageOldestTimestamp: null,
     oldestLoadedTimestamp: null,
-    dataUpdatedAt: 1,
+    dataUpdatedAt,
   };
 }
 
@@ -138,6 +147,7 @@ beforeEach(() => {
   gate = null;
   openGate = null;
   readFailure = null;
+  dataUpdatedAt = 1;
   useInteractionStore.getState().resetAll();
   useConversationStore.setState({ activeConversationId: "conv-A" });
 });
@@ -167,15 +177,23 @@ describe("ask_question restore on a committed snapshot", () => {
   });
 
   test("retires a card that is already on screen", async () => {
-    // GIVEN a card raised earlier (a live `question_request` this session)
-    // whose prompt has since been answered from another surface
+    // GIVEN an open conversation whose first snapshot has already settled
+    reportedInteractions = { pendingQuestion: null };
+    const { rerender } = renderHistory();
+    await waitFor(() => {
+      expect(useInteractionStore.getState().pendingQuestion).toBeNull();
+    });
+
+    // AND a card raised live afterwards (a `question_request` this session),
+    // whose prompt is then answered from another surface
     useInteractionStore
       .getState()
-      .showQuestion({ requestId: "req-1", entries: ENTRIES });
-    reportedInteractions = { pendingQuestion: null };
+      .showQuestion({ requestId: "req-live", entries: ENTRIES });
+    expect(useInteractionStore.getState().pendingQuestion).not.toBeNull();
 
-    // WHEN the snapshot commits
-    renderHistory();
+    // WHEN a later snapshot commits and the registry reports nothing
+    dataUpdatedAt = 2;
+    rerender();
 
     // THEN the card comes down instead of waiting for the user to answer it
     // into a 404
@@ -239,18 +257,24 @@ describe("ask_question restore on a committed snapshot", () => {
   });
 
   test("does not retire a card when the read fails", async () => {
-    // GIVEN a card on screen for a prompt the snapshot no longer carries, and a
-    // failing read
+    // GIVEN an open conversation carrying no marker, settled, with a card
+    // raised live afterwards
     currentMessages = [];
+    reportedInteractions = { pendingQuestion: null };
+    const { rerender } = renderHistory();
+    await waitFor(() => {
+      expect(useInteractionStore.getState().pendingQuestion).toBeNull();
+    });
     useInteractionStore
       .getState()
       .showQuestion({ requestId: "req-live", entries: ENTRIES });
+
+    // WHEN a later snapshot commits but the registry read rejects
     readFailure = new Error("network down");
+    dataUpdatedAt = 2;
+    rerender();
 
-    // WHEN the snapshot commits
-    renderHistory();
-
-    // THEN the card stays: only a registry that answered may retire one
+    // THEN the card stays: only a read that actually answered may retire one
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
       "req-live",

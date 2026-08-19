@@ -487,30 +487,36 @@ export function useConversationHistory({
       if (!interactions) {
         return;
       }
-      const parsed_secret = interactions.pendingSecret
-        ? parsePendingSecretState(
-            interactions.pendingSecret as Record<string, unknown>,
-          )
-        : null;
-      if (parsed_secret) {
-        useInteractionStore.getState().showSecret(parsed_secret);
-      }
-      if (
-        interactions.pendingConfirmation &&
-        !useInteractionStore.getState().pendingConfirmation
-      ) {
-        useInteractionStore
-          .getState()
-          .showConfirmation(
-            parsePendingConfirmationData(
-              interactions.pendingConfirmation as Record<string, unknown>,
-            ),
-          );
-      }
-      if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
-        useConversationStore
-          .getState()
-          .removeAttentionConversationId(requestedConversationId);
+      try {
+        const parsed_secret = interactions.pendingSecret
+          ? parsePendingSecretState(
+              interactions.pendingSecret as Record<string, unknown>,
+            )
+          : null;
+        if (parsed_secret) {
+          useInteractionStore.getState().showSecret(parsed_secret);
+        }
+        if (
+          interactions.pendingConfirmation &&
+          !useInteractionStore.getState().pendingConfirmation
+        ) {
+          useInteractionStore
+            .getState()
+            .showConfirmation(
+              parsePendingConfirmationData(
+                interactions.pendingConfirmation as Record<string, unknown>,
+              ),
+            );
+        }
+        if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
+          useConversationStore
+            .getState()
+            .removeAttentionConversationId(requestedConversationId);
+        }
+      } catch {
+        // Unchanged from before this reconcile existed: a payload the secret /
+        // confirmation parsers choke on leaves both prompts and the attention
+        // key as they are, rather than rejecting inside a void async block.
       }
     })();
     // `pagination.*` other than `dataUpdatedAt` intentionally excluded: they all
