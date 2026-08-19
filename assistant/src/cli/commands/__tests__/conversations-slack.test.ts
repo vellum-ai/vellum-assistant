@@ -95,6 +95,18 @@ mock.module("../../../ipc/gateway-client.js", () => ({
   ipcGetFeatureFlags: async () => ({}),
   ipcGetVelayStatus: async () => null,
   ipcClassifyRisk: async () => ({ risk: "low" }),
+  ipcRegisterWebhookRoute: async () => ({
+    ok: false as const,
+    reason: "no_response" as const,
+  }),
+  ipcUnregisterWebhookRoute: async () => ({
+    ok: false as const,
+    reason: "no_response" as const,
+  }),
+  ipcListWebhookRoutes: async () => ({
+    ok: false as const,
+    reason: "no_response" as const,
+  }),
 }));
 
 mock.module("../../../messaging/providers/slack/send.js", () => ({
