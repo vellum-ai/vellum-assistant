@@ -1,7 +1,5 @@
 using System.Runtime.InteropServices;
-using System.Text.Json;
 using System.Windows.Automation;
-using Vellum.WindowsHelper.Rpc;
 
 namespace Vellum.WindowsHelper.Modules;
 
@@ -74,33 +72,6 @@ public sealed class AutomationObserver(IAutomationSnapshotSource source, Observa
         return new ObservationResult(
             "diff", currentTree, diff, snapshot.ForegroundApp, windowsJson, snapshot.Tree.Bounds, null);
     }
-}
-
-public sealed class AutomationObserverModule : IRpcModule
-{
-    private readonly AutomationObserver _observer;
-
-    public AutomationObserverModule()
-        : this(new AutomationObserver(
-            new UiaSnapshotSource(), new ObservationSessionStore(TimeSpan.FromMinutes(15)))) { }
-
-    public AutomationObserverModule(AutomationObserver observer) => _observer = observer;
-
-    public IReadOnlyCollection<string> Methods { get; } = ["automation.observe"];
-
-    public ValueTask<object?> InvokeAsync(string method, JsonElement? parameters, CancellationToken cancellationToken)
-    {
-        var request = parameters?.Deserialize<ObserveParams>(AutomationJson.Options);
-        if (request is null || string.IsNullOrEmpty(request.ConversationId))
-        {
-            throw new ArgumentException("conversationId is required");
-        }
-        var mode = request.Mode == "diff" ? "diff" : "full";
-        var result = _observer.Observe(request.ConversationId, mode, cancellationToken);
-        return ValueTask.FromResult<object?>(AutomationJson.ToElement(result));
-    }
-
-    private sealed record ObserveParams(string? ConversationId, string? Mode);
 }
 
 /// <summary>

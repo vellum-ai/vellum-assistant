@@ -1,8 +1,6 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
-using System.Text.Json;
-using Vellum.WindowsHelper.Rpc;
 
 namespace Vellum.WindowsHelper.Modules;
 
@@ -65,29 +63,6 @@ public sealed class ScreenCaptureService(IScreenCaptureBackend backend)
         return x >= display.X && x < display.X + display.Width &&
             y >= display.Y && y < display.Y + display.Height;
     }
-}
-
-public sealed class ScreenCaptureModule : IRpcModule
-{
-    private readonly ScreenCaptureService _service;
-
-    public ScreenCaptureModule()
-        : this(new GdiScreenCapture())
-    {
-    }
-
-    public ScreenCaptureModule(IScreenCaptureBackend backend) => _service = new ScreenCaptureService(backend);
-
-    public IReadOnlyCollection<string> Methods { get; } = ["capture.display"];
-
-    public ValueTask<object?> InvokeAsync(string method, JsonElement? parameters, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var request = parameters?.Deserialize<CaptureParams>(AutomationJson.Options);
-        return ValueTask.FromResult<object?>(AutomationJson.ToElement(_service.CaptureDisplay(request?.DisplayId)));
-    }
-
-    private sealed record CaptureParams(int? DisplayId);
 }
 
 /// <summary>

@@ -1,19 +1,19 @@
-using System.Text.Json;
 using Vellum.WindowsHelper.Modules;
 
 namespace Vellum.WindowsHelper.Tests;
 
 public static class AutomationObserverTests
 {
-    public static async ValueTask RunAsync()
+    public static ValueTask RunAsync()
     {
         TestStableIdsAndDiff();
         TestWindowTargetSelection();
-        await TestFullThenDiffAsync();
-        await TestSessionIsolationAndExpiryAsync();
-        await TestUnavailableAsync();
-        await TestCancellationAsync();
+        TestFullThenDiff();
+        TestSessionIsolationAndExpiry();
+        TestUnavailable();
+        TestCancellation();
         Console.WriteLine("Automation observer tests passed");
+        return ValueTask.CompletedTask;
     }
 
     private static void TestWindowTargetSelection()
@@ -52,80 +52,73 @@ public static class AutomationObserverTests
         Check(diff.RemovedIds.SequenceEqual([3]), "diff reports removed ids");
     }
 
-    private static async ValueTask TestFullThenDiffAsync()
+    private static void TestFullThenDiff()
     {
         var source = new FakeSource { Snapshot = Snapshot(Node(1, children: [Node(2, name: "Save")])) };
-        var module = Module(source);
-        var full = await ObserveAsync(module, "conv-1", "full");
-        Check(full.GetProperty("kind").GetString() == "full", "first observation is full");
-        Check(full.GetProperty("tree").GetString()!.Contains("\"Save\"", StringComparison.Ordinal),
+        var observer = Observer(source);
+        var full = observer.Observe("conv-1", "full", CancellationToken.None);
+        Check(full.Kind == "full", "first observation is full");
+        Check(full.Tree?.Contains("\"Save\"", StringComparison.Ordinal) == true,
             "full observation serializes the tree");
-        Check(full.GetProperty("secondaryWindows").GetString()!.Contains("\"Other\"", StringComparison.Ordinal),
+        Check(full.SecondaryWindows.Contains("\"Other\"", StringComparison.Ordinal),
             "secondary windows are reported");
-        Check(full.GetProperty("foregroundApp").GetProperty("name").GetString() == "notepad",
-            "foreground app metadata is reported");
-        Check(!full.TryGetProperty("unavailable", out _), "successful results omit null fields");
+        Check(full.ForegroundApp?.Name == "notepad", "foreground app metadata is reported");
+        Check(full.Unavailable is null, "successful results omit unavailable reasons");
 
         source.Snapshot = Snapshot(Node(1, children: [Node(2, name: "Saved", focused: true)]));
-        var diff = await ObserveAsync(module, "conv-1", "diff");
-        Check(diff.GetProperty("kind").GetString() == "diff" && diff.TryGetProperty("tree", out _),
+        var diff = observer.Observe("conv-1", "diff", CancellationToken.None);
+        Check(diff.Kind == "diff" && diff.Tree is not null,
             "diff observations include the current tree");
-        Check(diff.GetProperty("diff").GetString()!.Contains("\"Saved\"", StringComparison.Ordinal),
+        Check(diff.Diff?.Contains("\"Saved\"", StringComparison.Ordinal) == true,
             "diff contains the changed node");
 
-        var unchanged = await ObserveAsync(module, "conv-1", "diff");
-        Check(!unchanged.TryGetProperty("diff", out _),
-            "unchanged observations omit the diff");
+        var unchanged = observer.Observe("conv-1", "diff", CancellationToken.None);
+        Check(unchanged.Diff is null, "unchanged observations omit the diff");
     }
 
-    private static async ValueTask TestSessionIsolationAndExpiryAsync()
+    private static void TestSessionIsolationAndExpiry()
     {
         var source = new FakeSource { Snapshot = Snapshot(Node(1)) };
         var now = DateTimeOffset.UtcNow;
-        var store = new ObservationSessionStore(TimeSpan.FromMinutes(10), () => now);
-        var module = new AutomationObserverModule(new AutomationObserver(source, store));
-        _ = await ObserveAsync(module, "conv-1", "full");
-        var other = await ObserveAsync(module, "conv-2", "diff");
-        Check(other.GetProperty("kind").GetString() == "full", "sessions are per conversation");
+        var observer = new AutomationObserver(
+            source, new ObservationSessionStore(TimeSpan.FromMinutes(10), () => now));
+        _ = observer.Observe("conv-1", "full", CancellationToken.None);
+        Check(observer.Observe("conv-2", "diff", CancellationToken.None).Kind == "full",
+            "sessions are per conversation");
         now += TimeSpan.FromMinutes(11);
-        var expired = await ObserveAsync(module, "conv-1", "diff");
-        Check(expired.GetProperty("kind").GetString() == "full",
+        Check(observer.Observe("conv-1", "diff", CancellationToken.None).Kind == "full",
             "expired sessions fall back to full observations");
     }
 
-    private static async ValueTask TestUnavailableAsync()
+    private static void TestUnavailable()
     {
         var source = new FakeSource { Snapshot = Snapshot(Node(1)) };
-        var module = Module(source);
-        _ = await ObserveAsync(module, "conv-1", "full");
+        var observer = Observer(source);
+        _ = observer.Observe("conv-1", "full", CancellationToken.None);
         source.Snapshot = new AutomationSnapshot(
             null, null, [], new Unavailable(Unavailable.ElevatedOrProtected, "denied"));
-        var denied = await ObserveAsync(module, "conv-1", "diff");
-        Check(denied.GetProperty("unavailable").GetProperty("code").GetString() == Unavailable.ElevatedOrProtected &&
-            !denied.TryGetProperty("tree", out _),
+        var denied = observer.Observe("conv-1", "diff", CancellationToken.None);
+        Check(denied.Unavailable?.Code == Unavailable.ElevatedOrProtected && denied.Tree is null,
             "denied targets return a structured unavailable result and no tree");
 
         source.Snapshot = Snapshot(Node(1));
-        var after = await ObserveAsync(module, "conv-1", "diff");
-        Check(after.GetProperty("kind").GetString() == "full",
+        Check(observer.Observe("conv-1", "diff", CancellationToken.None).Kind == "full",
             "denied targets never leave a stale diff baseline");
 
         source.Snapshot = new AutomationSnapshot(
             null, null, [], new Unavailable(Unavailable.NoForeground, "none"));
-        var noFocus = await ObserveAsync(module, "conv-1", "full");
-        Check(noFocus.GetProperty("unavailable").GetProperty("code").GetString() == Unavailable.NoForeground,
-            "missing focus reports no_foreground");
+        Check(observer.Observe("conv-1", "full", CancellationToken.None).Unavailable?.Code ==
+            Unavailable.NoForeground, "missing focus reports no_foreground");
     }
 
-    private static async ValueTask TestCancellationAsync()
+    private static void TestCancellation()
     {
-        var module = Module(new FakeSource { Snapshot = Snapshot(Node(1)) });
+        var observer = Observer(new FakeSource { Snapshot = Snapshot(Node(1)) });
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
         try
         {
-            _ = await module.InvokeAsync(
-                "automation.observe", Params(new { conversationId = "conv-1" }), cancelled.Token);
+            _ = observer.Observe("conv-1", "full", cancelled.Token);
             throw new Exception("Cancellation was ignored");
         }
         catch (OperationCanceledException)
@@ -133,18 +126,8 @@ public static class AutomationObserverTests
         }
     }
 
-    private static AutomationObserverModule Module(FakeSource source) =>
-        new(new AutomationObserver(source, new ObservationSessionStore(TimeSpan.FromMinutes(10))));
-
-    private static async ValueTask<JsonElement> ObserveAsync(
-        AutomationObserverModule module, string conversationId, string mode)
-    {
-        var result = await module.InvokeAsync(
-            "automation.observe", Params(new { conversationId, mode }), CancellationToken.None);
-        return (JsonElement)result!;
-    }
-
-    private static JsonElement Params<T>(T value) => JsonSerializer.SerializeToElement(value);
+    private static AutomationObserver Observer(FakeSource source) =>
+        new(source, new ObservationSessionStore(TimeSpan.FromMinutes(10)));
 
     private static AutomationSnapshot Snapshot(AutomationNode tree) =>
         new(

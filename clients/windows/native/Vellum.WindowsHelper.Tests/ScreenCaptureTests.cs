@@ -1,7 +1,6 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
-using System.Text.Json;
 using Vellum.WindowsHelper.Modules;
 
 namespace Vellum.WindowsHelper.Tests;
@@ -11,36 +10,32 @@ public static class ScreenCaptureTests
     private static readonly DisplayInfo Primary = new(0, new PixelRect(0, 0, 2560, 1440), true, 100);
     private static readonly DisplayInfo Secondary = new(1, new PixelRect(-1920, -200, 1920, 1200), false, 150);
 
-    public static async ValueTask RunAsync()
+    public static ValueTask RunAsync()
     {
         var backend = new FakeBackend();
-        var module = new ScreenCaptureModule(backend);
+        var service = new ScreenCaptureService(backend);
 
-        var primary = await InvokeAsync(module, new { });
-        Check(primary.GetProperty("bounds").GetProperty("width").GetInt32() == 2560,
+        var primary = service.CaptureDisplay(null);
+        Check(primary.Bounds == Primary.Bounds && primary.ScalePercent == 100,
             "default capture targets the primary display");
-        Check(primary.GetProperty("scalePercent").GetInt32() == 100, "capture reports the display scale");
-        Check(primary.GetProperty("pngBase64").GetString() == FakeBackend.Png, "capture returns the encoded image");
+        Check(primary.PngBase64 == FakeBackend.Png, "capture returns the encoded image");
         Check(backend.LastCaptured == Primary.Bounds, "capture requests exactly the display bounds");
 
-        var mixedDpi = await InvokeAsync(module, new { displayId = 1 });
-        Check(mixedDpi.GetProperty("scalePercent").GetInt32() == 150 &&
-            mixedDpi.GetProperty("bounds").GetProperty("x").GetInt32() == -1920 &&
+        var mixedDpi = service.CaptureDisplay(1);
+        Check(mixedDpi.ScalePercent == 150 && mixedDpi.Bounds == Secondary.Bounds &&
             backend.LastCaptured == Secondary.Bounds,
             "mixed DPI displays keep physical bounds, negative origins, and their own scale");
 
-        var routed = new ScreenCaptureService(backend).CaptureDisplay(
-            null, new PixelRect(-1800, 0, 800, 600));
+        var routed = service.CaptureDisplay(null, new PixelRect(-1800, 0, 800, 600));
         Check(routed.Bounds == Secondary.Bounds,
             "computer use captures the display containing the target window");
 
-        var missing = await InvokeAsync(module, new { displayId = 9 });
-        Check(missing.GetProperty("unavailable").GetProperty("code").GetString() == Unavailable.NotFound,
-            "unknown displays report not_found");
-        Check(!missing.TryGetProperty("pngBase64", out _), "failed captures return no image");
+        var missing = service.CaptureDisplay(9);
+        Check(missing.Unavailable?.Code == Unavailable.NotFound && missing.PngBase64 is null,
+            "unknown displays report not_found without image data");
 
-        var thrown = await InvokeAsync(new ScreenCaptureModule(new ThrowingBackend()), new { });
-        Check(thrown.GetProperty("unavailable").GetProperty("code").GetString() == Unavailable.CaptureDenied,
+        var thrown = new ScreenCaptureService(new ThrowingBackend()).CaptureDisplay(null);
+        Check(thrown.Unavailable?.Code == Unavailable.CaptureDenied,
             "capture failures return structured capture_denied");
 
         var computerUse = new GdiComputerUseCaptureSource(
@@ -53,13 +48,7 @@ public static class ScreenCaptureTests
             "computer use advertises the physical input coordinate space");
 
         Console.WriteLine("Screen capture tests passed");
-    }
-
-    private static async ValueTask<JsonElement> InvokeAsync<T>(ScreenCaptureModule module, T parameters)
-    {
-        var result = await module.InvokeAsync(
-            "capture.display", JsonSerializer.SerializeToElement(parameters), CancellationToken.None);
-        return (JsonElement)result!;
+        return ValueTask.CompletedTask;
     }
 
     private static void Check(bool condition, string label)
