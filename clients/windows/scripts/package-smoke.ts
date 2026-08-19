@@ -129,6 +129,12 @@ const main = async (): Promise<void> => {
   // reports a real exit code; the leftover copy is removed below.
   runVerbatim(uninstaller, `/S _?=${installDir}`);
 
+  for (let waited = 0; waited < 30_000; waited += 1_000) {
+    if (!existsSync(appExe) && !existsSync(resources)) {
+      break;
+    }
+    await sleep(1_000);
+  }
   if (existsSync(appExe) || existsSync(resources)) {
     fail("Uninstall left the application binaries behind");
   }
