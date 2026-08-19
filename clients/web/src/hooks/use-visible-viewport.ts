@@ -170,15 +170,11 @@ function addViewportUpdater(update: () => void): () => void {
         }
       },
       () => {
+        // Only the flag. A resize that landed while these listeners were
+        // registering is deliberately left alone: see `rebaseReferenceForWindowResize`
+        // for why this moment cannot tell a shrinking window from a keyboard
+        // that opened before there was anything to announce it.
         keyboardSourceReady = true;
-        // A resize that arrived while these listeners were registering was
-        // skipped for want of this answer, and no other event revisits it.
-        if (!rebaseReferenceForWindowResize()) {
-          return;
-        }
-        for (const notify of viewportUpdaters) {
-          notify();
-        }
       },
     );
   }
@@ -217,14 +213,25 @@ function addViewportUpdater(update: () => void): () => void {
  * before the plugin, rebasing would swallow the keyboard's own frame resize and
  * leave the composer behind it.
  *
- * Driven by the `window` resize listener, and once more when the keyboard
- * source reports in, which is the resize deferred during registration getting
- * its second look. Never on a plain viewport read: that would rebase onto a
- * frame the keyboard still owns, since a dismissal announces its `0` and
- * notifies consumers before the frame grows back.
+ * Driven by the `window` resize listener alone. Never on a plain viewport read:
+ * that would rebase onto a frame the keyboard still owns, since a dismissal
+ * announces its `0` and notifies consumers before the frame grows back. And
+ * never when the keyboard source reports in, even though a resize that landed
+ * during registration was skipped for want of that answer: at that moment
+ * nothing separates a window that shrank from a keyboard that opened before
+ * there was anything to announce it. Focus does not separate them, a hardware
+ * keyboard holds a field focused with nothing on screen, and the plugin offers
+ * no way to ask whether the keyboard is up right now.
  *
- * Reports whether the reference moved, so the readiness path wakes consumers
- * only when there is something new for them to read.
+ * Leaving it alone is the safe half of that ambiguity. A reference left too
+ * tall reports a keyboard that is not there, which arms a dismissal gesture
+ * whose whole effect is blurring a focused field, and it corrects itself on the
+ * next resize or as soon as a read sees the window at its full height. A
+ * reference rebased onto a keyboard-sized frame reports no keyboard at all and
+ * stays wrong for as long as the keyboard is up.
+ *
+ * Reports whether the reference moved, which the resize listener ignores today
+ * and a future caller may not.
  */
 function rebaseReferenceForWindowResize(): boolean {
   if (window.innerHeight >= referenceInnerHeight) {

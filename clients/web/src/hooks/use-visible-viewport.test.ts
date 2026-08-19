@@ -535,28 +535,58 @@ describe("window resizes", () => {
     expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
   });
 
-  test("revisits a resize that landed while the source was registering", () => {
+  test("holds the reference when the source reports in, which proves nothing", () => {
     // GIVEN a shell whose plugin listeners are still registering, which is a
-    // lazy import away on every boot
+    // lazy import away on every boot, and a frame that shrank in that window
     stubReportsKeyboardSource = false;
     renderHook(() => useVisibleViewport());
-
-    // WHEN the window is shortened before that registration lands
     resizeWindowTo(RESIZED_HEIGHT);
-    expect(readVisibleViewport()?.keyboardHeight).toBe(
-      REFERENCE_HEIGHT - RESIZED_HEIGHT,
-    );
 
-    // AND the source reports in, with no second resize to prompt another look
+    // WHEN the source reports in, the one moment that cannot tell a shrinking
+    // window from a keyboard that opened before anything could announce it
     act(() => {
       reportKeyboardSource!();
     });
 
-    // THEN the deferred shrink is settled rather than left standing as a
-    // keyboard for the rest of the session
+    // THEN the reference stands. Rebasing here onto a keyboard-sized frame
+    // would report no keyboard for as long as the keyboard is up; standing
+    // still only reports one that is not there, and that corrects itself.
+    expect(readVisibleViewport()?.keyboardHeight).toBe(
+      REFERENCE_HEIGHT - RESIZED_HEIGHT,
+    );
+  });
+
+  test("settles that shrink on the next resize, once the source is known", () => {
+    // GIVEN the same deferred shrink, with the source now reported
+    stubReportsKeyboardSource = false;
+    renderHook(() => useVisibleViewport());
+    resizeWindowTo(RESIZED_HEIGHT);
+    act(() => {
+      reportKeyboardSource!();
+    });
+
+    // WHEN any further resize arrives, which a window drag emits continuously
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    // THEN the reference follows the window down and the phantom keyboard goes
     const viewport = readVisibleViewport();
     expect(viewport?.keyboardHeight).toBe(0);
     expect(viewport?.height).toBe(RESIZED_HEIGHT);
+  });
+
+  test("grows back to a window returning to full height", () => {
+    // The other way the too-tall reference resolves itself, with no resize
+    // needed while the source is still registering.
+    stubReportsKeyboardSource = false;
+    renderHook(() => useVisibleViewport());
+    resizeWindowTo(RESIZED_HEIGHT);
+    act(() => {
+      reportKeyboardSource!();
+    });
+
+    resizeWindowTo(REFERENCE_HEIGHT);
+
+    expect(readVisibleViewport()?.keyboardHeight).toBe(0);
   });
 
   test("ignores a window that grew, which the reference already tracks", () => {
