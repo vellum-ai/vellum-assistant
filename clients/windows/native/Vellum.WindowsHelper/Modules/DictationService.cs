@@ -105,19 +105,15 @@ public sealed class DictationSessionManager(
                 notify("dictation.partial", new { text }));
             engine.Failed += message =>
             {
-                if (ReleaseIfCurrent(generation, engine))
-                {
+                ReleaseIfCurrent(generation, engine, () =>
                     notify("dictation.error",
-                        new { message, onDevice = true, willRetryServer = false });
-                }
+                        new { message, onDevice = true, willRetryServer = false }));
                 _ = Task.Run(engine.Dispose);
             };
             engine.Finalized += text =>
             {
-                if (ReleaseIfCurrent(generation, engine))
-                {
-                    notify("dictation.finalized", new { text });
-                }
+                ReleaseIfCurrent(generation, engine, () =>
+                    notify("dictation.finalized", new { text }));
                 _ = Task.Run(engine.Dispose);
             };
             _engine = engine;
@@ -177,23 +173,26 @@ public sealed class DictationSessionManager(
             {
                 return;
             }
+            action();
         }
-        action();
     }
 
-    private bool ReleaseIfCurrent(int generation, IDictationEngine engine)
+    private void ReleaseIfCurrent(
+        int generation,
+        IDictationEngine engine,
+        Action action)
     {
         lock (_gate)
         {
             if (generation != _generation)
             {
-                return false;
+                return;
             }
             if (ReferenceEquals(_engine, engine))
             {
                 _engine = null;
             }
-            return true;
+            action();
         }
     }
 }

@@ -155,6 +155,11 @@ test("a helper crash drops the session owners", async () => {
   );
   fakeClient.stateListener!({ status: "backing-off" });
 
+  expect(owner.send).toHaveBeenCalledWith("vellum:helper:dictation:finalized", {
+    text: "",
+  });
+  owner.send.mockClear();
+
   fakeClient.notifications.get("dictation.partial")!({ text: "late" });
   fakeClient.notifications.get("dictation.finalized")!({ text: "late" });
   expect(owner.send).not.toHaveBeenCalled();

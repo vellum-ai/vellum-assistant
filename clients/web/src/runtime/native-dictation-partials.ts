@@ -280,9 +280,11 @@ export async function startNativeDictationPartials(
   // The final transcript can land before stop() is called (the recognizer
   // self-finalizes on silence) or after — capture both.
   let finalText: string | null = null;
+  let finalReceived = false;
   let finalResolve: ((text: string | null) => void) | null = null;
   const unsubscribeFinal =
     dictation.onFinalized?.((event) => {
+      finalReceived = true;
       finalText = event.text || null;
       finalResolve?.(finalText);
     }) ?? null;
@@ -337,7 +339,7 @@ export async function startNativeDictationPartials(
     });
     stopPromise = (async () => {
       let text = finalText;
-      if (!text && unsubscribeFinal) {
+      if (!finalReceived && unsubscribeFinal) {
         text = await new Promise<string | null>((resolve) => {
           finalResolve = resolve;
           setTimeout(() => resolve(null), FINALIZED_TIMEOUT_MS);

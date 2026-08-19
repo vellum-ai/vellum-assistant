@@ -89,8 +89,9 @@ const handleHelperState = (state: NativeSidecarState): void => {
     }
   }
   if (state.status !== "running") {
-    // The partials session died with the helper; the renderer's recording
-    // simply continues without live text.
+    dictationOwners
+      .target()
+      ?.send("vellum:helper:dictation:finalized", { text: "" });
     dictationOwners.clear();
   }
 };
