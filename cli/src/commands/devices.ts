@@ -172,7 +172,7 @@ async function listDevices(
     );
     if (device.isCurrentHost) {
       console.log(
-        "    this machine's host credential — revoking locks this host out until guardian repair",
+        "    this machine's host credential; revoking locks this host out until guardian repair",
       );
     }
     console.log("");
@@ -206,7 +206,7 @@ async function revokeDevice(
   printIdentity(`  Device:    ${hashedDeviceId}`);
   printIdentity("");
 
-  // Warn (don't block — recoverable via guardian repair) when the target is
+  // Warn (don't block; recoverable via guardian repair) when the target is
   // this machine's own host credential. --json is app-driven; the UI disables
   // the host row, so the warning stays out of automation transcripts.
   if (!jsonOutput && hashedDeviceId === currentHostHashedDeviceId()) {

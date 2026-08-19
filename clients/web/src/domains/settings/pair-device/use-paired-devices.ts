@@ -42,6 +42,11 @@ export interface UsePairedDevicesOptions {
    * final refresh runs when the flag drops.
    */
   pollWhilePairing?: boolean;
+  /**
+   * Bump to refetch once (e.g. after the sibling pending-request flow approves
+   * a pairing); leaves any open confirm dialog alone.
+   */
+  revalidateKey?: number;
 }
 
 const PAIRING_POLL_INTERVAL_MS = 5_000;
@@ -53,13 +58,14 @@ const PAIRING_POLL_INTERVAL_MS = 5_000;
  * transport failures) collapses `devices` to `null` so the section degrades
  * silently instead of showing a broken state. The hook subscribes to the
  * assistant selection, so a switch while mounted refetches and closes any
- * open confirm dialog — but a revoke always targets the assistant the
+ * open confirm dialog, but a revoke always targets the assistant the
  * rendered list was fetched for: device ids hash identically across
  * assistants, so a fresh selection read could silently revoke the wrong
  * assistant's pairing.
  */
 export function usePairedDevices({
   pollWhilePairing = false,
+  revalidateKey,
 }: UsePairedDevicesOptions = {}): PairedDevicesController {
   const [list, setList] = useState<FetchedDeviceList | null>(null);
   const [confirmTarget, setConfirmTarget] =
@@ -113,6 +119,17 @@ export function usePairedDevices({
     setRevokeError(null);
     refresh(assistantId);
   }, [assistantId, refresh]);
+
+  // A sibling approval paired a device: refetch on key change only, without
+  // touching the dialog (the ref keeps this inert on selection re-renders).
+  const lastRevalidateKeyRef = useRef(revalidateKey);
+  useEffect(() => {
+    if (revalidateKey === lastRevalidateKeyRef.current) {
+      return;
+    }
+    lastRevalidateKeyRef.current = revalidateKey;
+    refresh(assistantId);
+  }, [revalidateKey, assistantId, refresh]);
 
   // Bounded revalidation while this card's own pairing code is live: an
   // external device claiming the code never signals this client, so poll

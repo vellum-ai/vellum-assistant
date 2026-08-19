@@ -21,7 +21,11 @@ let selectedAssistant: {
   ingressUrl?: string;
 } = { assistantId: "self", cloud: "local" };
 
+// Spread the real module so transitive consumers (e.g. the pending-request
+// chain) keep every export; only the reads the tests drive are overridden.
+const actualLocalMode = await import("@/lib/local-mode");
 mock.module("@/lib/local-mode", () => ({
+  ...actualLocalMode,
   getLocalGatewayUrl: () => gatewayPath,
   getSelectedAssistant: () => selectedAssistant,
 }));
@@ -46,11 +50,15 @@ let listDevicesResult: LocalListDevicesResult = {
   ok: false,
   error: "unavailable",
 };
+let listDevicesCalls = 0;
 
 mock.module(
   "@/runtime/local-mode-host",
   (): Partial<typeof import("@/runtime/local-mode-host")> => ({
-    listPairedDevicesHost: async () => listDevicesResult,
+    listPairedDevicesHost: async () => {
+      listDevicesCalls += 1;
+      return listDevicesResult;
+    },
     revokePairedDeviceHost: async () => ({ ok: true }),
   }),
 );
@@ -169,6 +177,7 @@ beforeEach(() => {
   webRemoteIngressOn = true;
   selectedAssistant = { assistantId: "self", cloud: "local" };
   listDevicesResult = { ok: false, error: "unavailable" };
+  listDevicesCalls = 0;
   resetFetchLog();
   localStorage.clear();
   // A rendered card polls the pending-request list on mount, so every test
@@ -463,6 +472,19 @@ describe("PairDeviceCard: pending pairing requests", () => {
     expect(requestBody(actionCalls("approve")[0])).toEqual({ requestId: "req-1" });
     await waitFor(() => expect(screen.queryByText("QRST-7890")).toBeNull());
     expect(actionCalls("deny")).toHaveLength(0);
+  });
+
+  test("approving a pending request refetches the paired-device list", async () => {
+    installPendingFetch();
+    render(<PairDeviceCard />);
+    await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
+    const callsBeforeApprove = listDevicesCalls;
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() =>
+      expect(listDevicesCalls).toBeGreaterThan(callsBeforeApprove),
+    );
   });
 
   test("Deny posts the request id and removes the row", async () => {

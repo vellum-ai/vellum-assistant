@@ -26,6 +26,8 @@ const HOST_REVOKE_DISABLED_TITLE =
 interface PairedDevicesSectionProps {
   /** True while the parent card has a live pairing code; drives list polling. */
   pollWhilePairing?: boolean;
+  /** Bump to refetch the list (a sibling approval just paired a device). */
+  revalidateKey?: number;
 }
 
 /**
@@ -34,12 +36,13 @@ interface PairedDevicesSectionProps {
  * unless the host reports one or more devices, so older app shells, host
  * failures, and empty lists leave the Pair a device card exactly as it is.
  * The host machine's own credential row is labeled "This machine" with Revoke
- * disabled — revoking it would lock the host out of its own assistant.
+ * disabled; revoking it would lock the host out of its own assistant.
  */
 export function PairedDevicesSection({
   pollWhilePairing = false,
+  revalidateKey,
 }: PairedDevicesSectionProps = {}) {
-  const controller = usePairedDevices({ pollWhilePairing });
+  const controller = usePairedDevices({ pollWhilePairing, revalidateKey });
   const { devices, confirmTarget } = controller;
 
   if (devices === null || devices.length === 0) {

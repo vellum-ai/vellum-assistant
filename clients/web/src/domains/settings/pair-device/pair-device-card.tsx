@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -33,6 +35,9 @@ export function PairDeviceCard() {
   const supported = useSupportsRemoteWebPairing();
   const webRemoteIngressOn = useClientFeatureFlagStore.use.webRemoteIngress();
   const pair = usePairDevice(target?.base ?? null, target?.ingressUrl ?? null);
+  // Bumped when the pending-request flow pairs a device, so the device list
+  // below refetches without waiting for a live-code poll.
+  const [devicesRevalidateKey, setDevicesRevalidateKey] = useState(0);
   const { copy, copied } = useCopyToClipboard({
     errorMessage: "Could not copy the pairing address.",
   });
@@ -117,10 +122,16 @@ export function PairDeviceCard() {
           />
         )}
 
-        <PendingPairingRequests base={target.base} />
+        <PendingPairingRequests
+          base={target.base}
+          onApproved={() => setDevicesRevalidateKey((key) => key + 1)}
+        />
 
         {/* Poll while a code is live so an externally claimed pairing shows up. */}
-        <PairedDevicesSection pollWhilePairing={isReady && !pair.expired} />
+        <PairedDevicesSection
+          pollWhilePairing={isReady && !pair.expired}
+          revalidateKey={devicesRevalidateKey}
+        />
       </div>
     </DetailCard>
   );
