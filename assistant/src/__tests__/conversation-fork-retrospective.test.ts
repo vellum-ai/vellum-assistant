@@ -500,6 +500,31 @@ describe("forkConversationForRetrospective — compacted source", () => {
     expect(v3Rows.map((r) => r.slug)).toEqual(["card-a"]);
   });
 
+  test("a window-bounded fork at the tip is truncated, not full-history", async () => {
+    const source = await seedCompactedSource();
+    const snapshot = JSON.stringify({ inContext: ["node-a"], currentTurn: 7 });
+    saveGraphMemoryState(source.id, snapshot);
+
+    const sourceRows = getMessages(source.id);
+    const tip = sourceRows.at(-1)!;
+    // The window covers only the final turn, so the fork ends at the tip yet
+    // renders strictly less than the source.
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: tip.id,
+      windowStartMessageId: sourceRows[5]!.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    expect(getMessages(fork.id)).toHaveLength(1);
+    // A tip boundary alone does not make the windows equal. Rows the window
+    // dropped are still rendered on the source (unlike compacted rows, which
+    // are rendered on neither), so the wholesale carry would attach state for
+    // turns this fork does not hold.
+    expect(loadGraphMemoryState(fork.id)).not.toBe(snapshot);
+  });
+
   test("re-derives memory seeding from the copied tail on a truncated cutoff", async () => {
     const source = await seedCompactedSource();
     const db = getDb();

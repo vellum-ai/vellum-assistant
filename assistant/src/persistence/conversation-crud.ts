@@ -1852,6 +1852,7 @@ export async function forkConversationForRetrospective(params: {
   // provider rejects. An id that is not in the copied range is an
   // inconsistency between the caller's slice and this fork, and failing here
   // leaves the window retryable rather than silently copying the whole tail.
+  let windowTrimmedRowCount = 0;
   if (windowStartMessageId != null) {
     const windowIndex = messagesToCopy.findIndex(
       (message) => message.id === windowStartMessageId,
@@ -1861,10 +1862,12 @@ export async function forkConversationForRetrospective(params: {
         `Message ${windowStartMessageId} is not in the forked range of conversation ${conversationId}`,
       );
     }
-    for (const message of messagesToCopy.slice(
+    const trimmed = messagesToCopy.slice(
       0,
       findDisplayTurnStartIndex(messagesToCopy, windowIndex),
-    )) {
+    );
+    windowTrimmedRowCount = trimmed.length;
+    for (const message of trimmed) {
       hiddenRowIds.add(message.id);
     }
   }
@@ -2003,12 +2006,17 @@ export async function forkConversationForRetrospective(params: {
               messagesToCopy: rowsToCopy,
               forkedMessageIds,
               latestForkedAssistant,
-              // Both conditions, for the same reason as `forkConversation`:
-              // a tip boundary no longer implies an equal window once the
-              // unfinalized filter dropped rows from the slice.
+              // The wholesale memory-state carry requires the fork's RENDERED
+              // window to equal the source's, so every filter that can shrink
+              // it gates this. The unfinalized filter and a window bound both
+              // drop rows the source still renders; the compaction filter does
+              // not, because rows behind the summary are unrendered on both
+              // sides. A window that trims nothing (a first pass covering the
+              // whole conversation) is still a full-history fork.
               isFullHistoryFork:
                 copyBoundaryIndex === sourceMessages.length - 1 &&
-                messagesToCopy.length === copyBoundaryIndex + 1,
+                messagesToCopy.length === copyBoundaryIndex + 1 &&
+                windowTrimmedRowCount === 0,
               // The copied range already starts at the visible window.
               inheritedCompactedMessageCount: forkCompactedMessageCount,
               skipCompactionLedgerCopy: inheritedCompaction != null,
