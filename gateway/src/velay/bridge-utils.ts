@@ -2,17 +2,30 @@ import { Buffer } from "node:buffer";
 import type { OutgoingHttpHeaders } from "node:http";
 import { buildUpstreamUrl, stripHopByHop } from "@vellumai/assistant-client";
 
+import { hasWebhookIngressRoute } from "../db/webhook-ingress-route-store.js";
+import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 import type { VelayHeaders } from "./protocol.js";
 
 const MAX_WEBSOCKET_CLOSE_REASON_BYTES = 123;
 
+const VELAY_WEBHOOKS_FLAG_KEY = "velay-webhooks";
+const WEBHOOK_PATH_PREFIX = "/webhooks/";
+
+/**
+ * Velay admission is decided across three layers. The webhook ingress route
+ * registry is authoritative for `/webhooks/*` once the `velay-webhooks` flag is
+ * on, so an assistant that registers nothing accepts nothing. The static
+ * prefixes and exact paths below are authoritative for every other route, and
+ * they still carry `/webhooks/twilio/` so Twilio keeps working until it
+ * registers its own routes. The rules in `allowed-paths.ts` are the coarse
+ * outer filter Velay applies platform-side and never widen what this bridge
+ * admits.
+ */
 const VELAY_ALLOWED_HTTP_PATH_PREFIXES = [
   "/webhooks/twilio/",
   "/v1/audio/",
 ] as const;
-// Exact-match HTTP paths (no trailing segments). Keep in sync with the
-// registration allowlist in allowed-paths.ts — Velay enforces that list
-// platform-side, and this bridge check is the local second layer.
+/** Exact-match HTTP paths (no trailing segments). */
 const VELAY_ALLOWED_HTTP_EXACT_PATHS = [
   "/assistant/credentials/enter",
   "/v1/credential-requests/peek",
@@ -34,6 +47,13 @@ const VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS = [
 export const VELAY_FORWARDED_HEADER = "x-velay-forwarded" as const;
 
 export function isAllowedVelayHttpPath(path: string): boolean {
+  if (
+    path.startsWith(WEBHOOK_PATH_PREFIX) &&
+    isFeatureFlagEnabled(VELAY_WEBHOOKS_FLAG_KEY) &&
+    hasWebhookIngressRoute(path)
+  ) {
+    return true;
+  }
   return (
     VELAY_ALLOWED_HTTP_PATH_PREFIXES.some((prefix) =>
       path.startsWith(prefix),
@@ -44,6 +64,7 @@ export function isAllowedVelayHttpPath(path: string): boolean {
   );
 }
 
+/** A registered webhook route admits a WebSocket upgrade on that same path. */
 export function isAllowedVelayWebSocketPath(path: string): boolean {
   return (
     isAllowedVelayHttpPath(path) ||

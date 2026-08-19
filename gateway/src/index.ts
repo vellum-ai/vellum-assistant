@@ -235,6 +235,7 @@ import { trustRulesRoutes } from "./ipc/trust-rules-handlers.js";
 
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
 import { createVelayRoutes } from "./ipc/velay-handlers.js";
+import { createWebhookRouteRoutes } from "./ipc/webhook-route-handlers.js";
 import { refreshRouteSchema } from "./ipc/route-schema-cache.js";
 import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
@@ -2931,6 +2932,7 @@ async function main() {
     ...createLogTailRoutes(config),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
+    ...createWebhookRouteRoutes(),
     ...createCredentialRequestIpcRoutes(
       config,
       configFileCache,
