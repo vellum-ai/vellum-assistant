@@ -7,7 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import * as reactRouter from "react-router";
 
 import { useConversationStore } from "@/stores/conversation-store";
@@ -122,6 +122,17 @@ afterEach(() => {
   cleanup();
 });
 
+/* Flush the switch handler's post-await continuation and the React commits
+   it queues. Deterministic where a polling waitFor is not: under CI load
+   the poll raced bun's per-test timeout and bled assertions into the next
+   test. */
+async function flushSwitch(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 describe("AssistantSwitcher chevron visibility", () => {
   test("no chevron when the gate is closed or the list is short", () => {
     switchable = { assistants: [CURRENT], canSwitch: false };
@@ -170,15 +181,31 @@ describe("AssistantSwitcher expanded card", () => {
     const { getByLabelText } = renderSwitcher();
 
     fireEvent.click(getByLabelText("Switch assistant"));
-    const collapse = getByLabelText("Hide assistants");
-    await waitFor(() => {
-      expect(document.activeElement).toBe(collapse);
-    });
+    await flushSwitch();
+    expect(document.activeElement).toBe(getByLabelText("Hide assistants"));
 
-    fireEvent.click(collapse);
-    await waitFor(() => {
-      expect(document.activeElement).toBe(getByLabelText("Switch assistant"));
+    fireEvent.click(getByLabelText("Hide assistants"));
+    await flushSwitch();
+    expect(document.activeElement).toBe(getByLabelText("Switch assistant"));
+  });
+
+  test("a successful switch reports completion; a failed one does not", async () => {
+    const onSwitched = mock(() => {});
+    const { getByLabelText } = renderSwitcher({ onSwitched });
+
+    fireEvent.click(getByLabelText("Switch assistant"));
+    fireEvent.click(getByLabelText("Switch to Bob"));
+    await flushSwitch();
+    expect(onSwitched).toHaveBeenCalledTimes(1);
+
+    switchMock.mockImplementation(async () => {
+      throw new Error("boom");
     });
+    fireEvent.click(getByLabelText("Switch assistant"));
+    fireEvent.click(getByLabelText("Switch to Bob"));
+    await flushSwitch();
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
+    expect(onSwitched).toHaveBeenCalledTimes(1);
   });
 
   test("selecting a row resets the conversation before the connect, then collapses", async () => {
@@ -203,9 +230,8 @@ describe("AssistantSwitcher expanded card", () => {
       routes.assistant,
       { replace: true },
     ]);
-    await waitFor(() => {
-      expect(queryByText("Bob")).toBeNull();
-    });
+    await flushSwitch();
+    expect(queryByText("Bob")).toBeNull();
     expect(useConversationStore.getState().activeConversationId).toBeNull();
   });
 
@@ -219,9 +245,8 @@ describe("AssistantSwitcher expanded card", () => {
     fireEvent.click(getByLabelText("Switch assistant"));
     fireEvent.click(getByLabelText("Switch to Bob"));
 
-    await waitFor(() => {
-      expect(captureErrorMock).toHaveBeenCalledTimes(1);
-    });
+    await flushSwitch();
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
     expect(getByText("Bob")).toBeTruthy();
     expect(useConversationStore.getState().activeConversationId).toBe(
       "conv-old",
@@ -327,10 +352,11 @@ describe("AssistantSwitcher expanded card", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(queryByLabelText("Hide assistants")).toBeNull();
-      expect(document.activeElement).toBe(getByLabelText("Switch assistant"));
-    });
+    await flushSwitch();
+    expect(queryByLabelText("Hide assistants")).toBeNull();
+    expect(document.activeElement).toBe(getByLabelText("Switch assistant"));
+
     resolveSwitch();
+    await flushSwitch();
   });
 });
