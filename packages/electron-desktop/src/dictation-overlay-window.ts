@@ -71,13 +71,25 @@ export type { DictationOverlayMessage, DictationOverlayState };
 
 export interface DictationOverlayWindowDependencies {
   closeOnHide?: boolean;
+  /**
+   * Poll the cursor from main and synthesize hover events into the overlay
+   * renderer. Windows workaround: Electron's native mouse-move forwarding
+   * for click-through windows (`setIgnoreMouseEvents(true, { forward:
+   * true })`) relies on a low-level mouse hook that stops delivering while
+   * a non-Electron window has focus (electron/electron#33281) — exactly the
+   * push-to-talk posture. Without the moves the page never sees the pointer
+   * reach the Stop button, never asks to become interactive, and the click
+   * falls through to the app behind.
+   */
+  pollCursorForHover?: boolean;
   handle: IpcHandle;
   on: IpcOn;
 }
 
-const configuration = createModuleConfiguration<DictationOverlayWindowDependencies>(
-  "Dictation overlay window module",
-);
+const configuration =
+  createModuleConfiguration<DictationOverlayWindowDependencies>(
+    "Dictation overlay window module",
+  );
 export const configureDictationOverlayWindow = configuration.configure;
 
 const dictationOverlayMessageSchema = z.discriminatedUnion("kind", [
@@ -160,6 +172,97 @@ export const createDictationOverlayController = (
   return { handleMessage };
 };
 
+export const CURSOR_HOVER_POLL_MS = 50;
+
+export type CursorHoverForwarderDeps = {
+  getCursor: () => { x: number; y: number };
+  /** Overlay window bounds in screen coordinates, or null once it is gone. */
+  getOverlayBounds: () => {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
+  isInteractive: () => boolean;
+  /** Synthesize a mouse move at window-relative coordinates. */
+  sendMouseMove: (point: { x: number; y: number }) => void;
+  sendMouseLeave: () => void;
+  setInterval: (callback: () => void, ms: number) => unknown;
+  clearInterval: (handle: unknown) => void;
+};
+
+/**
+ * Stand-in for Electron's broken mouse-move forwarding on Windows (see
+ * `pollCursorForHover`): while the overlay is click-through, watch the
+ * cursor and synthesize the moves the native hook should have delivered,
+ * plus one leave event when the cursor exits. The page's own hit-test then
+ * decides interactivity exactly as it does on macOS. Paused while the
+ * overlay is interactive — real input reaches the page then.
+ */
+export const createCursorHoverForwarder = (
+  deps: CursorHoverForwarderDeps,
+): { start: () => void; stop: () => void } => {
+  let timer: unknown = null;
+  let wasInside = false;
+  let lastMove: { x: number; y: number } | null = null;
+
+  const stop = (): void => {
+    if (timer !== null) {
+      deps.clearInterval(timer);
+      timer = null;
+    }
+    wasInside = false;
+    lastMove = null;
+  };
+
+  const tick = (): void => {
+    const bounds = deps.getOverlayBounds();
+    if (!bounds) {
+      stop();
+      return;
+    }
+    if (deps.isInteractive()) {
+      // The pointer is over the Stop control; when the page drops
+      // interactivity again the next tick resumes from "inside" so an
+      // immediate exit still produces a leave event.
+      wasInside = true;
+      lastMove = null;
+      return;
+    }
+    const cursor = deps.getCursor();
+    const inside =
+      cursor.x >= bounds.x &&
+      cursor.x < bounds.x + bounds.width &&
+      cursor.y >= bounds.y &&
+      cursor.y < bounds.y + bounds.height;
+    if (inside) {
+      const move = { x: cursor.x - bounds.x, y: cursor.y - bounds.y };
+      // A stationary cursor needs no re-delivery.
+      if (move.x !== lastMove?.x || move.y !== lastMove?.y) {
+        deps.sendMouseMove(move);
+      }
+      lastMove = move;
+    } else {
+      if (wasInside) {
+        deps.sendMouseLeave();
+      }
+      lastMove = null;
+    }
+    wasInside = inside;
+  };
+
+  const start = (): void => {
+    if (timer !== null) {
+      return;
+    }
+    wasInside = false;
+    lastMove = null;
+    timer = deps.setInterval(tick, CURSOR_HOVER_POLL_MS);
+  };
+
+  return { start, stop };
+};
+
 // ---------------------------------------------------------------------------
 // Window plumbing
 // ---------------------------------------------------------------------------
@@ -186,17 +289,43 @@ const broadcastStopRequested = (): void => {
   }
 };
 
+let overlayInteractive = false;
+
 const setOverlayInteractive = (interactive: boolean): void => {
   const win = getFloatingWindow(OVERLAY_KIND);
   if (!win || win.isDestroyed()) {
     return;
   }
+  overlayInteractive = interactive;
   if (interactive) {
     win.setIgnoreMouseEvents(false);
   } else {
     win.setIgnoreMouseEvents(true, { forward: true });
   }
 };
+
+const hoverForwarder = createCursorHoverForwarder({
+  getCursor: () => screen.getCursorScreenPoint(),
+  getOverlayBounds: () => getFloatingWindow(OVERLAY_KIND)?.getBounds() ?? null,
+  isInteractive: () => overlayInteractive,
+  sendMouseMove: ({ x, y }) => {
+    getFloatingWindow(OVERLAY_KIND)?.webContents.sendInputEvent({
+      type: "mouseMove",
+      x,
+      y,
+    });
+  },
+  sendMouseLeave: () => {
+    getFloatingWindow(OVERLAY_KIND)?.webContents.sendInputEvent({
+      type: "mouseLeave",
+      x: 0,
+      y: 0,
+    });
+  },
+  setInterval: (callback, ms) => setInterval(callback, ms),
+  clearInterval: (handle) =>
+    clearInterval(handle as ReturnType<typeof setInterval>),
+});
 
 export const positionDictationOverlayInWorkArea = (workArea: {
   x: number;
@@ -244,10 +373,17 @@ const showOverlay = (): void => {
   // `createFloatingWindow` uses `showInactive()` when `focusOnShow` is false;
   // never activate the app or steal focus from the dictation target.
   ensureOverlayWindow();
+  // A (re)shown window starts click-through regardless of what the last
+  // session left behind.
+  overlayInteractive = false;
+  if (configuration.get().pollCursorForHover) {
+    hoverForwarder.start();
+  }
 };
 
 const hideOverlay = (): void => {
   latestState = null;
+  hoverForwarder.stop();
   const win = getFloatingWindow(OVERLAY_KIND);
   if (win) {
     setOverlayInteractive(false);

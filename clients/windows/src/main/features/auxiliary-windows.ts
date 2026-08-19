@@ -61,7 +61,15 @@ const module: CapabilityModule<DesktopCapabilityRegistry> = {
       platform: "win32",
       resolveRoute,
     });
-    configureDictationOverlayWindow({ closeOnHide: true, handle, on });
+    // Native mouse-move forwarding for the click-through overlay is
+    // unreliable on Windows (electron/electron#33281); poll instead so the
+    // Stop button can be hovered and clicked.
+    configureDictationOverlayWindow({
+      closeOnHide: true,
+      pollCursorForHover: true,
+      handle,
+      on,
+    });
     configurePopoutWindows({ createWindow, handle, resolveRoute });
 
     installCommandPaletteWindow();
