@@ -414,8 +414,7 @@ describe("channel inbound disk pressure gate", () => {
           chatId: "slack-channel-1",
           text: expectedRemoteBlockReply,
           assistantId: "self",
-          ephemeral: true,
-          user: "slack-user-1",
+          slack: { ephemeral: true, user: "slack-user-1" },
         },
       ],
     ]);

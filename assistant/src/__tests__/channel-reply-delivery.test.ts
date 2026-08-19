@@ -789,9 +789,11 @@ describe("channel-reply-delivery", () => {
       chatId: "chat-live",
       attachments,
       assistantId: undefined,
-      ephemeral: undefined,
-      user: undefined,
-      messageTs: "1700000000.000055",
+      slack: {
+        ephemeral: undefined,
+        user: undefined,
+        messageTs: "1700000000.000055",
+      },
     });
     expect(seenTs).toEqual(["1700000000.000055"]);
   });
