@@ -265,8 +265,11 @@ describe("useChatEmptyState starters dock", () => {
     expect(result.current.dockStartersToBottom).toBe(true);
     expect(result.current.startersDockCollapsed).toBe(true);
 
+    // The slot is still handed over, so `ChatBody` mounts the wrapper a
+    // later answer expands into. It just has nothing to draw.
+    expect(result.current.startersSlot).not.toBeUndefined();
     const { container } = render(<>{result.current.startersSlot}</>);
-    expect(dockOf(container)).not.toBeNull();
+    expect(dockOf(container)).toBeNull();
     expect(container.querySelector(RESERVE)).toBeNull();
   });
 
@@ -283,6 +286,23 @@ describe("useChatEmptyState starters dock", () => {
     expect(result.current.startersDockCollapsed).toBe(true);
     const { container } = render(<>{result.current.startersSlot}</>);
     expect(container.querySelector(RESERVE)).toBeNull();
+  });
+
+  test("the credits card does not sit above an empty panel", () => {
+    // The card shares the slot, so a dock with nothing to draw must draw
+    // nothing: its padding and caption would otherwise hang under the card
+    // as dead space.
+    startersRef.value = [];
+    startersStatusRef.value = "empty";
+    const { result } = renderHook(() =>
+      useChatEmptyState(baseParams({ showCreditsUpsell: true })),
+    );
+
+    const { container } = render(<>{result.current.startersSlot}</>);
+    expect(
+      container.querySelector('[data-slot="credits-upsell-card"]'),
+    ).not.toBeNull();
+    expect(dockOf(container)).toBeNull();
   });
 
   test("chips landing keep the reserve as the dock's sizing floor", () => {

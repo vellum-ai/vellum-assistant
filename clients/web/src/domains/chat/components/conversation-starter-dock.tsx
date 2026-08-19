@@ -61,6 +61,14 @@ export function ConversationStarterDock({
   const hasStarters = starters.length > 0;
   const revealClass = `${FADE} ${hasStarters ? "opacity-100" : "opacity-0"}`;
 
+  // Neither chips nor a reserve leaves the panel's own framing as the only
+  // thing in it, which is dead space under whatever shares the slot (the
+  // credits card). `ChatBody` still mounts the wrapper around this, so a
+  // later answer expands into it rather than snapping in.
+  if (!hasStarters && !isReserving) {
+    return null;
+  }
+
   return (
     // Top corners only, and `-mb-3` swallows the enclosing column's bottom
     // padding so the panel sits flush against the viewport's bottom edge.
