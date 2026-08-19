@@ -82,6 +82,7 @@ export function SideMenuBuiltInNav({
                 }
               : undefined
           }
+          onSwitched={onClose}
         />
       </div>
       {pinnedApps.length > 0 ? (

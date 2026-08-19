@@ -39,12 +39,20 @@ interface AssistantSwitcherProps {
   onSelect?: () => void;
   /** Renders the "New Chat" row below the assistant row. */
   onNewConversation?: () => void;
+  /**
+   * Called after a successful switch. The overlay drawer passes its close
+   * callback here so the switch reveals the new assistant, the way every
+   * other drawer row dismisses on selection; a failed switch keeps the
+   * drawer (and the card) open for a retry.
+   */
+  onSwitched?: () => void;
   /** Mounts with the card open. Stories only; the app always starts closed. */
   defaultExpanded?: boolean;
 }
 
 export function AssistantSwitcher({
   defaultExpanded = false,
+  onSwitched,
   ...props
 }: AssistantSwitcherProps) {
   const { assistantId, label, collapsed = false } = props;
@@ -134,6 +142,7 @@ export function AssistantSwitcher({
         useConversationStore.getState().setActiveConversationId(null);
         void navigate(routes.assistant, { replace: true });
       }
+      onSwitched?.();
     } catch (error) {
       /* A failed connect leaves the previous assistant selected; put back
          whatever route the switch was attempted from (a conversation, the
