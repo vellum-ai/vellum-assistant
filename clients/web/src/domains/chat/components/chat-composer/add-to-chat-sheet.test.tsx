@@ -55,7 +55,7 @@ mock.module("@vellumai/design-library", () => ({
 
 // A shell that can actually reach the native pickers: both a Capacitor
 // runtime AND a build that linked the plugin. Defaults to false, so every
-// existing case still exercises the file input.
+// other case exercises the file input.
 let mockNativePickersAvailable = false;
 type PickOutcome = { tooLarge: string[]; pickFull: string[] };
 type OnPickedFile = (file: File) => boolean;

@@ -68,7 +68,7 @@ let mockIsNativeMobile = false;
 // other surface exercises the direct picker.
 let mockIsNativeAndroid = false;
 // Whether this shell's build linked the native pickers. False by default, so
-// every existing case still describes a shell that only has the OS chooser.
+// every other case describes a shell with only the OS chooser.
 let mockNativePickersAvailable = false;
 mock.module(
   "@/domains/chat/components/chat-attachments/native-attachment-pickers",
