@@ -16,8 +16,6 @@ public sealed class PushToTalkChordTracker
     public bool Active { get; private set; }
     public bool Pending { get; private set; }
 
-    public bool Consumes(ushort key) => _required.Contains(key);
-
     public PushToTalkTransition Configure(IEnumerable<ushort> keys)
     {
         var transition = Active ? PushToTalkTransition.Up : PushToTalkTransition.None;
@@ -78,40 +76,6 @@ public sealed class PushToTalkChordTracker
         _pressed.Count == _required.Count && _required.All(_pressed.Contains);
 }
 
-public static class PushToTalkKeyPlanner
-{
-    public static ushort ResolveKey(string label) => label switch
-    {
-        " " or "Spacebar" => 0x20,
-        ")" => 0x30,
-        "!" => 0x31,
-        "@" => 0x32,
-        "#" => 0x33,
-        "$" => 0x34,
-        "%" => 0x35,
-        "^" => 0x36,
-        "&" => 0x37,
-        "*" => 0x38,
-        "(" => 0x39,
-        "ArrowUp" => 0x26,
-        "ArrowDown" => 0x28,
-        "ArrowLeft" => 0x25,
-        "ArrowRight" => 0x27,
-        ";" or ":" => 0xBA,
-        "=" or "+" => 0xBB,
-        "," or "<" => 0xBC,
-        "-" or "_" => 0xBD,
-        "." or ">" => 0xBE,
-        "/" or "?" => 0xBF,
-        "`" or "~" => 0xC0,
-        "[" or "{" => 0xDB,
-        "\\" or "|" => 0xDC,
-        "]" or "}" => 0xDD,
-        "'" or "\"" => 0xDE,
-        _ => KeyPlanner.ResolveKey(label),
-    };
-}
-
 public readonly record struct PhysicalKeyTransition(ushort Key, bool Down);
 
 public sealed class PhysicalKeyTracker
@@ -140,7 +104,7 @@ public sealed class PhysicalKeyTracker
             : new PhysicalKeyTransition(normalized, false);
     }
 
-    public static ushort Normalize(ushort key) => key switch
+    private static ushort Normalize(ushort key) => key switch
     {
         0xA0 or 0xA1 => 0x10,
         0xA2 or 0xA3 => 0x11,

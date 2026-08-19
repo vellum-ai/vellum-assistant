@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Vellum.WindowsHelper.Modules;
 
 namespace Vellum.WindowsHelper.Tests;
@@ -9,9 +10,8 @@ public static class PushToTalkChordTrackerTests
         SingleKeyRequiresHold();
         ExtraKeyCancelsPendingActivation();
         ChordActivatesImmediately();
-        ConfiguredKeysAreConsumed();
+        RejectsNonModifierGlobalBindings();
         ReconfigurationReleasesActiveChord();
-        ResolvesBrowserKeyLabels();
         KeepsSidedModifiersPressed();
     }
 
@@ -42,13 +42,26 @@ public static class PushToTalkChordTrackerTests
         Assert(tracker.KeyUp(0x11) == PushToTalkTransition.Up);
     }
 
-    private static void ConfiguredKeysAreConsumed()
+    private static void RejectsNonModifierGlobalBindings()
     {
-        var tracker = new PushToTalkChordTracker();
-        tracker.Configure([0x11, 0x10]);
-        Assert(tracker.Consumes(0x11));
-        Assert(tracker.Consumes(0x10));
-        Assert(!tracker.Consumes(0x4B));
+        using var service = new PushToTalkService();
+        var parameters = JsonSerializer.SerializeToElement(new
+        {
+            activator = new
+            {
+                kind = "key",
+                modifiers = Array.Empty<string>(),
+                label = "K",
+            },
+        });
+        var response = service.InvokeAsync(
+            PushToTalkService.SetMethod,
+            parameters,
+            CancellationToken.None).AsTask().GetAwaiter().GetResult();
+        var json = JsonSerializer.SerializeToElement(response);
+        Assert(!json.GetProperty("ok").GetBoolean());
+        Assert(json.GetProperty("reason").GetString() ==
+            "Global push-to-talk supports modifier-only bindings");
     }
 
     private static void ReconfigurationReleasesActiveChord()
@@ -58,16 +71,6 @@ public static class PushToTalkChordTrackerTests
         tracker.KeyDown(0x11);
         tracker.KeyDown(0x10);
         Assert(tracker.Configure([0x12]) == PushToTalkTransition.Up);
-    }
-
-    private static void ResolvesBrowserKeyLabels()
-    {
-        Assert(PushToTalkKeyPlanner.ResolveKey(" ") == 0x20);
-        Assert(PushToTalkKeyPlanner.ResolveKey("ArrowUp") == 0x26);
-        Assert(PushToTalkKeyPlanner.ResolveKey("?") == 0xBF);
-        Assert(PushToTalkKeyPlanner.ResolveKey("!") == 0x31);
-        Assert(PushToTalkKeyPlanner.ResolveKey("@") == 0x32);
-        Assert(PushToTalkKeyPlanner.ResolveKey(")") == 0x30);
     }
 
     private static void KeepsSidedModifiersPressed()

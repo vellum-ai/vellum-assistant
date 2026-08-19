@@ -58,7 +58,7 @@ const PTT_HOLD_DELAY_MS = 100;
  * feedback when PTT recording starts. Standalone helper to avoid coupling
  * with `SoundManager`.
  *
- * 880 Hz sine tone, 200 ms duration, 0.25 peak gain — same parameters as
+ * 880 Hz sine tone, 200 ms duration, 0.25 peak gain. These are the same as
  * `SoundManager.playFallbackBlip`.
  */
 function playActivationBlip(): void {
@@ -129,7 +129,7 @@ export function usePushToTalk(
   const activeOriginRef = useRef<"dom" | "native" | null>(null);
   const activeTargetRef = useRef<PushToTalkTarget | null>(null);
 
-  // Hold-delay state — tracked via refs so event handlers always see the
+  // Hold-delay state is tracked via refs so event handlers always see the
   // latest values without requiring effect re-runs.
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdingRef = useRef(false);
@@ -296,7 +296,7 @@ export function usePushToTalk(
     };
 
     const handleBlur = () => {
-      // Dropping focus while in the hold window — cancel.
+      // Cancel when focus drops during the hold window.
       cancelHold();
 
       // DOM keyup can be lost when the page blurs. Native events are delivered
