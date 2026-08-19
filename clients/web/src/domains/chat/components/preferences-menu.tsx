@@ -83,12 +83,12 @@ export function PreferencesMenu({
 
   const trigger =
     triggerVariant === "pill" ? (
-      /* Solid surface + shadow: the pill floats over the scrolling
-         conversation list, so it can't be transparent like `ghost`. */
+      /* Solid surface: the pill floats over the scrolling conversation list,
+         so it can't be transparent like `ghost`. */
       <Button
         variant="ghost"
         leftIcon={<CircleUser />}
-        className="min-h-[var(--side-menu-tile-size,36px)] min-w-0 rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] px-3 shadow-[var(--shadow-lg)]"
+        className="min-h-[var(--side-menu-tile-size,36px)] min-w-0 rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] px-3"
       >
         {/* `truncate` is belt-and-braces: the label is a fixed short string,
             but the pill shares its row with New Chat and must never grow
