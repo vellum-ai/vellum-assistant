@@ -90,16 +90,25 @@ function readKeyboardHeight(reported: unknown): number {
  * Show and hide are one source, so they share a single subscription: one plugin
  * import, and one warning if this shell has no keyboard plugin to give.
  *
+ * `visible` says which of the two events fired, and is reported separately from
+ * the height because the height is sanitized: `readKeyboardHeight` coerces a
+ * malformed payload to `0`, and a show that arrives malformed still means a
+ * keyboard is coming up. Reading visibility off the number instead would call
+ * that a dismissal and let the frame resize behind it pass for the window
+ * getting shorter.
+ *
  * `onSourceReady` fires once it is settled that a soft keyboard here would
  * reach the caller: after the plugin listeners register on a native shell, and
  * straight away in a browser, where a keyboard has no frame to resize and so
  * needs no announcement to be recognised. A native shell whose registration
  * never lands (built before the plugin, or rejected) never fires it, which is
  * how `use-visible-viewport.ts` knows not to read that shell's frame resizes as
- * the window itself getting shorter.
+ * the window itself getting shorter. Nor does a registration the caller
+ * unsubscribed from while it was still in flight: the readiness it would report
+ * belongs to listeners that are already being removed.
  */
 export function subscribeNativeKeyboardHeight(
-  onHeightChange: (keyboardHeight: number) => void,
+  onHeightChange: (keyboardHeight: number, visible: boolean) => void,
   onSourceReady?: () => void,
 ): () => void {
   if (!isNativeMobile()) {
@@ -107,21 +116,32 @@ export function subscribeNativeKeyboardHeight(
     return () => {};
   }
 
-  return subscribeCapacitorListener("native_keyboard_height", async () => {
-    const { Keyboard } = await import("@capacitor/keyboard");
-    const [show, hide] = await Promise.all([
-      Keyboard.addListener("keyboardWillShow", (info) => {
-        onHeightChange(readKeyboardHeight(info.keyboardHeight));
-      }),
-      Keyboard.addListener("keyboardWillHide", () => {
-        onHeightChange(0);
-      }),
-    ]);
-    onSourceReady?.();
-    return {
-      remove: async () => {
-        await Promise.all([show.remove(), hide.remove()]);
-      },
-    };
-  });
+  let cancelled = false;
+  const unsubscribe = subscribeCapacitorListener(
+    "native_keyboard_height",
+    async () => {
+      const { Keyboard } = await import("@capacitor/keyboard");
+      const [show, hide] = await Promise.all([
+        Keyboard.addListener("keyboardWillShow", (info) => {
+          onHeightChange(readKeyboardHeight(info.keyboardHeight), true);
+        }),
+        Keyboard.addListener("keyboardWillHide", () => {
+          onHeightChange(0, false);
+        }),
+      ]);
+      if (!cancelled) {
+        onSourceReady?.();
+      }
+      return {
+        remove: async () => {
+          await Promise.all([show.remove(), hide.remove()]);
+        },
+      };
+    },
+  );
+
+  return () => {
+    cancelled = true;
+    unsubscribe();
+  };
 }

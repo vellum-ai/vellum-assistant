@@ -110,31 +110,31 @@ describe("subscribeNativeKeyboardHeight", () => {
   });
 
   test("reports the height the plugin announces on keyboardWillShow", async () => {
-    const onHeightChange = mock((_height: number) => {});
+    const onHeightChange = mock((_height: number, _visible?: boolean) => {});
     const unsubscribe = subscribeNativeKeyboardHeight(onHeightChange);
     await flushMicrotasks();
 
     showHandler!({ keyboardHeight: 336 });
 
     expect(onHeightChange).toHaveBeenCalledTimes(1);
-    expect(onHeightChange).toHaveBeenCalledWith(336);
+    expect(onHeightChange).toHaveBeenCalledWith(336, true);
     unsubscribe();
   });
 
   test("reports 0 on keyboardWillHide", async () => {
-    const onHeightChange = mock((_height: number) => {});
+    const onHeightChange = mock((_height: number, _visible?: boolean) => {});
     const unsubscribe = subscribeNativeKeyboardHeight(onHeightChange);
     await flushMicrotasks();
 
     hideHandler!();
 
     expect(onHeightChange).toHaveBeenCalledTimes(1);
-    expect(onHeightChange).toHaveBeenCalledWith(0);
+    expect(onHeightChange).toHaveBeenCalledWith(0, false);
     unsubscribe();
   });
 
   test("falls back to 0 for a malformed payload", async () => {
-    const onHeightChange = mock((_height: number) => {});
+    const onHeightChange = mock((_height: number, _visible?: boolean) => {});
     const unsubscribe = subscribeNativeKeyboardHeight(onHeightChange);
     await flushMicrotasks();
 
@@ -144,7 +144,7 @@ describe("subscribeNativeKeyboardHeight", () => {
 
     expect(onHeightChange).toHaveBeenCalledTimes(3);
     for (const call of onHeightChange.mock.calls) {
-      expect(call).toEqual([0]);
+      expect(call).toEqual([0, true]);
     }
     unsubscribe();
   });
@@ -155,19 +155,19 @@ describe("subscribeNativeKeyboardHeight", () => {
     // the window itself getting shorter.
     mockIsNativeIOS = false;
     mockIsNativeAndroid = true;
-    const onHeightChange = mock((_height: number) => {});
+    const onHeightChange = mock((_height: number, _visible?: boolean) => {});
     const unsubscribe = subscribeNativeKeyboardHeight(onHeightChange);
     await flushMicrotasks();
 
     showHandler!({ keyboardHeight: 336 });
 
-    expect(onHeightChange).toHaveBeenCalledWith(336);
+    expect(onHeightChange).toHaveBeenCalledWith(336, true);
     unsubscribe();
   });
 
   test("attaches nothing outside the native shells", async () => {
     mockIsNativeIOS = false;
-    const onHeightChange = mock((_height: number) => {});
+    const onHeightChange = mock((_height: number, _visible?: boolean) => {});
     const unsubscribe = subscribeNativeKeyboardHeight(onHeightChange);
     await flushMicrotasks();
 
@@ -187,6 +187,39 @@ describe("subscribeNativeKeyboardHeight", () => {
     await flushMicrotasks();
 
     expect(onSourceReady).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  test("suppresses readiness for a registration the caller already left", async () => {
+    // Unsubscribing during the lazy import means the listeners are being
+    // removed as they land. Reporting a source then restores the shared flag
+    // after the teardown that cleared it.
+    const onSourceReady = mock(() => {});
+    const unsubscribe = subscribeNativeKeyboardHeight(() => {}, onSourceReady);
+
+    unsubscribe();
+    await flushMicrotasks();
+
+    expect(onSourceReady).not.toHaveBeenCalled();
+  });
+
+  test("reports a show and a hide by which event fired, not by its height", async () => {
+    // The height is sanitized at the bridge, so a malformed show arrives as
+    // `0`. Visibility has to survive that, or the frame resize behind it reads
+    // as the window getting shorter.
+    const onHeightChange = mock((_height: number, _visible: boolean) => {});
+    const unsubscribe = subscribeNativeKeyboardHeight(onHeightChange);
+    await flushMicrotasks();
+
+    showHandler!({ keyboardHeight: 336 });
+    showHandler!({ keyboardHeight: "tall" });
+    hideHandler!();
+
+    expect(onHeightChange.mock.calls).toEqual([
+      [336, true],
+      [0, true],
+      [0, false],
+    ]);
     unsubscribe();
   });
 
@@ -218,7 +251,7 @@ describe("subscribeNativeKeyboardHeight", () => {
   });
 
   test("unsubscribe removes both plugin listeners", async () => {
-    const onHeightChange = mock((_height: number) => {});
+    const onHeightChange = mock((_height: number, _visible?: boolean) => {});
     const unsubscribe = subscribeNativeKeyboardHeight(onHeightChange);
     await flushMicrotasks();
 

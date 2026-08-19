@@ -16,7 +16,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
-let announceKeyboardHeight: ((keyboardHeight: number) => void) | null = null;
+let announceKeyboardHeight:
+  ((keyboardHeight: number, visible: boolean) => void) | null = null;
 // Whether the stubbed shell reports a keyboard source, as one with the plugin
 // linked does and one built before it never does.
 let stubReportsKeyboardSource = true;
@@ -88,10 +89,14 @@ function setInnerHeight(height: number): void {
   });
 }
 
-/** Announce a keyboard height the way the native shell does. */
-function announce(keyboardHeight: number): void {
+/**
+ * Announce a keyboard height the way the native shell does. Visibility is
+ * carried separately from the height, since the bridge sanitizes a malformed
+ * show payload to `0` and a keyboard coming up still means one is coming up.
+ */
+function announce(keyboardHeight: number, visible = keyboardHeight > 0): void {
   act(() => {
-    announceKeyboardHeight!(keyboardHeight);
+    announceKeyboardHeight!(keyboardHeight, visible);
   });
 }
 
@@ -587,6 +592,21 @@ describe("window resizes", () => {
     resizeWindowTo(REFERENCE_HEIGHT);
 
     expect(readVisibleViewport()?.keyboardHeight).toBe(0);
+  });
+
+  test("keeps the reference when a show announces a malformed height", () => {
+    // The bridge coerces a malformed payload to `0`. The keyboard is still
+    // coming up, so the frame resize behind it is not the window shrinking.
+    renderHook(() => useVisibleViewport());
+    announce(0, true);
+
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    // The reference stands, so the shrunken frame still reads as a keyboard
+    // rather than as the window's new height.
+    expect(readVisibleViewport()?.keyboardHeight).toBe(
+      REFERENCE_HEIGHT - RESIZED_HEIGHT,
+    );
   });
 
   test("ignores a window that grew, which the reference already tracks", () => {

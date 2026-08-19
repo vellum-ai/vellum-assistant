@@ -161,10 +161,14 @@ function addViewportUpdater(update: () => void): () => void {
   viewportUpdaters.add(update);
   if (!unsubscribeNativeKeyboard) {
     unsubscribeNativeKeyboard = subscribeNativeKeyboardHeight(
-      (keyboardHeight) => {
+      (keyboardHeight, visible) => {
         anticipatedKeyboardHeight = keyboardHeight;
         anticipationViewportHeight = window.visualViewport?.height ?? 0;
-        nativeKeyboardVisible = keyboardHeight > 0;
+        // Which event fired, not what it measured. A malformed show payload is
+        // coerced to `0` at the bridge, and reading visibility off that number
+        // would call a keyboard coming up a dismissal, then let the frame
+        // resize behind it pass for the window getting shorter.
+        nativeKeyboardVisible = visible;
         for (const notify of viewportUpdaters) {
           notify();
         }
