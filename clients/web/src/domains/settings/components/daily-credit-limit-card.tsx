@@ -327,11 +327,6 @@ export function DailyCreditLimitCard() {
         )}
       </div>
 
-      <p className="mt-3 text-body-small-default text-[var(--content-tertiary)]">
-        Applies to Vellum credit spend only. Usage billed to your own provider
-        API keys isn&apos;t limited. Resets daily at {resetPhrase}.
-      </p>
-
       {saveError != null && (
         <Notice
           tone="error"

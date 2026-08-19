@@ -9,7 +9,6 @@ import {
   organizationsBillingAutoTopUpRetrieveQueryKey,
   organizationsBillingAutoTopUpRetrieveSetQueryData,
   organizationsBillingAutoTopUpUpdateMutation,
-  organizationsBillingDailyCreditLimitRetrieveOptions,
   organizationsBillingDailyCreditLimitRetrieveQueryKey,
   organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
@@ -111,12 +110,6 @@ export function AutoTopUpCard() {
   const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const configQuery = useQuery(organizationsBillingAutoTopUpRetrieveOptions());
-  // Drives the "we'll apply the default daily limit" note in the enable form:
-  // the backend applies its default limit when auto top-up is turned on and the
-  // org has none.
-  const dailyLimitQuery = useQuery(
-    organizationsBillingDailyCreditLimitRetrieveOptions(),
-  );
   const updateMutation = useMutation(
     organizationsBillingAutoTopUpUpdateMutation(),
   );
@@ -457,11 +450,6 @@ export function AutoTopUpCard() {
     updateMutation.isError && Object.keys(fieldErrors).length === 0;
 
   const toggleChecked = enabled || pendingEnable;
-  // Only claim the default will be applied once the daily-limit config has
-  // loaded and reports no limit; a loading or failed query stays quiet.
-  const dailyLimitMissing =
-    dailyLimitQuery.data != null &&
-    dailyLimitQuery.data.daily_credit_limit_usd == null;
 
   return (
     <div ref={cardRef} data-testid="auto-top-up-card">
@@ -617,17 +605,9 @@ export function AutoTopUpCard() {
           }
           submitting={updateMutation.isPending}
           serverErrors={fieldErrors}
-          showDefaultDailyLimitNote={!enabled && dailyLimitMissing}
           onCancel={exitFormMode}
           onSave={handleSave}
         />
-      )}
-
-      {(enabled || isFormMode) && (
-        <Notice tone="info" className="mt-4">
-          If you&apos;re too close to your monthly limit, the auto-reload will
-          only top up to that limit.
-        </Notice>
       )}
 
       <AutoTopUpDisableConfirm

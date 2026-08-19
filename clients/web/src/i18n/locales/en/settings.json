@@ -18,10 +18,6 @@
     "message": "Auto-reload will stop. Any saved payment method stays on file.",
     "title": "Disable auto-reload?"
   },
-  "autoTopUpForm": {
-    "capHelper": "Pauses auto-reload for the rest of the month once spending reaches this amount. Manual purchases also count toward the total. Leave empty for no limit.",
-    "defaultDailyLimitNote": "A default daily credit limit of {amount} per day will be applied. You can adjust it under Daily Credit Limit."
-  },
   "billingOnboardingModal": {
     "backgroundConfirmContinue": "Continue",
     "backgroundConfirmKeepWaiting": "Keep waiting",

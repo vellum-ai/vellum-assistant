@@ -16,9 +16,8 @@
  *  - Arriving with `?configure_top_up=1` replays the toggle-on path (reveal the
  *    form, or the add-card gate with no PM), no-ops while enabled, and never
  *    fires an update mutation.
- *  - The enable form announces the default daily credit limit only when the org
- *    has none, and a successful enable invalidates the daily-limit and billing
- *    summary queries so the daily-limit card picks up the applied default.
+ *  - A successful enable invalidates the daily-limit and billing summary
+ *    queries so the daily-limit card picks up the server-applied default.
  *
  * Strategy: the render-only cases pre-populate the React Query cache so the
  * card's `useQuery` resolves synchronously — `renderToStaticMarkup` is
@@ -559,47 +558,6 @@ describe("AutoTopUpCard configure_top_up deeplink", () => {
 });
 
 describe("AutoTopUpCard default daily credit limit", () => {
-  const NOTE = '[data-testid="auto-top-up-default-daily-limit-note"]';
-
-  test("announces the applied default when enabling with no daily limit", () => {
-    const { container, getByLabelText } = render(wrap(DISABLED_WITH_CARD));
-
-    fireEvent.click(getByLabelText("Enable auto-reload"));
-
-    const note = container.querySelector(NOTE);
-    expect(note).not.toBeNull();
-    expect(note?.textContent).toContain(
-      "A default daily credit limit of $25 per day will be applied.",
-    );
-  });
-
-  test("stays quiet when the org already has a daily limit", () => {
-    dailyLimitResponse = {
-      daily_credit_limit_usd: "40.00",
-      current_day_spent_usd: "0.00",
-      day_bucket: "2026-07-20",
-      daily_limit_snoozed: false,
-      daily_limit_snoozed_day_bucket: null,
-    };
-    const { container, getByLabelText } = render(wrap(DISABLED_WITH_CARD));
-
-    fireEvent.click(getByLabelText("Enable auto-reload"));
-
-    expect(
-      container.querySelector('[data-testid="auto-top-up-save-button"]'),
-    ).not.toBeNull();
-    expect(container.querySelector(NOTE)).toBeNull();
-  });
-
-  test("stays quiet when adjusting an already-enabled config", () => {
-    retrieveResponse = { ...ENABLED_WITH_CARD };
-    const { container, getByTestId } = render(wrap(ENABLED_WITH_CARD));
-
-    fireEvent.click(getByTestId("auto-top-up-edit-button"));
-
-    expect(container.querySelector(NOTE)).toBeNull();
-  });
-
   test("invalidates the daily-limit and summary queries after a successful enable", async () => {
     const client = makeClient(DISABLED_WITH_CARD);
     const invalidated: string[] = [];

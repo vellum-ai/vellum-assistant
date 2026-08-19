@@ -18,10 +18,6 @@
     "message": "La recarga automática se detendrá. Los métodos de pago guardados se conservarán.",
     "title": "¿Desactivar la recarga automática?"
   },
-  "autoTopUpForm": {
-    "capHelper": "Pausa la recarga automática durante el resto del mes cuando el gasto alcanza este importe. Las compras manuales también cuentan para el total. Déjalo vacío para no fijar límite.",
-    "defaultDailyLimitNote": "Se aplicará un límite diario de créditos predeterminado de {amount} al día. Puedes ajustarlo en Límite diario de créditos."
-  },
   "billingOnboardingModal": {
     "backgroundConfirmContinue": "Continuar",
     "backgroundConfirmKeepWaiting": "Seguir esperando",
