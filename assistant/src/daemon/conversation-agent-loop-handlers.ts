@@ -89,6 +89,7 @@ import {
 } from "../usage/pricing.js";
 import { ProviderError } from "../util/errors.js";
 import { faviconUrlForDomain } from "../util/favicon.js";
+import { redactLogString } from "../util/log-redact.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
@@ -2709,7 +2710,7 @@ function handleError(
           event.error instanceof ProviderError
             ? event.error.provider
             : undefined,
-        errorMessage: event.error.message,
+        errorMessage: redactLogString(event.error.message),
         ...buildProviderRejectionLogFields(event.error),
       },
       "Provider rejected request with unclassified 4xx error",

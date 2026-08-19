@@ -235,6 +235,24 @@ describe("unclassified 4xx log line", () => {
     expect(record?.provider).toBe("openai");
   });
 
+  test("scrubs secrets out of the error message it logs", async () => {
+    // GIVEN a rejection whose normalized message echoes a credential
+    const error = new ProviderError(
+      "API error (400): rejected request with Authorization: Bearer some-token-value",
+      "openai",
+      400,
+      { rawBody: "{}" },
+    );
+
+    // WHEN the agent loop dispatches the error event
+    await dispatchAgentEvent(state, createDeps(), { type: "error", error });
+
+    // THEN the credential is redacted out of the logged message
+    const record = logRecords.find((r) => r.upstreamErrorBody !== undefined);
+    expect(record?.errorMessage).not.toContain("some-token-value");
+    expect(record?.errorMessage).toContain("Bearer [REDACTED]");
+  });
+
   test("bounds a huge upstream body to 4 KB", async () => {
     // GIVEN an unclassified 4xx rejection whose body exceeds the ceiling
     const error = new ProviderError("API error (400): huge", "openai", 400, {
