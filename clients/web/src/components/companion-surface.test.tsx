@@ -1,7 +1,7 @@
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { CompanionSurface } from "./companion-surface";
+import { CompanionSurface, FALLBACK_WIDTHS } from "./companion-surface";
 
 afterEach(cleanup);
 
@@ -84,6 +84,26 @@ describe("the companion surface's working ring", () => {
       />,
     );
     expect(ringOf(container)).not.toBeNull();
+  });
+
+  /**
+   * A session reading the screen lights the same ring, in a colour of its own.
+   * The ring is the whole of what says a capture is running while the pointer
+   * is elsewhere, so it is worth a test that it is lit and one that it is not
+   * wearing the assistant's colour, which already means something else.
+   */
+  test("lights for a watch session", () => {
+    const { container } = render(<CompanionSurface phase="watching" />);
+    expect(ringOf(container)).not.toBeNull();
+  });
+
+  test("burns a watch session in the capture colour, not the assistant's", () => {
+    const { container } = render(
+      <CompanionSurface phase="watching" accentHex="#ff8800" />,
+    );
+    expect(
+      ringOf(container)?.style.getPropertyValue("--companion-ring-accent"),
+    ).toBe("#ff9f45");
   });
 
   test("stays dark while a call is waiting on the user", () => {
@@ -246,5 +266,101 @@ describe("the companion surface's anchor in the canvas", () => {
       expect(surfaceOf(container).style.transform).toBe("translateY(-50%)");
       cleanup();
     }
+  });
+});
+
+/**
+ * Watch, the third way in, and the session it toggles.
+ *
+ * One control for both edges: the surface draws a single button and the side
+ * holding the session decides which edge a press is, so what a test can hold is
+ * that the press is reported and that a running session is drawn as one.
+ */
+describe("the companion surface's Watch action", () => {
+  const watchOf = (container: HTMLElement): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Watch"]',
+    );
+    if (!found) {
+      throw new Error("Expected Watch to render");
+    }
+    return found;
+  };
+
+  test("sits on the idle pill beside Talk and Type", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(watchOf(container).textContent).toBe("Watch");
+  });
+
+  test("reports the press", () => {
+    let presses = 0;
+    const { container } = render(
+      <CompanionSurface
+        phase="hover"
+        onWatch={() => {
+          presses += 1;
+        }}
+      />,
+    );
+    fireEvent.click(watchOf(container));
+    expect(presses).toBe(1);
+  });
+
+  /**
+   * `classList` rather than a substring, because every control carries
+   * `hover:bg-white/15` and a substring match would pass on the hover rule
+   * alone.
+   */
+  test("reads as held down while the session runs", () => {
+    const { container } = render(<CompanionSurface phase="watching" />);
+    expect(watchOf(container).classList.contains("bg-white/15")).toBe(true);
+  });
+
+  test("reads as idle while no session runs", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(watchOf(container).classList.contains("bg-white/15")).toBe(false);
+  });
+});
+
+/**
+ * The pill stays open for as long as the session does, hand or no hand.
+ *
+ * A capture that hid itself the moment the pointer left would be one the user
+ * can neither see nor reach the control that ends it. The collapsed body is
+ * `inert`, so its absence is the pill being genuinely open rather than merely
+ * drawn.
+ */
+describe("the pill a watch session holds open", () => {
+  test("stays open with the pointer nowhere near it", () => {
+    const { container } = render(
+      <CompanionSurface phase="watching" hovered={false} />,
+    );
+    expect(container.querySelector("[inert]")).toBeNull();
+  });
+
+  test("is shut at rest, which is what makes that a claim", () => {
+    const { container } = render(<CompanionSurface phase="resting" />);
+    expect(container.querySelector("[inert]")).not.toBeNull();
+  });
+});
+
+/**
+ * The ceiling the Electron canvas is sized to.
+ *
+ * `companion-window.ts` sizes its window once, for the widest state this
+ * surface has, and never resizes it: a canvas that grew with the phase would
+ * move the window under the pointer mid-press. So a phase wider than the
+ * ceiling is not a wide pill, it is a clipped one, and the fix is on the other
+ * side of the bridge.
+ */
+describe("the companion surface's width ceiling", () => {
+  /** `BASE_MAX_PILL_WIDTH` in `clients/macos/src/main/companion-window.ts`. */
+  const CANVAS_CEILING = 360;
+
+  test("holds for every phase", () => {
+    const over = Object.entries(FALLBACK_WIDTHS).filter(
+      ([, width]) => width > CANVAS_CEILING,
+    );
+    expect(over).toEqual([]);
   });
 });

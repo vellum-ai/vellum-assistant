@@ -2,6 +2,7 @@ import {
   ArrowUp,
   AudioLines,
   Check,
+  Eye,
   Keyboard,
   Mic,
   MicOff,
@@ -40,11 +41,11 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
  * position (`left: 50%` plus the avatar's own half-width) rather than a
  * transform, and only `width` animates.
  *
- * **Growth needs clearance on the side it runs into**, `width - 44` of it: 144px
- * expanded and 316px in a call. A circle parked against the right edge does not
- * have it, and unclamped the body would run straight off the display with the
- * controls the user was reaching for. So the surface flips and grows the other
- * way instead, the way a menu does, through {@link growth}.
+ * **Growth needs clearance on the side it runs into**, `width - 44` of it:
+ * 228px expanded and 316px at its widest. A circle parked against the right
+ * edge does not have it, and unclamped the body would run straight off the
+ * display with the controls the user was reaching for. So the surface flips and
+ * grows the other way instead, the way a menu does, through {@link growth}.
  *
  * **Presentational only.** Phase comes from the caller, so this renders
  * identically in Storybook and in the Electron panel. Hover is a phase rather
@@ -75,6 +76,19 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 export type CompanionSurfacePhase =
   | "resting"
   | "hover"
+  /**
+   * Watching: a session reading the screen is running.
+   *
+   * Holds the pill open regardless of the pointer, the way `call` does, and
+   * for a sharper reason. A screen reader that hides itself when the pointer
+   * leaves is one the user cannot see, and a capture nobody can see is one
+   * nobody can stop.
+   *
+   * It ranks below `typing` and `call` and above `hover`: a half-typed
+   * sentence and a live call are both something the user is in the middle of,
+   * and a watch session runs on its own either way.
+   */
+  | "watching"
   | "call"
   /**
    * Typing: the pill becomes a card carrying a condensed read of the
@@ -122,6 +136,16 @@ const DEFAULT_ACCENT = "#5eead4";
  */
 const ASSISTANT_TURN_PHASES = new Set(["transcribing", "thinking", "speaking"]);
 
+/**
+ * The colour a watch session lights the ring in.
+ *
+ * Fixed rather than the assistant's own accent, because the ring in the accent
+ * already means "a turn is running" and a screen being read is a different fact
+ * about the machine. Amber is the tone the host burns for a live capture, so
+ * the surface agrees with the menu bar above it.
+ */
+const WATCHING_RING_ACCENT = "#ff9f45";
+
 // The avatar is a fixed 44px disc in every state; only the body around it
 // changes. That is what makes this one surface expanding rather than three
 // surfaces that happen to share a colour, and it is the property to protect as
@@ -164,10 +188,20 @@ const INNER_GAP = 8;
  * Measuring is also what makes the surface survive its own roadmap. Once
  * plugins contribute actions (LUM-3097) no hardcoded number can be correct, and
  * these become nothing but the value for the first frame.
+ *
+ * **Every entry stays at or under 360**, which is `BASE_MAX_PILL_WIDTH` in
+ * `companion-window.ts`. The window is a fixed canvas sized once for the widest
+ * state the surface has, so the ceiling is the host's rather than this file's:
+ * a state that wanted more would be clipped by the window, and buying the room
+ * back means resizing the canvas, which is the thing a fixed canvas exists to
+ * avoid.
  */
-const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
+export const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
   resting: AVATAR_BOX,
-  hover: 188,
+  hover: 272,
+  // The same row of controls hover draws, since the session is run from it
+  // rather than from a row of its own.
+  watching: 272,
   call: 296,
   typing: 360,
 };
@@ -241,9 +275,9 @@ export interface CompanionSurfaceProps {
    * Whether the pointer is on the surface, which the creature answers by
    * widening its eyes.
    *
-   * Passed rather than derived from `phase`, because a call holds the pill open
-   * regardless of the pointer and the mascot should still notice a hand
-   * arriving over it mid-call.
+   * Passed rather than derived from `phase`, because a call and a watch session
+   * both hold the pill open regardless of the pointer and the mascot should
+   * still notice a hand arriving over it either way.
    */
   hovered?: boolean;
   /**
@@ -301,6 +335,14 @@ export interface CompanionSurfaceProps {
    * Electron host the same press also has to lend the window the keyboard.
    */
   onType?: () => void;
+  /**
+   * Start or stop the session that reads the screen, which is what Watch does.
+   *
+   * One press for both edges, the way the contract's `toggleWatch` is: the
+   * surface draws a single control, and the side holding the session is the
+   * only one that knows which edge a press is.
+   */
+  onWatch?: () => void;
   /**
    * Send what was typed. The text is the composer's own until it leaves, so
    * this is the only thing the caller ever sees of it.
@@ -373,6 +415,7 @@ export function CompanionSurface({
   spotlight,
   onTalk,
   onType,
+  onWatch,
   onSubmit,
   onCancelTyping,
   onAvatarClick,
@@ -382,6 +425,7 @@ export function CompanionSurface({
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
   const typing = phase === "typing";
+  const watching = phase === "watching";
 
   /**
    * Whether the assistant is working, from whichever side is in a position to
@@ -515,17 +559,26 @@ export function CompanionSurface({
         style={{ opacity: expanded ? 1 : 0 }}
         aria-hidden
       />
-      {/* The turn itself, as a light travelling around the surface's edge.
+      {/* Something running, as a light travelling around the surface's edge.
           Drawn over the body so it reads as the surface's own border in every
           state, and outside it by a hair so it never crowds the avatar at rest,
           which is the state it has to be legible in: the whole point is being
-          readable from the corner of an eye while the user works elsewhere. */}
-      {assistantWorking && (
+          readable from the corner of an eye while the user works elsewhere.
+
+          A turn burns it in the assistant's colour, a watch session in amber.
+          The session wins when both are true: the creature already carries the
+          turn in its own pose, and a capture running with nothing drawn over it
+          is the worse of the two failures. */}
+      {(assistantWorking || watching) && (
         <span
           className={`companion-working-ring pointer-events-none absolute -inset-0.5 ${
             typing ? "rounded-[24px]" : "rounded-full"
           }`}
-          style={{ ["--companion-ring-accent" as string]: accentHex }}
+          style={{
+            ["--companion-ring-accent" as string]: watching
+              ? WATCHING_RING_ACCENT
+              : accentHex,
+          }}
           aria-hidden
         />
       )}
@@ -571,7 +624,13 @@ export function CompanionSurface({
             {phase === "call" ? (
               <CallBody call={call} onControl={onControl} />
             ) : (
-              <IdleBody spotlight={spotlight} onTalk={onTalk} onType={onType} />
+              <IdleBody
+                spotlight={spotlight}
+                watching={watching}
+                onTalk={onTalk}
+                onType={onType}
+                onWatch={onWatch}
+              />
             )}
           </div>
         )}
@@ -828,20 +887,27 @@ function Avatar({
 }
 
 /**
- * Expanded, with the app idle: the two ways in.
+ * Expanded, with the app idle: the ways in.
  *
- * "Talk" and "Type" rather than "Talk" and "Ask", because they are two halves
- * of one choice about how to say something, and a verb pair reads as that where
- * a verb and a question word do not.
+ * Verbs throughout. "Talk" and "Type" rather than "Talk" and "Ask", because
+ * they are two halves of one choice about how to say something, and a verb pair
+ * reads as that where a verb and a question word do not. "Watch" is the third,
+ * and the one where the assistant does the looking rather than the user the
+ * saying.
  */
 function IdleBody({
   spotlight,
+  watching = false,
   onTalk,
   onType,
+  onWatch,
 }: {
   spotlight?: "talk" | "type";
+  /** Whether the session Watch starts is already running. */
+  watching?: boolean;
   onTalk?: () => void;
   onType?: () => void;
+  onWatch?: () => void;
 }) {
   return (
     <>
@@ -858,6 +924,15 @@ function IdleBody({
         showLabel
         active={spotlight === "type"}
         onClick={onType}
+      />
+      {/* Held down for as long as the session runs, so the row says which
+          control is holding the pill open and which press ends it. */}
+      <PillButton
+        icon={<Eye className="size-4" />}
+        label="Watch"
+        showLabel
+        active={watching}
+        onClick={onWatch}
       />
     </>
   );

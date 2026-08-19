@@ -77,7 +77,7 @@ const meta: Meta<StoryArgs> = {
   argTypes: {
     phase: {
       control: "inline-radio",
-      options: ["resting", "hover", "call", "typing"],
+      options: ["resting", "hover", "watching", "call", "typing"],
     },
     backdrop: {
       control: "inline-radio",
@@ -177,6 +177,18 @@ export const TypingWhileWorking: Story = {
  */
 export const Hover: Story = {
   args: { phase: "hover", hovered: true },
+};
+
+/**
+ * A session reading the screen, with the pointer nowhere near the surface.
+ *
+ * `hovered` is off on purpose: this is the state the phase exists for. The pill
+ * stays open with no hand on it, Watch is held down, and the ring burns amber
+ * rather than the assistant's own colour, so the running session is legible
+ * from across the desk.
+ */
+export const Watching: Story = {
+  args: { phase: "watching", hovered: false },
 };
 
 /** Expanded mid-call: the session's own controls, at pill scale. */
