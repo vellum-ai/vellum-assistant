@@ -347,6 +347,72 @@ export type GetGuardianContactIpcResponse = z.infer<
   typeof GetGuardianContactIpcResponseSchema
 >;
 
+// ── webhook ingress routes ───────────────────────────────────────────────────
+// The gateway owns the registry of subpaths this assistant answers from
+// outside; the daemon claims, drops, and inspects them over IPC. Both sides
+// read these schemas so a change to the stored row has to travel through the
+// contract.
+
+export const WebhookIngressRouteSchema = z.object({
+  path: z.string(),
+  type: z.string(),
+  source: z.string().nullable(),
+  match: z.literal("exact"),
+  createdAt: z.number(),
+  lastRegisteredAt: z.number(),
+});
+
+export type WebhookIngressRoute = z.infer<typeof WebhookIngressRouteSchema>;
+
+export const RegisterWebhookRouteIpcParamsSchema = z.object({
+  /** Exact subpath, leading slash included, under `/webhooks/`. */
+  path: z.string().min(1),
+  type: z.string().min(1),
+  source: z.string().nullish(),
+});
+
+export type RegisterWebhookRouteIpcParams = z.infer<
+  typeof RegisterWebhookRouteIpcParamsSchema
+>;
+
+/**
+ * A refusal is a normal result rather than an error: the daemon reads
+ * `disabled` as "this assistant is not serving its own webhooks" and falls
+ * back to the platform's callback routes.
+ */
+export const RegisterWebhookRouteIpcResponseSchema = z.union([
+  z.object({ disabled: z.literal(true) }),
+  z.object({ disabled: z.literal(false), route: WebhookIngressRouteSchema }),
+]);
+
+export type RegisterWebhookRouteIpcResponse = z.infer<
+  typeof RegisterWebhookRouteIpcResponseSchema
+>;
+
+export const UnregisterWebhookRouteIpcParamsSchema = z.object({
+  path: z.string().min(1),
+});
+
+export type UnregisterWebhookRouteIpcParams = z.infer<
+  typeof UnregisterWebhookRouteIpcParamsSchema
+>;
+
+export const UnregisterWebhookRouteIpcResponseSchema = z.object({
+  removed: z.boolean(),
+});
+
+export type UnregisterWebhookRouteIpcResponse = z.infer<
+  typeof UnregisterWebhookRouteIpcResponseSchema
+>;
+
+export const ListWebhookRoutesIpcResponseSchema = z.object({
+  routes: z.array(WebhookIngressRouteSchema),
+});
+
+export type ListWebhookRoutesIpcResponse = z.infer<
+  typeof ListWebhookRoutesIpcResponseSchema
+>;
+
 // ── classify_risk ────────────────────────────────────────────────────────────
 // Risk classification is gateway-owned; the assistant sends one request per
 // tool invocation and reads the whole answer back. The gateway validates the
