@@ -181,10 +181,12 @@ describe("panePresentation", () => {
 });
 
 describe("viewerPanePresentation reads the stored fields", () => {
+  // The two combinations below are the reference: an arrangement is correct
+  // when it agrees with them across every combination the fields can hold.
   const MAIN_VIEWS = ["chat", "app", "app-editing", "document"];
   const BOOLS = [false, true];
 
-  /** The side-by-side layout's own condition, before it read an arrangement. */
+  /** The field combination that means side by side. */
   function rendersSplit(
     mainView: string,
     hasApp: boolean,
@@ -193,7 +195,7 @@ describe("viewerPanePresentation reads the stored fields", () => {
     return mainView === "app-editing" && hasApp && hasBoundConversation;
   }
 
-  /** The strip's own condition, before it read an arrangement. */
+  /** The field combination that means the app is parked to its strip. */
   function rendersStrip(
     mainView: string,
     hasApp: boolean,
