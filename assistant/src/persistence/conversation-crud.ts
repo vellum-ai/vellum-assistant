@@ -29,6 +29,7 @@ import { getConfig } from "../config/loader.js";
 import {
   findDisplayTurnEndIndex,
   findDisplayTurnStartIndex,
+  isToolResultOnlyUserMessage,
 } from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
@@ -1862,10 +1863,32 @@ export async function forkConversationForRetrospective(params: {
         `Message ${windowStartMessageId} is not in the forked range of conversation ${conversationId}`,
       );
     }
-    const trimmed = messagesToCopy.slice(
-      0,
-      findDisplayTurnStartIndex(messagesToCopy, windowIndex),
+    // Snap to the display turn holding the window start, then keep walking
+    // back to the user turn that prompted it. A copied range opening on an
+    // assistant row renders an assistant-first history, which the provider
+    // rejects; that rejection matches no `ORDERING_ERROR_PATTERNS` entry, and
+    // the wake runs no repair pass, so it would fail the run outright with the
+    // cursor unadvanced. Tool-result-only user rows do not count: they are
+    // suppressed at display time and belong to the assistant turn around them.
+    let windowStartIndex = findDisplayTurnStartIndex(
+      messagesToCopy,
+      windowIndex,
     );
+    while (windowStartIndex > 0) {
+      const first = messagesToCopy[windowStartIndex];
+      if (
+        first != null &&
+        first.role === "user" &&
+        !isToolResultOnlyUserMessage(first)
+      ) {
+        break;
+      }
+      windowStartIndex = findDisplayTurnStartIndex(
+        messagesToCopy,
+        windowStartIndex - 1,
+      );
+    }
+    const trimmed = messagesToCopy.slice(0, windowStartIndex);
     windowTrimmedRowCount = trimmed.length;
     for (const message of trimmed) {
       hiddenRowIds.add(message.id);

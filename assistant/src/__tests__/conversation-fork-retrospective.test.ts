@@ -307,6 +307,43 @@ describe("forkConversationForRetrospective", () => {
     expect(stampsOf(fork.id)).toEqual(rows.slice(1).map((m) => m.id));
   });
 
+  test("a window opening on an assistant row starts the copy at a user turn", async () => {
+    const source = createConversation("Proactive run thread");
+    await addMessage(source.id, "user", "first question", {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "assistant", "first answer", {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "user", "second question", {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "assistant", "step one", {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "assistant", "step two", {
+      skipIndexing: true,
+    });
+    const rows = getMessages(source.id);
+
+    // The window opens mid assistant run, reachable when a pass follows a
+    // proactive send or the stale-processing override.
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: rows.at(-1)!.id,
+      windowStartMessageId: rows[4]!.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    // An assistant-first history is rejected by the provider, matches no
+    // repairable-ordering pattern, and the wake runs no repair pass, so the
+    // copy must open on the user turn that prompted the run.
+    const forkRows = getMessages(fork.id);
+    expect(forkRows[0]!.role).toBe("user");
+    expect(stampsOf(fork.id)).toEqual(rows.slice(2).map((m) => m.id));
+  });
+
   test("rejects an unknown windowStartMessageId without creating a fork", async () => {
     const source = await seedSource("Bad window thread");
     const rows = getMessages(source.id);
