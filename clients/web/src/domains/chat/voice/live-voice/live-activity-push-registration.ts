@@ -60,10 +60,12 @@ function phaseLabels(): Record<string, string> {
   for (const phase of phases) {
     // Read through the same helper the room and the mirror use rather than the
     // raw table, so a server-pushed label is the string the user would have
-    // seen locally — including the relabel rules, resolved for their steady
-    // state. `reconnecting` and silent-`speaking` are transient conditions the
-    // server does not observe, so they resolve false here.
-    labels[phase] = liveVoiceSurfaceLabel(phase, false, true);
+    // seen locally, including the relabel rules, resolved for their steady
+    // state. `reconnecting`, silent-`speaking` and `muted` are conditions the
+    // server does not observe, so they resolve to their steady state here: a
+    // pushed `listening` reads as "Listening…" even if the mic is muted, which
+    // is the same limitation the other two carry on this path.
+    labels[phase] = liveVoiceSurfaceLabel(phase, false, true, false);
   }
   return labels;
 }

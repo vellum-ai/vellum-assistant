@@ -222,18 +222,65 @@ describe("liveVoiceStateLabel", () => {
 
 describe("liveVoiceSurfaceLabel", () => {
   test("a speaking phase with no audio playing reads as thinking", () => {
-    // `speaking` stays set across a mid-turn tool run — the ack was spoken and
-    // the assistant is now silent — so every surface says "Thinking…".
-    expect(liveVoiceSurfaceLabel("speaking", false, false)).toBe("Thinking…");
-    expect(liveVoiceSurfaceLabel("speaking", false, true)).toBe("Speaking…");
+    // `speaking` stays set across a mid-turn tool run (the ack was spoken and
+    // the assistant is now silent) so every surface says "Thinking…".
+    expect(liveVoiceSurfaceLabel("speaking", false, false, false)).toBe(
+      "Thinking…",
+    );
+    expect(liveVoiceSurfaceLabel("speaking", false, true, false)).toBe(
+      "Speaking…",
+    );
   });
 
   test("carries the reconnecting relabel through unchanged", () => {
-    expect(liveVoiceSurfaceLabel("connecting", true, false)).toBe(
+    expect(liveVoiceSurfaceLabel("connecting", true, false, false)).toBe(
       "Reconnecting…",
     );
-    expect(liveVoiceSurfaceLabel("listening", false, false)).toBe(
+    expect(liveVoiceSurfaceLabel("listening", false, false, false)).toBe(
       "Listening…",
+    );
+  });
+
+  /**
+   * The session holds `listening` while the mic is muted, so an unremapped
+   * surface claims to be listening beside a mute button that says it is not.
+   */
+  test("a muted listening phase reads as muted", () => {
+    expect(liveVoiceSurfaceLabel("listening", false, false, true)).toBe(
+      "Muted",
+    );
+  });
+
+  /** A state rather than an activity, so no ellipsis where the phases have one. */
+  test("says muted without an ellipsis", () => {
+    expect(liveVoiceSurfaceLabel("listening", false, false, true)).not.toContain(
+      "\u2026",
+    );
+  });
+
+  /**
+   * Muting the microphone does not make the assistant stop thinking or
+   * speaking, so relabelling those would trade one false statement for another.
+   */
+  test("leaves the assistant's own phases alone while muted", () => {
+    expect(liveVoiceSurfaceLabel("thinking", false, false, true)).toBe(
+      "Thinking…",
+    );
+    expect(liveVoiceSurfaceLabel("speaking", false, true, true)).toBe(
+      "Speaking…",
+    );
+    expect(liveVoiceSurfaceLabel("transcribing", false, false, true)).toBe(
+      "Transcribing…",
+    );
+  });
+
+  /**
+   * Reconnecting is the more urgent fact: a muted mic matters less than a
+   * session that is not currently connected at all.
+   */
+  test("does not hide a reconnect behind the mute", () => {
+    expect(liveVoiceSurfaceLabel("connecting", true, false, true)).toBe(
+      "Reconnecting…",
     );
   });
 });
