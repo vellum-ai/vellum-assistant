@@ -140,6 +140,21 @@ describe("AssistantSwitcher expanded card", () => {
     expect(queryByText("Bob")).toBeNull();
   });
 
+  test("toggling re-anchors keyboard focus on the counterpart chevron", async () => {
+    const { getByLabelText } = renderSwitcher();
+
+    fireEvent.click(getByLabelText("Switch assistant"));
+    const collapse = getByLabelText("Hide assistants");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(collapse);
+    });
+
+    fireEvent.click(collapse);
+    await waitFor(() => {
+      expect(document.activeElement).toBe(getByLabelText("Switch assistant"));
+    });
+  });
+
   test("selecting a row resets the conversation before the connect, then collapses", async () => {
     useConversationStore.setState({ activeConversationId: "conv-old" });
     /* The reset must precede the connect: the selection publishes before

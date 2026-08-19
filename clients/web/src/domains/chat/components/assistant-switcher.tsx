@@ -66,6 +66,26 @@ export function AssistantSwitcher({
     setExpanded(false);
   }, [assistantId, canSwitch, collapsed]);
 
+  /* Toggling swaps the tree holding the focused chevron (pill vs card),
+     which unmounts it and drops keyboard focus on the document. Re-anchor
+     focus on the counterpart chevron after a user-initiated toggle; the
+     auto-collapse effect above must never steal focus, so it leaves the
+     flag unset. */
+  const chevronRef = useRef<HTMLButtonElement | null>(null);
+  const focusChevronAfterToggle = useRef(false);
+  useEffect(() => {
+    if (!focusChevronAfterToggle.current) {
+      return;
+    }
+    focusChevronAfterToggle.current = false;
+    chevronRef.current?.focus();
+  }, [expanded]);
+
+  const setExpandedWithFocus = (next: boolean) => {
+    focusChevronAfterToggle.current = true;
+    setExpanded(next);
+  };
+
   if (!canSwitch || collapsed) {
     return <AssistantNavItem {...props} />;
   }
@@ -93,7 +113,7 @@ export function AssistantSwitcher({
     void navigate(routes.assistant, { replace: true });
     try {
       await switchToResolvedAssistant(assistant);
-      setExpanded(false);
+      setExpandedWithFocus(false);
       /* The old assistant's loader may have landed somewhere while the
          connect was in flight; sweep again so the new assistant resolves
          its own landing from a clean slate. */
@@ -124,8 +144,9 @@ export function AssistantSwitcher({
      flip to a dark foreground. */
   const chevronButton = (
     <button
+      ref={chevronRef}
       type="button"
-      onClick={() => setExpanded((value) => !value)}
+      onClick={() => setExpandedWithFocus(!expanded)}
       aria-expanded={expanded}
       aria-controls={expanded ? listId : undefined}
       aria-label={
@@ -160,7 +181,7 @@ export function AssistantSwitcher({
         name={label}
         isCurrent
         disabled={switching}
-        onSelect={() => setExpanded(false)}
+        onSelect={() => setExpandedWithFocus(false)}
         trailingAction={chevronButton}
       />
       <motion.div
