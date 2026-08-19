@@ -36,6 +36,15 @@ export interface UseConversationStartersResult {
   starters: ConversationStarter[];
   status: ConversationStartersStatus | "idle";
   isLoading: boolean;
+  /**
+   * True while there is nothing to render yet and chips may still arrive:
+   * the first fetch is in flight, or the daemon reports it is still
+   * generating them. False once chips land, once the daemon settles on
+   * having none, on a failed fetch, and whenever the query is idle. The
+   * empty state's starter dock holds its reserved height while this is
+   * true and collapses when it goes false with no chips.
+   */
+  isAwaitingStarters: boolean;
   refetch: () => Promise<void>;
 }
 
@@ -45,6 +54,7 @@ const IDLE_RESULT: UseConversationStartersResult = {
   starters: [],
   status: "idle",
   isLoading: false,
+  isAwaitingStarters: false,
   refetch: NOOP_REFETCH,
 };
 
@@ -70,10 +80,17 @@ export function useConversationStarters(
     return IDLE_RESULT;
   }
 
+  const starters = query.data?.starters ?? [];
+  const status = query.data?.status ?? "generating";
+
   return {
-    starters: query.data?.starters ?? [],
-    status: query.data?.status ?? "generating",
+    starters,
+    status,
     isLoading: query.isLoading,
+    isAwaitingStarters:
+      starters.length === 0 &&
+      !query.isError &&
+      (query.isLoading || status === "generating" || status === "refreshing"),
     refetch: async () => {
       await query.refetch();
     },

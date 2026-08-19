@@ -42,9 +42,13 @@ const STARTER: ConversationStarter = {
 };
 
 const startersRef = { value: [STARTER] };
+const awaitingStartersRef = { value: false };
 
 mock.module("@/domains/chat/hooks/use-conversation-starters", () => ({
-  useConversationStarters: () => ({ starters: startersRef.value }),
+  useConversationStarters: () => ({
+    starters: startersRef.value,
+    isAwaitingStarters: awaitingStartersRef.value,
+  }),
 }));
 
 // The real card mounts platform gates, subscription queries, and a router
@@ -95,6 +99,7 @@ function baseParams(
 beforeEach(() => {
   flagRef.value = false;
   startersRef.value = [STARTER];
+  awaitingStartersRef.value = false;
   useLiveVoiceStore.getState().reset();
 });
 
@@ -202,6 +207,122 @@ describe("useChatEmptyState startersSlot", () => {
     expect(
       container.querySelector('[data-slot="suggestion-library"]'),
     ).toBeNull();
+  });
+});
+
+describe("useChatEmptyState starters dock", () => {
+  // The dock is what keeps the composer still while a fresh chat loads. It
+  // is docked and mounted from the first frame, before the daemon has
+  // answered, so the greeting + composer group above it never re-centers
+  // around starters arriving.
+  const dockOf = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>(
+      '[data-slot="conversation-starter-dock"]',
+    );
+
+  test("docks from the first frame, before any starter has arrived", () => {
+    awaitingStartersRef.value = true;
+    startersRef.value = [];
+    const { result } = renderHook(() => useChatEmptyState(baseParams()));
+
+    expect(result.current.dockStartersToBottom).toBe(true);
+    expect(result.current.startersSlot).not.toBeUndefined();
+
+    const { container } = render(<>{result.current.startersSlot}</>);
+    const dock = dockOf(container);
+    expect(dock).not.toBeNull();
+    // Reserved, not collapsed: the space the chips will occupy is already
+    // held, so their arrival moves nothing above the dock.
+    expect(dock?.style.gridTemplateRows).toBe("1fr");
+    expect(dock?.hasAttribute("inert")).toBe(false);
+    expect(
+      container.querySelector(
+        '[data-slot="conversation-starter-dock-reserve"]',
+      ),
+    ).not.toBeNull();
+    // Nothing readable yet: the reserve is invisible space, not chips.
+    expect(
+      container.querySelector(`[aria-label="Send: ${STARTER.label}"]`),
+    ).toBeNull();
+  });
+
+  test("stays docked when no assistant id has resolved yet", () => {
+    // At boot the chat route can render before an assistant id lands. The
+    // starter query is idle there, and a dock that read that as "settled with
+    // nothing" would collapse for a frame and re-expand on the next.
+    awaitingStartersRef.value = false;
+    startersRef.value = [];
+    const { result } = renderHook(() =>
+      useChatEmptyState(baseParams({ assistantId: null })),
+    );
+
+    expect(result.current.dockStartersToBottom).toBe(true);
+    const { container } = render(<>{result.current.startersSlot}</>);
+    expect(dockOf(container)?.style.gridTemplateRows).toBe("1fr");
+  });
+
+  test("chips landing fill the reserved dock and become visible", () => {
+    const { result } = renderHook(() => useChatEmptyState(baseParams()));
+
+    const { container } = render(<>{result.current.startersSlot}</>);
+    const dock = dockOf(container);
+    expect(dock?.style.gridTemplateRows).toBe("1fr");
+    expect(
+      container.querySelector(`[aria-label="Send: ${STARTER.label}"]`),
+    ).not.toBeNull();
+    // The reserve stays mounted as the dock's sizing floor.
+    expect(
+      container.querySelector(
+        '[data-slot="conversation-starter-dock-reserve"]',
+      ),
+    ).not.toBeNull();
+    expect(container.innerHTML).toContain("opacity-100");
+  });
+
+  test("a starter query that settles empty collapses the dock instead of dropping it", () => {
+    // Self-hosted assistants and failed fetches land here. The dock stays in
+    // the tree and animates its height away, so the group above re-centers
+    // smoothly rather than snapping.
+    awaitingStartersRef.value = false;
+    startersRef.value = [];
+    const { result } = renderHook(() => useChatEmptyState(baseParams()));
+
+    expect(result.current.dockStartersToBottom).toBe(true);
+    const { container } = render(<>{result.current.startersSlot}</>);
+    const dock = dockOf(container);
+    expect(dock).not.toBeNull();
+    expect(dock?.style.gridTemplateRows).toBe("0fr");
+    expect(dock?.hasAttribute("inert")).toBe(true);
+  });
+
+  test("app editing keeps its chips inline and never docks", () => {
+    const { result } = renderHook(() =>
+      useChatEmptyState(
+        baseParams({
+          mainView: "app-editing",
+          openedAppState: { name: "My App" },
+        }),
+      ),
+    );
+
+    expect(result.current.dockStartersToBottom).toBe(false);
+    const { container } = render(<>{result.current.startersSlot}</>);
+    expect(dockOf(container)).toBeNull();
+  });
+
+  test("app editing renders no starters slot at all once the conversation has messages", () => {
+    const { result } = renderHook(() =>
+      useChatEmptyState(
+        baseParams({
+          isEmptyConversation: false,
+          mainView: "app-editing",
+          openedAppState: { name: "My App" },
+        }),
+      ),
+    );
+
+    expect(result.current.dockStartersToBottom).toBe(false);
+    expect(result.current.startersSlot).toBeUndefined();
   });
 });
 

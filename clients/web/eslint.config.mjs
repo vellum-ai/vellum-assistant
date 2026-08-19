@@ -196,6 +196,7 @@ const i18nEnforcedPaths = [
   "src/domains/chat/components/chat-composer/add-to-chat-sheet.tsx",
   "src/domains/chat/components/conversation-actions-menu.tsx",
   "src/domains/chat/components/conversation-assets-pill.tsx",
+  "src/domains/chat/components/conversation-starter-dock.tsx",
   "src/domains/chat/components/group-actions-menu.tsx",
   "src/domains/chat/components/pinned-app-color-swatches.tsx",
   "src/domains/chat/components/sidebar-conversation-error.tsx",

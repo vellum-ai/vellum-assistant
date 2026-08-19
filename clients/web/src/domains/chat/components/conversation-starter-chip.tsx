@@ -25,6 +25,14 @@ export interface ConversationStarterChipProps {
   "aria-label"?: string;
 }
 
+/**
+ * The chip's box: its size floor, insets, corner, and type. Shared with the
+ * dock's reserved placeholder so the space held for a chip and the chip that
+ * lands in it are measured from the same classes.
+ */
+export const CONVERSATION_STARTER_CHIP_BOX =
+  "min-h-[40px] sm:min-h-[44px] px-3 py-2 sm:px-4 sm:py-2.5 rounded-[12px] text-body-small-lighter sm:text-body-medium-lighter";
+
 export const ConversationStarterChip = forwardRef<
   HTMLButtonElement,
   ConversationStarterChipProps
@@ -43,11 +51,10 @@ export const ConversationStarterChip = forwardRef<
       className={cn(
         // Override Button's fixed h-8 / single-line / default body size.
         "h-auto whitespace-normal",
-        "min-h-[40px] sm:min-h-[44px]",
-        "px-3 py-2 sm:px-4 sm:py-2.5 rounded-[12px]",
-        // Theme body type in the secondary tone — reads like the app's
+        // Theme body type in the secondary tone: reads like the app's
         // buttons rather than heavy title text.
-        "text-body-small-lighter sm:text-body-medium-lighter text-center",
+        CONVERSATION_STARTER_CHIP_BOX,
+        "text-center",
         // Soft white card, no border (Figma 7471-25047).
         "bg-[var(--surface-lift)] [--vbtn-fg:var(--content-secondary)]",
       )}

@@ -482,6 +482,67 @@ describe("ChatBody - docked starters hide while the keyboard is open", () => {
   });
 });
 
+describe("ChatBody - the docked empty state holds the composer still as its dock fills in", () => {
+  // The plain empty state passes a docked starters slot from the first frame,
+  // holding space for chips that have not loaded, and swaps the reserved
+  // content for real chips in place. Neither the composer nor the dock may
+  // remount across that swap, and an open keyboard must still bottom-anchor
+  // the group so the composer reaches the keyboard edge.
+  const reservedSlot = <div data-testid="starters">RESERVED_DOCK</div>;
+  const chipsSlot = <div data-testid="starters">STARTER_CHIPS</div>;
+
+  const dockedWith = (slot: ReactNode) =>
+    withEmptyState({ dockStartersToBottom: true, startersSlot: slot });
+
+  afterEach(() => {
+    keyboardOpen = false;
+    cleanup();
+  });
+
+  test("reserved dock, keyboard open: the group still bottom-anchors and the dock collapses", () => {
+    keyboardOpen = true;
+    const { container } = render(<ChatBody {...dockedWith(reservedSlot)} />);
+
+    expect(container.innerHTML).toContain("justify-end");
+    expect(container.innerHTML).not.toContain("[justify-content:safe_center]");
+    const dock = container.querySelector<HTMLElement>(
+      '[data-slot="docked-starters"]',
+    );
+    expect(dock?.style.gridTemplateRows).toBe("0fr");
+    expect(dock?.hasAttribute("inert")).toBe(true);
+  });
+
+  test("chips replacing the reserved content remount neither the composer nor the dock", () => {
+    const { container, rerender } = render(
+      <ChatBody {...dockedWith(reservedSlot)} />,
+    );
+    const composer = container.querySelector('[data-testid="composer"]');
+    const dock = container.querySelector('[data-slot="docked-starters"]');
+    expect(composer).not.toBeNull();
+    expect(dock).not.toBeNull();
+    expect(container.innerHTML).toContain("RESERVED_DOCK");
+
+    rerender(<ChatBody {...dockedWith(chipsSlot)} />);
+
+    expect(container.innerHTML).toContain("STARTER_CHIPS");
+    expect(container.querySelector('[data-testid="composer"]')).toBe(composer);
+    expect(container.querySelector('[data-slot="docked-starters"]')).toBe(dock);
+  });
+
+  test("the docked group centers at rest whether the dock holds chips or reserved space", () => {
+    const reserved = render(<ChatBody {...dockedWith(reservedSlot)} />);
+    expect(reserved.container.innerHTML).toContain(
+      "[justify-content:safe_center]",
+    );
+    cleanup();
+
+    const chips = render(<ChatBody {...dockedWith(chipsSlot)} />);
+    expect(chips.container.innerHTML).toContain(
+      "[justify-content:safe_center]",
+    );
+  });
+});
+
 describe("ChatBody - plain empty state bottom-anchors while the keyboard is open", () => {
   // Before conversation starters arrive, the plain empty state renders the
   // NON-docked branch with no startersSlot (server-side starter generation

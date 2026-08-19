@@ -141,11 +141,13 @@ export interface ChatBodyProps {
   channelFooterSlot?: ReactNode;
 
   /**
-   * Optional conversation-starter chip grid rendered inside the max-width
-   * wrapper directly below the composer. Visible only on the empty state;
-   * the parent passes `undefined` once messages arrive. Rendered as a
-   * slot (like {@link bannerSlot}) so `ChatBody` stays agnostic of the
-   * starter data model.
+   * Optional conversation-starter content for the empty state: the bottom
+   * dock when {@link dockStartersToBottom} is set, otherwise a chip grid
+   * inside the max-width wrapper directly below the composer. The parent
+   * passes `undefined` once messages arrive. Rendered as a slot (like
+   * {@link bannerSlot}) so `ChatBody` stays agnostic of the starter data
+   * model, including whether the node it hands over is holding space for
+   * chips that have not loaded.
    */
   startersSlot?: ReactNode;
 
@@ -172,8 +174,9 @@ export interface ChatBodyProps {
    * When true (and on the empty state), the greeting + composer are centered
    * in the first viewport, {@link startersSlot} is docked to the bottom of
    * that viewport, and {@link belowFoldSlot} is placed below the fold. Used by
-   * the new-thread suggestions library. When false, the empty state keeps the
-   * default layout where the starters sit directly below the composer.
+   * the whole plain empty state (starter chips and the new-thread suggestions
+   * library alike). When false, the empty state uses the layout where the
+   * starters sit directly below the composer.
    * While the soft keyboard is open the greeting + composer anchor to the
    * bottom edge and the dock fades out and collapses its reserved height
    * (kept mounted so dismissing the keyboard restores it without a remount).
@@ -232,13 +235,13 @@ export function ChatBody({
       ? "relative flex min-h-0 flex-1 flex-col"
       : "relative flex h-full min-h-0 flex-col";
 
-  // While the soft keyboard is open and nothing renders below the composer
-  // (`startersSlot` absent: starters have not arrived yet), the plain
-  // non-docked empty state bottom-anchors instead of centering so the
-  // composer docks to the keyboard edge, and the flip to the docked branch
-  // when starters arrive keeps that alignment instead of jumping
-  // mid-typing. The app-editing side panel always passes inline starters,
-  // so it keeps its centered layout regardless of keyboard state.
+  // The undocked empty state bottom-anchors while the soft keyboard is open
+  // and nothing at all sits below the composer, so the composer reaches the
+  // keyboard edge; with content down there it stays centered and lets the
+  // scroll container handle the overflow. The predicate reads the slot
+  // itself rather than any "still loading" flag, because the slot is exactly
+  // what would occupy that space. The docked branch answers the same
+  // question on `groupClass` below, where its dock collapses instead.
   const nonDockedAlignmentClass =
     keyboardOpen && startersSlot == null
       ? "justify-end"

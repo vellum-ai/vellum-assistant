@@ -14,6 +14,7 @@ import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
 import { ComposerPeek } from "@/domains/chat/components/composer-peek";
 import { CreditsUpsellCard } from "@/domains/chat/components/credits-upsell-card";
+import { ConversationStarterDock } from "@/domains/chat/components/conversation-starter-dock";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
 import {
   SuggestionFeaturedRow,
@@ -80,9 +81,12 @@ export interface ChatEmptyStateResult {
   belowFoldSlot: ReactNode | undefined;
   /**
    * When true, the empty state docks `startersSlot` to the bottom of the
-   * first viewport and centers the greeting + composer above it (the
-   * suggestions-library layout). Otherwise the starters sit directly below
-   * the composer (the conversation-starter chip layout).
+   * first viewport and centers the greeting + composer above it. True for
+   * the whole plain empty state (chips and suggestions library alike), from
+   * the first frame and regardless of whether starters have arrived, so the
+   * composer never moves as the page fills in. Only the app-editing side
+   * panel sits false and keeps its bespoke chips directly below the
+   * composer.
    */
   dockStartersToBottom: boolean;
   renderAvatar: (() => ReactNode) | undefined;
@@ -171,9 +175,16 @@ export function useChatEmptyState({
   // polling for data that's never rendered. Also skip it whenever the
   // suggestions library is shown — the daemon GET enqueues starter generation
   // and polls every few seconds for chips the library path never renders.
-  const { starters: conversationStarters } = useConversationStarters(
-    isEmptyConversation && !showSuggestionLibrary ? assistantId : null,
-  );
+  const { starters: conversationStarters, isAwaitingStarters } =
+    useConversationStarters(
+      isEmptyConversation && !showSuggestionLibrary ? assistantId : null,
+    );
+
+  // The dock holds its reserved height while chips may still arrive. Before
+  // an assistant id resolves there is no query to be pending, so treat that
+  // window as waiting too: the alternative collapses the dock for a frame
+  // and re-expands it the moment the id lands.
+  const startersAwaiting = assistantId == null || isAwaitingStarters;
 
   const emptyStateProps: ChatEmptyStateProps = {
     greeting: editingApp
@@ -200,37 +211,34 @@ export function useChatEmptyState({
     belowFoldSlot = (
       <SuggestionGroups groups={groups} onSelect={onSelectSuggestion} />
     );
-  } else if (isEmptyConversation && emptyStateStarters.length > 0) {
-    if (editingApp) {
-      // The app-editing side panel keeps its bespoke chips inline under
-      // the composer.
-      startersSlot = (
-        <div className="mt-4">
-          <ConversationStarterGrid
-            starters={emptyStateStarters}
-            onSelect={onSelectStarter}
-          />
-        </div>
-      );
-    } else {
-      // Plain empty state: the chips dock to the bottom of the first
-      // viewport in a subtle panel with a muted caption (Figma: New-App
-      // 7471-25035; the Figma's 1×3 row stays a 2×2 grid here). Top
-      // corners only, and `-mb-3` swallows the dock wrapper's bottom
-      // padding so the panel sits flush against the viewport's bottom
-      // edge.
-      startersSlot = (
-        <div className="-mb-3 rounded-t-2xl px-6 pt-5 pb-6">
-          <p className="mb-4 text-center text-body-medium-default text-[var(--content-tertiary)]">
-            Try some suggestions:
-          </p>
-          <ConversationStarterGrid
-            starters={emptyStateStarters}
-            onSelect={onSelectStarter}
-          />
-        </div>
-      );
-    }
+  } else if (
+    isEmptyConversation &&
+    editingApp &&
+    emptyStateStarters.length > 0
+  ) {
+    // The app-editing side panel keeps its bespoke chips inline under the
+    // composer. They are derived from the opened app, so they are ready on
+    // the first render and need no reserved space.
+    startersSlot = (
+      <div className="mt-4">
+        <ConversationStarterGrid
+          starters={emptyStateStarters}
+          onSelect={onSelectStarter}
+        />
+      </div>
+    );
+  } else if (isPlainEmptyState) {
+    // The chips dock to the bottom of the first viewport in a subtle panel
+    // with a muted caption (the Figma's 1×3 row stays a 2×2 grid here). The
+    // dock mounts whether or not chips exist yet and owns its own reserve,
+    // reveal, and collapse.
+    startersSlot = (
+      <ConversationStarterDock
+        starters={emptyStateStarters}
+        isAwaiting={startersAwaiting}
+        onSelect={onSelectStarter}
+      />
+    );
   }
 
   // Proactive credit wall for a fresh conversation: the card rides the
@@ -290,12 +298,12 @@ export function useChatEmptyState({
     emptyStateProps,
     startersSlot,
     belowFoldSlot,
-    // Both the suggestions library and the plain chip dock pin the
-    // starters to the bottom of the first viewport; only the app-editing
-    // side panel keeps them inline under the composer.
-    dockStartersToBottom:
-      showSuggestionLibrary ||
-      (isPlainEmptyState && emptyStateStarters.length > 0),
+    // Both the suggestions library and the plain chip dock pin the starters
+    // to the bottom of the first viewport, from the first frame: the layout
+    // does not depend on starters having arrived, so nothing about the
+    // composer's position waits on the daemon. Only the app-editing side
+    // panel keeps them inline under the composer.
+    dockStartersToBottom: showSuggestionLibrary || isPlainEmptyState,
     renderAvatar,
     emptyStatePlaceholder,
     composerPeekSlot,

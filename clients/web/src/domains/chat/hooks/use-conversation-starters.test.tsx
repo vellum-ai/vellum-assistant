@@ -43,6 +43,7 @@ let lastCapturedOptions: CapturedQueryOptions | null = null;
 interface UseQueryStub {
   data: ConversationstartersGetResponse | undefined;
   isLoading: boolean;
+  isError?: boolean;
   refetch: () => Promise<void>;
 }
 
@@ -289,5 +290,91 @@ describe("useConversationStarters — projects query state to result", () => {
     await result.refetch();
 
     expect(refetchCalls).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Awaiting flag: drives the empty state's reserved starters dock
+// ---------------------------------------------------------------------------
+
+describe("useConversationStarters isAwaitingStarters", () => {
+  test("waits while the first fetch is in flight", () => {
+    useQueryStub = {
+      data: undefined,
+      isLoading: true,
+      refetch: async () => {},
+    };
+
+    expect(runHook("asst-1").isAwaitingStarters).toBe(true);
+  });
+
+  test("waits while the daemon reports it is still generating", () => {
+    useQueryStub = {
+      data: { starters: [], total: 0, status: "generating" },
+      isLoading: false,
+      refetch: async () => {},
+    };
+
+    expect(runHook("asst-1").isAwaitingStarters).toBe(true);
+  });
+
+  test("waits through a refresh that has nothing to show yet", () => {
+    useQueryStub = {
+      data: { starters: [], total: 0, status: "refreshing" },
+      isLoading: false,
+      refetch: async () => {},
+    };
+
+    expect(runHook("asst-1").isAwaitingStarters).toBe(true);
+  });
+
+  test("stops waiting once starters arrive, even mid-refresh", () => {
+    useQueryStub = {
+      data: {
+        starters: [
+          {
+            id: "s1",
+            label: "Plan a trip",
+            prompt: "Help me plan a trip",
+            category: null,
+            batch: 0,
+          },
+        ],
+        total: 1,
+        status: "refreshing",
+      },
+      isLoading: false,
+      refetch: async () => {},
+    };
+
+    expect(runHook("asst-1").isAwaitingStarters).toBe(false);
+  });
+
+  test("stops waiting when the daemon settles on having none", () => {
+    useQueryStub = {
+      data: { starters: [], total: 0, status: "ready" },
+      isLoading: false,
+      refetch: async () => {},
+    };
+
+    expect(runHook("asst-1").isAwaitingStarters).toBe(false);
+  });
+
+  test("stops waiting on a failed fetch, which reports no status of its own", () => {
+    // A failed query leaves `data` undefined, so the status falls back to
+    // "generating". Without the error check the dock would hold space for
+    // chips that are never coming.
+    useQueryStub = {
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      refetch: async () => {},
+    };
+
+    expect(runHook("asst-1").isAwaitingStarters).toBe(false);
+  });
+
+  test("an idle query never waits", () => {
+    expect(runHook(null).isAwaitingStarters).toBe(false);
   });
 });
