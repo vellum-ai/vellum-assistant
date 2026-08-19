@@ -55,6 +55,16 @@ export function connectionAuthTypeForProvider(
   return provider === "ollama" ? "none" : "api_key";
 }
 
+/**
+ * Providers that persist a client-supplied Base URL. openai-compatible
+ * requires one; ollama treats it as an optional override of the local default.
+ */
+export function providerAllowsCustomBaseUrl(
+  provider: ConnectionProvider,
+): boolean {
+  return provider === "openai-compatible" || provider === "ollama";
+}
+
 export function parseCredentialRef(
   credRef: string,
 ): { service: string; field: string } | null {

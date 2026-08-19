@@ -5,7 +5,7 @@ import {
   denyPairingRequest,
   listPendingPairingRequests,
   mintDevicePairing,
-  PAIRING_CONNECTIVITY_HINT,
+  pairingConnectivityHint,
   PairDeviceError,
 } from "./pair-device-client";
 import {
@@ -279,7 +279,7 @@ describe("mintDevicePairing", () => {
 
     const err = await capturePairDeviceError(mintDevicePairing(MINT_ARGS));
     expect(err.message).toBe("Mint refused.");
-    expect(err.hint).toBe(PAIRING_CONNECTIVITY_HINT);
+    expect(err.hint).toBe(pairingConnectivityHint());
     // The challenge never minted, so there is no orphan to clean up.
     expect(fetchLog.map((r) => r.url)).toEqual([CHALLENGE_URL]);
   });
@@ -293,7 +293,7 @@ describe("mintDevicePairing", () => {
 
     const err = await capturePairDeviceError(mintDevicePairing(MINT_ARGS));
     expect(err.message).toBe("Verification failed.");
-    expect(err.hint).toBe(PAIRING_CONNECTIVITY_HINT);
+    expect(err.hint).toBe(pairingConnectivityHint());
   });
 
   test("denies its orphaned challenge when the verification step fails", async () => {
@@ -327,7 +327,7 @@ describe("mintDevicePairing", () => {
 
     // The original mint error propagates unchanged.
     expect(err.message).toBe("Verification failed.");
-    expect(err.hint).toBe(PAIRING_CONNECTIVITY_HINT);
+    expect(err.hint).toBe(pairingConnectivityHint());
     // Cleanup listed the pending requests and denied the matching userCode.
     expect(fetchLog.map((r) => r.url)).toEqual([
       CHALLENGE_URL,
@@ -389,7 +389,7 @@ describe("mintDevicePairing", () => {
     const err = await capturePairDeviceError(mintDevicePairing(MINT_ARGS));
 
     expect(err.message).toBe("Verification failed.");
-    expect(err.hint).toBe(PAIRING_CONNECTIVITY_HINT);
+    expect(err.hint).toBe(pairingConnectivityHint());
     expect(fetchLog.map((r) => r.url)).toEqual([
       CHALLENGE_URL,
       VERIFICATION_URL,

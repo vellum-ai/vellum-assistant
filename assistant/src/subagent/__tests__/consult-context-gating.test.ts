@@ -50,10 +50,9 @@ const sources = {
   // A path that does not exist, so the workspace-tree section stays empty and
   // the assertions isolate the gated surfaces.
   workingDir: "/tmp/does-not-exist-consult-gating",
-  // A remote, non-guardian per-turn snapshot: the case the live-state read
-  // could have wrongly elevated.
+  // A non-guardian per-turn snapshot: the case the live-state read could have
+  // wrongly elevated.
   trustClass: "unknown" as const,
-  sourceChannel: "telegram",
   allowedToolNames: new Set<string>(),
 };
 
@@ -87,12 +86,9 @@ describe("advisor context pack: personal-memory gating", () => {
   test("feeds the gate the per-turn trust snapshot, not live conversation state", async () => {
     personalAllowed = true;
     await buildAdvisorContext(sources);
-    // The gate must see exactly the snapshot threaded from ToolContext
-    // (trustClass + executionChannel) so a concurrent live-trust change can't
-    // elevate this invocation.
-    expect(gateArg).toEqual({
-      sourceChannel: "telegram",
-      trustClass: "unknown",
-    });
+    // The gate must see exactly the class threaded from the ToolContext
+    // snapshot, so a concurrent live-trust change cannot elevate this
+    // invocation.
+    expect(gateArg).toEqual({ trustClass: "unknown" });
   });
 });

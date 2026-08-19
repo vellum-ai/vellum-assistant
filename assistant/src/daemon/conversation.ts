@@ -1119,11 +1119,10 @@ export class Conversation {
       preStrippedCount = boundary === -1 ? slicedDbMessages.length : boundary;
     }
 
-    // The injection-time personal-memory gate, so background/local
-    // conversations (sourceChannel `undefined` or `"vellum"`) can rehydrate
-    // the persisted v2 static memory block. The shared helper folds in the
-    // HTTP-auth-disabled dev bypass so rehydration and injection agree on the
-    // effective trust class.
+    // The injection-time personal-memory gate, so rehydration of the persisted
+    // blocks admits exactly the actors injection would. The shared helper folds
+    // in the HTTP-auth-disabled dev bypass, so a turn with no bound actor
+    // resolves the same way on both paths.
     const personalMemoryAllowed = isPersonalMemoryAllowed(this.trustContext);
     // Pruned v3 card slugs, read lazily on the first row that carries a v3
     // block (most conversations carry none, so most loads never query). The
@@ -1513,11 +1512,12 @@ export class Conversation {
 
   async ensureActorScopedHistory(): Promise<void> {
     const currentTrustClass = this.trustContext?.trustClass;
-    // `loadFromDb` gates personal-memory rehydration on `sourceChannel` too
-    // (via `isPersonalMemoryAllowed`), so a same-trust-class reuse from a
-    // different channel (e.g. internal `vellum` → remote channel) must also
-    // trigger a reload. Otherwise stale personal-memory blocks can leak to
-    // an untrusted remote turn, or be hidden when they should be present.
+    // Tracked alongside the trust class because `loadFromDb` gates
+    // personal-memory rehydration on `isPersonalMemoryAllowed`, which folds in
+    // the disabled-auth elevation of an unbound actor: two contexts can share a
+    // trust class and still differ here. A reuse that changes the answer has to
+    // reload, or stale personal-memory blocks persist into a turn that must not
+    // see them, or stay stripped from one that should.
     const currentPersonalMemoryAllowed = isPersonalMemoryAllowed(
       this.trustContext,
     );

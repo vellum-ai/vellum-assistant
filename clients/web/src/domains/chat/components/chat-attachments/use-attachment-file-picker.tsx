@@ -8,7 +8,14 @@ import {
   useState,
 } from "react";
 
-import { requestComposerFocus } from "@/domains/chat/composer-focus";
+import {
+  isTextEntryFocused,
+  requestComposerFocus,
+} from "@/domains/chat/composer-focus";
+import { holdVisibleViewport } from "@/hooks/use-visible-viewport";
+import { hideNativeKeyboard } from "@/runtime/native-keyboard";
+import { isNativeIOS } from "@/runtime/platform-detection";
+import { isPointerCoarse } from "@/utils/pointer";
 
 interface UseAttachmentFilePickerOptions {
   /** Receives the picked files. Not called when the picker closes empty. */
@@ -54,10 +61,18 @@ interface UseAttachmentFilePickerResult {
  * completion handlers of both the file menu's display animation and the
  * picker's presentation. The keyboard therefore cannot stay up during the
  * picker, and no input attribute, plugin call or config reaches that decision.
+ * `hideNativeKeyboard()` only brings the dismissal forward to the tap, so it
+ * reads as part of pressing the button rather than as the picker taking
+ * something a beat later.
  *
  * The way back is a DOM focus: `Keyboard.show()` is Android only, while the
  * Capacitor shell disables `keyboardShouldRequireUserInteraction`, so
- * focusing the textarea raises the keyboard with no gesture.
+ * focusing the textarea raises the keyboard with no gesture. Which is also why
+ * that focus is gated. It restores a keyboard the picker took; it must not
+ * conjure one for a composer that was resting when the plus was pressed, so
+ * `openPicker` samples who held focus before the click and the close paths
+ * honour the answer. See `alwaysRestoreFocus` for the caller that has to
+ * override it.
  *
  * Close signals, in order of precision:
  *
@@ -70,6 +85,11 @@ interface UseAttachmentFilePickerResult {
  *   close signal that also fires on plain app foregrounding, ending the
  *   session while the picker is still on screen.
  *
+ * The layout under the picker has none of the keyboard's constraints, so the
+ * shell is held at the size the keyboard left it for as long as the picker is
+ * up. Letting it collapse would walk the composer down the screen on the way
+ * into a picker that then covers where it went, and back up on the way out.
+ * The same close paths that restore focus end the hold.
  */
 export function useAttachmentFilePicker({
   onFiles,
@@ -95,14 +115,27 @@ export function useAttachmentFilePicker({
   // Held in a ref so every picker-close path (change, cancel, unmount) can
   // disarm it, not just a window focus event.
   const disarmFocusFallbackRef = useRef<(() => void) | null>(null);
+  // Whether the close paths owe the composer a keyboard, answered when the
+  // picker opens. Restoring focus is only restoring when something had it:
+  // a plus pressed on a resting composer never had a keyboard, and focusing
+  // the textarea on the way out summons one nobody asked for.
+  const shouldRestoreFocusRef = useRef(true);
+  // Release for the shell size held across this picker session.
+  const releaseViewportHoldRef = useRef<(() => void) | null>(null);
 
   const refocusComposer = useCallback(() => {
     // Any picker-close path lands here: disarm the pending focus fallback so it
     // can't fire on a later unrelated window focus, then restore the keyboard.
     disarmFocusFallbackRef.current?.();
     disarmFocusFallbackRef.current = null;
-    requestComposerFocus();
+    // Asked for before the hold ends, so a keyboard that is coming back is
+    // already on its way when the shell follows the measurement again.
+    if (shouldRestoreFocusRef.current) {
+      requestComposerFocus();
+    }
     setPickerOpen(false);
+    releaseViewportHoldRef.current?.();
+    releaseViewportHoldRef.current = null;
   }, []);
 
   const openPicker = useCallback(() => {
@@ -112,11 +145,35 @@ export function useAttachmentFilePicker({
     // `cancel`/`change` paths fire first and disarm this via refocusComposer,
     // so it never lingers past the picker session.
     disarmFocusFallbackRef.current?.();
-    const onFocus = () => refocusComposer();
-    window.addEventListener("focus", onFocus, { once: true });
-    disarmFocusFallbackRef.current = () =>
-      window.removeEventListener("focus", onFocus);
+    // Sampled before the click, since presenting the picker is what takes the
+    // focus being asked about. A pointing device focuses the control it
+    // presses, so a desktop picker reads as unfocused and is always owed its
+    // caret back.
+    shouldRestoreFocusRef.current =
+      alwaysRestoreFocus || !isPointerCoarse() || isTextEntryFocused();
+    if (!isNativeIOS()) {
+      // Only where the `cancel` event cannot be counted on. The native shell
+      // is built against iOS 17, and WKWebView tracks the OS, so `cancel`
+      // (Safari 16.4) always arrives there; arming this as well would add a
+      // second close signal that also fires on plain app foregrounding, which
+      // ends the session with the picker still on screen.
+      const onFocus = () => refocusComposer();
+      window.addEventListener("focus", onFocus, { once: true });
+      disarmFocusFallbackRef.current = () =>
+        window.removeEventListener("focus", onFocus);
+    }
     setPickerOpen(true);
+    // Before the click, so the size is taken while the keyboard is still up.
+    // Ahead of the hide below for the same reason: that call starts the
+    // dismissal, and the hold wants the height it is dismissing from.
+    releaseViewportHoldRef.current?.();
+    releaseViewportHoldRef.current = holdVisibleViewport();
+    // WebKit resigns the web view's first responder in the completion handler
+    // of the presentation animation, so left alone the keyboard drops a beat
+    // after the picker is already up. Asking first makes the dismissal part of
+    // the tap. `hide()` is iOS-supported; `show()` is not, which is why the way
+    // back is a DOM focus.
+    void hideNativeKeyboard();
     inputRef.current?.click();
   }, [alwaysRestoreFocus, refocusComposer]);
 
@@ -149,6 +206,8 @@ export function useAttachmentFilePicker({
       input?.removeEventListener("cancel", onCancel);
       disarmFocusFallbackRef.current?.();
       disarmFocusFallbackRef.current = null;
+      releaseViewportHoldRef.current?.();
+      releaseViewportHoldRef.current = null;
     };
   }, [refocusComposer]);
 

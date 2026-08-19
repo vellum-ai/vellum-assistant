@@ -166,6 +166,7 @@ export const CHANNEL_METADATA: Partial<Record<ChannelId, ChannelInfo>> = {
 
 export const INTERFACE_IDS = [
   "macos",
+  "windows",
   "ios",
   "cli",
   "telegram",
@@ -264,6 +265,7 @@ export function parseClientOs(value: unknown): ClientOs | null {
  */
 export const INTERACTIVE_INTERFACES: ReadonlySet<InterfaceId> = new Set([
   "macos",
+  "windows",
   "ios",
   "cli",
   "web",
@@ -274,9 +276,9 @@ export function isInteractiveInterface(id: InterfaceId): boolean {
 }
 
 /**
- * Host proxy capabilities that an interface can support. The macOS client
- * supports all of them; the chrome-extension interface only supports
- * host_browser (via the Chrome DevTools Protocol proxy).
+ * Host proxy capabilities that an interface can support. macOS supports all
+ * of them, Windows withholds app control, and chrome-extension supports only
+ * host_browser through the Chrome DevTools Protocol proxy.
  */
 export const HOST_PROXY_CAPABILITIES = [
   "host_bash",
@@ -290,29 +292,28 @@ export const HOST_PROXY_CAPABILITIES = [
 export type HostProxyCapability = (typeof HOST_PROXY_CAPABILITIES)[number];
 
 /**
- * Interfaces that support the full desktop host-proxy set (every
- * `HostProxyCapability` value). This is the capability-level identity used
- * by the discriminated transport metadata union and by the
+ * Interfaces that support desktop host-proxy tools. This identity is used by
+ * the discriminated transport metadata union and by the
  * `supportsHostProxy(id)` type predicate.
  *
  * Extend this literal type AND the `supportsHostProxy` implementation
- * below in lock-step when adding a new host-capable client (e.g. a native
- * Linux or Windows desktop).
+ * below in lock-step when adding a new host-capable client such as native
+ * Linux.
  */
-export type HostProxyInterfaceId = "macos";
+export type HostProxyInterfaceId = "macos" | "windows";
 
 /**
  * Whether the interface supports a host proxy capability.
  *
  * The no-arg form `supportsHostProxy(id)` asks "is this interface a desktop
- * host-proxy client?" — it returns `true` only for macOS and is the type
+ * host-proxy client?" It returns `true` for native desktop clients and is the
  * predicate that narrows `InterfaceId` to `HostProxyInterfaceId`. It returns
  * `false` for chrome-extension because chrome-extension only supports
  * `host_browser`, and the no-arg form is the gate that legacy desktop-only
  * call sites use (e.g. preactivating computer-use, restoring host proxies
- * in the drain queue). Callers that want to check a single capability —
+ * in the drain queue). Callers that want to check a single capability,
  * for example, to decide whether to keep `hostBrowserProxy` available for
- * chrome-extension — should pass the capability explicitly:
+ * chrome-extension, should pass the capability explicitly:
  * `supportsHostProxy(id, "host_browser")`.
  */
 export function supportsHostProxy(id: InterfaceId): id is HostProxyInterfaceId;
@@ -330,6 +331,9 @@ export function supportsHostProxy(
   // through to cdp-inspect/local via the CDP factory's candidate chain.
   if (id === "macos") {
     return true;
+  }
+  if (id === "windows") {
+    return capability == null || capability !== "host_app_control";
   }
   if (id === "chrome-extension" && capability === "host_browser") {
     return true;

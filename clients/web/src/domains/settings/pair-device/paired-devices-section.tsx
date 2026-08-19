@@ -4,24 +4,28 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
+import { currentLocale, useTranslation, type TFunction } from "@/i18n";
+
 import { usePairedDevices } from "./use-paired-devices";
 
 function shortHash(hashedDeviceId: string): string {
   return hashedDeviceId.slice(0, 12);
 }
 
-function platformLabel(platform: string): string {
+function platformLabel(t: TFunction<"settings">, platform: string): string {
   return platform
     ? platform.charAt(0).toUpperCase() + platform.slice(1)
-    : "Unknown";
+    : t("pairedDevicesSection.platformUnknown");
 }
 
-function formatDeviceDate(epochMs: number | null): string {
-  return epochMs === null ? "unknown" : new Date(epochMs).toLocaleDateString();
+function formatDeviceDate(
+  t: TFunction<"settings">,
+  epochMs: number | null,
+): string {
+  return epochMs === null
+    ? t("pairedDevicesSection.dateUnknown")
+    : new Date(epochMs).toLocaleDateString(currentLocale());
 }
-
-const HOST_REVOKE_DISABLED_TITLE =
-  "This is this machine's own credential; revoking it would lock the host out of the assistant.";
 
 interface PairedDevicesSectionProps {
   /** True while the parent card has a live pairing code; drives list polling. */
@@ -42,6 +46,7 @@ export function PairedDevicesSection({
   pollWhilePairing = false,
   revalidateKey,
 }: PairedDevicesSectionProps = {}) {
+  const { t } = useTranslation("settings");
   const controller = usePairedDevices({ pollWhilePairing, revalidateKey });
   const { devices, confirmTarget } = controller;
 
@@ -55,7 +60,7 @@ export function PairedDevicesSection({
         <Collapsible.Item value="paired-devices">
           <Collapsible.Trigger className="group flex w-full items-center justify-between gap-3">
             <span className="text-body-medium-default text-[var(--content-secondary)]">
-              {`Paired devices (${devices.length})`}
+              {t("pairedDevicesSection.title", { count: devices.length })}
             </span>
             <ChevronDown className="h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-180" />
           </Collapsible.Trigger>
@@ -68,7 +73,7 @@ export function PairedDevicesSection({
                 >
                   <div className="flex min-w-0 flex-col">
                     <span className="text-body-medium-default text-[var(--content-secondary)]">
-                      {platformLabel(device.platform)}{" "}
+                      {platformLabel(t, device.platform)}{" "}
                       <span
                         className="font-mono text-[var(--content-tertiary)]"
                         title={device.hashedDeviceId}
@@ -77,12 +82,15 @@ export function PairedDevicesSection({
                       </span>
                       {device.isCurrentHost && (
                         <span className="text-[var(--content-tertiary)]">
-                          {" · This machine"}
+                          {` · ${t("pairedDevicesSection.thisMachine")}`}
                         </span>
                       )}
                     </span>
                     <span className="text-body-medium-default text-[var(--content-tertiary)]">
-                      {`Paired ${formatDeviceDate(device.issuedAt)} · Last used ${formatDeviceDate(device.lastUsedAt)}`}
+                      {t("pairedDevicesSection.datesLine", {
+                        paired: formatDeviceDate(t, device.issuedAt),
+                        lastUsed: formatDeviceDate(t, device.lastUsedAt),
+                      })}
                     </span>
                   </div>
                   <Button
@@ -92,12 +100,12 @@ export function PairedDevicesSection({
                     disabled={device.isCurrentHost === true}
                     title={
                       device.isCurrentHost
-                        ? HOST_REVOKE_DISABLED_TITLE
+                        ? t("pairedDevicesSection.hostRevokeDisabledTitle")
                         : undefined
                     }
                     onClick={() => controller.requestRevoke(device)}
                   >
-                    Revoke
+                    {t("pairedDevicesSection.revokeButton")}
                   </Button>
                 </div>
               ))}
@@ -107,14 +115,14 @@ export function PairedDevicesSection({
       </Collapsible.Root>
       <ConfirmDialog
         open={confirmTarget !== null}
-        title="Revoke this device?"
+        title={t("pairedDevicesSection.confirmTitle")}
         message={
           confirmTarget && (
             <>
-              The {platformLabel(confirmTarget.platform)} device{" "}
-              {shortHash(confirmTarget.hashedDeviceId)} loses access to this
-              assistant. Its access tokens are invalidated immediately; that
-              device must be paired again from this machine to reconnect.
+              {t("pairedDevicesSection.confirmMessage", {
+                platform: platformLabel(t, confirmTarget.platform),
+                hash: shortHash(confirmTarget.hashedDeviceId),
+              })}
               {controller.revokeError && (
                 <span className="mt-2 block text-[var(--system-negative-strong)]">
                   {controller.revokeError}
@@ -123,7 +131,7 @@ export function PairedDevicesSection({
             </>
           )
         }
-        confirmLabel="Revoke"
+        confirmLabel={t("pairedDevicesSection.revokeButton")}
         destructive
         isPending={controller.isRevoking}
         onConfirm={controller.confirmRevoke}

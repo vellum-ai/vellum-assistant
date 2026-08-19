@@ -51,8 +51,18 @@ import { createStorageAccessor } from "@/utils/typed-storage";
  * session cannot quietly ship without server-side copy. `idle` and `failed` are
  * filtered out for the same reason they have no `ContentState.Phase` case:
  * neither has an activity to address.
+ *
+ * `muted` is baked into the table rather than left at its steady state. The
+ * platform composes pushes by looking a phase up in this map, so a table built
+ * as if the mic were live would push "Listening…" over the local "Muted" on the
+ * first phase change after iOS suspends the web view, which is the only state
+ * the island is ever seen in. Mute is a registered field for exactly this
+ * reason and the caller re-registers when it moves, so every rebuild of this
+ * map already carries the current value. `reconnecting` and silent-`speaking`
+ * stay at their steady state: neither is registered, so the server genuinely
+ * cannot observe them.
  */
-function phaseLabels(): Record<string, string> {
+function phaseLabels(muted: boolean): Record<string, string> {
   const labels: Record<string, string> = {};
   const phases = (
     Object.keys(LIVE_VOICE_STATE_LABELS) as LiveVoiceSessionState[]
@@ -60,10 +70,8 @@ function phaseLabels(): Record<string, string> {
   for (const phase of phases) {
     // Read through the same helper the room and the mirror use rather than the
     // raw table, so a server-pushed label is the string the user would have
-    // seen locally — including the relabel rules, resolved for their steady
-    // state. `reconnecting` and silent-`speaking` are transient conditions the
-    // server does not observe, so they resolve false here.
-    labels[phase] = liveVoiceSurfaceLabel(phase, false, true);
+    // seen locally, including the relabel rules.
+    labels[phase] = liveVoiceSurfaceLabel(phase, false, true, muted);
   }
   return labels;
 }
@@ -204,7 +212,7 @@ async function upsertToken({
         bundle_id: bundleId,
         apns_environment: apnsEnvironment,
         conversation_id: conversationId,
-        labels: phaseLabels(),
+        labels: phaseLabels(muted),
         accent_hex: accentHex,
         muted,
       },

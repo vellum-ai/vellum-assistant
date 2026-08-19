@@ -150,6 +150,11 @@ export interface ChannelUpdateContext {
   deliveryId: string;
   destination: string;
   messageId: string | null;
+  /**
+   * Conversation the delivery paired, for adapters whose message lives in one.
+   * Channel-native adapters patch a channel message and leave this unread.
+   */
+  conversationId?: string | null;
 }
 
 // -- Conversation action types ------------------------------------------------

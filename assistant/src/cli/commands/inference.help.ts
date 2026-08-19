@@ -218,8 +218,12 @@ Examples:
   $ assistant inference providers create local-llm \\
       --provider openai-compatible \\
       --base-url http://localhost:1234/v1 --model my-model
+  $ assistant inference providers create ollama-home \\
+      --provider ollama --base-url http://192.168.1.50:11434/v1
   $ assistant inference providers update anthropic-personal \\
       --credential credential/anthropic/api_key
+  $ assistant inference providers update ollama \\
+      --base-url http://127.0.0.1:11434/v1
   $ assistant inference providers delete anthropic-personal
 
 After creating or updating a provider, validate it with a live call through
@@ -268,7 +272,7 @@ a profile that uses it:
             {
               flags: "--base-url <url>",
               description:
-                "Endpoint base URL (required for --provider openai-compatible)",
+                "Endpoint base URL (required for openai-compatible; optional for ollama)",
             },
           ],
         },
@@ -290,7 +294,8 @@ a profile that uses it:
             },
             {
               flags: "--base-url <url>",
-              description: "Endpoint base URL (openai-compatible providers)",
+              description:
+                "Endpoint base URL (openai-compatible or ollama)",
             },
           ],
         },
@@ -345,7 +350,7 @@ matching \`assistant inference providers <verb>\` command.`,
                 {
                   flags: "--base-url <url>",
                   description:
-                    "Endpoint base URL (required for --provider openai-compatible)",
+                    "Endpoint base URL (required for openai-compatible; optional for ollama)",
                 },
               ],
             },
@@ -367,7 +372,7 @@ matching \`assistant inference providers <verb>\` command.`,
                 {
                   flags: "--base-url <url>",
                   description:
-                    "Endpoint base URL (openai-compatible providers)",
+                    "Endpoint base URL (openai-compatible or ollama)",
                 },
               ],
             },
