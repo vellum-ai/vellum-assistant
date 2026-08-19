@@ -14,6 +14,11 @@ import {
   type VellumCommand,
 } from "@vellumai/electron-desktop/commands";
 import type { IpcHandle } from "@vellumai/electron-desktop/ipc";
+import {
+  MENU_POPUP,
+  MENU_SET_PLATFORM_SESSION,
+  MENU_TITLES,
+} from "@vellumai/ipc-contract";
 
 interface WindowsMenuOptions {
   handle: IpcHandle;
@@ -160,7 +165,7 @@ export const installWindowsMenu = (options: WindowsMenuOptions): void => {
   };
 
   options.handle(
-    "vellum:menu:setPlatformSession",
+    MENU_SET_PLATFORM_SESSION,
     z.tuple([z.boolean()]),
     ([has]) => {
       if (hasPlatformSession !== has) {
@@ -174,14 +179,14 @@ export const installWindowsMenu = (options: WindowsMenuOptions): void => {
   // its title bar (localizing them by id) and pops the real native submenus
   // here, so items, accelerators, and enabled states keep the one template
   // above as owner.
-  options.handle("vellum:menu:titles", z.tuple([]), () =>
+  options.handle(MENU_TITLES, z.tuple([]), () =>
     buildWindowsMenu(options).map((item) => ({
       id: String(item.id),
       label: String(item.label),
     })),
   );
   options.handle(
-    "vellum:menu:popup",
+    MENU_POPUP,
     z.tuple([z.string(), z.number(), z.number()]),
     ([id, x, y], event) => {
       const submenu = buildWindowsMenu(options).find(
