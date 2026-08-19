@@ -1,8 +1,6 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
-using System.Text.Json;
-using Vellum.WindowsHelper.Rpc;
 
 namespace Vellum.WindowsHelper.Modules;
 
@@ -22,32 +20,24 @@ public interface IScreenCaptureBackend
     CapturedImage CapturePixels(PixelRect bounds);
 }
 
-public sealed class ScreenCaptureModule : IRpcModule
+public sealed class ScreenCaptureService(IScreenCaptureBackend backend)
 {
-    private readonly IScreenCaptureBackend _backend;
-
-    public ScreenCaptureModule()
-        : this(new GdiScreenCapture())
+    public CaptureResult CaptureDisplay(int? displayId, PixelRect? targetBounds = null)
     {
-    }
-
-    public ScreenCaptureModule(IScreenCaptureBackend backend) => _backend = backend;
-
-    public IReadOnlyCollection<string> Methods { get; } = ["capture.display"];
-
-    public ValueTask<object?> InvokeAsync(string method, JsonElement? parameters, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var request = parameters?.Deserialize<CaptureParams>(AutomationJson.Options);
-        return ValueTask.FromResult<object?>(AutomationJson.ToElement(CaptureDisplay(request?.DisplayId)));
-    }
-
-    private CaptureResult CaptureDisplay(int? displayId)
-    {
-        var displays = _backend.GetDisplays();
-        var display = displayId is { } id
-            ? displays.FirstOrDefault(candidate => candidate.Id == id)
-            : displays.FirstOrDefault(candidate => candidate.Primary) ?? displays.FirstOrDefault();
+        var displays = backend.GetDisplays();
+        DisplayInfo? display;
+        if (displayId is { } id)
+        {
+            display = displays.FirstOrDefault(candidate => candidate.Id == id);
+        }
+        else if (targetBounds is { } target)
+        {
+            display = displays.FirstOrDefault(candidate => ContainsCenter(candidate.Bounds, target));
+        }
+        else
+        {
+            display = displays.FirstOrDefault(candidate => candidate.Primary) ?? displays.FirstOrDefault();
+        }
         if (display is null)
         {
             var reason = new Unavailable(Unavailable.NotFound, "The requested display was not found");
@@ -55,19 +45,24 @@ public sealed class ScreenCaptureModule : IRpcModule
         }
         try
         {
-            var image = _backend.CapturePixels(display.Bounds);
+            var image = backend.CapturePixels(display.Bounds);
             return new CaptureResult(
                 image.PngBase64, image.WidthPx, image.HeightPx, display.Bounds, display.ScalePercent, null);
         }
         catch (Exception ex) when (ex is ExternalException or InvalidOperationException)
         {
-            // GDI capture denial and PNG encoding failures stay structured.
             return new CaptureResult(null, null, null, null, null,
                 new Unavailable(Unavailable.CaptureDenied, "The display could not be captured"));
         }
     }
 
-    private sealed record CaptureParams(int? DisplayId);
+    private static bool ContainsCenter(PixelRect display, PixelRect target)
+    {
+        var x = target.X + target.Width / 2.0;
+        var y = target.Y + target.Height / 2.0;
+        return x >= display.X && x < display.X + display.Width &&
+            y >= display.Y && y < display.Y + display.Height;
+    }
 }
 
 /// <summary>
