@@ -69,30 +69,35 @@ const COLUMN_RIBBON: RibbonPoint[] = [
 /**
  * The wrap ribbon is the same crowd on a screen with no column to spare: it
  * goes around the content instead of beside it. A thread of small characters
- * arcs over the heading, turns down past its outer edge, leaves the screen
- * entirely, and comes back in below the buttons, where it broadens into the
- * crowd that fills the rest of the screen.
+ * drops in through the top edge near the left, turns and sweeps right over
+ * the heading, carries on down past its outer edge and off the screen, then
+ * comes back in below the buttons, where it broadens into the crowd that
+ * fills the rest of the screen.
  *
  * The loop between `fx: 1.0` and the re-entry is drawn but never seen. It
  * exists so the thread that leaves and the crowd that returns are one
  * continuous path with a continuous size ramp, rather than two pieces that
  * happen to line up at the edge.
  *
- * The two clearances the arc and the crowd have to hold are the heading's
- * top and the second button's bottom. Both sit at fractions of the screen
- * that barely move across phone sizes (the content column is a fixed stack
- * of text and controls centred in what the bottom padding leaves it), so the
- * relative points hold the composition on every one of them. See
- * {@link RelativeRibbonPoint} for why this ribbon is authored that way and
- * the column one is not.
+ * The two clearances the thread and the crowd have to hold are the heading's
+ * top and the second button's bottom. A step's column is a fixed stack of
+ * text and controls centred in what the bottom padding leaves it, so it
+ * keeps its height as the screen shortens and takes a larger fraction of it:
+ * the shortest screen the wrap runs on is the one that binds, and both
+ * clearances are tuned against a 640-tall phone rather than an 844-tall one.
+ * See {@link RelativeRibbonPoint} for why this ribbon is authored against
+ * the screen and the column one is not.
  */
 const WRAP_RIBBON: RelativeRibbonPoint[] = [
-  { fx: -0.2, fy: 0.17, fw: 0.052, fs: 0.0118 },
-  { fx: 0.02, fy: 0.104, fw: 0.06, fs: 0.0136 },
-  { fx: 0.27, fy: 0.06, fw: 0.07, fs: 0.0158 },
-  { fx: 0.55, fy: 0.058, fw: 0.08, fs: 0.018 },
-  { fx: 0.83, fy: 0.096, fw: 0.095, fs: 0.0216 },
-  { fx: 1.03, fy: 0.17, fw: 0.114, fs: 0.026 },
+  { fx: 0.11, fy: -0.15, fw: 0.05, fs: 0.0112 },
+  { fx: 0.115, fy: -0.06, fw: 0.055, fs: 0.0126 },
+  { fx: 0.14, fy: 0.012, fw: 0.062, fs: 0.0142 },
+  { fx: 0.21, fy: 0.055, fw: 0.07, fs: 0.016 },
+  { fx: 0.34, fy: 0.072, fw: 0.077, fs: 0.0178 },
+  { fx: 0.51, fy: 0.072, fw: 0.084, fs: 0.0195 },
+  { fx: 0.7, fy: 0.08, fw: 0.091, fs: 0.0212 },
+  { fx: 0.89, fy: 0.112, fw: 0.1, fs: 0.023 },
+  { fx: 1.05, fy: 0.174, fw: 0.114, fs: 0.026 },
   { fx: 1.15, fy: 0.28, fw: 0.142, fs: 0.0316 },
   { fx: 1.19, fy: 0.4, fw: 0.18, fs: 0.0392 },
   { fx: 1.14, fy: 0.55, fw: 0.228, fs: 0.0476 },
