@@ -18,6 +18,10 @@ import {
  * wide), so a width gate would silently switch that behaviour off there.
  * Callers that need "is this a touch device" as well should say so directly,
  * via `isPointerCoarse()`.
+ *
+ * Tablet windows also resize without rotating (Stage Manager, split view),
+ * which `useVisibleViewport` rebases its reference for, so a window that has
+ * become shorter cannot read here as a keyboard that never goes away.
  */
 export function useSoftKeyboardOpen(): boolean {
   const visibleViewport = useVisibleViewport();

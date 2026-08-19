@@ -429,3 +429,78 @@ describe("useVisibleViewport", () => {
     expect(remounted.result.current?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
   });
 });
+
+describe("window resizes", () => {
+  const RESIZED_HEIGHT = REFERENCE_HEIGHT - 260;
+
+  /** Shrink the window and its viewport the way a window resize does. */
+  function resizeWindowTo(height: number): void {
+    setInnerHeight(height);
+    stubViewport({ height });
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+  }
+
+  test("rebases the reference onto a window a resize made shorter", () => {
+    // GIVEN a mounted consumer with no keyboard up
+    renderHook(() => useVisibleViewport());
+
+    // WHEN a same-orientation resize (an iPad Stage Manager drag, a split-view
+    // divider) shrinks the window past the keyboard threshold
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    // THEN the shorter window is the new keyboard-free reference, rather than a
+    // keyboard that never goes away and arms the swipe-down dismiss gesture
+    // over the whole surface
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(0);
+    expect(viewport?.height).toBe(RESIZED_HEIGHT);
+  });
+
+  test("leaves the reference alone for the frame resize a keyboard announced", () => {
+    // GIVEN a shell that resizes its own web view frame for the keyboard, which
+    // it announces first
+    renderHook(() => useVisibleViewport());
+    announce(KEYBOARD_HEIGHT);
+
+    // WHEN that deferred resize lands, shrinking the window with it
+    resizeWindowTo(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+
+    // THEN the keyboard-free reference survives it, so the shell keeps sizing
+    // for the keyboard the user is looking at
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+  });
+
+  test("leaves the reference alone while a focused text entry could hold a keyboard", () => {
+    // GIVEN a shell that announces nothing (mobile web, the Android shell) with
+    // the composer focused
+    renderHook(() => useVisibleViewport());
+    const composer = document.createElement("textarea");
+    document.body.appendChild(composer);
+    composer.focus();
+
+    // WHEN the window shrinks under it, which is what an opening keyboard looks
+    // like on a shell that resizes its web view for the IME
+    resizeWindowTo(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+
+    // THEN the shrink is left to the measurement rather than erasing a keyboard
+    // nothing was there to announce
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+    composer.remove();
+  });
+
+  test("ignores a window that grew, which the reference already tracks", () => {
+    // GIVEN a window shortened by a resize
+    renderHook(() => useVisibleViewport());
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    // WHEN it is pulled back out
+    resizeWindowTo(REFERENCE_HEIGHT);
+
+    // THEN the taller window is the reference again and no keyboard is reported
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(0);
+    expect(viewport?.height).toBe(REFERENCE_HEIGHT);
+  });
+});
