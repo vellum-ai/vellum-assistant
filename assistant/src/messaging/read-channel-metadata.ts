@@ -1,6 +1,7 @@
+import { safeParseRecord } from "../util/json.js";
 import {
   type ChannelMessageMetadata,
-  channelMessageMetadataSchema,
+  readChannelMessageMetadata,
 } from "./channel-message-metadata.js";
 import {
   readSlackMetadataFromMessageMetadata,
@@ -39,29 +40,13 @@ export function readChannelMetadata(
     return null;
   }
 
-  let parent: Record<string, unknown> | null = null;
-  try {
-    const parsed = JSON.parse(metadata) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      parent = parsed as Record<string, unknown>;
-    }
-  } catch {
-    return null;
-  }
-
-  const neutral = parent?.channelMeta;
-  if (typeof neutral === "string") {
-    try {
-      const result = channelMessageMetadataSchema.safeParse(
-        JSON.parse(neutral) as unknown,
-      );
-      if (result.success) {
-        return result.data;
-      }
-    } catch {
-      // Malformed neutral metadata falls through to the provider envelopes
-      // below rather than failing the read outright.
-    }
+  // Malformed neutral metadata falls through to the provider envelopes rather
+  // than failing the read outright.
+  const neutral = readChannelMessageMetadata(
+    safeParseRecord(metadata).channelMeta,
+  );
+  if (neutral) {
+    return neutral;
   }
 
   const slackMeta = readSlackMetadataFromMessageMetadata(metadata, opts);

@@ -72,6 +72,27 @@ export type ChannelMessageMetadata = z.infer<
 >;
 
 /**
+ * Parse and validate a serialized `ChannelMessageMetadata`, the counterpart of
+ * `readSlackMetadata` for the neutral shape. Anything that does not parse or
+ * does not validate reads as null.
+ */
+export function readChannelMessageMetadata(
+  raw: unknown,
+): ChannelMessageMetadata | null {
+  if (typeof raw !== "string") {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const result = channelMessageMetadataSchema.safeParse(parsed);
+  return result.success ? result.data : null;
+}
+
+/**
  * The id a row is grouped by when assembling a thread: its own for a message,
  * its target's for a reaction, so a reaction lands beside the message it was
  * attached to rather than in a block of its own.
