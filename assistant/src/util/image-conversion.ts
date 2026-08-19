@@ -22,6 +22,7 @@ import {
   readdirSync,
   readFileSync,
   readSync,
+  renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -42,26 +43,62 @@ function getCacheDir(): string {
   return join(tmpdir(), "vellum-optimized-images");
 }
 
+/**
+ * Structural completeness check for a JPEG payload: SOI marker (FF D8) at the
+ * head and EOI marker (FF D9) at the tail. Every cache entry and every sips
+ * output is a JPEG, so a payload failing this is truncated or empty — the
+ * signature of a torn cache write — and must never reach a provider, which
+ * rejects it with a 400 that wedges the conversation (the corrupt block is
+ * resent on every subsequent turn).
+ */
+export function isCompleteJpeg(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 4 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[bytes.length - 2] === 0xff &&
+    bytes[bytes.length - 1] === 0xd9
+  );
+}
+
 function readFromCache(key: string): Buffer | null {
+  const cachePath = join(getCacheDir(), `${key}.jpg`);
   try {
-    const cachePath = join(getCacheDir(), `${key}.jpg`);
     if (!existsSync(cachePath)) {
       return null;
     }
-    return readFileSync(cachePath) as Buffer;
+    const bytes = readFileSync(cachePath) as Buffer;
+    if (!isCompleteJpeg(bytes)) {
+      // Poisoned entry (torn write from a pre-atomic-rename version, disk
+      // full, etc.) — drop it so the caller re-converts and re-caches.
+      unlinkSync(cachePath);
+      return null;
+    }
+    return bytes;
   } catch {
     return null;
   }
 }
 
 function writeToCache(key: string, convertedBytes: Buffer): void {
+  const dir = getCacheDir();
+  // Write-then-rename so concurrent readers (the cache dir is shared across
+  // daemon processes) never observe a partially written entry; rename within
+  // the same directory is atomic. The pid+uuid suffix keeps concurrent
+  // writers of the same key off each other's temp file.
+  const tmpPath = join(dir, `${key}.${process.pid}-${uuid().slice(0, 8)}.tmp`);
   try {
-    const dir = getCacheDir();
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, `${key}.jpg`), convertedBytes);
+    writeFileSync(tmpPath, convertedBytes);
+    renameSync(tmpPath, join(dir, `${key}.jpg`));
     evictIfNeeded(dir);
   } catch {
     // Cache write failure is non-fatal.
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -141,7 +178,14 @@ async function runSips(
     if (proc.exitCode !== 0) {
       return null;
     }
-    return readFileSync(outPath) as Buffer;
+    const out = readFileSync(outPath) as Buffer;
+    // A zero-exit sips can still leave a truncated file (disk full, timeout
+    // kill racing the write). Returning it would poison the cache and every
+    // downstream provider call — treat it as a failed conversion instead.
+    if (!isCompleteJpeg(out)) {
+      return null;
+    }
+    return out;
   } catch {
     return null;
   } finally {
