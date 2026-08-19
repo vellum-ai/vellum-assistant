@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { isTextEntryElement } from "@/domains/chat/composer-focus";
+import { isElectron } from "@/runtime/is-electron";
 import {
   endLiveVoiceSession,
   isLiveVoiceSessionActive,
@@ -13,7 +14,6 @@ import {
   LS_VOICE_MODE_ACTIVATION_KEY,
   eventMatchesVoiceModeActivator,
   isFnVoiceModeActivator,
-  keyboardDefaultActivator,
   readVoiceModeActivator,
 } from "@/utils/voice-mode-activation";
 import {
@@ -27,27 +27,41 @@ import { watchSetting } from "@/utils/local-settings";
  * Binds the configured voice mode shortcut (Settings, Voice) to starting and
  * ending a live voice session.
  *
- * Unlike the chat layout's other shortcuts, this one fires with the composer
- * focused. The binding is a chord with a real modifier, so it types nothing,
- * and reaching for voice mid-sentence is the point: a shortcut that only
- * worked with focus outside the textarea would be dead in the state users are
- * actually in.
+ * **Two transports, split by host, never both at once.**
  *
- * Fn never reaches the DOM. When the binding is Fn the desktop helper is
- * registered instead and its `down` edge is the tap, since the helper reports
- * a hold (`down`/`up`) and a toggle has no use for the release. A host that
- * accepts no Fn registration falls back to the keyboard chord, so the
- * shortcut stays reachable without Input Monitoring.
+ * On the desktop app the keyboard binding is an Electron `globalShortcut`
+ * ("Talk" in Keyboard Shortcuts), registered by main and delivered as a
+ * `toggleVoice` command. A key the OS claims system-wide reaches voice from
+ * whatever app the user is actually in, which is where they reach for it, and
+ * it never touches the DOM. So this hook binds no chord there: a second,
+ * focus-scoped copy of the same shortcut would be a strictly weaker duplicate
+ * and would fire twice in the app.
+ *
+ * Off Electron there is no `globalShortcut`, so the chord is bound here, on
+ * `window`. It carries a real modifier and so types nothing, which lets it
+ * fire with the composer focused: reaching for voice mid-sentence is the
+ * point, and a shortcut that only worked with focus outside the textarea
+ * would be dead in the state users are actually in.
+ *
+ * Fn is desktop-only and orthogonal to both. It never reaches the DOM, so the
+ * helper is registered instead and its `down` edge is the tap, since the
+ * helper reports a hold (`down`/`up`) and a toggle has no use for the
+ * release. A host that accepts no Fn registration simply has no Fn binding;
+ * the global Talk shortcut is still there, and unlike Fn it needs no Input
+ * Monitoring grant.
  *
  * Starting is not this hook's to define. A press is handed to
  * `startVoiceFromSurface`, the same entry the companion surface's Talk uses,
- * so the shortcut and the surface stay one behaviour rather than two.
+ * so every way in stays one behaviour rather than several.
  */
 export function useVoiceModeHotkey({
   enabled = true,
 }: { enabled?: boolean } = {}): void {
   const navigate = useNavigate();
-  const [fnRegistered, setFnRegistered] = useState(true);
+  // The registration hook reports whether the host took Fn. Nothing branches
+  // on it any more: a refused Fn simply leaves the global Talk shortcut as the
+  // keyboard way in, which needs no Input Monitoring grant.
+  const [, setFnRegistered] = useState(true);
 
   const shouldRegisterFn = useCallback(
     () =>
@@ -79,22 +93,9 @@ export function useVoiceModeHotkey({
     }
 
     const fnAvailable = supportsFnPushToTalk();
-    /**
-     * The binding as it can actually be delivered. A stored Fn binding on a
-     * host that rejected the registration is inert (the DOM never sees Fn),
-     * so it resolves to the chord instead of to nothing.
-     */
-    const resolveActivator = () => {
-      const stored = readVoiceModeActivator(fnAvailable);
-      if (isFnVoiceModeActivator(stored) && !fnRegistered) {
-        return keyboardDefaultActivator();
-      }
-      return stored;
-    };
-
-    let activator = resolveActivator();
+    let activator = readVoiceModeActivator(fnAvailable);
     const unwatchSetting = watchSetting(LS_VOICE_MODE_ACTIVATION_KEY, () => {
-      activator = resolveActivator();
+      activator = readVoiceModeActivator(fnAvailable);
     });
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -139,13 +140,21 @@ export function useVoiceModeHotkey({
       toggleVoiceMode();
     };
 
-    window.addEventListener("keydown", onKeyDown);
+    // On the desktop app the chord is an Electron `globalShortcut` that main
+    // owns; binding it here as well would fire the same press twice whenever
+    // the app happens to be focused.
+    const bindsChord = !isElectron();
+    if (bindsChord) {
+      window.addEventListener("keydown", onKeyDown);
+    }
     const unsubscribeHotkeys = subscribeToHotkeyEvents(onNativeHotkey);
 
     return () => {
       unwatchSetting();
-      window.removeEventListener("keydown", onKeyDown);
+      if (bindsChord) {
+        window.removeEventListener("keydown", onKeyDown);
+      }
       unsubscribeHotkeys();
     };
-  }, [enabled, fnRegistered, toggleVoiceMode]);
+  }, [enabled, toggleVoiceMode]);
 }

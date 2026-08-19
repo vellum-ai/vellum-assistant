@@ -92,6 +92,7 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   removePairedAssistant: "",
   quickInputSubmit: "",
   startVoice: "",
+  toggleVoice: "",
   companionSubmit: "",
   cancelDictation: "",
   replayOnboarding: "",
@@ -107,6 +108,10 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
 export const GLOBAL_SHORTCUT_DEFAULTS: Record<string, string> = {
   globalHotkey: "CmdOrCtrl+Shift+G",
   quickInput: "CmdOrCtrl+Shift+/",
+  // Talk. Global rather than focus-scoped because reaching for voice is the
+  // thing users do while working in another app; the companion surface is
+  // where the session then shows itself, so nothing has to come forward.
+  toggleVoice: "CmdOrCtrl+Shift+T",
 };
 
 /**

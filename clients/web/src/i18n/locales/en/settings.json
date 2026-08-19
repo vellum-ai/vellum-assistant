@@ -915,6 +915,7 @@
     "captionsTitle": "Captions",
     "customKey": "Custom",
     "defaultBadge": "Default",
+    "enableFnShortcut": "Also start with a tap of Fn",
     "enableVoiceShortcut": "Enable voice mode shortcut",
     "focusedTabNote": "The shortcut only works while this tab is focused, and browsers may intercept some chords (e.g. Ctrl+T) before the page can see them. For a shortcut that works anywhere, use the Vellum desktop app.",
     "grantMicrophoneAccessHint": "Grant microphone access to list your available input devices.",
@@ -944,9 +945,13 @@
     "speechServicesBannerLink": "Set it up in Models & Services",
     "speechServicesBannerPrompt": "Want to use your own API key for STT or TTS, or set a custom voice?",
     "systemDefault": "System Default",
+    "talkShortcutLabel": "Talk",
+    "talkShortcutLink": "Change in Preferences → Keyboard Shortcuts",
+    "talkShortcutUnbound": "Not bound",
     "turnTakingSubtitle": "Where your turn ends and the assistant's begins. Applies to hands-free conversations. Under push to talk, the key decides.",
     "turnTakingTitle": "Turn taking",
     "voiceShortcutSubtitle": "Press the shortcut to start or end a voice conversation, from anywhere in the app.",
+    "voiceShortcutSubtitleDesktop": "Start or end a voice conversation from anywhere, even when Vellum isn't focused.",
     "voiceShortcutTitle": "Voice Mode Shortcut"
   },
   "voicePickerCard": {

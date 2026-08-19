@@ -8,6 +8,11 @@ let fnSupported = false;
 let fnRegistrationSucceeds = true;
 let emitHotkeyEvent: ((event: HotkeyEvent) => void) | null = null;
 
+let onElectron = false;
+mock.module("@/runtime/is-electron", () => ({
+  isElectron: () => onElectron,
+}));
+
 mock.module("@/runtime/hotkey", () => ({
   supportsFnPushToTalk: () => fnSupported,
   setFnPushToTalkEnabled: async (enable: boolean) =>
@@ -68,6 +73,7 @@ function chordEvent(): KeyboardEvent {
 beforeEach(() => {
   fnSupported = false;
   fnRegistrationSucceeds = true;
+  onElectron = false;
   emitHotkeyEvent = null;
   startVoiceFromSurface.mockClear();
   stop.mockClear();
@@ -186,16 +192,20 @@ describe("useVoiceModeHotkey", () => {
       expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
     });
 
-    test("falls back to the chord when the host refuses the registration", async () => {
-      // No helper, or Input Monitoring ungranted. Fn never reaches the DOM, so
-      // without the fallback the shortcut reads as bound and does nothing.
+    test("a refused registration binds no chord in its place", async () => {
+      // No helper, or Input Monitoring ungranted. There is nothing to fall
+      // back to and nothing to fall back for: the host's global Talk shortcut
+      // is the keyboard way in, and unlike Fn it needs no permission grant.
+      onElectron = true;
       fnRegistrationSucceeds = false;
       renderVoiceModeHotkey();
 
       await waitFor(() => {
-        window.dispatchEvent(chordEvent());
-        expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
+        expect(fnRegistrationSucceeds).toBe(false);
       });
+      window.dispatchEvent(chordEvent());
+
+      expect(startVoiceFromSurface).not.toHaveBeenCalled();
     });
 
     test("ignores host Fn events once the binding is a chord", () => {
@@ -205,6 +215,28 @@ describe("useVoiceModeHotkey", () => {
       emitHotkeyEvent?.({ kind: "fnPushToTalk", state: "down" });
 
       expect(startVoiceFromSurface).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("on the desktop app", () => {
+    test("binds no chord, because the host binds Talk globally", () => {
+      // A `globalShortcut` fires whether or not the app is focused, so a
+      // second listener here would run the same press twice in the app.
+      onElectron = true;
+      renderVoiceModeHotkey();
+
+      window.dispatchEvent(chordEvent());
+
+      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+    });
+
+    test("still binds the chord off Electron, where there is no globalShortcut", () => {
+      onElectron = false;
+      renderVoiceModeHotkey();
+
+      window.dispatchEvent(chordEvent());
+
+      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
     });
   });
 });

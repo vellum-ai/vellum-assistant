@@ -67,6 +67,16 @@ export type VellumCommand =
    */
   | { kind: "startVoice" }
   /**
+   * Start a live-voice session, or end the one that is running.
+   *
+   * The keyboard's version of Talk. It differs from `startVoice` in the one
+   * way a key differs from a button: the same press has to undo itself,
+   * because a global shortcut is often the only voice control within reach of
+   * someone working in another app. Talk stays start-only, since the surface
+   * that draws it also draws a way to stop.
+   */
+  | { kind: "toggleVoice" }
+  /**
    * Send what the user typed on the companion surface, the way its Type option
    * asks.
    *

@@ -14,12 +14,15 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Slider } from "@vellumai/design-library/components/slider";
+import { ShortcutKeys } from "@vellumai/design-library/components/shortcut-keys";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { ListeningLanguageCard } from "@/domains/settings/pages/listening-language-card";
 import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { isElectron } from "@/runtime/is-electron";
+import { getHotkeys } from "@/runtime/hotkeys";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 
 import { DetailCard } from "@/components/detail-card";
@@ -44,6 +47,7 @@ import {
 } from "@/utils/ptt-activator";
 import {
   defaultVoiceModeActivator,
+  isFnVoiceModeActivator,
   keyboardDefaultActivator,
   readVoiceModeActivator,
   writeVoiceModeActivator,
@@ -366,9 +370,40 @@ const MODIFIER_KEY_NAMES = new Set(["Control", "Alt", "Shift", "Meta", "Fn"]);
  * one exception the recorder accepts on its own, and only on a desktop host
  * that can see it.
  */
+/** The Keyboard Shortcuts key the desktop host binds Talk to, globally. */
+const TALK_HOTKEY_KEY = "toggleVoice";
+
 function VoiceModeShortcutCard() {
   const { t } = useTranslation("settings");
   const fnConfigurable = supportsFnPushToTalk();
+  /**
+   * On the desktop app the keyboard binding is an Electron `globalShortcut`
+   * the host owns, listed in Keyboard Shortcuts as "Talk". This card does not
+   * record chords there: it would be writing a second binding that nothing
+   * reads. Fn is the one thing still configured here, since it is not an
+   * accelerator and cannot live on that rail.
+   */
+  const desktopHost = isElectron();
+  const [talkAccelerator, setTalkAccelerator] = useState<string | null>(null);
+  useEffect(() => {
+    if (!desktopHost) {
+      return;
+    }
+    let live = true;
+    // Read the real binding rather than printing the compiled default: the
+    // user may have rebound it, and a card that names the wrong chord is
+    // worse than one that names none.
+    void getHotkeys().then((catalog) => {
+      if (!live) {
+        return;
+      }
+      const talk = catalog.find((entry) => entry.key === TALK_HOTKEY_KEY);
+      setTalkAccelerator(talk?.accelerator || null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [desktopHost]);
   const [activator, setActivator] = useState<VoiceModeActivator>(() =>
     readVoiceModeActivator(fnConfigurable),
   );
@@ -389,7 +424,6 @@ function VoiceModeShortcutCard() {
   }, [fnConfigurable]);
 
   const shortcutEnabled = activator.kind !== "off";
-  const showFocusedTabNote = shortcutEnabled && !fnConfigurable;
 
   const selectActivator = useCallback((next: VoiceModeActivator) => {
     setActivator(next);
@@ -514,6 +548,52 @@ function VoiceModeShortcutCard() {
     shortcutEnabled &&
     !presets.some((p) => activatorsEqual(p.activator, activator));
 
+  if (desktopHost) {
+    return (
+      <DetailCard
+        title={t("voicePage.voiceShortcutTitle")}
+        subtitle={t("voicePage.voiceShortcutSubtitleDesktop")}
+      >
+        <div className="flex flex-col gap-4">
+          {/* The binding itself, reported rather than edited: it belongs to
+              the host, which is also the only thing that can bind a key
+              system-wide. */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-body-default text-[var(--content-default)]">
+              {t("voicePage.talkShortcutLabel")}
+            </span>
+            {talkAccelerator ? (
+              <ShortcutKeys accelerator={talkAccelerator} />
+            ) : (
+              <span className={labelClasses}>
+                {t("voicePage.talkShortcutUnbound")}
+              </span>
+            )}
+          </div>
+          <Link
+            to={routes.settings.general}
+            className="inline-flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
+          >
+            {t("voicePage.talkShortcutLink")}
+            <ArrowUpRight className="h-3 w-3" />
+          </Link>
+
+          {/* Fn is not an accelerator, so it cannot live on that rail and is
+              configured here instead. */}
+          {fnConfigurable && (
+            <Toggle
+              checked={isFnVoiceModeActivator(activator)}
+              onChange={(next: boolean) => {
+                selectActivator(next ? FN_PTT_ACTIVATOR : { kind: "off" });
+              }}
+              label={t("voicePage.enableFnShortcut")}
+            />
+          )}
+        </div>
+      </DetailCard>
+    );
+  }
+
   return (
     <DetailCard
       title={t("voicePage.voiceShortcutTitle")}
@@ -553,27 +633,27 @@ function VoiceModeShortcutCard() {
                 />
               ))}
               {isRecording ? (
-                <ActivationKeyOption
-                  label={
-                    pendingModifiers.length > 0
-                      ? modifierLabel(pendingModifiers)
-                      : t("voicePage.pressShortcut")
-                  }
-                  selected
-                  recording
-                  onClick={cancelRecording}
-                />
-              ) : (
-                <ActivationKeyOption
-                  label={
-                    isCustom
-                      ? activatorDisplayName(activator)
-                      : t("voicePage.customKey")
-                  }
-                  selected={isCustom}
-                  onClick={beginRecording}
-                />
-              )}
+                  <ActivationKeyOption
+                    label={
+                      pendingModifiers.length > 0
+                        ? modifierLabel(pendingModifiers)
+                        : t("voicePage.pressShortcut")
+                    }
+                    selected
+                    recording
+                    onClick={cancelRecording}
+                  />
+                ) : (
+                  <ActivationKeyOption
+                    label={
+                      isCustom
+                        ? activatorDisplayName(activator)
+                        : t("voicePage.customKey")
+                    }
+                    selected={isCustom}
+                    onClick={beginRecording}
+                  />
+                )}
             </div>
 
             {showChordHint && (
@@ -583,7 +663,7 @@ function VoiceModeShortcutCard() {
               </div>
             )}
 
-            {showFocusedTabNote && (
+            {shortcutEnabled && (
               <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
                 <Info className="mt-0.5 h-3 w-3 shrink-0" />
                 <span>{t("voicePage.focusedTabNote")}</span>

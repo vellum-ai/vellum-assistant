@@ -915,6 +915,7 @@
     "captionsTitle": "Subtítulos",
     "customKey": "Personalizada",
     "defaultBadge": "Predeterminado",
+    "enableFnShortcut": "También iniciar con un toque de Fn",
     "enableVoiceShortcut": "Activar el atajo del modo de voz",
     "focusedTabNote": "El atajo solo funciona mientras esta pestaña está enfocada, y los navegadores pueden interceptar algunas combinaciones (p. ej., Ctrl+T) antes de que la página las detecte. Para un atajo que funcione en cualquier lugar, usa la aplicación de escritorio de Vellum.",
     "grantMicrophoneAccessHint": "Concede acceso al micrófono para enumerar tus dispositivos de entrada disponibles.",
@@ -944,9 +945,13 @@
     "speechServicesBannerLink": "Configúralo en Modelos y servicios",
     "speechServicesBannerPrompt": "¿Quieres usar tu propia clave API para STT o TTS, o configurar una voz personalizada?",
     "systemDefault": "Predeterminado del sistema",
+    "talkShortcutLabel": "Hablar",
+    "talkShortcutLink": "Cámbialo en Preferencias → Atajos de teclado",
+    "talkShortcutUnbound": "Sin asignar",
     "turnTakingSubtitle": "Dónde termina tu turno y comienza el del asistente. Se aplica a conversaciones manos libres. Con pulsar para hablar, lo decide la tecla.",
     "turnTakingTitle": "Turnos de conversación",
     "voiceShortcutSubtitle": "Pulsa el atajo para iniciar o terminar una conversación de voz, desde cualquier parte de la aplicación.",
+    "voiceShortcutSubtitleDesktop": "Inicia o termina una conversación de voz desde cualquier lugar, incluso cuando Vellum no está en primer plano.",
     "voiceShortcutTitle": "Atajo del modo de voz"
   },
   "voicePickerCard": {
