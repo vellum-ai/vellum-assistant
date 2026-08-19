@@ -245,6 +245,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "paired-devices-ui",
+      "scope": "client",
+      "key": "paired-devices-ui",
+      "label": "Paired Devices UI",
+      "description": "Show the paired-devices list and revoke controls inside the pair-a-device settings card. Visibility only; `vellum devices` on the host stays available.",
+      "defaultEnabled": false
+    },
+    {
       "id": "settings-sleep-policy",
       "scope": "assistant",
       "key": "settings-sleep-policy",

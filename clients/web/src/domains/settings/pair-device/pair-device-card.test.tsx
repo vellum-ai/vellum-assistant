@@ -14,6 +14,7 @@ import type { LocalListDevicesResult } from "@/runtime/local-mode-host";
 let gatewayPath: string | undefined = "/assistant/__gateway/20100";
 let supportsPairingRoutes = true;
 let webRemoteIngressOn = true;
+let pairedDevicesUIOn = true;
 let selectedAssistant: {
   assistantId: string;
   cloud: string;
@@ -38,6 +39,7 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
       webRemoteIngress: () => webRemoteIngressOn,
+      pairedDevicesUI: () => pairedDevicesUIOn,
     },
   },
 }));
@@ -175,6 +177,7 @@ beforeEach(() => {
   gatewayPath = "/assistant/__gateway/20100";
   supportsPairingRoutes = true;
   webRemoteIngressOn = true;
+  pairedDevicesUIOn = true;
   selectedAssistant = { assistantId: "self", cloud: "local" };
   listDevicesResult = { ok: false, error: "unavailable" };
   listDevicesCalls = 0;
@@ -359,6 +362,35 @@ describe("PairDeviceCard", () => {
     expect(
       await screen.findByRole("button", { name: "Paired devices (1)" }),
     ).toBeTruthy();
+  });
+
+  test("hides the paired-devices section when paired-devices-ui is off", async () => {
+    // The rest of the card stays; only the list + revoke section is gated.
+    pairedDevicesUIOn = false;
+    listDevicesResult = {
+      ok: true,
+      devices: [
+        {
+          hashedDeviceId: "aaaabbbbccccdddd0000111122223333",
+          platform: "ios",
+          issuedAt: null,
+          expiresAt: null,
+          lastUsedAt: null,
+        },
+      ],
+    };
+    render(<PairDeviceCard />);
+
+    expect(screen.getByText("Pair a device")).toBeTruthy();
+    // The mount-time pending-request poll settles; the device list is never
+    // fetched, so the host `vellum devices` spawn never happens.
+    await waitFor(() =>
+      expect(
+        fetchLog.some((r) => r.url.endsWith("/v1/remote-web/pairing-requests")),
+      ).toBe(true),
+    );
+    expect(screen.queryByRole("button", { name: /Paired devices/ })).toBeNull();
+    expect(listDevicesCalls).toBe(0);
   });
 
   test("falls back to generic copy when the assistant has no name", () => {
