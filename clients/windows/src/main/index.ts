@@ -205,6 +205,7 @@ const forwardPlatformRequest = async (
 app
   .whenReady()
   .then(() => {
+    log.info("[app] ready");
     if (usesAppProtocolRenderer(app.isPackaged)) {
       registerAppProtocol();
     }
