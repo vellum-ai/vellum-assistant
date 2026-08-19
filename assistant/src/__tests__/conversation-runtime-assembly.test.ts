@@ -1496,12 +1496,18 @@ describe("stripInjectionsForCompaction memory/info wrapper matching", () => {
 // applyRuntimeInjections with nowScratchpad
 // ---------------------------------------------------------------------------
 
-describe("applyRuntimeInjections with nowScratchpad", () => {
-  const GUARDIAN_TRUST_FIXTURE = {
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-  } as const;
+/**
+ * Personal-memory content (NOW.md, PKB, v3 cards) is gated on the actor's
+ * trust class, so suites asserting that content have to name the actor they
+ * are about. Left unset, the injector substitutes the low-trust fallback and
+ * the assertion silently becomes a test of the gate instead of the content.
+ */
+const GUARDIAN_TRUST_FIXTURE = {
+  trustClass: "guardian",
+  sourceChannel: "vellum",
+} as const;
 
+describe("applyRuntimeInjections with nowScratchpad", () => {
   const baseMessages: Message[] = [
     {
       role: "user",
@@ -2894,6 +2900,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
   function makePkbOptions(overrides: Record<string, unknown> = {}) {
     return {
       conversationId: FALLBACK_CONVERSATION_ID,
+      trust: GUARDIAN_TRUST_FIXTURE,
       ...overrides,
     };
   }

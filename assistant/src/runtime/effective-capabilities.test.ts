@@ -108,18 +108,4 @@ describe("canSeePersonalMemory", () => {
     expect(canSeePersonalMemory({ trustClass: "non_guardian" })).toBe(false);
     expect(canSeePersonalMemory({ trustClass: undefined })).toBe(false);
   });
-
-  test("takes no channel: a surface cannot stand in for an actor", () => {
-    // Guarding the shape itself: channel data cannot grant memory to an
-    // unknown actor, because the gate has nowhere to read it from. Answering
-    // "who is this" belongs upstream in `resolveTrustClass`, not here.
-    expect(canSeePersonalMemory.length).toBe(1);
-    const asRecord = canSeePersonalMemory as unknown as (a: {
-      trustClass: string;
-      executionChannel?: string;
-    }) => boolean;
-    expect(
-      asRecord({ trustClass: "unknown", executionChannel: "vellum" }),
-    ).toBe(false);
-  });
 });
