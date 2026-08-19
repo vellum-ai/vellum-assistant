@@ -1112,7 +1112,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         {/* A muted `listening` already reads as "Muted", so prefixing it again
             would announce "Muted — Muted". The assistant's own phases still
             need the prefix: "Thinking…" alone would not say the mic is off. */}
-        {muted && state !== "listening" ? `Muted — ${stateLabel}` : stateLabel}
+        {muted && state !== "listening" ? `Muted. ${stateLabel}` : stateLabel}
       </div>
     </motion.div>
   );
