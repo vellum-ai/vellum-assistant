@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { subscribeNativeKeyboardHeight } from "@/runtime/native-keyboard";
+import { isNativeMobile } from "@/runtime/platform-detection";
 
 /**
  * Threshold (in px) below which an `innerHeight − visualViewport.height` delta
@@ -93,6 +94,16 @@ let nativeKeyboardVisible = false;
 // shells, so that shell is a version we still run in.
 let keyboardSourceReady = false;
 
+// Whether an announcement has actually arrived. `nativeKeyboardVisible` starts
+// `false`, which before the first announcement means "nothing heard yet" and
+// not "no keyboard": a keyboard raised while the plugin listeners were still
+// registering shows up here as silence. On a shell whose frame the keyboard
+// resizes, that silence is indistinguishable from the window getting shorter,
+// so the reference waits for one announcement before it trusts a `false`.
+// A browser needs no such wait, since its keyboard leaves `window.innerHeight`
+// alone and every shrink there is the window's own.
+let sawKeyboardAnnouncement = false;
+
 // The viewport reading pinned across a native picker session, or `null` when
 // nothing is holding it. iOS presents a document/photo picker by taking first
 // responder off the web view, which dismisses the soft keyboard, and the
@@ -169,6 +180,7 @@ function addViewportUpdater(update: () => void): () => void {
         // would call a keyboard coming up a dismissal, then let the frame
         // resize behind it pass for the window getting shorter.
         nativeKeyboardVisible = visible;
+        sawKeyboardAnnouncement = true;
         for (const notify of viewportUpdaters) {
           notify();
         }
@@ -192,6 +204,7 @@ function addViewportUpdater(update: () => void): () => void {
     unsubscribeNativeKeyboard = null;
     anticipatedKeyboardHeight = 0;
     nativeKeyboardVisible = false;
+    sawKeyboardAnnouncement = false;
     keyboardSourceReady = false;
   };
 }
@@ -242,6 +255,12 @@ function rebaseReferenceForWindowResize(): boolean {
     return false;
   }
   if (!keyboardSourceReady || nativeKeyboardVisible) {
+    return false;
+  }
+  // On a shell that resizes its frame for the keyboard, a `false` that no
+  // announcement has confirmed is silence rather than an answer, and the
+  // keyboard raised during registration is exactly the case that produces it.
+  if (isNativeMobile() && !sawKeyboardAnnouncement) {
     return false;
   }
   referenceInnerHeight = window.innerHeight;

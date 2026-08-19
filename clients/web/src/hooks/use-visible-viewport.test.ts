@@ -46,6 +46,14 @@ mock.module("@/runtime/native-keyboard", () => ({
   subscribeNativeKeyboardHeight,
 }));
 
+// Whether the stub stands in for a shell whose frame the keyboard resizes. Only
+// there is a shrink ambiguous, so only there does the reference wait for an
+// announcement before trusting that no keyboard is up.
+let stubIsNativeMobile = false;
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeMobile: () => stubIsNativeMobile,
+}));
+
 const { holdVisibleViewport, readVisibleViewport, useVisibleViewport } =
   await import("@/hooks/use-visible-viewport");
 
@@ -101,6 +109,7 @@ function announce(keyboardHeight: number, visible = keyboardHeight > 0): void {
 }
 
 beforeEach(() => {
+  stubIsNativeMobile = false;
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     writable: true,
@@ -607,6 +616,46 @@ describe("window resizes", () => {
     expect(readVisibleViewport()?.keyboardHeight).toBe(
       REFERENCE_HEIGHT - RESIZED_HEIGHT,
     );
+  });
+
+  test("waits for an announcement on a shell before trusting a quiet keyboard", () => {
+    // A keyboard raised while the plugin listeners were registering announces
+    // nothing, so silence here is not proof that the frame shrank for the
+    // window. The deferred frame resize must not be taken as the window's own.
+    stubIsNativeMobile = true;
+    renderHook(() => useVisibleViewport());
+
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    expect(readVisibleViewport()?.keyboardHeight).toBe(
+      REFERENCE_HEIGHT - RESIZED_HEIGHT,
+    );
+  });
+
+  test("rebases on a shell once an announcement has been heard", () => {
+    // A hide is an answer, where silence was not. From here a shrink is the
+    // window's own and the reference follows it.
+    stubIsNativeMobile = true;
+    renderHook(() => useVisibleViewport());
+    announce(0, false);
+
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(0);
+    expect(viewport?.height).toBe(RESIZED_HEIGHT);
+  });
+
+  test("rebases in a browser with no announcement, having nothing to wait for", () => {
+    // A browser keyboard leaves `window.innerHeight` alone, so every shrink
+    // there is the window's own and there is no ambiguity to resolve.
+    renderHook(() => useVisibleViewport());
+
+    resizeWindowTo(RESIZED_HEIGHT);
+
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(0);
+    expect(viewport?.height).toBe(RESIZED_HEIGHT);
   });
 
   test("ignores a window that grew, which the reference already tracks", () => {
