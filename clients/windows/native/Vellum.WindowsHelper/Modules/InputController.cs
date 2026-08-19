@@ -272,7 +272,7 @@ public sealed class InputController : IRpcModule, IInputController
         try
         {
             action = await ResolveElementCoordinatesAsync(
-                action, ObservationSeams.CuSource, cancellationToken);
+                action, ObservationSeams.CuSource, cancellationToken, conversationId);
         }
         catch (InvalidOperationException error)
         {
@@ -309,10 +309,24 @@ public sealed class InputController : IRpcModule, IInputController
     }
 
     public static async Task<CuAction> ResolveElementCoordinatesAsync(
-        CuAction action, ICuObservationSource? source, CancellationToken cancellationToken)
+        CuAction action, ICuObservationSource? source, CancellationToken cancellationToken,
+        string conversationId = "")
     {
-        if (action.Type is not ("click" or "double_click" or "right_click" or "scroll") ||
-            action.X is not null && action.Y is not null || action.ElementId is null)
+        if (action.Type is not ("click" or "double_click" or "right_click" or "scroll"))
+        {
+            return action;
+        }
+        if (action is { X: double x, Y: double y })
+        {
+            if (source is null)
+            {
+                return action;
+            }
+            var point = await source.TranslateScreenPointAsync(
+                conversationId, new CuPoint(x, y), cancellationToken);
+            return action with { X = point.X, Y = point.Y };
+        }
+        if (action.ElementId is null)
         {
             return action;
         }

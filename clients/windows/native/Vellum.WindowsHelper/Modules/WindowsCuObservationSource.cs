@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -11,7 +12,9 @@ public sealed record ComputerUseCapture(
     int? ScreenshotHeightPx,
     int? ScreenWidthPt,
     int? ScreenHeightPt,
-    Unavailable? Unavailable);
+    Unavailable? Unavailable,
+    int ScreenOriginX = 0,
+    int ScreenOriginY = 0);
 
 public interface IComputerUseCaptureSource
 {
@@ -23,6 +26,7 @@ public sealed class WindowsCuObservationSource : ICuObservationSource
     private readonly IAutomationSnapshotSource _snapshots;
     private readonly AutomationObserver _observer;
     private readonly IComputerUseCaptureSource _capture;
+    private readonly ConcurrentDictionary<string, CuPoint> _screenOrigins = new();
 
     public WindowsCuObservationSource()
         : this(
@@ -50,6 +54,15 @@ public sealed class WindowsCuObservationSource : ICuObservationSource
         var observation = _observer.Observe(
             conversationId, stepNumber > 1 ? "diff" : "full", cancellationToken);
         var capture = _capture.Capture(observation.TargetBounds, cancellationToken);
+        if (capture.JpegBase64 is not null)
+        {
+            _screenOrigins[conversationId] = new CuPoint(
+                capture.ScreenOriginX, capture.ScreenOriginY);
+        }
+        else
+        {
+            _screenOrigins.TryRemove(conversationId, out _);
+        }
         var result = new Dictionary<string, object?>(StringComparer.Ordinal);
         Add(result, "axTree", observation.Tree);
         Add(result, "axDiff", observation.Diff);
@@ -88,6 +101,16 @@ public sealed class WindowsCuObservationSource : ICuObservationSource
         return Task.FromResult<CuPoint?>(new CuPoint(
             node.Bounds.X + node.Bounds.Width / 2.0,
             node.Bounds.Y + node.Bounds.Height / 2.0));
+    }
+
+    public Task<CuPoint> TranslateScreenPointAsync(
+        string conversationId, CuPoint point, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var origin = _screenOrigins.GetValueOrDefault(conversationId);
+        return Task.FromResult(origin is null
+            ? point
+            : new CuPoint(point.X + origin.X, point.Y + origin.Y));
     }
 
     private static AutomationNode? Find(AutomationNode? root, long id)
@@ -149,7 +172,9 @@ public sealed class GdiComputerUseCaptureSource(ScreenCaptureService service)
                 height,
                 captured.Bounds.Width,
                 captured.Bounds.Height,
-                null);
+                null,
+                captured.Bounds.X,
+                captured.Bounds.Y);
         }
         catch (Exception ex) when (ex is ArgumentException or ExternalException or FormatException)
         {

@@ -94,6 +94,14 @@ public static class InputControllerTests
             CancellationToken.None);
         Check(resolved.X == 40 && resolved.Y == 60, "element center resolves");
 
+        var translated = await InputController.ResolveElementCoordinatesAsync(
+            new CuAction("click", X: 20, Y: 30),
+            new FakeObservationSource(screenOffset: new CuPoint(-1920, -200)),
+            CancellationToken.None,
+            "conv-secondary");
+        Check(translated.X == -1900 && translated.Y == -170,
+            "screen coordinates include the captured display origin");
+
         // observe without an observation source flags that state is unverified.
         ObservationSeams.CuSource = null;
         CheckContains(
@@ -109,7 +117,8 @@ public static class InputControllerTests
         Console.WriteLine("InputController tests passed");
     }
 
-    private sealed class FakeObservationSource(CuPoint? point = null) : ICuObservationSource
+    private sealed class FakeObservationSource(
+        CuPoint? point = null, CuPoint? screenOffset = null) : ICuObservationSource
     {
         public Task<IReadOnlyDictionary<string, object?>> ObserveAsync(
             string conversationId, int stepNumber, CancellationToken cancellationToken) =>
@@ -117,6 +126,12 @@ public static class InputControllerTests
 
         public Task<CuPoint?> ResolveElementCenterAsync(
             long elementId, CancellationToken cancellationToken) => Task.FromResult(point);
+
+        public Task<CuPoint> TranslateScreenPointAsync(
+            string conversationId, CuPoint input, CancellationToken cancellationToken) =>
+            Task.FromResult(screenOffset is null
+                ? input
+                : new CuPoint(input.X + screenOffset.X, input.Y + screenOffset.Y));
     }
 
     private static async Task<Dictionary<string, object?>> InvokeAsync(

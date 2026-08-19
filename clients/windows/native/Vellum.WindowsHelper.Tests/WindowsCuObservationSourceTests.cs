@@ -32,6 +32,14 @@ public static class WindowsCuObservationSourceTests
         Check(capture.LastTargetBounds == new PixelRect(0, 0, 100, 40),
             "screen capture follows the observed target display");
 
+        capture.Result = new ComputerUseCapture(
+            "jpeg", 960, 540, 1920, 1080, null, -1920, -200);
+        await source.ObserveAsync("conv-secondary", 1, CancellationToken.None);
+        var screenPoint = await source.TranslateScreenPointAsync(
+            "conv-secondary", new CuPoint(20, 30), CancellationToken.None);
+        Check(screenPoint == new CuPoint(-1900, -170),
+            "secondary-display screenshot coordinates map to virtual desktop pixels");
+
         var center = await source.ResolveElementCenterAsync(7, CancellationToken.None);
         Check(center == new CuPoint(70, 50), "element ids resolve to physical-pixel centers");
 

@@ -21,6 +21,9 @@ public interface ICuObservationSource
         string conversationId, int stepNumber, CancellationToken cancellationToken);
 
     Task<CuPoint?> ResolveElementCenterAsync(long elementId, CancellationToken cancellationToken);
+
+    Task<CuPoint> TranslateScreenPointAsync(
+        string conversationId, CuPoint point, CancellationToken cancellationToken);
 }
 
 public sealed record CuPoint(double X, double Y);
