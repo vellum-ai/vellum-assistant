@@ -63,6 +63,10 @@ const SELECTABLE_TEXT_SELECTOR = "[data-message-text]";
  * the keyboard would resize the viewport out from under the selection. With no
  * selection in play a drag over message text is just a swipe, and the gesture
  * takes it.
+ *
+ * This is the arming check only. A selection can also appear partway through a
+ * drag that started without one, which the hook catches by re-reading
+ * `hasLiveSelection()` before it dismisses.
  */
 export function ownsVerticalTextDrag(
   target: EventTarget | null,
@@ -75,6 +79,21 @@ export function ownsVerticalTextDrag(
     return true;
   }
   return hasLiveSelection && target.closest(SELECTABLE_TEXT_SELECTOR) !== null;
+}
+
+/**
+ * Whether the drag began on selectable transcript text.
+ *
+ * Remembered for the life of the gesture so the selection can be re-checked at
+ * the moment of dismissal: a long press raises a selection partway through a
+ * drag that started with none, and only a touch that began on message text can
+ * be the one adjusting it.
+ */
+export function startsOnSelectableText(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return target.closest(SELECTABLE_TEXT_SELECTOR) !== null;
 }
 
 /**
@@ -146,6 +165,11 @@ interface DragState {
   touchId: number;
   startX: number;
   startY: number;
+  /**
+   * Whether the touch began on selectable transcript text, so a selection
+   * appearing later in the drag can be recognised as this touch's doing.
+   */
+  onSelectableText: boolean;
 }
 
 function findTouch(touches: TouchList, touchId: number): Touch | null {
@@ -232,6 +256,7 @@ export function useSwipeDownDismissKeyboard({
         touchId: touch.identifier,
         startX: touch.clientX,
         startY: touch.clientY,
+        onSelectableText: startsOnSelectableText(event.target),
       };
     };
 
@@ -260,8 +285,16 @@ export function useSwipeDownDismissKeyboard({
       }
       // Cleared either way: a cancelled gesture must not resume if the finger
       // wanders back down, and a dismissal fires once per touch.
+      const { onSelectableText } = drag;
       dragRef.current = null;
       if (decision !== "dismiss") {
+        return;
+      }
+      // The selection is re-read here, not just at touchstart. A long press
+      // raises one partway through a drag that began with none, and from that
+      // point the drag is extending the selection: dismissing would resize the
+      // viewport out from under it.
+      if (onSelectableText && hasLiveSelection()) {
         return;
       }
       // Blur first: on iOS that is the dismissal, and it also stops the field

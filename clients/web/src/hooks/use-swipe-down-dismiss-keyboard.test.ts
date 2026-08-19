@@ -12,6 +12,7 @@ import {
   blurFocusedEditable,
   decideSwipeDown,
   ownsVerticalTextDrag,
+  startsOnSelectableText,
 } from "@/hooks/use-swipe-down-dismiss-keyboard";
 
 const NO_SELECTION = false;
@@ -85,6 +86,28 @@ describe("ownsVerticalTextDrag", () => {
   test("is false for a non-element target", () => {
     expect(ownsVerticalTextDrag(null, NO_SELECTION)).toBe(false);
     expect(ownsVerticalTextDrag(document, NO_SELECTION)).toBe(false);
+  });
+});
+
+describe("startsOnSelectableText", () => {
+  test("is true on a message text block and its descendants", () => {
+    const message = document.createElement("div");
+    message.setAttribute("data-message-text", "");
+    const span = document.createElement("span");
+    message.appendChild(span);
+    document.body.appendChild(message);
+    expect(startsOnSelectableText(message)).toBe(true);
+    expect(startsOnSelectableText(span)).toBe(true);
+    message.remove();
+  });
+
+  test("is false off message text, so chrome never waits on a selection", () => {
+    const header = document.createElement("header");
+    document.body.appendChild(header);
+    expect(startsOnSelectableText(header)).toBe(false);
+    expect(startsOnSelectableText(null)).toBe(false);
+    expect(startsOnSelectableText(document)).toBe(false);
+    header.remove();
   });
 });
 

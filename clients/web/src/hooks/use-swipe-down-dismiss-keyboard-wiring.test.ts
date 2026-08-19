@@ -17,6 +17,11 @@ mock.module("@/utils/pointer", () => ({
   isPointerCoarse: () => pointerCoarse,
 }));
 
+const hideNativeKeyboardMock = mock(async () => {});
+mock.module("@/runtime/native-keyboard", () => ({
+  hideNativeKeyboard: hideNativeKeyboardMock,
+}));
+
 const { useSwipeDownDismissKeyboard } =
   await import("@/hooks/use-swipe-down-dismiss-keyboard");
 
@@ -113,5 +118,131 @@ describe("useSwipeDownDismissKeyboard listener wiring", () => {
     rerender({ enabled: false });
 
     expect(removed).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gesture behaviour against the live DOM. The hook listens on `document`, so
+// dispatching a bubbling event from an element reaches it with that element as
+// the target, which is what the selectable-text checks read.
+// ---------------------------------------------------------------------------
+
+interface FakeTouch {
+  identifier: number;
+  clientX: number;
+  clientY: number;
+}
+
+function dispatchTouch(
+  target: Element,
+  type: "touchstart" | "touchmove" | "touchend",
+  touches: FakeTouch[],
+): void {
+  const event = new Event(type, { bubbles: true });
+  Object.defineProperty(event, "touches", { value: touches });
+  Object.defineProperty(event, "changedTouches", { value: touches });
+  target.dispatchEvent(event);
+}
+
+const realGetSelection = window.getSelection.bind(window);
+
+function stubSelection(collapsed: boolean): void {
+  window.getSelection = (() => ({
+    isCollapsed: collapsed,
+  })) as typeof window.getSelection;
+}
+
+describe("useSwipeDownDismissKeyboard selection handling", () => {
+  let composer: HTMLTextAreaElement;
+  let message: HTMLElement;
+
+  beforeEach(() => {
+    stubSelection(true);
+    hideNativeKeyboardMock.mockClear();
+    composer = document.createElement("textarea");
+    message = document.createElement("div");
+    message.setAttribute("data-message-text", "");
+    document.body.append(composer, message);
+  });
+
+  afterEach(() => {
+    window.getSelection = realGetSelection;
+    composer.remove();
+    message.remove();
+  });
+
+  function armAndDrag(target: Element): void {
+    dispatchTouch(target, "touchstart", [
+      { identifier: 1, clientX: 100, clientY: 100 },
+    ]);
+    dispatchTouch(target, "touchmove", [
+      { identifier: 1, clientX: 100, clientY: 200 },
+    ]);
+  }
+
+  test("dismisses on a swipe over message text with no selection", () => {
+    renderHook(() => {
+      useSwipeDownDismissKeyboard({ enabled: true });
+    });
+    composer.focus();
+
+    armAndDrag(message);
+
+    expect(document.activeElement).not.toBe(composer);
+  });
+
+  test("does not dismiss when a long press raises a selection mid-drag", () => {
+    // The touch begins with nothing selected, so the gesture arms. The long
+    // press lands during the drag, and from there the finger is extending a
+    // selection, not swiping.
+    renderHook(() => {
+      useSwipeDownDismissKeyboard({ enabled: true });
+    });
+    composer.focus();
+
+    dispatchTouch(message, "touchstart", [
+      { identifier: 1, clientX: 100, clientY: 100 },
+    ]);
+    stubSelection(false);
+    dispatchTouch(message, "touchmove", [
+      { identifier: 1, clientX: 100, clientY: 200 },
+    ]);
+
+    expect(document.activeElement).toBe(composer);
+    expect(hideNativeKeyboardMock).not.toHaveBeenCalled();
+  });
+
+  test("still dismisses when a selection appears under a drag that began off message text", () => {
+    // Only the touch that started on message text can be the one adjusting a
+    // selection. A swipe on the header is not, however the selection got there.
+    const header = document.createElement("header");
+    document.body.appendChild(header);
+    renderHook(() => {
+      useSwipeDownDismissKeyboard({ enabled: true });
+    });
+    composer.focus();
+
+    dispatchTouch(header, "touchstart", [
+      { identifier: 1, clientX: 100, clientY: 100 },
+    ]);
+    stubSelection(false);
+    dispatchTouch(header, "touchmove", [
+      { identifier: 1, clientX: 100, clientY: 200 },
+    ]);
+
+    expect(document.activeElement).not.toBe(composer);
+    header.remove();
+  });
+
+  test("never arms on message text that already carries a selection", () => {
+    stubSelection(false);
+    renderHook(() => {
+      useSwipeDownDismissKeyboard({ enabled: true });
+    });
+    composer.focus();
+
+    armAndDrag(message);
+
+    expect(document.activeElement).toBe(composer);
   });
 });
