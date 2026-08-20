@@ -44,9 +44,24 @@ import { setSecureKeyAsync } from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
   _setMetadataPath,
+  type CredentialMetadata,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 import { serverUseDenialReason } from "../tools/credentials/tool-policy.js";
+
+/** The shared policy's verdict for a state the broker must also deny. */
+function sharedDenialReason(
+  metadata: CredentialMetadata,
+  toolName: string,
+  service: string,
+  field: string,
+): string {
+  const reason = serverUseDenialReason(metadata, toolName, service, field);
+  if (!reason) {
+    throw new Error("expected a denial reason from the shared policy");
+  }
+  return reason;
+}
 
 // ---------------------------------------------------------------------------
 // Tests — serverUse (publish_page / unpublish_page regression)
@@ -519,9 +534,10 @@ describe("CredentialBroker.serverUseById", () => {
     if (result.success) {
       throw new Error("expected denial");
     }
-    expect(result.reason).toContain("not allowed");
-    expect(result.reason).toContain("unauthorized_tool");
-    expect(result.reason).toContain("media_proxy");
+    // The broker passes the shared server-use policy's verdict through verbatim.
+    expect(result.reason).toBe(
+      sharedDenialReason(meta, "unauthorized_tool", "fal", "api_key"),
+    );
   });
 
   test("returns not found for unknown credential ID", async () => {
@@ -554,8 +570,10 @@ describe("CredentialBroker.serverUseById", () => {
     if (result.success) {
       throw new Error("expected denial");
     }
-    expect(result.reason).toContain("domain restrictions");
-    expect(result.reason).toContain("cannot be used server-side");
+    // The broker passes the shared server-use policy's verdict through verbatim.
+    expect(result.reason).toBe(
+      sharedDenialReason(meta, "media_proxy", "github", "oauth_token"),
+    );
   });
 
   test("returns empty injection templates when credential has none", async () => {
@@ -625,60 +643,5 @@ describe("CredentialBroker.serverUseById", () => {
       throw new Error("expected denial");
     }
     expect(result.reason).toContain("no stored value");
-  });
-
-  test("tool denial reason matches the shared server-use policy exactly", async () => {
-    const meta = upsertCredentialMetadata("fal", "api_key", {
-      allowedTools: ["media_proxy"],
-    });
-    await setSecureKeyAsync(credentialKey("fal", "api_key"), "fal-secret-key");
-
-    const result = await broker.serverUseById({
-      credentialId: meta.credentialId,
-      requestingTool: "unauthorized_tool",
-    });
-
-    expect(result.success).toBe(false);
-    if (result.success) {
-      throw new Error("expected denial");
-    }
-    const expected = serverUseDenialReason(
-      meta,
-      "unauthorized_tool",
-      "fal",
-      "api_key",
-    );
-    if (!expected) {
-      throw new Error("expected a denial reason from the shared policy");
-    }
-    expect(result.reason).toBe(expected);
-  });
-
-  test("domain denial reason matches the shared server-use policy exactly", async () => {
-    const meta = upsertCredentialMetadata("github", "oauth_token", {
-      allowedTools: ["media_proxy"],
-      allowedDomains: ["github.com"],
-    });
-    await setSecureKeyAsync(credentialKey("github", "oauth_token"), "gho_test");
-
-    const result = await broker.serverUseById({
-      credentialId: meta.credentialId,
-      requestingTool: "media_proxy",
-    });
-
-    expect(result.success).toBe(false);
-    if (result.success) {
-      throw new Error("expected denial");
-    }
-    const expected = serverUseDenialReason(
-      meta,
-      "media_proxy",
-      "github",
-      "oauth_token",
-    );
-    if (!expected) {
-      throw new Error("expected a denial reason from the shared policy");
-    }
-    expect(result.reason).toBe(expected);
   });
 });

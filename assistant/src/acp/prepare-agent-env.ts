@@ -43,12 +43,20 @@ const log = getLogger("acp:prepare-agent-env");
 const ACP_SPAWN_TOOL = "acp_spawn";
 
 /**
+ * `usageDescription` recorded on `acp/claude_oauth_token` when a record is
+ * created, shared by the spawn-time ensure and the Connect repair so the two
+ * paths can't describe the same credential differently.
+ */
+export const ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION =
+  "Claude OAuth token for ACP agent authentication";
+
+/**
  * Stable, machine-readable marker carried on the `FailedDependencyError.details`
  * when a `claude-agent-acp` spawn is missing `CLAUDE_CODE_OAUTH_TOKEN`. Threaded
  * through the tool result / error payload as a structured field so clients can
  * offer the inline "Connect Claude Code" flow instead of re-parsing the human
  * message string. Kept in lockstep with the web literal in
- * `clients/web/src/domains/chat/transcript/acp-connect-affordance.tsx`.
+ * `clients/web/src/domains/chat/utils/acp-connect.ts`.
  */
 export const ACP_CLAUDE_OAUTH_MISSING_CODE = "acp_claude_oauth_missing";
 
@@ -117,31 +125,38 @@ export function ensureAcpCredentialPolicy(
 }
 
 /**
- * Force-grant the `acp_spawn` read policy on `acp/<field>`, unioning it into any
- * existing `allowedTools`. Unlike {@link ensureAcpCredentialPolicy} (which
- * PRESERVES an explicit non-empty policy so a passive spawn can't silently widen
- * it), this is for the EXPLICIT Connect flow: a user connecting Claude is a
- * deliberate opt-in to `acp_spawn`, so granting it makes the CTA actually repair
- * a policy-denied credential instead of dead-looping the missing-token card.
+ * Make `acp/<field>` readable by the spawn: union `acp_spawn` into any existing
+ * `allowedTools` and drop any domain restriction, in ONE write and only when the
+ * stored record fails either half. This is the whole repair the Connect flow
+ * performs, so a new dimension of {@link serverUseDenialReason} is repaired in
+ * exactly one place.
+ *
+ * Unlike {@link ensureAcpCredentialPolicy} (which PRESERVES an explicit non-empty
+ * policy so a passive spawn can't silently widen it), this is for the EXPLICIT
+ * Connect flow: a user connecting Claude is a deliberate opt-in to `acp_spawn`,
+ * so granting it makes the CTA actually repair a policy-denied credential instead
+ * of dead-looping the missing-token card. Domains are cleared under the same
+ * opt-in: this field is OAuth-only and server-use-only, and the broker refuses a
+ * domain-restricted credential server-side, so a lingering restriction would keep
+ * every spawn failing even after a successful connect.
  */
-export function grantAcpSpawnPolicy(
+export function repairAcpSpawnPolicy(
   field: string,
   usageDescription: string,
 ): void {
   const meta = getCredentialMetadata(ACP_SERVICE, field);
-  if (!meta) {
-    upsertCredentialMetadata(ACP_SERVICE, field, {
-      allowedTools: [ACP_SPAWN_TOOL],
-      usageDescription,
-    });
+  const tools = meta?.allowedTools ?? [];
+  const spawnAllowed = tools.includes(ACP_SPAWN_TOOL);
+  const domainUnrestricted = (meta?.allowedDomains ?? []).length === 0;
+  if (meta && spawnAllowed && domainUnrestricted) {
     return;
   }
-  const tools = meta.allowedTools ?? [];
-  if (!tools.includes(ACP_SPAWN_TOOL)) {
-    upsertCredentialMetadata(ACP_SERVICE, field, {
-      allowedTools: [...tools, ACP_SPAWN_TOOL],
-    });
-  }
+  upsertCredentialMetadata(ACP_SERVICE, field, {
+    allowedTools: spawnAllowed ? tools : [...tools, ACP_SPAWN_TOOL],
+    allowedDomains: [],
+    // Only a fresh record takes the description; an existing one keeps its own.
+    ...(meta ? {} : { usageDescription }),
+  });
 }
 
 /**
@@ -293,7 +308,7 @@ export async function prepareAgentEnv(
         env,
         ACP_OAUTH_TOKEN_FIELD,
         "CLAUDE_CODE_OAUTH_TOKEN",
-        "Claude OAuth token for ACP agent authentication",
+        ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
       );
     }
     // Any api-key-shaped value still standing here came from the vault read:

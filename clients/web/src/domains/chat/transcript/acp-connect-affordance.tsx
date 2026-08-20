@@ -105,8 +105,9 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
     // Leave a breadcrumb: the card flashing and vanishing is otherwise silent,
     // and a self-heal dismissal next to a fresh missing-token failure is the
     // signature of a status/spawn predicate mismatch. It goes in the durable
-    // lifecycle ring because streaming floods the high-volume ring, which held
-    // only minutes of history in the bundle that motivated this breadcrumb.
+    // lifecycle ring because streaming floods the high-volume ring, which then
+    // evicts within minutes, and the breadcrumb has to survive until a feedback
+    // bundle is captured.
     const store = useInteractionStore.getState();
     recordLifecycleDiagnostic("acp_connect_self_heal_dismiss", {
       assistantId,
