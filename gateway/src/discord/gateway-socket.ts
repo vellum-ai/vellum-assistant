@@ -28,6 +28,7 @@ import { fetchImpl } from "../fetch.js";
 import type { DiscordInboundEvent } from "../channels/inbound-event.js";
 import { admitDiscordMessage } from "./admit.js";
 import { AdmissionDropLog } from "./admission-log.js";
+import { extractDiscordAttachmentMap } from "./attachments.js";
 import { ReconnectBackoff, SESSION_STABLE_AFTER_MS } from "./backoff.js";
 import {
   RESUMABLE_CLOSE_CODE,
@@ -160,7 +161,10 @@ export class DiscordGatewayClient {
 
   constructor(
     options: DiscordGatewayClientOptions,
-    private readonly onEvent: (event: DiscordInboundEvent) => void,
+    private readonly onEvent: (
+      event: DiscordInboundEvent,
+      attachmentRefs?: ReturnType<typeof extractDiscordAttachmentMap>,
+    ) => void,
   ) {
     this.botToken = options.botToken;
     this.readAllowedChannelIds = options.readAllowedChannelIds;
@@ -706,7 +710,7 @@ export class DiscordGatewayClient {
       },
       "Discord message admitted",
     );
-    this.onEvent(normalized);
+    this.onEvent(normalized, extractDiscordAttachmentMap(message.attachments));
   }
 
   /**

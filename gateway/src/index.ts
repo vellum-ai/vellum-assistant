@@ -169,11 +169,11 @@ import {
 } from "./http/routes/channel-permission-overrides.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
+import { CircuitBreakerOpenError, uploadAttachment } from "./runtime/client.js";
 import {
-  AttachmentValidationError,
-  CircuitBreakerOpenError,
-  uploadAttachment,
-} from "./runtime/client.js";
+  appendFailedAttachmentNotice,
+  ingestAttachments,
+} from "./attachments/ingest.js";
 import { buildSchema } from "./schema.js";
 import {
   createSlackSocketModeClient,
@@ -182,6 +182,7 @@ import {
 import { downloadSlackFile } from "./slack/download.js";
 import { slackBotContactNote } from "./slack/actor.js";
 import { DiscordGatewayClient } from "./discord/gateway-socket.js";
+import { downloadDiscordFile } from "./discord/download.js";
 import { readDiscordAllowedChannelIds } from "./discord/allowed-channels.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { upsertContactChannel } from "./verification/contact-helpers.js";
@@ -2431,12 +2432,6 @@ async function main() {
               normalized.slackFiles &&
               !refersToAnotherMessage
             ) {
-              attachmentIds = [];
-              const failedAttachmentNames: string[] = [];
-              const maxBytes =
-                config.maxAttachmentBytes.slack ??
-                config.maxAttachmentBytes.default;
-
               // Guardian-actor bypass: when the Slack sender is the
               // assistant's owner, the upload is marked trustedSource so the
               // assistant accepts arbitrary MIME types and extensions
@@ -2462,84 +2457,36 @@ async function main() {
                 }
               }
 
-              // Filter oversized attachments
-              const eligible = eventAttachments.filter((att) => {
-                if (att.fileSize !== undefined && att.fileSize > maxBytes) {
-                  log.warn(
-                    {
-                      fileId: att.fileId,
-                      fileSize: att.fileSize,
-                      limit: maxBytes,
-                    },
-                    "Skipping oversized Slack attachment",
-                  );
-                  return false;
-                }
-                return true;
-              });
-
-              // Process with bounded concurrency. Socket Mode has no retry
-              // mechanism, so all errors (validation and transient) are logged
-              // and skipped — the message is still delivered without the
-              // failed attachment.
-              for (
-                let i = 0;
-                i < eligible.length;
-                i += config.maxAttachmentConcurrency
-              ) {
-                const batch = eligible.slice(
-                  i,
-                  i + config.maxAttachmentConcurrency,
-                );
-                const results = await Promise.allSettled(
-                  batch.map(async (att) => {
+              const result = await ingestAttachments(
+                config,
+                "slack",
+                eventAttachments,
+                log,
+                {
+                  download: (att) => {
                     const slackFile = normalized.slackFiles?.get(att.fileId);
                     if (!slackFile) {
                       throw new Error(
                         `No SlackFile found for attachment ${att.fileId}`,
                       );
                     }
-                    const downloaded = await downloadSlackFile(
-                      slackFile,
-                      botToken,
-                    );
-                    return uploadAttachment(
+                    return downloadSlackFile(slackFile, botToken);
+                  },
+                  upload: (downloaded) =>
+                    uploadAttachment(
                       config,
                       { ...downloaded, trustedSource: isGuardianActor },
                       { skipCircuitBreaker: true },
-                    );
-                  }),
-                );
-                for (let j = 0; j < results.length; j++) {
-                  const result = results[j];
-                  if (result.status === "fulfilled") {
-                    attachmentIds.push(result.value.id);
-                  } else if (
-                    result.reason instanceof AttachmentValidationError
-                  ) {
-                    const att = batch[j];
-                    failedAttachmentNames.push(att.fileName || att.fileId);
-                    log.warn(
-                      { err: result.reason },
-                      "Skipping Slack attachment with validation error",
-                    );
-                  } else {
-                    const att = batch[j];
-                    failedAttachmentNames.push(att.fileName || att.fileId);
-                    log.warn(
-                      { err: result.reason },
-                      "Skipping Slack attachment due to download/upload failure",
-                    );
-                  }
-                }
-              }
-
-              if (failedAttachmentNames.length > 0) {
-                const nameList = failedAttachmentNames
-                  .map((n) => `"${n}"`)
-                  .join(", ");
-                normalized.event.message.content += `\n\n[The user attached file(s) that could not be retrieved: ${nameList}. Ask them to re-send if the content is important.]`;
-              }
+                    ),
+                  rethrowTransientErrors: false,
+                  logLabel: "Slack",
+                },
+              );
+              attachmentIds = result.attachmentIds;
+              normalized.event.message.content = appendFailedAttachmentNotice(
+                normalized.event.message.content,
+                result.failedAttachmentNames,
+              );
             }
 
             handleInbound(config, normalized.event, {
@@ -2635,7 +2582,7 @@ async function main() {
         readAllowedChannelIds: () =>
           readDiscordAllowedChannelIds(configFileCache),
       },
-      (event) => {
+      (event, attachmentRefs) => {
         // Reset the platform idle-sleep timer — inbound Discord activity
         // keeps the assistant awake like any other channel's.
         notifyRecordActivity();
@@ -2670,15 +2617,80 @@ async function main() {
           ? `${config.gatewayInternalBaseUrl}/deliver/discord?${new URLSearchParams({ threadId })}`
           : `${config.gatewayInternalBaseUrl}/deliver/discord`;
 
-        handleInbound(config, event, { replyCallbackUrl }).catch((err) => {
-          log.error(
-            {
-              err,
-              conversationExternalId: event.message.conversationExternalId,
-            },
-            "Failed to forward Discord event to runtime",
-          );
-        });
+        const forward = async () => {
+          try {
+            let attachmentIds: string[] | undefined;
+            const eventAttachments = event.message.attachments;
+            if (
+              eventAttachments &&
+              eventAttachments.length > 0 &&
+              attachmentRefs
+            ) {
+              const result = await ingestAttachments(
+                config,
+                "discord",
+                eventAttachments,
+                log,
+                {
+                  download: (attachment) => {
+                    const reference = attachmentRefs.get(attachment.fileId);
+                    if (!reference) {
+                      throw new Error(
+                        `No Discord attachment found for ${attachment.fileId}`,
+                      );
+                    }
+                    return downloadDiscordFile(reference);
+                  },
+                  upload: (downloaded) => uploadAttachment(config, downloaded),
+                  rethrowTransientErrors: false,
+                  logLabel: "Discord",
+                },
+              );
+              attachmentIds = result.attachmentIds;
+              event.message.content = appendFailedAttachmentNotice(
+                event.message.content,
+                result.failedAttachmentNames,
+              );
+            }
+
+            handleInbound(config, event, {
+              replyCallbackUrl,
+              ...(attachmentIds && attachmentIds.length > 0
+                ? { attachmentIds }
+                : {}),
+            }).catch((err) => {
+              log.error(
+                {
+                  err,
+                  conversationExternalId: event.message.conversationExternalId,
+                },
+                "Failed to forward Discord event to runtime",
+              );
+            });
+          } catch (err) {
+            log.error(
+              {
+                err,
+                conversationExternalId: event.message.conversationExternalId,
+              },
+              "Failed to process Discord event, delivering without attachments",
+            );
+            handleInbound(config, event, { replyCallbackUrl }).catch(
+              (fwdErr) => {
+                log.error(
+                  {
+                    err: fwdErr,
+                    conversationExternalId:
+                      event.message.conversationExternalId,
+                  },
+                  "Failed to forward Discord event to runtime (fallback)",
+                );
+              },
+            );
+          }
+        };
+
+        void forward();
       },
     );
 

@@ -206,6 +206,9 @@ export function loadConfig(): GatewayConfig {
       telegramOutbound: 50 * 1024 * 1024, // Telegram Bot API sendDocument (upload) limit
       slack: 100 * 1024 * 1024, // Slack standard plan
       whatsapp: 16 * 1024 * 1024, // WhatsApp Business API limit
+      // Discord's attachment limit can exceed this value; the runtime's
+      // MAX_UPLOAD_BYTES cap of 100 MB is the effective ceiling.
+      discord: 100 * 1024 * 1024,
       email: 25 * 1024 * 1024, // Platform inbound-attachment per-file cap
       default: 100 * 1024 * 1024, // Fallback; capped by runtime MAX_UPLOAD_BYTES (100 MB)
     },

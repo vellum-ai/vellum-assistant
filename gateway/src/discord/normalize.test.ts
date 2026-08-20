@@ -188,6 +188,106 @@ describe("normalizeDiscordMessage", () => {
     expect(Number.isNaN(Date.parse(event?.receivedAt ?? ""))).toBe(false);
   });
 
+  test("maps attachment media types to canonical kinds", () => {
+    const raw = messagePayload({
+      attachments: [
+        {
+          id: "image-1",
+          filename: "photo.png",
+          size: 10,
+          content_type: "image/png",
+          url: "https://cdn.discord.test/photo.png",
+        },
+        {
+          id: "video-1",
+          filename: "clip.mp4",
+          size: 11,
+          content_type: "video/mp4",
+          url: "https://cdn.discord.test/clip.mp4",
+        },
+        {
+          id: "audio-1",
+          filename: "voice.ogg",
+          size: 12,
+          content_type: "audio/ogg",
+          url: "https://cdn.discord.test/voice.ogg",
+        },
+        {
+          id: "document-1",
+          filename: "notes.bin",
+          size: 13,
+          content_type: "application/octet-stream",
+          url: "https://cdn.discord.test/notes.bin",
+        },
+        {
+          id: "missing-type-1",
+          filename: "unknown",
+          size: 14,
+          url: "https://cdn.discord.test/unknown",
+        },
+      ],
+    });
+    const event = normalizeDiscordMessage(parse(raw), { raw });
+
+    expect(event?.message.attachments).toEqual([
+      {
+        type: "image",
+        fileId: "image-1",
+        fileName: "photo.png",
+        mimeType: "image/png",
+        fileSize: 10,
+      },
+      {
+        type: "video",
+        fileId: "video-1",
+        fileName: "clip.mp4",
+        mimeType: "video/mp4",
+        fileSize: 11,
+      },
+      {
+        type: "audio",
+        fileId: "audio-1",
+        fileName: "voice.ogg",
+        mimeType: "audio/ogg",
+        fileSize: 12,
+      },
+      {
+        type: "document",
+        fileId: "document-1",
+        fileName: "notes.bin",
+        mimeType: "application/octet-stream",
+        fileSize: 13,
+      },
+      {
+        type: "document",
+        fileId: "missing-type-1",
+        fileName: "unknown",
+        fileSize: 14,
+      },
+    ]);
+  });
+
+  test("omits attachments that do not have a download URL", () => {
+    const raw = messagePayload({
+      attachments: [
+        {
+          id: "missing-url",
+          filename: "missing.txt",
+          size: 10,
+          content_type: "text/plain",
+        },
+      ],
+    });
+    const event = normalizeDiscordMessage(parse(raw), { raw });
+    expect(event?.message.attachments).toBeUndefined();
+  });
+
+  test("omits the attachments key when the payload has no attachments", () => {
+    const raw = messagePayload();
+    const event = normalizeDiscordMessage(parse(raw), { raw });
+    expect("attachments" in (event?.message ?? {})).toBe(false);
+  });
+
   test("thread messages deliver on the parent with the thread as threadId", () => {
     const raw = messagePayload({ channel_id: "thread-1" });
     const event = normalizeDiscordMessage(parse(raw), {

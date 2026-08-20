@@ -1,0 +1,112 @@
+import { afterEach, describe, expect, mock, test } from "bun:test";
+
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { downloadDiscordFile } = await import("./download.js");
+
+function makeAttachment(
+  overrides?: Record<string, unknown>,
+): Parameters<typeof downloadDiscordFile>[0] {
+  return {
+    id: "attachment-1",
+    filename: "photo.png",
+    size: 10,
+    content_type: "image/png",
+    url: "https://cdn.discord.test/attachments/1/photo.png?ex=abc&is=def&hm=ghi",
+    ...overrides,
+  } as Parameters<typeof downloadDiscordFile>[0];
+}
+
+function makePngBuffer(): ArrayBuffer {
+  return Uint8Array.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+    0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xde,
+  ]).buffer;
+}
+
+afterEach(() => {
+  fetchMock = mock(async () => new Response());
+});
+
+describe("downloadDiscordFile", () => {
+  test("downloads from the signed payload URL without authorization", async () => {
+    const buffer = makePngBuffer();
+    fetchMock = mock(async () => new Response(buffer));
+
+    const attachment = makeAttachment();
+    const result = await downloadDiscordFile(attachment);
+
+    expect(result.filename).toBe("photo.png");
+    expect(result.mimeType).toBe("image/png");
+    expect(result.data).toBe(Buffer.from(buffer).toString("base64"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(attachment.url);
+    expect((init as RequestInit).headers).toBeUndefined();
+  });
+
+  test("throws for a non-OK response", async () => {
+    fetchMock = mock(
+      async () =>
+        new Response("expired", { status: 403, statusText: "Forbidden" }),
+    );
+    await expect(downloadDiscordFile(makeAttachment())).rejects.toThrow(
+      "Failed to download Discord file attachment-1: 403 Forbidden",
+    );
+  });
+
+  test("prefers payload, sniffed, response, then fallback MIME types", async () => {
+    fetchMock = mock(
+      async () =>
+        new Response(new TextEncoder().encode("plain text"), {
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        }),
+    );
+    expect(
+      (await downloadDiscordFile(makeAttachment({ content_type: "text/csv" })))
+        .mimeType,
+    ).toBe("text/csv");
+
+    fetchMock = mock(
+      async () =>
+        new Response(makePngBuffer(), {
+          headers: { "Content-Type": "application/octet-stream" },
+        }),
+    );
+    expect(
+      (await downloadDiscordFile(makeAttachment({ content_type: undefined })))
+        .mimeType,
+    ).toBe("image/png");
+
+    fetchMock = mock(
+      async () =>
+        new Response(new TextEncoder().encode("plain text"), {
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        }),
+    );
+    expect(
+      (await downloadDiscordFile(makeAttachment({ content_type: undefined })))
+        .mimeType,
+    ).toBe("text/plain");
+
+    fetchMock = mock(
+      async () => new Response(new TextEncoder().encode("plain text")),
+    );
+    expect(
+      (await downloadDiscordFile(makeAttachment({ content_type: undefined })))
+        .mimeType,
+    ).toBe("application/octet-stream");
+  });
+});
