@@ -141,11 +141,11 @@ export interface PendingInteractionsSnapshot {
   pendingSecret: PendingSecretState | null;
   isSubmittingSecret: boolean;
   pendingConfirmation: PendingConfirmationState | null;
-  isSubmittingConfirmation: boolean;
+  submittingConfirmationRequestId: string | null;
   pendingContactRequest: PendingContactRequestState | null;
   isSubmittingContactRequest: boolean;
   pendingQuestion: PendingQuestionState | null;
-  isSubmittingQuestion: boolean;
+  submittingQuestionRequestId: string | null;
   /** True while the question card is hidden but `pendingQuestion` is set —
    *  the composer free-text intercept still routes to `submitQuestionResponse`. */
   isQuestionCardDismissed: boolean;
@@ -621,11 +621,13 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     if (conditions.hasUncompletedVisibleSurface) {
       failingConditions.push("hasUncompletedVisibleSurface");
     }
-    if (!(
-      conditions.isThinking ||
-      conditions.restoredProcessing ||
-      !conditions.hasStreamingAssistantMessage
-    )) {
+    if (
+      !(
+        conditions.isThinking ||
+        conditions.restoredProcessing ||
+        !conditions.hasStreamingAssistantMessage
+      )
+    ) {
       failingConditions.push("streamingAssistantMessageActive");
     }
     if (conditions.hasStreamingAssistantThinking) {

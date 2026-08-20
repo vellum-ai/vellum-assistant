@@ -44,7 +44,9 @@ function cleanupAfterConfirmationDecision(
 ): void {
   const confirmationDecisionValue =
     decision === "allow" ? "approved" : "denied";
-  useInteractionStore.getState().dismissConfirmation();
+  useInteractionStore
+    .getState()
+    .dismissConfirmationIfMatches(snapshot.requestId);
   useInteractionStore.getState().setInlineConfirmationToolCallId(null);
   const convKey = useConversationStore.getState().activeConversationId;
   if (convKey) {
@@ -103,42 +105,22 @@ function cleanupAfterConfirmationDecision(
   }
 
   useChatSessionStore.getState().deleteConfirmationToolCall(snapshot.requestId);
-  useInteractionStore.getState().submitConfirmationEnd();
+  useInteractionStore.getState().submitConfirmationEnd(snapshot.requestId);
 }
 
 /**
- * Whether the shared confirmation state still belongs to the submission that is
- * resuming.
+ * Whether this submission still holds the confirmation slot.
  *
- * `isSubmittingConfirmation`, the session error, and the card are single slots
- * rather than per-request, so a submission whose prompt has since been replaced
- * would otherwise clear a newer prompt's submitting flag, overwrite its error,
- * and retire its card.
- *
- * An occupied slot belongs to whoever is in it, which keeps a re-show of the
- * same request owned. An untouched empty slot belongs to a submission that
- * never had a standalone card, the ordinary inline case. An emptied slot
- * belongs to whoever left last: the daemon broadcasts `interaction_resolved`
- * before its POST response returns, so a submission's own resolution routinely
- * retires the card mid-flight, and that cleanup is still its to finish. A
- * prompt that came and went in between leaves a different id behind.
+ * The session error and the double-submit guard are shared, so a submission
+ * that has been superseded must leave them to whoever holds them now. It can
+ * ask directly, because the id it is comparing against is the one it set when
+ * it started: nothing about the prompt's own lifecycle can answer for it, and
+ * nothing else clears it.
  */
-function stillOwnsConfirmationState(
-  requestId: string,
-  revisionBefore: number,
-): boolean {
-  const {
-    pendingConfirmation,
-    confirmationRevision,
-    lastSettledConfirmationRequestId,
-  } = useInteractionStore.getState();
-  if (pendingConfirmation) {
-    return pendingConfirmation.requestId === requestId;
-  }
-  if (confirmationRevision === revisionBefore) {
-    return true;
-  }
-  return lastSettledConfirmationRequestId === requestId;
+function stillOwnsConfirmationState(requestId: string): boolean {
+  return (
+    useInteractionStore.getState().submittingConfirmationRequestId === requestId
+  );
 }
 
 /**
@@ -158,7 +140,9 @@ function stillOwnsConfirmationState(
  * transcript already reflects the tool call's own outcome.
  */
 function clearStaleConfirmation(snapshot: PendingConfirmationState): void {
-  useInteractionStore.getState().dismissConfirmation();
+  useInteractionStore
+    .getState()
+    .dismissConfirmationIfMatches(snapshot.requestId);
   useInteractionStore.getState().setInlineConfirmationToolCallId(null);
   const convKey = useConversationStore.getState().activeConversationId;
   if (convKey) {
@@ -169,7 +153,7 @@ function clearStaleConfirmation(snapshot: PendingConfirmationState): void {
   );
   useChatSessionStore.getState().deleteConfirmationToolCall(snapshot.requestId);
   useChatSessionStore.getState().setError(null);
-  useInteractionStore.getState().submitConfirmationEnd();
+  useInteractionStore.getState().submitConfirmationEnd(snapshot.requestId);
 }
 
 // ---------------------------------------------------------------------------
@@ -184,16 +168,16 @@ export async function handleConfirmationSubmit(
   decision: ConfirmationDecision,
   toolCall?: ChatMessageToolCall,
 ): Promise<void> {
-  const { pendingConfirmation, isSubmittingConfirmation } =
+  const { pendingConfirmation, submittingConfirmationRequestId } =
     useInteractionStore.getState();
   const snapshot = toolCall?.pendingConfirmation ?? pendingConfirmation;
   if (!snapshot) {
     return;
   }
-  if (!toolCall && isSubmittingConfirmation) {
+  if (!toolCall && submittingConfirmationRequestId !== null) {
     return;
   }
-  useInteractionStore.getState().submitConfirmationStart();
+  useInteractionStore.getState().submitConfirmationStart(snapshot.requestId);
   useChatSessionStore.getState().setError(null);
 
   const ctx = useStreamStore.getState().streamContext;
@@ -201,7 +185,7 @@ export async function handleConfirmationSubmit(
     useChatSessionStore
       .getState()
       .setError({ message: "No active session. Please try again." });
-    useInteractionStore.getState().submitConfirmationEnd();
+    useInteractionStore.getState().submitConfirmationEnd(snapshot.requestId);
     return;
   }
 
@@ -225,9 +209,6 @@ export async function handleConfirmationSubmit(
         }
       : undefined;
 
-  // Everything above runs synchronously, so the slot cannot have moved yet.
-  const revisionBefore = useInteractionStore.getState().confirmationRevision;
-
   try {
     const result = await submitConfirmation(
       ctx.assistantId,
@@ -236,7 +217,7 @@ export async function handleConfirmationSubmit(
       ruleHint,
     );
 
-    if (!stillOwnsConfirmationState(snapshot.requestId, revisionBefore)) {
+    if (!stillOwnsConfirmationState(snapshot.requestId)) {
       return;
     }
 
@@ -248,7 +229,7 @@ export async function handleConfirmationSubmit(
         return;
       }
       useChatSessionStore.getState().setError({ message: result.error });
-      useInteractionStore.getState().submitConfirmationEnd();
+      useInteractionStore.getState().submitConfirmationEnd(snapshot.requestId);
       return;
     }
     cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, decision);
@@ -256,13 +237,13 @@ export async function handleConfirmationSubmit(
     // Always reported; only surfaced when this submission still owns the
     // banner, so a dead request cannot mask a live one's failure.
     captureError(err, { context: "submit_confirmation" });
-    if (!stillOwnsConfirmationState(snapshot.requestId, revisionBefore)) {
+    if (!stillOwnsConfirmationState(snapshot.requestId)) {
       return;
     }
     useChatSessionStore.getState().setError({
       message: "Failed to submit confirmation. Please try again.",
     });
-    useInteractionStore.getState().submitConfirmationEnd();
+    useInteractionStore.getState().submitConfirmationEnd(snapshot.requestId);
   }
 }
 
@@ -274,13 +255,13 @@ export async function handleConfirmationSubmit(
 export async function handleAllowAndCreateRule(
   toolCall?: ChatMessageToolCall,
 ): Promise<void> {
-  const { pendingConfirmation, isSubmittingConfirmation } =
+  const { pendingConfirmation, submittingConfirmationRequestId } =
     useInteractionStore.getState();
   const snapshot = toolCall?.pendingConfirmation ?? pendingConfirmation;
   if (!snapshot) {
     return;
   }
-  if (!toolCall && isSubmittingConfirmation) {
+  if (!toolCall && submittingConfirmationRequestId !== null) {
     return;
   }
   const ctx = useStreamStore.getState().streamContext;
@@ -291,7 +272,7 @@ export async function handleAllowAndCreateRule(
     return;
   }
 
-  useInteractionStore.getState().submitConfirmationStart();
+  useInteractionStore.getState().submitConfirmationStart(snapshot.requestId);
 
   const mappedToolCallId =
     toolCall?.id ??
@@ -324,13 +305,10 @@ export async function handleAllowAndCreateRule(
     });
   };
 
-  // Everything above runs synchronously, so the slot cannot have moved yet.
-  const revisionBefore = useInteractionStore.getState().confirmationRevision;
   // The rule editor is this user's own request and the transcript patch names
   // its own requestId, so both stay outside the ownership guard: neither can
   // touch a newer prompt, and withholding the editor would swallow the click.
-  const owns = () =>
-    stillOwnsConfirmationState(snapshot.requestId, revisionBefore);
+  const owns = () => stillOwnsConfirmationState(snapshot.requestId);
 
   try {
     const result = await submitConfirmation(
@@ -347,7 +325,9 @@ export async function handleAllowAndCreateRule(
         useChatSessionStore
           .getState()
           .setError(result.status === 404 ? null : { message: result.error });
-        useInteractionStore.getState().submitConfirmationEnd();
+        useInteractionStore
+          .getState()
+          .submitConfirmationEnd(snapshot.requestId);
         useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       }
       patchTranscriptMessages((prev: DisplayMessage[]) =>
@@ -370,7 +350,7 @@ export async function handleAllowAndCreateRule(
         message:
           "Failed to submit confirmation, but you can still create a rule.",
       });
-      useInteractionStore.getState().submitConfirmationEnd();
+      useInteractionStore.getState().submitConfirmationEnd(snapshot.requestId);
     }
     patchTranscriptMessages((prev: DisplayMessage[]) =>
       clearConfirmationByRequestId(prev, snapshot.requestId),

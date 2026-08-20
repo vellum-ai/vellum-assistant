@@ -12,11 +12,15 @@ import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-ca
 
 export function QuestionPromptSlot() {
   const pendingQuestion = useInteractionStore.use.pendingQuestion();
-  const isSubmitting = useInteractionStore.use.isSubmittingQuestion();
+  const submittingRequestId =
+    useInteractionStore.use.submittingQuestionRequestId();
 
   if (!pendingQuestion) {
     return null;
   }
+
+  // This card's own submission, not any submission.
+  const isSubmitting = submittingRequestId === pendingQuestion.requestId;
 
   return (
     <div className="mb-2">

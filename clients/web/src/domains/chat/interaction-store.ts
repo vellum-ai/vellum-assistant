@@ -33,31 +33,20 @@ export interface InteractionState {
 
   pendingConfirmation: PendingConfirmationState | null;
   /**
-   * Bumped whenever the identity of {@link pendingConfirmation} changes: raised,
-   * retired, or replaced by a different request. Patching the occupant's
-   * contents does not bump it, because the prompt is still the same one.
+   * The request whose confirmation submission is in flight, or `null` when none
+   * is.
    *
-   * A resume after an await asks "is the shared confirmation state still mine",
-   * and this is the only thing that can answer it. Comparing the prompt cannot:
-   * one that arrives and settles inside a single await leaves the slot on the
-   * same `null` it started from, so a stale response would read an untouched
-   * store and write over whatever is there now. Mirrors `questionRevision`.
+   * Carries the id rather than a bare flag because the answer a resume needs
+   * after its await is "is this still *my* submission", and a boolean has
+   * forgotten. Set by the submission that starts it and cleared by that same
+   * submission, so the prompt's own lifecycle never touches it: a card being
+   * raised, retired, or superseded says nothing about whether a request is
+   * still on the wire. The daemon broadcasts `interaction_resolved` before its
+   * POST response returns, so the matching resolution routinely retires the
+   * card while its submission is still awaiting, and that submission must still
+   * finish its own cleanup.
    */
-  confirmationRevision: number;
-  /**
-   * The request whose confirmation last vacated the slot, or `null` when the
-   * slot was emptied by a reset rather than by a prompt settling.
-   *
-   * Needed because the revision alone cannot tell a submission whether the slot
-   * emptied *because of it*. The daemon broadcasts `interaction_resolved`
-   * before its POST response returns, so the matching resolution routinely
-   * lands first and retires the card while the submission is still awaiting;
-   * treating that as a foreign change would skip the very cleanup that
-   * resolution belongs to, stranding the attention key and the tool call's
-   * decision metadata.
-   */
-  lastSettledConfirmationRequestId: string | null;
-  isSubmittingConfirmation: boolean;
+  submittingConfirmationRequestId: string | null;
 
   pendingContactRequest: PendingContactRequestState | null;
   isSubmittingContactRequest: boolean;
@@ -74,7 +63,9 @@ export interface InteractionState {
    * reset, and meaningless in absolute terms; only differences matter.
    */
   questionRevision: number;
-  isSubmittingQuestion: boolean;
+  /** In-flight question submission, by request. See
+   *  {@link submittingConfirmationRequestId} for why it carries an id. */
+  submittingQuestionRequestId: string | null;
   /** When true, the question card is hidden but `pendingQuestion` stays set
    *  so the composer free-text intercept still routes to `submitQuestionResponse`. */
   isQuestionCardDismissed: boolean;
@@ -134,8 +125,8 @@ export interface InteractionActions {
 
   // Confirmation
   showConfirmation: (payload: PendingConfirmationState) => void;
-  submitConfirmationStart: () => void;
-  submitConfirmationEnd: () => void;
+  submitConfirmationStart: (requestId: string) => void;
+  submitConfirmationEnd: (requestId: string) => void;
   dismissConfirmation: () => void;
   dismissConfirmationIfMatches: (requestId: string) => void;
   updateConfirmation: (
@@ -153,8 +144,8 @@ export interface InteractionActions {
 
   // Question
   showQuestion: (payload: PendingQuestionState) => void;
-  submitQuestionStart: () => void;
-  submitQuestionEnd: () => void;
+  submitQuestionStart: (requestId: string) => void;
+  submitQuestionEnd: (requestId: string) => void;
   dismissQuestion: () => void;
   dismissQuestionIfMatches: (requestId: string) => void;
   dismissQuestionCard: () => void;
@@ -186,9 +177,7 @@ const INITIAL_STATE: InteractionState = {
   secretSaved: false,
 
   pendingConfirmation: null,
-  confirmationRevision: 0,
-  lastSettledConfirmationRequestId: null,
-  isSubmittingConfirmation: false,
+  submittingConfirmationRequestId: null,
 
   pendingContactRequest: null,
   isSubmittingContactRequest: false,
@@ -196,7 +185,7 @@ const INITIAL_STATE: InteractionState = {
 
   pendingQuestion: null,
   questionRevision: 0,
-  isSubmittingQuestion: false,
+  submittingQuestionRequestId: null,
   isQuestionCardDismissed: false,
 
   inlineConfirmationToolCallId: null,
@@ -268,44 +257,29 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   },
 
   // ----- Confirmation -----
-  showConfirmation: (payload) =>
-    set((state) => ({
-      pendingConfirmation: payload,
-      confirmationRevision: state.confirmationRevision + 1,
-      isSubmittingConfirmation: false,
-    })),
+  showConfirmation: (payload) => set({ pendingConfirmation: payload }),
 
-  submitConfirmationStart: () => set({ isSubmittingConfirmation: true }),
+  submitConfirmationStart: (requestId) =>
+    set({ submittingConfirmationRequestId: requestId }),
 
-  submitConfirmationEnd: () => set({ isSubmittingConfirmation: false }),
+  // Only the submission that claimed the slot may release it, so a response
+  // that has been superseded cannot reopen the double-submit guard for whoever
+  // holds it now.
+  submitConfirmationEnd: (requestId) =>
+    set((state) =>
+      state.submittingConfirmationRequestId === requestId
+        ? { submittingConfirmationRequestId: null }
+        : {},
+    ),
 
-  dismissConfirmation: () =>
-    set((state) => ({
-      pendingConfirmation: null,
-      isSubmittingConfirmation: false,
-      // Only an actual occupant leaving is a change of occupant. Clearing an
-      // already-empty slot moves nothing and must not advance the revision, or
-      // a submission running against an empty slot would disown itself.
-      ...(state.pendingConfirmation
-        ? {
-            confirmationRevision: state.confirmationRevision + 1,
-            lastSettledConfirmationRequestId:
-              state.pendingConfirmation.requestId,
-          }
-        : {}),
-    })),
+  dismissConfirmation: () => set({ pendingConfirmation: null }),
 
   dismissConfirmationIfMatches: (requestId) => {
     const { pendingConfirmation } = get();
     if (!pendingConfirmation || pendingConfirmation.requestId !== requestId) {
       return;
     }
-    set((state) => ({
-      pendingConfirmation: null,
-      confirmationRevision: state.confirmationRevision + 1,
-      lastSettledConfirmationRequestId: requestId,
-      isSubmittingConfirmation: false,
-    }));
+    set({ pendingConfirmation: null });
   },
 
   updateConfirmation: (requestId, patch) => {
@@ -341,19 +315,23 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set((state) => ({
       pendingQuestion: payload,
       questionRevision: state.questionRevision + 1,
-      isSubmittingQuestion: false,
       isQuestionCardDismissed: false,
     })),
 
-  submitQuestionStart: () => set({ isSubmittingQuestion: true }),
+  submitQuestionStart: (requestId) =>
+    set({ submittingQuestionRequestId: requestId }),
 
-  submitQuestionEnd: () => set({ isSubmittingQuestion: false }),
+  submitQuestionEnd: (requestId) =>
+    set((state) =>
+      state.submittingQuestionRequestId === requestId
+        ? { submittingQuestionRequestId: null }
+        : {},
+    ),
 
   dismissQuestion: () =>
     set((state) => ({
       pendingQuestion: null,
       questionRevision: state.questionRevision + 1,
-      isSubmittingQuestion: false,
       isQuestionCardDismissed: false,
     })),
 
@@ -365,7 +343,6 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set((state) => ({
       pendingQuestion: null,
       questionRevision: state.questionRevision + 1,
-      isSubmittingQuestion: false,
       isQuestionCardDismissed: false,
     }));
   },
@@ -374,24 +351,21 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
 
   // ----- Resets -----
   resetSecretAndConfirmation: () =>
-    set((state) => ({
+    set({
       pendingSecret: null,
       isSubmittingSecret: false,
       secretSaved: false,
       pendingConfirmation: null,
-      confirmationRevision: state.confirmationRevision + 1,
-      // Emptied without settling, so there is no request to credit. Leaving
-      // the previous one in place would let a submission consult an answer
-      // from a prompt two settles ago and claim a slot this reset cleared.
-      lastSettledConfirmationRequestId: null,
-      isSubmittingConfirmation: false,
+      // A reset abandons the interaction outright, which is the one thing that
+      // legitimately ends someone else's submission.
+      submittingConfirmationRequestId: null,
       inlineConfirmationToolCallId: null,
       // Question state is intentionally not cleared: the daemon blocks on
       // /question-response until the prompt settles, and clearing here would
       // hide a card that is still answerable. A question that the daemon does
       // settle retires through `dismissQuestionIfMatches`, driven by the
       // `interaction_resolved` handler and the 404 paths in `question-actions`.
-    })),
+    }),
 
   // ----- ACP Connect Claude prompt -----
   // Skip a restore the user already dismissed this session. The live-failure
@@ -451,12 +425,11 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set((state) => ({
       ...INITIAL_STATE,
       pendingAcpConnect: state.pendingAcpConnect,
-      // A conversation switch drops the cards, which is a change like any
-      // other: carry the counters forward and advance them rather than
-      // restarting from the initial zero. Restarting would let a read issued
-      // before the switch compare equal to the state after it.
+      // A conversation switch drops the card, which is a change like any other:
+      // carry the counter forward and advance it rather than restarting from
+      // the initial zero. Restarting would let a read issued before the switch
+      // compare equal to the state after it.
       questionRevision: state.questionRevision + 1,
-      confirmationRevision: state.confirmationRevision + 1,
     })),
 }));
 

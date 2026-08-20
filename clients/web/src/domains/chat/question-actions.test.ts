@@ -82,15 +82,12 @@ mock.module("@/lib/sentry/capture-error", () => ({
   },
 }));
 
-const { handleQuestionResponse, handleDismissPendingQuestion } = await import(
-  "@/domains/chat/question-actions"
-);
-const { useInteractionStore } = await import(
-  "@/domains/chat/interaction-store"
-);
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { handleQuestionResponse, handleDismissPendingQuestion } =
+  await import("@/domains/chat/question-actions");
+const { useInteractionStore } =
+  await import("@/domains/chat/interaction-store");
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 const { useStreamStore } = await import("@/domains/chat/stream-store");
 
 function seedPendingQuestion(requestId: string): void {
@@ -143,7 +140,9 @@ describe("handleQuestionResponse: stale (404) interaction", () => {
 
     expect(submitCalls).toHaveLength(1);
     expect(useInteractionStore.getState().pendingQuestion).toBeNull();
-    expect(useInteractionStore.getState().isSubmittingQuestion).toBe(false);
+    expect(
+      useInteractionStore.getState().submittingQuestionRequestId,
+    ).toBeNull();
     // The raw server string must never reach the error banner: it renders a
     // "Go to Doctor" CTA for what is an expected, unactionable outcome.
     expect(useChatSessionStore.getState().error).toBeNull();
@@ -168,7 +167,9 @@ describe("handleQuestionResponse: stale (404) interaction", () => {
     expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
       "q-broken",
     );
-    expect(useInteractionStore.getState().isSubmittingQuestion).toBe(false);
+    expect(
+      useInteractionStore.getState().submittingQuestionRequestId,
+    ).toBeNull();
   });
 
   it("leaves a newer prompt standing when a stale answer 404s", async () => {
@@ -224,13 +225,17 @@ async function startOverlappingRequests(): Promise<{
 
   // Both are genuinely in flight, and B owns the shared state.
   expect(submitCalls.map((c) => c.requestId)).toEqual(["q-a", "q-b"]);
-  expect(useInteractionStore.getState().isSubmittingQuestion).toBe(true);
+  expect(
+    useInteractionStore.getState().submittingQuestionRequestId,
+  ).not.toBeNull();
   return { answerA, answerB };
 }
 
 /** Assert B still owns everything after A landed late. */
 function expectBStillOwnsState(): void {
-  expect(useInteractionStore.getState().isSubmittingQuestion).toBe(true);
+  expect(
+    useInteractionStore.getState().submittingQuestionRequestId,
+  ).not.toBeNull();
   expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe("q-b");
 }
 
@@ -344,7 +349,9 @@ describe("handleQuestionResponse: a late completion must not rewrite newer state
     releaseRequest("q-a");
     await answerA;
 
-    expect(useInteractionStore.getState().isSubmittingQuestion).toBe(false);
+    expect(
+      useInteractionStore.getState().submittingQuestionRequestId,
+    ).toBeNull();
     expect(useChatSessionStore.getState().error?.message).toBe("boom");
   });
 });

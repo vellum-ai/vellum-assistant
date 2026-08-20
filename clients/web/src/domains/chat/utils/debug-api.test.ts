@@ -68,11 +68,11 @@ const DEFAULT_PENDING_INTERACTIONS: PendingInteractionsSnapshot = {
   pendingSecret: null,
   isSubmittingSecret: false,
   pendingConfirmation: null,
-  isSubmittingConfirmation: false,
+  submittingConfirmationRequestId: null,
   pendingContactRequest: null,
   isSubmittingContactRequest: false,
   pendingQuestion: null,
-  isSubmittingQuestion: false,
+  submittingQuestionRequestId: null,
   isQuestionCardDismissed: false,
   inlineConfirmationToolCallId: null,
   pendingAcpConnect: null,
@@ -767,12 +767,12 @@ describe("createChatDebugApi.listPendingInteractions", () => {
         description: "irreversible",
         riskLevel: "high",
       },
-      isSubmittingConfirmation: true,
+      submittingConfirmationRequestId: "c1",
       inlineConfirmationToolCallId: "tc-42",
     };
     const second = api.listPendingInteractions();
     expect(second.pendingConfirmation?.requestId).toBe("req-confirm-1");
-    expect(second.isSubmittingConfirmation).toBe(true);
+    expect(second.submittingConfirmationRequestId).toBe("req-confirm-1");
     expect(second.inlineConfirmationToolCallId).toBe("tc-42");
   });
 

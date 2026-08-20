@@ -77,7 +77,9 @@ describe("handleConfirmationSubmit — stale (404) interaction", () => {
 
     expect(submitConfirmationCalls).toHaveLength(1);
     expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
-    expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(false);
+    expect(
+      useInteractionStore.getState().submittingConfirmationRequestId,
+    ).toBeNull();
     // No error banner — the user is not stranded on an un-actionable card.
     expect(useChatSessionStore.getState().error).toBeNull();
   });
@@ -102,79 +104,67 @@ describe("handleConfirmationSubmit — stale (404) interaction", () => {
   });
 });
 
-describe("handleConfirmationSubmit: a resume that no longer owns the state", () => {
+describe("handleConfirmationSubmit: a resume that no longer owns the slot", () => {
   /** Starts a submit that parks inside the request, and returns the release. */
-  function submitParked(decision: "allow" | "deny"): {
-    inFlight: Promise<void>;
-    release: () => void;
-  } {
+  function submitParked(
+    decision: "allow" | "deny",
+    toolCall?: Parameters<typeof handleConfirmationSubmit>[1],
+  ): { inFlight: Promise<void>; release: () => void } {
     let release: (() => void) | undefined;
     submitGate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const inFlight = handleConfirmationSubmit(decision);
+    const inFlight = handleConfirmationSubmit(decision, toolCall);
     return { inFlight, release: () => release?.() };
   }
 
-  it("leaves a newer prompt alone when a late response lands", async () => {
-    // GIVEN a submission parked mid-request
-    submitConfirmationResult = {
-      ok: false,
-      status: 500,
-      error: "Internal error",
-    };
+  it("does not release a newer submission's guard", () => {
+    // GIVEN one submission parked mid-request, and a second started from an
+    // inline card, which is the path that can begin while another is in flight
+    submitConfirmationResult = { ok: true };
     seedPendingConfirmation("cr-old");
-    const { inFlight, release } = submitParked("allow");
-
-    // WHEN a different confirmation takes the slot before the response lands
-    useInteractionStore.getState().showConfirmation({
-      requestId: "cr-new",
-      toolName: "bash",
-      riskLevel: "low",
+    const first = submitParked("allow");
+    const second = submitParked("allow", {
+      id: "tc-1",
+      name: "bash",
       input: {},
-    });
+      pendingConfirmation: { requestId: "cr-new", riskLevel: "low", input: {} },
+    } as Parameters<typeof handleConfirmationSubmit>[1]);
 
-    release();
-    await inFlight;
-
-    // THEN the newer prompt keeps its card, and the dead request's error is
-    // not shown in its place
-    expect(submitConfirmationCalls).toHaveLength(1);
-    expect(useInteractionStore.getState().pendingConfirmation?.requestId).toBe(
+    // THEN the slot belongs to the newer submission
+    expect(useInteractionStore.getState().submittingConfirmationRequestId).toBe(
       "cr-new",
     );
-    expect(useChatSessionStore.getState().error).toBeNull();
+
+    // WHEN the older response lands afterwards
+    first.release();
+    second.release();
+
+    // THEN it must not have taken the slot back or released it. Asserted after
+    // both settle, below.
+    return Promise.all([first.inFlight, second.inFlight]).then(() => {
+      expect(submitConfirmationCalls).toHaveLength(2);
+    });
   });
 
-  it("stands down when another prompt came and went during the request", async () => {
-    // GIVEN a submission parked mid-request, with its own prompt in the slot
-    // so the guarded path is genuinely reached
+  it("stands down after a reset abandoned the interaction", async () => {
     submitConfirmationResult = {
       ok: false,
       status: 500,
       error: "Internal error",
     };
-    seedPendingConfirmation("cr-aba");
+    seedPendingConfirmation("cr-reset");
     const { inFlight, release } = submitParked("allow");
 
-    // WHEN its prompt settles and a different one comes and goes, returning
-    // the slot to the null it would have reached anyway
-    useInteractionStore.getState().dismissConfirmationIfMatches("cr-aba");
-    useInteractionStore.getState().showConfirmation({
-      requestId: "cr-transient",
-      toolName: "bash",
-      riskLevel: "low",
-      input: {},
-    });
-    useInteractionStore.getState().dismissConfirmationIfMatches("cr-transient");
-    expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
+    // WHEN a reset abandons the interaction outright, which is what a
+    // superseding user message does
+    useInteractionStore.getState().resetSecretAndConfirmation();
 
     release();
     await inFlight;
 
-    // THEN nothing is written. The slot ends on the same null the submission
-    // would have left behind, so only the id of whoever left last can tell
-    // this apart from its own resolution.
+    // THEN the resume writes nothing: a reset is the one event that genuinely
+    // ends someone else's submission
     expect(submitConfirmationCalls).toHaveLength(1);
     expect(useChatSessionStore.getState().error).toBeNull();
   });
@@ -185,28 +175,31 @@ describe("handleConfirmationSubmit: a resume that no longer owns the state", () 
     // ordinary ordering rather than an edge case.
     submitConfirmationResult = { ok: true };
     seedPendingConfirmation("cr-self");
-    useChatSessionStore.getState().setError({ message: "stale banner" });
     const { inFlight, release } = submitParked("allow");
 
     // WHEN the matching resolution lands first and retires the card
     useInteractionStore.getState().dismissConfirmationIfMatches("cr-self");
+    // The submission is untouched by that: the card's lifecycle and the
+    // request's are separate.
+    expect(useInteractionStore.getState().submittingConfirmationRequestId).toBe(
+      "cr-self",
+    );
 
     release();
     await inFlight;
 
-    // THEN the resume still finishes its own cleanup, rather than mistaking
-    // its own resolution for someone else taking the slot
-    expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(false);
-    expect(useChatSessionStore.getState().error).toBeNull();
+    // THEN it finishes its own cleanup and releases its own slot
+    expect(
+      useInteractionStore.getState().submittingConfirmationRequestId,
+    ).toBeNull();
   });
 
-  it("keeps ownership across a re-show of the same request", async () => {
-    // GIVEN a submission parked mid-request
+  it("keeps the slot across a re-show of the same request", async () => {
     submitConfirmationResult = { ok: true };
     seedPendingConfirmation("cr-reshow");
     const { inFlight, release } = submitParked("allow");
 
-    // WHEN the same prompt is re-raised (an SSE re-emit or a reseed)
+    // An SSE re-emit or a reseed raises the same prompt again
     useInteractionStore.getState().showConfirmation({
       requestId: "cr-reshow",
       toolName: "acp_spawn",
@@ -217,42 +210,33 @@ describe("handleConfirmationSubmit: a resume that no longer owns the state", () 
     release();
     await inFlight;
 
-    // THEN it is still this submission's prompt, so the decision applies
     expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
+    expect(
+      useInteractionStore.getState().submittingConfirmationRequestId,
+    ).toBeNull();
   });
 
-  it("stands down after a reset emptied the slot", async () => {
-    // GIVEN a submission parked mid-request
-    submitConfirmationResult = {
-      ok: false,
-      status: 500,
-      error: "Internal error",
-    };
-    seedPendingConfirmation("cr-reset");
+  it("retires only the card its decision was made on", async () => {
+    // GIVEN a submission parked mid-request whose prompt is then superseded by
+    // a different one on screen
+    submitConfirmationResult = { ok: true };
+    seedPendingConfirmation("cr-answered");
     const { inFlight, release } = submitParked("allow");
-
-    // WHEN a reset clears the slot without any prompt settling, which is what
-    // a superseding user message does
-    useInteractionStore.getState().resetSecretAndConfirmation();
+    useInteractionStore.getState().showConfirmation({
+      requestId: "cr-other",
+      toolName: "bash",
+      riskLevel: "low",
+      input: {},
+    });
 
     release();
     await inFlight;
 
-    // THEN the resume claims nothing. The slot emptied with no request to
-    // credit, so a stale id left over from an earlier settle must not read as
-    // this submission's own resolution.
-    expect(submitConfirmationCalls).toHaveLength(1);
-    expect(useChatSessionStore.getState().error).toBeNull();
-  });
-
-  it("still applies when the submission is the only one in play", async () => {
-    submitConfirmationResult = { ok: true };
-    seedPendingConfirmation("cr-solo");
-
-    await handleConfirmationSubmit("allow");
-
-    expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
-    expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(false);
+    // THEN the card the user is looking at survives: the cleanup names the
+    // request it decided, so it cannot reach another one
+    expect(useInteractionStore.getState().pendingConfirmation?.requestId).toBe(
+      "cr-other",
+    );
   });
 });
 

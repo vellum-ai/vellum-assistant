@@ -159,7 +159,7 @@ async function executeSaveRule(
   // Confirmation path: resolve via the interaction API rather than direct save.
   if (strategy === "update-or-create" && context.requestId) {
     useRuleEditorStore.getState().setIsSavingRule(true);
-    useInteractionStore.getState().submitConfirmationStart();
+    useInteractionStore.getState().submitConfirmationStart(context.requestId);
     try {
       const result = await submitConfirmation(
         ctx.assistantId,
@@ -181,7 +181,7 @@ async function executeSaveRule(
       return;
     } finally {
       useRuleEditorStore.getState().setIsSavingRule(false);
-      useInteractionStore.getState().submitConfirmationEnd();
+      useInteractionStore.getState().submitConfirmationEnd(context.requestId);
     }
 
     useInteractionStore

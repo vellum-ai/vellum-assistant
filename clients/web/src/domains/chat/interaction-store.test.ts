@@ -115,30 +115,55 @@ describe("useInteractionStore", () => {
     it("showConfirmation sets pendingConfirmation", () => {
       const payload = { requestId: "c1", title: "Deploy?" };
       useInteractionStore.getState().showConfirmation(payload);
-      const s = useInteractionStore.getState();
-      expect(s.pendingConfirmation).toEqual(payload);
-      expect(s.isSubmittingConfirmation).toBe(false);
+      expect(useInteractionStore.getState().pendingConfirmation).toEqual(
+        payload,
+      );
     });
 
     it("submitConfirmationStart/End cycle", () => {
-      useInteractionStore.getState().showConfirmation({ requestId: "c1" });
-      useInteractionStore.getState().submitConfirmationStart();
-      expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(
-        true,
-      );
-      useInteractionStore.getState().submitConfirmationEnd();
-      expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(
-        false,
-      );
+      useInteractionStore.getState().submitConfirmationStart("c1");
+      expect(
+        useInteractionStore.getState().submittingConfirmationRequestId,
+      ).toBe("c1");
+      useInteractionStore.getState().submitConfirmationEnd("c1");
+      expect(
+        useInteractionStore.getState().submittingConfirmationRequestId,
+      ).toBeNull();
     });
 
-    it("dismissConfirmation clears state", () => {
+    it("submitConfirmationEnd ignores a request that does not hold the slot", () => {
+      useInteractionStore.getState().submitConfirmationStart("c1");
+      useInteractionStore.getState().submitConfirmationEnd("c-other");
+      // A superseded response cannot reopen the double-submit guard for the
+      // submission that holds it now.
+      expect(
+        useInteractionStore.getState().submittingConfirmationRequestId,
+      ).toBe("c1");
+    });
+
+    it("the card's lifecycle leaves an in-flight submission alone", () => {
       useInteractionStore.getState().showConfirmation({ requestId: "c1" });
-      useInteractionStore.getState().submitConfirmationStart();
+      useInteractionStore.getState().submitConfirmationStart("c1");
+
+      // The daemon broadcasts `interaction_resolved` before its POST response
+      // returns, so the card is routinely retired while its own submission is
+      // still on the wire. Retiring the card says nothing about that.
+      useInteractionStore.getState().dismissConfirmationIfMatches("c1");
+      expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
+      expect(
+        useInteractionStore.getState().submittingConfirmationRequestId,
+      ).toBe("c1");
+
+      // Nor does a different prompt arriving.
+      useInteractionStore.getState().showConfirmation({ requestId: "c2" });
+      expect(
+        useInteractionStore.getState().submittingConfirmationRequestId,
+      ).toBe("c1");
+
       useInteractionStore.getState().dismissConfirmation();
-      const s = useInteractionStore.getState();
-      expect(s.pendingConfirmation).toBeNull();
-      expect(s.isSubmittingConfirmation).toBe(false);
+      expect(
+        useInteractionStore.getState().submittingConfirmationRequestId,
+      ).toBe("c1");
     });
 
     it("dismissConfirmationIfMatches clears when requestId matches", () => {
@@ -230,18 +255,30 @@ describe("useInteractionStore", () => {
       useInteractionStore.getState().showQuestion(payload);
       const s = useInteractionStore.getState();
       expect(s.pendingQuestion).toEqual(payload);
-      expect(s.isSubmittingQuestion).toBe(false);
       expect(s.isQuestionCardDismissed).toBe(false);
     });
 
     it("submitQuestionStart/End cycle", () => {
+      useInteractionStore.getState().submitQuestionStart("q1");
+      expect(useInteractionStore.getState().submittingQuestionRequestId).toBe(
+        "q1",
+      );
+      useInteractionStore.getState().submitQuestionEnd("q1");
+      expect(
+        useInteractionStore.getState().submittingQuestionRequestId,
+      ).toBeNull();
+    });
+
+    it("retiring a question card leaves an in-flight submission alone", () => {
       useInteractionStore
         .getState()
         .showQuestion({ requestId: "q1", entries: [] });
-      useInteractionStore.getState().submitQuestionStart();
-      expect(useInteractionStore.getState().isSubmittingQuestion).toBe(true);
-      useInteractionStore.getState().submitQuestionEnd();
-      expect(useInteractionStore.getState().isSubmittingQuestion).toBe(false);
+      useInteractionStore.getState().submitQuestionStart("q1");
+      useInteractionStore.getState().dismissQuestionIfMatches("q1");
+      expect(useInteractionStore.getState().pendingQuestion).toBeNull();
+      expect(useInteractionStore.getState().submittingQuestionRequestId).toBe(
+        "q1",
+      );
     });
 
     it("dismissQuestion clears all question state", () => {
@@ -252,7 +289,6 @@ describe("useInteractionStore", () => {
       useInteractionStore.getState().dismissQuestion();
       const s = useInteractionStore.getState();
       expect(s.pendingQuestion).toBeNull();
-      expect(s.isSubmittingQuestion).toBe(false);
       expect(s.isQuestionCardDismissed).toBe(false);
     });
 
@@ -261,9 +297,7 @@ describe("useInteractionStore", () => {
         .getState()
         .showQuestion({ requestId: "q1", entries: [] });
       useInteractionStore.getState().dismissQuestionIfMatches("q1");
-      const s = useInteractionStore.getState();
-      expect(s.pendingQuestion).toBeNull();
-      expect(s.isSubmittingQuestion).toBe(false);
+      expect(useInteractionStore.getState().pendingQuestion).toBeNull();
     });
 
     it("dismissQuestionIfMatches leaves a newer card standing", () => {
