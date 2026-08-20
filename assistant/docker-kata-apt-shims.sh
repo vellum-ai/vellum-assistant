@@ -11,10 +11,14 @@ set -eu
 DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
 SHIM_DIR="${DATA_ROOT}/.host-shims"
 MARKER="# vellum-apt-shim:"
-# dpkg-managed dirs on the PATH overlay (Debian policy keeps packages out of
-# /usr/local; /bin and /sbin are usrmerge symlinks into these), in overlay
-# PATH priority order.
+# dpkg-managed dirs that can hold trampolines (Debian policy keeps packages
+# out of /usr/local; /bin and /sbin are usrmerge symlinks into these).
 SCAN_DIRS="usr/bin usr/sbin usr/games"
+# Every overlay bin dir in PATH priority order (usrmerge collapses bin/sbin
+# into their usr counterparts): precedence must also see the /usr/local dirs
+# that chroot pip installs populate, so a dpkg trampoline never shims over a
+# higher-priority local command.
+PRIORITY_DIRS="usr/bin usr/local/sbin usr/local/bin usr/sbin usr/games"
 
 [ -d "${DATA_ROOT}/usr/bin" ] || exit 0
 mkdir -p "${SHIM_DIR}"
@@ -22,7 +26,7 @@ mkdir -p "${SHIM_DIR}"
 # Scanning the bin dirs forks a few processes per file; skip it when the dpkg
 # database is unchanged (read-only invocations like `apt list` or `dpkg -l`).
 STAMP_FILE="${SHIM_DIR}/.dpkg-status-stamp"
-STAMP="$(stat -c '%Y %s' "${DATA_ROOT}/var/lib/dpkg/status" 2>/dev/null || true)"
+STAMP="$(md5sum "${DATA_ROOT}/var/lib/dpkg/status" 2>/dev/null | cut -d' ' -f1 || true)"
 if [ -n "${STAMP}" ] && [ "${STAMP}" = "$(cat "${STAMP_FILE}" 2>/dev/null || true)" ]; then
   exit 0
 fi
@@ -44,9 +48,9 @@ wrapper_target() {
   printf '%s\n' "${body}" | sed -n 's/^[[:space:]]*exec[[:space:]][[:space:]]*\(\/[^"[:space:]][^"[:space:]]*\)[[:space:]][[:space:]]*"\$@"[[:space:]]*$/\1/p'
 }
 
-# Highest-priority scanned dir that holds an entry for this shim name.
+# Highest-priority overlay dir that holds an entry for this shim name.
 shim_source() {
-  for d in ${SCAN_DIRS}; do
+  for d in ${PRIORITY_DIRS}; do
     if [ -e "${DATA_ROOT}/${d}/$1" ]; then
       printf '%s\n' "${DATA_ROOT}/${d}/$1"
       return 0
