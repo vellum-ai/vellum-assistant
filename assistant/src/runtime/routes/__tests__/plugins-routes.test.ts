@@ -319,9 +319,9 @@ mock.module("../../../cli/lib/toggle-plugin.js", () => ({
   enablePlugin: enablePluginSpy,
 }));
 
-// Spy on the plugin-schedule reconcile the disable handler pokes. The handler
-// imports it lazily at call time, so this mock intercepts the dynamic import
-// and keeps the reconciler's persistence graph out of the test.
+// Spy on the plugin-schedule reconcile so a toggle cannot silently go back
+// to poking it from the route. Enable and disable both await the source
+// reconcile, which converges schedules itself.
 const reconcilePluginSchedulesSpy = mock(() => Promise.resolve());
 
 mock.module("../../../schedule/plugin-schedule-reconciler.js", () => ({
