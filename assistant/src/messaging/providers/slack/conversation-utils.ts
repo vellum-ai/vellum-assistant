@@ -56,22 +56,3 @@ export function slackUserDisplayName(user: SlackUser): string {
     user.name
   );
 }
-
-/**
- * Whether a Slack chat id names a 1:1 DM rather than a channel or group.
- *
- * Read off the id's prefix: `D` for a DM, `C` for a public or private channel,
- * `G` for a legacy group. Callers need this because a guardian binding can be
- * created from an `app_mention` in a shared channel, so a bound chat id is not
- * private by construction.
- *
- * An approximation, and the weaker of the two answers this module holds.
- * {@link classifyConversationType} reads Slack's own `is_im`/`is_mpim`/
- * `is_group` flags and is authoritative; prefer it wherever a
- * `SlackConversation` is in hand. This exists for the paths that hold only an
- * id and would otherwise spend a `conversations.info` round trip per message
- * to learn the same thing.
- */
-export function isSlackDmChatId(chatId: string): boolean {
-  return chatId.startsWith("D");
-}

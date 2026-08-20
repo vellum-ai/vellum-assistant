@@ -62,7 +62,7 @@ import {
   channelDeliversToUserId,
   resolveDeliverCallbackUrlForChannel,
   resolveRequesterDeliveryTarget,
-  stripThreadTsParam,
+  stripTurnDestination,
 } from "./guardian-channel-delivery.js";
 
 const log = getLogger("guardian-request-resolvers");
@@ -110,7 +110,7 @@ async function deliverVerificationCodeToRequester(params: {
   verificationCode: string;
   assistantId: string;
 }): Promise<boolean> {
-  const callbackUrl = stripThreadTsParam(params.replyCallbackUrl);
+  const callbackUrl = stripTurnDestination(params.replyCallbackUrl);
 
   try {
     await deliverChannelReply(callbackUrl, {
@@ -1326,7 +1326,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         guardianUserId &&
         !guardianInBandContext.guardianChatId.startsWith("D")
       ) {
-        const dmCallbackUrl = stripThreadTsParam(
+        const dmCallbackUrl = stripTurnDestination(
           guardianInBandContext.replyCallbackUrl,
         );
 

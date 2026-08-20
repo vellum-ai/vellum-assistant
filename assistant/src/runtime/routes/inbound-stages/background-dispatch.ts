@@ -816,27 +816,14 @@ function startPendingApprovalPromptWatcher(params: {
         const info = pending[0];
         if (prompt && info && !deliveredRequestIds.has(info.requestId)) {
           deliveredRequestIds.add(info.requestId);
-          // Addressed to the guardian, not to the chat the turn is running
-          // in, which on Slack can be a room that reads the tool and its
-          // command preview. `null` means no private address exists, and the
-          // room is not an acceptable substitute.
+          // Addressed to the guardian's own chat, not the chat the turn is
+          // running in, which can be a room that reads the tool and its
+          // command preview.
           const promptDelivery = resolveGuardianPromptDelivery({
-            channel: sourceChannel,
             turnChatId: externalChatId,
             turnCallbackUrl: replyCallbackUrl,
             guardianChatId,
           });
-          if (!promptDelivery) {
-            log.error(
-              { conversationId, sourceChannel, externalChatId },
-              "No private address for the guardian's approval prompt; leaving it to the in-app confirmation",
-            );
-            // Left in `deliveredRequestIds` deliberately. Retrying cannot
-            // help: the binding is not going to become a DM while this turn
-            // waits, and each retry would re-log.
-            await delay(PENDING_APPROVAL_POLL_INTERVAL_MS);
-            continue;
-          }
           const delivered = await deliverGeneratedApprovalPrompt({
             replyCallbackUrl: promptDelivery.callbackUrl,
             chatId: promptDelivery.chatId,
