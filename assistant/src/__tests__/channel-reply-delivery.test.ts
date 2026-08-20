@@ -58,6 +58,19 @@ const renderedHistoryContentQueue: RenderedHistoryStub[] = [];
 
 let deliveryFailAtIndex = -1;
 
+const editCalls: { callbackUrl: string; target: Record<string, unknown> }[] =
+  [];
+
+mock.module("../messaging/providers/index.js", () => ({
+  editChannelMessage: async (
+    callbackUrl: string,
+    target: Record<string, unknown>,
+  ) => {
+    editCalls.push({ callbackUrl, target });
+    return { ok: true };
+  },
+}));
+
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (
     callbackUrl: string,
@@ -784,8 +797,9 @@ describe("channel-reply-delivery", () => {
       assistantId: undefined,
       ephemeral: undefined,
       user: undefined,
-      messageTs: "1700000000.000055",
     });
+    // Attachments post as new messages, so nothing is edited on this path.
+    expect(editCalls).toHaveLength(0);
     expect(seenTs).toEqual(["1700000000.000055"]);
   });
 
