@@ -22,6 +22,7 @@ import {
 import { SideMenu } from "@vellumai/design-library";
 
 import type { AuthUser } from "@/stores/auth-store";
+import { routes } from "@/utils/routes";
 
 const isTouchMobileRef = { value: false };
 const nativeAndroidRef = { value: false };
@@ -116,12 +117,42 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   }),
 }));
 
+// Capture navigate() targets so the menu's destinations can be asserted
+// without a live Router.
+let navigateArgs: unknown[] = [];
 mock.module("react-router", () => ({
-  useNavigate: () => () => {},
+  useNavigate: () => (to: unknown) => {
+    navigateArgs.push(to);
+  },
 }));
 
 mock.module("@/components/share-feedback-modal", () => ({
   ShareFeedbackModal: () => null,
+}));
+
+// The panel owns its own reads (subscription, plan catalog, usage totals),
+// which this suite's partial `@tanstack/react-query` mock cannot host. Its
+// rendering is covered by `preferences-usage-panel.test.tsx`; what the menu
+// owns is where the panel sits and what its two actions do.
+mock.module("@/domains/chat/components/preferences-usage-panel", () => ({
+  PreferencesUsagePanel: ({
+    onOpenBilling,
+    onAddCredits,
+  }: {
+    onOpenBilling: () => void;
+    onAddCredits: () => void;
+  }) =>
+    createElement(
+      "div",
+      { "data-testid": "preferences-usage" },
+      createElement("button", { onClick: onOpenBilling }, "Usage settings"),
+      createElement("button", { onClick: onAddCredits }, "Add usage credits"),
+    ),
+}));
+
+mock.module("@/components/add-credits-modal", () => ({
+  AddCreditsModal: ({ open }: { open: boolean }) =>
+    open ? createElement("div", { "data-testid": "add-credits-modal" }) : null,
 }));
 
 mock.module("@/domains/chat/components/credits-card", () => ({
@@ -140,6 +171,7 @@ const { PreferencesMenu } =
   await import("@/domains/chat/components/preferences-menu");
 
 beforeEach(() => {
+  navigateArgs = [];
   isTouchMobileRef.value = false;
   nativeAndroidRef.value = false;
   authRef.isAuthenticated = true;
@@ -276,6 +308,57 @@ describe("PreferencesMenu", () => {
     expect(visibleText(html)).toContain("Preferences");
     expect(html).toContain("w-fit");
     expect(html).not.toContain("size-[var(--side-menu-tile-size)]");
+  });
+
+  /** Opens the menu the way a touch user does, and returns the open surface. */
+  async function openMenu(): Promise<void> {
+    isTouchMobileRef.value = true;
+    render(<PreferencesMenu />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Preferences/i }));
+      await Promise.resolve();
+    });
+  }
+
+  test("the usage panel sits above the menu's destinations", async () => {
+    await openMenu();
+
+    const panel = screen.getByTestId("preferences-usage");
+    const settings = screen.getByText("Settings");
+    // The panel reads the plan; the rows below it go somewhere.
+    expect(
+      panel.compareDocumentPosition(settings) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  test("the panel's gear opens the Billing tab and closes the menu", async () => {
+    await openMenu();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Usage settings" }));
+      await Promise.resolve();
+    });
+
+    expect(navigateArgs).toEqual([routes.settings.usageBilling]);
+    expect(screen.queryByTestId("preferences-usage")).toBeNull();
+  });
+
+  test("the panel's add-credits action opens the checkout", async () => {
+    await openMenu();
+    expect(screen.queryByTestId("add-credits-modal")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Add usage credits" }),
+      );
+      await Promise.resolve();
+    });
+
+    // The menu closes as it goes, so the modal has to outlive the surface it
+    // was opened from.
+    expect(await screen.findByTestId("add-credits-modal")).toBeTruthy();
+    expect(screen.queryByTestId("preferences-usage")).toBeNull();
   });
 
   test("native Android shows the balance without an add-credits action", async () => {

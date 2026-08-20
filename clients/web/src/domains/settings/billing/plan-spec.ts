@@ -1,4 +1,10 @@
-import { Coins, Computer, HardDrive, Mail, type LucideIcon } from "lucide-react";
+import {
+  Coins,
+  Computer,
+  HardDrive,
+  Mail,
+  type LucideIcon,
+} from "lucide-react";
 
 import {
   FREE_CREDITS_USD,
@@ -6,9 +12,8 @@ import {
 } from "@/domains/settings/billing/plan-tier-meta";
 import type { ProPackage } from "@/domains/settings/billing/package-types";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
-import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
-import { creditTierKeyUsd } from "@/lib/billing/credit-tiers";
+import { creditTierKeyUsd, findCreditTier } from "@/lib/billing/credit-tiers";
 import {
   creditRowLabel,
   formatDollars,

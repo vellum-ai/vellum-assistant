@@ -1,16 +1,20 @@
 /**
- * The Plan section's Usage Balance reading, behind the `obscure-credits` flag:
- * managed usage spend so far this billing cycle measured against the monthly
- * credits the subscription includes.
+ * The Usage Balance reading behind the `obscure-credits` flag: managed usage
+ * spend so far this billing cycle measured against the monthly credits the
+ * subscription includes. Read by the billing Plan tile and by the chat
+ * sidebar's preferences menu, so it lives here rather than in either domain.
  */
 
 import { useQuery } from "@tanstack/react-query";
 
-import type { ProPackage } from "@/domains/settings/billing/package-types";
-import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import { organizationsBillingUsageTotalsRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
-import type { ProPlan, SubscriptionResponse } from "@/generated/api/types.gen";
-import { creditTierKeyUsd } from "@/lib/billing/credit-tiers";
+import type {
+  PlanListResponse,
+  ProPackage,
+  ProPlan,
+  SubscriptionResponse,
+} from "@/generated/api/types.gen";
+import { creditTierKeyUsd, findCreditTier } from "@/lib/billing/credit-tiers";
 import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 
 export interface PlanUsageBalance {
@@ -62,6 +66,27 @@ export function includedMonthlyCreditsUsd(
     currentPackage?.credits_usd ??
     creditTierUsd(subscription.selected_credit_tier, proPlan);
   return typeof usd === "number" && usd > 0 ? usd : null;
+}
+
+/**
+ * The same denominator resolved straight from the plan catalog, for callers
+ * that hold the raw queries rather than an already-resolved package: the stock
+ * package a clean pin names, and nothing for a customized or unpinned sub,
+ * which {@link includedMonthlyCreditsUsd} prices from its credit tier instead.
+ */
+export function includedMonthlyCreditsUsdFromPlans(
+  subscription: SubscriptionResponse | undefined,
+  plans: PlanListResponse["plans"] | undefined,
+): number | null {
+  const proPlan = plans?.find((p): p is ProPlan => p.id === "pro") ?? null;
+  const pin = subscription?.package;
+  const pinned =
+    pin != null && !pin.customized
+      ? (proPlan?.packages?.find(
+          (p) => p.key === pin.key && p.version === pin.version,
+        ) ?? null)
+      : null;
+  return includedMonthlyCreditsUsd(subscription, pinned, proPlan);
 }
 
 /** UTC calendar date (YYYY-MM-DD), the form the usage endpoint's range takes. */

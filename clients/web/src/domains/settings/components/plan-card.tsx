@@ -22,10 +22,6 @@ import {
 } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
 import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
-import {
-  includedMonthlyCreditsUsd,
-  usePlanUsageBalance,
-} from "@/domains/settings/hooks/use-plan-usage-balance";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
@@ -48,6 +44,10 @@ import { useTranslation } from "@/i18n";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
 import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
+import {
+  includedMonthlyCreditsUsd,
+  usePlanUsageBalance,
+} from "@/hooks/use-plan-usage-balance";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl } from "@/runtime/browser";

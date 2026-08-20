@@ -30,6 +30,7 @@ import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { adminUrl, routes } from "@/utils/routes";
 
 import { CreditsCard } from "./credits-card";
+import { PreferencesUsagePanel } from "./preferences-usage-panel";
 
 // Modal only opens when the user clicks "Share Feedback" — defer loading
 // until then to keep the modal's form deps (markdown editor, etc.) out of
@@ -37,6 +38,14 @@ import { CreditsCard } from "./credits-card";
 const ShareFeedbackModal = lazy(() =>
   import("@/components/share-feedback-modal").then((m) => ({
     default: m.ShareFeedbackModal,
+  })),
+);
+
+// Same treatment for the top-up checkout, which only the usage panel's
+// exhausted strip opens.
+const AddCreditsModal = lazy(() =>
+  import("@/components/add-credits-modal").then((m) => ({
+    default: m.AddCreditsModal,
   })),
 );
 
@@ -74,6 +83,10 @@ export function PreferencesMenu({
   const isTouchMobile = useTouchMobile();
   const [isOpen, setIsOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  /* Held here rather than in the menu body: the popover and the bottom sheet
+     both unmount their content on close, and the strip closes the menu as it
+     opens the checkout. */
+  const [isAddCreditsOpen, setIsAddCreditsOpen] = useState(false);
 
   if (!isAuthenticated) {
     return null;
@@ -144,6 +157,7 @@ export function PreferencesMenu({
     <PreferencesMenuContent
       onClose={closeMenu}
       onShareFeedback={() => setIsFeedbackOpen(true)}
+      onAddCredits={() => setIsAddCreditsOpen(true)}
     />
   );
 
@@ -190,6 +204,15 @@ export function PreferencesMenu({
           />
         </LazyBoundary>
       ) : null}
+
+      {isAddCreditsOpen ? (
+        <LazyBoundary>
+          <AddCreditsModal
+            open={isAddCreditsOpen}
+            onOpenChange={setIsAddCreditsOpen}
+          />
+        </LazyBoundary>
+      ) : null}
     </>
   );
 }
@@ -197,11 +220,13 @@ export function PreferencesMenu({
 interface PreferencesMenuContentProps {
   onClose: () => void;
   onShareFeedback: () => void;
+  onAddCredits: () => void;
 }
 
 function PreferencesMenuContent({
   onClose,
   onShareFeedback,
+  onAddCredits,
 }: PreferencesMenuContentProps) {
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
@@ -215,6 +240,17 @@ function PreferencesMenuContent({
       <ThemeToggle className="px-2 py-0" />
 
       <div className="my-2 border-t border-[var(--border-subtle)]" />
+
+      <PreferencesUsagePanel
+        onOpenBilling={() => {
+          onClose();
+          navigate(routes.settings.usageBilling);
+        }}
+        onAddCredits={() => {
+          onClose();
+          onAddCredits();
+        }}
+      />
 
       {showBillingRows && effectiveBalance !== null ? (
         <div className="my-2">

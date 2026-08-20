@@ -16,8 +16,12 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
-import type { ProPackage } from "@/domains/settings/billing/package-types";
-import type { ProPlan, SubscriptionResponse } from "@/generated/api/types.gen";
+import type {
+  PlanListResponse,
+  ProPackage,
+  ProPlan,
+  SubscriptionResponse,
+} from "@/generated/api/types.gen";
 
 let totalsQuery: Record<string, string> | undefined;
 let totalsCalls = 0;
@@ -43,8 +47,12 @@ mock.module("@/generated/api/sdk.gen", () => ({
 
 const { useClientFeatureFlagStore } =
   await import("@/stores/client-feature-flag-store");
-const { includedMonthlyCreditsUsd, usePlanUsageBalance, utcMonthBefore } =
-  await import("./use-plan-usage-balance");
+const {
+  includedMonthlyCreditsUsd,
+  includedMonthlyCreditsUsdFromPlans,
+  usePlanUsageBalance,
+  utcMonthBefore,
+} = await import("./use-plan-usage-balance");
 
 function setObscureCredits(value: boolean): void {
   act(() => {
@@ -330,6 +338,62 @@ describe("includedMonthlyCreditsUsd", () => {
 
   test("an absent subscription never has a bar", () => {
     expect(includedMonthlyCreditsUsd(undefined, null, proPlan)).toBeNull();
+  });
+});
+
+describe("includedMonthlyCreditsUsdFromPlans", () => {
+  const plans = [
+    { id: "base", name: "Free" },
+    {
+      id: "pro",
+      packages: [{ ...mightyPackage(25), version: 1 }],
+      credit_tiers: [
+        { tier: "credits_45", label: "45 credits", credits_usd: 45 },
+      ],
+    },
+  ] as unknown as PlanListResponse["plans"];
+
+  test("a clean pin is priced from the catalog package it names", () => {
+    expect(includedMonthlyCreditsUsdFromPlans(proSubscription(), plans)).toBe(
+      25,
+    );
+  });
+
+  test("a customized pin matches no package and falls to its tier", () => {
+    expect(
+      includedMonthlyCreditsUsdFromPlans(
+        proSubscription({
+          package: {
+            key: "mighty",
+            name: "Mighty",
+            version: 1,
+            customized: true,
+          },
+          selected_credit_tier: "credits_45",
+        }),
+        plans,
+      ),
+    ).toBe(45);
+  });
+
+  test("a pin on a version the catalog dropped has no stock bundle", () => {
+    expect(
+      includedMonthlyCreditsUsdFromPlans(
+        proSubscription({
+          package: {
+            key: "mighty",
+            name: "Mighty",
+            version: 2,
+            customized: false,
+          },
+        }),
+        plans,
+      ),
+    ).toBeNull();
+  });
+
+  test("nothing to resolve before the queries land", () => {
+    expect(includedMonthlyCreditsUsdFromPlans(undefined, undefined)).toBeNull();
   });
 });
 
