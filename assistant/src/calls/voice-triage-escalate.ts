@@ -367,7 +367,7 @@ export function frontDoorCapabilityDigest(toolNames: string[]): string {
   return [
     "You have no tools on this leg, but the stronger model you can escalate to has these:",
     `${toolNames.join(", ")}.`,
-    "Any request that needs one of them must escalate — name the action in the sentence you speak",
+    "Any request that needs one of them must escalate: name the action in the sentence you speak",
     '(for example "I\'ll check your calendar and let you know") instead of refusing or guessing.',
   ].join(" ");
 }
@@ -458,7 +458,7 @@ export function escalatedContinuationRule(spokenBridge?: string): string {
   return [
     `You have already spoken a brief acknowledgement to the caller: "${bridge}".`,
     "Continue directly into your actual answer now.",
-    'Do NOT greet again, do NOT say things like "as I was saying", and do NOT repeat, paraphrase, or re-announce that acknowledgement —',
+    'Do NOT greet again, do NOT say things like "as I was saying", and do NOT repeat, paraphrase, or re-announce that acknowledgement:',
     'opening with another "Let me check", "On it", "One moment", or any restatement of what you are about to do sounds broken, because the caller just heard that.',
     "Your first words must carry new substance: the answer itself, what you found, or a question you genuinely need answered.",
     `Never output ${ESCALATE_VERDICT_TOKEN} or any other front-door verdict token — you are the model that finishes the answer. (The [-1] room-minimize marker from your call instructions is not a verdict token and stays allowed.)`,
