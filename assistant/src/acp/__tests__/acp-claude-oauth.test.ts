@@ -36,6 +36,9 @@ mock.module("../../security/secure-keys.js", () => ({
 const { _setMetadataPath, getCredentialMetadata, upsertCredentialMetadata } =
   await import("../../tools/credentials/metadata-store.js");
 
+const { acpSpawnCredentialDenialReason } =
+  await import("../prepare-agent-env.js");
+
 const {
   CLAUDE_OAUTH_CONFIG,
   CLAUDE_MANUAL_REDIRECT_URI,
@@ -186,6 +189,57 @@ describe("storeAcpClaudeToken", () => {
       "other_tool",
       ACP_SPAWN_TOOL,
     ]);
+  });
+
+  test("clears a domain restriction the broker would refuse server-side", async () => {
+    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
+      allowedTools: [ACP_SPAWN_TOOL],
+      allowedDomains: ["api.anthropic.com"],
+    });
+
+    await storeAcpClaudeToken("sk-ant-oat-token");
+
+    expect(oauthMetadata()?.allowedDomains).toEqual([]);
+    expect(oauthMetadata()?.allowedTools).toEqual([ACP_SPAWN_TOOL]);
+  });
+
+  test("leaves an already-unrestricted credential's domains alone", async () => {
+    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
+      allowedTools: ["other_tool"],
+    });
+
+    await storeAcpClaudeToken("sk-ant-oat-token");
+
+    expect(oauthMetadata()?.allowedDomains).toEqual([]);
+    expect(oauthMetadata()?.allowedTools).toEqual([
+      "other_tool",
+      ACP_SPAWN_TOOL,
+    ]);
+  });
+
+  test("creates the standard record when there is no prior metadata", async () => {
+    await storeAcpClaudeToken("sk-ant-oat-token");
+
+    expect(oauthMetadata()?.allowedTools).toEqual([ACP_SPAWN_TOOL]);
+    expect(oauthMetadata()?.allowedDomains).toEqual([]);
+  });
+
+  test("takes a domain-restricted credential from not-connected to connected", async () => {
+    // The loop this closes: the vault holds a usable token, but the domain
+    // policy makes the spawn read fail, so the status check keeps the Connect
+    // card offered. Clicking Connect has to repair the policy, otherwise the
+    // retry after a successful sign-in fails exactly the same way.
+    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
+      allowedTools: [ACP_SPAWN_TOOL],
+      allowedDomains: ["api.anthropic.com"],
+    });
+    getReturn = "sk-ant-oat-token";
+    expect(await hasAcpClaudeToken()).toBe(false);
+
+    await storeAcpClaudeToken("sk-ant-oat-token");
+
+    expect(await hasAcpClaudeToken()).toBe(true);
+    expect(acpSpawnCredentialDenialReason(OAUTH_FIELD)).toBeUndefined();
   });
 
   test("throws when the secure store rejects the write", async () => {
