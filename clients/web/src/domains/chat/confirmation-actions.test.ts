@@ -224,6 +224,12 @@ describe("handleConfirmationSubmit: a resume that no longer owns the slot", () =
       riskLevel: "high",
       input: {},
     });
+    // Asserted here rather than only through the outcome: the re-show is the
+    // same request, so it must not move the slot out from under its own
+    // submission.
+    expect(useInteractionStore.getState().submittingByKind.confirmation).toBe(
+      "cr-reshow",
+    );
 
     release();
     await inFlight;
