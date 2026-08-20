@@ -43,6 +43,7 @@ import { useLocation } from "react-router";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { useSupportsWebPresence } from "@/lib/backwards-compat/use-supports-web-presence";
 import { isElectron } from "@/runtime/is-electron";
 import { useConversationStore } from "@/stores/conversation-store";
 import { isConversationChatPath } from "@/utils/routes";
@@ -83,6 +84,7 @@ async function postWebPresence(
 export function useWebPresenceReport(assistantId: string | null): void {
   const location = useLocation();
   const activeConversationId = useConversationStore.use.activeConversationId();
+  const supportsWebPresence = useSupportsWebPresence(assistantId);
 
   const focusedConversationId = isConversationChatPath(location.pathname)
     ? activeConversationId
@@ -96,8 +98,8 @@ export function useWebPresenceReport(assistantId: string | null): void {
   }, [focusedConversationId]);
 
   useBusSubscription("app.resume", () => {
-    if (assistantId && !isElectron()) {
-      void postWebPresence(assistantId, {
+    if (supportsWebPresence && !isElectron()) {
+      void postWebPresence(assistantId!, {
         visible: isDocumentVisible(),
         focusedConversationId,
       });
@@ -105,10 +107,23 @@ export function useWebPresenceReport(assistantId: string | null): void {
   });
 
   useBusSubscription("app.hidden", () => {
-    if (assistantId && !isElectron()) {
-      void postWebPresence(assistantId, {
+    if (supportsWebPresence && !isElectron()) {
+      void postWebPresence(assistantId!, {
         visible: isDocumentVisible(),
         focusedConversationId,
+      });
+    }
+  });
+
+  useBusSubscription("sse.opened", ({ assistantId: openedFor }) => {
+    if (
+      supportsWebPresence &&
+      !isElectron() &&
+      assistantId === openedFor
+    ) {
+      void postWebPresence(assistantId!, {
+        visible: isDocumentVisible(),
+        focusedConversationId: focusedConversationIdRef.current,
       });
     }
   });
@@ -117,26 +132,26 @@ export function useWebPresenceReport(assistantId: string | null): void {
   // post time rather than depending on lifecycle state, so a visibility flip
   // (already reported above) doesn't trigger a second, redundant report.
   useEffect(() => {
-    if (!assistantId || isElectron()) {
+    if (!supportsWebPresence || isElectron()) {
       return;
     }
-    void postWebPresence(assistantId, {
+    void postWebPresence(assistantId!, {
       visible: isDocumentVisible(),
       focusedConversationId,
     });
-  }, [assistantId, focusedConversationId]);
+  }, [assistantId, focusedConversationId, supportsWebPresence]);
 
   // Reconcile semantic presence slowly while visible. A hidden tab skips the
   // tick; the next real visibility edge reports its fresh state.
   useEffect(() => {
-    if (!assistantId || isElectron()) {
+    if (!supportsWebPresence || isElectron()) {
       return;
     }
     const intervalId = window.setInterval(() => {
       if (!isDocumentVisible()) {
         return;
       }
-      void postWebPresence(assistantId, {
+      void postWebPresence(assistantId!, {
         visible: true,
         focusedConversationId: focusedConversationIdRef.current,
       });
@@ -144,5 +159,5 @@ export function useWebPresenceReport(assistantId: string | null): void {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [assistantId]);
+  }, [assistantId, supportsWebPresence]);
 }

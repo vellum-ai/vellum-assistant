@@ -17,6 +17,7 @@ import { useEffect, type ReactNode } from "react";
 import { MemoryRouter, useNavigate, type NavigateFunction } from "react-router";
 
 import { __resetForTesting, publish } from "@/lib/event-bus";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { routes } from "@/utils/routes";
 
@@ -136,6 +137,9 @@ function navigateTo(pathname: string) {
 
 beforeEach(() => {
   __resetForTesting();
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-assistant", "0.11.5", "assistant-1");
   useConversationStore.getState().reset();
   electron = false;
   postCalls.length = 0;
@@ -148,6 +152,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   __resetForTesting();
+  useAssistantIdentityStore.getState().clearIdentity();
   restoreIntervalHarness();
   if (realVisibilityState) {
     Object.defineProperty(document, "visibilityState", realVisibilityState);
@@ -203,6 +208,88 @@ describe("useWebPresenceReport", () => {
     renderReportAt(null);
 
     expect(postCalls).toHaveLength(0);
+  });
+
+  test("does not report or arm reconciliation before an assistant supports the route", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-assistant", "0.11.4", "assistant-1");
+
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+
+    expect(postCalls).toHaveLength(0);
+    expect(reconciliationTimers()).toHaveLength(0);
+  });
+
+  test("does not report or subscribe while the assistant version is unknown", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-assistant", null, "assistant-1");
+
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+
+    expect(postCalls).toHaveLength(0);
+    expect(reconciliationTimers()).toHaveLength(0);
+  });
+
+  test("starts reporting when identity hydration enables the route", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-assistant", "0.11.4", "assistant-1");
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    expect(postCalls).toHaveLength(0);
+    expect(reconciliationTimers()).toHaveLength(0);
+
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-assistant", "0.11.5", "assistant-1");
+    });
+
+    expect(postCalls).toHaveLength(1);
+    expect(reconciliationTimers()).toHaveLength(1);
+  });
+
+  test("re-reports after a fresh SSE open for the matching assistant", () => {
+    useConversationStore.getState().setActiveConversationId("conv-1");
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    expect(postCalls).toHaveLength(1);
+
+    act(() => {
+      publish("sse.opened", { assistantId: "assistant-1", cause: "fresh" });
+    });
+
+    expect(postCalls).toHaveLength(2);
+    expect(postCalls[1]?.body).toEqual({
+      visible: true,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("re-reports after an SSE reconnect for the matching assistant", () => {
+    useConversationStore.getState().setActiveConversationId("conv-1");
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    setVisibilityState("hidden");
+
+    act(() => {
+      publish("sse.opened", { assistantId: "assistant-1", cause: "error" });
+    });
+
+    expect(postCalls).toHaveLength(2);
+    expect(postCalls[1]?.body).toEqual({
+      visible: false,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("ignores SSE opens for another assistant", () => {
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+
+    act(() => {
+      publish("sse.opened", { assistantId: "assistant-2", cause: "fresh" });
+    });
+
+    expect(postCalls).toHaveLength(1);
   });
 
   test("does not report from the Electron renderer", () => {
