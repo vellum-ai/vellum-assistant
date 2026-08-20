@@ -210,7 +210,7 @@ describe("storeCredential", () => {
       expect(getCredentialMetadata("openai", "acme")).toBeUndefined();
     });
 
-    test("blocks a plugin from storing a credential whose field differs from its name", async () => {
+    test("blocks a plugin from storing a credential it does not own", async () => {
       await expect(
         asPlugin(() => storeCredential("openai/api_key", "sk-secret")),
       ).rejects.toThrow(/out of scope/);
@@ -244,17 +244,23 @@ describe("storeCredential", () => {
       );
     });
 
-    test("scoping applies by field only, across any service", async () => {
+    test("scoping applies by field across any service, or by service across any field", async () => {
       await asPlugin(async () => {
         await storeCredential("stripe/acme", "stripe-secret");
         await storeCredential("openai/acme", "openai-secret");
       });
+      await runInPluginContext("imessage", () =>
+        storeCredential("imessage/api_key", "comms-key"),
+      );
 
       expect(secureStore.get(credentialKey("stripe", "acme"))).toBe(
         "stripe-secret",
       );
       expect(secureStore.get(credentialKey("openai", "acme"))).toBe(
         "openai-secret",
+      );
+      expect(secureStore.get(credentialKey("imessage", "api_key"))).toBe(
+        "comms-key",
       );
     });
   });

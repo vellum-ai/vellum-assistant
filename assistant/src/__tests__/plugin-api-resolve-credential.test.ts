@@ -110,6 +110,14 @@ describe("resolveCredential", () => {
       expect(value).toBe("scoped-secret");
     });
 
+    test("allows a plugin to resolve a credential whose service matches its name", async () => {
+      seedCredential("imessage", "api_key", "comms-key");
+      const value = await runInPluginContext("imessage", () =>
+        resolveCredential("imessage/api_key"),
+      );
+      expect(value).toBe("comms-key");
+    });
+
     test("blocks a plugin from resolving a credential whose field differs from its name", async () => {
       seedCredential("openai", "api_key", "sk-secret");
       await expect(
@@ -126,15 +134,21 @@ describe("resolveCredential", () => {
       expect(getSpy).not.toHaveBeenCalled();
     });
 
-    test("scoping applies by field only, across any service", async () => {
+    test("scoping applies by field across any service, or by service across any field", async () => {
       seedCredential("stripe", "acme", "stripe-secret");
       seedCredential("openai", "acme", "openai-secret");
+      seedCredential("imessage", "photon_project_id", "proj-id");
       await expect(
         runInPluginContext("acme", () => resolveCredential("stripe/acme")),
       ).resolves.toBe("stripe-secret");
       await expect(
         runInPluginContext("acme", () => resolveCredential("openai/acme")),
       ).resolves.toBe("openai-secret");
+      await expect(
+        runInPluginContext("imessage", () =>
+          resolveCredential("imessage/photon_project_id"),
+        ),
+      ).resolves.toBe("proj-id");
     });
   });
 });
