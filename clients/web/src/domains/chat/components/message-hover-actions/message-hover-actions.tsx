@@ -72,7 +72,7 @@ function formatDetailedTimestamp(epoch: number): string {
 }
 
 /** Slack ts: `<unix-seconds>` with optional `.<microseconds>`. */
-const SLACK_TS = /^\d+(?:\.\d+)?$/;
+const SLACK_TS_PATTERN = /^\d+(?:\.\d+)?$/;
 
 /**
  * Epoch ms a Slack message was sent, read from its origin `channelTs`.
@@ -91,7 +91,7 @@ function slackOriginTimestamp(message: DisplayMessage): number | undefined {
   }
   // Full-string match: `parseFloat` alone accepts a numeric prefix, which
   // would turn a malformed ts into a fabricated origin time.
-  if (!SLACK_TS.test(slack.channelTs)) {
+  if (!SLACK_TS_PATTERN.test(slack.channelTs)) {
     return undefined;
   }
   const ms = Number.parseFloat(slack.channelTs) * 1000;

@@ -5,6 +5,18 @@ import { MessageHoverActions } from "@/domains/chat/components/message-hover-act
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 
+/**
+ * The day portion the component renders for an epoch, computed with its own
+ * `Intl` options so assertions hold in any locale. Only the choice of epoch
+ * is under test.
+ */
+function renderedDay(epoch: number): string {
+  return new Date(epoch).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
 describe("MessageHoverActions", () => {
   test("renders the timestamp even when no actions are available", () => {
     const message: DisplayMessage = {
@@ -22,9 +34,6 @@ describe("MessageHoverActions", () => {
   });
 
   test("dates a Slack row from its origin ts, not the row's write time", () => {
-    // A backfilled row is written when the import runs, so `timestamp` is
-    // today while the message itself is weeks old. The tooltip must follow
-    // the Slack ts or old history reads as having just arrived.
     const sentAt = Date.UTC(2026, 6, 8, 9, 15);
     const message: DisplayMessage = {
       id: "m-backfilled",
@@ -40,49 +49,39 @@ describe("MessageHoverActions", () => {
       <MessageHoverActions message={message} />,
     );
 
-    // Computed with the component's own options so the assertion holds in
-    // any locale; only the source of the epoch is under test.
-    const expectedDay = new Date(sentAt).toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-    });
-    expect(html).toContain(expectedDay);
+    expect(html).toContain(renderedDay(sentAt));
     expect(html).not.toContain("Today");
   });
 
   test("falls back to the row's own timestamp when no Slack ts is present", () => {
+    const rowWrittenAt = Date.UTC(2026, 6, 8, 9, 15);
     const message: DisplayMessage = {
       id: "m-plain",
       role: "user",
-      timestamp: Date.UTC(2026, 6, 8, 9, 15),
+      timestamp: rowWrittenAt,
       ...textBody("hello"),
     };
     const html = renderToStaticMarkup(
       <MessageHoverActions message={message} />,
     );
 
-    const expectedDay = new Date(
-      Date.UTC(2026, 6, 8, 9, 15),
-    ).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    expect(html).toContain(expectedDay);
+    expect(html).toContain(renderedDay(rowWrittenAt));
   });
 
   test("dates a reaction from its arrival, not the message it reacts to", () => {
-    // A reaction row carries the reacted message's ts in `channelTs`, so
-    // reading it would date a reaction added today by a six-week-old message.
+    // A reaction row carries the reacted message's ts in `channelTs`, not
+    // its own arrival.
+    const reactedAt = Date.UTC(2026, 6, 8, 9, 15);
+    const reactedTs = String(reactedAt / 1000);
     const message: DisplayMessage = {
       id: "m-reaction",
       role: "user",
       timestamp: Date.UTC(2026, 7, 20, 12, 32),
       slackMessage: {
         channelId: "D0BFXBJE1QV",
-        channelTs: String(Date.UTC(2026, 6, 8, 9, 15) / 1000),
+        channelTs: reactedTs,
         eventKind: "reaction",
-        reaction: {
-          emoji: "eyes",
-          op: "added",
-          targetChannelTs: String(Date.UTC(2026, 6, 8, 9, 15) / 1000),
-        },
+        reaction: { emoji: "eyes", op: "added", targetChannelTs: reactedTs },
       },
       ...textBody("[reaction]"),
     };
@@ -90,11 +89,7 @@ describe("MessageHoverActions", () => {
       <MessageHoverActions message={message} />,
     );
 
-    const reactedDay = new Date(Date.UTC(2026, 6, 8, 9, 15)).toLocaleDateString(
-      undefined,
-      { month: "short", day: "numeric" },
-    );
-    expect(html).not.toContain(reactedDay);
+    expect(html).not.toContain(renderedDay(reactedAt));
   });
 
   test("ignores a malformed Slack ts rather than inventing an origin time", () => {
@@ -115,11 +110,7 @@ describe("MessageHoverActions", () => {
       <MessageHoverActions message={message} />,
     );
 
-    const expectedDay = new Date(rowWrittenAt).toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-    });
-    expect(html).toContain(expectedDay);
+    expect(html).toContain(renderedDay(rowWrittenAt));
   });
 
   test("renders inspect action for user messages when provided", () => {
