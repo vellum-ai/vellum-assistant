@@ -246,6 +246,15 @@ const RETRYABLE_PROVIDER_ERROR_REASONS = new Set<ProviderErrorReason>([
   "rate_limited",
   "overloaded",
   "server_error",
+  // Stamped for SDK transport failures that never reached the server
+  // (OpenAI APIConnectionError, Gemini proxy interception). Deliberate
+  // behavior change alongside the stamping: previously these fell through to
+  // `isRetryableNetworkError`, which missed them because the ProviderError
+  // wrap dropped the errno-bearing cause chain, so they were silently
+  // non-retryable. Deadline/cancellation shapes never carry this reason
+  // (they surface as APIUserAbortError / abortReason and short-circuit
+  // above), so this cannot re-retry 30-minute stream deadline failures.
+  "network_error",
 ]);
 
 function isRetryableStreamError(error: unknown): boolean {

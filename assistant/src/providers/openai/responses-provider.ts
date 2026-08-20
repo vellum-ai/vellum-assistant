@@ -680,7 +680,10 @@ export class OpenAIResponsesProvider implements Provider {
           });
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);
+        // `cause` keeps the SDK error's errno-bearing chain reachable for
+        // network-shape classification (`isRetryableNetworkError` walks it).
         const errorOptions: {
+          cause?: unknown;
           retryAfterMs?: number;
           abortReason?: unknown;
           apiErrorCode?: string;
@@ -689,7 +692,7 @@ export class OpenAIResponsesProvider implements Provider {
           requestId?: string;
           rawBody?: string;
           reason?: ProviderErrorReason;
-        } = {};
+        } = { cause: error };
         if (retryAfterMs !== undefined) {
           errorOptions.retryAfterMs = retryAfterMs;
         }
@@ -718,7 +721,7 @@ export class OpenAIResponsesProvider implements Provider {
           formattedMessage,
           this.name,
           error.status,
-          Object.keys(errorOptions).length > 0 ? errorOptions : undefined,
+          errorOptions,
         );
       }
       throw new ProviderError(
