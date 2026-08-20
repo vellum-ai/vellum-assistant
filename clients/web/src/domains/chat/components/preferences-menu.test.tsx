@@ -140,20 +140,25 @@ mock.module("@/components/share-feedback-modal", () => ({
 // which this suite's partial `@tanstack/react-query` mock cannot host. Its
 // rendering is covered by `preferences-usage-panel.test.tsx`; what the menu
 // owns is where the panel sits and what its two actions do.
+const panelPropsRef: { conversationId?: string | null } = {};
 mock.module("@/domains/chat/components/preferences-usage-panel", () => ({
   PreferencesUsagePanel: ({
     onOpenBilling,
     onAddCredits,
+    conversationId,
   }: {
     onOpenBilling: () => void;
     onAddCredits: () => void;
-  }) =>
-    createElement(
+    conversationId?: string | null;
+  }) => {
+    panelPropsRef.conversationId = conversationId;
+    return createElement(
       "div",
       { "data-testid": "preferences-usage" },
       createElement("button", { onClick: onOpenBilling }, "Usage settings"),
       createElement("button", { onClick: onAddCredits }, "Add usage credits"),
-    ),
+    );
+  },
 }));
 
 mock.module("@/components/add-credits-modal", () => ({
@@ -165,9 +170,15 @@ mock.module("@/components/add-credits-modal", () => ({
 // partial `@tanstack/react-query` mock cannot host, and is covered by
 // `preferences-usage-panel.test.tsx`. What the menu owns is the rule it
 // applies to the reading, so only the data is stubbed here.
-const usageRef: { value: PreferencesUsage | null } = { value: null };
+const usageRef: { value: PreferencesUsage | null; opts: unknown } = {
+  value: null,
+  opts: undefined,
+};
 mock.module("@/domains/chat/hooks/use-preferences-usage", () => ({
-  usePreferencesUsage: () => usageRef.value,
+  usePreferencesUsage: (opts?: unknown) => {
+    usageRef.opts = opts;
+    return usageRef.value;
+  },
 }));
 
 mock.module("@/domains/chat/components/credits-card", () => ({
@@ -192,9 +203,11 @@ const { PreferencesMenu, showsMenuCredits } =
   await import("@/domains/chat/components/preferences-menu");
 
 /** Opens the menu the way a touch user does, and returns the open surface. */
-async function openMenu(): Promise<void> {
+async function openMenu(
+  props: { activeConversationId?: string | null } = {},
+): Promise<void> {
   isTouchMobileRef.value = true;
-  render(<PreferencesMenu />);
+  render(<PreferencesMenu {...props} />);
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: /Preferences/i }));
     await Promise.resolve();
@@ -229,6 +242,8 @@ beforeEach(() => {
   billingRef.data = undefined;
   obscureCreditsRef.value = false;
   usageRef.value = null;
+  usageRef.opts = undefined;
+  panelPropsRef.conversationId = undefined;
 });
 
 afterEach(() => {
@@ -364,6 +379,16 @@ describe("PreferencesMenu", () => {
       panel.compareDocumentPosition(settings) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  test("the open conversation reaches both readings of the usage", async () => {
+    await openMenu({ activeConversationId: "conv-7" });
+
+    // The row's rule and the panel's bar have to classify the wallet against
+    // the same chat, or one of them calls it exhausted while the other does
+    // not.
+    expect(usageRef.opts).toEqual({ conversationId: "conv-7" });
+    expect(panelPropsRef.conversationId).toBe("conv-7");
   });
 
   test("the panel's gear opens the Billing tab and closes the menu", async () => {

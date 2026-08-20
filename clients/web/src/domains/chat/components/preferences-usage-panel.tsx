@@ -13,6 +13,8 @@ export interface PreferencesUsagePanelProps {
   onOpenBilling: () => void;
   /** Opens the add-credits checkout. */
   onAddCredits: () => void;
+  /** The chat the reading is for, which refines what counts as exhausted. */
+  conversationId?: string | null;
 }
 
 /**
@@ -26,9 +28,10 @@ export interface PreferencesUsagePanelProps {
 export function PreferencesUsagePanel({
   onOpenBilling,
   onAddCredits,
+  conversationId,
 }: PreferencesUsagePanelProps) {
   const { t, i18n } = useTranslation("chat");
-  const usage = usePreferencesUsage();
+  const usage = usePreferencesUsage({ conversationId });
 
   if (!usage) {
     return null;

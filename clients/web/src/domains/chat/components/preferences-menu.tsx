@@ -187,6 +187,7 @@ export function PreferencesMenu({
       onClose={closeMenu}
       onShareFeedback={() => setIsFeedbackOpen(true)}
       onAddCredits={() => setIsAddCreditsOpen(true)}
+      activeConversationId={activeConversationId}
     />
   );
 
@@ -250,12 +251,14 @@ interface PreferencesMenuContentProps {
   onClose: () => void;
   onShareFeedback: () => void;
   onAddCredits: () => void;
+  activeConversationId?: string | null;
 }
 
 function PreferencesMenuContent({
   onClose,
   onShareFeedback,
   onAddCredits,
+  activeConversationId,
 }: PreferencesMenuContentProps) {
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
@@ -269,7 +272,7 @@ function PreferencesMenuContent({
   /* The same reading the usage panel below draws, composed once so the row and
      the bar can never disagree about how much of the bundle is left. */
   const obscureCredits = useObscureCredits();
-  const usage = usePreferencesUsage();
+  const usage = usePreferencesUsage({ conversationId: activeConversationId });
   const showCredits = showsMenuCredits(obscureCredits, usage);
 
   return (
@@ -279,6 +282,7 @@ function PreferencesMenuContent({
       <div className="my-2 border-t border-[var(--border-subtle)]" />
 
       <PreferencesUsagePanel
+        conversationId={activeConversationId}
         onOpenBilling={() => {
           onClose();
           navigate(routes.settings.usageBilling);

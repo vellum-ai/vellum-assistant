@@ -45,19 +45,24 @@ let billingEnabled = true;
 let creditsExhausted = false;
 let availableUsageBalance: string | null = null;
 let totalUsageBalance: string | null = null;
+/** What the panel asked the wallet status to classify against. */
+let balanceStatusOpts: unknown;
 mock.module("@/hooks/use-billing-balance-status", () => ({
-  useBillingBalanceStatus: () => ({
-    isExhausted: creditsExhausted,
-    isLowBalance: false,
-    dailyLimitReached: false,
-    dailyLimitSnoozed: false,
-    dailyLimit: null,
-    dailySpend: null,
-    balance: null,
-    availableUsageBalance,
-    totalUsageBalance,
-    enabled: billingEnabled,
-  }),
+  useBillingBalanceStatus: (opts?: unknown) => {
+    balanceStatusOpts = opts;
+    return {
+      isExhausted: creditsExhausted,
+      isLowBalance: false,
+      dailyLimitReached: false,
+      dailyLimitSnoozed: false,
+      dailyLimit: null,
+      dailySpend: null,
+      balance: null,
+      availableUsageBalance,
+      totalUsageBalance,
+      enabled: billingEnabled,
+    };
+  },
 }));
 
 const { PreferencesUsagePanel } = await import("./preferences-usage-panel");
@@ -112,6 +117,7 @@ function renderPanel(
   handlers: {
     onOpenBilling?: () => void;
     onAddCredits?: () => void;
+    conversationId?: string | null;
   } = {},
 ) {
   const client = new QueryClient({
@@ -122,6 +128,7 @@ function renderPanel(
       <PreferencesUsagePanel
         onOpenBilling={handlers.onOpenBilling ?? (() => {})}
         onAddCredits={handlers.onAddCredits ?? (() => {})}
+        conversationId={handlers.conversationId}
       />
     </QueryClientProvider>,
   );
@@ -150,6 +157,7 @@ beforeEach(() => {
   creditsExhausted = false;
   availableUsageBalance = null;
   totalUsageBalance = null;
+  balanceStatusOpts = undefined;
   setObscureCredits(true);
 });
 
@@ -169,6 +177,22 @@ describe("PreferencesUsagePanel", () => {
     expect(panel.textContent).toContain(
       `Resets ${resetLabel("2026-08-10T00:00:00Z")}`,
     );
+  });
+
+  test("classifies the wallet against the conversation it renders for", async () => {
+    renderPanel({ conversationId: "conv-1" });
+
+    await settle();
+    // A per-conversation profile pin only refines the reading if the wallet
+    // status knows which chat is open.
+    expect(balanceStatusOpts).toEqual({ conversationId: "conv-1" });
+  });
+
+  test("no conversation classifies against the default route", async () => {
+    renderPanel();
+
+    await settle();
+    expect(balanceStatusOpts).toEqual({ conversationId: null });
   });
 
   test("renders nothing while the flag is off", async () => {

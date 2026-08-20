@@ -41,15 +41,22 @@ export interface PreferencesUsage {
  * Null while the flag is off, while the org has no managed billing to read,
  * and before an honest number lands, so every caller renders exactly what it
  * always has until there is something real to say.
+ *
+ * `conversationId` is the chat the reading is for. It reaches the wallet
+ * status so a managed per-conversation profile pin classifies `exhausted`
+ * against the route that chat actually dispatches on, rather than against the
+ * global default.
  */
-export function usePreferencesUsage(): PreferencesUsage | null {
+export function usePreferencesUsage(
+  opts: { conversationId?: string | null } = {},
+): PreferencesUsage | null {
   const obscureCredits = useObscureCredits();
   const {
     isExhausted,
     availableUsageBalance,
     totalUsageBalance,
     enabled: billingEnabled,
-  } = useBillingBalanceStatus();
+  } = useBillingBalanceStatus({ conversationId: opts.conversationId ?? null });
   // The plan catalog and the sub are only worth fetching when the flag is on
   // and the org actually has managed billing; the usage read behind them gates
   // itself the same way.
