@@ -136,6 +136,28 @@ export function isBackgroundEventMetadata(
 }
 
 /**
+ * `messageKind` value marking a daemon-authored system card: a notice that
+ * bypasses the agent loop (the /compact, /clean, and summarize-up-to result
+ * cards, and plugin notices about what a turn did to the user's input). Cards
+ * render as standalone system notices, never as the assistant persona
+ * speaking, and never merge into adjacent assistant display turns.
+ *
+ * Lives in this leaf so a caller that only stamps or classifies the marker
+ * does not pull in `conversation-crud`'s DB graph.
+ */
+export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
+
+/**
+ * Shared predicate for the system-card marker on assistant-message metadata,
+ * so display merging, transcript rendering, and turn grouping cannot drift.
+ */
+export function isSystemCardMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === SYSTEM_CARD_MESSAGE_KIND;
+}
+
+/**
  * True when a role-`"user"` row is internal scaffolding rather than a person's
  * prompt: a daemon-injected run lifecycle notification (subagent
  * `subagentNotification`, ACP run `acpNotification`, or any wake trigger, the

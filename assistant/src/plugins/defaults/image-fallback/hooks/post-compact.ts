@@ -36,7 +36,7 @@ const postCompact: HookFunction<PostCompactContext> = async (ctx) => {
   // Find a vision-capable profile for captioning.
   const visionProfileKey = findVisionProfile();
 
-  const { replaced: imageCount } = await captionImagesInMessages(
+  const imageCount = await captionImagesInMessages(
     ctx.history,
     ctx.conversationId,
     visionProfileKey,
