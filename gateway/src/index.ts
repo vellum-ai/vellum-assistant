@@ -174,6 +174,7 @@ import {
   appendFailedAttachmentNotice,
   ingestAttachments,
 } from "./attachments/ingest.js";
+import { createConversationTaskQueue } from "./attachments/conversation-queue.js";
 import { buildSchema } from "./schema.js";
 import {
   createSlackSocketModeClient,
@@ -2265,6 +2266,7 @@ async function main() {
 
   // ── Slack Socket Mode lifecycle ──
   let slackSocketClient: SlackSocketModeClient | null = null;
+  const slackForwardQueue = createConversationTaskQueue();
   // Guards concurrent startSlackSocket calls: at boot both the credential
   // watcher's and the config-file watcher's initial polls fire it, and the
   // second call can pass the stop() guard while the first is still awaiting
@@ -2489,7 +2491,7 @@ async function main() {
               );
             }
 
-            handleInbound(config, normalized.event, {
+            await handleInbound(config, normalized.event, {
               replyCallbackUrl,
               routingOverride: normalized.routing,
               ...(Object.keys(slackSourceMetadata).length > 0
@@ -2509,7 +2511,7 @@ async function main() {
               { err, channel, threadTs },
               "Failed to process Slack event — delivering message without attachments",
             );
-            handleInbound(config, normalized.event, {
+            await handleInbound(config, normalized.event, {
               replyCallbackUrl,
               routingOverride: normalized.routing,
               ...(Object.keys(slackSourceMetadata).length > 0
@@ -2528,12 +2530,14 @@ async function main() {
         // persisted message rows (see `assembleSlackChronologicalMessages`
         // in the assistant), so the gateway no longer fetches per-turn
         // thread/DM context to inject as transport hints.
-        forward().catch((err) => {
-          log.error(
-            { err, channel, threadTs },
-            "Unhandled error in Slack forward",
-          );
-        });
+        void slackForwardQueue
+          .enqueue(normalized.event.message.conversationExternalId, forward)
+          .catch((err) => {
+            log.error(
+              { err, channel, threadTs },
+              "Unhandled error in Slack forward",
+            );
+          });
 
         // Approval message replacement is handled by the assistant's
         // direct Slack delivery path (messaging/providers/slack/send.ts).
@@ -2560,6 +2564,7 @@ async function main() {
   // only reads services listed there, and the registration is pinned by
   // credential-reader.test.ts.
   let discordGatewayClient: DiscordGatewayClient | null = null;
+  const discordForwardQueue = createConversationTaskQueue();
 
   async function startDiscordGateway(): Promise<void> {
     if (discordGatewayClient) {
@@ -2641,7 +2646,10 @@ async function main() {
                     }
                     return downloadDiscordFile(reference);
                   },
-                  upload: (downloaded) => uploadAttachment(config, downloaded),
+                  upload: (downloaded) =>
+                    uploadAttachment(config, downloaded, {
+                      skipCircuitBreaker: true,
+                    }),
                   rethrowTransientErrors: false,
                   logLabel: "Discord",
                 },
@@ -2653,7 +2661,7 @@ async function main() {
               );
             }
 
-            handleInbound(config, event, {
+            await handleInbound(config, event, {
               replyCallbackUrl,
               ...(attachmentIds && attachmentIds.length > 0
                 ? { attachmentIds }
@@ -2675,7 +2683,7 @@ async function main() {
               },
               "Failed to process Discord event, delivering without attachments",
             );
-            handleInbound(config, event, { replyCallbackUrl }).catch(
+            await handleInbound(config, event, { replyCallbackUrl }).catch(
               (fwdErr) => {
                 log.error(
                   {
@@ -2690,7 +2698,17 @@ async function main() {
           }
         };
 
-        void forward();
+        void discordForwardQueue
+          .enqueue(event.message.conversationExternalId, forward)
+          .catch((err) => {
+            log.error(
+              {
+                err,
+                conversationExternalId: event.message.conversationExternalId,
+              },
+              "Unhandled error in Discord forward",
+            );
+          });
       },
     );
 
