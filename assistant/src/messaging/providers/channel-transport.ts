@@ -35,9 +35,8 @@ export interface ReactionTarget {
  * `deliver`. A transport only implements the sub-operations it supports.
  */
 /**
- * A status surface update, addressed the way every other method addresses:
- * `chatId` is the room. The producers all passed the room twice, once as
- * `chatId` and once as a `channel` field meaning the same thing.
+ * A status surface update. `chatId` is the room, spelled the way every other
+ * method on this interface spells it.
  */
 export interface ThreadStatus {
   readonly chatId: string;

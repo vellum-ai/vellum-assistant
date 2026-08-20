@@ -69,7 +69,7 @@ export const slackTransport: ChannelTransport = {
       status.chatId,
       status.threadTs,
       status.status,
-      status.loadingMessages ? [...status.loadingMessages] : undefined,
+      status.loadingMessages,
     );
     return { ok: true };
   },

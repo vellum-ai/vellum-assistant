@@ -96,11 +96,6 @@ export async function sendChannelReaction(
   return transport.react(callbackContext(callbackUrl), target);
 }
 
-/** Whether the channel this callback addresses holds a status surface. */
-export function supportsChannelThreadStatus(callbackUrl: string): boolean {
-  return getTransportForCallback(callbackUrl)?.setThreadStatus !== undefined;
-}
-
 /**
  * Set or clear the channel's status surface.
  *
