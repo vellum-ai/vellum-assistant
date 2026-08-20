@@ -38,20 +38,27 @@ const log = getLogger("watch-session-manager");
 /**
  * Shortest gap between two observations.
  *
- * Observation is triggered by narration, not by a poll. A speech final is the
- * moment the user just said what they were doing, which is exactly the moment
- * their screen is worth recording. A poll is both wasteful and lossy: most
- * ticks land mid-gesture on a screen nobody described, and the change that
- * matters lands between two of them. The subscription that would make polling
+ * Observation is triggered by narration, not by a poll. Speech is the moment
+ * the user is saying what they are doing, which is exactly the moment their
+ * screen is worth recording. A poll is both wasteful and lossy: most ticks
+ * land mid-gesture on a screen nobody described, and the change that matters
+ * lands between two of them. The subscription that would make polling
  * unnecessary does not exist either: the mac helper's `cu.perform` is strictly
  * request/response (`HostCuExecutor.swift`), with no channel for the host to
  * push an accessibility change of its own.
  *
- * Someone talking through a task produces a final every second or two, and
- * every observation costs a full accessibility enumeration plus a JPEG over
- * the wire. Five seconds collapses a burst of finals into one record while
- * staying shorter than any UI step a person pauses to narrate, so no step
- * passes unobserved.
+ * Every observation costs a full accessibility enumeration plus a JPEG over
+ * the wire, so this floor collapses a burst of triggers into one record while
+ * staying shorter than any UI step a person pauses to narrate.
+ *
+ * Measured on real sessions, narration arrives roughly every fifteen seconds
+ * rather than every second or two: people narrate in bursts and fall silent
+ * while they do the thing they just described. So this floor is rarely the
+ * binding constraint, and raising the rate it permits buys nothing. Coverage
+ * comes from how many triggers fire, not from how fast they are allowed to —
+ * which is what the onset trigger
+ * ({@link WatchSessionManager.handleNarrationStart}) and the opening
+ * observation in {@link WatchSessionManager.start} are for.
  */
 const MIN_OBSERVE_INTERVAL_MS = 5_000;
 
@@ -67,8 +74,16 @@ const MIN_OBSERVE_INTERVAL_MS = 5_000;
  * observation was dispatched, so the wait a slow read spends counts against the
  * ceiling rather than adding to it. It fires only in a stretch where narration
  * produced none, and a talkative session never reaches it.
+ *
+ * Sized against how far apart narration actually lands, which measurement puts
+ * at roughly fifteen seconds. Matching the two means a silent stretch is
+ * covered at about the rate a narrated one is. Set much longer and this stops
+ * being a backstop and becomes the dominant trigger, which is worse than it
+ * sounds: the gap it leaves falls at the *start* of a session, where the user
+ * is opening the thing they are about to demonstrate and the retrospective
+ * has no other account of where they began.
  */
-const MAX_OBSERVE_INTERVAL_MS = 30_000;
+const MAX_OBSERVE_INTERVAL_MS = 15_000;
 
 /**
  * How long one observation may take before the session gives up on it.
@@ -257,13 +272,49 @@ export class WatchSessionManager {
       idleTimer: null,
     };
     this.session = session;
-    this.scheduleIdleObservation(session);
+    // Read the screen the demonstration begins from, rather than waiting for
+    // the first trigger. The opening state is the cheapest context there is
+    // and the most expensive to be missing: a demonstration starts with the
+    // user already somewhere, and a retrospective that never saw where cannot
+    // tell whether the first step was navigating there or working there —
+    // it reports the ambiguity instead of the task.
+    //
+    // Fire and forget, like the idle timer's own dispatch: `observeNow` owns
+    // its failures, and a start must not wait on a screen read. It also arms
+    // the ceiling on the way out through `scheduleIdleObservation`, which is
+    // why nothing arms it here.
+    void this.observeNow(session);
 
     return {
       status: "started",
       sessionId: session.sessionId,
       conversationId,
     };
+  }
+
+  /**
+   * Observe because the user has started speaking, if the cadence allows it.
+   * The entry point the streaming transcript calls on `turn-start`.
+   *
+   * Speech onset beats the final by however long the sentence takes, and the
+   * screen it lands on is the one being described rather than the one after.
+   * A person says "now I drag it to the Trash" and then drags it, so the final
+   * arrives with the gesture already finished: the state that explains the
+   * words is the one that was on screen when they began.
+   *
+   * Files no entry of its own. There is no text yet at onset, and the final
+   * that follows appends the narration; an entry here would be a second,
+   * emptier record of one utterance.
+   */
+  async handleNarrationStart(): Promise<void> {
+    const session = this.session;
+    if (session === null) {
+      return;
+    }
+    if (this.now() - session.lastObserveAtMs < MIN_OBSERVE_INTERVAL_MS) {
+      return;
+    }
+    await this.observeNow(session);
   }
 
   /**

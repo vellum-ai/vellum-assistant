@@ -2,7 +2,7 @@
  * Tests for the live-voice WS connection + token-exchange client.
  *
  * Two surfaces under test:
- *   - `mintLiveVoiceToken` — must POST `/v1/auth/live-voice-token/` through
+ *   - `mintVelayWsToken` — must POST `/v1/auth/live-voice-token/` through
  *     the credentialed platform `client` (which attaches session cookie +
  *     CSRF + org header via the interceptor). We spy on `client.post` rather
  *     than `mock.module`-ing the whole SDK, matching the pattern in
@@ -22,14 +22,14 @@ import {
   buildSelfHostedLiveVoiceWsUrl,
   getVelayWsScheme,
   isPairedGatewayIngress,
-  LiveVoiceTokenError,
-  mintLiveVoiceToken,
+  VelayWsTokenError,
+  mintVelayWsToken,
   PairedVoiceUnavailableError,
   resolveLiveVoiceWsUrl,
 } from "./connection";
 
 // ---------------------------------------------------------------------------
-// mintLiveVoiceToken
+// mintVelayWsToken
 // ---------------------------------------------------------------------------
 
 type CapturedPostOptions = {
@@ -62,9 +62,9 @@ afterEach(() => {
   window.__VELLUM_CONFIG__ = undefined;
 });
 
-describe("mintLiveVoiceToken", () => {
+describe("mintVelayWsToken", () => {
   test("POSTs the documented mint endpoint with the assistantId body", async () => {
-    await mintLiveVoiceToken("assistant-1");
+    await mintVelayWsToken("assistant-1");
 
     expect(captured).not.toBeNull();
     expect(captured!.url).toBe("/v1/auth/live-voice-token/");
@@ -72,14 +72,14 @@ describe("mintLiveVoiceToken", () => {
   });
 
   test("returns { token, expiresAt } from the response", async () => {
-    const result = await mintLiveVoiceToken("assistant-1");
+    const result = await mintVelayWsToken("assistant-1");
     expect(result).toEqual({
       token: "tok-abc",
       expiresAt: "2026-06-01T00:05:00Z",
     });
   });
 
-  test("throws LiveVoiceTokenError with the HTTP status on non-OK", async () => {
+  test("throws VelayWsTokenError with the HTTP status on non-OK", async () => {
     nextPostResult = {
       data: null,
       error: { detail: "forbidden" },
@@ -87,15 +87,15 @@ describe("mintLiveVoiceToken", () => {
     };
 
     try {
-      await mintLiveVoiceToken("assistant-1");
-      throw new Error("expected mintLiveVoiceToken to throw");
+      await mintVelayWsToken("assistant-1");
+      throw new Error("expected mintVelayWsToken to throw");
     } catch (err) {
-      expect(err).toBeInstanceOf(LiveVoiceTokenError);
-      expect((err as LiveVoiceTokenError).status).toBe(403);
+      expect(err).toBeInstanceOf(VelayWsTokenError);
+      expect((err as VelayWsTokenError).status).toBe(403);
     }
   });
 
-  test("throws LiveVoiceTokenError(0) when the body is malformed", async () => {
+  test("throws VelayWsTokenError(0) when the body is malformed", async () => {
     nextPostResult = {
       data: { token: "tok-abc" }, // missing expiresAt
       error: null,
@@ -103,11 +103,11 @@ describe("mintLiveVoiceToken", () => {
     };
 
     try {
-      await mintLiveVoiceToken("assistant-1");
-      throw new Error("expected mintLiveVoiceToken to throw");
+      await mintVelayWsToken("assistant-1");
+      throw new Error("expected mintVelayWsToken to throw");
     } catch (err) {
-      expect(err).toBeInstanceOf(LiveVoiceTokenError);
-      expect((err as LiveVoiceTokenError).status).toBe(0);
+      expect(err).toBeInstanceOf(VelayWsTokenError);
+      expect((err as VelayWsTokenError).status).toBe(0);
     }
   });
 });
@@ -346,7 +346,7 @@ describe("resolveLiveVoiceWsUrl", () => {
 
     await expect(
       resolveLiveVoiceWsUrl({ assistantId: "assistant-1" }),
-    ).rejects.toBeInstanceOf(LiveVoiceTokenError);
+    ).rejects.toBeInstanceOf(VelayWsTokenError);
     expect(captured).toBeNull();
   });
 

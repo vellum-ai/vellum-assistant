@@ -1,7 +1,7 @@
 /**
  * Tests for the browser live-voice WebSocket client.
  *
- * `mintLiveVoiceToken` is mocked at module scope so no real HTTP/SDK call
+ * `mintVelayWsToken` is mocked at module scope so no real HTTP/SDK call
  * happens; `buildLiveVoiceWsUrl` is kept real so we exercise the genuine
  * connection.ts URL builder (no hardcoded host in the client). The WebSocket is
  * a hand-rolled fake injected via the client's `webSocketFactory` option — no

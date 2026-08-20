@@ -145,6 +145,41 @@ describe("watch stream session", () => {
     reopenWatchIngressForTest();
   });
 
+  test("observes on speech onset and acknowledges nothing", async () => {
+    // A controllable clock, so the test can step past the observation floor
+    // without waiting it out in real time.
+    let nowMs = 0;
+    const observeCalls: (string | undefined)[] = [];
+    const manager = new WatchSessionManager({
+      now: () => nowMs,
+      observe: async (options) => {
+        observeCalls.push(options.sourceActorPrincipalId);
+        return observation();
+      },
+    });
+    const { ws, transcriber, session } = newSession({ manager });
+    await session.start();
+    await Bun.sleep(5);
+
+    // The session's opening observation. Step past the floor it just spent so
+    // the onset below is free to read the screen rather than being collapsed
+    // into it.
+    expect(observeCalls).toHaveLength(1);
+    nowMs += 6_000;
+
+    transcriber!.emit({ type: "turn-start" });
+    await Bun.sleep(5);
+
+    expect(observeCalls).toHaveLength(2);
+    // No `entry`: onset carries no text, and the final that follows is what
+    // files the narration. Acknowledging here would report an entry the
+    // timeline does not have.
+    expect(ws.types()).toEqual(["ready"]);
+
+    session.handleMessage(JSON.stringify({ type: "stop" }));
+    transcriber!.emit({ type: "closed" });
+  });
+
   test("starts, records narration, and stops", async () => {
     const { manager, observeCalls } = newManager();
     const { ws, transcriber, session } = newSession({ manager });

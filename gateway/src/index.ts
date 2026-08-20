@@ -2152,12 +2152,11 @@ async function main() {
       return undefined as unknown as Response;
     }
 
-    // Self-hosted only in this version, and deliberately NOT in
-    // `VELAY_ALLOWED_PATHS`: the client refuses to open a session over a
-    // paired ingress, and a session needs a locally connected `host_cu`
-    // desktop client to observe anything. Adding the allowlist entry opens a
-    // managed route that still cannot carry a session, and nothing fails to
-    // say so. See the note in `velay/allowed-paths.ts`.
+    // Reachable both ways: directly on a self-hosted ingress with an actor
+    // edge JWT, and through the velay tunnel on a managed assistant, which is
+    // why it is in `VELAY_ALLOWED_PATHS`. The handler authorizes each shape on
+    // its own terms and admits only the guardian either way. A paired
+    // assistant has no transport at all and never reaches here.
     if (url.pathname === "/v1/watch/stream") {
       const upgradeResult = await handleWatchStreamWs(req, server);
       if (upgradeResult !== undefined) {

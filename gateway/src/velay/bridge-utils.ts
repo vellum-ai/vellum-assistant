@@ -18,12 +18,15 @@ const VELAY_ALLOWED_HTTP_EXACT_PATHS = [
   "/v1/credential-requests/peek",
   "/v1/credential-requests/submit",
 ] as const;
-const VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS = [
+/**
+ * Exported so `allowed-paths.test.ts` can check this list against the
+ * registration allowlist it has to agree with. See the guard there for why the
+ * two are checked rather than trusted.
+ */
+export const VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS = [
   "/v1/live-voice",
   "/v1/stt/stream",
-  // `/v1/watch/stream` is deliberately not here either. See the note in
-  // allowed-paths.ts before adding it: Watch is self-hosted only, and the
-  // entry alone does not make it work in managed deployments.
+  "/v1/watch/stream",
 ] as const;
 
 /**

@@ -53,19 +53,28 @@
  * still flowing to the previous assistant's socket while the surface draws the
  * new one's name beside a flag that reads as the new one's.
  *
- * Transport is the dictation stream's, through `buildSelfHostedGatewayWsUrl`:
- * straight to the user's gateway ingress with the actor edge JWT in `?token=`,
- * since browser WebSockets cannot set an `Authorization` header. See
- * `voice/dictation-stream.ts` for the whole rule set, including the local
- * `/assistant/__gateway/<port>` bypass. Off a self-hosted ingress there is no
- * socket to open and the toggle is a no-op.
+ * **Transport is live voice's, both halves of it.** `resolveWatchStreamWsUrl`
+ * chooses by deployment kind the way `resolveLiveVoiceWsUrl` does: a
+ * self-hosted assistant is dialled straight at the user's gateway ingress with
+ * the actor edge JWT in `?token=` (browser WebSockets cannot set an
+ * `Authorization` header), and a managed one is dialled through velay with a
+ * short-lived minted token. See `live-voice/connection.ts` for the whole rule
+ * set, including the local `/assistant/__gateway/<port>` bypass.
+ *
+ * A paired assistant remains the one deployment with no transport at all: its
+ * proxy is HTTP-only and there is no loopback to fall back to, so the toggle
+ * is a no-op there and says so.
  */
 
 import { create } from "zustand";
 
 import {
   buildSelfHostedGatewayWsUrl,
+  buildVelayWsUrl,
   isPairedGatewayIngress,
+  mintVelayWsToken,
+  PairedVoiceUnavailableError,
+  VelayWsTokenError,
 } from "@/domains/chat/voice/live-voice/connection";
 import {
   isLiveVoiceSessionActive,
@@ -191,8 +200,21 @@ let session: WatchSession | null = null;
  */
 let drainRelease: Promise<void> | null = null;
 
+/** The route both transports open, on the gateway either way. */
+const WATCH_STREAM_ROUTE = "/v1/watch/stream";
+
 /**
- * Build the watch stream WebSocket URL:
+ * Query params the gateway requires on the upgrade. `mimeType` is mandatory
+ * (`watch-stream-websocket.ts` refuses an upgrade without it); both are
+ * forwarded upstream unchanged on the velay path.
+ */
+const WATCH_STREAM_PARAMS: Record<string, string> = {
+  mimeType: LIVE_VOICE_AUDIO_FORMAT.mimeType,
+  sampleRate: String(LIVE_VOICE_AUDIO_FORMAT.sampleRate),
+};
+
+/**
+ * Build the self-hosted watch stream WebSocket URL:
  *
  *   ws(s)://<ingressHost>/v1/watch/stream?token=…&mimeType=audio/pcm&sampleRate=16000
  *
@@ -209,12 +231,61 @@ export function buildWatchStreamWsUrl({
 }): string {
   return buildSelfHostedGatewayWsUrl({
     ingressUrl,
-    routePath: "/v1/watch/stream",
+    routePath: WATCH_STREAM_ROUTE,
     token,
-    params: {
-      mimeType: LIVE_VOICE_AUDIO_FORMAT.mimeType,
-      sampleRate: String(LIVE_VOICE_AUDIO_FORMAT.sampleRate),
-    },
+    params: WATCH_STREAM_PARAMS,
+  });
+}
+
+/**
+ * Resolve the watch stream WebSocket URL for `assistantId`, choosing the
+ * transport by deployment kind exactly as {@link resolveLiveVoiceWsUrl} does.
+ *
+ * - **Self-hosted / local** — dial the user's own gateway ingress with the
+ *   actor edge JWT. No token is minted; the gateway validates the JWT and
+ *   checks its principal against the guardian binding.
+ * - **Managed / cloud** — mint a short-lived velay token and dial velay, which
+ *   validates and consumes it, then injects the authenticated user and org as
+ *   `X-Velay-*` headers. The gateway takes its managed branch on those and
+ *   cross-checks the caller against the stored `platform_user_id`
+ *   (`gateway/src/http/routes/guardian-pin.ts`), so the guardian-only rule is
+ *   the same rule on both paths, proven two different ways.
+ *
+ * Throws rather than returning null, so a start that cannot resolve a URL is
+ * distinguishable from one this environment simply does not support:
+ *
+ * - {@link PairedVoiceUnavailableError} for a paired ingress, whose proxy is
+ *   HTTP-only with no loopback to fall back to. Still genuinely unsupported.
+ * - {@link VelayWsTokenError} when the ingress is known but its actor token
+ *   has not been provisioned yet (a brief post-hatch window), and for a mint
+ *   that the platform refuses.
+ *
+ * Exported for unit tests.
+ */
+export async function resolveWatchStreamWsUrl(
+  assistantId: string,
+): Promise<string> {
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (ingressUrl) {
+    if (isPairedGatewayIngress(ingressUrl)) {
+      throw new PairedVoiceUnavailableError();
+    }
+    const token = getSelfHostedActorToken();
+    if (!token) {
+      throw new VelayWsTokenError(
+        0,
+        "Self-hosted watch has no actor token yet; the gateway isn't ready.",
+      );
+    }
+    return buildWatchStreamWsUrl({ ingressUrl, token });
+  }
+
+  const { token } = await mintVelayWsToken(assistantId);
+  return buildVelayWsUrl({
+    assistantId,
+    routePath: WATCH_STREAM_ROUTE,
+    token,
+    params: WATCH_STREAM_PARAMS,
   });
 }
 
@@ -228,28 +299,24 @@ export function buildWatchStreamWsUrl({
  * registered while still pending, which is what keeps the stop edge working
  * before `ready`.
  *
- * Does nothing when this environment has nothing to open: no self-hosted
- * ingress or actor token, no AudioWorklet, a paired gateway whose proxy is
- * HTTP-only. Every one of those is a normal deployment rather than a failure,
- * so the toggle leaves the surface where it was rather than reporting an error
- * the user cannot act on.
+ * Takes an already-resolved `wsUrl` and stays synchronous, which is the point:
+ * resolving it is a network call on the managed path, and everything this
+ * function does after the first line has to happen in one uninterrupted
+ * stretch for the registration order above to mean anything. The await lives
+ * in {@link toggleWatch}, where a press that lands during it is already
+ * cancellable.
+ *
+ * Does nothing when this environment has no AudioWorklet, which is a normal
+ * browser rather than a failure, so the toggle leaves the surface where it was
+ * rather than reporting an error the user cannot act on.
  */
 function openSession(
   ownerAssistantId: string,
+  wsUrl: string,
   options: WatchControllerOptions,
 ): void {
-  const ingressUrl = getSelfHostedIngressUrl();
-  const token = getSelfHostedActorToken();
-  if (!ingressUrl || !token || !isPcmCaptureSupported()) {
-    console.info(
-      "watch-controller: skipping (no self-hosted ingress/token or no AudioWorklet)",
-    );
-    return;
-  }
-  if (isPairedGatewayIngress(ingressUrl)) {
-    console.info(
-      "watch-controller: skipping (watch sessions aren't available for paired assistants yet)",
-    );
+  if (!isPcmCaptureSupported()) {
+    console.info("watch-controller: skipping (no AudioWorklet)");
     return;
   }
 
@@ -258,7 +325,7 @@ function openSession(
 
   let ws: WebSocket;
   try {
-    ws = webSocketFactory(buildWatchStreamWsUrl({ ingressUrl, token }));
+    ws = webSocketFactory(wsUrl);
   } catch {
     return;
   }
@@ -697,6 +764,21 @@ export async function toggleWatch(
   };
   session = attempt;
 
+  /**
+   * Give up the slot without cancelling, for a start that ends on its own
+   * terms rather than by a press: an unsupported assistant, a transport that
+   * will not resolve, a re-read that no longer holds. Also how the slot is
+   * handed to `openSession` on the way through.
+   *
+   * Guarded on identity rather than assigning null outright, so a start that
+   * lost the slot to a newer one cannot clear the newer one's registration.
+   */
+  const releaseAttempt = (): void => {
+    if (session === attempt) {
+      session = null;
+    }
+  };
+
   // Resolve the version rather than reading the gate's conservative
   // unknown-is-false, which a press landing before the identity fetch would
   // otherwise hit and refuse an assistant that does support watching. See
@@ -719,25 +801,56 @@ export async function toggleWatch(
       return;
     }
   }
-  // Nothing else can have replaced the slot: every other entry point goes
-  // through the registered `stop` above, which sets `cancelled`. Released here
-  // so `openSession` can register the real session in it.
-  session = null;
   if (!supported) {
+    releaseAttempt();
     console.info(
       "watch-controller: skipping (this assistant has no watch stream to open)",
     );
     return;
   }
-  // Re-read across the await. A call can have started, and the active
-  // assistant can have moved out from under the gate that just passed.
+  /**
+   * The transport, resolved last and while the attempt still holds the slot.
+   *
+   * On a managed assistant this mints a single-use velay token, which is a
+   * round trip to the platform and the one genuinely new wait on this path.
+   * It is deliberately the last thing before the dial: the token lives 60
+   * seconds, and resolving it ahead of the drain wait above would spend part
+   * of that life waiting on the previous session.
+   *
+   * A throw here is not the same as an unsupported environment — a paired
+   * ingress, an unprovisioned actor token, a refused mint — but the press has
+   * nowhere to go in any of those cases, so all of them leave the surface
+   * where it was and say why in the log.
+   */
+  let wsUrl: string;
+  try {
+    wsUrl = await resolveWatchStreamWsUrl(assistantId);
+  } catch (err) {
+    releaseAttempt();
+    console.info("watch-controller: skipping (no watch transport)", err);
+    return;
+  }
+  if (cancelled) {
+    return;
+  }
+  // Re-read across the awaits. A call can have started, and the active
+  // assistant can have moved out from under the gate that just passed. Taken
+  // after the transport resolves rather than before, so the check that decides
+  // is the one nearest the dial; the cost is a minted token spent on a start
+  // that is then discarded, and a single-use token nobody presents just
+  // expires.
   if (
     isLiveVoiceSessionActive(useLiveVoiceStore.getState().state) ||
     useResolvedAssistantsStore.getState().activeAssistantId !== assistantId
   ) {
+    releaseAttempt();
     return;
   }
-  openSession(assistantId, options);
+  // Nothing else can have replaced the slot: every other entry point goes
+  // through the registered `stop` above, which sets `cancelled`. Released here
+  // so `openSession` can register the real session in it.
+  releaseAttempt();
+  openSession(assistantId, wsUrl, options);
 }
 
 /**
