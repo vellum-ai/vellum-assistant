@@ -213,9 +213,9 @@ describe("VoiceMeshWaves", () => {
       expect(recorder.strokeStyles.length).toBeGreaterThan(0);
     });
     // Aurora would be cyan; the explicit ink wins.
-    expect(recorder.strokeStyles.every((s) => s.startsWith("rgba(0,0,0,"))).toBe(
-      true,
-    );
+    expect(
+      recorder.strokeStyles.every((s) => s.startsWith("rgba(0,0,0,")),
+    ).toBe(true);
   });
 
   test("fades out entirely as the voice stops", async () => {
@@ -224,7 +224,9 @@ describe("VoiceMeshWaves", () => {
     const { container } = render(
       <VoiceMeshWaves getAmplitude={() => 0} peakOpacity={0.4} />,
     );
-    const host = container.querySelector<HTMLElement>(".voice-listening-waves")!;
+    const host = container.querySelector<HTMLElement>(
+      ".voice-listening-waves",
+    )!;
     expect(host.style.getPropertyValue("--band-peak-opacity")).toBe("0.4");
     await waitFor(() => {
       expect(recorder.strokes).toBeGreaterThan(30);
@@ -235,7 +237,9 @@ describe("VoiceMeshWaves", () => {
 
   test("publishes --voice-amp for the shared placement CSS", async () => {
     const { container } = render(<VoiceMeshWaves getAmplitude={() => 0.8} />);
-    const host = container.querySelector<HTMLElement>(".voice-listening-waves")!;
+    const host = container.querySelector<HTMLElement>(
+      ".voice-listening-waves",
+    )!;
     await waitFor(() => {
       expect(
         Number(host.style.getPropertyValue("--voice-amp")),
@@ -275,10 +279,15 @@ describe("meshDisplacement", () => {
           swirl,
           DEFAULT_MESH_TUNING,
         );
-        const y = (depth - 0.5) * DEFAULT_MESH_TUNING.spread -
+        const y =
+          (depth - 0.5) * DEFAULT_MESH_TUNING.spread -
           DEFAULT_MESH_TUNING.displace * v;
-        if (y < lo) {lo = y;}
-        if (y > hi) {hi = y;}
+        if (y < lo) {
+          lo = y;
+        }
+        if (y > hi) {
+          hi = y;
+        }
       }
       out.push(hi - lo);
     }
@@ -305,8 +314,7 @@ describe("meshDisplacement", () => {
     }
     const avg = acc.map((v) => v / frames);
     const mean = avg.reduce((a, b) => a + b, 0) / samples;
-    const variance =
-      avg.reduce((a, b) => a + (b - mean) ** 2, 0) / samples;
+    const variance = avg.reduce((a, b) => a + (b - mean) ** 2, 0) / samples;
     return Math.sqrt(variance) / mean;
   }
 
@@ -332,13 +340,7 @@ describe("meshDisplacement", () => {
   test("stays within its normalized range", () => {
     for (let t = 0; t < 6; t += 0.37) {
       for (let i = 0; i <= 10; i++) {
-        const v = meshDisplacement(
-          i / 10,
-          0.5,
-          t,
-          1.2,
-          DEFAULT_MESH_TUNING,
-        );
+        const v = meshDisplacement(i / 10, 0.5, t, 1.2, DEFAULT_MESH_TUNING);
         expect(Math.abs(v)).toBeLessThanOrEqual(1.0001);
       }
     }

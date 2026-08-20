@@ -186,7 +186,10 @@ describe("reconcileSubagentStoreFromNotifications", () => {
 
     expect(store().byId["silent"]?.parentMessageId).toBe("msg-1");
     expect(
-      useSubagentStore.getState().byParent.get("msg-1")?.map((e) => e.subagentId),
+      useSubagentStore
+        .getState()
+        .byParent.get("msg-1")
+        ?.map((e) => e.subagentId),
     ).toEqual(["silent"]);
   });
 
@@ -220,7 +223,11 @@ describe("reconcileSubagentStoreFromNotifications", () => {
   test("names a blank stub from the notification", () => {
     // A stub materialized from a bare `subagent_status_changed` has no label
     // at all; without this it stays blank for the rest of the session.
-    store().ensureEntry({ subagentId: "stub", timestamp: NOW, status: "running" });
+    store().ensureEntry({
+      subagentId: "stub",
+      timestamp: NOW,
+      status: "running",
+    });
     expect(store().byId["stub"]?.label).toBe("");
 
     reconcileSubagentStoreFromNotifications(

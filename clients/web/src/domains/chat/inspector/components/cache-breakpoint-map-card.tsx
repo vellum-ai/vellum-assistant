@@ -38,10 +38,7 @@ const STATUS_COLOR: Record<CacheSegmentStatus, string> = {
   unknown: "var(--content-faint)",
 };
 
-function statusLabel(
-  status: CacheSegmentStatus,
-  t: ChatTranslate,
-): string {
+function statusLabel(status: CacheSegmentStatus, t: ChatTranslate): string {
   switch (status) {
     case "read":
       return t("cacheBreakpointMapCard.statusRead");
@@ -185,14 +182,10 @@ export function CacheBreakpointMapCard({
   }
 
   if (isLoading) {
-    return (
-      <StateNote>{t("cacheBreakpointMapCard.loading")}</StateNote>
-    );
+    return <StateNote>{t("cacheBreakpointMapCard.loading")}</StateNote>;
   }
   if (isError) {
-    return (
-      <StateNote>{t("cacheBreakpointMapCard.loadError")}</StateNote>
-    );
+    return <StateNote>{t("cacheBreakpointMapCard.loadError")}</StateNote>;
   }
 
   const map = parseCacheBreakpoints(payload?.requestPayload, entry.summary);
@@ -201,9 +194,7 @@ export function CacheBreakpointMapCard({
   }
 
   if (map.segments.length === 0) {
-    return (
-      <StateNote>{t("cacheBreakpointMapCard.noBreakpoints")}</StateNote>
-    );
+    return <StateNote>{t("cacheBreakpointMapCard.noBreakpoints")}</StateNote>;
   }
 
   const maxTokens = Math.max(

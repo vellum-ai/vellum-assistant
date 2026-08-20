@@ -47,9 +47,14 @@ function queued(id: string, text: string): DisplayMessage {
   } as DisplayMessage;
 }
 
-const MESSAGES = [queued("m-1", "first queued"), queued("m-2", "second queued")];
+const MESSAGES = [
+  queued("m-1", "first queued"),
+  queued("m-2", "second queued"),
+];
 
-function renderDrawer(overrides: Partial<Parameters<typeof QueuedMessagesDrawer>[0]> = {}) {
+function renderDrawer(
+  overrides: Partial<Parameters<typeof QueuedMessagesDrawer>[0]> = {},
+) {
   const onCancelMessage = mock((_id: string) => {});
   const onSteer = mock((_id: string) => {});
   const onEditTail = mock(() => {});
@@ -121,9 +126,9 @@ describe("QueuedMessagesDrawer: coarse pointer", () => {
     expect(screen.queryAllByLabelText("Cancel queued message")).toEqual([]);
     expect(screen.queryAllByLabelText("Push to agent")).toEqual([]);
     expect(screen.queryAllByLabelText("Edit queued message")).toEqual([]);
-    expect(
-      screen.getAllByLabelText("Show queued message actions").length,
-    ).toBe(2);
+    expect(screen.getAllByLabelText("Show queued message actions").length).toBe(
+      2,
+    );
   });
 
   test("first tap reveals only that row; a second tap activates a control", () => {
@@ -135,9 +140,9 @@ describe("QueuedMessagesDrawer: coarse pointer", () => {
     const cancels = screen.getAllByLabelText("Cancel queued message");
     expect(cancels.length).toBe(1);
     // The untapped row keeps its controls hidden.
-    expect(
-      screen.getAllByLabelText("Show queued message actions").length,
-    ).toBe(1);
+    expect(screen.getAllByLabelText("Show queued message actions").length).toBe(
+      1,
+    );
 
     fireEvent.click(cancels[0]!);
     expect(onCancelMessage).toHaveBeenCalledWith("m-1");
@@ -163,8 +168,8 @@ describe("QueuedMessagesDrawer: coarse pointer", () => {
     fireEvent.pointerDown(document.body);
 
     expect(screen.queryAllByLabelText("Cancel queued message")).toEqual([]);
-    expect(
-      screen.getAllByLabelText("Show queued message actions").length,
-    ).toBe(2);
+    expect(screen.getAllByLabelText("Show queued message actions").length).toBe(
+      2,
+    );
   });
 });

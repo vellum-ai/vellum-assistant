@@ -32,7 +32,8 @@ export function EmojiPickerPopup({
       return;
     }
     const selected = container.children[selectedIndex] as
-      HTMLElement | undefined;
+      | HTMLElement
+      | undefined;
     selected?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 

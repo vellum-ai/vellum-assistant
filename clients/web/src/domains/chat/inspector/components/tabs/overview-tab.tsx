@@ -232,7 +232,10 @@ function buildIdentityRows(
     },
   ];
   if (hasError) {
-    rows.push({ label: t("overviewTab.statusLabel"), value: t("overviewTab.failedStatus") });
+    rows.push({
+      label: t("overviewTab.statusLabel"),
+      value: t("overviewTab.failedStatus"),
+    });
   }
   if (agentLoopExitReason != null && agentLoopExitReason.trim().length > 0) {
     rows.push({

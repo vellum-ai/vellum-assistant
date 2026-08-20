@@ -21,9 +21,8 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
-const realPaginationModule = await import(
-  "@/domains/chat/transcript/use-history-pagination"
-);
+const realPaginationModule =
+  await import("@/domains/chat/transcript/use-history-pagination");
 
 let currentProcessing: boolean | undefined;
 let invalidateCalls = 0;

@@ -130,7 +130,9 @@ function currentContext(): CompanionContext {
       .map(
         (message): CompanionTurn => ({
           role:
-            message.role === "user" ? ("user" as const) : ("assistant" as const),
+            message.role === "user"
+              ? ("user" as const)
+              : ("assistant" as const),
           text: messagePlainText(message),
         }),
       ),
@@ -145,7 +147,8 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.turns.length === b.turns.length &&
     a.turns.every(
       (turn, index) =>
-        turn.role === b.turns[index]?.role && turn.text === b.turns[index]?.text,
+        turn.role === b.turns[index]?.role &&
+        turn.text === b.turns[index]?.text,
     )
   );
 }

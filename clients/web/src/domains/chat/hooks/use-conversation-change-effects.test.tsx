@@ -43,9 +43,8 @@ const fetchSubagentDetail = mock(
 );
 mock.module("../fetch-subagent-detail", () => ({ fetchSubagentDetail }));
 
-const { useConversationChangeEffects } = await import(
-  "@/domains/chat/hooks/use-conversation-change-effects"
-);
+const { useConversationChangeEffects } =
+  await import("@/domains/chat/hooks/use-conversation-change-effects");
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 const { useWorkflowStore } = await import("@/domains/chat/workflow-store");
 

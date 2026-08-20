@@ -27,12 +27,14 @@ import type { PostMessageResult } from "@/domains/chat/api/messages";
 // ---------------------------------------------------------------------------
 const realMessages = await import("@/domains/chat/api/messages");
 
-let postChatMessageMock = mock(async (): Promise<PostMessageResult> => ({
-  ok: true as const,
-  assistantId: "asst-1",
-  conversationId: "conv-A",
-  messageId: "user-msg-1",
-}));
+let postChatMessageMock = mock(
+  async (): Promise<PostMessageResult> => ({
+    ok: true as const,
+    assistantId: "asst-1",
+    conversationId: "conv-A",
+    messageId: "user-msg-1",
+  }),
+);
 let deleteQueuedMessageMock = mock(async () => true);
 
 mock.module("@/domains/chat/api/messages", () => ({
@@ -107,12 +109,14 @@ function renderSend(startReconciliationLoop: () => void) {
 }
 
 beforeEach(() => {
-  postChatMessageMock = mock(async (): Promise<PostMessageResult> => ({
-    ok: true as const,
-    assistantId: "asst-1",
-    conversationId: "conv-A",
-    messageId: "user-msg-1",
-  }));
+  postChatMessageMock = mock(
+    async (): Promise<PostMessageResult> => ({
+      ok: true as const,
+      assistantId: "asst-1",
+      conversationId: "conv-A",
+      messageId: "user-msg-1",
+    }),
+  );
   deleteQueuedMessageMock = mock(async () => true);
   // Scope check: the send's assistant/conversation must be the active ones so
   // the fallback branch is reached (not short-circuited as inactive).
@@ -226,13 +230,15 @@ describe("useSendMessage — SSE + reconciliation own delivery (no poll)", () =>
     // A hidden send renders no row and receives no queued ack, so tracking
     // it would park a dead FIFO entry that the next visible send's ack
     // would bind to instead of its own row.
-    postChatMessageMock = mock(async (): Promise<PostMessageResult> => ({
-      ok: true as const,
-      queued: true,
-      assistantId: "asst-1",
-      conversationId: "conv-A",
-      requestId: "request-hidden",
-    }));
+    postChatMessageMock = mock(
+      async (): Promise<PostMessageResult> => ({
+        ok: true as const,
+        queued: true,
+        assistantId: "asst-1",
+        conversationId: "conv-A",
+        requestId: "request-hidden",
+      }),
+    );
     useTurnStore.setState({
       phase: "streaming",
       activeTurnId: "turn-1",

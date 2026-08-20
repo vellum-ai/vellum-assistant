@@ -135,9 +135,7 @@ function MemoryRecallSection({
       <div className="p-4">
         <SectionCard
           title={t("memoryTab.memoryDisabledTitle")}
-          subtitle={
-            recall.reason ?? t("memoryTab.memoryDisabledDefaultReason")
-          }
+          subtitle={recall.reason ?? t("memoryTab.memoryDisabledDefaultReason")}
         />
       </div>
     );
@@ -190,24 +188,31 @@ function MemoryRecallSection({
             {
               label: t("memoryTab.semanticHitsLabel"),
               value:
-                recall.semanticHits != null ? fmt(recall.semanticHits) : missing,
+                recall.semanticHits != null
+                  ? fmt(recall.semanticHits)
+                  : missing,
             },
             {
               label: t("memoryTab.afterMergeLabel"),
-              value: recall.mergedCount != null ? fmt(recall.mergedCount) : missing,
+              value:
+                recall.mergedCount != null ? fmt(recall.mergedCount) : missing,
             },
             {
               label: t("memoryTab.tier1Label"),
-              value: recall.tier1Count != null ? fmt(recall.tier1Count) : missing,
+              value:
+                recall.tier1Count != null ? fmt(recall.tier1Count) : missing,
             },
             {
               label: t("memoryTab.tier2Label"),
-              value: recall.tier2Count != null ? fmt(recall.tier2Count) : missing,
+              value:
+                recall.tier2Count != null ? fmt(recall.tier2Count) : missing,
             },
             {
               label: t("memoryTab.selectedLabel"),
               value:
-                recall.selectedCount != null ? fmt(recall.selectedCount) : missing,
+                recall.selectedCount != null
+                  ? fmt(recall.selectedCount)
+                  : missing,
             },
             {
               label: t("memoryTab.injectedTokensLabel"),
@@ -227,7 +232,9 @@ function MemoryRecallSection({
               label: t("memoryTab.hybridSearchLabel"),
               value:
                 recall.hybridSearchLatencyMs != null
-                  ? t("memoryTab.latencyMs", { ms: recall.hybridSearchLatencyMs })
+                  ? t("memoryTab.latencyMs", {
+                      ms: recall.hybridSearchLatencyMs,
+                    })
                   : missing,
             },
             {
@@ -398,7 +405,9 @@ function MemoryV2Section({
           dotColor={v2StatusColor("injected")}
         />
         <CountPill
-          label={t("memoryTab.notInjectedPill", { count: fmt(notInjectedCount) })}
+          label={t("memoryTab.notInjectedPill", {
+            count: fmt(notInjectedCount),
+          })}
           dotColor={v2StatusColor("not_injected")}
         />
       </div>
@@ -489,16 +498,25 @@ function V2ConfigCard({
           <MetaGrid
             rows={[
               { label: t("memoryTab.configDDecay"), value: fmtAct(config.d) },
-              { label: t("memoryTab.configCUser"), value: fmtAct(config.c_user) },
+              {
+                label: t("memoryTab.configCUser"),
+                value: fmtAct(config.c_user),
+              },
               {
                 label: t("memoryTab.configCAssistant"),
                 value: fmtAct(config.c_assistant),
               },
               { label: t("memoryTab.configCNow"), value: fmtAct(config.c_now) },
-              { label: t("memoryTab.configKSharpening"), value: fmtAct(config.k) },
+              {
+                label: t("memoryTab.configKSharpening"),
+                value: fmtAct(config.k),
+              },
               { label: t("memoryTab.configHops"), value: String(config.hops) },
               { label: t("memoryTab.configTopK"), value: String(config.top_k) },
-              { label: t("memoryTab.configEpsilon"), value: fmtAct(config.epsilon) },
+              {
+                label: t("memoryTab.configEpsilon"),
+                value: fmtAct(config.epsilon),
+              },
             ]}
           />
         )}
@@ -975,7 +993,9 @@ function SectionCard({
               </span>
             )}
           </div>
-          {copyText != null && t != null && <CopyButton text={copyText} t={t} />}
+          {copyText != null && t != null && (
+            <CopyButton text={copyText} t={t} />
+          )}
         </div>
         {children}
       </div>
@@ -1098,7 +1118,9 @@ function CopyButton({
       onClick={handleCopy}
       title={copied ? t("memoryTab.copyTitleCopied") : t("memoryTab.copyTitle")}
       aria-label={
-        copied ? t("memoryTab.copyAriaLabelCopied") : t("memoryTab.copyAriaLabel")
+        copied
+          ? t("memoryTab.copyAriaLabelCopied")
+          : t("memoryTab.copyAriaLabel")
       }
       className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-label-default transition-colors"
       style={{

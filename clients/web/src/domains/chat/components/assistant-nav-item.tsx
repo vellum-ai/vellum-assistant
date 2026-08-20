@@ -294,7 +294,9 @@ export function AssistantNavItem({
         <Plus
           aria-hidden="true"
           className="h-3.5 w-3.5"
-          style={{ color: "var(--panel-item-icon-fg, var(--content-tertiary))" }}
+          style={{
+            color: "var(--panel-item-icon-fg, var(--content-tertiary))",
+          }}
         />
       </button>
     </NewChatTooltip>

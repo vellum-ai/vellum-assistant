@@ -27,10 +27,7 @@ describe("TextPreview", () => {
 
   test("a file past the cap says it was truncated", async () => {
     render(
-      <TextPreview
-        blob={new Blob(["a".repeat(CAP + 1)])}
-        filename="big.log"
-      />,
+      <TextPreview blob={new Blob(["a".repeat(CAP + 1)])} filename="big.log" />,
     );
 
     await waitFor(() =>

@@ -45,9 +45,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 }));
 mock.module("@/lib/sentry/capture-error", () => ({ captureError: () => {} }));
 
-const { useSubagentReconcile } = await import(
-  "@/domains/chat/hooks/use-subagent-reconcile"
-);
+const { useSubagentReconcile } =
+  await import("@/domains/chat/hooks/use-subagent-reconcile");
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 
 const ASSISTANT = "asst-1";

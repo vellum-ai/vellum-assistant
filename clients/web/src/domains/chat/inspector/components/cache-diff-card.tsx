@@ -505,14 +505,10 @@ export function CacheDiffCard({
 
   if (needsPreviousFetch) {
     if (isPreviousLoading) {
-      return (
-        <StateNote>{t("cacheDiffCard.loadingPreviousCall")}</StateNote>
-      );
+      return <StateNote>{t("cacheDiffCard.loadingPreviousCall")}</StateNote>;
     }
     if (isPreviousError) {
-      return (
-        <StateNote>{t("cacheDiffCard.loadPreviousCallError")}</StateNote>
-      );
+      return <StateNote>{t("cacheDiffCard.loadPreviousCallError")}</StateNote>;
     }
   }
 

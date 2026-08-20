@@ -103,9 +103,8 @@ const openWorkspaceFile = mock(async (_path: string) => {});
 
 mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
 
-const { ChatMarkdownMessage, isVellumLink } = await import(
-  "@/domains/chat/components/chat-markdown-message"
-);
+const { ChatMarkdownMessage, isVellumLink } =
+  await import("@/domains/chat/components/chat-markdown-message");
 const { useViewerStore } = await import("@/stores/viewer-store");
 
 function makeAttachment(

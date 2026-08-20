@@ -276,9 +276,9 @@ describe("liveVoiceSurfaceLabel", () => {
 
   /** A state rather than an activity, so no ellipsis where the phases have one. */
   test("says muted without an ellipsis", () => {
-    expect(liveVoiceSurfaceLabel("listening", false, false, true)).not.toContain(
-      "\u2026",
-    );
+    expect(
+      liveVoiceSurfaceLabel("listening", false, false, true),
+    ).not.toContain("\u2026");
   });
 
   /**

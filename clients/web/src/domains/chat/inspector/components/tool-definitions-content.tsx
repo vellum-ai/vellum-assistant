@@ -31,7 +31,9 @@ export function ToolDefinitionsContent({
       </p>
       <Collapsible.Root
         type="multiple"
-        defaultValue={tools.length === 1 ? tools.map((tool) => tool.name) : undefined}
+        defaultValue={
+          tools.length === 1 ? tools.map((tool) => tool.name) : undefined
+        }
         className="mt-3"
       >
         {tools.map((tool, i) => (

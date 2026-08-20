@@ -88,9 +88,7 @@ export function ArchiveAllConfirmDialog({
       message={
         pending
           ? `Archive ${
-              count === 1
-                ? "the conversation"
-                : `all ${count} conversations`
+              count === 1 ? "the conversation" : `all ${count} conversations`
             } in “${pending.groupName}”? Archived conversations leave the sidebar. You can find them later by searching “is:archived”.`
           : ""
       }

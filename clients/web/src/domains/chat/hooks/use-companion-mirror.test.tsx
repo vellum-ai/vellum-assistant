@@ -23,9 +23,8 @@ mock.module("@/runtime/popout-window", () => ({
 
 const { useTurnStore } = await import("@/domains/chat/turn-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {

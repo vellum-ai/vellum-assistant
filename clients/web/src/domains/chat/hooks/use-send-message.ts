@@ -1024,7 +1024,12 @@ export function useSendMessage({
             .getState()
             .pendingDraftProfiles.get(activeConversationId);
           if (stashedProfile !== undefined) {
-            resolveDraftKey(queryClient, assistantId, activeConversationId, activeConversationId);
+            resolveDraftKey(
+              queryClient,
+              assistantId,
+              activeConversationId,
+              activeConversationId,
+            );
             useConversationStore
               .getState()
               .clearPendingDraftProfile(activeConversationId);

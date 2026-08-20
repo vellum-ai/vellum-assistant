@@ -139,11 +139,11 @@ export interface ChatDebugThinkingDoneSignal {
  */
 export interface PendingInteractionsSnapshot {
   pendingSecret: PendingSecretState | null;
-  isSubmittingSecret: boolean;
+  submittingSecretRequestId: string | null;
   pendingConfirmation: PendingConfirmationState | null;
   submittingConfirmationRequestId: string | null;
   pendingContactRequest: PendingContactRequestState | null;
-  isSubmittingContactRequest: boolean;
+  submittingContactRequestRequestId: string | null;
   pendingQuestion: PendingQuestionState | null;
   submittingQuestionRequestId: string | null;
   /** True while the question card is hidden but `pendingQuestion` is set —

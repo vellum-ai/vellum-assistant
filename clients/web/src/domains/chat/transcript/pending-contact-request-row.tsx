@@ -12,12 +12,16 @@ import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card
 
 export function PendingContactRequestRow() {
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
-  const isSubmitting = useInteractionStore.use.isSubmittingContactRequest();
+  const submittingRequestId =
+    useInteractionStore.use.submittingContactRequestRequestId();
   const accepted = useInteractionStore.use.contactRequestAccepted();
 
   if (!pendingContactRequest) {
     return null;
   }
+
+  // This card's own submission, not any submission.
+  const isSubmitting = submittingRequestId === pendingContactRequest.requestId;
 
   return (
     <ContactPromptCard

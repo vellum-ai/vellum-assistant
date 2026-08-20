@@ -71,11 +71,12 @@ export function useChatDebugRegistration({
       const state = useInteractionStore.getState();
       return {
         pendingSecret: state.pendingSecret,
-        isSubmittingSecret: state.isSubmittingSecret,
+        submittingSecretRequestId: state.submittingSecretRequestId,
         pendingConfirmation: state.pendingConfirmation,
         submittingConfirmationRequestId: state.submittingConfirmationRequestId,
         pendingContactRequest: state.pendingContactRequest,
-        isSubmittingContactRequest: state.isSubmittingContactRequest,
+        submittingContactRequestRequestId:
+          state.submittingContactRequestRequestId,
         pendingQuestion: state.pendingQuestion,
         submittingQuestionRequestId: state.submittingQuestionRequestId,
         isQuestionCardDismissed: state.isQuestionCardDismissed,

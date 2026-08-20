@@ -51,9 +51,8 @@ mock.module("./tiptap-document-editor", () => ({
   ),
 }));
 
-const { DocumentViewerContainer } = await import(
-  "@/domains/chat/components/document-viewer-container"
-);
+const { DocumentViewerContainer } =
+  await import("@/domains/chat/components/document-viewer-container");
 
 interface RenderResult {
   unmount: () => void;

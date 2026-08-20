@@ -6,9 +6,8 @@ mock.module("@/runtime/is-electron", () => ({
   isElectron: () => electron,
 }));
 
-const { newChatAccelerator, newChatShortcutHint } = await import(
-  "@/domains/chat/new-chat-shortcut"
-);
+const { newChatAccelerator, newChatShortcutHint } =
+  await import("@/domains/chat/new-chat-shortcut");
 
 describe("newChatShortcutHint", () => {
   afterEach(() => {

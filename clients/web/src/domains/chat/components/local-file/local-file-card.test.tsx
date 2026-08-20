@@ -7,9 +7,8 @@ const openWorkspaceFile = mock(async (_path: string) => {});
 
 mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
 
-const { LocalFileCard } = await import(
-  "@/domains/chat/components/local-file/local-file-card"
-);
+const { LocalFileCard } =
+  await import("@/domains/chat/components/local-file/local-file-card");
 const { useViewerStore } = await import("@/stores/viewer-store");
 
 const openWorkspaceFilePreview = mock(

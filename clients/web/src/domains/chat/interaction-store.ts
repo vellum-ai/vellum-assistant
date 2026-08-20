@@ -28,7 +28,9 @@ import type {
 
 export interface InteractionState {
   pendingSecret: PendingSecretState | null;
-  isSubmittingSecret: boolean;
+  /** In-flight secret submission, by request. See
+   *  {@link submittingConfirmationRequestId} for why it carries an id. */
+  submittingSecretRequestId: string | null;
   secretSaved: boolean;
 
   pendingConfirmation: PendingConfirmationState | null;
@@ -49,7 +51,9 @@ export interface InteractionState {
   submittingConfirmationRequestId: string | null;
 
   pendingContactRequest: PendingContactRequestState | null;
-  isSubmittingContactRequest: boolean;
+  /** In-flight contact-request submission, by request. See
+   *  {@link submittingConfirmationRequestId} for why it carries an id. */
+  submittingContactRequestRequestId: string | null;
   contactRequestAccepted: boolean;
 
   pendingQuestion: PendingQuestionState | null;
@@ -118,9 +122,9 @@ export interface InteractionState {
 export interface InteractionActions {
   // Secret
   showSecret: (payload: PendingSecretState) => void;
-  submitSecretStart: () => void;
-  submitSecretEnd: (saved?: boolean) => void;
-  dismissSecret: () => void;
+  submitSecretStart: (requestId: string) => void;
+  submitSecretEnd: (requestId: string, saved?: boolean) => void;
+  dismissSecretIfMatches: (requestId: string) => void;
   updateSecret: (requestId: string, patch: Partial<PendingSecretState>) => void;
 
   // Confirmation
@@ -136,9 +140,9 @@ export interface InteractionActions {
 
   // Contact request
   showContactRequest: (payload: PendingContactRequestState) => void;
-  submitContactRequestStart: () => void;
-  submitContactRequestEnd: () => void;
-  dismissContactRequest: () => void;
+  submitContactRequestStart: (requestId: string) => void;
+  submitContactRequestEnd: (requestId: string) => void;
+  dismissContactRequestIfMatches: (requestId: string) => void;
   acceptContactRequest: () => void;
 
   // Question
@@ -171,14 +175,14 @@ export type InteractionStore = InteractionState & InteractionActions;
 
 const INITIAL_STATE: InteractionState = {
   pendingSecret: null,
-  isSubmittingSecret: false,
+  submittingSecretRequestId: null,
   secretSaved: false,
 
   pendingConfirmation: null,
   submittingConfirmationRequestId: null,
 
   pendingContactRequest: null,
-  isSubmittingContactRequest: false,
+  submittingContactRequestRequestId: null,
   contactRequestAccepted: false,
 
   pendingQuestion: null,
@@ -232,19 +236,26 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       set({ pendingSecret: { ...pendingSecret, ...defined } });
       return;
     }
-    set({
-      pendingSecret: payload,
-      isSubmittingSecret: false,
-      secretSaved: false,
-    });
+    set({ pendingSecret: payload, secretSaved: false });
   },
 
-  submitSecretStart: () => set({ isSubmittingSecret: true }),
+  submitSecretStart: (requestId) =>
+    set({ submittingSecretRequestId: requestId }),
 
-  submitSecretEnd: (saved) =>
-    set({ isSubmittingSecret: false, secretSaved: saved ?? false }),
+  submitSecretEnd: (requestId, saved) =>
+    set((state) =>
+      state.submittingSecretRequestId === requestId
+        ? { submittingSecretRequestId: null, secretSaved: saved ?? false }
+        : {},
+    ),
 
-  dismissSecret: () => set({ pendingSecret: null, isSubmittingSecret: false }),
+  dismissSecretIfMatches: (requestId) => {
+    const { pendingSecret } = get();
+    if (!pendingSecret || pendingSecret.requestId !== requestId) {
+      return;
+    }
+    set({ pendingSecret: null });
+  },
 
   updateSecret: (requestId, patch) => {
     const { pendingSecret } = get();
@@ -294,18 +305,28 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
 
   // ----- Contact request -----
   showContactRequest: (payload) =>
-    set({
-      pendingContactRequest: payload,
-      isSubmittingContactRequest: false,
-      contactRequestAccepted: false,
-    }),
+    set({ pendingContactRequest: payload, contactRequestAccepted: false }),
 
-  submitContactRequestStart: () => set({ isSubmittingContactRequest: true }),
+  submitContactRequestStart: (requestId) =>
+    set({ submittingContactRequestRequestId: requestId }),
 
-  submitContactRequestEnd: () => set({ isSubmittingContactRequest: false }),
+  submitContactRequestEnd: (requestId) =>
+    set((state) =>
+      state.submittingContactRequestRequestId === requestId
+        ? { submittingContactRequestRequestId: null }
+        : {},
+    ),
 
-  dismissContactRequest: () =>
-    set({ pendingContactRequest: null, isSubmittingContactRequest: false }),
+  dismissContactRequestIfMatches: (requestId) => {
+    const { pendingContactRequest } = get();
+    if (
+      !pendingContactRequest ||
+      pendingContactRequest.requestId !== requestId
+    ) {
+      return;
+    }
+    set({ pendingContactRequest: null });
+  },
 
   acceptContactRequest: () => set({ contactRequestAccepted: true }),
 
@@ -345,7 +366,7 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   resetSecretAndConfirmation: () =>
     set({
       pendingSecret: null,
-      isSubmittingSecret: false,
+      submittingSecretRequestId: null,
       secretSaved: false,
       pendingConfirmation: null,
       // A reset abandons the interaction outright, which is the one thing that

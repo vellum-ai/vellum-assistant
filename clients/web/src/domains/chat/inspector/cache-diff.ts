@@ -46,7 +46,8 @@ export interface CacheDiffLine {
  * lines.
  */
 export type CollapsedDiffEntry =
-  { type: "line"; line: CacheDiffLine } | { type: "gap"; count: number };
+  | { type: "line"; line: CacheDiffLine }
+  | { type: "gap"; count: number };
 
 /** Per-group change flags, independent of which one is the headline cause. */
 export interface CacheDiffChangedGroups {

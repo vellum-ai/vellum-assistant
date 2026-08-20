@@ -78,8 +78,7 @@ const VIEWFINDER_IDEAL_HEIGHT = 1080;
 export function isVoiceCameraSupported(): boolean {
   return (
     isNativeMobile() ||
-    (typeof navigator !== "undefined" &&
-      !!navigator.mediaDevices?.getUserMedia)
+    (typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia)
   );
 }
 

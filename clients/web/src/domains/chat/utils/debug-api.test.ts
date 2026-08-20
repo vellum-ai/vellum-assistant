@@ -66,11 +66,11 @@ const DEFAULT_UI_CONTEXT: UIContext = {
 
 const DEFAULT_PENDING_INTERACTIONS: PendingInteractionsSnapshot = {
   pendingSecret: null,
-  isSubmittingSecret: false,
+  submittingSecretRequestId: null,
   pendingConfirmation: null,
   submittingConfirmationRequestId: null,
   pendingContactRequest: null,
-  isSubmittingContactRequest: false,
+  submittingContactRequestRequestId: null,
   pendingQuestion: null,
   submittingQuestionRequestId: null,
   isQuestionCardDismissed: false,
@@ -716,7 +716,7 @@ describe("createChatDebugApi.listPendingInteractions", () => {
             label: "OpenAI API Key",
             description: "needed for inference",
           },
-          isSubmittingSecret: true,
+          submittingSecretRequestId: "s1",
         },
       }),
     );
@@ -726,7 +726,7 @@ describe("createChatDebugApi.listPendingInteractions", () => {
       label: "OpenAI API Key",
       description: "needed for inference",
     });
-    expect(snapshot.isSubmittingSecret).toBe(true);
+    expect(snapshot.submittingSecretRequestId).toBe("s1");
     // Unrelated prompt slots remain null/false.
     expect(snapshot.pendingConfirmation).toBeNull();
     expect(snapshot.pendingContactRequest).toBeNull();

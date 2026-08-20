@@ -247,7 +247,9 @@ export function resolveLocalFileType(opts: {
   // say. Naming the real format keeps the document previews reachable while
   // still letting a genuine mismatch (a `.docx` holding png bytes) win.
   const ooxmlMime =
-    sniffed === "application/zip" ? (OOXML_MIME_TYPES[extension] ?? null) : null;
+    sniffed === "application/zip"
+      ? (OOXML_MIME_TYPES[extension] ?? null)
+      : null;
   const trustedSniff = svgShadowsDocument ? null : (ooxmlMime ?? sniffed);
   const server = normalizeMimeType(opts.serverMime);
   const namedServer = server && !GENERIC_MIME_TYPES.has(server) ? server : null;

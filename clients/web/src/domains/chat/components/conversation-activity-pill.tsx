@@ -27,7 +27,12 @@
 import { CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
 import { useCallback, useState, type ReactNode } from "react";
 
-import { BottomSheet, Button, Popover, Typography } from "@vellumai/design-library";
+import {
+  BottomSheet,
+  Button,
+  Popover,
+  Typography,
+} from "@vellumai/design-library";
 
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import { useConversationActivity } from "@/domains/chat/hooks/use-conversation-activity";
