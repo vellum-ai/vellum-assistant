@@ -29,7 +29,9 @@ if [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/${TOOL_NAME}" ] &&
   rc=0
   # Platform kata pods are privileged inside their per-assistant VM, so
   # unshare -m works there; if this environment can't create a mount
-  # namespace, fall back to a bare chroot (the pre-mount-namespace behavior).
+  # namespace, fall back to a bare chroot: installs still persist, but with
+  # no /dev/pts or /proc apt logs a pty warning and the caller's cwd is not
+  # restored.
   if unshare -m true 2>/dev/null; then
     unshare -m /app/assistant/docker-kata-chroot-exec.sh "${DATA_ROOT}" "${PWD}" "/usr/bin/${TOOL_NAME}" "$@" || rc=$?
   else
