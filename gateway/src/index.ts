@@ -2160,7 +2160,9 @@ async function main() {
     // say so. See the note in `velay/allowed-paths.ts`.
     if (url.pathname === "/v1/watch/stream") {
       const upgradeResult = await handleWatchStreamWs(req, server);
-      if (upgradeResult !== undefined) return upgradeResult;
+      if (upgradeResult !== undefined) {
+        return upgradeResult;
+      }
       return undefined as unknown as Response;
     }
 
