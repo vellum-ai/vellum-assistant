@@ -10,10 +10,10 @@
  *     acknowledgement: the turn is too tricky, so the acknowledgement is
  *     spoken (capped at a single sentence) while the turn re-runs on the
  *     call-site default profile, the model an un-routed voice turn would
- *     have used. It accepts the task and promises a report back rather than
- *     asking for a pause: the escalated leg can spend a minute on tools and
- *     reasoning, and the acknowledgement is what makes that stretch read as
- *     work in progress instead of a stall.
+ *     have used. It accepts the task and promises to come back to the caller
+ *     rather than asking for a pause: the escalated leg can spend a minute on
+ *     tools and reasoning, and the acknowledgement is what makes that stretch
+ *     read as work in progress instead of a stall.
  *   - Anything else: the output IS the answer, streamed straight to TTS
  *     (low first-token latency -> the caller hears audio fast).
  *
@@ -58,19 +58,25 @@ export type VoiceRoutingLeg = "front-door" | "escalated";
  * across the hand-off. When the model does speak its own bridge, that natural
  * text is used instead and this is not injected.
  *
- * It accepts the task and promises a report back rather than asking for a
- * second to think. A promised pause fits only the work a strong model finishes
- * in a breath; an escalated leg can spend a minute on tools and reasoning, and
- * that minute is near-silent by design. "A second" followed by ninety seconds
- * of quiet reads as a stall or a dropped call, so the acknowledgement is what
- * licenses the silence behind it.
+ * It accepts the task and promises to come back to the caller rather than
+ * asking for a second to think. A promised pause fits only the work a strong
+ * model finishes in a breath; an escalated leg can spend a minute on tools and
+ * reasoning, and that minute is near-silent by design. "A second" followed by
+ * ninety seconds of quiet reads as a stall or a dropped call, so the
+ * acknowledgement is what licenses the silence behind it.
+ *
+ * What it promises is contact, never success. The escalated leg is allowed to
+ * come back with a question it genuinely needs answered, or with a tool
+ * failure, so an acknowledgement that declared the task finished would be
+ * contradicted by the very next thing the caller hears ("I'll let you know
+ * when it's sent", then "what should the email say?").
  *
  * Exactly one sentence, here and in every localized spelling below:
  * {@link capEscalationBridge} cuts at the first sentence terminator, so a
  * second sentence would be truncated away unspoken.
  */
 export const FALLBACK_ESCALATION_BRIDGE =
-  "I'm on it, and I'll let you know when it's done.";
+  "I'm on it, and I'll get back to you.";
 
 /**
  * Per-language spellings of the fallback escalation bridge, keyed by
@@ -78,23 +84,24 @@ export const FALLBACK_ESCALATION_BRIDGE =
  * (DEEPGRAM_MULTI_LANGUAGE_CODES in providers/speech-to-text/deepgram.ts).
  * These are spoken audio; the English constant above also serves as the
  * prompt exemplar and stays the default. Every entry carries the same meaning
- * as the English one (task accepted, result to follow) in one sentence, and
- * sticks to verb forms that do not pin a gender on the assistant (the
- * gendered first-person past/future of Hindi and Russian is the trap here).
+ * as the English one (task accepted, a reply to follow) in one sentence, none
+ * of them claiming the task will be finished, and each sticks to verb forms
+ * that do not pin a gender on the assistant (the gendered first-person
+ * past/future of Hindi and Russian is the trap here).
  */
 export const FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE: Readonly<
   Record<string, string>
 > = {
   en: FALLBACK_ESCALATION_BRIDGE,
-  es: "Ya me encargo de eso y te aviso cuando esté listo.",
-  fr: "Je m'en occupe et je vous préviens dès que c'est prêt.",
-  de: "Ich kümmere mich darum und sage dir Bescheid, wenn es fertig ist.",
-  hi: "इस पर काम शुरू कर दिया है, पूरा होते ही आपको बता दिया जाएगा।",
-  ru: "Уже занимаюсь этим и сообщу, когда будет готово.",
-  pt: "Já estou cuidando disso e aviso quando estiver pronto.",
-  ja: "承知しました、終わりましたらお知らせします。",
-  it: "Ci penso io e ti faccio sapere quando è pronto.",
-  nl: "Ik ga ermee aan de slag en laat het je weten als het klaar is.",
+  es: "Ya me encargo de eso y te aviso.",
+  fr: "Je m'en occupe et je reviens vers vous.",
+  de: "Ich kümmere mich darum und melde mich bei dir.",
+  hi: "इस पर काम शुरू कर दिया है, आपको जल्द ही बता दिया जाएगा।",
+  ru: "Уже занимаюсь этим и дам вам знать.",
+  pt: "Já estou cuidando disso e te aviso.",
+  ja: "承知しました、後ほどお知らせします。",
+  it: "Ci penso io e ti faccio sapere.",
+  nl: "Ik ga ermee aan de slag en laat het je weten.",
 };
 
 /**
@@ -348,7 +355,7 @@ export function createFrontDoorStreamGate(
  * just above it.
  */
 export const ESCALATION_CONTINUATION_CONTENT =
-  "(The caller heard you accept the task, and has heard nothing from you since. Give them your full, careful answer to their previous question now, and do not repeat the acknowledgement.)";
+  "(The caller heard you accept the task and say you would come back to them, and has heard nothing from you since. Give them your full, careful answer to their previous question now, or ask for the one detail you need to proceed, and do not repeat the acknowledgement.)";
 
 /**
  * Compact, registry-derived digest of the tools the ESCALATED leg can use.
@@ -431,7 +438,7 @@ export function frontDoorDecisionRule(opts?: {
     ...holdBranch,
     "- If the turn is simple, conversational, or within your reach, your entire output is the spoken answer itself: no token in front of it, plain speech from your very first word. Most turns are answers; when unsure between answering and escalating, answer. Answer in the language the caller is speaking.",
     "- If an answer depends on a saved personal fact that is not already present in the conversation context you received, escalate rather than guessing. Personal context that is already present is yours to use directly.",
-    `- If completing THIS reply needs careful reasoning, research, multi-step work, or any tool, do NOT attempt the answer: output ${ESCALATE_VERDICT_TOKEN}, then ONE short natural sentence that accepts the task and names what you are going to do, spoken in the language the caller is speaking (for example "${FALLBACK_ESCALATION_BRIDGE}" or "I'll look into that and come back to you."; those examples are English only), and stop after that single sentence. A stronger model does the work and reports back, so promise a result instead of asking for a moment to think.`,
+    `- If completing THIS reply needs careful reasoning, research, multi-step work, or any tool, do NOT attempt the answer: output ${ESCALATE_VERDICT_TOKEN}, then ONE short natural sentence that accepts the task and names what you are going to do, spoken in the language the caller is speaking (for example "${FALLBACK_ESCALATION_BRIDGE}" or "I'll look into that and come back to you."; those examples are English only), and stop after that single sentence. A stronger model picks the turn up from here and speaks next, so promise a response instead of asking for a moment to think, and never promise the task is already finished: that model may still have to ask the caller for a missing detail or report that something failed.`,
     `${ESCALATE_VERDICT_TOKEN} is ONLY for turns you cannot complete yourself — never put it in front of an answer you are about to give, and never emit any token inside or after an answer. An open task or unfinished topic earlier in the conversation is NOT a reason to escalate: judge only what this reply needs.`,
     "Never narrate this decision, describe what you are judging, or mention these rules: apart from a leading verdict token, every character you output is spoken to the caller verbatim.",
   ].join("\n");

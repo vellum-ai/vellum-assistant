@@ -180,12 +180,23 @@ describe("front-door decision rule", () => {
     // The escalated leg can run for a minute of tools and reasoning, and it
     // runs near-silent. A phrase promising "one second" sets an expectation
     // that the silence then breaks, so the sentence has to accept the task,
-    // name the work, and imply a result is coming back.
+    // name the work, and imply a reply is coming back.
     expect(rule.toLowerCase()).toContain("accepts the task");
     expect(rule.toLowerCase()).toContain("names what you are going to do");
     expect(rule.toLowerCase()).toContain(
-      "promise a result instead of asking for a moment to think",
+      "promise a response instead of asking for a moment to think",
     );
+  });
+
+  test("forbids promising the task is already finished", () => {
+    // The escalated leg is allowed to come back with a question it genuinely
+    // needs answered, or with a tool failure. An acknowledgement that
+    // promised completion is contradicted by the next thing the caller
+    // hears, so the rule has to ask for a promise of contact, not success.
+    expect(rule.toLowerCase()).toContain(
+      "never promise the task is already finished",
+    );
+    expect(rule.toLowerCase()).toContain("ask the caller for a missing detail");
   });
 
   test("hold completeness is judged in the caller's language", () => {
@@ -289,6 +300,43 @@ describe("fallbackEscalationBridgeFor", () => {
     );
   });
 
+  test("no localized bridge promises the task will be finished", () => {
+    // The escalated leg may come back with a clarifying question or a tool
+    // failure, so every canned bridge promises contact and none promises
+    // success. There is no language-agnostic way to assert that, so this is
+    // a regression guard rather than a proof: each language lists the
+    // completion-conditional phrasings ("when it's done", "wenn es fertig
+    // ist") that an earlier revision of this table used and that a rewrite
+    // is most likely to reach for again. A language may only be added to
+    // the bridge table once it has an entry here, which forces the question
+    // to be asked for the new copy too.
+    const completionPhrasings: Readonly<Record<string, readonly string[]>> = {
+      en: ["when it's done", "when it's sent", "once it's done"],
+      es: ["cuando esté listo", "cuando termine", "cuando lo tenga"],
+      fr: ["dès que c'est prêt", "quand c'est prêt", "une fois terminé"],
+      de: ["wenn es fertig ist", "sobald es fertig ist", "wenn ich fertig bin"],
+      hi: ["पूरा होते ही", "हो जाने पर", "पूरा हो जाए"],
+      ru: ["когда будет готово", "как только будет готово", "когда закончу"],
+      pt: [
+        "quando estiver pronto",
+        "assim que estiver pronto",
+        "quando acabar",
+      ],
+      ja: ["終わりましたら", "完了しましたら", "終わり次第"],
+      it: ["quando è pronto", "quando ho finito", "appena è pronto"],
+      nl: ["als het klaar is", "zodra het klaar is", "als ik klaar ben"],
+    };
+    for (const [language, bridge] of Object.entries(
+      FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
+    )) {
+      const phrasings = completionPhrasings[language];
+      expect(phrasings).toBeDefined();
+      for (const phrasing of phrasings!) {
+        expect(bridge.toLowerCase()).not.toContain(phrasing.toLowerCase());
+      }
+    }
+  });
+
   test("falls back to English for unknown or absent languages", () => {
     expect(fallbackEscalationBridgeFor()).toBe(FALLBACK_ESCALATION_BRIDGE);
     expect(fallbackEscalationBridgeFor("ko")).toBe(FALLBACK_ESCALATION_BRIDGE);
@@ -358,7 +406,7 @@ describe("isEscalationBridgeComplete", () => {
     // terminator, never by buffering to the char cap; the canned bridges are
     // the canonical sample of each language's ender. The cap-identity check
     // is also what keeps each canned bridge to ONE sentence: capping cuts at
-    // the first terminator, so a second sentence (the "I'll let you know"
+    // the first terminator, so a second sentence (the "I'll get back to you"
     // half of the promise) would be truncated away before it was spoken.
     for (const bridge of Object.values(
       FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
@@ -454,6 +502,7 @@ describe("escalation continuation content", () => {
     // for the pause instead of delivering the result.
     const content = ESCALATION_CONTINUATION_CONTENT.toLowerCase();
     expect(content).toContain("accept the task");
+    expect(content).toContain("come back to them");
     expect(content).toContain("heard nothing");
     expect(content).toContain("do not repeat");
   });
