@@ -333,6 +333,18 @@ describe("VoiceSections push-to-talk availability", () => {
 
     expect(screen.queryByText("Push to Talk")).toBe(null);
   });
+
+  test("labels a recorded Space binding", () => {
+    // The recorder stores `KeyboardEvent.key`, which is " " for Space.
+    localStorage.setItem(
+      "vellum:voice:activationKey",
+      JSON.stringify({ kind: "key", label: " ", modifiers: [] }),
+    );
+
+    renderPage();
+
+    expect(screen.getByRole("button", { name: "Space" })).toBeTruthy();
+  });
 });
 
 describe("VoiceSections voice mode shortcut", () => {

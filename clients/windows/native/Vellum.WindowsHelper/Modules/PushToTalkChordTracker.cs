@@ -37,11 +37,8 @@ public sealed class PushToTalkChordTracker
             Pending = false;
             return PushToTalkTransition.None;
         }
-        if (_required.Count > 1)
-        {
-            Active = true;
-            return PushToTalkTransition.Down;
-        }
+        // Every chord waits out the hold guard, so a shortcut that shares its
+        // prefix (Ctrl+Shift+T over Ctrl+Shift) cancels instead of recording.
         Pending = true;
         return PushToTalkTransition.Pending;
     }

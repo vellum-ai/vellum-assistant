@@ -56,4 +56,8 @@ test("composes the real Windows preload capability modules", () => {
   expect(bridge.menu).toBeDefined();
   expect(bridge.featureFlags).toBeDefined();
   expect(bridge.auth).toBeDefined();
+  // Dictation and push-to-talk both contribute to `helper`; the partial
+  // merge must keep both surfaces.
+  expect(bridge.helper?.dictation).toBeDefined();
+  expect(bridge.helper?.hotkey?.setPushToTalk).toBeDefined();
 });

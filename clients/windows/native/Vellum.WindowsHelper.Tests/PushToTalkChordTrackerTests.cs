@@ -9,7 +9,8 @@ public static class PushToTalkChordTrackerTests
     {
         SingleKeyRequiresHold();
         ExtraKeyCancelsPendingActivation();
-        ChordActivatesImmediately();
+        ChordRequiresHold();
+        ExtraKeyCancelsPendingChord();
         RejectsNonModifierGlobalBindings();
         ReconfigurationReleasesActiveChord();
         KeepsSidedModifiersPressed();
@@ -33,13 +34,26 @@ public static class PushToTalkChordTrackerTests
         Assert(tracker.ActivatePending() == PushToTalkTransition.None);
     }
 
-    private static void ChordActivatesImmediately()
+    private static void ChordRequiresHold()
     {
         var tracker = new PushToTalkChordTracker();
         tracker.Configure([0x11, 0x10]);
         Assert(tracker.KeyDown(0x11) == PushToTalkTransition.None);
-        Assert(tracker.KeyDown(0x10) == PushToTalkTransition.Down);
+        Assert(tracker.KeyDown(0x10) == PushToTalkTransition.Pending);
+        Assert(tracker.ActivatePending() == PushToTalkTransition.Down);
         Assert(tracker.KeyUp(0x11) == PushToTalkTransition.Up);
+    }
+
+    private static void ExtraKeyCancelsPendingChord()
+    {
+        var tracker = new PushToTalkChordTracker();
+        tracker.Configure([0x11, 0x10]);
+        tracker.KeyDown(0x11);
+        Assert(tracker.KeyDown(0x10) == PushToTalkTransition.Pending);
+        Assert(tracker.KeyDown(0x54) == PushToTalkTransition.None);
+        Assert(!tracker.Pending);
+        Assert(tracker.ActivatePending() == PushToTalkTransition.None);
+        Assert(tracker.KeyUp(0x10) == PushToTalkTransition.None);
     }
 
     private static void RejectsNonModifierGlobalBindings()

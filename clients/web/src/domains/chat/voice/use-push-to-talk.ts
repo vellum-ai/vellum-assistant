@@ -13,6 +13,7 @@ import {
   supportsConfigurablePushToTalk,
   type HotkeyEvent,
 } from "@/runtime/hotkey";
+import { setPushToTalkHoldActive } from "@/domains/chat/voice/push-to-talk-hold";
 
 /**
  * Imperative handle (subset of `VoiceInputButtonHandle`) that the hook drives.
@@ -24,7 +25,8 @@ export interface PushToTalkTarget {
 }
 
 type PushToTalkTargetSource =
-  RefObject<PushToTalkTarget | null> | (() => PushToTalkTarget | null);
+  | RefObject<PushToTalkTarget | null>
+  | (() => PushToTalkTarget | null);
 
 function resolvePushToTalkTarget(
   source: PushToTalkTargetSource,
@@ -105,13 +107,15 @@ function playActivationBlip(): void {
 /**
  * Listens for the saved PTT activator on `window` keydown/keyup and drives
  * the provided voice-input handle. Hold-to-talk: key-down starts recording
- * after a 100 ms hold delay, key-up stops it. Multi-input chords activate as
- * soon as their final key arrives. Only fires while the Vellum tab has focus
- * unless a configurable desktop host owns the binding globally.
+ * after a 100 ms hold delay, key-up stops it. Key chords (Ctrl+K) activate
+ * as soon as their key arrives; modifier-only bindings, single or chorded,
+ * wait out the delay. Only fires while the Vellum tab has focus unless a
+ * configurable desktop host owns the binding globally.
  *
  * The 100 ms hold delay prevents accidental activation from quick taps. If
  * another non-modifier key is pressed during the hold window, activation is
- * cancelled (the user is likely typing a shortcut like Ctrl+C).
+ * cancelled (the user is likely typing a shortcut like Ctrl+C, or
+ * Ctrl+Shift+T over a Ctrl+Shift binding).
  *
  * Storage lives in `localStorage` under `LS_PTT_ACTIVATION_KEY`; the hook
  * re-reads on `storage` events so PTT picks up changes made in the settings
@@ -159,6 +163,7 @@ export function usePushToTalk(
       activeRef.current = true;
       activeOriginRef.current = origin;
       activeTargetRef.current = target;
+      setPushToTalkHoldActive(true);
       playActivationBlip();
       target.start();
     };
@@ -169,6 +174,7 @@ export function usePushToTalk(
       activeRef.current = false;
       activeOriginRef.current = null;
       activeTargetRef.current = null;
+      setPushToTalkHoldActive(false);
       target?.stop();
     };
 
@@ -203,9 +209,9 @@ export function usePushToTalk(
       }
 
       holdingRef.current = true;
-      const inputCount =
-        activator.modifiers.length + (activator.kind === "key" ? 1 : 0);
-      if (inputCount > 1) {
+      // A key chord ends with its key, so it is unambiguous on arrival. A
+      // modifier-only chord may be the prefix of a shortcut, so it waits.
+      if (activator.kind === "key" && activator.modifiers.length > 0) {
         holdingRef.current = false;
         startActiveTarget("dom");
         return;

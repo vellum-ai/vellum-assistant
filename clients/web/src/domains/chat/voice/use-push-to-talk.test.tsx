@@ -71,7 +71,7 @@ describe("usePushToTalk", () => {
     expect(target.stop).toHaveBeenCalledTimes(1);
   });
 
-  test("starts a multi-modifier chord immediately", () => {
+  test("waits out the hold delay for a multi-modifier chord", async () => {
     localStorage.setItem(
       LS_PTT_ACTIVATION_KEY,
       serializeActivator({
@@ -88,10 +88,47 @@ describe("usePushToTalk", () => {
       ctrlKey: true,
       shiftKey: true,
     });
+    expect(target.start).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await wait(PTT_HOLD_DELAY_MS + 25);
+    });
 
     expect(target.start).toHaveBeenCalledTimes(1);
     fireEvent.keyUp(window, { key: "Shift", ctrlKey: true });
     expect(target.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("cancels a multi-modifier chord when a shortcut key follows", async () => {
+    localStorage.setItem(
+      LS_PTT_ACTIVATION_KEY,
+      serializeActivator({
+        kind: "modifierOnly",
+        modifiers: ["control", "shift"],
+      }),
+    );
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    renderPushToTalk(target);
+
+    fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
+    fireEvent.keyDown(window, {
+      key: "Shift",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    fireEvent.keyDown(window, {
+      key: "T",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+
+    await act(async () => {
+      await wait(PTT_HOLD_DELAY_MS + 25);
+    });
+
+    expect(target.start).not.toHaveBeenCalled();
+    fireEvent.keyUp(window, { key: "Shift", ctrlKey: true });
+    expect(target.stop).not.toHaveBeenCalled();
   });
 
   test("keeps a modifier active until both physical sides are released", async () => {

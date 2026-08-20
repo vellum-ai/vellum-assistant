@@ -63,10 +63,19 @@ export function sortModifiers(
   );
 }
 
+/** Stored key labels that are not readable as-is (`KeyboardEvent.key`). */
+const KEY_LABELS: Record<string, string> = {
+  " ": "Space",
+};
+
 export function modifierLabel(modifiers: readonly PTTModifier[]): string {
   return sortModifiers(modifiers)
     .map((m) => MODIFIER_LABELS[m])
     .join("+");
+}
+
+export function keyLabel(label: string): string {
+  return KEY_LABELS[label] ?? label;
 }
 
 export function activatorDisplayName(activator: PTTActivator): string {
@@ -77,7 +86,8 @@ export function activatorDisplayName(activator: PTTActivator): string {
     return modifierLabel(activator.modifiers);
   }
   const mods = modifierLabel(activator.modifiers);
-  return mods ? `${mods}+${activator.label}` : activator.label;
+  const key = keyLabel(activator.label);
+  return mods ? `${mods}+${key}` : key;
 }
 
 export function activatorsEqual(a: PTTActivator, b: PTTActivator): boolean {

@@ -132,11 +132,11 @@ const feature: CapabilityModule<DesktopCapabilityRegistry> = {
       },
     );
 
+    // The dictation feature owns the helper's graceful shutdown.
     app.once("before-quit", () => {
       owner = null;
       pressed = false;
       registeredActivator = null;
-      helper.shutdown();
     });
   },
 };
