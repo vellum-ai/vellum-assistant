@@ -8,14 +8,29 @@
  * registration type it derives, and what it refuses.
  */
 
-import { describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
-import * as loader from "../config/loader.js";
-import * as registration from "../inbound/platform-callback-registration.js";
-import { resolveWebhookUrl } from "../plugin-api/webhook-url.js";
-import { runInPluginContext } from "../plugins/plugin-execution-context.js";
+let mockIsPlatform = false;
+
+// Bun shares mocked modules across test files in a combined run, so the mock
+// spreads the real module and overrides only what this file drives.
+const actualEnvRegistry = await import("../config/env-registry.js");
+mock.module("../config/env-registry.js", () => ({
+  ...actualEnvRegistry,
+  getIsPlatform: () => mockIsPlatform,
+}));
+
+const loader = await import("../config/loader.js");
+const registration =
+  await import("../inbound/platform-callback-registration.js");
+const { resolveWebhookUrl } = await import("../plugin-api/webhook-url.js");
+const { runInPluginContext } =
+  await import("../plugins/plugin-execution-context.js");
 
 describe("resolveWebhookUrl", () => {
+  afterEach(() => {
+    mockIsPlatform = false;
+  });
   test("composes the plugin's namespaced path and delegates the tier choice", async () => {
     const spy = spyOn(registration, "resolveCallbackUrl").mockResolvedValue(
       "https://callbacks.vellum.ai/abc/webhooks/plugins/imessage/events-photon",
@@ -148,6 +163,7 @@ describe("resolveWebhookUrl", () => {
     // The Velay tunnel forwards the request path verbatim and the gateway
     // admits it only when it matches a claimed path byte for byte. A trailing
     // slash on this URL would be rejected before the gateway ever saw it.
+    mockIsPlatform = true;
     const configSpy = spyOn(loader, "getConfig").mockReturnValue({
       ingress: { publicBaseUrl: "https://velay.vellum.ai/assistant-abc" },
     } as ReturnType<typeof loader.getConfig>);
@@ -163,6 +179,28 @@ describe("resolveWebhookUrl", () => {
     const claimedPath = `/${spy.mock.calls[0]![1]}`;
     expect(claimedPath).toBe("/webhooks/plugins/imessage/events-photon");
     expect(new URL(url).pathname).toBe(`/assistant-abc${claimedPath}`);
+    spy.mockRestore();
+    configSpy.mockRestore();
+  });
+
+  test("keeps the trailing slash on a self-hosted ingress URL", async () => {
+    // Off a pod the direct URL never rides the tunnel, so the spelling stays
+    // what it always was.
+    const configSpy = spyOn(loader, "getConfig").mockReturnValue({
+      ingress: { publicBaseUrl: "https://assistant.example.test" },
+    } as ReturnType<typeof loader.getConfig>);
+    const spy = spyOn(registration, "resolveCallbackUrl").mockImplementation(
+      async (directUrl) => directUrl(),
+    );
+
+    const url = await resolveWebhookUrl({
+      plugin: "imessage",
+      path: "events-photon",
+    });
+
+    expect(url).toBe(
+      "https://assistant.example.test/webhooks/plugins/imessage/events-photon/",
+    );
     spy.mockRestore();
     configSpy.mockRestore();
   });
