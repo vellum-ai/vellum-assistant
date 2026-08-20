@@ -39,6 +39,7 @@ import {
   verdictMemberFromVerdict,
   verdictUsability,
 } from "../../trust-verdict-consumer.js";
+import { channelSupportsGuardianSelfClaim } from "./guardian-activation-intercept.js";
 
 const log = getLogger("runtime-http");
 
@@ -55,6 +56,44 @@ function resolveGuardianLabel(verdict: TrustVerdict | undefined): string {
 }
 
 /**
+ * Whether this channel has no guardian at all and can be claimed with
+ * `/start`.
+ *
+ * Every guardian field is checked, not just the channel binding. The resolver
+ * can classify a guardian by principal with no binding on this channel, which
+ * leaves `guardianExternalUserId` unset while a guardian plainly exists. The
+ * activation stage would admit a `/start` in that state, so keying on the
+ * binding alone would advertise a claim over someone else's assistant.
+ *
+ * Read from the verdict rather than from a guardian-delivery lookup:
+ * `guardianExternalUserId` is stamped from the resolver's
+ * guardian-for-channel binding, which is resolved independently of the
+ * sender, so its absence means the channel is unheld. Taking it from the
+ * verdict keeps this path free of the guardian-delivery IPC it was
+ * deliberately built without.
+ *
+ * A failed resolution is not evidence of an unheld channel, so it degrades to
+ * the ordinary copy rather than advertising a `/start` the activation stage
+ * would then refuse.
+ */
+function isUnclaimedSelfClaimChannel(
+  sourceChannel: ChannelId,
+  verdict: TrustVerdict | undefined,
+): boolean {
+  if (!channelSupportsGuardianSelfClaim(sourceChannel)) {
+    return false;
+  }
+  if (verdict === undefined || verdict.resolutionFailed) {
+    return false;
+  }
+  return (
+    verdict.guardianExternalUserId === undefined &&
+    verdict.guardianPrincipalId === undefined &&
+    verdict.guardianDisplayName === undefined
+  );
+}
+
+/**
  * Compose the requester-facing reply for a denied inbound, keyed on the
  * access-request outcome. Single source for this copy — the not_a_member,
  * inactive-member, and admission-floor deny lanes all route through it.
@@ -63,6 +102,11 @@ function resolveGuardianLabel(verdict: TrustVerdict | undefined): string {
  *   code is live; tell the sender their next step. The code is DM'd directly
  *   to the requester on Slack but relayed via the guardian elsewhere, so the
  *   copy covers both.
+ * - Nobody holds the channel yet: both lanes below tell the sender to wait on
+ *   a guardian who does not exist, so name the step that does work instead.
+ *   Copy only, and grants nothing: `guardian-activation-intercept.ts` already
+ *   admits a bare `/start` from any sender while the channel is unclaimed, so
+ *   this describes that behaviour rather than widening it.
  * - Guardian notified: the standard "I'll let <guardian> know" copy.
  * - Otherwise: the plain not-approved copy.
  */
@@ -70,9 +114,13 @@ export function composeAccessDenialReply(params: {
   verdict: TrustVerdict | undefined;
   guardianNotified: boolean;
   handshakeInProgress: boolean;
+  sourceChannel: ChannelId;
 }): string {
   if (params.handshakeInProgress) {
     return `Your access request was approved! Reply here with the 6-digit verification code to finish connecting — if you don't have it, ask ${resolveGuardianLabel(params.verdict)} for it.`;
+  }
+  if (isUnclaimedSelfClaimChannel(params.sourceChannel, params.verdict)) {
+    return "I'm not connected to anyone yet. Send /start and I'll walk you through it.";
   }
   if (params.guardianNotified) {
     return `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(params.verdict)} know you tried talking to me and get back to you.`;
@@ -587,6 +635,7 @@ export async function enforceIngressAcl(
           verdict,
           guardianNotified,
           handshakeInProgress,
+          sourceChannel,
         });
         let replyDelivered = false;
         if (replyCallbackUrl) {
@@ -837,6 +886,7 @@ export async function enforceIngressAcl(
             verdict,
             guardianNotified,
             handshakeInProgress,
+            sourceChannel,
           });
           let inactiveReplyDelivered = false;
           if (replyCallbackUrl) {

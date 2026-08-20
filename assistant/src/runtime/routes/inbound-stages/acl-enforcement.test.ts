@@ -496,6 +496,9 @@ describe("enforceIngressAcl — deny copy names the guardian from the verdict", 
         sourceMetadata: withVerdict({
           trustClass: "unknown",
           canonicalSenderId: "stranger-1",
+          // A guardian holds the channel but carries no display name. Without
+          // the binding this is an unclaimed channel, which has its own copy.
+          guardianExternalUserId: "guardian-1",
         }),
       }),
     );
@@ -534,6 +537,80 @@ describe("enforceIngressAcl — deny copy names the guardian from the verdict", 
     expect(dm).toBeDefined();
     expect((dm!.payload as { text: string }).text).toContain("Alice Guardian");
     expect(guardianDeliveryCalls.length).toBe(0);
+  });
+});
+
+describe("enforceIngressAcl: an unclaimed channel is told how to claim itself", () => {
+  test("no guardian of any kind on Telegram points the sender at /start", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "stranger-1",
+        }),
+      }),
+    );
+
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    const reply = deliverReplyCalls.at(-1)!.payload as { text: string };
+    expect(reply.text).toContain("/start");
+    // The copy replaces the dead end rather than joining it.
+    expect(reply.text).not.toContain("tried talking to me");
+    // Read from the verdict: this path must stay free of the guardian
+    // delivery IPC it was built without.
+    expect(guardianDeliveryCalls.length).toBe(0);
+  });
+
+  test("a guardian known only by principal is not advertised as claimable", async () => {
+    await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "stranger-1",
+          // No same-channel binding, so `guardianExternalUserId` is unset
+          // while a guardian plainly exists.
+          guardianPrincipalId: "principal-1",
+        }),
+      }),
+    );
+
+    const reply = deliverReplyCalls.at(-1)!.payload as { text: string };
+    expect(reply.text).not.toContain("/start");
+  });
+
+  test("a failed resolution is not read as an unclaimed channel", async () => {
+    await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "stranger-1",
+          resolutionFailed: true,
+        }),
+      }),
+    );
+
+    const reply = deliverReplyCalls.at(-1)!.payload as { text: string };
+    expect(reply.text).not.toContain("/start");
+  });
+
+  test("a channel without self-claim is never pointed at /start", async () => {
+    await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123STRANGER",
+        rawSenderId: "U123STRANGER",
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "U123STRANGER",
+        }),
+      }),
+    );
+
+    for (const call of deliverReplyCalls) {
+      expect(
+        String((call.payload as { text?: string }).text ?? ""),
+      ).not.toContain("/start");
+    }
   });
 });
 

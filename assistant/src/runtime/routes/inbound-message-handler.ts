@@ -900,6 +900,7 @@ export async function handleChannelInbound({
       verdict: inboundVerdict,
       guardianNotified,
       handshakeInProgress,
+      sourceChannel,
     });
     let replyDelivered = false;
     if (replyCallbackUrl) {

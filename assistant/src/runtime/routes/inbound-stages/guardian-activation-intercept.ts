@@ -64,6 +64,17 @@ function markProcessed(messageId: string): void {
   processedMessageIds.set(messageId, Date.now());
 }
 
+/**
+ * Whether a channel lets its first user claim it by sending a bare `/start`.
+ *
+ * Read both by the gate below and by the denial copy in `acl-enforcement.ts`,
+ * so the instruction given to a stranger cannot name a channel that would not
+ * honour it. Telegram is the only one today.
+ */
+export function channelSupportsGuardianSelfClaim(channel: ChannelId): boolean {
+  return channel === "telegram";
+}
+
 export async function handleGuardianActivationIntercept(
   params: GuardianActivationInterceptParams,
 ): Promise<Record<string, unknown> | null> {
@@ -93,8 +104,7 @@ export async function handleGuardianActivationIntercept(
     return null;
   }
 
-  // Only proceed for Telegram (can be extended later)
-  if (sourceChannel !== "telegram") {
+  if (!channelSupportsGuardianSelfClaim(sourceChannel)) {
     return null;
   }
 
