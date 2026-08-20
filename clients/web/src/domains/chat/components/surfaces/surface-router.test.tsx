@@ -46,9 +46,7 @@ mock.module(CARD_SURFACE_MODULE, () => ({
 // which component the router picks.
 mock.module("@/domains/chat/components/surfaces/voice-picker-surface", () => ({
   VoicePickerSurface: ({ assistantId }: { assistantId: string | null }) => (
-    <div data-testid="voice-picker-surface">
-      {assistantId ?? "no-assistant"}
-    </div>
+    <div data-testid="voice-picker-surface">{assistantId ?? "no-assistant"}</div>
   ),
 }));
 
@@ -116,7 +114,7 @@ describe("SurfaceRouter error boundary", () => {
 });
 
 describe("SurfaceRouter: voice picker", () => {
-  test('routes surfaceType "voice_picker" to the inline picker', () => {
+  test("routes surfaceType \"voice_picker\" to the inline picker", () => {
     const { getByTestId, container } = render(
       <SurfaceRouter
         surface={makeSurface({
@@ -137,7 +135,7 @@ describe("SurfaceRouter: voice picker", () => {
 });
 
 describe("SurfaceRouter — visual surfaces", () => {
-  test('routes surfaceType "visual" to the sandboxed widget iframe', () => {
+  test("routes surfaceType \"visual\" to the sandboxed widget iframe", () => {
     const { container } = render(
       // VisualSurface relays widget prompts through useNavigate.
       <MemoryRouter>

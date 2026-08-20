@@ -45,9 +45,7 @@ export function MemoryRouterPlaygroundPage(): ReactNode {
 
   if (authLoading) {
     return (
-      <CenteredMessage>
-        {t("memoryRouterPlaygroundPage.loading")}
-      </CenteredMessage>
+      <CenteredMessage>{t("memoryRouterPlaygroundPage.loading")}</CenteredMessage>
     );
   }
   if (!canInspect || !flagEnabled) {
@@ -450,9 +448,7 @@ function ConversationContextSection({
                 rows={3}
                 placeholder={
                   index === 0 && pairs.length === 1
-                    ? t(
-                        "memoryRouterPlaygroundPage.firstTurnAssistantPlaceholder",
-                      )
+                    ? t("memoryRouterPlaygroundPage.firstTurnAssistantPlaceholder")
                     : t("memoryRouterPlaygroundPage.assistantReplyPlaceholder")
                 }
               />
@@ -1206,7 +1202,9 @@ function ConfigCard({
       result.overrides as Record<string, number | null | undefined>
     )[key];
     const effStr =
-      eff === null ? t("memoryRouterPlaygroundPage.nullValue") : String(eff);
+      eff === null
+        ? t("memoryRouterPlaygroundPage.nullValue")
+        : String(eff);
     const suffix =
       overrideValue !== undefined
         ? t("memoryRouterPlaygroundPage.overrideSuffix")

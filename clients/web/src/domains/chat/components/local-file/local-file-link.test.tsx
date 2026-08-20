@@ -16,8 +16,9 @@ mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { ...toastModule.toast, error: toastError },
 }));
 
-const { LocalFileLink } =
-  await import("@/domains/chat/components/local-file/local-file-link");
+const { LocalFileLink } = await import(
+  "@/domains/chat/components/local-file/local-file-link"
+);
 const { useViewerStore } = await import("@/stores/viewer-store");
 
 const openWorkspaceFilePreview = mock(

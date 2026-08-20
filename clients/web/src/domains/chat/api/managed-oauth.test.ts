@@ -102,11 +102,7 @@ beforeEach(() => {
  * first.
  */
 async function waitForStartCalls(count: number): Promise<void> {
-  for (
-    let i = 0;
-    i < 100 && startCreateMock.mock.calls.length < count;
-    i += 1
-  ) {
+  for (let i = 0; i < 100 && startCreateMock.mock.calls.length < count; i += 1) {
     await Promise.resolve();
   }
   expect(startCreateMock).toHaveBeenCalledTimes(count);

@@ -154,10 +154,7 @@ export function WorkflowDetailPanel({
                 size={32}
               />
             ) : (
-              <div
-                style={{ width: 32, height: 32, flexShrink: 0 }}
-                aria-hidden
-              />
+              <div style={{ width: 32, height: 32, flexShrink: 0 }} aria-hidden />
             )
           ) : (
             // Bare 20px glyph, matching what `DetailShellHeader` renders for a
@@ -192,87 +189,89 @@ export function WorkflowDetailPanel({
       {/* Body: swaps to a leaf's nested detail when one is open, keeping the
           header above mounted in both views. */}
       <motion.div
-        key={selectedLeaf ? String(selectedLeaf.seq) : "list"}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={
-          reduce ? { duration: 0 } : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }
-        }
-      >
-        {selectedLeaf ? (
-          <WorkflowLeafDetail leaf={selectedLeaf} />
-        ) : (
-          <>
-            {/* Metrics row */}
-            <div className="mb-5 grid grid-cols-3 gap-3">
-              <AnimatedMetricCard
-                icon={
-                  <ArrowDownToLine
-                    className="h-4 w-4 shrink-0"
-                    style={{ color: "var(--content-secondary)" }}
-                  />
-                }
-                target={entry.inputTokens}
-                format={(n) => formatNumber(Math.round(n))}
-                label="Input"
-              />
-              <AnimatedMetricCard
-                icon={
-                  <ArrowUpFromLine
-                    className="h-4 w-4 shrink-0"
-                    style={{ color: "var(--content-secondary)" }}
-                  />
-                }
-                target={entry.outputTokens}
-                format={(n) => formatNumber(Math.round(n))}
-                label="Output"
-              />
-              <AnimatedMetricCard
-                icon={
-                  <Users
-                    className="h-4 w-4 shrink-0"
-                    style={{ color: "var(--content-secondary)" }}
-                  />
-                }
-                target={agentCount}
-                format={(n) => formatNumber(Math.round(n))}
-                label="Agents"
-              />
-            </div>
-
-            {/* Subagents section */}
-            <div>
-              <Typography
-                variant="body-medium-default"
-                as="h3"
-                className="mb-4 text-[var(--content-emphasised)]"
-              >
-                Subagents
-              </Typography>
-              {sortedLeaves.length === 0 ? (
-                <Typography
-                  variant="body-small-default"
-                  className="py-4 text-center text-[var(--content-tertiary)]"
-                >
-                  No subagents yet
-                </Typography>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  {sortedLeaves.map((leaf) => (
-                    <WorkflowSubagentRow
-                      key={leaf.seq}
-                      runId={entry.runId}
-                      leaf={leaf}
-                      components={components}
-                      onSelect={() => setSelectedLeafSeq(leaf.seq)}
+          key={selectedLeaf ? String(selectedLeaf.seq) : "list"}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={
+            reduce
+              ? { duration: 0 }
+              : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }
+          }
+        >
+          {selectedLeaf ? (
+            <WorkflowLeafDetail leaf={selectedLeaf} />
+          ) : (
+            <>
+              {/* Metrics row */}
+              <div className="mb-5 grid grid-cols-3 gap-3">
+                <AnimatedMetricCard
+                  icon={
+                    <ArrowDownToLine
+                      className="h-4 w-4 shrink-0"
+                      style={{ color: "var(--content-secondary)" }}
                     />
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-      </motion.div>
+                  }
+                  target={entry.inputTokens}
+                  format={(n) => formatNumber(Math.round(n))}
+                  label="Input"
+                />
+                <AnimatedMetricCard
+                  icon={
+                    <ArrowUpFromLine
+                      className="h-4 w-4 shrink-0"
+                      style={{ color: "var(--content-secondary)" }}
+                    />
+                  }
+                  target={entry.outputTokens}
+                  format={(n) => formatNumber(Math.round(n))}
+                  label="Output"
+                />
+                <AnimatedMetricCard
+                  icon={
+                    <Users
+                      className="h-4 w-4 shrink-0"
+                      style={{ color: "var(--content-secondary)" }}
+                    />
+                  }
+                  target={agentCount}
+                  format={(n) => formatNumber(Math.round(n))}
+                  label="Agents"
+                />
+              </div>
+
+              {/* Subagents section */}
+              <div>
+                <Typography
+                  variant="body-medium-default"
+                  as="h3"
+                  className="mb-4 text-[var(--content-emphasised)]"
+                >
+                  Subagents
+                </Typography>
+                {sortedLeaves.length === 0 ? (
+                  <Typography
+                    variant="body-small-default"
+                    className="py-4 text-center text-[var(--content-tertiary)]"
+                  >
+                    No subagents yet
+                  </Typography>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {sortedLeaves.map((leaf) => (
+                      <WorkflowSubagentRow
+                        key={leaf.seq}
+                        runId={entry.runId}
+                        leaf={leaf}
+                        components={components}
+                        onSelect={() => setSelectedLeafSeq(leaf.seq)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </motion.div>
     </DetailShell>
   );
 }

@@ -64,9 +64,7 @@ export const RETRYABLE_LIVE_VOICE_CLOSE_CODES: ReadonlySet<number> = new Set([
 
 /** Reason a live-voice session failed, surfaced via the `error` event. */
 export type LiveVoiceClientErrorReason =
-  | "connection-failed"
-  | "protocol-error"
-  | "timeout";
+  "connection-failed" | "protocol-error" | "timeout";
 
 export interface LiveVoiceClientError {
   readonly reason: LiveVoiceClientErrorReason;

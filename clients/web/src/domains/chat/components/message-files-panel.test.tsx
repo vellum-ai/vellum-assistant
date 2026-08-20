@@ -32,8 +32,9 @@ import type {
 
 mockAttachmentPreviewModal();
 
-const { MessageFilesPanel } =
-  await import("@/domains/chat/components/message-files-panel");
+const { MessageFilesPanel } = await import(
+  "@/domains/chat/components/message-files-panel"
+);
 
 afterEach(() => {
   cleanup();

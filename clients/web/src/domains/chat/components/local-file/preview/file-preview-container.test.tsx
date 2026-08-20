@@ -53,8 +53,9 @@ mock.module("@/domains/chat/components/local-file/preview/csv-preview", () => ({
   ),
 }));
 
-const { FilePreviewContainer } =
-  await import("@/domains/chat/components/local-file/preview/file-preview-container");
+const { FilePreviewContainer } = await import(
+  "@/domains/chat/components/local-file/preview/file-preview-container"
+);
 
 function blobResult(bytes: number): () => ContentResult {
   return () => ({ data: new Blob([new Uint8Array(bytes)]), error: null });

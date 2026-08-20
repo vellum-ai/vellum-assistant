@@ -22,8 +22,9 @@ mock.module("@/hooks/use-edge-swipe-drawer", () => ({
   },
 }));
 
-const { useChatLayoutDrawerGestures } =
-  await import("./use-chat-layout-drawer-gestures");
+const { useChatLayoutDrawerGestures } = await import(
+  "./use-chat-layout-drawer-gestures"
+);
 
 /** Longer than the slide plus its fallback slack (200ms + 50ms). */
 const PAST_FALLBACK_MS = 340;

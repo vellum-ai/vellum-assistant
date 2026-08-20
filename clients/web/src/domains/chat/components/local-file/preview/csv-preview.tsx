@@ -9,13 +9,7 @@
  * visible slice is in the DOM.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { TableVirtuoso, type TableComponents } from "react-virtuoso";
 
 import { Typography } from "@vellumai/design-library";
@@ -80,7 +74,10 @@ export function CsvPreview({ blob, filename }: CsvPreviewProps): ReactNode {
     };
   }, [blob]);
 
-  const parsed = useMemo(() => (text === null ? null : parseCsv(text)), [text]);
+  const parsed = useMemo(
+    () => (text === null ? null : parseCsv(text)),
+    [text],
+  );
 
   const headers = parsed?.headers ?? null;
   const fixedHeaderContent = useCallback(() => {

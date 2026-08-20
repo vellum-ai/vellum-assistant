@@ -55,10 +55,12 @@ const {
 } = await import("@/domains/chat/utils/stream-handlers/subagent-handlers");
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useResolvedAssistantsStore } =
-  await import("@/stores/resolved-assistants-store");
-const { makeCtx } =
-  await import("@/domains/chat/utils/stream-handlers/test-helpers");
+const { useResolvedAssistantsStore } = await import(
+  "@/stores/resolved-assistants-store"
+);
+const { makeCtx } = await import(
+  "@/domains/chat/utils/stream-handlers/test-helpers"
+);
 
 const PARENT = "conv-parent";
 const CHILD = "conv-child";
@@ -263,11 +265,7 @@ describe("handleSubagentStatusChanged: unknown subagent id", () => {
     useConversationStore.getState().setActiveConversationId(PARENT);
 
     handleSubagentStatusChanged(
-      {
-        type: "subagent_status_changed",
-        subagentId: "sa-9",
-        status: "running",
-      },
+      { type: "subagent_status_changed", subagentId: "sa-9", status: "running" },
       ctx,
     );
 

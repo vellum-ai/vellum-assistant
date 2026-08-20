@@ -31,11 +31,7 @@ import { createSelectors } from "@/utils/create-selectors";
 // ---------------------------------------------------------------------------
 
 export type VoiceRecordingPhase =
-  | "idle"
-  | "recording"
-  | "processing"
-  | "done"
-  | "error";
+  "idle" | "recording" | "processing" | "done" | "error";
 
 export interface VoiceRecordingState {
   /** Current phase of the recording lifecycle. */

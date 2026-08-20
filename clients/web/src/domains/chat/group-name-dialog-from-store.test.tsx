@@ -122,7 +122,9 @@ describe("GroupNameDialogFromStore", () => {
     await submit("New name");
 
     await waitFor(() =>
-      expect(harness.renamed).toEqual([{ groupId: "grp-a", name: "New name" }]),
+      expect(harness.renamed).toEqual([
+        { groupId: "grp-a", name: "New name" },
+      ]),
     );
     expect(harness.created).toEqual([]);
     expect(harness.moved).toEqual([]);

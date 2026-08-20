@@ -10,7 +10,8 @@ import {
   useViewMode,
 } from "@/domains/chat/utils/sidebar-view-mode";
 
-const KEY = (assistantId: string) => `vellum:sidebar-view-mode:${assistantId}`;
+const KEY = (assistantId: string) =>
+  `vellum:sidebar-view-mode:${assistantId}`;
 
 afterEach(() => {
   localStorage.clear();

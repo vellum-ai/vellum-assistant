@@ -318,7 +318,8 @@ function buildSectionModels(
     const pKind = toPresentationKind(section.kind);
     const rawTitle = section.label?.trim() ?? "";
     const title =
-      rawTitle || t("chat:responseTab.sectionTitle", { number: index + 1 });
+      rawTitle ||
+      t("chat:responseTab.sectionTitle", { number: index + 1 });
     const body = sectionBodyText(section);
     return {
       id: index,

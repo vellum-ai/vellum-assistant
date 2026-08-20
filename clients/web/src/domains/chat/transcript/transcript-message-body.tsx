@@ -912,8 +912,7 @@ export function TranscriptMessageBody({
     items: Array<{ kind: "text" | "nonText"; node: ReactNode }>,
   ): ReactNode => {
     type Slot =
-      | { kind: "bubble"; nodes: ReactNode[] }
-      | { kind: "raw"; node: ReactNode };
+      { kind: "bubble"; nodes: ReactNode[] } | { kind: "raw"; node: ReactNode };
     const slots: Slot[] = [];
     let textRun: ReactNode[] = [];
 

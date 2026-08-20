@@ -780,9 +780,7 @@ function queuedMessageHeaders(conversationId: string) {
  * generation and promoting the message to the head of the queue.
  */
 export type SteerQueuedMessageResult =
-  | "steered"
-  | "not_steerable"
-  | "request_failed";
+  "steered" | "not_steerable" | "request_failed";
 
 export async function steerToMessage(
   assistantId: string,

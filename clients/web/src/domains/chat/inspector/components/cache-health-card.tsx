@@ -116,7 +116,10 @@ interface CacheStatus {
   body: string;
 }
 
-function buildStatus(breakdown: CacheBreakdown, t: ChatTranslate): CacheStatus {
+function buildStatus(
+  breakdown: CacheBreakdown,
+  t: ChatTranslate,
+): CacheStatus {
   if (breakdown.readTokens === 0) {
     const reCreated =
       breakdown.hasCreationSignal && breakdown.createdTokens > 0

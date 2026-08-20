@@ -260,10 +260,7 @@ describe("SubagentDetailPanel: detail fetch on open", () => {
     // The child-semantic `conversationId` is deliberately unset on such a
     // stub; gating the fetch on it left the panel permanently empty.
     expect(
-      requestedIdsFor({
-        conversationId: undefined,
-        parentConversationId: "conv-parent",
-      }),
+      requestedIdsFor({ conversationId: undefined, parentConversationId: "conv-parent" }),
     ).toEqual(["sub-1"]);
   });
 

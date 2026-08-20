@@ -24,10 +24,12 @@ mock.module("@/components/app-card", () => ({
   ),
 }));
 
-const { AppReopenCard } =
-  await import("@/domains/chat/transcript/app-reopen-card");
-const { appsGetQueryKey } =
-  await import("@/generated/daemon/@tanstack/react-query.gen");
+const { AppReopenCard } = await import(
+  "@/domains/chat/transcript/app-reopen-card"
+);
+const { appsGetQueryKey } = await import(
+  "@/generated/daemon/@tanstack/react-query.gen"
+);
 
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";

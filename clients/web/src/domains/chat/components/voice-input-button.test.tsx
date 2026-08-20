@@ -384,8 +384,7 @@ describe("VoiceInputButton — native partials fallback", () => {
 
   test("waits for empty native final when stop races native startup", async () => {
     let resolveNativeStart:
-      | ((stop: (() => Promise<string | null>) | null) => void)
-      | null = null;
+      ((stop: (() => Promise<string | null>) | null) => void) | null = null;
     nativePartialsImpl = () =>
       new Promise<(() => Promise<string | null>) | null>((resolve) => {
         resolveNativeStart = resolve;
@@ -417,8 +416,7 @@ describe("VoiceInputButton — native partials fallback", () => {
 
   test("configuration errors still surface when native startup resolves unavailable after stop", async () => {
     let resolveNativeStart:
-      | ((stop: (() => Promise<string | null>) | null) => void)
-      | null = null;
+      ((stop: (() => Promise<string | null>) | null) => void) | null = null;
     nativePartialsImpl = () =>
       new Promise<(() => Promise<string | null>) | null>((resolve) => {
         resolveNativeStart = resolve;

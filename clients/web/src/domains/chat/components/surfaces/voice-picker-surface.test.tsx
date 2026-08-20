@@ -99,8 +99,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { VoicePickerSurface } =
-  await import("@/domains/chat/components/surfaces/voice-picker-surface");
+const { VoicePickerSurface } = await import(
+  "@/domains/chat/components/surfaces/voice-picker-surface"
+);
 
 const SURFACE: Surface = {
   surfaceId: "surface-voice-1",
@@ -215,9 +216,7 @@ describe("VoicePickerSurface", () => {
     expect(screen.getByText("Pick a voice")).toBeTruthy();
     // Scoped to the current voice's provider, with the dropdown to leave it.
     expect(
-      document.querySelector(
-        'button[role="combobox"][aria-label="Voice provider"]',
-      ),
+      document.querySelector('button[role="combobox"][aria-label="Voice provider"]'),
     ).toBeTruthy();
     const rows = voiceRows();
     expect(rows.length).toBe(1);

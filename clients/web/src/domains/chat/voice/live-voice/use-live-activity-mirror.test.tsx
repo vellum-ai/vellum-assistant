@@ -747,9 +747,9 @@ describe("registering the activity for server-driven updates", () => {
     });
 
     expect(registerLiveActivityPushToken).toHaveBeenCalledTimes(1);
-    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toMatchObject({
-      conversationId: "conv-9",
-    });
+    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toMatchObject(
+      { conversationId: "conv-9" },
+    );
   });
 
   // iOS reissues tokens mid-activity and each value invalidates the last, so a
@@ -766,9 +766,9 @@ describe("registering the activity for server-driven updates", () => {
     await emitToken("token-def");
 
     expect(registerLiveActivityPushToken).toHaveBeenCalledTimes(2);
-    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toMatchObject({
-      token: "token-def",
-    });
+    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toMatchObject(
+      { token: "token-def" },
+    );
   });
 
   // The platform composes every push from the registration, so a mute the

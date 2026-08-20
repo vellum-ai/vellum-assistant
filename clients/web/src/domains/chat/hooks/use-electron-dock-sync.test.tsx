@@ -50,8 +50,9 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => true,
 }));
 
-const { useElectronDockSync } =
-  await import("@/domains/chat/hooks/use-electron-dock-sync");
+const { useElectronDockSync } = await import(
+  "@/domains/chat/hooks/use-electron-dock-sync"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers

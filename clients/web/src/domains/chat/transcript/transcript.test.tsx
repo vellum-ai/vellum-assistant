@@ -189,6 +189,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -210,6 +211,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId={null}
         onSurfaceAction={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -250,6 +252,7 @@ describe("Transcript avatar slot", () => {
         items={[]}
         conversationId={null}
         onSurfaceAction={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -275,6 +278,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId="conv-1"
         onSurfaceAction={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -294,6 +298,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId="conv-1"
         onSurfaceAction={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -318,6 +323,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId="conv-1"
         onSurfaceAction={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -345,6 +351,7 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId="conv-1"
         onSurfaceAction={noop}
+
         renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
       />,
     );
@@ -416,6 +423,7 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
         items={historyOnly}
         conversationId="conv-1"
         onSurfaceAction={noop}
+
         renderAvatar={renderAvatar}
       />,
     );
@@ -434,6 +442,7 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
           items={withAnchor}
           conversationId="conv-1"
           onSurfaceAction={noop}
+
           renderAvatar={renderAvatar}
         />,
       );
@@ -453,6 +462,7 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
           items={historyOnly}
           conversationId="conv-1"
           onSurfaceAction={noop}
+
           renderAvatar={renderAvatar}
         />,
       );

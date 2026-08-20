@@ -66,7 +66,9 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
               border: "1px solid var(--border-base)",
             }}
           >
-            {p === "request" ? t("rawTab.request") : t("rawTab.response")}
+            {p === "request"
+              ? t("rawTab.request")
+              : t("rawTab.response")}
           </button>
         ))}
       </div>

@@ -118,8 +118,7 @@ mock.module("motion/react", () => ({
           ...domProps,
           tag: String(tag),
           onAnimationComplete: props.onAnimationComplete as
-            | (() => void)
-            | undefined,
+            (() => void) | undefined,
         });
       },
     },

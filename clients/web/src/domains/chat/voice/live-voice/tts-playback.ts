@@ -227,10 +227,7 @@ interface MediaStreamOutputRoute {
  *   does not.
  */
 export type TtsOutputRoute =
-  | "unsupported"
-  | "pending"
-  | "media-stream"
-  | "direct";
+  "unsupported" | "pending" | "media-stream" | "direct";
 
 /** Observable state of the output path, for support bundles. */
 export interface TtsOutputRouteDiagnostics {

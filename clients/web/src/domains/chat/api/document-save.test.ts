@@ -17,8 +17,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   documentsPost,
 }));
 
-const { markdownWordCount, saveDocumentContent } =
-  await import("@/domains/chat/api/document-save");
+const { markdownWordCount, saveDocumentContent } = await import(
+  "@/domains/chat/api/document-save"
+);
 
 beforeEach(() => {
   documentsPost.mockClear();

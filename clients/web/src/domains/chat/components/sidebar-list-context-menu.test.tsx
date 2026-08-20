@@ -32,11 +32,7 @@ describe("SidebarListContextMenu", () => {
     const { container } = render(
       createElement(SidebarListContextMenu, {
         onCreateGroup: () => {},
-        children: createElement(
-          "div",
-          { "data-testid": "sections" },
-          "sections",
-        ),
+        children: createElement("div", { "data-testid": "sections" }, "sections"),
       }),
     );
     try {
@@ -57,11 +53,7 @@ describe("SidebarListContextMenu", () => {
     const { container } = render(
       createElement(SidebarListContextMenu, {
         onCreateGroup: () => (created += 1),
-        children: createElement(
-          "div",
-          { "data-testid": "sections" },
-          "sections",
-        ),
+        children: createElement("div", { "data-testid": "sections" }, "sections"),
       }),
     );
     try {
@@ -123,20 +115,14 @@ describe("SidebarListContextMenu", () => {
   test("renders children unwrapped when group creation isn't available", () => {
     const { container } = render(
       createElement(SidebarListContextMenu, {
-        children: createElement(
-          "div",
-          { "data-testid": "sections" },
-          "sections",
-        ),
+        children: createElement("div", { "data-testid": "sections" }, "sections"),
       }),
     );
     try {
       expect(
         container.querySelector('[data-slot="sidebar-list-context-target"]'),
       ).toBeNull();
-      expect(
-        container.querySelector('[data-testid="sections"]'),
-      ).not.toBeNull();
+      expect(container.querySelector('[data-testid="sections"]')).not.toBeNull();
     } finally {
       cleanup();
     }

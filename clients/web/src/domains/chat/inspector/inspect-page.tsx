@@ -98,9 +98,7 @@ export function InspectPage(): ReactNode {
 
   if (authLoading || (!canInspect && !flagsHydrated)) {
     return (
-      <CenteredMessage tone="muted">
-        {tChat("inspectPage.loading")}
-      </CenteredMessage>
+      <CenteredMessage tone="muted">{tChat("inspectPage.loading")}</CenteredMessage>
     );
   }
 
@@ -116,9 +114,7 @@ export function InspectPage(): ReactNode {
     // Defensive only — React Router would render NotFound before reaching
     // this branch, but we keep a graceful fallback rather than crashing.
     return (
-      <CenteredMessage tone="muted">
-        {tChat("inspectPage.loading")}
-      </CenteredMessage>
+      <CenteredMessage tone="muted">{tChat("inspectPage.loading")}</CenteredMessage>
     );
   }
 
@@ -889,13 +885,13 @@ function DetailPlaceholder({ state }: { state: DetailState }): ReactNode {
 
   if (state === "error") {
     return (
-      <CenteredMessage>{tChat("inspectPage.detailLoadFailed")}</CenteredMessage>
+      <CenteredMessage>
+        {tChat("inspectPage.detailLoadFailed")}
+      </CenteredMessage>
     );
   }
   return (
-    <CenteredMessage tone="muted">
-      {tChat("inspectPage.loading")}
-    </CenteredMessage>
+    <CenteredMessage tone="muted">{tChat("inspectPage.loading")}</CenteredMessage>
   );
 }
 

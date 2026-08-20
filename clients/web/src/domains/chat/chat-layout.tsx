@@ -430,9 +430,7 @@ export function ChatLayout({
       // without the design library's own padding and border (the page draws
       // that chrome), and the collapsed rail sizes its tile as content, so
       // nothing is added around it.
-      const targetWidth = effectiveCollapsed
-        ? SIDE_MENU_TILE_SIZE
-        : sidebarWidth;
+      const targetWidth = effectiveCollapsed ? SIDE_MENU_TILE_SIZE : sidebarWidth;
       railFocusAnimationsRef.current = [
         aside.animate(
           [
