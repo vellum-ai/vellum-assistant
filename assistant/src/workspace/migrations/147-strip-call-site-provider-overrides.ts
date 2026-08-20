@@ -411,57 +411,59 @@ function winnerProviderForSite(
 }
 
 /**
- * A named rung's provider: the profile's own provider when it is usable, the
- * intent column for default-key names, "fall_through" when the resolver
- * would skip the rung, and null when the outcome cannot be determined.
+ * A named rung's provider: the profile's own provider when it is plainly
+ * usable, the intent column for default-key names with no workspace entry
+ * (or an explicitly managed stub, which the resolver overrides with the
+ * code-owned body), "fall_through" when the name resolves to nothing, and
+ * null when the outcome cannot be determined. A user-owned workspace entry
+ * in any state that is not plainly usable is indeterminate on purpose: the
+ * effective profile view materializes default bodies through workspace
+ * state this migration does not reproduce, and deletion must never ride on
+ * an approximation.
  */
 function rungProvider(
   name: string,
   llm: Record<string, unknown>,
 ): string | "fall_through" | null {
   const entry = asObject(asObject(llm.profiles)?.[name]);
-  if (entry !== null && entry.mix != null) {
+  if (entry === null) {
+    return DEFAULT_PROFILE_KEYS.has(name)
+      ? columnProvider(llm)
+      : "fall_through";
+  }
+  if (entry.mix != null) {
     // A mix winner's arm is a seeded pick this migration does not reproduce.
     return null;
   }
   const usableProvider =
-    entry !== null &&
-    entry.status !== "disabled" &&
-    asNonEmptyString(entry.model) !== null
+    entry.status !== "disabled" && asNonEmptyString(entry.model) !== null
       ? asNonEmptyString(entry.provider)
       : null;
   if (usableProvider !== null) {
     return usableProvider;
   }
-  // A default-key rung always resolves: an unusable or absent workspace
-  // stub is overridden by the code-owned intent column.
-  if (DEFAULT_PROFILE_KEYS.has(name)) {
+  // A managed stub of a default key is overridden by the code-owned intent
+  // column; any other present-but-not-plainly-usable entry is indeterminate.
+  if (DEFAULT_PROFILE_KEYS.has(name) && entry.source === "managed") {
     return columnProvider(llm);
   }
-  return "fall_through";
+  return null;
 }
 
 /**
- * The shipped-default rung: the site's intent implemented by a usable user
- * shadow, else the code-owned intent column through `llm.defaultProvider`.
+ * The shipped-default rung: the site's intent implemented by a plainly
+ * usable user shadow, the code-owned intent column through
+ * `llm.defaultProvider` when no user-owned shadow exists, and null
+ * (indeterminate) for a user-owned shadow in any other state, mirroring
+ * `rungProvider`'s fail-open posture.
  */
 function defaultIntentProvider(
   site: string,
   llm: Record<string, unknown>,
 ): string | null {
   const intent = SHIPPED_CALL_SITE_INTENTS[site] ?? "balanced";
-  const shadow = asObject(asObject(llm.profiles)?.[intent]);
-  if (
-    shadow !== null &&
-    shadow.status !== "disabled" &&
-    asNonEmptyString(shadow.model) !== null
-  ) {
-    const provider = asNonEmptyString(shadow.provider);
-    if (provider !== null) {
-      return provider;
-    }
-  }
-  return columnProvider(llm);
+  const rung = rungProvider(intent, llm);
+  return rung === "fall_through" ? columnProvider(llm) : rung;
 }
 
 /** The default-profile column's provider: `llm.defaultProvider` or vellum. */

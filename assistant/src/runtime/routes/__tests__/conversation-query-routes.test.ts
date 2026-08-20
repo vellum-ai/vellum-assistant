@@ -1614,6 +1614,91 @@ describe("call-site model writes are validated against the winning route", () =>
     };
     expect(llm.callSites?.memoryExtraction?.model).toBe("anything-goes");
   });
+
+  test("a profile swap that strands an unchanged call-site model returns 400", async () => {
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          op: { source: "user", provider: "openai", model: "gpt-5.5" },
+          an: {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-opus-4-8",
+          },
+        },
+        callSites: {
+          memoryExtraction: { profile: "op", model: "gpt-5.4-nano" },
+        },
+      },
+    };
+    seedRawConfig();
+    await expect(
+      configPatchRoute.handler({
+        body: {
+          llm: { callSites: { memoryExtraction: { profile: "an" } } },
+        },
+      }),
+    ).rejects.toThrow(
+      'Model "gpt-5.4-nano" is not served by provider "anthropic". (llm.callSites.memoryExtraction.model)',
+    );
+  });
+
+  test("an activeProfile change that strands the mainAgent model returns 400", async () => {
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          op: { source: "user", provider: "openai", model: "gpt-5.5" },
+          an: {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-opus-4-8",
+          },
+        },
+        activeProfile: "op",
+        callSites: { mainAgent: { model: "gpt-5.4-nano" } },
+      },
+    };
+    seedRawConfig();
+    await expect(
+      configPatchRoute.handler({
+        body: { llm: { activeProfile: "an" } },
+      }),
+    ).rejects.toThrow(
+      'Model "gpt-5.4-nano" is not served by provider "anthropic". (llm.callSites.mainAgent.model)',
+    );
+  });
+
+  test("a route-preserving save with a pre-existing stranded model still succeeds", async () => {
+    rawConfigFixture = {
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        callSites: {
+          conversationSummarization: { model: "gpt-5.4-mini" },
+          recall: { maxTokens: 128 },
+        },
+      },
+    };
+    seedRawConfig();
+    // Touches another call site and even the stranded entry's tuning, but
+    // neither its model nor anything that moves its route.
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: {
+            conversationSummarization: { maxTokens: 999 },
+            recall: { maxTokens: 512 },
+          },
+        },
+      },
+    });
+    const llm = loadRawConfig().llm as {
+      callSites?: Record<string, Record<string, unknown>>;
+    };
+    expect(llm.callSites?.conversationSummarization?.maxTokens).toBe(999);
+    expect(llm.callSites?.conversationSummarization?.model).toBe(
+      "gpt-5.4-mini",
+    );
+  });
 });
 
 describe("sparse services.stt patch provider seeding", () => {

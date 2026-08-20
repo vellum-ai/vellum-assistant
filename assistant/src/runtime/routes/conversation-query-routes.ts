@@ -50,6 +50,7 @@ import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
   DefaultProviderSchema,
+  type LLMCallSite,
   LLMCallSiteEnum,
   LLMConfigBase,
   LLMConfigFragment,
@@ -1422,9 +1423,13 @@ function assertRoutableIdentityEntries(
  * a config error that would fail every request on that call site; make it
  * loud at write time instead.
  *
- * Scoped to models this write introduces or changes: re-validating every
- * stored entry would make all later settings saves fail with no in-product
- * repair path once any route drifts (see the provider-membership scoping
+ * Scoped to what this write moves: a site's model is validated when the
+ * write changes the model itself OR relocates the site's winning route
+ * (a profile swap, an `activeProfile` change, a referenced profile's
+ * provider edit, a `defaultProvider` change). A save touching neither the
+ * model nor anything that moves the site's route never re-validates:
+ * otherwise a stored entry gone stale would make all later settings saves
+ * fail with no in-product repair path (see the provider-membership scoping
  * above). Fail-open on anything indeterminate (an unparseable `llm`
  * section whose parse error surfaces elsewhere, an entry-name winner whose
  * row cannot be read, or a route whose model set is not code-known:
@@ -1439,45 +1444,59 @@ function assertServableCallSiteModels(
   if (!rawSites) {
     return;
   }
-  const priorSites =
-    readPlainObject(readPlainObject(preWrite.llm)?.callSites) ?? {};
-  const changed: { site: string; model: string }[] = [];
+  const modelBearing: { site: LLMCallSite; model: string }[] = [];
   for (const [site, entry] of Object.entries(rawSites)) {
     const model = readPlainObject(entry)?.model;
     if (typeof model !== "string" || model.length === 0) {
       continue;
     }
-    if (model === readPlainObject(priorSites[site])?.model) {
-      continue;
-    }
-    changed.push({ site, model });
-  }
-  if (changed.length === 0) {
-    return;
-  }
-  const parsed = LLMSchema.safeParse(readPlainObject(raw.llm) ?? {});
-  if (!parsed.success) {
-    return;
-  }
-  for (const { site, model } of changed) {
     const parsedSite = LLMCallSiteEnum.safeParse(site);
     if (!parsedSite.success) {
       continue;
     }
-    const { config: resolved } = resolveCallSiteConfigWithProfile(
-      parsedSite.data,
-      parsed.data,
-    );
-    // The winner's route, entry-translated: a vendor/identity provider is
-    // its own kind; an entry-name provider resolves to its row's
-    // dispatchable kind (null when the row is missing or unreadable).
-    const kind = (VALID_CONNECTION_PROVIDERS as readonly string[]).includes(
-      resolved.provider,
+    modelBearing.push({ site: parsedSite.data, model });
+  }
+  if (modelBearing.length === 0) {
+    return;
+  }
+  const post = LLMSchema.safeParse(readPlainObject(raw.llm) ?? {});
+  if (!post.success) {
+    return;
+  }
+  const pre = LLMSchema.safeParse(readPlainObject(preWrite.llm) ?? {});
+  const priorSites =
+    readPlainObject(readPlainObject(preWrite.llm)?.callSites) ?? {};
+
+  // The winner's route, entry-translated: a vendor/identity provider is
+  // its own kind; an entry-name provider resolves to its row's
+  // dispatchable kind (null when the row is missing or unreadable).
+  const routeKind = (
+    llm: z.infer<typeof LLMSchema>,
+    site: LLMCallSite,
+    model: string,
+  ): string | null => {
+    const { config } = resolveCallSiteConfigWithProfile(site, llm);
+    return (VALID_CONNECTION_PROVIDERS as readonly string[]).includes(
+      config.provider,
     )
-      ? resolved.provider
-      : resolveEntryProviderKind(resolved.provider, model);
+      ? config.provider
+      : resolveEntryProviderKind(config.provider, model);
+  };
+
+  for (const { site, model } of modelBearing) {
+    const kind = routeKind(post.data, site, model);
     if (kind == null) {
       continue;
+    }
+    const modelChanged = model !== readPlainObject(priorSites[site])?.model;
+    if (!modelChanged) {
+      // Model untouched: validate only when this write moved the site's
+      // route. An indeterminable prior route counts as unmoved, so a
+      // pre-write config that cannot be judged never blocks a repair save.
+      const priorKind = pre.success ? routeKind(pre.data, site, model) : null;
+      if (priorKind == null || priorKind === kind) {
+        continue;
+      }
     }
     const issue = ROUTING_IDENTITY_PROVIDERS.has(kind)
       ? routingIdentityModelIssue(kind, model)

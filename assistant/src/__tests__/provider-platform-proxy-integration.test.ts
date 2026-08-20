@@ -158,10 +158,12 @@ function makeProvidersConfig(
       },
       "web-search": webSearch,
     },
-    // The mainAgent call-site tweak is applied last by the resolver, so it
-    // fully determines the provider/model the registry resolves at boot.
+    // The active profile is the winner for mainAgent, so it fully
+    // determines the provider/model the registry resolves at boot
+    // (call-site tweaks are model-only and cannot carry a provider).
     llm: LLMSchema.parse({
-      callSites: { mainAgent: { provider, model } },
+      profiles: { boot: { source: "user", provider, model } },
+      activeProfile: "boot",
     }),
   };
 }

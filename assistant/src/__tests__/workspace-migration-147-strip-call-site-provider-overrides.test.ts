@@ -288,6 +288,60 @@ describe("147-strip-call-site-provider-overrides", () => {
     expect(readCallSites().memoryExtraction.model).toBe("some-local-pull");
   });
 
+  test("a user-owned shadow of the winning default key fails open", () => {
+    // The effective profile view can materialize default bodies through
+    // workspace state (shadows, custom-* cohorts) this migration does not
+    // reproduce: a user-owned shadow in any not-plainly-usable state makes
+    // the winner indeterminate and the model keeps, even when the column
+    // provider alone would judge it unservable.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        profiles: {
+          "cost-optimized": {
+            source: "user",
+            provider: "openai",
+            model: "gpt-5.5",
+            status: "disabled",
+          },
+        },
+        callSites: {
+          conversationSummarization: {
+            provider: "openai",
+            model: "gpt-5.4-mini",
+          },
+        },
+      },
+    });
+
+    run();
+
+    const entry = readCallSites().conversationSummarization;
+    expect(entry).not.toHaveProperty("provider");
+    expect(entry.model).toBe("gpt-5.4-mini");
+  });
+
+  test("a managed stub of the winning default key still judges the column", () => {
+    // An explicitly managed stub is overridden by the code-owned body, so
+    // the column provider is trivially the winner and an unservable model
+    // still deletes.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        profiles: {
+          "cost-optimized": { source: "managed", status: "disabled" },
+        },
+        callSites: {
+          conversationSummarization: { model: "gpt-5.4-mini" },
+        },
+      },
+    });
+
+    run();
+
+    expect(readCallSites()).not.toHaveProperty("conversationSummarization");
+  });
+
   test("no-ops without call-site entries and is idempotent", () => {
     writeConfig({
       llm: {
