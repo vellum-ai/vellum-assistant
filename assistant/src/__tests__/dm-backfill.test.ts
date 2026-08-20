@@ -587,4 +587,40 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     const texts = rows.map((r) => r.content).sort();
     expect(texts).toEqual(["older A", "older B", "older D"]);
   });
+
+  test("backfill refuses history rows carrying a secret, keeping the rest", async () => {
+    // A credential the sender posted weeks ago is still a credential when
+    // history is replayed. The live ingress path blocks this body outright,
+    // so the backfill path must not write it in through the side door.
+    const leakedKey = "AKIA3H7QWERTY9MNBVC2";
+    backfillDmMock.mockImplementation(async () => [
+      makeBackfilledMessage({
+        id: "1700000000.000001",
+        text: "ordinary older chatter",
+      }),
+      makeBackfilledMessage({
+        id: "1700000000.000002",
+        text: `here is the access key ${leakedKey} for the deploy`,
+      }),
+    ]);
+
+    await handleChannelInbound(
+      buildDmRequest("live new DM"),
+      noopProcessMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    const rows = readPersistedSlackRows();
+    // The secret-bearing row is refused; the clean row still lands, so the
+    // gate rejects one message rather than abandoning the whole backfill.
+    expect(rows.map((r) => r.content)).toEqual(["ordinary older chatter"]);
+    // The invariant that matters: the key must not survive anywhere in the
+    // stored transcript, in any encoding the row went through.
+    for (const row of rows) {
+      expect(row.rawContent).not.toContain(leakedKey);
+    }
+    expect(
+      rows.some((r) => r.slackMeta?.channelTs === "1700000000.000002"),
+    ).toBe(false);
+  });
 });
