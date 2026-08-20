@@ -7,12 +7,28 @@
  * reporting two panes while producing one surface.
  */
 
-import {
-  isAppMainView,
-  panePresentation,
-  type PanePresentation,
-} from "@/stores/pane-presentation";
 import type { MainView } from "@/stores/viewer-store";
+
+/** Whether the viewer is showing an app, in any arrangement. */
+export function isAppMainView(mainView: MainView): boolean {
+  return mainView === "app" || mainView === "app-editing";
+}
+
+/**
+ * Whether the viewer is showing a surface that overlays the chat: a document,
+ * a detail panel, channel setup. Everything that is neither the chat itself
+ * nor an app.
+ */
+export function isOverlayView(mainView: MainView): boolean {
+  return mainView !== "chat" && !isAppMainView(mainView);
+}
+
+/**
+ * What the workspace shows. `"full"` and `"single"` are one picture and two
+ * states: a surface filling the width, with a secondary collapsed behind it
+ * or with none at all.
+ */
+export type PanePresentation = "single" | "side" | "bottom" | "full";
 
 /** A thing a pane can show: a kind, and the id of what it shows. */
 export type PaneSurface =
@@ -85,22 +101,9 @@ export function paneState({
   }
 
   return {
-    presentation: panePresentation({
-      hasSecondary: true,
-      position:
-        mainView === "app-editing" ? "side" : parked ? "bottom" : "full",
-      isNarrow: false,
-    }),
+    presentation:
+      mainView === "app-editing" ? "side" : parked ? "bottom" : "full",
     primary,
     secondary,
   };
-}
-
-/**
- * Whether an arrangement shows its secondary, as opposed to holding it
- * collapsed. The difference between a pane one click away and one that is
- * gone.
- */
-export function showsSecondary(presentation: PanePresentation): boolean {
-  return presentation === "side" || presentation === "bottom";
 }

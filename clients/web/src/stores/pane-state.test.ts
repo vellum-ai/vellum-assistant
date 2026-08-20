@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { paneState, showsSecondary } from "@/stores/pane-state";
+import { paneState } from "@/stores/pane-state";
 import type { MainView } from "@/stores/viewer-store";
 
 const MAIN_VIEWS: readonly MainView[] = [
@@ -132,14 +132,5 @@ describe("paneState", () => {
       primary: null,
       secondary: null,
     });
-  });
-});
-
-describe("showsSecondary", () => {
-  it("shows it beside and below, and holds it collapsed at full width", () => {
-    expect(showsSecondary("side")).toBe(true);
-    expect(showsSecondary("bottom")).toBe(true);
-    expect(showsSecondary("full")).toBe(false);
-    expect(showsSecondary("single")).toBe(false);
   });
 });

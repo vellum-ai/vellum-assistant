@@ -9,7 +9,7 @@
  * selection.
  */
 
-import { isAppMainView, isOverlayView } from "@/stores/pane-presentation";
+import { isAppMainView, isOverlayView } from "@/stores/pane-state";
 import { isConversationChatPath } from "@/utils/routes";
 import type { MainView } from "@/stores/viewer-store";
 
