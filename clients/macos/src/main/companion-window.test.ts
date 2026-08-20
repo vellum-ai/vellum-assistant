@@ -26,6 +26,7 @@ const {
   geometryFor,
   placeCanvas,
   callOnUpdate,
+  shouldShowCompanionSurface,
 } = await import("./companion-window");
 
 /** A session as the mirror publishes one, which is what main then holds. */
@@ -279,6 +280,34 @@ describe("the session main holds", () => {
     expect(
       callOnUpdate(running, { approvalRequestId: "req-1" })?.approvalRequestId,
     ).toBe("req-1");
+  });
+});
+
+/**
+ * The surface is the most conspicuous thing this app puts on screen, so what
+ * decides whether it appears is worth stating as cases: an assistant to draw is
+ * a floor and the tray preference is a veto.
+ */
+describe("shouldShowCompanionSurface", () => {
+  test("shows once there is an assistant and it has not been hidden", () => {
+    expect(shouldShowCompanionSurface(true, false)).toBe(true);
+  });
+
+  test("honours the tray preference even with an assistant to draw", () => {
+    expect(shouldShowCompanionSurface(true, true)).toBe(false);
+  });
+
+  // The state every launch starts in, and the one a sign-out returns to: main's
+  // avatar cache is filled by the app's window, and until it has there is no
+  // creature, no name and no conversation for the pill to carry.
+  test("stays away while there is no assistant to be", () => {
+    expect(shouldShowCompanionSurface(false, false)).toBe(false);
+  });
+
+  // Signing out must not also clear the preference, so this pair stays
+  // distinct from the one above rather than collapsing into it.
+  test("stays away with no assistant even when not hidden", () => {
+    expect(shouldShowCompanionSurface(false, true)).toBe(false);
   });
 });
 

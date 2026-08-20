@@ -734,8 +734,13 @@ export const installCompanionWindow = (): void => {
   );
 
   // One avatar feeds every surface, so a change to the Dock icon is a change
-  // here too.
-  onAvatarChange(pushState);
+  // here too. It is also what decides whether there is a surface at all, since
+  // an assistant arriving or going away is what {@link hasAssistant} reads, so
+  // the same publish that repaints the pill is the one that opens or closes it.
+  onAvatarChange(() => {
+    syncCompanionSurface();
+    pushState();
+  });
 
   // The route loads lazily after the window is created, so a state pushed
   // before its subscription registers is dropped. It pulls this once mounted.
@@ -870,23 +875,54 @@ export const setCompanionSurfaceSize = (size: CompanionSize): void => {
 };
 
 /**
- * Open or close the surface to match the one thing that decides whether it
- * belongs on screen: the user's own choice from the tray.
+ * Whether there is an assistant for the surface to be.
+ *
+ * The avatar cache is empty until the app's window publishes one, which it can
+ * only do once someone is signed in with an assistant resolved. Before that
+ * there is no creature, no name and no conversation, so a pill drawn then is a
+ * blank disc floating over a login screen.
+ *
+ * This is the condition the `companion-surface` flag used to supply by
+ * accident. The flag was written into settings by the app's window after
+ * sign-in, so "no flag yet" and "nobody signed in yet" were the same state and
+ * the gate happened to cover both. Only one of them was ever about a rollout,
+ * and it is this one that has to survive the flag being removed.
+ */
+const hasAssistant = (): boolean =>
+  getCharacter() !== null || getAvatarPng() !== null;
+
+/**
+ * Whether the surface belongs on screen, given an assistant to draw and the
+ * user's own choice from the tray.
+ *
+ * The assistant is a floor and the tray preference is a veto, so both have to
+ * say yes. Exported for its tests, as `callOnUpdate` is: it is the rule that
+ * decides whether the most conspicuous window this app has appears at all.
+ */
+export const shouldShowCompanionSurface = (
+  assistant: boolean,
+  hidden: boolean,
+): boolean => assistant && !hidden;
+
+/**
+ * Open or close the surface to match the two things that decide whether it
+ * belongs on screen: whether there is an assistant to draw, and the user's own
+ * choice from the tray.
  *
  * The single place that decision is made, called at launch and again whenever
- * the tray preference changes. Two call sites reading the same condition is how
- * they come to disagree, and disagreeing here means either a floating avatar
- * nobody asked for or a missing one the user turned on.
+ * either input changes. Two call sites reading the same pair of conditions is
+ * how they come to disagree, and disagreeing here means either a floating
+ * avatar nobody asked for or a missing one the user turned on.
  *
- * The surface used to sit behind the `companion-surface` flag as well, which is
- * why this is a function rather than a call at startup. It stays one: the
- * preference is written from the tray while the app runs, and this is what the
- * writer calls to make the screen match it.
+ * **Neither input ever writes the other.** Signing out has to leave the tray
+ * preference exactly as the user left it, so that signing back in restores the
+ * surface for someone who wanted it and leaves it hidden for someone who did
+ * not.
  */
 export const syncCompanionSurface = (): void => {
-  if (readCompanionHidden()) {
-    closeCompanionWindow();
+  if (shouldShowCompanionSurface(hasAssistant(), readCompanionHidden())) {
+    openCompanionWindow();
     return;
   }
-  openCompanionWindow();
+  closeCompanionWindow();
 };
