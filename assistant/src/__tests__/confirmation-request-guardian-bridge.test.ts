@@ -490,8 +490,16 @@ describe("guardianPromptDeliveredAsCard", () => {
     ).toBe(false);
   });
 
-  test("is false on channels with no destination resolver", () => {
-    for (const sourceChannel of ["discord", "whatsapp", "email"] as const) {
+  // `platform` is a push-only relay and a push carries no buttons; `whatsapp`
+  // renders inline buttons on a direct send but has no notification adapter to
+  // deliver a card through. Neither can carry a decision.
+  test("is false on channels that cannot render a card", () => {
+    for (const sourceChannel of [
+      "discord",
+      "whatsapp",
+      "email",
+      "platform",
+    ] as const) {
       expect(
         guardianPromptDeliveredAsCard({
           trustClass: "guardian",

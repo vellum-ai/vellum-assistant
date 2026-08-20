@@ -18,9 +18,9 @@
  * guardian requests.
  */
 
-import { isNotificationDeliverable } from "../channels/config.js";
 import type { GuardianRequestWire } from "../channels/gateway-guardian-requests.js";
 import type { ChannelId } from "../channels/types.js";
+import { channelSupportsGuardianQuestionCards } from "../daemon/channel-ui-capability.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
@@ -74,33 +74,23 @@ export type BridgeConfirmationRequestResult =
  *
  * A guardian is `self` on the sensitive-tool gate, so that gate lets their
  * call proceed, but the risk/threshold policy still parks an interactive
- * prompt they have to answer. That prompt needs a surface, and there are only
- * two: a card addressed to the guardian, or the in-turn rail's message posted
- * into the chat the turn is running in.
+ * prompt they have to answer. The card is the surface addressed to the
+ * guardian; the in-turn rail's message addresses whatever chat the turn is
+ * running in, which on a shared channel is a room.
  *
- * The card wins wherever it can be delivered, because the rail's message
- * addresses a room rather than a person. Two cases it cannot cover, which the
- * rail keeps:
- *
- * - `vellum`: the app renders the confirmation itself, so a card would be a
- *   second copy of a prompt already on screen.
- * - a channel the notification pipeline cannot deliver on, which has no
- *   destination resolver and no guardian endpoint to address.
- *
- * Exported because the rail reads the same rule to decide whether to stay out
- * of the way. Both must answer identically for one prompt to reach one place;
- * two copies of this condition would eventually disagree and deliver the
- * prompt twice, or not at all.
+ * Channel eligibility is `channelSupportsGuardianQuestionCards`, the same set
+ * the `pending_question` promotion gates on, so the two guardian-card
+ * promotions cannot disagree about where a card can land.
  */
 export function guardianPromptDeliveredAsCard(params: {
   trustClass: TrustContext["trustClass"];
   sourceChannel: ChannelId;
 }): boolean {
   const { trustClass, sourceChannel } = params;
-  if (resolveCapabilities(trustClass).sensitiveToolApproval !== "self") {
-    return false;
-  }
-  return sourceChannel !== "vellum" && isNotificationDeliverable(sourceChannel);
+  return (
+    resolveCapabilities(trustClass).sensitiveToolApproval === "self" &&
+    channelSupportsGuardianQuestionCards(sourceChannel)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -130,19 +120,9 @@ export async function bridgeConfirmationRequestToGuardian(
 
   const sourceChannel = trustContext.sourceChannel;
 
-  // Who needs a card, by what the actor may do with a sensitive tool:
-  //
-  // - `escalate-and-wait` (contacts): the guardian decides on the contact's
-  //   behalf, so the card is the escalation itself.
-  // - `self` (guardian): the tool gate lets them proceed, but the
-  //   risk/threshold policy still parks a prompt they have to answer, and on
-  //   a channel the card is the only surface addressed to them rather than to
-  //   the room. See {@link guardianPromptDeliveredAsCard} for where the rail
-  //   keeps it instead.
-  // - `deny` (unknown): fail-closed before a prompt is ever parked, so there
-  //   is nothing to decide. Kept as an explicit skip rather than left to that
-  //   guarantee, because the two non-confirmation callers of this bridge do
-  //   not share it.
+  // `deny` (unknown) is fail-closed before a prompt is ever parked on the
+  // confirmation path, but the bridge's two other callers do not share that
+  // guarantee, so the skip stays explicit rather than resting on it.
   const { sensitiveToolApproval } = resolveCapabilities(
     trustContext.trustClass,
   );

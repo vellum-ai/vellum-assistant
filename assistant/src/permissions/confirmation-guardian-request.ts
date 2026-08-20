@@ -102,11 +102,8 @@ export async function createGuardianRequestForConfirmation(
       activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
       executionTarget: msg.executionTarget,
       status: "pending",
-      // The row stays decidable exactly as long as the prompt stays parked.
-      // Both read one budget so a raised `timeouts.permissionTimeoutSec`
-      // moves them together; a literal here would keep the card expiring at
-      // five minutes while the prompt waited on, and the guardian would press
-      // Approve to be told the request had already lapsed.
+      // The row stays decidable exactly as long as the prompt stays parked:
+      // one budget, so raising `timeouts.permissionTimeoutSec` moves both.
       expiresAt: Date.now() + resolveInlineGrantWaitMs(),
     });
 
