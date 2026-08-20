@@ -492,6 +492,20 @@ export function isStandaloneAssistantMessage(
  * typed fields (e.g. `provenanceTrustClass`, `automated`, `subagentNotification`)
  * instead of re-implementing it.
  */
+export function parseMessageMetadata(
+  metadataJson: string | null,
+): MessageMetadata | undefined {
+  if (!metadataJson) {
+    return undefined;
+  }
+  try {
+    const parsed = messageMetadataSchema.safeParse(JSON.parse(metadataJson));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * When a message's content happened, as distinct from when its row was
  * written. `sentAt` carries the event time wherever persistence lags the
@@ -508,20 +522,6 @@ export function messageOccurredAt(
   createdAt: number,
 ): number {
   return typeof metadata?.sentAt === "number" ? metadata.sentAt : createdAt;
-}
-
-export function parseMessageMetadata(
-  metadataJson: string | null,
-): MessageMetadata | undefined {
-  if (!metadataJson) {
-    return undefined;
-  }
-  try {
-    const parsed = messageMetadataSchema.safeParse(JSON.parse(metadataJson));
-    return parsed.success ? parsed.data : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /**
@@ -2359,14 +2359,10 @@ export async function addMessage(
       const parsed = metadata
         ? messageMetadataSchema.safeParse(metadata)
         : null;
-      const provenanceTrustClass = parsed?.success
-        ? parsed.data.provenanceTrustClass
-        : undefined;
-      const automated = parsed?.success ? parsed.data.automated : undefined;
-      const occurredAt = messageOccurredAt(
-        parsed?.success ? parsed.data : undefined,
-        message.createdAt,
-      );
+      const parsedMetadata = parsed?.success ? parsed.data : undefined;
+      const provenanceTrustClass = parsedMetadata?.provenanceTrustClass;
+      const automated = parsedMetadata?.automated;
+      const occurredAt = messageOccurredAt(parsedMetadata, message.createdAt);
       await indexMessageNow(
         {
           messageId: message.id,
