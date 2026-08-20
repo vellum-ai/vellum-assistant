@@ -243,9 +243,14 @@ export function normalizeOpenAIAPIError(
   // APIUserAbortError (caller cancellation, inner stream deadline) is a
   // sibling class, not a subclass, so it deliberately does NOT match here:
   // classifying it as a transient network error would make the retry loop
-  // re-run 30-minute deadline failures.
+  // re-run 30-minute deadline failures. Guarded because test doubles of the
+  // openai module may not define the class.
+  const connectionErrorClass = OpenAI.APIConnectionError as
+    | typeof OpenAI.APIConnectionError
+    | undefined;
   out.reason =
-    error instanceof OpenAI.APIConnectionError
+    typeof connectionErrorClass === "function" &&
+    error instanceof connectionErrorClass
       ? "network_error"
       : deriveReason(out, error.status);
   return out;

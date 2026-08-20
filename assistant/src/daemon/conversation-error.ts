@@ -635,8 +635,7 @@ function reasonToClassification(
     // Two producers share this reason: SDK transport failures that never got
     // a response (OpenAI APIConnectionError), and Gemini responses whose empty
     // body reveals a proxy/egress filter intercepting the request. The copy
-    // covers both; the category renames the old Gemini-only
-    // "provider_network_proxy_intercepted".
+    // must stay broad enough for both.
     case "network_error":
       return {
         code: "PROVIDER_NETWORK",
