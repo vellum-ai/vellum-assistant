@@ -1,4 +1,7 @@
-import { COMPANION_NEAR_EDGE } from "@vellumai/ipc-contract";
+import {
+  COMPANION_INTRO_BEATS,
+  COMPANION_NEAR_EDGE,
+} from "@vellumai/ipc-contract";
 import type {
   CompanionIntroAction,
   CompanionIntroBeat,
@@ -81,19 +84,24 @@ export const INTRO_COPY: Record<CompanionIntroBeat, IntroCopy> = {
     title: "Type",
     body: "Send a message from here and read the reply here too.",
   },
+  tray: {
+    title: "Hide me anytime",
+    body: "Uncheck Show Companion in the menu bar.",
+  },
 };
 
 /**
  * Which control the pill should draw as though the pointer were on it.
  *
- * `meet` spotlights nothing: it is about the creature, and the pill is not open
- * on that beat. Shared with the page and the stories so a beat cannot be
- * introduced in one place and spotlighted in another.
+ * Only the beats that name a control on the pill have one. `meet` is about the
+ * creature, and `tray` is about the menu bar, which is not on the surface at
+ * all. Shared with the page and the stories so a beat cannot be introduced in
+ * one place and spotlighted in another.
  */
 export const introSpotlight = (
   beat: CompanionIntroBeat | null,
 ): "talk" | "type" | undefined =>
-  beat === "meet" || beat === null ? undefined : beat;
+  beat === "talk" || beat === "type" ? beat : undefined;
 
 /**
  * The phase the surface holds while a beat is on screen, or `null` to leave the
@@ -137,8 +145,6 @@ export interface CompanionIntroProps {
   onAdvance?: (action: CompanionIntroAction) => void;
 }
 
-const BEATS: CompanionIntroBeat[] = ["meet", "talk", "type"];
-
 export function CompanionIntro({
   beat,
   growth = "right",
@@ -147,8 +153,8 @@ export function CompanionIntro({
   cardRef,
   onAdvance,
 }: CompanionIntroProps) {
-  const index = BEATS.indexOf(beat);
-  const isLast = index === BEATS.length - 1;
+  const index = COMPANION_INTRO_BEATS.indexOf(beat);
+  const isLast = index === COMPANION_INTRO_BEATS.length - 1;
   const copy = INTRO_COPY[beat];
 
   // The pill's own horizontal anchoring, repeated rather than shared, because
@@ -201,7 +207,7 @@ export function CompanionIntro({
         {/* Where the run is, as dots rather than "2 of 3". The count is not
             information anyone acts on; that it is nearly over is. */}
         <div className="flex items-center gap-1" aria-hidden>
-          {BEATS.map((each, at) => (
+          {COMPANION_INTRO_BEATS.map((each, at) => (
             <span
               key={each}
               className="size-1.5 rounded-full transition-colors"

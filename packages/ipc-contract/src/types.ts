@@ -771,10 +771,15 @@ export interface CompanionContext {
  * place the user is not looking when the surface matters.
  *
  * A list rather than a count, because each beat names the control it sits over
- * and the renderer spotlights that control by name. `meet` has no control: it
- * is the avatar itself.
+ * and the renderer spotlights that control by name. Two of them have no
+ * control to spotlight: `meet` is the avatar itself, and `tray` is about the
+ * menu bar, which is the one part of this the surface cannot point at.
+ *
+ * `tray` is last and is the answer to "how do I make this go away". A surface
+ * that sits above every other window has to say where its own off switch is,
+ * and it is the only thing here the user cannot find by looking at the pill.
  */
-export const COMPANION_INTRO_BEATS = ["meet", "talk", "type"] as const;
+export const COMPANION_INTRO_BEATS = ["meet", "talk", "type", "tray"] as const;
 
 export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
 
