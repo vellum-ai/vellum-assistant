@@ -40,6 +40,7 @@ import { stopIngressNginx } from "./nginx-ingress.js";
 import {
   type ProcessState,
   executableName,
+  isProcessAlive,
   pathListDelimiter,
   resolveProcessState,
   stopProcess,
@@ -637,12 +638,12 @@ function logDaemonReadiness(
       break;
     case "migrating":
       console.log(
-        "   Assistant is up — database migrations still running; DB-backed commands return 503 until they finish\n",
+        "   Assistant is up. Database migrations still running; DB-backed commands return 503 until they finish\n",
       );
       break;
     case "failed":
       console.log(
-        "   ⚠️  Assistant database migrations FAILED — DB-backed commands return 503 until the assistant is restarted\n",
+        "   ⚠️  Assistant database migrations FAILED. DB-backed commands return 503 until the assistant is restarted\n",
       );
       break;
     default:
@@ -652,9 +653,35 @@ function logDaemonReadiness(
         );
       }
       console.log(
-        "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
+        "   ⚠️  Assistant did not become ready within 60s, continuing anyway\n",
       );
   }
+}
+
+/**
+ * Report a freshly spawned daemon's readiness, gated on the spawn still being
+ * alive.
+ *
+ * A readiness probe is not proof that this daemon answered it: a daemon that
+ * aborts during startup (an occupied runtime HTTP port, a fatal subsystem
+ * failure) leaves the foreign listener holding the port to answer in its
+ * place, which reads as "up" or "migrating". Liveness is the authoritative
+ * signal, so a dead spawn is reported as the startup failure it is instead of
+ * an optimistic line about an assistant that is not running.
+ */
+export function logFreshSpawnReadiness(
+  pidFile: string,
+  readiness: DaemonReadiness,
+  requireReady = false,
+): void {
+  if (!isProcessAlive(pidFile).alive) {
+    if (requireReady) {
+      throw new Error("Assistant exited during startup and is not running.");
+    }
+    console.log("   ⚠️  Assistant exited during startup and is not running\n");
+    return;
+  }
+  logDaemonReadiness(readiness, requireReady);
 }
 
 function logAssistantAlreadyRunning(
@@ -1397,7 +1424,8 @@ export async function startLocalDaemon(
     if (
       await startDaemonFromSource(runtimeAssistantIndex, resources, options)
     ) {
-      logDaemonReadiness(
+      logFreshSpawnReadiness(
+        getDaemonPidPath(resources),
         await waitForDaemonMigrationsReady(
           resources.daemonPort,
           Date.now() + 60000,
@@ -1621,7 +1649,7 @@ export async function startLocalDaemon(
         readiness = await probeDaemonReadiness(resources.daemonPort);
       }
 
-      logDaemonReadiness(readiness, options?.requireReady);
+      logFreshSpawnReadiness(pidFile, readiness, options?.requireReady);
     }
   } else {
     console.log("🔨 Starting local assistant...");
@@ -1638,7 +1666,8 @@ export async function startLocalDaemon(
       : await startDaemonFromSource(assistantIndex, resources, options);
     // Attach case was classified and logged inside the start function.
     if (spawned) {
-      logDaemonReadiness(
+      logFreshSpawnReadiness(
+        getDaemonPidPath(resources),
         await waitForDaemonMigrationsReady(
           resources.daemonPort,
           Date.now() + 60000,
