@@ -94,6 +94,7 @@ import {
 } from "./routes/inference-profile-session-reaper.js";
 import {
   activeWatchStreamSessions,
+  closeWatchIngress,
   drainWatchRetros,
   WatchStreamSession,
 } from "./routes/watch-routes.js";
@@ -626,13 +627,18 @@ export class RuntimeHttpServer {
       activeSttStreamSessions.delete(sessionId);
     }
 
+    // Watch shuts down in order: refuse new sessions, tear down the open ones,
+    // then wait on the retrospectives they left running. Refusing first is what
+    // makes the wait meaningful, because the Bun server below keeps accepting
+    // connections until the very end and a session opened during the wait would
+    // register a retrospective after it had already taken its snapshot.
+    closeWatchIngress();
     for (const [sessionId, session] of activeWatchStreamSessions) {
       session.destroy();
       activeWatchStreamSessions.delete(sessionId);
     }
-    // A socket that closed just before shutdown may have left a retrospective
-    // turn running. Destroying the sessions above starts none, so this waits
-    // only on one that was already under way.
+    // Destroying a session starts no retrospective, so this waits only on one
+    // that a socket closing just before shutdown had already under way.
     await drainWatchRetros();
 
     const liveVoiceManager = getLiveVoiceSessionManager();

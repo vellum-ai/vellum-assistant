@@ -23,7 +23,11 @@
  */
 
 import { escapeFenceTags } from "../context/outbound-sanitize.js";
-import { setConversationSurfaced } from "../persistence/conversation-crud.js";
+import {
+  getMessages,
+  isStandaloneAssistantMessage,
+  setConversationSurfaced,
+} from "../persistence/conversation-crud.js";
 import type { WakeOptions } from "../runtime/agent-wake.js";
 import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
@@ -166,6 +170,7 @@ export async function runWatchRetro(
       return { status: "skipped" };
     }
 
+    const priorMessageIds = messageIds(summary.conversationId);
     const dispatch = options.dispatch ?? dispatchRetroTurn;
     const dispatched = await dispatch(
       summary.conversationId,
@@ -174,11 +179,14 @@ export async function runWatchRetro(
     if (!dispatched.invoked) {
       return { status: "failed", reason: dispatched.reason ?? "unknown" };
     }
+    if (!hasReport(summary.conversationId, priorMessageIds)) {
+      return { status: "failed", reason: "no_report" };
+    }
 
-    // Surfaced only once the turn has committed a report, so the thread the
-    // user is shown always has something in it. A retro that failed leaves the
-    // conversation where the session left it, out of sight, rather than as an
-    // empty row named after a session with no account of it.
+    // Surfaced only once the turn has left a report behind, so the thread the
+    // user is shown always has something to read. A retro that failed leaves
+    // the conversation where the session left it, out of sight, rather than as
+    // an empty row named after a session with no account of it.
     surfaceConversation(summary.conversationId);
 
     return { status: "dispatched", conversationId: summary.conversationId };
@@ -194,6 +202,44 @@ export async function runWatchRetro(
     );
     return { status: "failed", reason };
   }
+}
+
+/** Ids of the messages a conversation holds right now. */
+function messageIds(conversationId: string): ReadonlySet<string> {
+  return new Set(getMessages(conversationId).map((message) => message.id));
+}
+
+/**
+ * Whether the turn left the user something to read.
+ *
+ * Asked of the conversation rather than of the dispatch result, because a wake
+ * reports invocation and a report is a stronger thing. `inspectWakeOutput`
+ * counts a `tool_use` block as output, so a retro whose first act is loading
+ * the `skill-management` skill has already "produced output" before it has
+ * said anything, and a run that then stops or errors still returns
+ * `invoked: true`. Surfacing on that gives the user a thread of tool plumbing
+ * with no report and no question in it.
+ *
+ * Standalone assistant rows are not reports either: that is the shape a
+ * provider error takes, which persists as an assistant message and returns
+ * normally, and a system card is machinery rather than an account of the
+ * session.
+ */
+function hasReport(
+  conversationId: string,
+  priorMessageIds: ReadonlySet<string>,
+): boolean {
+  return getMessages(conversationId).some((message) => {
+    if (priorMessageIds.has(message.id) || message.role !== "assistant") {
+      return false;
+    }
+    if (isStandaloneAssistantMessage(message.role, message.metadata)) {
+      return false;
+    }
+    return message.content.some(
+      (block) => block.type === "text" && block.text.trim().length > 0,
+    );
+  });
 }
 
 /**

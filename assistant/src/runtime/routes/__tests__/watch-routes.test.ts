@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { initializeDb } from "../../../persistence/db-init.js";
 import type {
@@ -10,7 +10,9 @@ import { WatchSessionManager } from "../../../watch/watch-session-manager.js";
 import { renderWatchTimeline } from "../../../watch/watch-timeline.js";
 import type { HostObservation } from "../../host-observe.js";
 import {
+  closeWatchIngress,
   drainWatchRetros,
+  reopenWatchIngressForTest,
   type WatchStreamServerFrame,
   WatchStreamSession,
   type WatchStreamSocket,
@@ -138,6 +140,11 @@ function newSession(overrides: HarnessOverrides = {}) {
 }
 
 describe("watch stream session", () => {
+  // The ingress latch is module state shared by every test in this file.
+  afterEach(() => {
+    reopenWatchIngressForTest();
+  });
+
   test("starts, records narration, and stops", async () => {
     const { manager, observeCalls } = newManager();
     const { ws, transcriber, session } = newSession({ manager });
@@ -396,6 +403,52 @@ describe("watch stream session", () => {
     expect(finished).toHaveLength(0);
     // Let the straggler settle so it does not leak into the next test.
     await Bun.sleep(450);
+  });
+
+  test("a session arriving after ingress closes is refused, not opened", async () => {
+    const { manager } = newManager();
+    const { ws, transcriber, session, retros } = newSession({ manager });
+
+    closeWatchIngress();
+    await session.start();
+
+    expect(ws.types()).toEqual(["error", "closed"]);
+    expect(ws.firstOfType("error")!.message).toContain("shutting down");
+    expect(ws.closeCode).toBe(1001);
+    // Nothing was claimed, so nothing is left running for the drain to miss.
+    expect(manager.isActive()).toBe(false);
+    expect(retros).toHaveLength(0);
+    expect(transcriber!.stopCount).toBe(0);
+    expect(session.isClosed).toBe(true);
+  });
+
+  test("a session that opens during the drain registers no retrospective", async () => {
+    const { manager } = newManager();
+    const running = newSession({ manager, retroDelayMs: 60 });
+    await running.session.start();
+    running.session.handleClose(1000, "done");
+
+    // Shutdown's order: ingress first, then the open sessions, then the wait.
+    closeWatchIngress();
+
+    // A socket that opens and closes while the wait is already under way. Its
+    // retrospective would register after the drain took its snapshot, so the
+    // drain would return believing nothing was left. The long stand-in keeps
+    // it running past the drain, which is what makes the count tell the truth.
+    const latecomer = newSession({ manager, retroDelayMs: 500 });
+    setTimeout(() => {
+      void latecomer.session.start().then(() => {
+        latecomer.session.handleClose(1000, "done");
+      });
+    }, 15);
+
+    expect(await drainWatchRetros(2_000)).toBe(0);
+
+    expect(running.finished).toHaveLength(1);
+    expect(latecomer.retros).toHaveLength(0);
+
+    // Let any straggler settle so it cannot leak into the next test.
+    await Bun.sleep(600);
   });
 
   test("a dropped socket releases the session slot", async () => {

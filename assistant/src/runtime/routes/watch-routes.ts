@@ -202,6 +202,15 @@ export class WatchStreamSession {
       return;
     }
 
+    if (watchIngressClosed) {
+      this.failStart(
+        "session-error",
+        "The assistant is shutting down and is not starting new watch sessions.",
+        1001,
+      );
+      return;
+    }
+
     try {
       const sourceActorPrincipalId = await this.resolveActorPrincipalId();
       if (this.isClosed) {
@@ -655,6 +664,39 @@ export const activeWatchStreamSessions = new Map<string, WatchStreamSession>();
  * against a database that is about to be closed underneath it.
  */
 const inFlightWatchRetros = new Set<Promise<unknown>>();
+
+/**
+ * Whether new watch sessions are being refused.
+ *
+ * Shutdown tears down the sessions it can see and then waits on the
+ * retrospectives they left running, and the Bun server keeps accepting
+ * connections until well after both. Without this latch a socket that opens
+ * and closes inside that window registers a retrospective nobody is waiting
+ * on, which is the turn the drain exists to protect.
+ *
+ * A latch here rather than a shared one because the daemon has no shutdown
+ * state a route can read: `shutdown-handlers.ts` keeps its flag module-private
+ * and process-wide, and the readiness module tracks migrations rather than
+ * teardown.
+ */
+let watchIngressClosed = false;
+
+/**
+ * Refuse new watch sessions, the first step of shutting the surface down.
+ *
+ * Separate from tearing the open sessions down so the order can be ingress
+ * first, sessions second, retrospectives last. A session that arrives after
+ * this fails its start with a clean error frame rather than opening and being
+ * killed moments later.
+ */
+export function closeWatchIngress(): void {
+  watchIngressClosed = true;
+}
+
+/** Accept watch sessions again. For tests, which share a module instance. */
+export function reopenWatchIngressForTest(): void {
+  watchIngressClosed = false;
+}
 
 /**
  * Longest shutdown waits for retrospectives already under way.

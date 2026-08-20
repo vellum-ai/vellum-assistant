@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 
 import {
+  addMessage,
   createConversation,
   getConversation,
+  PROVIDER_ERROR_MESSAGE_KIND,
 } from "../../persistence/conversation-crud.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import {
@@ -76,14 +78,30 @@ function recordObservation(axTree: string): {
   return { sessionId, conversationId };
 }
 
-/** A dispatcher that records what it was handed and reports a live turn. */
-function recordingDispatch() {
+/**
+ * A dispatcher that records what it was handed and stands in for a turn that
+ * replied, by leaving the assistant message a real one would leave.
+ *
+ * `reply` is what the turn wrote: a string for an ordinary report, or null for
+ * a turn that ran and left no text, which is what a run that only called a
+ * tool before stopping looks like from the conversation's side.
+ */
+function recordingDispatch(
+  reply: string | null = "Here is what I understood.",
+  metadata?: Record<string, unknown>,
+) {
   const calls: { conversationId: string; prompt: string }[] = [];
   const dispatch = async (
     conversationId: string,
     prompt: string,
   ): Promise<WatchRetroDispatchResult> => {
     calls.push({ conversationId, prompt });
+    if (reply !== null) {
+      await addMessage(conversationId, "assistant", reply, {
+        skipIndexing: true,
+        ...(metadata ? { metadata } : {}),
+      });
+    }
     return { invoked: true };
   };
   return { calls, dispatch };
@@ -123,6 +141,66 @@ describe("watch retrospective", () => {
       "background",
     );
     expect(calls).toHaveLength(1);
+  });
+
+  test("a turn that only called a tool is not a report", async () => {
+    const summary = recordSession(["filing the receipt"]);
+
+    // The wake reports `invoked: true` on a `tool_use` block alone, so a run
+    // that loads `skill-management` and then stops or errors looks invoked and
+    // has said nothing.
+    const result = await runWatchRetro(summary, {
+      dispatch: recordingDispatch(null).dispatch,
+    });
+
+    expect(result).toEqual({ status: "failed", reason: "no_report" });
+    expect(getConversation(summary.conversationId)!.surfacedAt).toBeNull();
+  });
+
+  test("a provider error is not a report", async () => {
+    const summary = recordSession(["filing the receipt"]);
+
+    // A failed LLM call persists an assistant row and returns normally, so the
+    // thread has assistant text in it and still holds no account of anything.
+    const result = await runWatchRetro(summary, {
+      dispatch: recordingDispatch("The model call failed.", {
+        messageKind: PROVIDER_ERROR_MESSAGE_KIND,
+      }).dispatch,
+    });
+
+    expect(result).toEqual({ status: "failed", reason: "no_report" });
+    expect(getConversation(summary.conversationId)!.surfacedAt).toBeNull();
+  });
+
+  test("a reply the session did not produce is not this turn's report", async () => {
+    // A session can adopt a conversation that already has messages in it, so
+    // "the thread has assistant text" is not the question. The question is
+    // whether this turn added any.
+    const summary = recordSession(["filing the receipt"]);
+    await addMessage(
+      summary.conversationId,
+      "assistant",
+      "Something I said long before the session started.",
+      { skipIndexing: true },
+    );
+
+    const result = await runWatchRetro(summary, {
+      dispatch: recordingDispatch(null).dispatch,
+    });
+
+    expect(result).toEqual({ status: "failed", reason: "no_report" });
+    expect(getConversation(summary.conversationId)!.surfacedAt).toBeNull();
+  });
+
+  test("whitespace is not a report", async () => {
+    const summary = recordSession(["filing the receipt"]);
+
+    const result = await runWatchRetro(summary, {
+      dispatch: recordingDispatch("   \n  ").dispatch,
+    });
+
+    expect(result).toEqual({ status: "failed", reason: "no_report" });
+    expect(getConversation(summary.conversationId)!.surfacedAt).toBeNull();
   });
 
   test("leaves the conversation hidden when the turn produced nothing", async () => {
