@@ -76,6 +76,25 @@ function formatDetailedTimestamp(epoch: number): string {
  * timestamp and any tool-call start/completion times, so the displayed time
  * reflects when the row last did something rather than when it was created.
  */
+/**
+ * Epoch ms a Slack row actually happened, read from its origin `channelTs`
+ * (`"<unix-seconds>.<microseconds>"`).
+ *
+ * Rows hydrated by Slack history backfill are written when the import runs,
+ * so their `createdAt` records the import rather than the message: a
+ * six-week-old line otherwise renders as "Today". `channelTs` is the only
+ * record of when the message was really sent, and for a live Slack row it
+ * agrees with `createdAt` anyway.
+ */
+function slackOriginTimestamp(message: DisplayMessage): number | undefined {
+  const channelTs = message.slackMessage?.channelTs;
+  if (channelTs == null) {
+    return undefined;
+  }
+  const seconds = Number.parseFloat(channelTs);
+  return Number.isFinite(seconds) ? seconds * 1000 : undefined;
+}
+
 function latestMessageActivityTimestamp(
   message: DisplayMessage,
 ): number | undefined {
@@ -121,7 +140,8 @@ export function MessageHoverActions({
   // copy payload and mirrors the daemon's `joinWithSpacing`.
   const content = useMemo(() => messagePlainText(message), [message]);
   const timestamp = useMemo(
-    () => latestMessageActivityTimestamp(message),
+    () =>
+      slackOriginTimestamp(message) ?? latestMessageActivityTimestamp(message),
     [message],
   );
 

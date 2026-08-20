@@ -21,6 +21,52 @@ describe("MessageHoverActions", () => {
     expect(html).toContain("select-none");
   });
 
+  test("dates a Slack row from its origin ts, not the row's write time", () => {
+    // A backfilled row is written when the import runs, so `timestamp` is
+    // today while the message itself is weeks old. The tooltip must follow
+    // the Slack ts or old history reads as having just arrived.
+    const sentAt = Date.UTC(2026, 6, 8, 9, 15);
+    const message: DisplayMessage = {
+      id: "m-backfilled",
+      role: "user",
+      timestamp: Date.UTC(2026, 7, 20, 12, 32),
+      slackMessage: {
+        channelId: "D0BFXBJE1QV",
+        channelTs: String(sentAt / 1000),
+      },
+      ...textBody("older message"),
+    };
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} />,
+    );
+
+    // Computed with the component's own options so the assertion holds in
+    // any locale; only the source of the epoch is under test.
+    const expectedDay = new Date(sentAt).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+    expect(html).toContain(expectedDay);
+    expect(html).not.toContain("Today");
+  });
+
+  test("falls back to the row's own timestamp when no Slack ts is present", () => {
+    const message: DisplayMessage = {
+      id: "m-plain",
+      role: "user",
+      timestamp: Date.UTC(2026, 6, 8, 9, 15),
+      ...textBody("hello"),
+    };
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} />,
+    );
+
+    const expectedDay = new Date(
+      Date.UTC(2026, 6, 8, 9, 15),
+    ).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    expect(html).toContain(expectedDay);
+  });
+
   test("renders inspect action for user messages when provided", () => {
     const message: DisplayMessage = {
       id: "m2",
