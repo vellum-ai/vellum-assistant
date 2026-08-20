@@ -4,10 +4,10 @@
  *
  * Each test materializes a synthetic plugin directory under a per-file
  * tempdir. Changes are applied the way production applies them — the
- * install/uninstall/enable/disable routes call `reconcilePluginSourcesNow()`
- * after materializing files on disk. Dispatch-time hook and tool reads are
- * pure cache reads and must never activate anything; that invariant has its
- * own test below.
+ * install, uninstall, upgrade, enable and disable routes call
+ * `reconcilePluginSourcesNow()` after materializing files on disk.
+ * Dispatch-time hook and tool reads are pure cache reads and must never
+ * activate anything; that invariant has its own test below.
  */
 import {
   existsSync,
@@ -136,8 +136,8 @@ let touchSeq = 0;
 
 /**
  * Apply pending source changes exactly the way production does: the
- * imperative reconcile the install/uninstall/enable/disable routes call
- * after materializing a change on disk.
+ * imperative reconcile the install, uninstall, upgrade, enable and disable
+ * routes call after materializing a change on disk.
  */
 async function applySourceChangesNow(): Promise<void> {
   await reconcilePluginSourcesNow();
@@ -827,6 +827,41 @@ describe("plugin runtime activation", () => {
     // Disable keeps the directory, so `shutdown` is resolved from disk and runs
     // even though it was never pre-warmed.
     expect(existsSync(shutdownMarker)).toBe(true);
+  });
+
+  test("a disable/enable round trip runs shutdown then init and restores the tool", async () => {
+    const dir = freshPluginDir("round-trip-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "round-trip-plugin" });
+    writeTool(dir, "round-trip-tool", TOOL_SRC("round-trip-tool"));
+    // Both lifecycle hooks append to one marker, so the file records the order
+    // the two reconciles ran them in, not just that each fired.
+    const lifecycleMarker = join(ROOT, "round-trip-lifecycle.log");
+    writeMarkerHook(dir, "init", lifecycleMarker, "init");
+    writeMarkerHook(dir, "shutdown", lifecycleMarker, "shutdown");
+
+    await populateCacheAtBoot();
+    await loadPluginTools(); // boot pull (initializePlugins does this)
+    expect(getToolOwner("round-trip-tool")?.kind).toBe("plugin");
+
+    const sentinel = join(dir, ".disabled");
+    writeFileSync(sentinel, "");
+    await reconcileAndPull();
+    expect(getToolOwner("round-trip-tool")).toBeUndefined();
+
+    rmSync(sentinel, { force: true });
+    await reconcileAndPull();
+
+    // The plugin comes back up on the same directory, so the tool re-registers.
+    expect(getToolOwner("round-trip-tool")).toEqual({
+      kind: "plugin",
+      id: "round-trip-plugin",
+    });
+    // Boot init, the disable's shutdown, then the enable's init.
+    expect(readFileSync(lifecycleMarker, "utf8").trim().split("\n")).toEqual([
+      "init",
+      "shutdown",
+      "init",
+    ]);
   });
 });
 
