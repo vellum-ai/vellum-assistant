@@ -95,6 +95,14 @@ mock.module("../plugins/defaults/memory/substrate/boot-maintenance.js", () => ({
   maybeReseedCapabilitiesAfterManagedCredential: async () => {},
 }));
 
+// This suite drives the secret routes without the inference schema, so the
+// in-use lookup a delete performs has no `provider_connections` table to read.
+// Report no dependents; the refusal itself is covered by
+// runtime/routes/__tests__/credential-delete-in-use.test.ts.
+mock.module("../providers/inference/credential-usage.js", () => ({
+  findConnectionsUsingCredential: () => [],
+}));
+
 // secret-routes evicts conversations after a credential change so the next turn
 // rebuilds against the new providers; count the calls to assert that happens.
 mock.module("../daemon/conversation-store.js", () => ({

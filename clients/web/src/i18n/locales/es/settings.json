@@ -155,6 +155,16 @@
     "returnTo": "Volver a {assistantName}",
     "title": "¡Ya está todo listo!"
   },
+  "credentialsPage": {
+    "deleteConfirmLabel": "Eliminar",
+    "deleteConfirmMessage": "¿Eliminar {name}? Las herramientas e integraciones que la usan perderán el acceso.",
+    "deleteConfirmTitle": "Eliminar credencial",
+    "deleteErrorToast": "No se pudo eliminar la credencial",
+    "deleteSuccessToast": "Se eliminó {name}.",
+    "inUseConfirmLabel": "Eliminar de todos modos",
+    "inUseMessage": "{count, plural, one {{name} es la credencial con la que la conexión {connections} envía sus solicitudes. Si la eliminas, esa conexión dejará de responder hasta que agregues una credencial nueva.} other {{name} es la credencial con la que las conexiones {connections} envían sus solicitudes. Si la eliminas, esas conexiones dejarán de responder hasta que agregues una credencial nueva.}}",
+    "inUseTitle": "La credencial está en uso"
+  },
   "customPlanModal": {
     "cancel": "Cancelar",
     "comparedToPrevious": "{delta} en comparación con el anterior ({previous})",

@@ -41,6 +41,13 @@ mock.module("../security/credential-key.js", () => ({
   credentialKey: (service: string, field: string) => `${service}:${field}`,
 }));
 
+// This suite runs without the inference schema, so no connection can depend on
+// a credential here. `credential-delete-in-use.test.ts` covers the lookup and
+// the refusal it drives against real connection rows.
+mock.module("../providers/inference/credential-usage.js", () => ({
+  findConnectionsUsingCredential: mock(() => []),
+}));
+
 mock.module("../security/secure-keys.js", () => ({
   setSecureKeyAsync: mock(async (key: string, value: string) => {
     secureStore.set(key, value);
@@ -173,7 +180,11 @@ type ListResponse = {
   }>;
   managedCredentials: unknown[];
 };
-type DeleteResponse = { service: string; field: string };
+type DeleteResponse = {
+  service: string;
+  field: string;
+  affectedConnections: string[];
+};
 
 const SECRET_VALUE = "super-secret-token-value";
 
@@ -786,7 +797,11 @@ describe("credentials routes", () => {
       })) as DeleteResponse;
 
       // THEN the response echoes the identifiers
-      expect(result).toEqual({ service: "vercel", field: "api_token" });
+      expect(result).toEqual({
+        service: "vercel",
+        field: "api_token",
+        affectedConnections: [],
+      });
 
       // AND the secret and metadata are gone
       expect(secureStore.has("vercel:api_token")).toBe(false);
@@ -811,7 +826,11 @@ describe("credentials routes", () => {
       })) as DeleteResponse;
 
       // THEN the response echoes the identifiers
-      expect(result).toEqual({ service: "slack_channel", field: "user_token" });
+      expect(result).toEqual({
+        service: "slack_channel",
+        field: "user_token",
+        affectedConnections: [],
+      });
 
       // AND only the user_token is removed; bot + app tokens remain
       expect(secureStore.has("slack_channel:user_token")).toBe(false);
