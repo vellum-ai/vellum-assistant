@@ -195,10 +195,11 @@ describe("handleQuestionResponse: stale (404) interaction", () => {
  * Start request A, let prompt B supersede it, then start request B, leaving
  * both in flight. Returns A's promise plus a release for it.
  *
- * `isSubmittingQuestion` and the session error are single slots on the store.
- * The daemon supersedes A with B, and `showQuestion` clears
- * `isSubmittingQuestion` when B arrives, so the user can answer B while A is
- * still open. Every completion path of A then lands after ownership has moved.
+ * The submission slot and the session error are single slots on the store. The
+ * daemon supersedes A with B, and the entry guard is about this prompt rather
+ * than any prompt, so the user can answer B while A is still open — B's claim
+ * takes the slot. Every completion path of A then lands after ownership has
+ * moved.
  */
 async function startOverlappingRequests(): Promise<{
   answerA: Promise<void>;
@@ -221,17 +222,13 @@ async function startOverlappingRequests(): Promise<{
 
   // Both are genuinely in flight, and B owns the shared state.
   expect(submitCalls.map((c) => c.requestId)).toEqual(["q-a", "q-b"]);
-  expect(
-    useInteractionStore.getState().submittingByKind.question,
-  ).not.toBeNull();
+  expect(useInteractionStore.getState().submittingByKind.question).toBe("q-b");
   return { answerA, answerB };
 }
 
 /** Assert B still owns everything after A landed late. */
 function expectBStillOwnsState(): void {
-  expect(
-    useInteractionStore.getState().submittingByKind.question,
-  ).not.toBeNull();
+  expect(useInteractionStore.getState().submittingByKind.question).toBe("q-b");
   expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe("q-b");
 }
 

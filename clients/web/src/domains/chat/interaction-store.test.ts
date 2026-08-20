@@ -92,9 +92,21 @@ describe("useInteractionStore", () => {
       // The tick describes the last submission, not the best one. Retrying the
       // same prompt and failing must not keep showing a success.
       useInteractionStore.getState().showSecret({ requestId: "r1" });
-      useInteractionStore.getState().setSecretSaved(true);
-      useInteractionStore.getState().setSecretSaved(false);
+      useInteractionStore.getState().setSecretSavedIfMatches("r1", true);
+      useInteractionStore.getState().setSecretSavedIfMatches("r1", false);
       expect(useInteractionStore.getState().secretSaved).toBe(false);
+    });
+
+    it("a superseded request cannot write the tick", () => {
+      // The tick belongs to the card on screen. A request the user can no
+      // longer see must not erase the outcome of the one they can.
+      useInteractionStore.getState().showSecret({ requestId: "r1" });
+      useInteractionStore.getState().showSecret({ requestId: "r2" });
+      useInteractionStore.getState().setSecretSavedIfMatches("r2", true);
+
+      useInteractionStore.getState().setSecretSavedIfMatches("r1", false);
+
+      expect(useInteractionStore.getState().secretSaved).toBe(true);
     });
 
     it("dismissSecretIfMatches retires the prompt it names", () => {

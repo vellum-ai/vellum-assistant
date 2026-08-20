@@ -14,6 +14,7 @@ import { offersRuleOption } from "@/domains/chat/confirmation-decisions";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import {
+  clearSubmissionFailure,
   reportSubmissionFailure,
   stillOwnsSubmission,
 } from "@/domains/chat/prompt-submission";
@@ -51,15 +52,7 @@ function cleanupAfterConfirmationDecision(
   useInteractionStore
     .getState()
     .dismissConfirmationIfMatches(snapshot.requestId);
-  // Named, like everything else here: a decision clears the inline anchor only
-  // when it is the one its own tool call put there.
-  if (
-    mappedToolCallId &&
-    useInteractionStore.getState().inlineConfirmationToolCallId ===
-      mappedToolCallId
-  ) {
-    useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-  }
+  releaseInlineAnchor(mappedToolCallId);
   const convKey = useConversationStore.getState().activeConversationId;
   if (convKey) {
     useConversationStore.getState().removeAttentionConversationId(convKey);
@@ -120,6 +113,19 @@ function cleanupAfterConfirmationDecision(
   useInteractionStore
     .getState()
     .releaseSubmission("confirmation", snapshot.requestId);
+}
+
+/**
+ * Drop the inline anchor, but only when it is the one this decision's own tool
+ * call put there. Unscoped, it would unpin a different chip's card.
+ */
+function releaseInlineAnchor(toolCallId: string | undefined): void {
+  if (
+    toolCallId &&
+    useInteractionStore.getState().inlineConfirmationToolCallId === toolCallId
+  ) {
+    useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+  }
 }
 
 /**
@@ -319,9 +325,8 @@ export async function handleAllowAndCreateRule(
   };
 
   // The rule editor is this user's own request and the transcript patch names
-  // its own requestId, so both stay outside the ownership guard: neither can
+  // its own requestId, so both stay outside every guard below: neither can
   // touch a newer prompt, and withholding the editor would swallow the click.
-  const owns = () => stillOwnsSubmission("confirmation", snapshot.requestId);
 
   try {
     const result = await submitConfirmation(
@@ -334,15 +339,19 @@ export async function handleAllowAndCreateRule(
       // A 404 means the pending interaction is already gone server-side; the
       // user can still create a rule, so retire the prompt quietly rather than
       // surfacing a blocking "No pending interaction" error they can't act on.
-      if (owns()) {
-        useChatSessionStore
-          .getState()
-          .setError(result.status === 404 ? null : { message: result.error });
-        useInteractionStore
-          .getState()
-          .releaseSubmission("confirmation", snapshot.requestId);
-        useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+      if (result.status === 404) {
+        clearSubmissionFailure("confirmation", snapshot.requestId);
+      } else {
+        reportSubmissionFailure(
+          "confirmation",
+          snapshot.requestId,
+          result.error,
+        );
       }
+      useInteractionStore
+        .getState()
+        .releaseSubmission("confirmation", snapshot.requestId);
+      releaseInlineAnchor(mappedToolCallId);
       patchTranscriptMessages((prev: DisplayMessage[]) =>
         clearConfirmationByRequestId(prev, snapshot.requestId),
       );
@@ -350,23 +359,22 @@ export async function handleAllowAndCreateRule(
       return;
     }
 
-    if (owns()) {
+    if (stillOwnsSubmission("confirmation", snapshot.requestId)) {
       cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, "allow");
     }
 
     openCreateEditor({ ...editorContext, requestId: "" });
   } catch (err) {
     captureError(err, { context: "allow_and_create_rule" });
-    if (owns()) {
-      useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      useChatSessionStore.getState().setError({
-        message:
-          "Failed to submit confirmation, but you can still create a rule.",
-      });
-      useInteractionStore
-        .getState()
-        .releaseSubmission("confirmation", snapshot.requestId);
-    }
+    reportSubmissionFailure(
+      "confirmation",
+      snapshot.requestId,
+      "Failed to submit confirmation, but you can still create a rule.",
+    );
+    useInteractionStore
+      .getState()
+      .releaseSubmission("confirmation", snapshot.requestId);
+    releaseInlineAnchor(mappedToolCallId);
     patchTranscriptMessages((prev: DisplayMessage[]) =>
       clearConfirmationByRequestId(prev, snapshot.requestId),
     );

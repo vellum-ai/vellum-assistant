@@ -118,11 +118,13 @@ export interface InteractionState {
 
 export interface InteractionActions {
   /**
-   * Record the outcome of the last secret submission, which drives the card's
-   * saved tick. Every submission that ends reports one, so a failed retry
-   * clears a tick an earlier success left behind.
+   * Record the outcome of a secret submission, which drives the card's saved
+   * tick. Every submission that ends reports one, so a failed retry clears a
+   * tick an earlier success left behind — but only on its own card, since the
+   * tick belongs to the prompt on screen and a superseded request no longer
+   * owns that.
    */
-  setSecretSaved: (saved: boolean) => void;
+  setSecretSavedIfMatches: (requestId: string, saved: boolean) => void;
   /** Claim the submission slot for `kind`. */
   claimSubmission: (kind: PromptKind, requestId: string) => void;
   /** Release it, but only for the request that holds it. */
@@ -254,7 +256,13 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set({ pendingSecret: payload, secretSaved: false });
   },
 
-  setSecretSaved: (saved) => set({ secretSaved: saved }),
+  setSecretSavedIfMatches: (requestId, saved) => {
+    const { pendingSecret } = get();
+    if (!pendingSecret || pendingSecret.requestId !== requestId) {
+      return;
+    }
+    set({ secretSaved: saved });
+  },
 
   dismissSecretIfMatches: (requestId) => {
     const { pendingSecret } = get();

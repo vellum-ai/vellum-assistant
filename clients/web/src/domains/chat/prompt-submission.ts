@@ -76,12 +76,34 @@ export function reportSubmissionFailure(
   requestId: string,
   message: string,
 ): void {
-  if (!stillOwnsSubmission(kind, requestId)) {
-    return;
-  }
-  const onScreen = promptOnScreen(kind);
-  if (onScreen && onScreen.requestId !== requestId) {
+  if (!ownsTheBanner(kind, requestId)) {
     return;
   }
   useChatSessionStore.getState().setError({ message });
+}
+
+/**
+ * Take a submission failure back down.
+ *
+ * Same door as {@link reportSubmissionFailure} and for the same reason: a
+ * request that may not write the banner may not wipe it either, or a resolution
+ * arriving for an abandoned request would clear a message that belongs to
+ * whatever the user is looking at now.
+ */
+export function clearSubmissionFailure(
+  kind: PromptKind,
+  requestId: string,
+): void {
+  if (!ownsTheBanner(kind, requestId)) {
+    return;
+  }
+  useChatSessionStore.getState().setError(null);
+}
+
+function ownsTheBanner(kind: PromptKind, requestId: string): boolean {
+  if (!stillOwnsSubmission(kind, requestId)) {
+    return false;
+  }
+  const onScreen = promptOnScreen(kind);
+  return !onScreen || onScreen.requestId === requestId;
 }

@@ -34,13 +34,20 @@ mock.module("@/domains/chat/api/interactions", () => ({
   },
 }));
 
-const { handleConfirmationSubmit } =
+mock.module("@/domains/chat/rule-editor-actions", () => ({
+  // The suggestion request is a live fetch and irrelevant here; the editor
+  // opening is asserted through the rule-editor store instead.
+  fireSuggestion: () => {},
+}));
+
+const { handleAllowAndCreateRule, handleConfirmationSubmit } =
   await import("@/domains/chat/confirmation-actions");
 const { useInteractionStore } =
   await import("@/domains/chat/interaction-store");
 const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
 const { useStreamStore } = await import("@/domains/chat/stream-store");
+const { useRuleEditorStore } = await import("@/domains/chat/rule-editor-store");
 
 function seedPendingConfirmation(requestId: string): void {
   useStreamStore.getState().setStreamContext({
@@ -62,6 +69,10 @@ beforeEach(() => {
   useInteractionStore.getState().resetAll();
   useChatSessionStore.getState().setError(null);
   useStreamStore.getState().setStreamContext(null);
+  useRuleEditorStore.setState({
+    ruleEditorContext: null,
+    showRuleEditor: false,
+  });
 });
 
 describe("handleConfirmationSubmit — stale (404) interaction", () => {
@@ -316,5 +327,97 @@ describe("handleConfirmationSubmit — risk metadata stamping", () => {
     await handleConfirmationSubmit("allow");
 
     expect(useInteractionStore.getState().unknownNudgeToolCallIds.size).toBe(0);
+  });
+});
+
+describe("handleAllowAndCreateRule: a resume that no longer owns the slot", () => {
+  /** Start a rule-editor allow that parks inside the request. */
+  function allowParked(): { inFlight: Promise<void>; release: () => void } {
+    let release: (() => void) | undefined;
+    submitGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const inFlight = handleAllowAndCreateRule();
+    return { inFlight, release: () => release?.() };
+  }
+
+  /** Raise a second prompt and answer it, so the slot moves to it. */
+  function supersedeWith(requestId: string): {
+    inFlight: Promise<void>;
+    release: () => void;
+  } {
+    useInteractionStore.getState().showConfirmation({
+      requestId,
+      toolName: "bash",
+      riskLevel: "low",
+      input: {},
+    });
+    let release: (() => void) | undefined;
+    submitGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const inFlight = handleConfirmationSubmit("allow");
+    expect(useInteractionStore.getState().submittingByKind.confirmation).toBe(
+      requestId,
+    );
+    return { inFlight, release: () => release?.() };
+  }
+
+  it("keeps a superseded request's failure off the prompt on screen", async () => {
+    // GIVEN a rule-editor allow parked mid-request, superseded by a prompt the
+    // user then answers
+    seedPendingConfirmation("cr-a");
+    const a = allowParked();
+    const b = supersedeWith("cr-b");
+
+    submitConfirmationResult = { ok: false, status: 500, error: "A exploded" };
+    a.release();
+    await a.inFlight;
+
+    // THEN A's failure names a prompt the user can no longer see
+    expect(useChatSessionStore.getState().error).toBeNull();
+    expect(useInteractionStore.getState().submittingByKind.confirmation).toBe(
+      "cr-b",
+    );
+    expect(useInteractionStore.getState().pendingConfirmation?.requestId).toBe(
+      "cr-b",
+    );
+    // The editor still opens: it is this user's own click, and withholding it
+    // would swallow the action they took.
+    expect(useRuleEditorStore.getState().ruleEditorContext).not.toBeNull();
+
+    b.release();
+    await b.inFlight;
+  });
+
+  it("does not clear a newer prompt's banner when it 404s", async () => {
+    // A 404 retires this prompt quietly, which means clearing its own banner
+    // — not one raised for the prompt the user is looking at.
+    seedPendingConfirmation("cr-a");
+    const a = allowParked();
+    const b = supersedeWith("cr-b");
+    useChatSessionStore.getState().setError({ message: "B exploded" });
+
+    submitConfirmationResult = { ok: false, status: 404, error: "gone" };
+    a.release();
+    await a.inFlight;
+
+    expect(useChatSessionStore.getState().error?.message).toBe("B exploded");
+
+    b.release();
+    await b.inFlight;
+  });
+
+  it("still surfaces its own failure when nothing superseded it", async () => {
+    // The guard must not swallow the ordinary failure it is scoped around.
+    seedPendingConfirmation("cr-solo");
+    submitConfirmationResult = { ok: false, status: 500, error: "boom" };
+
+    await handleAllowAndCreateRule();
+
+    expect(useChatSessionStore.getState().error?.message).toBe("boom");
+    expect(
+      useInteractionStore.getState().submittingByKind.confirmation,
+    ).toBeNull();
   });
 });

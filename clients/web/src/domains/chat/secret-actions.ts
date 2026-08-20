@@ -10,10 +10,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import {
-  reportSubmissionFailure,
-  stillOwnsSubmission,
-} from "@/domains/chat/prompt-submission";
+import { reportSubmissionFailure } from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -48,7 +45,9 @@ export async function handleSecretSubmit(
     useInteractionStore
       .getState()
       .releaseSubmission("secret", pendingSecret.requestId);
-    useInteractionStore.getState().setSecretSaved(false);
+    useInteractionStore
+      .getState()
+      .setSecretSavedIfMatches(pendingSecret.requestId, false);
     return;
   }
 
@@ -66,12 +65,16 @@ export async function handleSecretSubmit(
       useInteractionStore
         .getState()
         .releaseSubmission("secret", pendingSecret.requestId);
-      useInteractionStore.getState().setSecretSaved(false);
+      useInteractionStore
+        .getState()
+        .setSecretSavedIfMatches(pendingSecret.requestId, false);
       return;
     }
 
     // The saved tick is the card's own state, separate from who holds the slot.
-    useInteractionStore.getState().setSecretSaved(true);
+    useInteractionStore
+      .getState()
+      .setSecretSavedIfMatches(pendingSecret.requestId, true);
     useInteractionStore
       .getState()
       .releaseSubmission("secret", pendingSecret.requestId);
@@ -85,16 +88,17 @@ export async function handleSecretSubmit(
     }, 1500);
   } catch (err) {
     captureError(err, { context: "submit_secret" });
-    if (!stillOwnsSubmission("secret", pendingSecret.requestId)) {
-      return;
-    }
-    useChatSessionStore
-      .getState()
-      .setError({ message: "Failed to submit secret. Please try again." });
+    reportSubmissionFailure(
+      "secret",
+      pendingSecret.requestId,
+      "Failed to submit secret. Please try again.",
+    );
     useInteractionStore
       .getState()
       .releaseSubmission("secret", pendingSecret.requestId);
-    useInteractionStore.getState().setSecretSaved(false);
+    useInteractionStore
+      .getState()
+      .setSecretSavedIfMatches(pendingSecret.requestId, false);
   }
 }
 
