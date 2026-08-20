@@ -42,7 +42,7 @@ const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
   // Find a vision-capable profile for captioning.
   const visionProfileKey = findVisionProfile();
 
-  const { replaced: imageCount } = await captionImageBlocks(
+  const imageCount = await captionImageBlocks(
     blocks,
     ctx.conversationId,
     visionProfileKey,

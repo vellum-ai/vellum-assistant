@@ -64,26 +64,6 @@ export function needsImageFallback(modelProfileKey: string): boolean {
 }
 
 /**
- * Tally of what a substitution pass did to one block array or message list:
- * how many image blocks were replaced in total, and how many of those carried
- * no description at all because no vision-capable profile is configured. The
- * second number is what the user needs to hear about: an image the model can
- * neither see nor read a description of is information lost from the turn.
- */
-export interface ImageSubstitutionCounts {
-  replaced: number;
-  droppedNoVision: number;
-}
-
-function addCounts(
-  into: ImageSubstitutionCounts,
-  from: ImageSubstitutionCounts,
-): void {
-  into.replaced += from.replaced;
-  into.droppedNoVision += from.droppedNoVision;
-}
-
-/**
  * Replace every `image` block in `blocks` (in place) with a text caption so a
  * text-only model can still reason about the image's content.
  *
@@ -101,8 +81,8 @@ export async function captionImageBlocks(
   conversationId: string,
   visionProfileKey: string | null,
   logger: PluginLogger,
-): Promise<ImageSubstitutionCounts> {
-  const counts: ImageSubstitutionCounts = { replaced: 0, droppedNoVision: 0 };
+): Promise<number> {
+  let replaced = 0;
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
@@ -110,7 +90,7 @@ export async function captionImageBlocks(
       continue;
     }
 
-    counts.replaced++;
+    replaced++;
     const image = block as ImageContent;
 
     // Persist the original to a known, content-hash-deduped location so it
@@ -136,8 +116,7 @@ export async function captionImageBlocks(
             : `[Image: auto-description failed (text-only model)]`,
       };
     } else {
-      // No vision profile configured at all — fail-open placeholder.
-      counts.droppedNoVision++;
+      // No vision profile configured at all: fail-open placeholder.
       blocks[i] = {
         type: "text",
         text: `[Image: no vision-capable model configured to describe it]`,
@@ -145,7 +124,7 @@ export async function captionImageBlocks(
     }
   }
 
-  return counts;
+  return replaced;
 }
 
 /**
@@ -157,22 +136,19 @@ async function captionToolResultMedia(
   conversationId: string,
   visionProfileKey: string | null,
   logger: PluginLogger,
-): Promise<ImageSubstitutionCounts> {
-  const counts: ImageSubstitutionCounts = { replaced: 0, droppedNoVision: 0 };
+): Promise<number> {
+  let replaced = 0;
   for (const block of message.content) {
     if (block.type === "tool_result" && block.contentBlocks != null) {
-      addCounts(
-        counts,
-        await captionImageBlocks(
-          block.contentBlocks,
-          conversationId,
-          visionProfileKey,
-          logger,
-        ),
+      replaced += await captionImageBlocks(
+        block.contentBlocks,
+        conversationId,
+        visionProfileKey,
+        logger,
       );
     }
   }
-  return counts;
+  return replaced;
 }
 
 /**
@@ -224,30 +200,24 @@ export async function captionImagesInMessages(
   conversationId: string,
   visionProfileKey: string | null,
   logger: PluginLogger,
-): Promise<ImageSubstitutionCounts> {
-  const counts: ImageSubstitutionCounts = { replaced: 0, droppedNoVision: 0 };
+): Promise<number> {
+  let replaced = 0;
   for (const message of messages) {
-    addCounts(
-      counts,
-      await captionImageBlocks(
-        message.content,
-        conversationId,
-        visionProfileKey,
-        logger,
-      ),
+    replaced += await captionImageBlocks(
+      message.content,
+      conversationId,
+      visionProfileKey,
+      logger,
     );
-    addCounts(
-      counts,
-      await captionToolResultMedia(
-        message,
-        conversationId,
-        visionProfileKey,
-        logger,
-      ),
+    replaced += await captionToolResultMedia(
+      message,
+      conversationId,
+      visionProfileKey,
+      logger,
     );
   }
   flattenTextOnlyBlocks(messages);
-  return counts;
+  return replaced;
 }
 
 /**
@@ -266,31 +236,25 @@ export async function captionOutboundImagesInMessages(
   conversationId: string,
   visionProfileKey: string | null,
   logger: PluginLogger,
-): Promise<ImageSubstitutionCounts> {
+): Promise<number> {
   const currentTurnIdx = lastToolResultUserMessageIndex(messages);
-  const counts: ImageSubstitutionCounts = { replaced: 0, droppedNoVision: 0 };
+  let replaced = 0;
   for (let i = 0; i < messages.length; i++) {
-    addCounts(
-      counts,
-      await captionImageBlocks(
-        messages[i].content,
+    replaced += await captionImageBlocks(
+      messages[i].content,
+      conversationId,
+      visionProfileKey,
+      logger,
+    );
+    if (i === currentTurnIdx) {
+      replaced += await captionToolResultMedia(
+        messages[i],
         conversationId,
         visionProfileKey,
         logger,
-      ),
-    );
-    if (i === currentTurnIdx) {
-      addCounts(
-        counts,
-        await captionToolResultMedia(
-          messages[i],
-          conversationId,
-          visionProfileKey,
-          logger,
-        ),
       );
     }
   }
   flattenTextOnlyBlocks(messages);
-  return counts;
+  return replaced;
 }

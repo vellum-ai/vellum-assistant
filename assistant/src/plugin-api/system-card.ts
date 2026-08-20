@@ -11,17 +11,20 @@ import { persistSystemCard as persistHostSystemCard } from "../runtime/routes/ca
 
 /**
  * Persist a system card in a conversation's transcript and announce it to
- * connected clients. Returns the persisted message id.
+ * connected clients through the sync invalidation that drives a refetch.
+ * Returns the persisted message id.
  *
- * The card is not appended to the conversation's in-memory working history, so
- * posting one mid-turn cannot leave a trailing assistant message for the
- * turn's next provider call to continue from.
+ * A plugin card is non-terminal: it never emits `message_complete`, so a card
+ * written from a hook that runs inside a turn leaves that turn's streaming and
+ * processing state untouched. It is also not appended to the conversation's
+ * in-memory working history, so it cannot leave a trailing assistant message
+ * for the turn's next provider call to continue from.
  */
 export async function persistSystemCard(opts: {
   conversationId: string;
   text: string;
   metadata: Record<string, unknown>;
 }): Promise<string> {
-  const { id } = await persistHostSystemCard(opts);
+  const { id } = await persistHostSystemCard({ ...opts, endsTurn: false });
   return id;
 }

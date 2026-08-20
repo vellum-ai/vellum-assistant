@@ -33,31 +33,30 @@
 
 import {
   type HookFunction,
-  type Message,
   persistSystemCard,
   type UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
 import {
-  captionImageBlocks,
   captionImagesInMessages,
   needsImageFallback,
 } from "../src/caption-blocks.js";
 import { findVisionProfile } from "../src/vision-caption.js";
 
 /**
- * The user message this turn submitted: the tail of the pre-hook history
- * snapshot, still the same object inside the working history (earlier hooks
- * inject runtime-context blocks into it rather than replacing it). Returns
- * `null` when the working history no longer holds that object, so a caption
- * only ever lands on blocks the provider call will actually carry.
+ * How many images the user attached to the message this turn submitted, read
+ * off the pre-hook history snapshot: its tail is the submitted row as the user
+ * sent it, before any earlier hook's injected blocks (memory context, runtime
+ * context) reach the working history. Counting there keeps the tally to the
+ * user's own attachments and needs no object identity, which injection breaks
+ * by rebuilding the tail message around its added blocks.
  */
-function submittedUserMessage(ctx: UserPromptSubmitContext): Message | null {
+function submittedImageCount(ctx: UserPromptSubmitContext): number {
   const submitted = ctx.originalMessages[ctx.originalMessages.length - 1];
   if (submitted == null || submitted.role !== "user") {
-    return null;
+    return 0;
   }
-  return ctx.latestMessages.includes(submitted) ? submitted : null;
+  return submitted.content.filter((block) => block.type === "image").length;
 }
 
 /** Transcript copy for images this turn could not send to the model. */
@@ -76,28 +75,20 @@ const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   // Find a vision-capable profile for captioning.
   const visionProfileKey = findVisionProfile();
 
-  // Substitute this turn's own attachments first, so their tally is the one
-  // the user is told about; the sweep below then finds them already captioned.
-  const submitted = submittedUserMessage(ctx);
-  const submittedCounts =
-    submitted != null
-      ? await captionImageBlocks(
-          submitted.content,
-          ctx.conversationId,
-          visionProfileKey,
-          ctx.logger,
-        )
-      : { replaced: 0, droppedNoVision: 0 };
+  // Images the user attached to this turn, tallied before the sweep replaces
+  // them: with no vision profile every one of them is dropped, so this is the
+  // count the card reports.
+  const droppedFromSubmission =
+    visionProfileKey == null ? submittedImageCount(ctx) : 0;
 
   // Scan all messages for image blocks and replace them with captions.
-  const counts = await captionImagesInMessages(
+  const imageCount = await captionImagesInMessages(
     ctx.latestMessages,
     ctx.conversationId,
     visionProfileKey,
     ctx.logger,
   );
 
-  const imageCount = counts.replaced + submittedCounts.replaced;
   if (imageCount > 0) {
     ctx.logger.info(
       { plugin: "image-fallback", imageCount },
@@ -105,14 +96,14 @@ const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
     );
   }
 
-  if (submittedCounts.droppedNoVision > 0) {
+  if (droppedFromSubmission > 0) {
     try {
       await persistSystemCard({
         conversationId: ctx.conversationId,
-        text: droppedImageCardText(submittedCounts.droppedNoVision),
+        text: droppedImageCardText(droppedFromSubmission),
         metadata: {
           plugin: "image-fallback",
-          droppedImageCount: submittedCounts.droppedNoVision,
+          droppedImageCount: droppedFromSubmission,
         },
       });
     } catch (err) {

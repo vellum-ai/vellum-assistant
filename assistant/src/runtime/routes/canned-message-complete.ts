@@ -3,8 +3,8 @@ import type { AssistantEvent } from "../../api/index.js";
 import {
   addMessage,
   recordConversationPersistedSeq,
-  SYSTEM_CARD_MESSAGE_KIND,
 } from "../../persistence/conversation-crud.js";
+import { SYSTEM_CARD_MESSAGE_KIND } from "../../persistence/conversation-types.js";
 import type { Message } from "../../providers/types.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { getCurrentSeq } from "../assistant-stream-state.js";
@@ -51,16 +51,21 @@ export function emitCannedMessageComplete(
  * continue from. Callers whose card ends the turn use
  * {@link persistCannedAssistantCard}, which also seats it in the live history.
  *
- * Cards are announced with `message_complete` (persisted assistant id), the
- * persisted-seq anchor advance (so a stale /messages reseed cannot erase the
- * card), and the messages-changed sync invalidation that drives every client
- * to refetch. That invalidation carries no origin-client id: the card body
- * streams nowhere (`message_complete` is bodyless, no `assistant_text_delta`),
- * so the initiating client materializes it only by refetching, and origin
- * self-echo suppression (meant for content the origin already rendered) would
- * otherwise hide the card from the initiator until a reload. A delta is
- * deliberately omitted; it would stream the card into the tail assistant
- * bubble as if the persona were speaking.
+ * Every card advances the persisted-seq anchor (so a stale /messages reseed
+ * cannot erase it) and publishes the messages-changed sync invalidation that
+ * drives every client to refetch. That invalidation carries no origin-client
+ * id: the card body streams nowhere (no `assistant_text_delta`), so the
+ * initiating client materializes it only by refetching, and origin self-echo
+ * suppression (meant for content the origin already rendered) would otherwise
+ * hide the card from the initiator until a reload. A delta is deliberately
+ * omitted; it would stream the card into the tail assistant bubble as if the
+ * persona were speaking.
+ *
+ * `endsTurn` decides whether the card also emits `message_complete`. Clients
+ * treat that event as terminal (it clears the processing state and closes the
+ * turn), so only a card that *is* the reply carries it. A card posted while a
+ * turn is still running (`endsTurn: false`) rides the sync invalidation alone,
+ * leaving the in-flight turn's streaming state intact.
  *
  * Returns the persisted card's id and the in-memory message it persisted.
  */
@@ -68,8 +73,9 @@ export async function persistSystemCard(opts: {
   conversationId: string;
   text: string;
   metadata: Record<string, unknown>;
+  endsTurn: boolean;
 }): Promise<{ id: string; message: Message }> {
-  const { conversationId, text, metadata } = opts;
+  const { conversationId, text, metadata, endsTurn } = opts;
   const assistantMsg = createAssistantMessage(text);
   const persistedAssistant = await addMessage(
     conversationId,
@@ -77,11 +83,13 @@ export async function persistSystemCard(opts: {
     JSON.stringify(assistantMsg.content),
     { metadata: { ...metadata, messageKind: SYSTEM_CARD_MESSAGE_KIND } },
   );
-  emitCannedMessageComplete(
-    broadcastMessage,
-    conversationId,
-    persistedAssistant.id,
-  );
+  if (endsTurn) {
+    emitCannedMessageComplete(
+      broadcastMessage,
+      conversationId,
+      persistedAssistant.id,
+    );
+  }
   recordConversationPersistedSeq(conversationId, getCurrentSeq());
   publishConversationMessagesChanged(conversationId);
   return { id: persistedAssistant.id, message: assistantMsg };
@@ -106,7 +114,12 @@ export async function persistCannedAssistantCard(opts: {
   metadata: Record<string, unknown>;
 }): Promise<string> {
   const { conversation, conversationId, text, metadata } = opts;
-  const card = await persistSystemCard({ conversationId, text, metadata });
+  const card = await persistSystemCard({
+    conversationId,
+    text,
+    metadata,
+    endsTurn: true,
+  });
   conversation.getMessages().push(card.message);
   return card.id;
 }

@@ -504,6 +504,44 @@ describe("image-fallback dropped-image notice", () => {
     expect(persistedCards[0].metadata.droppedImageCount).toBe(2);
   });
 
+  test("posts a card when an injector rebuilt the submitted message", async () => {
+    /**
+     * Tests that the notice survives an earlier hook replacing the tail
+     * message object, which memory and runtime-context injection do when they
+     * append their blocks to the submitted message.
+     */
+
+    // GIVEN no vision-capable profile
+    visionProfiles = new Set<string>();
+
+    // AND a submitted message carrying an image
+    const submitted: Message = {
+      role: "user",
+      content: [imageBlock("dropped")],
+    };
+
+    // AND a working history whose tail is a rebuilt copy of it, carrying an
+    // injected context block, rather than the submitted object itself
+    const injected: Message = {
+      role: "user",
+      content: [
+        ...submitted.content,
+        { type: "text", text: "<runtime_context />" },
+      ],
+    };
+    const ctx = makeCtx({
+      latestMessages: [injected],
+      originalMessages: Object.freeze([submitted]),
+    });
+
+    // WHEN the turn starts
+    await userPromptSubmit(ctx);
+
+    // THEN the user is still told the image was not sent
+    expect(persistedCards).toHaveLength(1);
+    expect(persistedCards[0].metadata.droppedImageCount).toBe(1);
+  });
+
   test("posts no card when a vision profile describes the image", async () => {
     /**
      * Tests that a captioned image is not reported as dropped: the model does
