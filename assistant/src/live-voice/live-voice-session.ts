@@ -525,7 +525,9 @@ interface TtsSegmentJob {
   readonly language: string | undefined;
   // The provider stream was started (the job holds an open-job slot).
   started: boolean;
-  // Emission finished; the slot is free for the next queued segment.
+  // The provider is done with this job, either because emission finished or
+  // because a retraction's abort tore the stream down. The synthesis slot is
+  // free for the next queued segment.
   settled: boolean;
   // The job owns the emission slot: provider chunks forward to the client
   // live instead of buffering.
@@ -534,11 +536,14 @@ interface TtsSegmentJob {
   // Dropped with the turn on cancellation.
   bufferedChunks: LiveVoiceTtsAudioChunk[];
   // Enqueued for synthesis but deliberately kept off the emission chain until
-  // the caller promotes it. A held job has forwarded no audio, so it is
-  // silently cancellable and must never count as audible activity.
+  // the caller promotes it. A held job has forwarded no audio, so it is still
+  // silently cancellable, but it does count as pending audio: promotion is all
+  // that stands between it and the caller's ears.
   held: boolean;
   // Retracted before promotion: dropped from the emission chain with its
-  // provider stream aborted. Only ever set while `emitting` is false.
+  // provider stream aborted. Only ever set while `emitting` is false. It goes
+  // true the instant the retraction lands, ahead of `settled`, because a job
+  // stops being audible before its aborted stream stops being open.
   cancelled: boolean;
   // Per-job synthesis abort, so retracting one segment leaves the turn's other
   // segments alone (the turn controller aborts all of them).
@@ -5341,14 +5346,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   // No assistant audio is pending or (estimatedly) still playing: nothing
-  // buffered toward the next sentence, every queued TTS segment fully
-  // emitted, and the client-side playback-tail estimate expired. A held
-  // segment is synthesized but unspoken and may never be promoted, so it is
-  // silence as far as the user is concerned.
+  // buffered toward the next sentence, no queued TTS segment that can still be
+  // heard, and the client-side playback-tail estimate expired.
+  //
+  // A job sits on two independent axes. "Does it still occupy a provider
+  // synthesis slot" is `started && !settled`, and that is pumpTtsSynthesis's
+  // question, not this one. This is the other axis: "can it still produce
+  // audio the caller hears". A cancelled job never can, whatever its aborted
+  // stream is still doing, so it must not gate the idle tick: a provider that
+  // hangs on abort would otherwise mute narration for the rest of the turn. A
+  // held job is the opposite. It is heard the moment it is promoted, so a turn
+  // sitting on held segments is quiet rather than idle, and the tick must stay
+  // silent instead of talking over the answer that is about to land.
   private turnAudioIdle(turn: ActiveAssistantTurn): boolean {
     return (
       turn.ttsBuffer.length === 0 &&
-      turn.ttsJobs.every((job) => job.settled || job.held) &&
+      turn.ttsJobs.every((job) => job.settled || job.cancelled) &&
       Date.now() >= this.assistantPlaybackTailUntilMs
     );
   }
@@ -5572,9 +5585,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
-   * Move held segments onto the emission chain, in enqueue order. Their audio
-   * is already synthesized and buffered, so promotion is a buffer flush rather
-   * than a TTS round trip.
+   * Move held segments onto the emission chain. Their audio is already
+   * synthesized and buffered, so promotion is a buffer flush rather than a TTS
+   * round trip.
+   *
+   * Ordering contract: promoted jobs join the chain at promotion time, ordered
+   * among themselves by enqueue order, and land behind anything already queued.
+   * A held job deliberately does not reserve a position when it is enqueued.
+   * A reserved position would stall every later job behind a segment that may
+   * never be promoted at all, including the short "still working" tone whose
+   * entire purpose is to fill that hold, so the queue would go silent for
+   * exactly as long as the hold lasts. Keeping held jobs off the chain is what
+   * makes a hold quiet rather than blocking.
    */
   private promoteHeldTtsSegments(
     token: symbol,
@@ -5586,7 +5608,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     // `ttsJobs` is in enqueue order, so chaining in filter order is what keeps
-    // a promoted block ahead of whatever is enqueued after it.
+    // the promoted block internally ordered.
     const promoted = activeTurn.ttsJobs.filter(
       (job) => job.held && !job.cancelled && select(job),
     );
@@ -5609,10 +5631,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * A job that is already `emitting` is left alone: spoken audio cannot be
    * un-said and cutting a segment mid-phrase sounds broken. In this design no
    * held job is ever emitting, so that guard is belt-and-braces.
+   *
+   * `discardPendingTail` declares that the caller also owns whatever sits in
+   * `ttsBuffer` below the next segment boundary, so a caller retracting a whole
+   * block sets it and a selective retraction does not. Ownership is stated
+   * rather than inferred: the buffer is turn-wide, the selector only sees jobs
+   * that have already formed, and a selective retraction has no way to tell
+   * whose text the un-segmented tail is. Guessing would silently delete speech
+   * the retraction never covered.
    */
   private retractHeldTtsSegments(
     token: symbol,
     select: (job: TtsSegmentJob) => boolean,
+    options: { discardPendingTail?: boolean } = {},
   ): number {
     const activeTurn = this.activeAssistantTurn;
     if (activeTurn?.token !== token) {
@@ -5628,19 +5659,39 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         createAbortReason("voice_session_aborted", "live-voice-tts-retract"),
       );
       job.bufferedChunks.length = 0;
-      // A retracted job never reaches emitTtsJob, so its synthesis slot has to
-      // be released here or it would stand open for the rest of the turn.
-      job.settled = true;
+      if (job.synthesis === null) {
+        // Never handed to the provider, so it occupies no synthesis slot.
+        job.settled = true;
+        continue;
+      }
+      // A retracted job never reaches emitTtsJob, so nothing else will settle
+      // it. The slot stays taken until the provider stream actually tears
+      // down: a provider that does not honour the abort promptly would
+      // otherwise have the next job start alongside it and put more than
+      // TTS_MAX_OPEN_SYNTHESIS_JOBS streams open at once.
+      void job.synthesis.then(
+        () => this.settleRetractedTtsJob(token, job),
+        () => this.settleRetractedTtsJob(token, job),
+      );
     }
 
-    // Drop the retracted block's un-segmented tail too, whether or not any
-    // job had formed from it yet: text still short of a segment boundary
-    // belongs to the block being retracted, and a half-finished markdown or
-    // <think> construct left in the filter would bleed into the next block.
-    activeTurn.ttsBuffer = "";
-    activeTurn.ttsReasoningFilter.flush();
+    if (options.discardPendingTail === true) {
+      // The block owns its un-segmented tail whether or not a job formed from
+      // it yet: text short of a segment boundary is still the block's, and a
+      // half-finished markdown or <think> construct left in the filter would
+      // bleed into the next block.
+      activeTurn.ttsBuffer = "";
+      activeTurn.ttsReasoningFilter.flush();
+    }
     this.pumpTtsSynthesis(token);
     return retracted.length;
+  }
+
+  // Releases a retracted job's synthesis slot once its aborted provider stream
+  // has torn down, and lets the next queued segment take it.
+  private settleRetractedTtsJob(token: symbol, job: TtsSegmentJob): void {
+    job.settled = true;
+    this.pumpTtsSynthesis(token);
   }
 
   private completeTtsForTurn(token: symbol): void {
@@ -5820,7 +5871,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // answer's onset; later segments pipeline during that first segment's
       // playback anyway, so synthesizing further ahead only risks paying for
       // audio a tool call is about to cancel. A held job stays open until it
-      // is promoted or retracted, so the cap is a standing one.
+      // is promoted, or until a retraction's abort tears its stream down, so
+      // the cap is a standing one.
       const heldSlotTaken = activeTurn.ttsJobs.some(
         (candidate) =>
           candidate.held && candidate.started && !candidate.settled,
