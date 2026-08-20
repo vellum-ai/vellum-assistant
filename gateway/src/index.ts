@@ -183,7 +183,6 @@ import {
 import { downloadSlackFile } from "./slack/download.js";
 import { slackBotContactNote } from "./slack/actor.js";
 import { DiscordGatewayClient } from "./discord/gateway-socket.js";
-import { downloadDiscordFile } from "./discord/download.js";
 import { createDiscordInboundEventHandler } from "./discord/forward.js";
 import { readDiscordAllowedChannelIds } from "./discord/allowed-channels.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
@@ -2592,10 +2591,6 @@ async function main() {
         log,
         notifyRecordActivity,
         forwardQueue: discordForwardQueue,
-        downloadDiscordFile,
-        uploadAttachment,
-        handleInbound,
-        upsertContactChannel,
       }),
     );
 

@@ -62,10 +62,12 @@ export async function downloadWhatsAppFile(
   }
 
   const response = await downloadWhatsAppMediaBytes(meta.url, caches);
-  // Prefer the MIME type from Meta metadata, then detected (trusted), then hint (untrusted), then Content-Type header
+  // Meta metadata is authoritative; detected bytes are trusted; the caller
+  // hint is untrusted and follows byte detection.
   return finalizeDownloadedAttachment(await response.arrayBuffer(), {
     attachmentId: mediaId,
-    mimeTypeCandidates: [meta.mime_type, hint?.mimeType],
+    mimeTypeCandidatesBeforeDetection: [meta.mime_type],
+    mimeTypeCandidatesAfterDetection: [hint?.mimeType],
     responseContentType: response.headers.get("Content-Type"),
     filename: hint?.fileName,
     fallbackFilename: (mimeType) => inferFilename(mediaId, mimeType),

@@ -27,9 +27,9 @@ export async function downloadDiscordFile(
 
   return finalizeDownloadedAttachment(await response.arrayBuffer(), {
     attachmentId: attachment.id,
-    mimeTypeCandidates: [attachment.content_type],
+    mimeTypeCandidatesBeforeDetection: [attachment.content_type],
     responseContentType: response.headers.get("Content-Type"),
     filename: attachment.filename,
-    fallbackFilename: `discord_file_${attachment.id}`,
+    fallbackFilename: () => `discord_file_${attachment.id}`,
   });
 }

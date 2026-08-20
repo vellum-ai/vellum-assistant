@@ -8,10 +8,11 @@ import { validateDownloadedContent } from "../download-validation.js";
 
 type DownloadFinalizationOptions = {
   attachmentId: string;
-  mimeTypeCandidates: readonly (string | undefined)[];
+  mimeTypeCandidatesBeforeDetection: readonly (string | undefined)[];
+  mimeTypeCandidatesAfterDetection?: readonly (string | undefined)[];
   responseContentType?: string | null;
   filename?: string;
-  fallbackFilename: string | ((mimeType: string) => string);
+  fallbackFilename: (mimeType: string) => string;
 };
 
 function responseMimeType(
@@ -28,18 +29,15 @@ export async function finalizeDownloadedAttachment(
   const bytes = new Uint8Array(buffer);
   const detected = await fileTypeFromBuffer(bytes);
   const mimeType =
-    options.mimeTypeCandidates.find((candidate) => candidate) ||
+    options.mimeTypeCandidatesBeforeDetection.find((candidate) => candidate) ||
     detected?.mime ||
+    options.mimeTypeCandidatesAfterDetection?.find((candidate) => candidate) ||
     responseMimeType(options.responseContentType) ||
     "application/octet-stream";
 
   await validateDownloadedContent(bytes, mimeType, options.attachmentId);
 
-  const filename =
-    options.filename ||
-    (typeof options.fallbackFilename === "function"
-      ? options.fallbackFilename(mimeType)
-      : options.fallbackFilename);
+  const filename = options.filename || options.fallbackFilename(mimeType);
 
   return {
     filename,

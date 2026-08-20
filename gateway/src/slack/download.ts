@@ -50,9 +50,9 @@ export async function downloadSlackFile(
 
   return finalizeDownloadedAttachment(await response.arrayBuffer(), {
     attachmentId: file.id,
-    mimeTypeCandidates: [file.mimetype],
+    mimeTypeCandidatesBeforeDetection: [file.mimetype],
     responseContentType: response.headers.get("Content-Type"),
     filename: file.name,
-    fallbackFilename: `slack_file_${file.id}`,
+    fallbackFilename: () => `slack_file_${file.id}`,
   });
 }

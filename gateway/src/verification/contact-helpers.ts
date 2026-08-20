@@ -877,7 +877,7 @@ export async function upsertVerifiedContactChannel(params: {
  * DB (ACL source of truth). Skips silently when the assistant IPC socket is
  * unavailable (test environments).
  */
-export type UpsertContactChannelParams = {
+export async function upsertContactChannel(params: {
   sourceChannel: string;
   externalUserId: string;
   externalChatId?: string;
@@ -887,11 +887,7 @@ export type UpsertContactChannelParams = {
   contactType?: "human" | "assistant";
   /** Notes seeded onto a newly created contact (e.g. bot/app provenance). */
   notes?: string;
-};
-
-export async function upsertContactChannel(
-  params: UpsertContactChannelParams,
-): Promise<void> {
+}): Promise<void> {
   const { path: socketPath } = resolveIpcSocketPath("assistant");
   if (!existsSync(socketPath)) return;
 

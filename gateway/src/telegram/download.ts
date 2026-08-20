@@ -57,9 +57,9 @@ export async function downloadTelegramFile(
 
   return finalizeDownloadedAttachment(await response.arrayBuffer(), {
     attachmentId: fileId,
-    mimeTypeCandidates: [hint?.mimeType],
+    mimeTypeCandidatesBeforeDetection: [hint?.mimeType],
     responseContentType: response.headers.get("Content-Type"),
     filename: hint?.fileName || file.file_path.split("/").pop(),
-    fallbackFilename: `file_${fileId}`,
+    fallbackFilename: () => `file_${fileId}`,
   });
 }

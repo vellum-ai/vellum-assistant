@@ -4,55 +4,33 @@
 import type { Logger } from "pino";
 
 import type { GatewayConfig } from "../config.js";
-import type { DiscordInboundEvent } from "../channels/inbound-event.js";
 import {
   appendFailedAttachmentNotice,
   ingestAttachments,
 } from "../attachments/ingest.js";
-import type { DownloadedAttachment } from "../attachments/ingest.js";
 import type { ConversationTaskQueue } from "../channels/conversation-queue.js";
 import type { DiscordGatewayEventHandler } from "./gateway-socket.js";
-import type { DiscordAttachmentReference } from "./attachments.js";
-import type {
-  HandleInboundOptions,
-  InboundResult,
-} from "../handlers/handle-inbound.js";
-import type { UpsertContactChannelParams } from "../verification/contact-helpers.js";
+import { downloadDiscordFile } from "./download.js";
+import { uploadAttachment } from "../runtime/client.js";
+import { handleInbound } from "../handlers/handle-inbound.js";
+import { upsertContactChannel } from "../verification/contact-helpers.js";
 
 export function createDiscordInboundEventHandler(options: {
   config: GatewayConfig;
   log: Logger;
   notifyRecordActivity: () => void;
   forwardQueue: ConversationTaskQueue;
-  downloadDiscordFile: (
-    attachment: DiscordAttachmentReference,
-  ) => Promise<DownloadedAttachment>;
-  uploadAttachment: (
-    config: GatewayConfig,
-    input: DownloadedAttachment,
-    options?: { skipCircuitBreaker?: boolean },
-  ) => Promise<{ id: string }>;
-  handleInbound: (
-    config: GatewayConfig,
-    event: DiscordInboundEvent,
-    options?: HandleInboundOptions,
-  ) => Promise<InboundResult>;
-  upsertContactChannel: (params: UpsertContactChannelParams) => Promise<void>;
 }): DiscordGatewayEventHandler {
-  const {
-    config,
-    log,
-    notifyRecordActivity,
-    forwardQueue,
-    downloadDiscordFile,
-    uploadAttachment,
-    handleInbound,
-    upsertContactChannel,
-  } = options;
+  const { config, log, notifyRecordActivity, forwardQueue } = options;
 
   return (event, attachmentRefs) => {
+    // Reset the platform idle-sleep timer so inbound Discord activity keeps
+    // the assistant awake like any other channel.
     notifyRecordActivity();
 
+    // A guild channel is a room the actor is standing in, not their private
+    // delivery address. Recording it as externalChatId would post private
+    // notices in public, so only DMs carry that field.
     void upsertContactChannel({
       sourceChannel: "discord",
       externalUserId: event.actor.actorExternalId,
@@ -63,6 +41,9 @@ export function createDiscordInboundEventHandler(options: {
       username: event.actor.username,
     }).catch(() => {});
 
+    // The event's conversation address is the parent channel for threaded
+    // messages, and a Discord thread is itself a channel. Include the thread
+    // snowflake so replies stay inside the thread.
     const threadId = event.source.threadId;
     const replyCallbackUrl = threadId
       ? `${config.gatewayInternalBaseUrl}/deliver/discord?${new URLSearchParams({ threadId })}`

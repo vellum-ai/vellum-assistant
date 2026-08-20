@@ -277,6 +277,43 @@ describe("downloadWhatsAppFile", () => {
     expect(result.filename).toBe("1234567890.png");
   });
 
+  test("prefers detected MIME over an untrusted hint", async () => {
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+
+      if (url.includes("graph.facebook.com")) {
+        return new Response(
+          JSON.stringify({
+            url: MEDIA_URL,
+            mime_type: "",
+            sha256: "abc",
+            file_size: PNG_BYTES.length,
+            id: MEDIA_ID,
+          }),
+        );
+      }
+
+      return new Response(PNG_BYTES, {
+        headers: { "Content-Type": "application/octet-stream" },
+      });
+    });
+
+    const result = await downloadWhatsAppFile(
+      makeConfig(),
+      MEDIA_ID,
+      { mimeType: "application/pdf" },
+      makeCaches(),
+    );
+
+    expect(result.mimeType).toBe("image/png");
+    expect(result.filename).toBe("1234567890.png");
+  });
+
   test("falls back to application/octet-stream for unknown MIME", async () => {
     fetchMock = mock(async (input: string | URL | Request) => {
       const url =
