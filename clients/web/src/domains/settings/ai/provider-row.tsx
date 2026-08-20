@@ -7,6 +7,7 @@ import { Tag } from "@vellumai/design-library/components/tag";
 
 import { providerConnectionDisplayName } from "@/domains/settings/ai/provider-editor-constants";
 import {
+  isDefaultConventionTarget,
   isDefaultProviderId,
   providerRowMeta,
 } from "@/domains/settings/ai/provider-row-meta";
@@ -49,7 +50,12 @@ export function ProviderRow({
   const { t } = useTranslation("settings");
   const isManaged = connection.isManaged ?? false;
   const displayName = providerConnectionDisplayName(connection);
-  const eligibleForDefault = isDefaultProviderId(connection.provider);
+  // Convention-target only: the set-default PUT carries just the provider,
+  // so on any other row the daemon would pick the convention row while the
+  // UI reported success against the clicked one.
+  const eligibleForDefault =
+    isDefaultProviderId(connection.provider) &&
+    isDefaultConventionTarget(connection);
   const meta = providerRowMeta(connection);
 
   const showSetDefault =
@@ -76,10 +82,7 @@ export function ProviderRow({
       trailing={
         <>
           {isManaged ? (
-            <Tag
-              tone="neutral"
-              title={t("providerRow.managedTagTitle")}
-            >
+            <Tag tone="neutral" title={t("providerRow.managedTagTitle")}>
               {t("providerRow.managedTag")}
             </Tag>
           ) : null}
@@ -117,7 +120,10 @@ export function ProviderRow({
                   </Menu.Item>
                 ) : null}
                 {showSetDefault ? (
-                  <Menu.Item disabled={isSettingDefault} onSelect={onSetDefault}>
+                  <Menu.Item
+                    disabled={isSettingDefault}
+                    onSelect={onSetDefault}
+                  >
                     {t("providerRow.setAsDefault")}
                   </Menu.Item>
                 ) : null}

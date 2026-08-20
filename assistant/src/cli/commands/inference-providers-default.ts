@@ -13,7 +13,6 @@ import { writeCliError, writeLine } from "../lib/cli-output.js";
 
 interface DefaultProviderStatus {
   provider: string | null;
-  connectionName?: string;
   resolvedConnectionName: string | null;
   availability: { status: string; message?: string };
 }
@@ -39,10 +38,7 @@ function printStatus(status: DefaultProviderStatus, json?: boolean): void {
 
 export function attachDefaultProviderSubcommand(providers: Command): void {
   subcommand(providers, "default").action(
-    async (
-      name: string | undefined,
-      opts: { connection?: string; json?: boolean },
-    ) => {
+    async (name: string | undefined, opts: { json?: boolean }) => {
       if (name === undefined) {
         const ipcResult = await cliIpcCall<DefaultProviderStatus>(
           "llm_default_provider_get",
@@ -56,13 +52,9 @@ export function attachDefaultProviderSubcommand(providers: Command): void {
         return;
       }
 
-      const body: Record<string, unknown> = { provider: name };
-      if (opts.connection !== undefined) {
-        body.connectionName = opts.connection;
-      }
       const ipcResult = await cliIpcCall<DefaultProviderStatus>(
         "llm_default_provider_put",
-        { body },
+        { body: { provider: name } },
       );
       if (!ipcResult.ok) {
         writeCliError(ipcResult.error ?? "Unknown error", opts.json);

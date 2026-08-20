@@ -317,10 +317,7 @@ describe("schema validation", () => {
 });
 
 describe("resolveDefaultProfileForProvider", () => {
-  const dp = (
-    provider: DefaultProviderConfig["provider"],
-    connectionName?: string,
-  ) => ({ provider, ...(connectionName ? { connectionName } : {}) });
+  const dp = (provider: DefaultProviderConfig["provider"]) => ({ provider });
 
   test("every matrix column materializes every default profile key", () => {
     for (const provider of DEFAULT_PROFILE_PROVIDERS) {
@@ -435,16 +432,6 @@ describe("resolveDefaultProfileForProvider", () => {
     expect(entry?.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
     );
-  });
-
-  test("an explicit connectionName wins over the convention", () => {
-    const entry = resolveDefaultProfileForProvider(
-      undefined,
-      "balanced",
-      dp("openai", "work-openai"),
-    );
-    expect(entry?.provider).toBe("openai");
-    expect(entry?.provider_connection).toBe("work-openai");
   });
 
   test("a user-source workspace entry shadows the provider-resolved default", () => {

@@ -38,8 +38,7 @@ export interface ChatRouteEvidence {
   defaultProviderAvailability?: DefaultProviderAvailabilityStatus;
   /**
    * The connection the default-provider route conventionally resolves to
-   * when `connectionName` is unset (`resolvedConnectionName` from the same
-   * status response).
+   * (`resolvedConnectionName` from the same status response).
    */
   defaultProviderResolvedConnection?: string | null;
   /** The active conversation's `inferenceProfile` pin, when the caller has one. */
@@ -310,11 +309,13 @@ export function defaultChatRouteBurnsManagedCredits(
 }
 
 /**
- * The billing route of the `llm.defaultProvider` anchor: the explicit
- * `connectionName` when set, else the conventionally resolved connection the
- * daemon stamps onto default bodies (`resolvedConnectionName` from the
- * default-provider status), so an unset name doesn't misread as unbound
- * dispatch. Null when no default provider is configured.
+ * The billing route of the `llm.defaultProvider` anchor: the conventionally
+ * resolved connection the daemon stamps onto default bodies
+ * (`resolvedConnectionName` from the default-provider status), so an unset
+ * name doesn't misread as unbound dispatch. Old daemons may still emit an
+ * explicit `connectionName` pin in this evidence; it is ignored — their pins
+ * were canonical-or-conventional anyway. Null when no default provider is
+ * configured.
  */
 function defaultProviderRouteEntry(
   evidence: ChatRouteEvidence,
@@ -326,9 +327,7 @@ function defaultProviderRouteEntry(
   return {
     provider: defaultProvider.provider,
     provider_connection:
-      defaultProvider.connectionName ??
-      evidence.defaultProviderResolvedConnection ??
-      undefined,
+      evidence.defaultProviderResolvedConnection ?? undefined,
   };
 }
 

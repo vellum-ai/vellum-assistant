@@ -18,15 +18,12 @@ export function getDefaultProviderFromConfig(
 }
 
 /**
- * Pure by design — no connection-existence check. A dangling name (explicit
- * or conventional) is allowed; see `DefaultProviderSchema`.
+ * Pure by design — no connection-existence check. A dangling conventional
+ * name is allowed; see `DefaultProviderSchema`.
  */
 export function resolveDefaultConnectionName(
   dp: DefaultProviderConfig,
 ): string {
-  if (dp.connectionName) {
-    return dp.connectionName;
-  }
   if (dp.provider === "vellum") {
     return VELLUM_MANAGED_CONNECTION_NAME;
   }

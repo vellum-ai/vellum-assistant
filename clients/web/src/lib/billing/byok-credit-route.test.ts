@@ -612,12 +612,10 @@ describe("stale managed default stubs", () => {
         llm: {
           activeProfile: "balanced",
           profiles: { balanced: STALE_BALANCED },
-          defaultProvider: {
-            provider: "anthropic",
-            connectionName: "my-anthropic",
-          },
+          defaultProvider: { provider: "anthropic" },
         },
         connections: [BYOK_ANTHROPIC],
+        defaultProviderResolvedConnection: "my-anthropic",
       }),
     ).toBe(false);
   });
@@ -666,13 +664,11 @@ describe("anchor fallbacks", () => {
       classify({
         llm: {
           default: { provider: "vellum", model: "claude" },
-          defaultProvider: {
-            provider: "anthropic",
-            connectionName: "my-anthropic",
-          },
+          defaultProvider: { provider: "anthropic" },
         },
         connections: [BYOK_ANTHROPIC],
         defaultProviderAvailability: "ok",
+        defaultProviderResolvedConnection: "my-anthropic",
       }),
     ).toBe(false);
     expect(
@@ -680,7 +676,7 @@ describe("anchor fallbacks", () => {
     ).toBeNull();
   });
 
-  test("an unset connectionName binds through the resolved conventional connection", () => {
+  test("the anchor binds through the resolved conventional connection", () => {
     // The daemon stamps `resolveDefaultConnectionName` onto default bodies;
     // without it the anchor would misread as unbound and a coexisting
     // platform-auth row for the provider would classify the route managed.
@@ -696,16 +692,14 @@ describe("anchor fallbacks", () => {
 
   test("defaultProvider proves BYOK only with an ok availability", () => {
     const llm: LlmConfig = {
-      defaultProvider: {
-        provider: "anthropic",
-        connectionName: "my-anthropic",
-      },
+      defaultProvider: { provider: "anthropic" },
     };
     expect(
       classify({
         llm,
         connections: [BYOK_ANTHROPIC],
         defaultProviderAvailability: "ok",
+        defaultProviderResolvedConnection: "my-anthropic",
       }),
     ).toBe(false);
     expect(
@@ -713,6 +707,7 @@ describe("anchor fallbacks", () => {
         llm,
         connections: [BYOK_ANTHROPIC],
         defaultProviderAvailability: "missing_credential",
+        defaultProviderResolvedConnection: "my-anthropic",
       }),
     ).toBeNull();
   });

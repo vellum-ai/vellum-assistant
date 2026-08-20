@@ -640,29 +640,32 @@ type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;
 // ---------------------------------------------------------------------------
 
 /**
- * Pins which provider backs the workspace's default inference identity.
- * When `connectionName` is absent, `resolveDefaultConnectionName`
- * (`../default-provider.js`) supplies the convention.
+ * Names which provider backs the workspace's default inference identity.
+ * The backing connection is always resolved by convention
+ * (`resolveDefaultConnectionName` in `../default-provider.js`).
  *
  * No connection-existence validation on purpose: schema validation is
- * pure/sync and cannot see the sqlite `provider_connections` table, so a
- * dangling `connectionName` is allowed here and surfaced as an explainable
- * resolution error at read time.
+ * pure/sync and cannot see the sqlite `provider_connections` table, so the
+ * conventionally resolved connection may be dangling — that surfaces as an
+ * explainable resolution error at read time.
+ *
+ * Unknown keys (including the retired `connectionName` pin) strip at parse;
+ * `setDefaultProvider`'s strict parse rewrites the stripped shape on the
+ * next write, so no migration is needed.
  */
 export const DefaultProviderSchema = z.object({
   provider: DefaultProviderEnum,
-  connectionName: z.string().min(1).optional(),
 });
 export type DefaultProviderConfig = z.infer<typeof DefaultProviderSchema>;
 
 /**
  * The `.catch(undefined)` drops an invalid value atomically at parse time.
  * Without it, the loader's recovery pass (which deletes the exact key at each
- * issue path) could strand a fragment like `{ connectionName }` that fails
- * the re-parse and escalates a one-field typo into a full config-defaults
- * fallback. A `z.unknown().transform(...)` wrapper would also fix that, but
- * hides the object shape from `getSchemaAtPath` / `z.toJSONSchema`; the catch
- * value must be static because `z.toJSONSchema` rejects callbacks.
+ * issue path) could strand a fragment that fails the re-parse and escalate a
+ * one-field typo into a full config-defaults fallback. A
+ * `z.unknown().transform(...)` wrapper would also fix that, but hides the
+ * object shape from `getSchemaAtPath` / `z.toJSONSchema`; the catch value
+ * must be static because `z.toJSONSchema` rejects callbacks.
  * Writes stay loud: `setDefaultProvider` parses the strict schema directly.
  */
 const DefaultProviderField = DefaultProviderSchema.optional().catch(undefined);
