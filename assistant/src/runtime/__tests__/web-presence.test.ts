@@ -44,6 +44,16 @@ function reportWebPresence(
   assistantEventHub.setClientWebPresence(clientId, report);
 }
 
+function clientEntry(clientId: string) {
+  const client = assistantEventHub
+    .listClientsByInterface("web")
+    .find((entry) => entry.clientId === clientId);
+  if (!client) {
+    throw new Error(`missing test client ${clientId}`);
+  }
+  return client;
+}
+
 afterEach(() => {
   clearHubClients(assistantEventHub);
 });
@@ -69,6 +79,33 @@ describe("isWebConversationFocused", () => {
     expect(
       isWebConversationFocused(CONVERSATION_ID, { now: afterStaleness() }),
     ).toBe(false);
+  });
+
+  test("semantic report expires even while SSE transport stays alive", () => {
+    registerClient({ clientId: "web-1" });
+    reportWebPresence("web-1", {
+      visible: true,
+      focusedConversationId: CONVERSATION_ID,
+    });
+    const now = new Date(Date.now() + WEB_PRESENCE_STALE_AFTER_MS + 1_000);
+    clientEntry("web-1").lastActiveAt = now;
+
+    expect(isWebConversationFocused(CONVERSATION_ID, { now })).toBe(false);
+  });
+
+  test("transport expiry is not focused even with a fresh semantic report", () => {
+    registerClient({ clientId: "web-1" });
+    reportWebPresence("web-1", {
+      visible: true,
+      focusedConversationId: CONVERSATION_ID,
+    });
+    const now = new Date();
+    clientEntry("web-1").lastActiveAt = new Date(
+      now.getTime() - WEB_PRESENCE_STALE_AFTER_MS - 1_000,
+    );
+    clientEntry("web-1").webPresence!.reportedAt = now;
+
+    expect(isWebConversationFocused(CONVERSATION_ID, { now })).toBe(false);
   });
 
   test("hidden tab is not focused even on the matching conversation", () => {

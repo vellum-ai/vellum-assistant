@@ -28,14 +28,12 @@ import { assistantEventHub } from "./assistant-event-hub.js";
 const log = getLogger("web-presence");
 
 /**
- * Bounds how long suppression can outlive a tab closing or losing network
- * without a final report. The web client re-reports on mount, visibility
- * change, conversation focus change, and a periodic heartbeat while visible
- * (see `clients/web/src/hooks/use-web-presence-report.ts`), so this only
- * needs to tolerate a couple of dropped heartbeats, same as desktop
- * presence's 90s/30s pair.
+ * Shared semantic + transport freshness bound. The semantic report says what
+ * the tab was showing; `lastActiveAt` says the owning SSE connection is still
+ * alive. Both must be fresh so a live-but-hidden stream cannot preserve an old
+ * visible report, and a fresh report cannot suppress after its transport dies.
  */
-export const WEB_PRESENCE_STALE_AFTER_MS = 60_000;
+export const WEB_PRESENCE_STALE_AFTER_MS = 180_000;
 
 export interface WebPresenceOptions {
   /**
@@ -75,9 +73,10 @@ export function isWebConversationFocused(
       if (!report) {
         return false;
       }
+      const nowMs = now.getTime();
       if (
-        now.getTime() - report.reportedAt.getTime() >
-        WEB_PRESENCE_STALE_AFTER_MS
+        nowMs - report.reportedAt.getTime() > WEB_PRESENCE_STALE_AFTER_MS ||
+        nowMs - client.lastActiveAt.getTime() > WEB_PRESENCE_STALE_AFTER_MS
       ) {
         return false;
       }

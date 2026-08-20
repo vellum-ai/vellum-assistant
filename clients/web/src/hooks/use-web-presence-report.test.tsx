@@ -1,14 +1,14 @@
 /**
  * `useWebPresenceReport` posts tab visibility and focused-conversation state
  * to the daemon on mount, on bus visibility edges, on focused-conversation
- * changes, and on a periodic heartbeat while visible, so the daemon can
+ * changes, and on a periodic reconciliation tick while visible, so the daemon can
  * suppress a redundant APNs push while this tab is open on the reply's own
  * conversation. See `assistant/src/runtime/web-presence.ts`.
  *
  * `window.setInterval`/`clearInterval` are stubbed with an armed-timer
  * capture (bun's test runner has no fake timers), matching the pattern in
- * `domains/settings/pair-device/pair-device-test-helpers.ts`; heartbeat
- * ticks are fired by hand via `tickHeartbeat()`.
+ * `domains/settings/pair-device/pair-device-test-helpers.ts`; reconciliation
+ * ticks are fired by hand via `tickReconciliation()`.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -20,7 +20,21 @@ import { __resetForTesting, publish } from "@/lib/event-bus";
 import { useConversationStore } from "@/stores/conversation-store";
 import { routes } from "@/utils/routes";
 
-const HEARTBEAT_INTERVAL_MS = 20_000;
+const RECONCILIATION_INTERVAL_MS = 60_000;
+
+let visibilityState: "visible" | "hidden" = "visible";
+const realVisibilityState = Object.getOwnPropertyDescriptor(
+  document,
+  "visibilityState",
+);
+
+function setVisibilityState(state: "visible" | "hidden") {
+  visibilityState = state;
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => visibilityState,
+  });
+}
 
 interface ArmedInterval {
   handler: () => void;
@@ -53,15 +67,15 @@ function restoreIntervalHarness() {
   armedIntervals.length = 0;
 }
 
-function heartbeatTimers(): ArmedInterval[] {
+function reconciliationTimers(): ArmedInterval[] {
   return armedIntervals.filter(
-    (timer) => timer.delay === HEARTBEAT_INTERVAL_MS,
+    (timer) => timer.delay === RECONCILIATION_INTERVAL_MS,
   );
 }
 
-/** Fire the (single) live heartbeat interval once. */
-function tickHeartbeat() {
-  const live = heartbeatTimers().filter((timer) => !timer.cleared);
+/** Fire the (single) live reconciliation interval once. */
+function tickReconciliation() {
+  const live = reconciliationTimers().filter((timer) => !timer.cleared);
   expect(live).toHaveLength(1);
   act(() => {
     live[0]?.handler();
@@ -86,9 +100,8 @@ mock.module("@/generated/daemon/client.gen", () => ({
   client: { post: postMock },
 }));
 
-const { useWebPresenceReport } = await import(
-  "@/hooks/use-web-presence-report"
-);
+const { useWebPresenceReport } =
+  await import("@/hooks/use-web-presence-report");
 
 /** Drives the router from a test, since `MemoryRouter` ignores entry changes. */
 let navigate: NavigateFunction | null = null;
@@ -128,6 +141,7 @@ beforeEach(() => {
   postCalls.length = 0;
   postMock.mockClear();
   navigate = null;
+  setVisibilityState("visible");
   installIntervalHarness();
 });
 
@@ -135,6 +149,9 @@ afterEach(() => {
   cleanup();
   __resetForTesting();
   restoreIntervalHarness();
+  if (realVisibilityState) {
+    Object.defineProperty(document, "visibilityState", realVisibilityState);
+  }
 });
 
 describe("useWebPresenceReport", () => {
@@ -148,6 +165,25 @@ describe("useWebPresenceReport", () => {
       url: "/v1/assistants/{assistant_id}/clients/web-presence",
       path: { assistant_id: "assistant-1" },
       body: { visible: true, focusedConversationId: "conv-1" },
+    });
+  });
+
+  test("reads visibility fresh for mount and focused-conversation reports", () => {
+    setVisibilityState("hidden");
+    useConversationStore.getState().setActiveConversationId("conv-1");
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+
+    expect(postCalls[0]?.body).toEqual({
+      visible: false,
+      focusedConversationId: "conv-1",
+    });
+
+    setVisibilityState("visible");
+    navigateTo(routes.about);
+
+    expect(postCalls[1]?.body).toEqual({
+      visible: true,
+      focusedConversationId: null,
     });
   });
 
@@ -192,26 +228,41 @@ describe("useWebPresenceReport", () => {
     });
   });
 
-  test("reports hidden on app.hidden and visible again on app.resume", () => {
+  test("reports fresh visibility on app.hidden and app.resume", () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
     expect(postCalls).toHaveLength(1);
 
+    setVisibilityState("hidden");
     act(() => {
       publish("app.hidden", { signal: "visibility" });
     });
-    expect(postCalls).toHaveLength(2);
     expect(postCalls[1]?.body).toEqual({
       visible: false,
       focusedConversationId: "conv-1",
     });
 
+    setVisibilityState("visible");
     act(() => {
       publish("app.resume", { signal: "visibility" });
     });
-    expect(postCalls).toHaveLength(3);
     expect(postCalls[2]?.body).toEqual({
       visible: true,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("online reconnect while hidden never reports visible", () => {
+    useConversationStore.getState().setActiveConversationId("conv-1");
+    renderReportAt("assistant-1", routes.conversation("conv-1"));
+    setVisibilityState("hidden");
+
+    act(() => {
+      publish("app.resume", { signal: "online" });
+    });
+
+    expect(postCalls[1]?.body).toEqual({
+      visible: false,
       focusedConversationId: "conv-1",
     });
   });
@@ -228,13 +279,13 @@ describe("useWebPresenceReport", () => {
   });
 });
 
-describe("useWebPresenceReport: heartbeat", () => {
-  test("arms a single 20s heartbeat interval on mount", () => {
+describe("useWebPresenceReport: reconciliation", () => {
+  test("arms a single 60s reconciliation interval on mount", () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
 
     renderReportAt("assistant-1", routes.conversation("conv-1"));
 
-    expect(heartbeatTimers()).toHaveLength(1);
+    expect(reconciliationTimers()).toHaveLength(1);
   });
 
   test("a tick while visible re-reports the focused conversation", () => {
@@ -242,7 +293,7 @@ describe("useWebPresenceReport: heartbeat", () => {
     renderReportAt("assistant-1", routes.conversation("conv-1"));
     expect(postCalls).toHaveLength(1);
 
-    tickHeartbeat();
+    tickReconciliation();
 
     expect(postCalls).toHaveLength(2);
     expect(postCalls[1]?.body).toEqual({
@@ -254,28 +305,27 @@ describe("useWebPresenceReport: heartbeat", () => {
   test("a tick while hidden reports nothing", () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
-    act(() => {
-      publish("app.hidden", { signal: "visibility" });
-    });
-    expect(postCalls).toHaveLength(2);
+    setVisibilityState("hidden");
 
-    tickHeartbeat();
+    tickReconciliation();
 
-    expect(postCalls).toHaveLength(2);
+    expect(postCalls).toHaveLength(1);
   });
 
   test("a tick after app.resume reports again", () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
+    setVisibilityState("hidden");
     act(() => {
       publish("app.hidden", { signal: "visibility" });
     });
+    setVisibilityState("visible");
     act(() => {
       publish("app.resume", { signal: "visibility" });
     });
     expect(postCalls).toHaveLength(3);
 
-    tickHeartbeat();
+    tickReconciliation();
 
     expect(postCalls).toHaveLength(4);
     expect(postCalls[3]?.body).toEqual({
@@ -292,7 +342,7 @@ describe("useWebPresenceReport: heartbeat", () => {
     navigateTo(routes.about);
     expect(postCalls).toHaveLength(2);
 
-    tickHeartbeat();
+    tickReconciliation();
 
     expect(postCalls[2]?.body).toEqual({
       visible: true,
@@ -300,27 +350,30 @@ describe("useWebPresenceReport: heartbeat", () => {
     });
   });
 
-  test("does not arm a heartbeat from the Electron renderer", () => {
+  test("does not arm reconciliation from the Electron renderer", () => {
     electron = true;
     useConversationStore.getState().setActiveConversationId("conv-1");
 
     renderReportAt("assistant-1", routes.conversation("conv-1"));
 
-    expect(heartbeatTimers()).toHaveLength(0);
+    expect(reconciliationTimers()).toHaveLength(0);
   });
 
-  test("does not arm a heartbeat until an assistant id resolves", () => {
+  test("does not arm reconciliation until an assistant id resolves", () => {
     renderReportAt(null);
 
-    expect(heartbeatTimers()).toHaveLength(0);
+    expect(reconciliationTimers()).toHaveLength(0);
   });
 
-  test("unmount clears the heartbeat interval", () => {
+  test("unmount clears the reconciliation interval", () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
-    const { unmount } = renderReportAt("assistant-1", routes.conversation("conv-1"));
+    const { unmount } = renderReportAt(
+      "assistant-1",
+      routes.conversation("conv-1"),
+    );
 
     unmount();
 
-    expect(heartbeatTimers()[0]?.cleared).toBe(true);
+    expect(reconciliationTimers()[0]?.cleared).toBe(true);
   });
 });

@@ -506,17 +506,14 @@ describe("emitAssistantReplyNotification", () => {
       expect(warnCalls).toHaveLength(1);
     });
 
-    // A focused tab only speaks for a turn a web tab itself opened: the user
-    // can send from the phone while an unrelated tab sits open, which is
-    // exactly the reply this producer exists to push.
-    test("leaves the signal live for a turn opened from the macOS app even while a web tab is focused here", async () => {
+    test("marks the signal source-active for a turn opened from the macOS app when a web tab is focused here", async () => {
       initiatingRow = makeMacOriginatedMessage();
 
       await run();
 
       expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
-      expect(webPresenceArgs).toEqual([]);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
+      expect(webPresenceArgs).toEqual([[CONVERSATION_ID]]);
     });
   });
 

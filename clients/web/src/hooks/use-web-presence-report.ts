@@ -15,20 +15,23 @@
  * Reports on mount, on every visibility edge (via the bus's `app.resume` /
  * `app.hidden`, not a raw `visibilitychange` listener — see
  * `docs/EVENT_BUS.md`), whenever the focused conversation changes (route or
- * active-conversation-id change), and on a periodic heartbeat while the tab
- * is visible. "Focused" mirrors `useNotificationIntentSync`'s own check: the
+ * active-conversation-id change), and on a periodic reconciliation tick while
+ * the tab is visible. Each report reads `document.visibilityState` at post
+ * time rather than trusting cached lifecycle state. This intentionally uses
+ * visibility-only semantics: `document.hasFocus()` is window-level and can be
+ * false for a visible tab in an unfocused browser window, while visibility is
+ * the existing contract for whether the conversation is on screen.
+ * "Focused" mirrors `useNotificationIntentSync`'s own check: the
  * active conversation id only counts while the chat composer for that
  * conversation is actually on screen, since `activeConversationId` is never
  * cleared on navigation away.
  *
- * The heartbeat exists because the daemon's presence gate is TTL-bound
- * (`WEB_PRESENCE_STALE_AFTER_MS` in `assistant/src/runtime/web-presence.ts`,
- * 60s): without a re-report, a tab left open and focused on one conversation
- * for longer than the TTL would go stale and silently stop suppressing the
- * push, even though the user is still looking at it. `HEARTBEAT_INTERVAL_MS`
- * is a third of that TTL, the same ratio `desktop-presence.ts` uses for its
- * 30s/90s pair, so up to two dropped heartbeats in a row are still covered by
- * the last good report.
+ * The reconciliation tick exists because the daemon's presence gate is
+ * TTL-bound (`WEB_PRESENCE_STALE_AFTER_MS` in
+ * `assistant/src/runtime/web-presence.ts`): without a re-report, a tab left
+ * open and focused on one conversation would eventually go stale. It is slow
+ * by design because the SSE heartbeat separately proves transport liveness;
+ * the semantic report still needs periodic refresh while visible.
  *
  * Fire-and-forget and best-effort cleanup: the daemon's presence gate fails
  * open on a missing/stale report, so a dropped call (network blip, tab
@@ -50,7 +53,13 @@ interface WebPresenceReportBody {
 }
 
 /** See the module doc comment for the sizing rationale. */
-const HEARTBEAT_INTERVAL_MS = 20_000;
+const RECONCILIATION_INTERVAL_MS = 60_000;
+
+function isDocumentVisible(): boolean {
+  return (
+    typeof document === "undefined" || document.visibilityState === "visible"
+  );
+}
 
 async function postWebPresence(
   assistantId: string,
@@ -73,17 +82,13 @@ async function postWebPresence(
  */
 export function useWebPresenceReport(assistantId: string | null): void {
   const location = useLocation();
-  const activeConversationId =
-    useConversationStore.use.activeConversationId();
-  const visibleRef = useRef(
-    typeof document === "undefined" || document.visibilityState === "visible",
-  );
+  const activeConversationId = useConversationStore.use.activeConversationId();
 
   const focusedConversationId = isConversationChatPath(location.pathname)
     ? activeConversationId
     : null;
-  // Mirrors `visibleRef`: the heartbeat interval below reads both off refs
-  // rather than depending on them, so a focus change doesn't tear down and
+  // The reconciliation interval reads the focused conversation off a ref
+  // rather than depending on it, so a focus change doesn't tear down and
   // re-arm the timer — it's already covered by the effect below.
   const focusedConversationIdRef = useRef(focusedConversationId);
   useEffect(() => {
@@ -91,56 +96,51 @@ export function useWebPresenceReport(assistantId: string | null): void {
   }, [focusedConversationId]);
 
   useBusSubscription("app.resume", () => {
-    visibleRef.current = true;
     if (assistantId && !isElectron()) {
       void postWebPresence(assistantId, {
-        visible: true,
+        visible: isDocumentVisible(),
         focusedConversationId,
       });
     }
   });
 
   useBusSubscription("app.hidden", () => {
-    visibleRef.current = false;
     if (assistantId && !isElectron()) {
       void postWebPresence(assistantId, {
-        visible: false,
+        visible: isDocumentVisible(),
         focusedConversationId,
       });
     }
   });
 
-  // Mount + focused-conversation-change reporter. Reads the current
-  // visibility off the ref rather than depending on it, so a visibility flip
+  // Mount + focused-conversation-change reporter. Reads visibility fresh at
+  // post time rather than depending on lifecycle state, so a visibility flip
   // (already reported above) doesn't trigger a second, redundant report.
   useEffect(() => {
     if (!assistantId || isElectron()) {
       return;
     }
     void postWebPresence(assistantId, {
-      visible: visibleRef.current,
+      visible: isDocumentVisible(),
       focusedConversationId,
     });
   }, [assistantId, focusedConversationId]);
 
-  // Periodic heartbeat so a long-lived, still-focused tab doesn't age past
-  // the daemon's TTL between edges (see the module doc comment). Ticks for
-  // the life of the hook rather than starting/stopping per visibility edge —
-  // simpler, and the tick itself is the guard: a hidden tab just skips
-  // posting rather than tearing down and re-arming the timer.
+  // Reconcile semantic presence slowly while visible. A hidden tab skips the
+  // tick; the next real visibility edge reports its fresh state.
   useEffect(() => {
     if (!assistantId || isElectron()) {
       return;
     }
     const intervalId = window.setInterval(() => {
-      if (!visibleRef.current) {
+      if (!isDocumentVisible()) {
         return;
       }
       void postWebPresence(assistantId, {
         visible: true,
         focusedConversationId: focusedConversationIdRef.current,
       });
-    }, HEARTBEAT_INTERVAL_MS);
+    }, RECONCILIATION_INTERVAL_MS);
     return () => {
       window.clearInterval(intervalId);
     };

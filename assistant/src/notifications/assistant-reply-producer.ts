@@ -25,7 +25,6 @@ import {
 import {
   isMacOriginatedUserMessage,
   isReplyPushIneligibleUserMessage,
-  isWebOriginatedUserMessage,
   resolveConversationKind,
 } from "../persistence/conversation-types.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
@@ -252,14 +251,11 @@ export async function emitAssistantReplyNotification(params: {
       isMacOriginatedUserMessage(initiatingMetadata) &&
       readDesktopAttended(rlog);
 
-    // Same shape as desktop attendance, scoped to a browser tab instead of
-    // the whole app: presence only speaks for a turn a web tab itself opened,
-    // and only suppresses when that tab's focused conversation is this one.
-    // A turn sent from another surface still needs its push while a web tab
-    // sits open on an unrelated conversation.
-    const webFocused =
-      isWebOriginatedUserMessage(initiatingMetadata) &&
-      readWebConversationFocused(conversationId, rlog);
+    // Conversation-scoped web presence applies regardless of which device
+    // initiated the turn: a visible matching tab proves where this reply is
+    // currently being displayed, while the conversation id prevents an
+    // unrelated tab from suppressing the push.
+    const webFocused = readWebConversationFocused(conversationId, rlog);
 
     await emitNotificationSignal({
       sourceEventName: "chat.assistant_reply",
