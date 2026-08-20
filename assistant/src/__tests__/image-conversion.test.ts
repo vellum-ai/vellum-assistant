@@ -159,7 +159,8 @@ function cacheKeyFor(bytes: Uint8Array, quality: number): string {
 }
 
 // Minimal structurally valid JPEG: SOI, APP0 (len 4, 2 payload bytes),
-// SOS (len 3, 1 payload byte), entropy data with a stuffed FF, then EOI.
+// SOF0 (len 5, 3 payload bytes), SOS (len 3, 1 payload byte), entropy data
+// with a stuffed FF, then EOI.
 function minimalJpeg(extra: {
   trailing?: Uint8Array;
   dropEoi?: boolean;
@@ -167,6 +168,7 @@ function minimalJpeg(extra: {
   const parts: Uint8Array[] = [
     Buffer.from([0xff, 0xd8]), // SOI
     Buffer.from([0xff, 0xe0, 0x00, 0x04, 0x4a, 0x46]), // APP0
+    Buffer.from([0xff, 0xc0, 0x00, 0x05, 0x08, 0x00, 0x01]), // SOF0
     Buffer.from([0xff, 0xda, 0x00, 0x03, 0x01]), // SOS header
     Buffer.from([0x12, 0xff, 0x00, 0x34]), // entropy data with stuffed FF
   ];
@@ -191,6 +193,7 @@ describe("hasValidJpegStructure", () => {
   test("accepts restart markers inside entropy-coded data", () => {
     const withRst = Buffer.concat([
       Buffer.from([0xff, 0xd8]),
+      Buffer.from([0xff, 0xc0, 0x00, 0x05, 0x08, 0x00, 0x01]), // SOF0
       Buffer.from([0xff, 0xda, 0x00, 0x03, 0x01]),
       Buffer.from([0x12, 0xff, 0xd0, 0x34]), // RST0 continues the scan
       Buffer.from([0xff, 0xd9]),
@@ -219,6 +222,21 @@ describe("hasValidJpegStructure", () => {
     ).toBe(false);
     expect(hasValidJpegStructure(Buffer.alloc(0))).toBe(false);
     expect(hasValidJpegStructure(PNG_1PX_BYTES)).toBe(false);
+  });
+
+  test("rejects a top-level EOI with no frame or scan", () => {
+    // Bare SOI+EOI is structurally walkable but carries no image data;
+    // providers reject it, so the gate must too.
+    expect(hasValidJpegStructure(Buffer.from([0xff, 0xd8, 0xff, 0xd9]))).toBe(
+      false,
+    );
+    // A scan without a frame header is equally undecodable.
+    const scanNoFrame = Buffer.concat([
+      Buffer.from([0xff, 0xd8]),
+      Buffer.from([0xff, 0xda, 0x00, 0x03, 0x01, 0x12]),
+      Buffer.from([0xff, 0xd9]),
+    ]);
+    expect(hasValidJpegStructure(scanNoFrame)).toBe(false);
   });
 
   test("rejects a segment length that runs past the buffer", () => {

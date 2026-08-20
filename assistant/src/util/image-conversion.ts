@@ -75,11 +75,17 @@ export function isCompleteJpeg(bytes: Uint8Array): boolean {
  * the top level of the marker stream counts. Entropy-coded scan data is
  * traversed byte-wise, where FF is stuffed as FF 00 and restart markers
  * (D0-D7) continue the scan, so a marker byte there is unambiguous.
+ *
+ * The EOI only counts after at least one frame header (SOF) and one scan
+ * (SOS) have been seen: a degenerate payload such as bare SOI+EOI carries no
+ * image data and providers reject it.
  */
 export function hasValidJpegStructure(bytes: Uint8Array): boolean {
   if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
     return false;
   }
+  let sawFrame = false;
+  let sawScan = false;
   let i = 2;
   while (i + 1 < bytes.length) {
     if (bytes[i] !== 0xff) {
@@ -96,7 +102,17 @@ export function hasValidJpegStructure(bytes: Uint8Array): boolean {
     const marker = bytes[j];
     i = j + 1;
     if (marker === 0xd9) {
-      return true;
+      return sawFrame && sawScan;
+    }
+    // SOF0-SOF15 occupy C0-CF, excluding DHT (C4), JPG (C8), and DAC (CC).
+    if (
+      marker >= 0xc0 &&
+      marker <= 0xcf &&
+      marker !== 0xc4 &&
+      marker !== 0xc8 &&
+      marker !== 0xcc
+    ) {
+      sawFrame = true;
     }
     // Standalone markers carry no length field: repeated SOI, TEM, RST0-7.
     if (
@@ -115,6 +131,7 @@ export function hasValidJpegStructure(bytes: Uint8Array): boolean {
     }
     i += segmentLength;
     if (marker === 0xda) {
+      sawScan = true;
       // SOS: entropy-coded data follows the header. Scan to the next real
       // marker; FF 00 (stuffed data byte) and FF D0-D7 (restart) stay inside
       // the scan.
