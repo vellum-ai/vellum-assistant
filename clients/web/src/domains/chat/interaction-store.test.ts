@@ -73,13 +73,21 @@ describe("useInteractionStore", () => {
       ).not.toBeNull();
     });
 
-    it("submitSecretEnd releases the slot and sets the saved flag", () => {
+    it("releasing the slot leaves the saved tick alone", () => {
+      // Whether a secret saved is the card's own state, not a fact about who
+      // holds the submission slot, so the two moved apart.
       useInteractionStore.getState().showSecret({ requestId: "r1" });
       useInteractionStore.getState().claimSubmission("secret", "r1");
       useInteractionStore.getState().releaseSubmission("secret", "r1");
       const s = useInteractionStore.getState();
       expect(s.submittingByKind.secret).toBeNull();
-      expect(s.secretSaved).toBe(true);
+      expect(s.secretSaved).toBe(false);
+    });
+
+    it("setSecretSaved records the tick", () => {
+      useInteractionStore.getState().showSecret({ requestId: "r1" });
+      useInteractionStore.getState().setSecretSaved(true);
+      expect(useInteractionStore.getState().secretSaved).toBe(true);
     });
 
     it("dismissSecretIfMatches retires the prompt it names", () => {
