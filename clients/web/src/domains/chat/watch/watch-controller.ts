@@ -204,6 +204,13 @@ function openSession(
   // Null until the runtime answers `ready`, which is the moment the session
   // exists. Everything before that is a socket.
   let readyTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Stop waiting for `ready`, whether it arrived or the session is over. */
+  const clearReadyTimer = (): void => {
+    if (readyTimer !== null) {
+      clearTimeout(readyTimer);
+      readyTimer = null;
+    }
+  };
 
   const capture = (
     options.captureFactory ??
@@ -232,10 +239,7 @@ function openSession(
     closed = true;
     unsubscribeAssistant?.();
     unsubscribeAssistant = null;
-    if (readyTimer !== null) {
-      clearTimeout(readyTimer);
-      readyTimer = null;
-    }
+    clearReadyTimer();
     capture.shutdown();
     if (
       ws.readyState === WebSocket.OPEN ||
@@ -264,12 +268,14 @@ function openSession(
       if (!closed && ws.readyState === WebSocket.OPEN) {
         // The last few milliseconds still sit in the capture's batch
         // accumulator; drain them synchronously before asking the runtime to
-        // wrap the session up.
+        // wrap the session up. Both calls are no-ops on a session still
+        // pending, where the microphone never opened and the runtime has no
+        // session to wrap up, and saying so costs less than branching on it.
         capture.flush?.();
         try {
           ws.send(JSON.stringify({ type: "stop" }));
         } catch {
-          // The socket raced shut, which teardown below already covers.
+          // The socket raced shut, which teardown already covers.
         }
       }
       teardown();
@@ -324,13 +330,7 @@ function openSession(
    * round: audio flowing with nothing on screen saying so.
    */
   const onReady = (): void => {
-    if (closed) {
-      return;
-    }
-    if (readyTimer !== null) {
-      clearTimeout(readyTimer);
-      readyTimer = null;
-    }
+    clearReadyTimer();
     useWatchStore.setState({ watching: true });
     void capture.start().then((result) => {
       // Mic denied, or a device another app is holding. There is nothing to

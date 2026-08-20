@@ -192,13 +192,15 @@ const socket = (): FakeWebSocket => {
   return last;
 };
 
-/**
- * Take a session all the way to running: the gateway accepts the socket and
- * the runtime answers `ready`, which is what starts the flag and the mic.
- */
-const startRunning = async () => {
-  await toggle();
+/** Open the socket and stop there, which is a session still pending. */
+const startPending = async (readyTimeoutMs?: number) => {
+  await toggle(readyTimeoutMs);
   socket().serverOpen();
+  await Promise.resolve();
+};
+
+/** Answer `ready` on the pending session, which starts the flag and the mic. */
+const serverReady = async () => {
   socket().serverMessage({
     type: "ready",
     sessionId: "sess-1",
@@ -207,11 +209,10 @@ const startRunning = async () => {
   await Promise.resolve();
 };
 
-/** Open the socket and stop there, which is a session still pending. */
-const startPending = async (readyTimeoutMs?: number) => {
-  await toggle(readyTimeoutMs);
-  socket().serverOpen();
-  await Promise.resolve();
+/** Take a session all the way to running: pending, then answered. */
+const startRunning = async (readyTimeoutMs?: number) => {
+  await startPending(readyTimeoutMs);
+  await serverReady();
 };
 
 /** Record every write to the watch flag for the duration of `run`. */
@@ -508,12 +509,7 @@ describe("cancelling a start that has not opened a socket yet", () => {
     activate(ASSISTANT_ID);
     await pressed;
     socket().serverOpen();
-    socket().serverMessage({
-      type: "ready",
-      sessionId: "sess-1",
-      conversationId: "conv-1",
-    });
-    await Promise.resolve();
+    await serverReady();
 
     expect(sockets).toHaveLength(1);
     expect(useWatchStore.getState().watching).toBe(true);
@@ -617,14 +613,7 @@ describe("a watch session between the socket and the runtime", () => {
   });
 
   test("does not give up on a session the runtime did answer for", async () => {
-    await toggle(5);
-    socket().serverOpen();
-    socket().serverMessage({
-      type: "ready",
-      sessionId: "sess-1",
-      conversationId: "conv-1",
-    });
-    await Promise.resolve();
+    await startRunning(5);
 
     await wait(30);
 
