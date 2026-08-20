@@ -73,9 +73,9 @@ describe("useInteractionStore", () => {
       ).not.toBeNull();
     });
 
-    it("releasing the slot leaves the saved tick alone", () => {
-      // Whether a secret saved is the card's own state, not a fact about who
-      // holds the submission slot, so the two moved apart.
+    it("releasing the slot does not decide the saved tick", () => {
+      // Who holds the slot and whether the secret saved are separate facts, so
+      // the outcome is reported rather than inferred from the release.
       useInteractionStore.getState().showSecret({ requestId: "r1" });
       useInteractionStore.getState().claimSubmission("secret", "r1");
       useInteractionStore.getState().releaseSubmission("secret", "r1");
@@ -84,10 +84,13 @@ describe("useInteractionStore", () => {
       expect(s.secretSaved).toBe(false);
     });
 
-    it("setSecretSaved records the tick", () => {
+    it("a failed submission clears a tick an earlier success left", () => {
+      // The tick describes the last submission, not the best one. Retrying the
+      // same prompt and failing must not keep showing a success.
       useInteractionStore.getState().showSecret({ requestId: "r1" });
       useInteractionStore.getState().setSecretSaved(true);
-      expect(useInteractionStore.getState().secretSaved).toBe(true);
+      useInteractionStore.getState().setSecretSaved(false);
+      expect(useInteractionStore.getState().secretSaved).toBe(false);
     });
 
     it("dismissSecretIfMatches retires the prompt it names", () => {

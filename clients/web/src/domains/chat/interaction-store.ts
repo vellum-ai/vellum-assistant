@@ -122,7 +122,11 @@ export interface InteractionState {
 // ---------------------------------------------------------------------------
 
 export interface InteractionActions {
-  /** Record whether the last secret submission saved, for the card's tick. */
+  /**
+   * Record the outcome of the last secret submission, which drives the card's
+   * saved tick. Every submission that ends reports one, so a failed retry
+   * clears a tick an earlier success left behind.
+   */
   setSecretSaved: (saved: boolean) => void;
   /** Claim the submission slot for `kind`. */
   claimSubmission: (kind: PromptKind, requestId: string) => void;

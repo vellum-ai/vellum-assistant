@@ -47,6 +47,7 @@ export async function handleSecretSubmit(
     useInteractionStore
       .getState()
       .releaseSubmission("secret", pendingSecret.requestId);
+    useInteractionStore.getState().setSecretSaved(false);
     return;
   }
 
@@ -63,6 +64,7 @@ export async function handleSecretSubmit(
         useInteractionStore
           .getState()
           .releaseSubmission("secret", pendingSecret.requestId);
+        useInteractionStore.getState().setSecretSaved(false);
       }
       return;
     }
@@ -91,6 +93,7 @@ export async function handleSecretSubmit(
     useInteractionStore
       .getState()
       .releaseSubmission("secret", pendingSecret.requestId);
+    useInteractionStore.getState().setSecretSaved(false);
   }
 }
 
