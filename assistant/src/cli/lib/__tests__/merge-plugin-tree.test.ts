@@ -440,4 +440,38 @@ describe("mergePluginTree", () => {
     expect(result.conflicts).toEqual(["f.txt"]);
     expect(result.binaryConflicts).toEqual([]);
   });
+
+  test("copies live config.json, data/, and .disabled from ours, ignoring the pin", async () => {
+    // GIVEN user-owned state on the live install and different defaults at the pin
+    writeTree(baseDir, { "package.json": '{"name":"p"}\n' });
+    writeTree(oursDir, {
+      "package.json": '{"name":"p"}\n',
+      "config.json": '{"provider":"photon","ingressMode":"live"}\n',
+      "data/cursor.json": '{"n":1}\n',
+      ".disabled": "",
+    });
+    writeTree(theirsDir, {
+      "package.json": '{"name":"p"}\n',
+      "config.json": '{"provider":"comms","ingressMode":"webhook"}\n',
+      "data/cursor.json": '{"n":0}\n',
+    });
+
+    // WHEN merged with theirs (the strategy that would otherwise take the pin)
+    const result = await mergePluginTree({
+      baseDir,
+      oursDir,
+      theirsDir,
+      destDir,
+      strategy: "theirs",
+    });
+
+    // THEN user-owned state is the live copy, not the pin, and is not counted
+    // as a merged source file
+    expect(read("config.json")).toBe(
+      '{"provider":"photon","ingressMode":"live"}\n',
+    );
+    expect(read("data/cursor.json")).toBe('{"n":1}\n');
+    expect(read(".disabled")).toBe("");
+    expect(result.fileCount).toBe(1);
+  });
 });
