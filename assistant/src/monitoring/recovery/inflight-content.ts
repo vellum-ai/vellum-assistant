@@ -38,6 +38,7 @@ import { readdirSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Database } from "bun:sqlite";
 
+import { capPersistedMessageContent } from "../../persistence/message-content-cap.js";
 import {
   parseContentRef,
   resolveContentRefPath,
@@ -147,7 +148,15 @@ export function recoverInflightContent(
       }
       try {
         const blocks = resolveMessageContentBlocks(row.content);
-        const info = finalizeStmt.run(JSON.stringify(blocks), row.id);
+        // A delta file that grew past the per-message cap folds into content no
+        // provider accepts, which would brick the conversation on every later
+        // turn, so this seam caps the fold like the daemon's finalize does.
+        const content = capPersistedMessageContent(JSON.stringify(blocks), {
+          source: "recovery",
+          conversationId: row.conversationId,
+          messageId: row.id,
+        });
+        const info = finalizeStmt.run(content, row.id);
         if (info.changes > 0) {
           finalized++;
           if (absPath != null) {

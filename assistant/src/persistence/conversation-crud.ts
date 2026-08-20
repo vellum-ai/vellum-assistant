@@ -110,6 +110,11 @@ import {
   enqueuePurgeConversationLexical,
 } from "./job-handlers/message-lexical.js";
 import { buildLifecycleTelemetryEvent } from "./lifecycle-events-store.js";
+import {
+  capPersistedMessageContent,
+  exceedsPersistedMessageCap,
+  type MessageContentCapSource,
+} from "./message-content-cap.js";
 import { resolveMessageContentBlocks } from "./message-content-file.js";
 import {
   rawAll,
@@ -830,20 +835,18 @@ function warnOnModelInvisibleContent(
 async function insertMessageCore(
   params: InsertMessageCoreParams,
 ): Promise<InsertedMessage> {
-  const {
-    conversationId,
-    role,
-    content,
-    finalized,
-    metadata,
-    clientMessageId,
-    id,
-  } = params;
-  warnOnModelInvisibleContent(content, conversationId);
+  const { conversationId, role, finalized, metadata, clientMessageId, id } =
+    params;
+  warnOnModelInvisibleContent(params.content, conversationId);
   const db = getDb();
   // Time-ordered UUIDv7 so server-generated message ids append to the tail of
   // the WITHOUT ROWID `messages` primary key instead of scattering (v4).
   const messageId = id ?? uuidv7();
+  const content = capPersistedMessageContent(params.content, {
+    source: "insert",
+    conversationId,
+    messageId,
+  });
 
   if (metadata) {
     const result = messageMetadataSchema.safeParse(metadata);
@@ -3917,6 +3920,31 @@ export async function reserveMessage(
 }
 
 /**
+ * Bound an update to an existing row by the persisted-message size cap, naming
+ * the owning conversation in the warn the cap emits. The row lookup is paid
+ * only by an oversized write, which is the pathological case.
+ */
+function capMessageUpdate(
+  messageId: string,
+  content: string,
+  source: MessageContentCapSource,
+): string {
+  if (!exceedsPersistedMessageCap(content)) {
+    return content;
+  }
+  const row = getDb()
+    .select({ conversationId: messages.conversationId })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  return capPersistedMessageContent(content, {
+    source,
+    messageId,
+    conversationId: row?.conversationId,
+  });
+}
+
+/**
  * Update the content of an existing message in place. Used for edits to
  * already-finalized rows: consolidation, channel edit propagation, and the
  * post-finalize tool-timing stamps (`_startedAt`/`_previewStartedAt`).
@@ -3944,7 +3972,7 @@ export function updateMessageContent(
   }
   const db = getDb();
   db.update(messages)
-    .set({ content: newContent })
+    .set({ content: capMessageUpdate(messageId, newContent, "update") })
     .where(eq(messages.id, messageId))
     .run();
 }
@@ -3961,9 +3989,10 @@ export function finalizeMessageContent(
   metadataUpdates?: Record<string, unknown>,
 ): void {
   const db = getDb();
+  const content = capMessageUpdate(messageId, contentJson, "finalize");
   if (!metadataUpdates) {
     db.update(messages)
-      .set({ content: contentJson, finalized: 1 })
+      .set({ content, finalized: 1 })
       .where(eq(messages.id, messageId))
       .run();
     return;
@@ -3979,7 +4008,7 @@ export function finalizeMessageContent(
       : {};
     tx.update(messages)
       .set({
-        content: contentJson,
+        content,
         finalized: 1,
         metadata: JSON.stringify({ ...existing, ...metadataUpdates }),
       })
@@ -4025,6 +4054,7 @@ export function updateMessageContentAndMetadata(
   metadataUpdates: Record<string, unknown>,
 ): void {
   const db = getDb();
+  const content = capMessageUpdate(messageId, newContent, "update");
   db.transaction((tx) => {
     const row = tx
       .select({ metadata: messages.metadata })
@@ -4034,7 +4064,7 @@ export function updateMessageContentAndMetadata(
     const existing = row?.metadata ? safeParseRecord(row.metadata) : {};
     tx.update(messages)
       .set({
-        content: newContent,
+        content,
         metadata: JSON.stringify({ ...existing, ...metadataUpdates }),
       })
       .where(eq(messages.id, messageId))
