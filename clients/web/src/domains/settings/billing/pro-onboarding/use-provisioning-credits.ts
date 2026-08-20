@@ -1,14 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { organizationsBillingPlansRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
-import type {
-  CreditTier,
-  CreditTierEnum,
-  ProPlan,
-} from "@/generated/api/types.gen";
+import type { CreditTierEnum, ProPlan } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
-import { creditTierKeyUsd } from "@/lib/billing/credit-tiers";
+import { creditTierKeyUsd, findCreditTier } from "@/lib/billing/credit-tiers";
 
 /**
  * A credit bundle change as monthly dollar amounts. Both sides always carry a
@@ -26,22 +22,6 @@ export interface CreditsChange {
 export interface CreditTierChange {
   fromTier: CreditTierEnum | null;
   toTier: CreditTierEnum | null;
-}
-
-/**
- * Finds a Pro plan's `credit_tiers` entry for a tier, the single source of the
- * credit-tier lookup shared by the dollar resolution here and the plans-page
- * custom row summary. Returns undefined for a null/undefined tier or when the
- * tier can't be resolved (no Pro plan, no matching tier).
- */
-export function findCreditTier(
-  proPlan: ProPlan | undefined,
-  tier: string | null | undefined,
-): CreditTier | undefined {
-  if (tier == null) {
-    return undefined;
-  }
-  return proPlan?.credit_tiers?.find((t) => t.tier === tier);
 }
 
 /**

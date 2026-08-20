@@ -388,6 +388,14 @@
       "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. control = gpt-5.6-luna (the shipped pin); terra = gpt-5.6-terra; glm-5p2 = accounts/fireworks/models/glm-5p2. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to control.",
       "defaultEnabled": "control",
       "values": ["control", "terra", "glm-5p2"]
+    },
+    {
+      "id": "obscure-credits",
+      "scope": "client",
+      "key": "obscure-credits",
+      "label": "Obscure Credits",
+      "description": "Replaces the dollar amounts on the billing Plan section with a usage-relative view: the current-plan tile trades its price footer for a Usage Balance bar (managed spend this billing cycle against the package's included credits) and the credits spec chip reads \"<Package> usage, reset monthly\" instead of naming a dollar bundle. Spec chips wrap horizontally to fit the shorter labels. Off leaves the Plan section exactly as it ships today.",
+      "defaultEnabled": false
     }
   ]
 }
