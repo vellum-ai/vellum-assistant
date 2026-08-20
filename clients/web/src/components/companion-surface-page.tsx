@@ -89,6 +89,10 @@ export function CompanionSurfacePage() {
   // Held by main and pushed here with everything else, so this window can
   // reload mid-session without the indicator that says so going dark.
   const [watching, setWatching] = useState(false);
+  // How many times the running session has read the screen. Held with the flag
+  // rather than derived from it, because the flag is a state that lasts for
+  // minutes and this is the only account of the discrete moments inside it.
+  const [captureCount, setCaptureCount] = useState(0);
   const [hovered, setHovered] = useState(false);
   // Whether the composer is open. Local to this page rather than pushed from
   // main, because nothing outside this window opens or closes it: main is told
@@ -134,6 +138,10 @@ export function CompanionSurfacePage() {
       // reads as nothing running, because the alternative is a capture
       // indicator over a machine nobody is reading.
       setWatching(state.watching === true);
+      // Absence is no reads, for the same reason absence is no session: a
+      // state that cannot say how much of the screen was taken has not
+      // established that any of it was.
+      setCaptureCount(state.captureCount ?? 0);
     };
     const unsubscribe = subscribeCompanionState(apply);
     // The route chunk loads lazily after the window is created, so a state
@@ -370,6 +378,10 @@ export function CompanionSurfacePage() {
           // indicator and the control that ends the session are not: they
           // belong to the session, not to whatever the pill is drawing over it.
           watching={watching}
+          // The reads that session has taken, which is what turns a running
+          // session into something the user can see happening rather than
+          // something they are told is on.
+          captureCount={captureCount}
           rootRef={pillRef}
           onSurfaceMouseDown={(event) => {
             dragRef.current = { x: event.screenX, y: event.screenY };

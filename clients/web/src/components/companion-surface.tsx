@@ -400,6 +400,27 @@ export interface CompanionSurfaceProps {
    */
   watching?: boolean;
   /**
+   * How many times the running session has read the screen.
+   *
+   * Drawn as one brief flare of the ring per read, which is the difference
+   * between a surface that says a session is on and one that shows the thing
+   * the session actually does. A session is minutes long and its reads are
+   * three or four a minute, so the state and the events inside it are separate
+   * facts and each gets its own treatment: the lit ring for the session, a
+   * flare for each capture.
+   *
+   * **A number that only goes up, and only when a capture landed.** The
+   * runtime counts a read that came back and was kept, and everything between
+   * here and there passes the count along without inventing steps in it, so a
+   * flare drawn from a step is a capture that happened. Nothing on this surface
+   * may fill the gaps in: the cadence follows what the user is doing, and a
+   * pulse on a local timer would claim the machine read a screen it did not.
+   *
+   * Zero is a session that has not captured yet, which draws the ring and no
+   * flare.
+   */
+  captureCount?: number;
+  /**
    * The running session, when `phase` is `call`.
    *
    * Absent renders the call state from fixed sample values, which is what the
@@ -444,6 +465,7 @@ export function CompanionSurface({
   onAvatarClick,
   working = false,
   watching = false,
+  captureCount = 0,
   call,
   onControl,
 }: CompanionSurfaceProps) {
@@ -611,6 +633,33 @@ export function CompanionSurface({
             ["--companion-ring-accent" as string]: watching
               ? WATCHING_RING_ACCENT
               : accentHex,
+          }}
+          aria-hidden
+        />
+      )}
+      {/* One capture, as a single breath of light around the same edge.
+
+          The ring says a session is running, which is a state; this says the
+          screen was read just now, which is an event, and the two need
+          different treatments or the second is invisible inside the first. The
+          same edge rather than a mark of its own, because the edge is already
+          where the user looks for this surface's state and a capture is that
+          state doing something.
+
+          Keyed by the count so each capture remounts the element and replays a
+          one-shot animation. That is the whole mechanism: a step in the count
+          is a read the runtime took and kept, and there is no other way for
+          this to fire. It cannot pulse in a gap, and it cannot pulse for a read
+          that failed, timed out, or was cut off by the session ending, because
+          none of those advance the count. */}
+      {watching && captureCount > 0 && (
+        <span
+          key={captureCount}
+          className={`companion-capture-pulse pointer-events-none absolute -inset-0.5 ${
+            typing ? "rounded-[24px]" : "rounded-full"
+          }`}
+          style={{
+            ["--companion-ring-accent" as string]: WATCHING_RING_ACCENT,
           }}
           aria-hidden
         />

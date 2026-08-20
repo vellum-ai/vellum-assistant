@@ -247,6 +247,7 @@ let context: CompanionContext = {
   turns: [],
   working: false,
   watching: false,
+  captureCount: 0,
 };
 
 /**
@@ -273,6 +274,10 @@ const currentState = (): CompanionSurfaceState => {
     // reporting no session of its own. Settled to a boolean here rather than
     // passed through, so the surface reads one shape whatever arrived.
     watching: context.watching === true,
+    // Settled the same way, and to zero rather than to anything carried over:
+    // a publisher that reports no count has taken no reads this surface can
+    // vouch for.
+    captureCount: context.captureCount ?? 0,
   };
 };
 

@@ -162,6 +162,85 @@ describe("the companion surface's working ring", () => {
 });
 
 /**
+ * The capture pulse: one flare of the ring for each screen read a watch
+ * session actually took.
+ *
+ * The ring says a session is open, which holds for minutes; this says the
+ * screen was read just now, which is the thing the user wants confirmed. What
+ * the cases here pin is that it is drawn for exactly the reads that happened:
+ * it needs a running session and a count that has moved, and each step of the
+ * count gets its own flare rather than one element that lingers.
+ */
+describe("the companion surface's capture pulse", () => {
+  const pulseOf = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector<HTMLElement>(".companion-capture-pulse");
+
+  test("is drawn once a session has captured something", () => {
+    const { container } = render(
+      <CompanionSurface phase="watching" watching captureCount={1} />,
+    );
+    expect(pulseOf(container)).not.toBeNull();
+  });
+
+  test("is absent for a session that has captured nothing yet", () => {
+    const { container } = render(
+      <CompanionSurface phase="watching" watching captureCount={0} />,
+    );
+    expect(pulseOf(container)).toBeNull();
+  });
+
+  /**
+   * A count with no session behind it is the leftover total of a session that
+   * has ended, and a flare drawn from it would claim a capture on a machine
+   * nothing is reading.
+   */
+  test("is absent when no session is running", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" captureCount={4} />,
+    );
+    expect(pulseOf(container)).toBeNull();
+  });
+
+  /**
+   * Each capture is its own event, so each gets its own element: the animation
+   * is one-shot, and a node that survived the count changing would play once
+   * for the first read of a session and never again.
+   */
+  test("replays for each capture rather than lingering from the first", () => {
+    const { container, rerender } = render(
+      <CompanionSurface phase="watching" watching captureCount={1} />,
+    );
+    const first = pulseOf(container);
+
+    rerender(<CompanionSurface phase="watching" watching captureCount={2} />);
+
+    expect(pulseOf(container)).not.toBeNull();
+    expect(pulseOf(container)).not.toBe(first);
+  });
+
+  test("takes the capture colour, which is the session's and not the assistant's", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="watching"
+        watching
+        captureCount={1}
+        accentHex="#ff8800"
+      />,
+    );
+    expect(
+      pulseOf(container)?.style.getPropertyValue("--companion-ring-accent"),
+    ).toBe("#ff9f45");
+  });
+
+  test("follows the card's corner radius while typing", () => {
+    const { container } = render(
+      <CompanionSurface phase="typing" watching captureCount={1} />,
+    );
+    expect(pulseOf(container)?.className).toContain("rounded-[24px]");
+  });
+});
+
+/**
  * The avatar is the surface's drag handle, and it renders as one of two very
  * different things: a composed creature of SVG and divs, or a bare `<img>` for
  * a custom uploaded avatar. Only the image is natively draggable, so only the

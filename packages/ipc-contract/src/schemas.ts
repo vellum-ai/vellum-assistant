@@ -112,6 +112,11 @@ export const companionContextSchema = z.object({
   // Defaulted for the same reason `working` is: a publisher that runs no watch
   // session has nothing to report, and staying silent is its truthful answer.
   watching: z.boolean().default(false),
+  // The running session's screen reads, counted. Bounded to a non-negative
+  // integer at the boundary because the surface reads a step in it as a
+  // capture having happened, and the only shape that can say that is a whole
+  // number that goes up.
+  captureCount: z.number().int().nonnegative().default(0),
 });
 
 // ---------------------------------------------------------------------------

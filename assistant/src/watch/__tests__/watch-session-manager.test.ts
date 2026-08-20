@@ -421,6 +421,123 @@ describe("watch session manager", () => {
     manager.stop();
   });
 
+  /**
+   * The observation listener, which is what a client turns into "your screen
+   * was just read". It is only worth anything if it is exactly as true as that
+   * sentence, so every case here is a way for a read not to happen.
+   */
+  describe("observation listener", () => {
+    /** Start a session with a listener, and count what it hears. */
+    function startWithListener(
+      manager: WatchSessionManager,
+      onObservation: () => void = () => undefined,
+    ) {
+      const result = manager.start({
+        sourceActorPrincipalId: PRINCIPAL_ID,
+        onObservation,
+      });
+      if (result.status !== "started") {
+        throw new Error(`Expected a started session, got ${result.status}`);
+      }
+      return result;
+    }
+
+    test("fires once for every read that reached the timeline", async () => {
+      const { manager, calls } = newManager();
+      let heard = 0;
+      startWithListener(manager, () => {
+        heard += 1;
+      });
+      await settle();
+
+      // The session's opening read.
+      expect(calls).toHaveLength(1);
+      expect(heard).toBe(1);
+
+      await elapse(6_000);
+      await manager.handleNarrationFinal("dragging it into the folder");
+      expect(calls).toHaveLength(2);
+      expect(heard).toBe(2);
+
+      manager.stop();
+    });
+
+    test("stays silent when the host could not serve the read", async () => {
+      // Every failure arrives this way, a timeout included: `observeHostScreen`
+      // resolves `{ ok: false }` rather than throwing.
+      const { manager } = newManager(() => ({
+        ok: false,
+        reason: "No connected client supports screen observation",
+        timedOut: true,
+      }));
+      let heard = 0;
+      startWithListener(manager, () => {
+        heard += 1;
+      });
+      await settle();
+      await elapse(6_000);
+      await manager.handleNarrationFinal("nobody is reading this screen");
+
+      expect(heard).toBe(0);
+
+      manager.stop();
+    });
+
+    test("stays silent when the read came back carrying nothing", async () => {
+      // `ok` and useless: no tree, no diff, no frame. The store refuses it, so
+      // there is no record of the screen and nothing to confirm.
+      const { manager } = newManager(() => ({ ok: true }));
+      let heard = 0;
+      const started = startWithListener(manager, () => {
+        heard += 1;
+      });
+      await settle();
+
+      expect(heard).toBe(0);
+      expect(renderWatchTimeline(started.sessionId).totalEntries).toBe(0);
+
+      manager.stop();
+    });
+
+    test("stays silent for a read the session ended underneath", async () => {
+      const { manager, releases } = newDeferredManager();
+      let heard = 0;
+      startWithListener(manager, () => {
+        heard += 1;
+      });
+      await settle();
+      expect(releases).toHaveLength(1);
+
+      // The read is still out when the session ends. It answers to nobody: the
+      // timeline it would have joined belongs to a session that is over.
+      manager.stop();
+      releases[0]!(richObservation());
+      await settle();
+
+      expect(heard).toBe(0);
+    });
+
+    test("drops the listener with the session that carried it", async () => {
+      const { manager } = newManager();
+      let heard = 0;
+      startWithListener(manager, () => {
+        heard += 1;
+      });
+      await settle();
+      expect(heard).toBe(1);
+      manager.stop();
+
+      // A second session, started with no listener of its own. The first
+      // session's listener is gone with the first session rather than left
+      // reporting captures it has no claim on.
+      start(manager);
+      await settle();
+      expect(heard).toBe(1);
+
+      manager.stop();
+    });
+  });
+
   describe("screenshot escalation", () => {
     async function observeOnce(respond: () => HostObservation) {
       const { manager } = newManager(respond);

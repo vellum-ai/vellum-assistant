@@ -41,6 +41,19 @@ class FakeSocket implements WatchStreamSocket {
     return this.frames.map((frame) => frame.type);
   }
 
+  /**
+   * The same sequence with the capture acknowledgements taken out.
+   *
+   * Every session reads the screen as it opens and again around narration, so
+   * `observation` frames land in the middle of every sequence here, at moments
+   * the manager's cadence decides rather than the test. Cases whose subject is
+   * the lifecycle read this; cases whose subject is the capture signal read
+   * `types()` and say exactly where the frames fall.
+   */
+  lifecycle(): string[] {
+    return this.types().filter((type) => type !== "observation");
+  }
+
   firstOfType<T extends WatchStreamServerFrame["type"]>(
     type: T,
   ): Extract<WatchStreamServerFrame, { type: T }> | undefined {
@@ -173,8 +186,9 @@ describe("watch stream session", () => {
     expect(observeCalls).toHaveLength(2);
     // No `entry`: onset carries no text, and the final that follows is what
     // files the narration. Acknowledging here would report an entry the
-    // timeline does not have.
-    expect(ws.types()).toEqual(["ready"]);
+    // timeline does not have. The two reads themselves are acknowledged, which
+    // is the case below.
+    expect(ws.lifecycle()).toEqual(["ready"]);
 
     session.handleMessage(JSON.stringify({ type: "stop" }));
     transcriber!.emit({ type: "closed" });
@@ -193,7 +207,7 @@ describe("watch stream session", () => {
     // The narration lands synchronously; the screen read it triggers does not.
     await Bun.sleep(5);
 
-    expect(ws.types()).toEqual(["ready", "entry"]);
+    expect(ws.lifecycle()).toEqual(["ready", "entry"]);
     expect(observeCalls).toEqual([PRINCIPAL_ID]);
 
     const rendered = renderWatchTimeline(ready!.sessionId);
@@ -205,9 +219,90 @@ describe("watch stream session", () => {
     // The provider flushes and then reports its own close.
     transcriber!.emit({ type: "closed" });
 
-    expect(ws.types()).toEqual(["ready", "entry", "closed"]);
+    expect(ws.lifecycle()).toEqual(["ready", "entry", "closed"]);
     expect(manager.isActive()).toBe(false);
     expect(session.isClosed).toBe(true);
+  });
+
+  /**
+   * The capture signal, which is the only word a client ever gets that its
+   * screen was read. Every case here is about it being true: a frame per read
+   * that landed, and no frame at all for a read that did not.
+   */
+  describe("capture acknowledgements", () => {
+    test("sends one frame per screen read that landed", async () => {
+      let nowMs = 0;
+      const manager = new WatchSessionManager({
+        now: () => nowMs,
+        observe: async () => observation(),
+      });
+      const { ws, transcriber, session } = newSession({ manager });
+      await session.start();
+      await Bun.sleep(5);
+
+      // The session's own opening read, acknowledged after `ready`: the
+      // manager is claimed before that frame goes out and the read behind it
+      // settles later.
+      expect(ws.types()).toEqual(["ready", "observation"]);
+
+      // Past the floor, so the onset below reads the screen rather than being
+      // collapsed into the read above.
+      nowMs += 6_000;
+      transcriber!.emit({ type: "turn-start" });
+      await Bun.sleep(5);
+
+      expect(ws.types()).toEqual(["ready", "observation", "observation"]);
+
+      session.destroy();
+    });
+
+    test("stays silent for a read the host could not serve", async () => {
+      // The shape every failure resolves to, timeouts included:
+      // `observeHostScreen` answers `{ ok: false }` rather than throwing, and a
+      // read that outran its budget is that answer with `timedOut` set.
+      const manager = new WatchSessionManager({
+        observe: async () => ({
+          ok: false as const,
+          reason: "No connected client supports screen observation",
+          timedOut: true,
+        }),
+      });
+      const { ws, transcriber, session } = newSession({ manager });
+      await session.start();
+      await Bun.sleep(5);
+
+      transcriber!.emit({ type: "final", text: "still narrating" });
+      await Bun.sleep(5);
+
+      // The narration is filed and acknowledged; the screen behind it was
+      // never read, and nothing here says it was.
+      expect(ws.types()).toEqual(["ready", "entry"]);
+
+      session.destroy();
+    });
+
+    test("stays silent for a read the session ended underneath", async () => {
+      const releases: ((observed: HostObservation) => void)[] = [];
+      const manager = new WatchSessionManager({
+        observe: () =>
+          new Promise<HostObservation>((resolve) => {
+            releases.push(resolve);
+          }),
+      });
+      const { ws, session } = newSession({ manager });
+      await session.start();
+      await Bun.sleep(5);
+      expect(releases).toHaveLength(1);
+
+      // The session ends while its opening read is still out. What comes back
+      // describes a screen belonging to a session that is over, and the
+      // acknowledgement would land after `closed`.
+      session.destroy();
+      releases[0]!(observation());
+      await Bun.sleep(5);
+
+      expect(ws.types()).toEqual(["ready", "closed"]);
+    });
   });
 
   test("forwards binary and base64 audio frames to the transcriber", async () => {
@@ -228,7 +323,7 @@ describe("watch stream session", () => {
     expect(transcriber!.audio[0]!.mimeType).toBe("audio/webm");
     expect([...transcriber!.audio[1]!.bytes]).toEqual([4, 5]);
     expect(transcriber!.audio[1]!.mimeType).toBe("audio/pcm");
-    expect(ws.types()).toEqual(["ready"]);
+    expect(ws.lifecycle()).toEqual(["ready"]);
 
     session.destroy();
   });
@@ -241,7 +336,7 @@ describe("watch stream session", () => {
     transcriber!.emit({ type: "turn-end", text: "half a sentence" });
     transcriber!.emit({ type: "final", text: "   " });
 
-    expect(ws.types()).toEqual(["ready"]);
+    expect(ws.lifecycle()).toEqual(["ready"]);
 
     session.destroy();
   });
@@ -307,7 +402,7 @@ describe("watch stream session", () => {
 
     await Bun.sleep(60);
 
-    expect(ws.types()).toEqual(["ready", "error", "closed"]);
+    expect(ws.lifecycle()).toEqual(["ready", "error", "closed"]);
     expect(ws.firstOfType("error")!.category).toBe("timeout");
     expect(ws.closeCode).toBe(1000);
     expect(transcriber!.stopCount).toBe(1);
@@ -325,7 +420,7 @@ describe("watch stream session", () => {
       session.handleBinaryAudio(Buffer.from([i]));
     }
 
-    expect(ws.types()).toEqual(["ready"]);
+    expect(ws.lifecycle()).toEqual(["ready"]);
     expect(manager.isActive()).toBe(true);
 
     session.destroy();

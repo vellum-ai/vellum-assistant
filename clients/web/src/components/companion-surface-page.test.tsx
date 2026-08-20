@@ -23,6 +23,7 @@ const resetState = () => {
   STATE.working = false;
   STATE.call = null;
   delete STATE.watching;
+  delete STATE.captureCount;
 };
 
 mock.module("@/runtime/companion-surface", () => ({
@@ -290,6 +291,37 @@ describe("the watch session on the companion surface", () => {
     await waitFor(() => {
       expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
     });
+  });
+
+  /**
+   * The session's screen reads reach this window the same way the flag does,
+   * and they are the half nothing else can stand in for: the flag says a
+   * session is open and only the count says the screen has actually been read.
+   */
+  test("draws a capture the session reported", async () => {
+    STATE.watching = true;
+    STATE.captureCount = 1;
+    const { container } = render(<CompanionSurfacePage />);
+
+    await waitFor(() => {
+      expect(
+        container.querySelector(".companion-capture-pulse"),
+      ).not.toBeNull();
+    });
+  });
+
+  /**
+   * A state that cannot say how many reads a session has taken has not
+   * established that it took any, the same bargain the flag itself is given.
+   */
+  test("reads a state that says nothing about captures as none", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    expect(container.querySelector(".companion-capture-pulse")).toBeNull();
   });
 
   /**

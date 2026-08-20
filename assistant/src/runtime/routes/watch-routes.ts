@@ -12,10 +12,12 @@
  * text back to the client; a watch session hands each final to
  * {@link WatchSessionManager}, which files it on the timeline and decides
  * whether the screen is worth reading. So the frames going the other way are
- * lifecycle only: `ready`, `entry`, `error`, `closed`. No `partial`, no
- * transcript text, no assistant reply. The client draws nothing during a
- * session and the assistant stays silent until the retrospective, which is a
- * conversational turn that happens after the socket is gone.
+ * lifecycle only: `ready`, `entry`, `observation`, `error`, `closed`. No
+ * `partial`, no transcript text, no assistant reply. What the client draws
+ * during a session is that the session is running and that its screen was
+ * read, never what was said or seen, and the assistant stays silent until the
+ * retrospective, which is a conversational turn that happens after the socket
+ * is gone.
  *
  * Route policy: the upgrade is gated exactly as `/v1/stt/stream` is, in
  * `http-server.ts`: private-network peer and origin, then an `svc_gateway`
@@ -68,10 +70,29 @@ export type WatchStreamErrorCategory = SttErrorCategory | "session-error";
  * `entry` is an acknowledgement that narration reached the session, carrying
  * no text: it is what lets a client show that capture is live without drawing
  * a transcript nobody is meant to read mid-session.
+ *
+ * `observation` is the same acknowledgement for the other half of a session,
+ * the screen reads the runtime takes around what the user says. It is a frame
+ * of its own rather than a discriminator on `entry` because the two report
+ * different facts with different failure modes: an `entry` is the narration
+ * the client itself just streamed coming back confirmed, while an
+ * `observation` is the only word a client ever gets that its screen was read
+ * at all. A client that treated them as one kind would have to re-derive that
+ * distinction from a field, and a client that knows nothing of the new frame
+ * ignores it, which is what makes this additive.
+ *
+ * Both are discrete events rather than states, and neither is emitted on a
+ * timer. A client can honestly draw the moment one arrives and nothing in
+ * between, which is the whole of what a watch session gives it to draw: the
+ * cadence is roughly three or four reads a minute (`MIN_OBSERVE_INTERVAL_MS`
+ * to `MAX_OBSERVE_INTERVAL_MS` in `watch-session-manager.ts`), so a
+ * client-side approximation of it would spend most of a session claiming a
+ * capture that is not happening.
  */
 export type WatchStreamServerFrame =
   | { readonly type: "ready"; sessionId: string; conversationId: string }
   | { readonly type: "entry" }
+  | { readonly type: "observation" }
   | {
       readonly type: "error";
       category: WatchStreamErrorCategory;
@@ -257,6 +278,9 @@ export class WatchStreamSession {
 
       const started = this.manager.start({
         sourceActorPrincipalId,
+        onObservation: () => {
+          this.handleObservation();
+        },
         ...(this.options.conversationId
           ? { conversationId: this.options.conversationId }
           : {}),
@@ -442,6 +466,26 @@ export class WatchStreamSession {
     }
   }
 
+  /**
+   * A screen read landed on the timeline, so tell the client.
+   *
+   * The manager only calls this for a read that came back and was kept, so
+   * everything the session does with the news is send it: a failed, timed-out,
+   * or cancelled read never reaches here (see `WatchSessionStartOptions`).
+   *
+   * The terminal check is the socket's own. A read dispatched moments before
+   * teardown is dropped by the manager's `stopped` guard, so this is guarding
+   * the narrower case of a listener that outlived the session it was passed
+   * with, and it keeps the frame order the client's contract: nothing after
+   * `closed`.
+   */
+  private handleObservation(): void {
+    if (this.state === "closed") {
+      return;
+    }
+    this.sendFrame({ type: "observation" });
+  }
+
   private handleTranscriberEvent(event: SttStreamServerEvent): void {
     if (this.state === "closed") {
       return;
@@ -451,8 +495,9 @@ export class WatchStreamSession {
       // Onset, not text. Observing here catches the screen the user is about
       // to describe rather than the one their sentence left behind; the
       // narration itself is filed by the `final` below. Fire and forget for
-      // the same reason as that one, and no `entry` frame is sent because
-      // nothing was appended.
+      // the same reason as that one, and no `entry` frame is sent because no
+      // narration was appended; the read this triggers announces itself
+      // through `handleObservation` if it lands.
       void this.manager.handleNarrationStart().catch((err: unknown) => {
         log.warn({ err }, "Watch narration-start observation threw");
       });
