@@ -184,7 +184,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T01:16:55.000Z"
+      "updatedAt": "2026-08-20T22:06:50.000Z"
     },
     {
       "id": "doordash",
@@ -375,7 +375,7 @@
     {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
-      "description": "Set up channel verification for phone, Telegram, Slack, or email channels via outbound verification flow",
+      "description": "Set up channel verification for phone, Telegram, Slack, Discord, or email channels via outbound verification flow",
       "metadata": {
         "emoji": "🔐",
         "vellum": {
@@ -392,7 +392,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-13T01:05:59.000Z"
+      "updatedAt": "2026-08-20T22:10:58.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -1052,7 +1052,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-20T14:28:30.000Z"
+      "updatedAt": "2026-08-20T21:25:08.000Z"
     },
     {
       "id": "vellum-github-app-setup",
