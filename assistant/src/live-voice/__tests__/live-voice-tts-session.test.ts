@@ -212,6 +212,50 @@ function createControlledTtsStreamer(): {
   return { streamTtsAudio, calls, events };
 }
 
+// The slice of a TtsSegmentJob a held-segment selector can see. Kept
+// structural so the test does not need the session's private job type.
+interface HeldJobView {
+  readonly text: string;
+}
+
+// Held segments have no production caller yet, so the tests drive the private
+// hold/promote/retract surface directly against the turn that
+// `startReleasedTurn` left active.
+function heldTtsController(session: LiveVoiceSession): {
+  enqueue: (text: string) => void;
+  promote: (select: (job: HeldJobView) => boolean) => number;
+  retract: (select: (job: HeldJobView) => boolean) => number;
+} {
+  const internals = session as unknown as {
+    activeAssistantTurn: { token: symbol } | null;
+    enqueueTtsSegment: (
+      token: symbol,
+      segment: string,
+      options?: { held?: boolean },
+    ) => void;
+    promoteHeldTtsSegments: (
+      token: symbol,
+      select: (job: HeldJobView) => boolean,
+    ) => number;
+    retractHeldTtsSegments: (
+      token: symbol,
+      select: (job: HeldJobView) => boolean,
+    ) => number;
+  };
+  const token = internals.activeAssistantTurn?.token;
+  if (!token) {
+    throw new Error("No active assistant turn to hold TTS segments on");
+  }
+  return {
+    enqueue: (text) => internals.enqueueTtsSegment(token, text, { held: true }),
+    promote: (select) => internals.promoteHeldTtsSegments(token, select),
+    retract: (select) => internals.retractHeldTtsSegments(token, select),
+  };
+}
+
+const HELD_SENTENCE = "The held answer is ready to speak.";
+const OTHER_HELD_SENTENCE = "A second held sentence waits behind it.";
+const THIRD_HELD_SENTENCE = "A third held sentence waits even further back.";
 const FIRST_SENTENCE = "This is the first spoken sentence.";
 const SECOND_SENTENCE = "Here comes the second spoken sentence.";
 const THIRD_SENTENCE = "And now a third spoken sentence arrives.";
@@ -735,6 +779,195 @@ describe("LiveVoiceSession TTS", () => {
     });
     expect(firstAudioIndex).toBeLessThan(errorIndex);
     expect(errorIndex).toBeLessThan(thirdAudioIndex);
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
+  });
+
+  test("a held segment synthesizes but forwards no audio until it is promoted", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls, events } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+
+    // Synthesis starts immediately: holding is about emission, not about
+    // deferring the provider round trip.
+    expect(events).toEqual([`start:${HELD_SENTENCE}`]);
+
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:held-1"));
+    calls[0]?.finish();
+    await flushAsyncCallbacks();
+    expect(ttsAudioPayloads(frames)).toEqual([]);
+
+    expect(held.promote((job) => job.text === HELD_SENTENCE)).toBe(1);
+    await waitFor(() => ttsAudioPayloads(frames).length === 1);
+    expect(ttsAudioPayloads(frames)).toEqual([b64("audio:held-1")]);
+
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
+  });
+
+  test("a promoted held segment emits its buffered audio ahead of later segments", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:held-1"));
+
+    // Promotion happens before the next segment is enqueued, so the held job
+    // is ahead of it on the emission chain.
+    expect(held.promote(() => true)).toBe(1);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    expect(calls).toHaveLength(2);
+
+    // The later segment finishes first; ordering still follows the chain.
+    calls[1]?.options.onAudioChunk(makeTtsChunk("audio:later-1"));
+    calls[1]?.finish();
+    await flushAsyncCallbacks();
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:held-2"));
+    calls[0]?.finish();
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64("audio:held-1"),
+      b64("audio:held-2"),
+      b64("audio:later-1"),
+    ]);
+  });
+
+  test("a retracted held segment forwards nothing and aborts only its own synthesis", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const abort = mock();
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort };
+    });
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+    expect(calls).toHaveLength(2);
+    calls[1]?.options.onAudioChunk(makeTtsChunk("audio:held-1"));
+
+    expect(held.retract((job) => job.text === HELD_SENTENCE)).toBe(1);
+    expect(calls[1]?.options.signal?.aborted).toBe(true);
+    expect(calls[0]?.options.signal?.aborted).toBe(false);
+
+    // Late provider chunks on a retracted job are dropped rather than
+    // rebuffered, and the retraction never touched the live turn.
+    calls[1]?.options.onAudioChunk(makeTtsChunk("audio:held-2"));
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:live-1"));
+    calls[0]?.finish();
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(abort).not.toHaveBeenCalled();
+    expect(ttsAudioPayloads(frames)).toEqual([b64("audio:live-1")]);
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
+  });
+
+  test("held segments occupy at most one synthesis slot", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls, events } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+    held.enqueue(OTHER_HELD_SENTENCE);
+    held.enqueue(THIRD_HELD_SENTENCE);
+
+    // A second open slot exists, but held jobs may not take it: the block may
+    // never be spoken, so only its first segment is worth synthesizing.
+    expect(events).toEqual([`start:${HELD_SENTENCE}`]);
+
+    // Promoting the first frees the held slot for the next one.
+    expect(held.promote((job) => job.text === HELD_SENTENCE)).toBe(1);
+    expect(events).toEqual([
+      `start:${HELD_SENTENCE}`,
+      `start:${OTHER_HELD_SENTENCE}`,
+    ]);
+
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:held-1"));
+    calls[0]?.finish();
+    calls[1]?.finish();
+    expect(held.retract(() => true)).toBe(2);
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([b64("audio:held-1")]);
+  });
+
+  test("tts_done still fires on a turn holding one segment and retracting another", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+    held.enqueue(OTHER_HELD_SENTENCE);
+
+    // One job stays held forever and one is retracted; neither is on the
+    // emission chain, so neither can stall the drain.
+    expect(held.retract((job) => job.text === OTHER_HELD_SENTENCE)).toBe(1);
+
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:live-1"));
+    calls[0]?.finish();
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([b64("audio:live-1")]);
     expect(frames.at(-1)).toMatchObject({
       type: "tts_done",
       turnId: "live-turn-1",
