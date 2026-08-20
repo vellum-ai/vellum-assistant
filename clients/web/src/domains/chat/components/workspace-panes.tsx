@@ -50,5 +50,5 @@ export function WorkspacePanes({
       />
     );
   }
-  return <>{primary}</>;
+  return primary;
 }
