@@ -686,7 +686,25 @@ describe("useWebPresenceReport: reconciliation", () => {
       expect(postCalls).toHaveLength(1);
     });
 
-    test("an SSE reopen gives an upgraded assistant another chance", async () => {
+    // `sse-service` publishes `sse.opened` from `onReconnect` too, so a
+    // transport blip on a route-less build must not hand back another 404.
+    test("an ordinary SSE reopen does not retry a route-less build", async () => {
+      postStatus = 404;
+      useConversationStore.getState().setActiveConversationId("conv-1");
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      postCalls.length = 0;
+
+      act(() => {
+        publish("sse.opened", { assistantId: "assistant-1", cause: "error" });
+      });
+      tickReconciliation();
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(0);
+    });
+
+    test("a daemon upgrade retries, since the build is a different one", async () => {
       postStatus = 404;
       useConversationStore.getState().setActiveConversationId("conv-1");
       renderReportAt("assistant-1", routes.conversation("conv-1"));
@@ -695,16 +713,39 @@ describe("useWebPresenceReport: reconciliation", () => {
       postStatus = 200;
 
       act(() => {
-        publish("sse.opened", { assistantId: "assistant-1", cause: "fresh" });
+        useAssistantIdentityStore
+          .getState()
+          .setIdentity("test-assistant", "0.11.6", "assistant-1");
       });
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: true,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    test("a 404 on one build does not silence a different assistant", async () => {
+      postStatus = 404;
+      useConversationStore.getState().setActiveConversationId("conv-1");
+      const { unmount } = renderReportAt(
+        "assistant-1",
+        routes.conversation("conv-1"),
+      );
+      await flushPresence();
+      unmount();
+      postCalls.length = 0;
+      postStatus = 200;
+
+      act(() => {
+        useAssistantIdentityStore
+          .getState()
+          .setIdentity("other-assistant", "0.11.5", "assistant-2");
+      });
+      renderReportAt("assistant-2", routes.conversation("conv-1"));
 
       await flushPresence();
       expect(postCalls).toHaveLength(1);
-
-      tickReconciliation();
-
-      await flushPresence();
-      expect(postCalls).toHaveLength(2);
     });
   });
 

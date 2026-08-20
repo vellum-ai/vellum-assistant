@@ -53,6 +53,7 @@ import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useSupportsWebPresence } from "@/lib/backwards-compat/use-supports-web-presence";
 import { isElectron } from "@/runtime/is-electron";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { isConversationChatPath } from "@/utils/routes";
 
@@ -101,21 +102,26 @@ function isPresent(lastInteractionAt: number): boolean {
 }
 
 /**
- * Set once an assistant answers 404, which is what a daemon without the route
- * says. {@link useSupportsWebPresence} normally keeps reports off those
+ * Assistant builds that answered 404, which is what a daemon without the
+ * route says. {@link useSupportsWebPresence} normally keeps reports off those
  * builds, but its floor orders dev builds by timestamp alone, so a build cut
  * from `main` before the route landed clears it. One 404 settles the question
- * for this daemon, and reporting stops rather than repeating on every edge,
- * SSE open, and tick. Cleared on SSE reopen, which is what a daemon upgrade
- * under a live tab looks like.
+ * and reporting stops rather than repeating on every edge, SSE open, and tick.
+ *
+ * Keyed by assistant and version, which is the only thing that can turn a
+ * route-less daemon into one that answers. An SSE reopen cannot: `sse-service`
+ * publishes it for ordinary transport recovery too, so clearing on reopen
+ * would hand back a 404 per reconnect. Keying rather than latching one slot
+ * also keeps a switch between two assistants from re-probing either one.
  */
-let routeMissing = false;
+const routeMissingBuilds = new Set<string>();
 
 async function postWebPresence(
   assistantId: string,
+  buildKey: string,
   body: WebPresenceReportBody,
 ): Promise<void> {
-  if (routeMissing) {
+  if (routeMissingBuilds.has(buildKey)) {
     return;
   }
   try {
@@ -126,7 +132,7 @@ async function postWebPresence(
       throwOnError: false,
     });
     if (response?.status === 404) {
-      routeMissing = true;
+      routeMissingBuilds.add(buildKey);
     }
   } catch {
     // Fire-and-forget: see the module doc comment. Nothing to recover here.
@@ -134,7 +140,11 @@ async function postWebPresence(
 }
 
 let flushing = false;
-let queued: { assistantId: string; body: WebPresenceReportBody } | null = null;
+let queued: {
+  assistantId: string;
+  buildKey: string;
+  body: WebPresenceReportBody;
+} | null = null;
 
 /**
  * Report presence, keeping the daemon's view in generation order.
@@ -150,9 +160,10 @@ let queued: { assistantId: string; body: WebPresenceReportBody } | null = null;
  */
 function reportWebPresence(
   assistantId: string,
+  buildKey: string,
   body: WebPresenceReportBody,
 ): void {
-  queued = { assistantId, body };
+  queued = { assistantId, buildKey, body };
   if (flushing) {
     return;
   }
@@ -162,7 +173,7 @@ function reportWebPresence(
       while (queued) {
         const next = queued;
         queued = null;
-        await postWebPresence(next.assistantId, next.body);
+        await postWebPresence(next.assistantId, next.buildKey, next.body);
       }
     } finally {
       flushing = false;
@@ -174,7 +185,7 @@ function reportWebPresence(
 export function __resetWebPresenceQueueForTests(): void {
   flushing = false;
   queued = null;
-  routeMissing = false;
+  routeMissingBuilds.clear();
 }
 
 /**
@@ -185,6 +196,17 @@ export function useWebPresenceReport(assistantId: string | null): void {
   const location = useLocation();
   const activeConversationId = useConversationStore.use.activeConversationId();
   const supportsWebPresence = useSupportsWebPresence(assistantId);
+  // Identifies the daemon build on the other end, so a 404 is remembered
+  // against that build alone and an upgrade under a live tab is retried.
+  const version = useAssistantIdentityStore.use.version();
+  const buildKey = `${assistantId}@${version}`;
+  // Read off a ref by the timer and the input listener for the same reason
+  // the focused conversation is: an upgrade under a live tab should reach
+  // them without re-arming either.
+  const buildKeyRef = useRef(buildKey);
+  useEffect(() => {
+    buildKeyRef.current = buildKey;
+  }, [buildKey]);
 
   const focusedConversationId = isConversationChatPath(location.pathname)
     ? activeConversationId
@@ -215,7 +237,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
     if (signal === "online") {
       // Reachability, not a foreground edge. It says nothing about where the
       // user is, so the DOM and the idle clock still decide.
-      reportWebPresence(assistantId!, {
+      reportWebPresence(assistantId!, buildKey, {
         visible: isPresent(lastInteractionAtRef.current),
         focusedConversationId,
       });
@@ -226,7 +248,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
     // `lifecycle-edge.ts` publishes only the first to arrive, so the DOM can
     // still read stale here and the losing source never fires to correct it.
     lastInteractionAtRef.current = Date.now();
-    reportWebPresence(assistantId!, {
+    reportWebPresence(assistantId!, buildKey, {
       visible: true,
       focusedConversationId,
     });
@@ -236,7 +258,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
     if (supportsWebPresence && !isElectron()) {
       // Authoritative for the same reason the resume edge is: backgrounded is
       // what the edge means, whatever the DOM has caught up to.
-      reportWebPresence(assistantId!, {
+      reportWebPresence(assistantId!, buildKey, {
         visible: false,
         focusedConversationId,
       });
@@ -245,10 +267,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
 
   useBusSubscription("sse.opened", ({ assistantId: openedFor }) => {
     if (supportsWebPresence && !isElectron() && assistantId === openedFor) {
-      // A reopen is the one signal that the daemon on the other end may have
-      // changed, so give a previously route-less assistant another chance.
-      routeMissing = false;
-      reportWebPresence(assistantId!, {
+      reportWebPresence(assistantId!, buildKey, {
         visible: isPresent(lastInteractionAtRef.current),
         focusedConversationId: focusedConversationIdRef.current,
       });
@@ -265,7 +284,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
       const wasIdle = !isPresent(lastInteractionAtRef.current);
       lastInteractionAtRef.current = Date.now();
       if (wasIdle && isDocumentVisible()) {
-        reportWebPresence(assistantId!, {
+        reportWebPresence(assistantId!, buildKeyRef.current, {
           visible: true,
           focusedConversationId: focusedConversationIdRef.current,
         });
@@ -287,15 +306,17 @@ export function useWebPresenceReport(assistantId: string | null): void {
   // Mount + focused-conversation-change reporter. Reads visibility fresh at
   // post time rather than depending on lifecycle state, so a visibility flip
   // (already reported above) doesn't trigger a second, redundant report.
+  // `buildKey` is a dependency so an upgrade under a live tab reports at once
+  // rather than waiting for the next edge or tick.
   useEffect(() => {
     if (!supportsWebPresence || isElectron()) {
       return;
     }
-    reportWebPresence(assistantId!, {
+    reportWebPresence(assistantId!, buildKey, {
       visible: isPresent(lastInteractionAtRef.current),
       focusedConversationId,
     });
-  }, [assistantId, focusedConversationId, supportsWebPresence]);
+  }, [assistantId, buildKey, focusedConversationId, supportsWebPresence]);
 
   // Reconcile semantic presence slowly while present. A hidden or idle tab
   // skips the tick and its last report ages out of the daemon's TTL, which
@@ -308,7 +329,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
       if (!isPresent(lastInteractionAtRef.current)) {
         return;
       }
-      reportWebPresence(assistantId!, {
+      reportWebPresence(assistantId!, buildKeyRef.current, {
         visible: true,
         focusedConversationId: focusedConversationIdRef.current,
       });
