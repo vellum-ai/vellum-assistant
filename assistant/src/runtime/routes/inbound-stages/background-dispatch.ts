@@ -46,6 +46,7 @@ import {
   getApprovalInfoByConversation,
   getChannelApprovalPrompt,
 } from "../../channel-approvals.js";
+import { guardianPromptDeliveredAsCard } from "../../confirmation-request-guardian-bridge.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import type {
   ApprovalCopyGenerator,
@@ -798,6 +799,17 @@ function startPendingApprovalPromptWatcher(params: {
       requesterExternalUserId,
     })
   ) {
+    return () => {};
+  }
+
+  // This message goes to the chat the turn is running in, which on a shared
+  // channel is a room rather than the guardian. Wherever the guardian card
+  // can carry the same prompt, it does, and this rail stays out of the way so
+  // one prompt reaches one place. Decided once, up front, off the same rule
+  // the bridge applies, so the two cannot race to both deliver or both
+  // decline. What is left here is the turn the card cannot reach: a channel
+  // the notification pipeline has no destination resolver for.
+  if (guardianPromptDeliveredAsCard({ trustClass, sourceChannel })) {
     return () => {};
   }
 
