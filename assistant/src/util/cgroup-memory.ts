@@ -134,6 +134,8 @@ export interface ContainerMemoryStat {
   fileBytes: number | null;
   /** Total kernel memory charged to the cgroup (includes slab). */
   kernelBytes: number | null;
+  /** File-backed pages on the inactive LRU: readily reclaimable cache. */
+  inactiveFileBytes: number | null;
   /** Slab memory the kernel can reclaim under pressure (dentries, inodes). */
   slabReclaimableBytes: number | null;
   /** Slab memory pinned until explicitly freed. */
@@ -172,6 +174,7 @@ export function parseMemoryStat(raw: string): ContainerMemoryStat {
   return {
     anonBytes,
     fileBytes,
+    inactiveFileBytes: counts.inactive_file ?? null,
     kernelBytes: counts.kernel ?? null,
     slabReclaimableBytes,
     slabUnreclaimableBytes,

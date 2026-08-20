@@ -39,6 +39,7 @@ interface HotkeyCommand {
 const HOTKEY_CATALOG: readonly HotkeyCommand[] = [
   { key: "globalHotkey", label: "Open Vellum", scope: "global" },
   { key: "quickInput", label: "Quick Input", scope: "global" },
+  { key: "toggleVoice", label: "Talk", scope: "global" },
   { key: "newConversation", label: "New chat", scope: "menu" },
   { key: "currentConversation", label: "Current conversation", scope: "menu" },
   {

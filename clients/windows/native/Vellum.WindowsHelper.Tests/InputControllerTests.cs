@@ -62,6 +62,10 @@ public static class InputControllerTests
             InputController.MapAction("computer_use_click", rightClick.RootElement).Type == "right_click",
             "click_type right");
         Check(InputController.MapAction("computer_use_click", null).Type == "click", "click default");
+        using var elementClick = JsonDocument.Parse("{\"element_id\":9007199254740991}");
+        Check(
+            InputController.MapAction("computer_use_click", elementClick.RootElement).ElementId == 9007199254740991,
+            "click element id");
         Check(InputController.MapAction("computer_use_screenshot", null).Type == "observe", "screenshot observes");
         Check(InputController.MapAction("computer_use_press_key", null).Type == "key", "press_key");
 
@@ -78,12 +82,28 @@ public static class InputControllerTests
             await InvokeAsync(module, "conv-script", "computer_use_run_applescript", "{\"script\":\"x\"}"),
             "not supported on Windows", "script unsupported");
 
-        // A click without coordinates fails before any input is synthesized.
+        // An unknown element fails before any input is synthesized.
+        ObservationSeams.CuSource = new FakeObservationSource();
         CheckContains(
             await InvokeAsync(module, "conv-element", "computer_use_click", "{\"element_id\":3}"),
-            "Coordinates are required", "coordinates required");
+            "was not found", "unknown element");
+
+        var resolved = await InputController.ResolveElementCoordinatesAsync(
+            new CuAction("click", ElementId: 7),
+            new FakeObservationSource(new CuPoint(40, 60)),
+            CancellationToken.None);
+        Check(resolved.X == 40 && resolved.Y == 60, "element center resolves");
+
+        var translated = await InputController.ResolveElementCoordinatesAsync(
+            new CuAction("click", X: 20, Y: 30),
+            new FakeObservationSource(screenOffset: new CuPoint(-1920, -200)),
+            CancellationToken.None,
+            "conv-secondary");
+        Check(translated.X == -1900 && translated.Y == -170,
+            "screen coordinates include the captured display origin");
 
         // observe without an observation source flags that state is unverified.
+        ObservationSeams.CuSource = null;
         CheckContains(
             await InvokeAsync(module, "conv-observe", "computer_use_observe", "{}"),
             "observation is unavailable", "observe unavailable");
@@ -95,6 +115,23 @@ public static class InputControllerTests
             "respond has no error");
 
         Console.WriteLine("InputController tests passed");
+    }
+
+    private sealed class FakeObservationSource(
+        CuPoint? point = null, CuPoint? screenOffset = null) : ICuObservationSource
+    {
+        public Task<IReadOnlyDictionary<string, object?>> ObserveAsync(
+            string conversationId, int stepNumber, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<string, object?>>(new Dictionary<string, object?>());
+
+        public Task<CuPoint?> ResolveElementCenterAsync(
+            long elementId, CancellationToken cancellationToken) => Task.FromResult(point);
+
+        public Task<CuPoint> TranslateScreenPointAsync(
+            string conversationId, CuPoint input, CancellationToken cancellationToken) =>
+            Task.FromResult(screenOffset is null
+                ? input
+                : new CuPoint(input.X + screenOffset.X, input.Y + screenOffset.Y));
     }
 
     private static async Task<Dictionary<string, object?>> InvokeAsync(

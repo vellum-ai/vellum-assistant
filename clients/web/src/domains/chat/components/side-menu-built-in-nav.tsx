@@ -1,5 +1,5 @@
 import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
-import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
+import { AssistantSwitcher } from "@/domains/chat/components/assistant-switcher";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { cn } from "@vellumai/design-library";
@@ -61,7 +61,7 @@ export function SideMenuBuiltInNav({
           overlay drawer skips the New Chat row: its floating New Chat
           pill already owns that action in the thumb zone. */}
       <div>
-        <AssistantNavItem
+        <AssistantSwitcher
           assistantId={assistantId}
           label={assistantName || "Your Assistant"}
           active={isIntelligenceActive}
@@ -82,6 +82,7 @@ export function SideMenuBuiltInNav({
                 }
               : undefined
           }
+          onSwitched={onClose}
         />
       </div>
       {pinnedApps.length > 0 ? (

@@ -463,8 +463,9 @@ export function useStreamEventHandler(
         // Cross-domain events handled by bus subscribers mounted in
         // RootLayout (useAssistantResourceSync, useConversationSync,
         // useNotificationIntentSync, useDocumentEditorSync, useBookmarksSync)
-        // or ChatPage-scoped hooks (useDiskPressureMonitor). The chat
-        // handler is intentionally a no-op for these.
+        // or ChatPage-scoped hooks (useDiskPressureMonitor,
+        // useResourcePressureMonitor). The chat handler is intentionally
+        // a no-op for these.
         case "bookmark.created":
         case "bookmark.deleted":
         case "sync_changed":
@@ -473,6 +474,7 @@ export function useStreamEventHandler(
         case "identity_changed":
         case "avatar_updated":
         case "disk_pressure_status_changed":
+        case "resource_pressure_status_changed":
         case "notification_intent":
         case "document_editor_show":
         case "document_editor_update":

@@ -45,30 +45,28 @@ export function canActOnPrivilegedDocuments(actor: {
 }
 
 /**
- * Channels whose actors see personal memory regardless of trust class. The
- * `vellum` first-party console is the operator's own surface rather than an
- * external contact channel, mirroring {@link PRIVILEGED_DOCUMENT_CHANNELS}.
- */
-const PERSONAL_MEMORY_CHANNELS = new Set<string>(["vellum"]);
-
-/**
  * Whether personal-memory content (memory pages, PKB, matched v3 card
  * sections, the v2 static block) may be surfaced to an actor.
  *
- * True when the trust class grants it, when the request arrived on a personal
- * memory channel, or when no channel is present at all -- a resolved actor
- * always carries one, so its absence means no actor was resolved, which is how
- * local/native turns arrive.
+ * The trust class decides, and nothing else. Personal memory is elevated
+ * access, and every other consumer of "no actor was bound" already fails
+ * closed for it: `FALLBACK_TURN_TRUST` is documented as low-trust and "never
+ * guardian", and the workflow resume path deliberately declines to fall back
+ * to the guardian context so a resumed run cannot gain trust it did not start
+ * with. A gate that granted memory for the same condition would contradict
+ * them.
+ *
+ * Notably this takes no channel. A surface is not an actor: arriving on the
+ * first-party console says nothing about who is asking, and an actor whose
+ * class could not be resolved fails closed to `unknown` upstream. Answering
+ * "who is this" is `resolveTrustClass`'s job -- including the local/native
+ * turns that resolve to guardian under a disabled-auth posture -- and this
+ * function only answers what that actor may see.
  */
 export function canSeePersonalMemory(actor: {
   trustClass: RawTrustClass;
-  executionChannel?: string;
 }): boolean {
-  return (
-    resolveCapabilities(actor.trustClass).canAccessMemory ||
-    actor.executionChannel == null ||
-    PERSONAL_MEMORY_CHANNELS.has(actor.executionChannel)
-  );
+  return resolveCapabilities(actor.trustClass).canAccessMemory;
 }
 
 /**

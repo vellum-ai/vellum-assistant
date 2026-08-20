@@ -38,7 +38,12 @@ import { createSelectors } from "@/utils/create-selectors";
  * - `idle` — no session (or a finished one cleaned up).
  * - `connecting` — minting a token / opening the socket, before `ready`.
  * - `listening` — mic is capturing and streaming PCM to the server.
- * - `transcribing` — push-to-talk released; waiting on the final transcript.
+ * - `transcribing`: the user's utterance closed; waiting on the final
+ *   transcript. Set by server VAD's `utterance_end` in hands-free and by the
+ *   turn-boundary `ptt_release` frame in manual mode. Distinct from `thinking`
+ *   because it stamps end-of-speech latency and gates the
+ *   `utterance_discarded` return to `listening`, though the two share a label
+ *   (see {@link LIVE_VOICE_STATE_LABELS}).
  * - `thinking` — server is generating the assistant response.
  * - `speaking` — TTS audio is queued/playing.
  * - `ending` — graceful teardown in progress.
@@ -63,12 +68,20 @@ export type LiveVoiceSessionState =
  * streams into the thread transcript like text chat, so surfaces only carry a
  * small label. `idle`/`failed` map to an empty label — hosts unmount their
  * voice UI in those states.
+ *
+ * `transcribing` and `thinking` share one label (JARVIS-1559).
+ * `toVoiceAvatarVisual` collapses both phases to a single visual, so wording
+ * unique to `transcribing` puts two words for one phase on screen at once,
+ * across a window that is usually under a second and that offers the user
+ * nothing to act on. The pairing belongs in this table rather than in
+ * {@link liveVoiceSurfaceLabel}: the session pill and the composer's voice bar
+ * read the table directly, so it is the only layer every surface shares.
  */
 export const LIVE_VOICE_STATE_LABELS: Record<LiveVoiceSessionState, string> = {
   idle: "",
   connecting: "Connecting…",
   listening: "Listening…",
-  transcribing: "Transcribing…",
+  transcribing: "Thinking…",
   thinking: "Thinking…",
   speaking: "Speaking…",
   ending: "Ending…",
@@ -94,15 +107,24 @@ export function liveVoiceStateLabel(
 }
 
 /**
- * The label a *surface* shows for a session — {@link liveVoiceStateLabel} plus
- * the audio-aware `speaking` remap.
+ * The label a *surface* shows for a session: {@link liveVoiceStateLabel} plus
+ * the two remaps that keep the words true of what is actually happening.
  *
  * `speaking` stays set across a mid-turn tool run: the assistant spoke an ack,
  * then went silent while a tool runs. Announcing "Speaking…" while nothing is
  * audible is wrong for the room's caption, wrong for its screen-reader
  * announcement, and wrong for the Dynamic Island (JARVIS-1279). Every surface
- * that renders session activity calls this — the voice room and the iOS Live
- * Activity mirror — so the island always reads exactly what the room reads.
+ * that renders session activity calls this, the voice room and the iOS Live
+ * Activity mirror, so the island always reads exactly what the room reads.
+ *
+ * `listening` is the same problem through the microphone: the session holds
+ * that phase while the mic is muted, so the surface claims to be listening
+ * beside a mute button that says it is not. Muted is a state rather than an
+ * activity, so it takes no ellipsis where the phases do.
+ *
+ * Only `listening` is remapped. Muting the microphone does not make the
+ * assistant stop thinking or speaking, and relabelling those would trade one
+ * false statement for another.
  *
  * {@link liveVoiceStateLabel} stays the lower layer for callers that have no
  * audio signal to consult.
@@ -111,7 +133,11 @@ export function liveVoiceSurfaceLabel(
   state: LiveVoiceSessionState,
   reconnecting: boolean,
   assistantAudioActive: boolean,
+  muted: boolean,
 ): string {
+  if (state === "listening" && muted) {
+    return "Muted";
+  }
   return liveVoiceStateLabel(
     state === "speaking" && !assistantAudioActive ? "thinking" : state,
     reconnecting,
@@ -279,6 +305,21 @@ export interface LiveVoiceState {
    */
   starter: LiveVoiceSessionStarter | null;
   /**
+   * Whether the first-run preferences card stands in for an entry, having
+   * intercepted one. Store-held rather than composer-local because every
+   * entry point can be intercepted, including the ones with no composer in
+   * them (the voice mode shortcut, the companion surface's Talk), and the
+   * card is drawn in one place for all of them.
+   */
+  firstRunCardOpen: boolean;
+  /**
+   * The daemon's "configure voice" copy from a `not-ready` readiness verdict,
+   * or `null`. Non-null means an entry was refused before the room opened;
+   * the composer renders it with a deep link to voice settings. Store-held
+   * for the same reason as {@link LiveVoiceState.firstRunCardOpen}.
+   */
+  configNotice: string | null;
+  /**
    * One short line describing what the current turn is doing ("Reading a
    * file"), or `""` when it is doing nothing nameable.
    *
@@ -427,6 +468,10 @@ export interface LiveVoiceActions {
   setControls: (controls: LiveVoiceSessionControls | null) => void;
   /** Register (or clear) the mounted controller's session starter. */
   setStarter: (starter: LiveVoiceSessionStarter | null) => void;
+  /** Open or dismiss the first-run preferences card. */
+  setFirstRunCardOpen: (open: boolean) => void;
+  /** Publish or clear the pre-open "configure voice" notice. */
+  setConfigNotice: (notice: string | null) => void;
   setPartialTranscript: (text: string) => void;
   setFinalTranscript: (text: string) => void;
   /** Append a delta to the accumulated assistant transcript. */
@@ -561,6 +606,8 @@ export function isLiveVoiceSessionOwnedBy(
 /** Session-scoped fields restored by `reset()`. Excludes `starter` (mount-scoped). */
 const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   state: "idle",
+  firstRunCardOpen: false,
+  configNotice: null,
   assistantAudioActive: false,
   microphoneActive: false,
   activityLabel: "",
@@ -616,6 +663,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     })),
   setControls: (controls) => set({ controls }),
   setStarter: (starter) => set({ starter }),
+  setFirstRunCardOpen: (firstRunCardOpen) => set({ firstRunCardOpen }),
+  setConfigNotice: (configNotice) => set({ configNotice }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),
   setFinalTranscript: (finalTranscript) => set({ finalTranscript }),
   appendAssistantTranscript: (delta) =>

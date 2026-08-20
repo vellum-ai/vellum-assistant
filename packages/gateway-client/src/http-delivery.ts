@@ -131,7 +131,6 @@ function buildManagedOutboundRequestId(
       chatId: payload.chatId,
       text: normalizedText,
       assistantId: payload.assistantId ?? null,
-      chatAction: payload.chatAction ?? null,
       hasAttachments:
         Array.isArray(payload.attachments) && payload.attachments.length > 0,
       approvalRequestId: payload.approval?.requestId ?? null,
@@ -212,7 +211,6 @@ async function deliverManagedOutboundReply(
         chatId: payload.chatId,
         text: payload.text ?? null,
         assistantId: payload.assistantId ?? null,
-        chatAction: payload.chatAction ?? null,
         hasAttachments,
         sourceUpdateId: callback.sourceUpdateId ?? null,
       },
@@ -325,7 +323,12 @@ export async function deliverChannelReply(
 ): Promise<ChannelDeliveryResult> {
   const managedCallback = parseManagedOutboundCallback(callbackUrl);
   if (managedCallback) {
-    await deliverManagedOutboundReply(managedCallback, payload, bearerToken, log);
+    await deliverManagedOutboundReply(
+      managedCallback,
+      payload,
+      bearerToken,
+      log,
+    );
     return { ok: true };
   }
 
@@ -385,17 +388,7 @@ export async function deliverChannelReply(
     // Response may not be JSON for non-Slack channels; that's fine.
   }
 
-  if (payload.chatAction) {
-    log.debug(
-      { chatId: payload.chatId, callbackUrl, chatAction: payload.chatAction },
-      "Channel action delivered",
-    );
-  } else {
-    log.info(
-      { chatId: payload.chatId, callbackUrl },
-      "Channel reply delivered",
-    );
-  }
+  log.info({ chatId: payload.chatId, callbackUrl }, "Channel reply delivered");
 
   return result;
 }

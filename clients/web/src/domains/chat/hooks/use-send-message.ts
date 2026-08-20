@@ -449,8 +449,17 @@ export function useSendMessage({
       // The draft's stashed profile (if any) has now been persisted on the
       // minted conversation; drop this draft's entry so it can't re-apply to a
       // later send. Cleared only on success — a failed draft send keeps the
-      // stash so a retry still carries the chosen profile.
-      if (inferenceProfileForSend) {
+      // stash so a retry still carries the chosen profile — and only while the
+      // stash still holds the value that was sent: a newer selection made
+      // mid-flight must survive so the mint-time re-key below can carry it to
+      // the minted conversation.
+      if (
+        inferenceProfileForSend &&
+        useConversationStore
+          .getState()
+          .pendingDraftProfiles.get(requestConversationId) ===
+          inferenceProfileForSend
+      ) {
         useConversationStore
           .getState()
           .clearPendingDraftProfile(requestConversationId);
@@ -967,6 +976,22 @@ export function useSendMessage({
             newConversationId,
           );
 
+          // A profile picked while the mint was in flight is stashed under the
+          // draft id after the POST already read the stash — re-key it to the
+          // minted id so the composer's promotion effect persists it now that
+          // the real row exists (ATL-1136).
+          const stashedProfile = useConversationStore
+            .getState()
+            .pendingDraftProfiles.get(activeConversationId);
+          if (stashedProfile !== undefined) {
+            useConversationStore
+              .getState()
+              .setPendingDraftProfile(newConversationId, stashedProfile);
+            useConversationStore
+              .getState()
+              .clearPendingDraftProfile(activeConversationId);
+          }
+
           // Only update active view state if the user is still on this conversation.
           if (
             useConversationStore.getState().activeConversationId ===
@@ -982,6 +1007,30 @@ export function useSendMessage({
             void navigate(routes.conversation(newConversationId), {
               replace: true,
             });
+          }
+        } else if (resolvedId && isDraft) {
+          // Legacy (pre-0.8.6) assistants echo the client-minted draft id
+          // back, so the re-key above is skipped. The row is persisted
+          // server-side now — a profile picked while the POST was in flight
+          // still sits in the stash, and nothing would push it: the row's
+          // draft flag only clears via the async list refetch, which doesn't
+          // touch the promotion effect's deps. Clear the flag, then clear and
+          // re-set the stash entry — `setPendingDraftProfile` no-ops on an
+          // unchanged value, so a clear/set pair is needed to change the Map
+          // identity the promotion effect depends on. Whether or not React
+          // batches the pair into one render, the effect re-runs with the
+          // stash present and persists the selection (ATL-1136).
+          const stashedProfile = useConversationStore
+            .getState()
+            .pendingDraftProfiles.get(activeConversationId);
+          if (stashedProfile !== undefined) {
+            resolveDraftKey(queryClient, assistantId, activeConversationId, activeConversationId);
+            useConversationStore
+              .getState()
+              .clearPendingDraftProfile(activeConversationId);
+            useConversationStore
+              .getState()
+              .setPendingDraftProfile(activeConversationId, stashedProfile);
           }
         }
 

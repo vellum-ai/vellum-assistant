@@ -402,7 +402,7 @@ describe("DailyCreditLimitCard auto top-up dependency", () => {
     const toggle = getByRole("switch") as HTMLButtonElement;
     expect(toggle.disabled).toBe(true);
     expect(getByTestId("daily-credit-limit-required-note").textContent).toBe(
-      "A daily credit limit is required while automatic top-ups are enabled.",
+      "A daily credit limit is required while auto-reload is enabled.",
     );
 
     // The guard holds even if the click lands (e.g. a programmatic change):

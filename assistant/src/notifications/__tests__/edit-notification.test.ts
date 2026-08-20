@@ -47,17 +47,47 @@ mock.module("../deliveries-store.js", () => ({
 const adapterUpdates: Array<{ title?: string; body?: string }> = [];
 let adapterSupportsUpdate = true;
 
+const messageRewrites: Array<{ messageId: string; content: string }> = [];
+
+/** messageId -> the conversation it belongs to, for the scoped lookup. */
+const messageOwners = new Map<string, string>();
+
+let messageLookupShouldThrow = false;
+
+mock.module("../../persistence/conversation-crud.js", () => ({
+  getMessageById: (messageId: string, conversationId?: string) => {
+    if (messageLookupShouldThrow) {
+      throw new Error("simulated message lookup failure");
+    }
+    const owner = messageOwners.get(messageId);
+    if (!owner || (conversationId && owner !== conversationId)) {
+      return null;
+    }
+    return { id: messageId, conversationId: owner };
+  },
+  updateMessageContent: (messageId: string, content: string) => {
+    messageRewrites.push({ messageId, content });
+  },
+  // Pulled in by `home-feed-side-effect`, which this module imports for the
+  // owned-message rewrite. The write paths never run under an edit.
+  addMessage: async () => ({ id: "msg-unused" }),
+  getConversation: () => null,
+}));
+
 mock.module("../emit-signal.js", () => ({
   getBroadcaster: () => ({
     getAdapter: () =>
       adapterSupportsUpdate
         ? {
             update: async (
-              _target: unknown,
+              target: { messageId?: string | null },
               patch: { title?: string; body?: string },
             ) => {
               adapterUpdates.push(patch);
-              return { success: true };
+              return {
+                success: true,
+                messageId: target.messageId ?? undefined,
+              };
             },
           }
         : {},
@@ -133,6 +163,10 @@ beforeEach(() => {
   deliveryRows = [];
   renderedCopyPatches.length = 0;
   adapterUpdates.length = 0;
+  messageRewrites.length = 0;
+  messageOwners.clear();
+  messageOwners.set("msg-9", "conv-source-1");
+  messageLookupShouldThrow = false;
   adapterSupportsUpdate = true;
 });
 
@@ -326,5 +360,143 @@ describe("editNotification", () => {
 
     expect(result!.channels).toEqual([]);
     expect(adapterUpdates).toHaveLength(0);
+  });
+
+  describe("a card that owns its conversation message", () => {
+    // Signals no channel delivered a body for carry the message id on the
+    // feed item, so the rewrite hangs off the card rather than a delivery row.
+    const OWNED = {
+      conversationId: "conv-source-1",
+      metadata: { notificationConversationMessageId: "msg-9" },
+    };
+
+    test("a body edit rewrites the owned message", async () => {
+      await appendFeedItem(makeItem(OWNED));
+
+      const result = await editNotification({
+        id: FEED_ITEM_ID,
+        body: "Backup finished, 3 volumes",
+      });
+
+      expect(result).not.toBeNull();
+      expect(messageRewrites).toEqual([
+        { messageId: "msg-9", content: "Backup finished, 3 volumes" },
+      ]);
+    });
+
+    test("the rewrite runs even when the signal recorded no deliveries", async () => {
+      await appendFeedItem(makeItem(OWNED));
+      decisionRow = null;
+
+      await editNotification({
+        id: FEED_ITEM_ID,
+        body: "Backup finished, 3 volumes",
+      });
+
+      expect(messageRewrites).toHaveLength(1);
+    });
+
+    test("a title-only edit leaves the owned message alone", async () => {
+      // The feed keeps its summary on a title-only patch, and the message
+      // holds the body, so rewriting it would put the two out of step.
+      await appendFeedItem(makeItem(OWNED));
+
+      const result = await editNotification({
+        id: FEED_ITEM_ID,
+        title: "Backup finished early",
+      });
+
+      expect(result!.feedItem.summary).toBe("Nightly backup finished");
+      expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("stands down when the adapter already rewrote that row", async () => {
+      // The ordinary vellum case: the delivery walk rewrites the paired row,
+      // so the card must not write it a second time.
+      await appendFeedItem(makeItem(OWNED));
+      decisionRow = { id: "dec-1" };
+      deliveryRows = [makeDelivery({ channel: "vellum", messageId: "msg-9" })];
+
+      await editNotification({ id: FEED_ITEM_ID, body: "New body" });
+
+      expect(adapterUpdates).toHaveLength(1);
+      expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("rewrites when a sent delivery's status write was lost", async () => {
+      // `sendAndRecord` swallows a failed status write after a successful
+      // send, leaving a row that reads pending, which the walk skips.
+      await appendFeedItem(makeItem(OWNED));
+      decisionRow = { id: "dec-1" };
+      deliveryRows = [
+        makeDelivery({
+          channel: "vellum",
+          messageId: "msg-9",
+          status: "pending",
+        }),
+      ];
+
+      await editNotification({ id: FEED_ITEM_ID, body: "New body" });
+
+      expect(adapterUpdates).toHaveLength(0);
+      expect(messageRewrites).toEqual([
+        { messageId: "msg-9", content: "New body" },
+      ]);
+    });
+
+    test("rewrites when the adapter update failed", async () => {
+      await appendFeedItem(makeItem(OWNED));
+      decisionRow = { id: "dec-1" };
+      deliveryRows = [makeDelivery({ channel: "vellum", messageId: "msg-9" })];
+      adapterSupportsUpdate = false;
+
+      await editNotification({ id: FEED_ITEM_ID, body: "New body" });
+
+      expect(messageRewrites).toHaveLength(1);
+    });
+
+    test("a title-only edit leaves the row alone even with deliveries", async () => {
+      await appendFeedItem(makeItem(OWNED));
+      decisionRow = { id: "dec-1" };
+      deliveryRows = [makeDelivery({ channel: "vellum", messageId: "msg-9" })];
+
+      await editNotification({ id: FEED_ITEM_ID, title: "Renamed" });
+
+      expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("a handle addressing another conversation is refused", async () => {
+      await appendFeedItem(makeItem(OWNED));
+      messageOwners.set("msg-9", "conv-somebody-elses");
+
+      await editNotification({ id: FEED_ITEM_ID, body: "New body" });
+
+      expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("an ownership lookup failure does not abort the edit", async () => {
+      // The feed patch and any channel updates have already landed at this
+      // point, so the edit must still report them rather than throwing.
+      await appendFeedItem(makeItem(OWNED));
+      messageLookupShouldThrow = true;
+
+      const result = await editNotification({
+        id: FEED_ITEM_ID,
+        body: "Backup finished, 3 volumes",
+      });
+
+      expect(result).not.toBeNull();
+      expect(result!.feedItem.summary).toBe("Backup finished, 3 volumes");
+      expect(readItem()!.summary).toBe("Backup finished, 3 volumes");
+      expect(messageRewrites).toHaveLength(0);
+    });
+
+    test("a card owning no message is untouched by a body edit", async () => {
+      await appendFeedItem(makeItem());
+
+      await editNotification({ id: FEED_ITEM_ID, body: "New body" });
+
+      expect(messageRewrites).toHaveLength(0);
+    });
   });
 });

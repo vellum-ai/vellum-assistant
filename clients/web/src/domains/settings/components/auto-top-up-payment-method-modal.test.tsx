@@ -104,7 +104,11 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 
 /** Wait for the SetupIntent mutation to resolve and the card form to mount. */
-async function renderModalWithForm(): Promise<ReturnType<typeof render>> {
+async function renderModalWithForm(
+  onSavedOptimistic: (args: {
+    setupIntentId: string | null;
+  }) => void = () => {},
+): Promise<ReturnType<typeof render>> {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -113,7 +117,7 @@ async function renderModalWithForm(): Promise<ReturnType<typeof render>> {
       <AutoTopUpPaymentMethodModal
         open
         onClose={() => {}}
-        onSavedOptimistic={() => {}}
+        onSavedOptimistic={onSavedOptimistic}
       />
     </QueryClientProvider>,
   );
@@ -211,5 +215,26 @@ describe("AutoTopUpPaymentMethodModal billing address", () => {
     expect(
       (call.confirmParams as Record<string, unknown>).payment_method_data,
     ).toBeUndefined();
+  });
+
+  test("reports the SetupIntent id derived from the client secret on save", async () => {
+    const savedArgs: Array<{ setupIntentId: string | null }> = [];
+    const { getByTestId } = await renderModalWithForm((args) => {
+      savedArgs.push(args);
+    });
+    fireOnReady(paymentElementProps);
+    fireOnReady(addressElementProps);
+
+    fireEvent.submit(
+      getByTestId("auto-top-up-pm-save-button").closest("form")!,
+    );
+
+    await waitFor(() => {
+      if (savedArgs.length === 0) {
+        throw new Error("onSavedOptimistic not called");
+      }
+    });
+    // The mocked client_secret is `seti_123_secret_456`.
+    expect(savedArgs[0]).toEqual({ setupIntentId: "seti_123" });
   });
 });

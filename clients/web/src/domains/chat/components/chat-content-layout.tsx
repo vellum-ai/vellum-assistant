@@ -26,6 +26,7 @@ import {
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { viewerPanePresentation } from "@/stores/pane-presentation";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -92,6 +93,7 @@ const SkillDetailPanel = lazy(() =>
 export function ChatContentLayout(props: ChatMainPanelProps) {
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
+  const isAppMinimized = useViewerStore.use.isAppMinimized();
   const openedDocumentState = useViewerStore.use.openedDocumentState();
   const editingConversationId =
     useConversationStore.use.editingConversationId();
@@ -340,7 +342,15 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // -------------------------------------------------------------------------
 
   // App editing: resizable split with chat + app editor
-  if (mainView === "app-editing" && openedAppState && editingConversationId) {
+  if (
+    viewerPanePresentation({
+      mainView,
+      hasApp: !!openedAppState,
+      hasBoundConversation: !!editingConversationId,
+      isAppMinimized,
+    }) === "side" &&
+    openedAppState
+  ) {
     return (
       <ResizablePanel
         storageKey="appEditPanelWidth"

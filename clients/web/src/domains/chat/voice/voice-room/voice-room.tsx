@@ -448,12 +448,15 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // The label + sr-only announcement must follow the same audio-aware mapping as
   // the visual: a silent mid-turn `speaking` (ack spoken, tool now running)
   // reads as "Thinking…", not "Speaking…", so screen-reader users aren't told
-  // the assistant is talking while it's actually silent (JARVIS-1279). Shared
-  // with the iOS Live Activity mirror, which shows this exact string.
+  // the assistant is talking while it's actually silent (JARVIS-1279), and a
+  // muted `listening` reads as "Muted", so they are not told it is hearing them
+  // while the mic is off. Shared with the iOS Live Activity mirror and the
+  // macOS companion, which show this exact string.
   const stateLabel = liveVoiceSurfaceLabel(
     state,
     reconnecting,
     assistantAudioActive,
+    muted,
   );
 
   // The state caption (e.g. "Listening…") shows only while the assistant
@@ -1106,7 +1109,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       {/* Screen readers get session-state changes here; the avatar is the
           visual channel, so this stays off-screen. */}
       <div aria-live="polite" className="sr-only">
-        {muted ? `Muted — ${stateLabel}` : stateLabel}
+        {/* A muted `listening` already reads as "Muted", so prefixing it again
+            would announce "Muted — Muted". The assistant's own phases still
+            need the prefix: "Thinking…" alone would not say the mic is off. */}
+        {muted && state !== "listening" ? `Muted. ${stateLabel}` : stateLabel}
       </div>
     </motion.div>
   );

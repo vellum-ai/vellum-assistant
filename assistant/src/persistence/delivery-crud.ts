@@ -9,11 +9,11 @@ import { and, desc, eq, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { ChannelId } from "../channels/types.js";
-import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import type { SlackInboundMessageMetadata } from "../runtime/http-types.js";
 import { parseJsonSafe } from "../util/json.js";
 import { isPlainObject } from "../util/object.js";
-import { selectSlackMetaCandidateMetadata } from "./conversation-crud.js";
+import { selectProviderMetaCandidateMetadata } from "./conversation-crud.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
@@ -119,7 +119,7 @@ function legacySlackConversationHasThreadEvidence(
       SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE,
       remaining,
     );
-    const metadataRows = selectSlackMetaCandidateMetadata(
+    const metadataRows = selectProviderMetaCandidateMetadata(
       conversationId,
       batchLimit,
       offset,
@@ -130,12 +130,10 @@ function legacySlackConversationHasThreadEvidence(
       return false;
     }
     for (const metadata of metadataRows) {
-      const slackMeta = readSlackMetadataFromMessageMetadata(metadata, {
-        allowFlatLegacy: true,
-      });
+      const meta = readProviderMetadata(metadata, { allowFlatLegacy: true });
       if (
-        slackMeta?.channelId === externalChatId &&
-        slackMeta.threadTs === sourceThreadId
+        meta?.conversationExternalId === externalChatId &&
+        meta.threadId === sourceThreadId
       ) {
         return true;
       }
@@ -297,8 +295,11 @@ export function findInboundEvent(
 }
 
 /**
- * The conversation holding the Slack message with this `ts`, found by reading
- * the `slackMeta` the assistant's own posts carry.
+ * The conversation holding the message with this provider id, found by reading
+ * the metadata the assistant's own posts carry.
+ *
+ * Reads through `readProviderMetadata`, so it matches any channel that
+ * describes its rows in the neutral shape as well as Slack's own envelope.
  *
  * `findMessageBySourceId` covers every message that arrived as an inbound
  * event. It cannot see what the assistant posted, because an outbound reply
@@ -330,7 +331,10 @@ export function findSlackConversationByMessageTs(
           eq(conversationKeys.conversationKey, keyPrefix),
           like(conversationKeys.conversationKey, `${keyPrefix}:thread:%`),
         ),
-        like(messages.metadata, '%"slackMeta"%'),
+        or(
+          like(messages.metadata, '%"providerMeta"%'),
+          like(messages.metadata, '%"slackMeta"%'),
+        ),
       ),
     )
     .orderBy(desc(messages.createdAt))
@@ -338,12 +342,10 @@ export function findSlackConversationByMessageTs(
     .all();
 
   for (const row of rows) {
-    const slackMeta = readSlackMetadataFromMessageMetadata(row.metadata, {
-      allowFlatLegacy: true,
-    });
+    const meta = readProviderMetadata(row.metadata, { allowFlatLegacy: true });
     if (
-      slackMeta?.channelId === externalChatId &&
-      slackMeta.channelTs === channelTs
+      meta?.conversationExternalId === externalChatId &&
+      meta.messageId === channelTs
     ) {
       return row.conversationId;
     }

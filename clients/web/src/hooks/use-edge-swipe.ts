@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { haptic } from "@/utils/haptics";
+import { ownsCaretDrag } from "@/utils/caret-surface";
 import { isPointerCoarse } from "@/utils/pointer";
 
 // ---------------------------------------------------------------------------
@@ -85,14 +86,13 @@ export function activationZonePx(viewportWidth: number): number {
  * a row's gaps, attachments, and action affordances.
  */
 export function ownsHorizontalTextDrag(target: EventTarget | null): boolean {
+  if (ownsCaretDrag(target)) {
+    return true;
+  }
   if (!(target instanceof Element)) {
     return false;
   }
-  return (
-    target.closest(
-      'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-message-text]',
-    ) !== null
-  );
+  return target.closest("[data-message-text]") !== null;
 }
 
 /**

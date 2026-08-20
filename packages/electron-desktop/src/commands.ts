@@ -92,6 +92,7 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   removePairedAssistant: "",
   quickInputSubmit: "",
   startVoice: "",
+  toggleVoice: "",
   companionSubmit: "",
   cancelDictation: "",
   replayOnboarding: "",
@@ -107,6 +108,21 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
 export const GLOBAL_SHORTCUT_DEFAULTS: Record<string, string> = {
   globalHotkey: "CmdOrCtrl+Shift+G",
   quickInput: "CmdOrCtrl+Shift+/",
+  /**
+   * Talk. Ships **unbound**, and is the only global here that does.
+   *
+   * A global registration outranks every app's own shortcuts for as long as
+   * Vellum runs, and `globalShortcut.register` cannot see those: it reports a
+   * conflict only against other *global* registrants, so it returns true for
+   * chords that are load-bearing inside other apps. Cmd+Shift+T registered
+   * cleanly and took reopen-closed-tab away from every browser on the machine.
+   *
+   * There is no chord we can pick that is not load-bearing somewhere, and no
+   * way to find out which one we broke. So the user picks it, in Keyboard
+   * Shortcuts, spending a chord they know they can spare. Fn stays the
+   * zero-configuration way in on macOS, and nothing else claims a bare Fn tap.
+   */
+  toggleVoice: "",
 };
 
 /**

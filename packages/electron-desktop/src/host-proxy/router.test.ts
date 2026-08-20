@@ -11,6 +11,11 @@ const mockGetGuardianAccessToken = mock(
 
 type Lockfile = import("@vellumai/local-mode/contract").Lockfile;
 let lockfileListener: ((lockfile: Lockfile) => void) | null = null;
+let sessionTokenListener: (() => void) | null = null;
+let mockCurrentLockfile: Lockfile = {
+  assistants: [],
+  activeAssistant: null,
+};
 
 // Stub electron-log. `warn` is a tracked mock so tests can assert the
 // router doesn't log for expected firehose traffic.
@@ -55,11 +60,17 @@ const testRuntime: HostProxyRuntime = {
     return result.ok ? result.accessToken : null;
   },
   getSessionToken: () => mockSessionToken,
-  getLockfile: () => ({ assistants: [], activeAssistant: null }),
+  getLockfile: () => mockCurrentLockfile,
   onLockfileChange: (listener) => {
     lockfileListener = listener;
     return () => {
       lockfileListener = null;
+    };
+  },
+  onSessionTokenChange: (listener) => {
+    sessionTokenListener = listener;
+    return () => {
+      sessionTokenListener = null;
     };
   },
   installPresenceMonitor: mockInstallPresenceMonitor,
@@ -336,6 +347,8 @@ describe("host-proxy-router", () => {
     releaseEventStreams();
     closeEventStreams();
     lockfileListener = null;
+    sessionTokenListener = null;
+    mockCurrentLockfile = { assistants: [], activeAssistant: null };
     mockGetGuardianAccessToken.mockReset();
     mockGetGuardianAccessToken.mockImplementation(
       async () => ({ ok: true, accessToken: "test-token" }),
@@ -591,6 +604,33 @@ describe("host-proxy-router", () => {
       });
       await flush();
 
+      expect(__testing.connections.has("cloud-1")).toBe(false);
+    });
+
+    test("tracks cloud connections when the session token changes", async () => {
+      mockSessionToken = null;
+      mockCurrentLockfile = {
+        assistants: [
+          {
+            assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
+          },
+        ],
+        activeAssistant: "cloud-1",
+      };
+      installHostProxyBridge(testRuntime);
+
+      expect(__testing.connections.has("cloud-1")).toBe(false);
+
+      mockSessionToken = "test-session-token";
+      sessionTokenListener?.();
+      await flush();
+      expect(__testing.connections.has("cloud-1")).toBe(true);
+
+      mockSessionToken = null;
+      sessionTokenListener?.();
+      await flush();
       expect(__testing.connections.has("cloud-1")).toBe(false);
     });
 

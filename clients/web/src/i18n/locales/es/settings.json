@@ -7,6 +7,17 @@
   "aiProviderPicker": {
     "defaultEntryMeta": "Predeterminado"
   },
+  "autoTopUpCard": {
+    "connectCardBanner": "La recarga automática requiere vincular una tarjeta de crédito.",
+    "disableError": "No se pudo desactivar la recarga automática. Inténtalo de nuevo.",
+    "loadError": "No se pudo cargar la configuración de la recarga automática.",
+    "toggleLabel": "Activar recarga automática",
+    "updateError": "No se pudo guardar la configuración de la recarga automática. Inténtalo de nuevo."
+  },
+  "autoTopUpDisableConfirm": {
+    "message": "La recarga automática se detendrá. Los métodos de pago guardados se conservarán.",
+    "title": "¿Desactivar la recarga automática?"
+  },
   "billingOnboardingModal": {
     "backgroundConfirmContinue": "Continuar",
     "backgroundConfirmKeepWaiting": "Seguir esperando",
@@ -21,6 +32,14 @@
     "loadingBilling": "Cargando facturación…",
     "platformLoginNotice": "Inicia sesión en la plataforma Vellum para administrar la facturación y el uso.",
     "usageTab": "Uso"
+  },
+  "billingPanel": {
+    "addCreditsButton": "Añadir créditos",
+    "balanceLabel": "Créditos",
+    "earnCreditsButton": "Gana créditos gratis",
+    "lowBalanceToggle": "Alerta personalizada de saldo bajo",
+    "subtitle": "Resumen rápido de tus saldos y otros datos",
+    "title": "Créditos"
   },
   "billingStatusHandler": {
     "successToast": "¡Pago recibido! Tu saldo de créditos se actualizará en breve.",
@@ -165,6 +184,10 @@
     "genericDescriptor": "Selecciona potencia de CPU, RAM y almacenamiento personalizados. O añade algunos tokens.",
     "prompt": "¿Necesitas algo más adaptado a tus necesidades?",
     "title": "Plan personalizado"
+  },
+  "dailyCreditLimitCard": {
+    "requiredNote": "Se requiere un límite diario de créditos mientras la recarga automática está activada.",
+    "toggleLabel": "Límite diario de créditos"
   },
   "developerPage": {
     "sectionsAriaLabel": "Secciones de desarrollador",
@@ -326,6 +349,11 @@
     "tabMcp": "MCP",
     "tabOAuth": "OAuth",
     "tipBanner": "<tip>Consejo:</tip> Puedes habilitar integraciones mencionándolas en el chat."
+  },
+  "invoicesTable": {
+    "hideButton": "Ocultar facturas",
+    "showButton": "Mostrar facturas",
+    "title": "Facturas"
   },
   "languageModelCard": {
     "defaultProviderUnavailable": "Tu proveedor predeterminado no está disponible.",
@@ -561,6 +589,20 @@
     "revokeButton": "Revocar",
     "thisMachine": "Este equipo",
     "title": "Dispositivos vinculados ({count})"
+  },
+  "paymentMethodsCard": {
+    "addButton": "Añadir método de pago",
+    "empty": "No hay ningún método de pago guardado. Añade uno para usar la recarga automática.",
+    "loadError": "No se pudieron cargar los métodos de pago.",
+    "loading": "Cargando…",
+    "removeConfirmCancel": "Conservar tarjeta",
+    "removeConfirmConfirm": "Eliminar",
+    "removeConfirmMessage": "Al eliminar tu tarjeta se desactivará la recarga automática.",
+    "removeConfirmPending": "Eliminando…",
+    "removeConfirmTitle": "¿Eliminar el método de pago?",
+    "removeError": "No se pudo eliminar el método de pago. Inténtalo de nuevo.",
+    "subtitle": "Métodos de pago vinculados a tu cuenta.",
+    "title": "Métodos de pago"
   },
   "pendingPairingRequests": {
     "approveButton": "Aprobar",
@@ -964,14 +1006,16 @@
     "setDefaultFailedToast": "No se pudo establecer el proveedor predeterminado. Inténtalo de nuevo."
   },
   "voicePage": {
-    "activationKeyLabel": "Tecla de activación:",
+    "activationKeyLabel": "Atajo:",
     "allowMicrophoneAccess": "Permitir acceso al micrófono",
     "captionsSubtitle": "Muestra texto en vivo de lo que tú y el asistente dicen durante una conversación de voz.",
     "captionsTitle": "Subtítulos",
     "customKey": "Personalizada",
     "defaultBadge": "Predeterminado",
-    "enablePushToTalk": "Activar pulsar para hablar",
-    "focusedTabNote": "Pulsar para hablar solo funciona mientras esta pestaña está enfocada, y los navegadores pueden interceptar algunos atajos (p. ej., Ctrl+T) antes de que la página los detecte. Para PTT siempre activo, usa la aplicación de escritorio de Vellum.",
+    "enableVoiceShortcut": "Activar el atajo del modo de voz",
+    "fnKeyLabel": "Fn",
+    "fnRefusedNote": "Fn necesita Monitorización de entrada. Concédela en Ajustes del Sistema o define un atajo personalizado.",
+    "focusedTabNote": "El atajo solo funciona mientras esta pestaña está enfocada, y los navegadores pueden interceptar algunas combinaciones (p. ej., Ctrl+T) antes de que la página las detecte. Para un atajo que funcione en cualquier lugar, usa la aplicación de escritorio de Vellum.",
     "grantMicrophoneAccessHint": "Concede acceso al micrófono para enumerar tus dispositivos de entrada disponibles.",
     "interruptSensitivityAriaLabel": "Sensibilidad a interrupciones",
     "interruptSensitivityDescription": "Qué tan fácilmente hablar por encima del asistente lo interrumpe. Redúcela si el asistente se corta a sí mismo por ruido de fondo o muletillas; aumenta la sensibilidad para interrumpir más rápido.",
@@ -986,9 +1030,9 @@
     "pauseBeforeReplyAriaLabel": "Pausa antes de responder",
     "pauseBeforeReplyDescription": "Cuánto espera el asistente después de que dejas de hablar antes de responder. Una pausa más larga te permite reunir tus ideas a mitad de frase sin ser interrumpido.",
     "pauseBeforeReplyLabel": "Pausa antes de responder",
-    "pressAnyKey": "Pulsa cualquier tecla…",
-    "pushToTalkSubtitle": "Mantén pulsada la tecla de activación para dictar texto o iniciar una conversación de voz.",
-    "pushToTalkTitle": "Pulsar para hablar",
+    "pressShortcut": "Pulsa un atajo…",
+    "recommendedBadge": "Recomendado",
+    "recordingPrompt": "Pulsa una combinación o una tecla…",
     "resetToDefaults": "Restablecer valores predeterminados",
     "savedMicrophone": "Micrófono guardado",
     "savedMicrophoneNotConnected": "Micrófono guardado (no conectado)",
@@ -997,11 +1041,16 @@
     "sectionInputHeading": "Entrada",
     "sectionOutputDescription": "Cómo suena tu asistente.",
     "sectionOutputHeading": "Salida",
+    "shortcutChordHint": "Mantén pulsado un modificador (Cmd, Ctrl, Opción o Mayús) y pulsa una tecla.",
+    "shortcutConflict": "Ya lo usa {command}",
     "speechServicesBannerLink": "Configúralo en Modelos y servicios",
     "speechServicesBannerPrompt": "¿Quieres usar tu propia clave API para STT o TTS, o configurar una voz personalizada?",
     "systemDefault": "Predeterminado del sistema",
     "turnTakingSubtitle": "Dónde termina tu turno y comienza el del asistente. Se aplica a conversaciones manos libres. Con pulsar para hablar, lo decide la tecla.",
-    "turnTakingTitle": "Turnos de conversación"
+    "turnTakingTitle": "Turnos de conversación",
+    "voiceShortcutSubtitle": "Pulsa el atajo para iniciar o terminar una conversación de voz, desde cualquier parte de la aplicación.",
+    "voiceShortcutSubtitleDesktop": "Atajo global para iniciar o terminar una conversación de voz.",
+    "voiceShortcutTitle": "Atajo del modo de voz"
   },
   "voicePickerCard": {
     "changeButton": "Cambiar",

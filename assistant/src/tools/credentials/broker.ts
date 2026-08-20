@@ -18,36 +18,16 @@ import type {
 import { isDomainAllowed } from "./domain-policy.js";
 import { getCredentialMetadata } from "./metadata-store.js";
 import { resolveById } from "./resolve.js";
-import { isToolAllowed } from "./tool-policy.js";
+import {
+  isToolAllowed,
+  serverUseDenialReason,
+  toolNotAllowedReason,
+} from "./tool-policy.js";
 
 const log = getLogger("credential-broker");
 
 /** Tokens expire after 5 minutes to limit the window for using stale/revoked credentials. */
 const TOKEN_TTL_MS = 5 * 60 * 1000;
-
-/**
- * Remediation for a credential whose allowed_tools list is empty. Points at
- * `credentials prompt` (not inline `credentials set`, which agent shells
- * refuse): the secure prompt re-collects the value and sets allowed_tools.
- */
-const NO_TOOLS_ALLOWED_REMEDIATION =
-  "No tools are currently allowed - grant access via `assistant credentials prompt --service <service> --field <field> --label <label> --allowed-tools <tools>` (re-collects the value securely and sets allowed_tools).";
-
-/** Denial reason for a tool that is not in a credential's allowed_tools list. */
-function toolNotAllowedReason(
-  toolName: string,
-  service: string,
-  field: string,
-  allowedTools: string[] | undefined,
-): string {
-  const tools = allowedTools ?? [];
-  return (
-    `Tool "${toolName}" is not allowed to use credential ${service}/${field}. ` +
-    (tools.length === 0
-      ? NO_TOOLS_ALLOWED_REMEDIATION
-      : `Allowed tools: ${tools.join(", ")}.`)
-  );
-}
 
 /**
  * Credential broker that issues single-use tokens for policy-checked credential access.
@@ -292,36 +272,14 @@ export class CredentialBroker {
     request: ServerUseRequest<T>,
   ): Promise<ServerUseResult<T>> {
     const metadata = getCredentialMetadata(request.service, request.field);
-    if (!metadata) {
-      return {
-        success: false,
-        reason: `No credential found for ${request.service}/${request.field}`,
-      };
-    }
-
-    if (!isToolAllowed(request.toolName, metadata.allowedTools)) {
-      return {
-        success: false,
-        reason: toolNotAllowedReason(
-          request.toolName,
-          request.service,
-          request.field,
-          metadata.allowedTools,
-        ),
-      };
-    }
-
-    // Domain policy enforcement - credentials with domain restrictions are
-    // scoped to browser use on those domains and cannot be used server-side.
-    const serverDomains = metadata.allowedDomains ?? [];
-    if (serverDomains.length > 0) {
-      return {
-        success: false,
-        reason:
-          `Credential ${request.service}/${request.field} has domain restrictions ` +
-          `(${serverDomains.join(", ")}) and cannot be used server-side. ` +
-          "Remove domain restrictions or use a separate credential without domain policy.",
-      };
+    const denialReason = serverUseDenialReason(
+      metadata,
+      request.toolName,
+      request.service,
+      request.field,
+    );
+    if (denialReason) {
+      return { success: false, reason: denialReason };
     }
 
     const storageKey = credentialKey(request.service, request.field);
@@ -381,30 +339,17 @@ export class CredentialBroker {
 
     const { metadata } = resolved;
 
-    // Tool policy enforcement
-    if (!isToolAllowed(request.requestingTool, metadata.allowedTools)) {
-      return {
-        success: false,
-        reason: toolNotAllowedReason(
-          request.requestingTool,
-          metadata.service,
-          metadata.field,
-          metadata.allowedTools,
-        ),
-      };
-    }
-
-    // Domain policy enforcement - credentials with domain restrictions are
-    // scoped to browser use on those domains and cannot be used server-side.
-    const domains = metadata.allowedDomains ?? [];
-    if (domains.length > 0) {
-      return {
-        success: false,
-        reason:
-          `Credential ${metadata.service}/${metadata.field} has domain restrictions ` +
-          `(${domains.join(", ")}) and cannot be used server-side. ` +
-          "Remove domain restrictions or use a separate credential without domain policy.",
-      };
+    // Shared server-use policy: the ID lookup above is the only by-ID-specific
+    // gate, so tool and domain enforcement come from the same helper serverUse
+    // uses.
+    const denialReason = serverUseDenialReason(
+      metadata,
+      request.requestingTool,
+      metadata.service,
+      metadata.field,
+    );
+    if (denialReason) {
+      return { success: false, reason: denialReason };
     }
 
     // Fail-closed: verify the secret value actually exists in secure storage.

@@ -24,6 +24,14 @@
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again."
   },
+  "assistantSwitcher": {
+    "collapse": "Hide assistants",
+    "currentAssistant": "{name}, current assistant",
+    "expand": "Switch assistant",
+    "switchFailed": "Couldn't switch assistants. Try again.",
+    "switchTo": "Switch to {name}",
+    "unnamedAssistant": "Unnamed assistant"
+  },
   "cacheBreakpointMapCard": {
     "description": "Where the {count, plural, one {# cache breakpoint} other {# cache breakpoints}} fell across this request's prefix, and which segments were read versus re-created.",
     "estimatedTokens": "≈ {count} tokens",
@@ -117,8 +125,7 @@
   },
   "chatComposer": {
     "addToChat": "Add to chat",
-    "askAssistantPlaceholder": "Ask {assistantName}",
-    "disclaimer": "Vellum uses external AI models and can make mistakes"
+    "askAssistantPlaceholder": "Ask {assistantName}"
   },
   "compactionTab": {
     "compactedMessages": "{count} compacted",
@@ -185,6 +192,9 @@
     "ariaLabelUnseen": "Conversation assets, {count, plural, one {# item} other {# items}} (unseen changes)",
     "heading": "Assets",
     "label": "{count, plural, one {# asset} other {# assets}}"
+  },
+  "conversationStarterDock": {
+    "caption": "Try some suggestions:"
   },
   "copyButton": {
     "copied": "Copied",

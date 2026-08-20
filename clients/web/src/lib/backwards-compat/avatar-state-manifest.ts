@@ -25,10 +25,27 @@
 import {
   assistantSupports,
   useAssistantSupports,
+  versionSupports,
   whenAssistantVersionKnown,
 } from "./utils";
 
 export const MIN_VERSION = "0.8.7";
+
+/**
+ * Per-assistant variant of {@link supportsAvatarStateManifest} for list
+ * surfaces that render avatars of assistants OTHER than the active one
+ * (the sidebar switcher). The active-assistant gate would ask a
+ * pre-manifest sibling for `/avatar/state` it doesn't serve; callers
+ * resolve the sibling's own version and gate on that instead. A
+ * null/unknown version answers `false`, matching the active gate's
+ * conservative default: the legacy read path is understood by every
+ * supported assistant.
+ */
+export function versionSupportsAvatarStateManifest(
+  version: string | null | undefined,
+): boolean {
+  return versionSupports(version, MIN_VERSION);
+}
 
 /**
  * Returns `true` when the active assistant exposes the avatar state

@@ -1,4 +1,7 @@
 {
+  "addCreditsModal": {
+    "configureAutoReload": "Configurar la recarga automática"
+  },
   "notFound": {
     "badge": "Error 404",
     "title": "Página no encontrada",
@@ -6,7 +9,20 @@
     "backToAssistant": "Volver a tu asistente",
     "goBack": "Atrás"
   },
+  "resourcePressureBanner": {
+    "title": "La utilización de recursos es alta",
+    "body": "Tu asistente ha estado usando recursos elevados durante un periodo prolongado; mejora tu plan para potenciar tu asistente.",
+    "bodyNoUpgrade": "Tu asistente ha estado usando recursos elevados durante un periodo prolongado.",
+    "upgrade": "Mejorar plan",
+    "dontShowAgain": "No mostrar de nuevo"
+  },
   "sectionActionsButton": {
     "ariaLabel": "Acciones de {name}"
+  },
+  "windowsMenuBar": {
+    "file": "Archivo",
+    "view": "Ver",
+    "developer": "Desarrollador",
+    "help": "Ayuda"
   }
 }
