@@ -235,12 +235,12 @@ When in a **rebind flow** (the session creation request included `"rebind": true
 After the user reports entering the code, verify the binding was created. Set `CHANNEL` to the channel currently being verified before running:
 
 ```bash
-CHANNEL=""  # ← MUST set to one of: phone, telegram, slack, email
+CHANNEL=""  # ← MUST set to one of: phone, telegram, slack, discord, email
 if [ -z "$CHANNEL" ]; then echo "ERROR: CHANNEL not set"; exit 1; fi
 assistant channel-verification-sessions status --channel "$CHANNEL" --json
 ```
 
-⚠️ CRITICAL — point of action: **`CHANNEL` must be set to the channel currently being verified (`phone`, `telegram`, `slack`, or `email`) before running.** The empty-string guard ensures a missed substitution fails safely rather than operating on the wrong channel.
+⚠️ CRITICAL — point of action: **`CHANNEL` must be set to the channel currently being verified (`phone`, `telegram`, `slack`, `discord`, or `email`) before running.** The empty-string guard ensures a missed substitution fails safely rather than operating on the wrong channel.
 
 If the response shows the channel is bound, confirm success: "Verification complete! Your [channel] identity is now verified."
 
@@ -251,12 +251,12 @@ If not yet bound, offer to resend (Step 4) or generate a new session (Step 3).
 If the user wants to remove themselves (or the current verified identity) from a channel, use the revoke endpoint. Set `CHANNEL` to the channel to unbind from before running:
 
 ```bash
-CHANNEL=""  # ← MUST set to one of: phone, telegram, slack, email
+CHANNEL=""  # ← MUST set to one of: phone, telegram, slack, discord, email
 if [ -z "$CHANNEL" ]; then echo "ERROR: CHANNEL not set"; exit 1; fi
 assistant channel-verification-sessions revoke --channel "$CHANNEL" --json
 ```
 
-⚠️ CRITICAL — point of action: **`CHANNEL` must be set to the channel to unbind (`phone`, `telegram`, `slack`, or `email`) before running.** The empty-string guard ensures a missed substitution fails safely rather than accidentally revoking the wrong channel.
+⚠️ CRITICAL — point of action: **`CHANNEL` must be set to the channel to unbind (`phone`, `telegram`, `slack`, `discord`, or `email`) before running.** The empty-string guard ensures a missed substitution fails safely rather than accidentally revoking the wrong channel.
 
 ### On success (`success: true`)
 
