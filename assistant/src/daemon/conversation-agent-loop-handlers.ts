@@ -36,7 +36,8 @@ import {
   deleteMessageById,
   getConversation,
   getMessageById,
-  messageMetadataSchema,
+  messageOccurredAt,
+  parseMessageMetadata,
   provenanceFromTrustContext,
   recordConversationPersistedSeq,
   reserveMessage,
@@ -2056,26 +2057,11 @@ export async function finalizePendingToolResultRow(
   // a successful turn into a throw.
   const row = getMessageById(rowId, conversationId);
   if (row) {
-    let provenanceTrustClass:
-      | "guardian"
-      | "trusted_contact"
-      | "unverified_contact"
-      | "unknown"
-      | undefined;
-    let automated: boolean | undefined;
-    if (row.metadata) {
-      try {
-        const parsedMeta = messageMetadataSchema.safeParse(
-          JSON.parse(row.metadata),
-        );
-        if (parsedMeta.success) {
-          provenanceTrustClass = parsedMeta.data.provenanceTrustClass;
-          automated = parsedMeta.data.automated;
-        }
-      } catch {
-        // Malformed metadata JSON — index with undefined provenance fields.
-      }
-    }
+    // Malformed metadata yields `undefined`, so provenance fields are simply
+    // absent and the row dates by its own `createdAt`.
+    const rowMetadata = parseMessageMetadata(row.metadata ?? null);
+    const provenanceTrustClass = rowMetadata?.provenanceTrustClass;
+    const automated = rowMetadata?.automated;
     try {
       await indexMessageNow(
         {
@@ -2083,7 +2069,7 @@ export async function finalizePendingToolResultRow(
           conversationId,
           role: "user",
           content: contentJson,
-          createdAt: row.createdAt,
+          createdAt: messageOccurredAt(rowMetadata, row.createdAt),
           provenanceTrustClass,
           automated,
         },

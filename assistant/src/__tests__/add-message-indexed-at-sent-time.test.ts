@@ -23,7 +23,10 @@ mock.module("../persistence/embeddings/qdrant-client.js", () => ({
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
-import { addMessage } from "../persistence/conversation-crud.js";
+import {
+  addMessage,
+  messageOccurredAt,
+} from "../persistence/conversation-crud.js";
 import { getDb, getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
@@ -118,5 +121,20 @@ describe("memory segment dating", () => {
     for (const ts of timestamps) {
       expect(ts).toBe(rowCreatedAt(saved.id));
     }
+  });
+});
+
+describe("messageOccurredAt", () => {
+  // Every `indexMessageNow` caller dates through this, so the seams cannot
+  // disagree about which week a message belongs to.
+  test("prefers sentAt over the row's own time", () => {
+    const sentAt = Date.UTC(2026, 6, 8, 9, 15);
+    expect(messageOccurredAt({ sentAt }, Date.UTC(2026, 7, 20))).toBe(sentAt);
+  });
+
+  test("falls back to the row's own time when sentAt is absent", () => {
+    const createdAt = Date.UTC(2026, 7, 20);
+    expect(messageOccurredAt({}, createdAt)).toBe(createdAt);
+    expect(messageOccurredAt(undefined, createdAt)).toBe(createdAt);
   });
 });

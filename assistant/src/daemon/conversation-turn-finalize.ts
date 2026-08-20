@@ -39,6 +39,7 @@ import {
   type ConversationRow,
   getConversation,
   getMessageById,
+  messageOccurredAt,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
@@ -108,7 +109,7 @@ export function buildDeferredFinalizeEffect(params: {
           conversationId,
           role: "assistant",
           content: contentJson,
-          createdAt: finalizedRow.createdAt,
+          createdAt: messageOccurredAt(metadata, finalizedRow.createdAt),
           provenanceTrustClass: metadata?.provenanceTrustClass,
           automated: metadata?.automated,
         },

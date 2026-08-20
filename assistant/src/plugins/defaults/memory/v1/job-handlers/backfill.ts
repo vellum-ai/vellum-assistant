@@ -7,6 +7,7 @@ import {
   resetMessageCursorCheckpoint,
   writeMessageCursorCheckpoint,
 } from "../../../../../persistence/checkpoints.js";
+import { messageOccurredAt } from "../../../../../persistence/conversation-crud.js";
 import { getDb } from "../../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
@@ -63,7 +64,7 @@ export async function backfillJob(
           conversationId: message.conversationId,
           role: message.role,
           content: message.content,
-          createdAt: message.createdAt,
+          createdAt: messageOccurredAt(meta, message.createdAt),
           provenanceTrustClass: meta?.provenanceTrustClass,
           automated: meta?.automated,
         },

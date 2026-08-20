@@ -492,6 +492,24 @@ export function isStandaloneAssistantMessage(
  * typed fields (e.g. `provenanceTrustClass`, `automated`, `subagentNotification`)
  * instead of re-implementing it.
  */
+/**
+ * When a message's content happened, as distinct from when its row was
+ * written. `sentAt` carries the event time wherever persistence lags the
+ * event: seconds on a queued turn, weeks on imported channel history.
+ *
+ * Every `indexMessageNow` caller dates its segments through this, so a
+ * message lands on the same point in time whether it was indexed as it
+ * arrived or re-indexed later by a backfill job. Segment `created_at`
+ * reaches the embedding payload, which graph search range-filters on, so
+ * two seams disagreeing here would put one message in two different weeks.
+ */
+export function messageOccurredAt(
+  metadata: MessageMetadata | undefined,
+  createdAt: number,
+): number {
+  return typeof metadata?.sentAt === "number" ? metadata.sentAt : createdAt;
+}
+
 export function parseMessageMetadata(
   metadataJson: string | null,
 ): MessageMetadata | undefined {
@@ -2345,16 +2363,10 @@ export async function addMessage(
         ? parsed.data.provenanceTrustClass
         : undefined;
       const automated = parsed?.success ? parsed.data.automated : undefined;
-      // Index against when the content happened, not when the row was
-      // written. The two differ whenever persistence lags the event: by
-      // seconds on a queued turn, by weeks on imported channel history.
-      // The indexed timestamp reaches the embedding payload as `created_at`,
-      // which graph search date-range filters on, so a row carrying `sentAt`
-      // would otherwise be recalled as if it had happened at import time.
-      const occurredAt =
-        parsed?.success && typeof parsed.data.sentAt === "number"
-          ? parsed.data.sentAt
-          : message.createdAt;
+      const occurredAt = messageOccurredAt(
+        parsed?.success ? parsed.data : undefined,
+        message.createdAt,
+      );
       await indexMessageNow(
         {
           messageId: message.id,
