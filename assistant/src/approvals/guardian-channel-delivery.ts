@@ -114,27 +114,45 @@ export function resolveRequesterDeliveryTarget(params: {
 }
 
 /**
- * Resolve who a guardian's own approval prompt is addressed to.
+ * Resolve where a guardian's own approval prompt is delivered: who it is
+ * addressed to, and the route that addressing is valid on.
  *
- * The prompt is raised by a turn the guardian is having, and that turn may be
+ * The prompt is raised by a turn the guardian is having, and that turn can be
  * running in a shared room. The tool name, its command preview and live
  * Approve/Reject buttons are readable by everyone in that room, so on a
  * channel with a private route to a user id the prompt is addressed to the
- * guardian's own id and the transport opens the DM.
+ * guardian's own id and the transport opens the DM. Same call, same reasoning,
+ * as {@link resolveRequesterDeliveryTarget} makes for a requester notice.
  *
- * Telegram and WhatsApp fall through to the chat the turn is in, because
- * theirs already is the private one-to-one conversation. Same call, same
- * reasoning, as {@link resolveRequesterDeliveryTarget} makes for a
- * requester-facing notice.
+ * The address and the route are returned together because neither is valid
+ * without the other. The turn's own callback carries that turn's channel
+ * coordinates: on Slack a `threadTs` belonging to the room, which posted
+ * alongside a DM id asks Slack to attach a message to a thread in a different
+ * channel, and on Discord the absence of the `dm` marker that tells its
+ * transport a user id is a person rather than a channel. Either mismatch fails
+ * the send, and this watcher retries a failed send until the gated tool times
+ * out. Redirecting therefore also moves to
+ * {@link resolveDeliverCallbackUrlForChannel}, the callback-less route those
+ * coordinates do not appear on.
+ *
+ * Falls back to the turn's own chat and callback whenever a private address
+ * cannot be formed, which is the delivery every non-`channelDeliversToUserId`
+ * channel already gets.
  */
-export function resolveGuardianPromptDeliveryTarget(params: {
+export function resolveGuardianPromptDelivery(params: {
   channel: string;
   turnChatId: string;
+  turnCallbackUrl: string;
   guardianExternalUserId: string | undefined;
-}): string {
-  const { channel, turnChatId, guardianExternalUserId } = params;
-  if (channelDeliversToUserId(channel) && guardianExternalUserId) {
-    return guardianExternalUserId;
+}): { chatId: string; callbackUrl: string } {
+  const { channel, turnChatId, turnCallbackUrl, guardianExternalUserId } =
+    params;
+  const inTurn = { chatId: turnChatId, callbackUrl: turnCallbackUrl };
+  if (!channelDeliversToUserId(channel) || !guardianExternalUserId) {
+    return inTurn;
   }
-  return turnChatId;
+  const privateRoute = resolveDeliverCallbackUrlForChannel(channel);
+  return privateRoute
+    ? { chatId: guardianExternalUserId, callbackUrl: privateRoute }
+    : inTurn;
 }

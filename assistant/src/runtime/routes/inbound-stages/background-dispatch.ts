@@ -8,7 +8,7 @@
  * focused on orchestration.
  */
 import type { AssistantEvent } from "../../../api/index.js";
-import { resolveGuardianPromptDeliveryTarget } from "../../../approvals/guardian-channel-delivery.js";
+import { resolveGuardianPromptDelivery } from "../../../approvals/guardian-channel-delivery.js";
 import {
   extractMessageTsFromCallbackUrl,
   extractThreadTsFromCallbackUrl,
@@ -813,16 +813,18 @@ function startPendingApprovalPromptWatcher(params: {
         const info = pending[0];
         if (prompt && info && !deliveredRequestIds.has(info.requestId)) {
           deliveredRequestIds.add(info.requestId);
+          // Addressed to the guardian, not to the chat the turn is running
+          // in, which on a shared channel is a room that can read the tool and
+          // its buttons. The route moves with the address.
+          const promptDelivery = resolveGuardianPromptDelivery({
+            channel: sourceChannel,
+            turnChatId: externalChatId,
+            turnCallbackUrl: replyCallbackUrl,
+            guardianExternalUserId,
+          });
           const delivered = await deliverGeneratedApprovalPrompt({
-            replyCallbackUrl,
-            // Addressed to the guardian, not to the chat the turn is running
-            // in, which on a shared channel is a room that can read the tool
-            // and its buttons.
-            chatId: resolveGuardianPromptDeliveryTarget({
-              channel: sourceChannel,
-              turnChatId: externalChatId,
-              guardianExternalUserId,
-            }),
+            replyCallbackUrl: promptDelivery.callbackUrl,
+            chatId: promptDelivery.chatId,
             sourceChannel,
             assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             prompt,

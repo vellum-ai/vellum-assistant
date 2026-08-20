@@ -144,8 +144,10 @@ at the wrong level.
 tool-approval prompt mid-turn and resolve `apr:` taps against the in-memory
 confirmation directly. That prompt is addressed to the guardian, not to the
 chat the turn is running in, through the same
-`resolveGuardianPromptDeliveryTarget` rule the requester-facing notices use:
-the card carries the tool, a command preview and live buttons, and the turn
-may be running in a shared room. They remain load-bearing for that flow, and
+`channelDeliversToUserId` rule the requester-facing notices use: the card
+carries the tool, a command preview and live buttons, and the turn may be
+running in a shared room. `resolveGuardianPromptDelivery` returns the address
+and its route together, because the turn's own callback carries that turn's
+channel coordinates and a send that mixes the two is rejected. They remain load-bearing for that flow, and
 the reply router runs first for everything the pipeline owns. Converge new
 work on the pipeline; do not extend the legacy interception.
