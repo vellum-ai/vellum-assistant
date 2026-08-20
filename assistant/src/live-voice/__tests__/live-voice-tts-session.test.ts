@@ -996,6 +996,40 @@ describe("LiveVoiceSession TTS", () => {
     });
   });
 
+  test("turn completion sweeps a held segment the caller never resolved", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+
+    const strandedCall = calls.find(
+      (call) => call.options.text === HELD_SENTENCE,
+    );
+    expect(strandedCall).toBeDefined();
+    expect(strandedCall?.options.signal?.aborted).toBe(false);
+
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:live-1"));
+    calls[0]?.finish();
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The stranded job's provider request is aborted rather than left running
+    // into the next turn, and its audio is never spoken.
+    expect(strandedCall?.options.signal?.aborted).toBe(true);
+    expect(ttsAudioPayloads(frames)).toEqual([b64("audio:live-1")]);
+  });
+
   test("a retracted segment holds its synthesis slot until the aborted stream settles", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {

@@ -743,6 +743,10 @@ interface ActiveAssistantTurn {
   // the hand-off idempotent.
   escalationHandedOff: boolean;
   ttsBuffer: string;
+  // The turn is finalizing its TTS: every remaining enqueue is terminal by
+  // construction, so holds are ignored past this point (see
+  // enqueueTtsSegment) and stranded held jobs have already been swept.
+  ttsCompleting: boolean;
   // Strips inline <think> reasoning spans from the spoken stream. Stateful
   // per turn because spans and tags cross delta boundaries; display frames
   // keep the raw text.
@@ -4580,6 +4584,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       deltaEpoch: 0,
       escalationHandedOff: false,
       ttsBuffer: "",
+      ttsCompleting: false,
       ttsReasoningFilter: createReasoningTagFilter(),
       ttsSegmentEnqueued: false,
       ttsJobs: [],
@@ -5701,6 +5706,26 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     this.clearFillerTimers(activeTurn);
+    // Sweep held jobs the caller never resolved. Every held block is supposed
+    // to end in a promotion (it was the answer) or a retraction (a tool call
+    // proved it was commentary), but a caller that misses an exit would
+    // otherwise leave a provider request running past the turn: the job is off
+    // ttsQueue, so completion never awaits it, and its synthesis slot would
+    // still be occupied when the next turn starts. Retract rather than promote,
+    // because unresolved held text is commentary far more often than it is an
+    // answer, and speaking it is the failure this hold exists to prevent.
+    const strandedHeldJobs = this.retractHeldTtsSegments(
+      token,
+      (job) => job.held,
+    );
+    if (strandedHeldJobs > 0) {
+      log.warn(
+        { turnId: activeTurn.turnId, strandedHeldJobs },
+        "Live voice turn completed with held segments the caller never resolved",
+      );
+    }
+    // Past this point every enqueue is terminal, so nothing new is held.
+    activeTurn.ttsCompleting = true;
     activeTurn.ttsBuffer += activeTurn.ttsReasoningFilter.flush();
     this.flushTtsBuffer(token, true);
     activeTurn.ttsQueue = activeTurn.ttsQueue
@@ -5820,13 +5845,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (options.countsAsFirstSegment ?? true) {
       activeTurn.ttsSegmentEnqueued = true;
     }
+    // A hold means "wait and see whether a tool call follows this text". Once
+    // the turn is completing, nothing can follow it, so a segment flushed here
+    // is terminal by construction and must never be held: holding it would
+    // strand the tail of the answer off the emission chain, where the leftover
+    // sweep below would then drop it.
+    const held = (options.held ?? false) && !activeTurn.ttsCompleting;
     const job: TtsSegmentJob = {
       text: segment,
       language: options.language,
       started: false,
       settled: false,
       emitting: false,
-      held: options.held ?? false,
+      held,
       cancelled: false,
       abort: new AbortController(),
       bufferedChunks: [],
