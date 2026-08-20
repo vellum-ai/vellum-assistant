@@ -145,6 +145,15 @@ class FakeWebSocket {
 
   close(code?: number): void {
     this.closeCalls.push(code);
+    // A real socket does not close synchronously: the state goes CLOSING and
+    // the close event arrives once the handshake completes. That gap is where
+    // a restart can race the runtime's session slot, so the fake keeps it
+    // rather than collapsing it to zero and hiding what it is here to test.
+    this.readyState = 2; // CLOSING
+  }
+
+  /** The close handshake completing, which is the event a real socket fires. */
+  serverAcknowledgeClose(): void {
     this.readyState = 3; // CLOSED
     this.emit("close", {});
   }
@@ -807,15 +816,59 @@ describe("the flush window after the user stops", () => {
     expect(socket().sent.at(-1)).toBe(JSON.stringify({ type: "stop" }));
   });
 
-  /** No drain means no handoff, so the next press is not made to wait. */
-  test("lets the next press start at once after a pending stop", async () => {
+  /**
+   * The narrow window between the runtime claiming its session slot and
+   * announcing it.
+   *
+   * `WatchStreamSession.start()` calls `manager.start()` before it sends
+   * `ready`, so a session stopped in between has a runtime session behind it
+   * even though nothing here ever saw one. Releasing the restart claim on
+   * `ready` alone let the next press open a socket the runtime refused as
+   * busy, which is the same silent failure as the wider case next door.
+   */
+  test("holds a restart until a session the runtime never announced is released", async () => {
     await startPending();
     stopWatch();
 
-    await startRunning();
+    const pressed = toggle();
+    // Settled, not sampled: the version gate resolves on a microtask, so a
+    // synchronous read here would be 1 whether or not anything is waiting.
+    await wait(5);
+    const openedBeforeTheHandoff = sockets.length;
+
+    socket().serverAcknowledgeClose();
+    await pressed;
+    socket().serverOpen();
+    await serverReady();
+
+    expect(openedBeforeTheHandoff).toBe(1);
+    expect(sockets).toHaveLength(2);
+    expect(useWatchStore.getState().watching).toBe(true);
+  });
+
+  /** Bounded, like every other wait here. */
+  test("starts anyway when the close is never acknowledged", async () => {
+    await startPending({ drainTimeoutMs: 20 });
+    stopWatch();
+
+    const pressed = toggle();
+    await wait(40);
+    await pressed;
+    socket().serverOpen();
+    await serverReady();
 
     expect(sockets).toHaveLength(2);
     expect(useWatchStore.getState().watching).toBe(true);
+  });
+
+  /** The socket still closes at once; only the restart claim is held. */
+  test("closes a pending session's socket without waiting to release it", async () => {
+    await startPending();
+
+    stopWatch();
+
+    expect(socket().closeCalls).toEqual([1000]);
+    expect(socket().sent).toEqual([]);
   });
 
   /** Nothing to flush and nothing to wait for on a socket that is not open. */

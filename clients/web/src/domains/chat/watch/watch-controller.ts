@@ -276,9 +276,10 @@ function openSession(
   // has captured nothing and holds nothing on the runtime, which is what
   // decides whether stopping owes a flush.
   let accepted = false;
-  // Set while this session is the one holding {@link drainRelease}, so finish
-  // can let the next start through.
+  // Set while this session is the one holding {@link drainRelease}, so the
+  // next start can be let through once the runtime has let go.
   let releaseDrain: (() => void) | null = null;
+  let handoffTimer: Timer = null;
   let handle: WatchSession | null = null;
   /**
    * Store subscriptions that live exactly as long as this session does.
@@ -359,14 +360,6 @@ function openSession(
     phase = "done";
     drainTimer = cancel(drainTimer);
     releaseLocally();
-    // The runtime has let go of its slot, or has run out of time to. Either
-    // way a start waiting on this one may go ahead. Reached once, since the
-    // `phase` guard above admits one caller.
-    if (releaseDrain !== null) {
-      drainRelease = null;
-      releaseDrain();
-      releaseDrain = null;
-    }
     if (
       ws.readyState === WebSocket.OPEN ||
       ws.readyState === WebSocket.CONNECTING
@@ -377,7 +370,50 @@ function openSession(
         // Already closing, so there is nothing left to close.
       }
     }
+    // A socket that was already shut will never report a close, so there is
+    // nothing left to wait on before letting the next start through.
+    if (ws.readyState === WebSocket.CLOSED) {
+      releaseHandoff();
+    }
   };
+
+  /**
+   * Hold the next start back until the runtime has let go of its session slot.
+   *
+   * Taken whenever the runtime *may* hold it, which starts earlier than
+   * `ready`: `WatchStreamSession.start()` claims the manager before it sends
+   * that frame, so a session stopped in between still has a runtime session
+   * behind it. Releasing the claim there let a restart open a socket the
+   * runtime then refused as busy, which the user experienced as pressing Watch
+   * and nothing happening.
+   */
+  const claimHandoff = (): void => {
+    if (releaseDrain !== null) {
+      return;
+    }
+    drainRelease = new Promise<void>((resolve) => {
+      releaseDrain = resolve;
+    });
+    // The socket's own close is the signal, and this is the backstop for a
+    // close that never arrives. A start held up forever is the failure this
+    // whole claim exists to avoid, in a different costume.
+    handoffTimer = setTimeout(
+      releaseHandoff,
+      options.drainTimeoutMs ?? STOP_DRAIN_TIMEOUT_MS,
+    );
+  };
+
+  /** The runtime has let go, or has run out of time to. Idempotent. */
+  function releaseHandoff(): void {
+    handoffTimer = cancel(handoffTimer);
+    if (releaseDrain === null) {
+      return;
+    }
+    const release = releaseDrain;
+    releaseDrain = null;
+    drainRelease = null;
+    release();
+  }
 
   handle = {
     /**
@@ -395,13 +431,24 @@ function openSession(
         return;
       }
 
-      // Only a session the runtime accepted has anything to flush. Before
-      // `ready` the runtime is still in `initializing`, where its `handleStop`
-      // ignores the frame outright, so waiting would buy nothing and cost the
-      // full drain: the socket would sit open until the timer gave up, and the
-      // runtime session behind it would stay alive that whole time.
+      // **Two different questions, and they have different answers here.**
+      //
+      // Whether the socket owes a flush is `accepted`: before `ready` the
+      // runtime is still `initializing`, where its `handleStop` ignores the
+      // frame outright, so draining would buy nothing and cost the full wait.
+      //
+      // Whether the runtime may still hold its session slot starts earlier
+      // than that. `WatchStreamSession.start()` claims the manager before it
+      // sends `ready`, so a session stopped in between has a runtime session
+      // behind it that a restart would collide with. The claim goes on the
+      // socket being open, and only the flush goes on `accepted`.
+      const socketOpen = ws.readyState === WebSocket.OPEN;
+      if (socketOpen) {
+        claimHandoff();
+      }
+
       let draining = false;
-      if (accepted && ws.readyState === WebSocket.OPEN) {
+      if (accepted && socketOpen) {
         // The last few milliseconds still sit in the capture's batch
         // accumulator; drain them synchronously so they go out ahead of the
         // stop frame.
@@ -426,11 +473,6 @@ function openSession(
         return;
       }
       phase = "draining";
-      // Claim the handoff before returning, so a press that lands in the next
-      // tick waits for this session's slot rather than racing it.
-      drainRelease = new Promise<void>((resolve) => {
-        releaseDrain = resolve;
-      });
       drainTimer = setTimeout(() => {
         console.warn(
           "watch-controller: no closed frame after stop, ending without the flush",
@@ -564,12 +606,25 @@ function openSession(
     }
     if (message.type === "closed") {
       // The runtime is done, which on the drain path means the flush landed.
+      // It sends this frame after releasing its session slot, so it is also
+      // the earliest honest moment to let a waiting start through.
+      releaseHandoff();
       finish();
     }
   });
 
-  ws.addEventListener("close", finish);
-  ws.addEventListener("error", finish);
+  /**
+   * The socket is gone, which is also the closest thing to proof the runtime
+   * has seen it go and let its session slot go with it. Whatever is waiting on
+   * the handoff may start now.
+   */
+  const onSocketGone = (): void => {
+    finish();
+    releaseHandoff();
+  };
+
+  ws.addEventListener("close", onSocketGone);
+  ws.addEventListener("error", onSocketGone);
 }
 
 /**
