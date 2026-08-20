@@ -74,11 +74,7 @@ export const slackTransport: ChannelTransport = {
     return { ok: true };
   },
 
-  async streamReply(_ctx, payload) {
-    const op = payload.slackStream;
-    if (!op) {
-      return { ok: true };
-    }
-    return sendSlackStreamOp(payload.chatId, op);
+  async streamReply(_ctx, chatId, op) {
+    return sendSlackStreamOp(chatId, op);
   },
 };

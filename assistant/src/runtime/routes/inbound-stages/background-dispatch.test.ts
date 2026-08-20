@@ -92,10 +92,19 @@ const sentReactions: Array<{
   callbackUrl: string;
   target: Record<string, unknown>;
 }> = [];
+const sentStreamOps: Array<Record<string, unknown>> = [];
 const sentThreadStatuses: Array<Record<string, unknown>> = [];
 mock.module("../../../messaging/providers/index.js", () => ({
   sendChannelTyping: async () => ({ ok: true }),
   supportsChannelTyping: () => false,
+  sendChannelStreamOp: async (
+    _callbackUrl: string,
+    _chatId: string,
+    op: Record<string, unknown>,
+  ) => {
+    sentStreamOps.push(op);
+    return { ok: true };
+  },
   setChannelThreadStatus: async (
     _callbackUrl: string,
     status: Record<string, unknown>,
@@ -152,6 +161,7 @@ beforeEach(() => {
   clearConversations();
   deliveredChannelReplies.length = 0;
   sentReactions.length = 0;
+  sentStreamOps.length = 0;
   sentThreadStatuses.length = 0;
   markedProcessedEvents.length = 0;
   processingFailureEvents.length = 0;
@@ -170,10 +180,7 @@ beforeEach(() => {
   deliverReplyViaCallbackImpl = async () => {};
 });
 
-const slackStreamOps = (): Array<Record<string, unknown>> =>
-  deliveredChannelReplies
-    .map((entry) => entry.payload.slackStream as Record<string, unknown>)
-    .filter(Boolean);
+const slackStreamOps = (): Array<Record<string, unknown>> => sentStreamOps;
 
 describe("isBoundGuardianActor", () => {
   test("returns true only when requester matches bound guardian", () => {

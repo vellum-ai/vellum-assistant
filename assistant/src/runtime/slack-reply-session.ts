@@ -10,6 +10,7 @@ import {
   incompleteVellumLinkSuffixLength,
   stripVellumLinks,
 } from "../daemon/assistant-attachments.js";
+import { sendChannelStreamOp } from "../messaging/providers/index.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js";
 import { renderSlackBlocks } from "../messaging/providers/slack/render.js";
 import { getLogger } from "../util/logger.js";
@@ -113,7 +114,6 @@ export function createSlackReplySession(params: {
   chatType?: string;
   replyCallbackUrl?: string;
   chatId: string;
-  assistantId?: string;
   /** Slack user ID of the reader; required to stream into a channel. */
   recipientUserId?: string;
   /** Slack team ID of the reader; required to stream into a channel. */
@@ -132,7 +132,7 @@ export function createSlackReplySession(params: {
   if (!shouldStreamSlackReply(params) || !params.replyCallbackUrl) {
     return undefined;
   }
-  const { chatId, assistantId, recipientUserId, recipientTeamId } = params;
+  const { chatId, recipientUserId, recipientTeamId } = params;
   const coalesceMs = params.coalesceMs ?? STREAM_COALESCE_MS;
   const replyCallbackUrl = params.replyCallbackUrl;
   const threadTs = extractThreadTsFromCallbackUrl(replyCallbackUrl);
@@ -222,24 +222,20 @@ export function createSlackReplySession(params: {
       const title = activeProgress?.title;
       const tasks = planTasks();
       try {
-        const result = await deliverChannelReply(replyCallbackUrl, {
-          chatId,
-          assistantId,
-          slackStream: {
-            action: "start",
-            threadTs,
-            markdownText: firstChunk,
-            // The task display mode is fixed for the stream's lifetime at
-            // start, while a `task_progress` surface usually appears only
-            // after the first text flush has opened the stream. Plan mode
-            // only affects how task chunks render, so a stream that never
-            // carries tasks still reads as a plain message.
-            taskDisplayMode: "plan" as const,
-            ...(title ? { planTitle: title } : {}),
-            ...(tasks ? { tasks } : {}),
-            ...(recipientUserId ? { recipientUserId } : {}),
-            ...(recipientTeamId ? { recipientTeamId } : {}),
-          },
+        const result = await sendChannelStreamOp(replyCallbackUrl, chatId, {
+          action: "start",
+          threadTs,
+          markdownText: firstChunk,
+          // The task display mode is fixed for the stream's lifetime at
+          // start, while a `task_progress` surface usually appears only
+          // after the first text flush has opened the stream. Plan mode
+          // only affects how task chunks render, so a stream that never
+          // carries tasks still reads as a plain message.
+          taskDisplayMode: "plan" as const,
+          ...(title ? { planTitle: title } : {}),
+          ...(tasks ? { tasks } : {}),
+          ...(recipientUserId ? { recipientUserId } : {}),
+          ...(recipientTeamId ? { recipientTeamId } : {}),
         });
         if (result.ok && result.ts) {
           streamTs = result.ts;
@@ -287,16 +283,12 @@ export function createSlackReplySession(params: {
           confirmedLength + SLACK_STREAM_MARKDOWN_LIMIT,
         );
         try {
-          await deliverChannelReply(replyCallbackUrl, {
-            chatId,
-            assistantId,
-            slackStream: {
-              action: "append",
-              streamTs,
-              markdownText: chunk,
-              ...(title ? { planTitle: title } : {}),
-              ...(tasks ? { tasks } : {}),
-            },
+          await sendChannelStreamOp(replyCallbackUrl, chatId, {
+            action: "append",
+            streamTs,
+            markdownText: chunk,
+            ...(title ? { planTitle: title } : {}),
+            ...(tasks ? { tasks } : {}),
           });
           confirmedLength += chunk.length;
           deliveredProgressKey = key ?? deliveredProgressKey;
@@ -316,15 +308,11 @@ export function createSlackReplySession(params: {
       // next text append and `stopStream` carries the final state.
       if (!taskOnlyAppendsDisabled && tasks && key !== deliveredProgressKey) {
         try {
-          await deliverChannelReply(replyCallbackUrl, {
-            chatId,
-            assistantId,
-            slackStream: {
-              action: "append",
-              streamTs,
-              ...(title ? { planTitle: title } : {}),
-              tasks,
-            },
+          await sendChannelStreamOp(replyCallbackUrl, chatId, {
+            action: "append",
+            streamTs,
+            ...(title ? { planTitle: title } : {}),
+            tasks,
           });
           deliveredProgressKey = key;
         } catch (err) {
@@ -450,17 +438,13 @@ export function createSlackReplySession(params: {
         const title = activeProgress?.title;
         const tasks = planTasks();
         try {
-          await deliverChannelReply(replyCallbackUrl, {
-            chatId,
-            assistantId,
-            slackStream: {
-              action: "stop",
-              streamTs,
-              ...(remaining.length > 0 ? { markdownText: remaining } : {}),
-              ...(blocks ? { blocks } : {}),
-              ...(title ? { planTitle: title } : {}),
-              ...(tasks ? { tasks } : {}),
-            },
+          await sendChannelStreamOp(replyCallbackUrl, chatId, {
+            action: "stop",
+            streamTs,
+            ...(remaining.length > 0 ? { markdownText: remaining } : {}),
+            ...(blocks ? { blocks } : {}),
+            ...(title ? { planTitle: title } : {}),
+            ...(tasks ? { tasks } : {}),
           });
           confirmedLength = clean.length;
         } catch (err) {

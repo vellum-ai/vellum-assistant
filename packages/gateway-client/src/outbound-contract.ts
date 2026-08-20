@@ -179,8 +179,6 @@ export const ChannelReplyPayloadSchema = z.object({
   messageTs: z.string().optional(),
   /** When true, the daemon generates Block Kit blocks from the text before delivery. */
   useBlocks: z.boolean().optional(),
-  /** When provided, perform one Slack streaming operation (start/append/stop). */
-  slackStream: SlackStreamOpSchema.optional(),
 });
 
 export type ChannelReplyPayload = z.infer<typeof ChannelReplyPayloadSchema>;

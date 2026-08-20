@@ -11,6 +11,7 @@
 import type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
+  SlackStreamOp,
 } from "@vellumai/gateway-client";
 
 import { a2aTransport } from "./a2a/transport.js";
@@ -113,6 +114,24 @@ export async function setChannelThreadStatus(
   return transport.setThreadStatus(callbackContext(callbackUrl), status);
 }
 
+/**
+ * Advance a streamed reply on the channel this callback addresses.
+ *
+ * Resolves to nothing when the channel cannot stream, so a caller that wants a
+ * streamed reply learns it has to send the whole thing instead.
+ */
+export async function sendChannelStreamOp(
+  callbackUrl: string,
+  chatId: string,
+  op: SlackStreamOp,
+): Promise<ChannelDeliveryResult> {
+  const transport = getTransportForCallback(callbackUrl);
+  if (!transport?.streamReply) {
+    return { ok: true };
+  }
+  return transport.streamReply(callbackContext(callbackUrl), chatId, op);
+}
+
 function callbackContext(callbackUrl: string): CallbackContext {
   const params: Record<string, string> = {};
   try {
@@ -158,8 +177,5 @@ export async function deliverDirect(
   }
 
   const ctx = callbackContext(callbackUrl);
-  if (payload.slackStream && transport.streamReply) {
-    return transport.streamReply(ctx, payload);
-  }
   return transport.deliver(ctx, payload);
 }

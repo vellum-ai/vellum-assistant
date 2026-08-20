@@ -1,6 +1,7 @@
 import type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
+  SlackStreamOp,
 } from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../../channels/types.js";
@@ -44,8 +45,7 @@ export interface ThreadStatus {
  *
  * Each operation takes its own parameters and is reached through its own entry
  * point; a transport implements only the operations its channel supports, so
- * an absent method is an absent capability. `streamReply` is the last one the
- * dispatcher still selects by inspecting a payload field.
+ * an absent method is an absent capability.
  */
 export interface ChannelTransport {
   /** Canonical source channel id, e.g. `"slack"`. */
@@ -91,9 +91,15 @@ export interface ChannelTransport {
     status: ThreadStatus,
   ): Promise<ChannelDeliveryResult>;
 
-  /** Perform one streaming operation. Routed when `payload.slackStream` is set. */
+  /**
+   * Advance a streamed reply: open it, add to it, or close it.
+   *
+   * A channel that can only post a finished message omits this, and the
+   * caller falls back to delivering the reply whole.
+   */
   streamReply?(
     ctx: CallbackContext,
-    payload: ChannelReplyPayload,
+    chatId: string,
+    op: SlackStreamOp,
   ): Promise<ChannelDeliveryResult>;
 }

@@ -226,7 +226,6 @@ export function processChannelMessageInBackground(
         chatType,
         replyCallbackUrl,
         chatId: externalChatId,
-        assistantId,
         recipientUserId: slackInbound?.actorExternalUserId,
         recipientTeamId: slackInbound?.actorTeamId,
         // Durably record the streamed message `ts` the instant the stream
