@@ -2,9 +2,9 @@
  * Chat content layout — routes the active `mainView` to the appropriate
  * panel arrangement.
  *
- * Single responsibility: reads `mainView` from the viewer store, renders
- * `ChatMainPanel` inside the correct layout shell (standalone, or
- * as the left pane of a `ResizablePanel` with a side panel on the right).
+ * Single responsibility: reads the viewer store, resolves the arrangement,
+ * and hands the surfaces to `WorkspacePanes`, which draws them. Side panels
+ * and overlays keep their own shells.
  *
  * Side-panel state (app, document, subagent, tool-detail) is read directly
  * from stores — no props required for layout decisions.
