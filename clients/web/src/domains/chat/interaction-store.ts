@@ -32,6 +32,18 @@ export interface InteractionState {
   secretSaved: boolean;
 
   pendingConfirmation: PendingConfirmationState | null;
+  /**
+   * Bumped whenever the identity of {@link pendingConfirmation} changes: raised,
+   * retired, or replaced by a different request. Patching the occupant's
+   * contents does not bump it, because the prompt is still the same one.
+   *
+   * A resume after an await asks "is the shared confirmation state still mine",
+   * and this is the only thing that can answer it. Comparing the prompt cannot:
+   * one that arrives and settles inside a single await leaves the slot on the
+   * same `null` it started from, so a stale response would read an untouched
+   * store and write over whatever is there now. Mirrors `questionRevision`.
+   */
+  confirmationRevision: number;
   isSubmittingConfirmation: boolean;
 
   pendingContactRequest: PendingContactRequestState | null;
@@ -161,6 +173,7 @@ const INITIAL_STATE: InteractionState = {
   secretSaved: false,
 
   pendingConfirmation: null,
+  confirmationRevision: 0,
   isSubmittingConfirmation: false,
 
   pendingContactRequest: null,
@@ -242,21 +255,33 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
 
   // ----- Confirmation -----
   showConfirmation: (payload) =>
-    set({ pendingConfirmation: payload, isSubmittingConfirmation: false }),
+    set((state) => ({
+      pendingConfirmation: payload,
+      confirmationRevision: state.confirmationRevision + 1,
+      isSubmittingConfirmation: false,
+    })),
 
   submitConfirmationStart: () => set({ isSubmittingConfirmation: true }),
 
   submitConfirmationEnd: () => set({ isSubmittingConfirmation: false }),
 
   dismissConfirmation: () =>
-    set({ pendingConfirmation: null, isSubmittingConfirmation: false }),
+    set((state) => ({
+      pendingConfirmation: null,
+      confirmationRevision: state.confirmationRevision + 1,
+      isSubmittingConfirmation: false,
+    })),
 
   dismissConfirmationIfMatches: (requestId) => {
     const { pendingConfirmation } = get();
     if (!pendingConfirmation || pendingConfirmation.requestId !== requestId) {
       return;
     }
-    set({ pendingConfirmation: null, isSubmittingConfirmation: false });
+    set((state) => ({
+      pendingConfirmation: null,
+      confirmationRevision: state.confirmationRevision + 1,
+      isSubmittingConfirmation: false,
+    }));
   },
 
   updateConfirmation: (requestId, patch) => {
@@ -325,11 +350,12 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
 
   // ----- Resets -----
   resetSecretAndConfirmation: () =>
-    set({
+    set((state) => ({
       pendingSecret: null,
       isSubmittingSecret: false,
       secretSaved: false,
       pendingConfirmation: null,
+      confirmationRevision: state.confirmationRevision + 1,
       isSubmittingConfirmation: false,
       inlineConfirmationToolCallId: null,
       // Question state is intentionally not cleared: the daemon blocks on
@@ -337,7 +363,7 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       // hide a card that is still answerable. A question that the daemon does
       // settle retires through `dismissQuestionIfMatches`, driven by the
       // `interaction_resolved` handler and the 404 paths in `question-actions`.
-    }),
+    })),
 
   // ----- ACP Connect Claude prompt -----
   // Skip a restore the user already dismissed this session. The live-failure
@@ -397,11 +423,12 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set((state) => ({
       ...INITIAL_STATE,
       pendingAcpConnect: state.pendingAcpConnect,
-      // A conversation switch drops the card, which is a change like any other:
-      // carry the counter forward and advance it rather than restarting from
-      // the initial zero. Restarting would let a read issued before the switch
-      // compare equal to the state after it.
+      // A conversation switch drops the cards, which is a change like any
+      // other: carry the counters forward and advance them rather than
+      // restarting from the initial zero. Restarting would let a read issued
+      // before the switch compare equal to the state after it.
       questionRevision: state.questionRevision + 1,
+      confirmationRevision: state.confirmationRevision + 1,
     })),
 }));
 

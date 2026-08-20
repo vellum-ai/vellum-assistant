@@ -107,6 +107,29 @@ function cleanupAfterConfirmationDecision(
 }
 
 /**
+ * Whether the shared confirmation state still belongs to the submission that is
+ * resuming.
+ *
+ * `isSubmittingConfirmation`, the session error, and the card itself are single
+ * slots, not per-request. Only one in-flight submission may write them, and it
+ * is whichever request occupies the prompt slot now. A submission whose prompt
+ * has since been replaced, retired, or superseded has to leave all three alone,
+ * or it clears a newer prompt's submitting flag, overwrites its error, and can
+ * retire its card.
+ *
+ * Answered by comparing the revision captured before the request went out,
+ * rather than the prompt itself: a confirmation that arrives and settles inside
+ * the same await leaves the slot on the value it started from, so comparing
+ * prompts reads that as "nothing happened". Requests that are still the sole
+ * occupant see an unchanged revision and proceed, including the common case
+ * where the slot was empty throughout (an inline card submitted while no
+ * standalone prompt was up).
+ */
+function stillOwnsConfirmationState(revisionBefore: number): boolean {
+  return useInteractionStore.getState().confirmationRevision === revisionBefore;
+}
+
+/**
  * Clear a confirmation prompt the daemon has already discarded.
  *
  * A confirmation POST comes back 404 ("No pending interaction found for this
@@ -190,6 +213,9 @@ export async function handleConfirmationSubmit(
         }
       : undefined;
 
+  // Everything above runs synchronously, so the slot cannot have moved yet.
+  const revisionBefore = useInteractionStore.getState().confirmationRevision;
+
   try {
     const result = await submitConfirmation(
       ctx.assistantId,
@@ -197,6 +223,10 @@ export async function handleConfirmationSubmit(
       decision,
       ruleHint,
     );
+
+    if (!stillOwnsConfirmationState(revisionBefore)) {
+      return;
+    }
 
     if (!result.ok) {
       if (result.status === 404) {
@@ -211,7 +241,12 @@ export async function handleConfirmationSubmit(
     }
     cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, decision);
   } catch (err) {
+    // Always reported; only surfaced when this submission still owns the
+    // banner, so a dead request cannot mask a live one's failure.
     captureError(err, { context: "submit_confirmation" });
+    if (!stillOwnsConfirmationState(revisionBefore)) {
+      return;
+    }
     useChatSessionStore.getState().setError({
       message: "Failed to submit confirmation. Please try again.",
     });
@@ -277,6 +312,13 @@ export async function handleAllowAndCreateRule(
     });
   };
 
+  // Everything above runs synchronously, so the slot cannot have moved yet.
+  const revisionBefore = useInteractionStore.getState().confirmationRevision;
+  // The rule editor is this user's own request and the transcript patch names
+  // its own requestId, so both stay outside the ownership guard: neither can
+  // touch a newer prompt, and withholding the editor would swallow the click.
+  const owns = () => stillOwnsConfirmationState(revisionBefore);
+
   try {
     const result = await submitConfirmation(
       ctx.assistantId,
@@ -288,11 +330,13 @@ export async function handleAllowAndCreateRule(
       // A 404 means the pending interaction is already gone server-side; the
       // user can still create a rule, so retire the prompt quietly rather than
       // surfacing a blocking "No pending interaction" error they can't act on.
-      useChatSessionStore
-        .getState()
-        .setError(result.status === 404 ? null : { message: result.error });
-      useInteractionStore.getState().submitConfirmationEnd();
-      useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+      if (owns()) {
+        useChatSessionStore
+          .getState()
+          .setError(result.status === 404 ? null : { message: result.error });
+        useInteractionStore.getState().submitConfirmationEnd();
+        useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+      }
       patchTranscriptMessages((prev: DisplayMessage[]) =>
         clearConfirmationByRequestId(prev, snapshot.requestId),
       );
@@ -300,20 +344,24 @@ export async function handleAllowAndCreateRule(
       return;
     }
 
-    cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, "allow");
+    if (owns()) {
+      cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, "allow");
+    }
 
     openCreateEditor({ ...editorContext, requestId: "" });
   } catch (err) {
     captureError(err, { context: "allow_and_create_rule" });
-    useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+    if (owns()) {
+      useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+      useChatSessionStore.getState().setError({
+        message:
+          "Failed to submit confirmation, but you can still create a rule.",
+      });
+      useInteractionStore.getState().submitConfirmationEnd();
+    }
     patchTranscriptMessages((prev: DisplayMessage[]) =>
       clearConfirmationByRequestId(prev, snapshot.requestId),
     );
     openCreateEditor({ ...editorContext, requestId: "" });
-    useChatSessionStore.getState().setError({
-      message:
-        "Failed to submit confirmation, but you can still create a rule.",
-    });
-    useInteractionStore.getState().submitConfirmationEnd();
   }
 }

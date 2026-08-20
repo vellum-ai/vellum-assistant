@@ -17,6 +17,8 @@ import type { SubmitSecretResponseResult } from "@/domains/chat/api/interactions
 let submitConfirmationResult: SubmitSecretResponseResult = { ok: true };
 const submitConfirmationCalls: Array<{ requestId: string; decision: string }> =
   [];
+/** Held open by the ownership tests so the slot can move mid-submit. */
+let submitGate: Promise<void> | null = null;
 
 mock.module("@/domains/chat/api/interactions", () => ({
   submitConfirmation: async (
@@ -25,6 +27,9 @@ mock.module("@/domains/chat/api/interactions", () => ({
     decision: string,
   ): Promise<SubmitSecretResponseResult> => {
     submitConfirmationCalls.push({ requestId, decision });
+    if (submitGate) {
+      await submitGate;
+    }
     return submitConfirmationResult;
   },
 }));
@@ -53,6 +58,7 @@ function seedPendingConfirmation(requestId: string): void {
 beforeEach(() => {
   submitConfirmationCalls.length = 0;
   submitConfirmationResult = { ok: true };
+  submitGate = null;
   useInteractionStore.getState().resetAll();
   useChatSessionStore.getState().setError(null);
   useStreamStore.getState().setStreamContext(null);
@@ -93,6 +99,82 @@ describe("handleConfirmationSubmit — stale (404) interaction", () => {
     expect(useChatSessionStore.getState().error?.message).toBe(
       "Internal error",
     );
+  });
+});
+
+describe("handleConfirmationSubmit — a resume that no longer owns the state", () => {
+  it("leaves a newer prompt alone when a late response lands", async () => {
+    // GIVEN a submission held open mid-flight
+    let openGate: (() => void) | undefined;
+    submitGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    submitConfirmationResult = {
+      ok: false,
+      status: 500,
+      error: "Internal error",
+    };
+    seedPendingConfirmation("cr-old");
+    const inFlight = handleConfirmationSubmit("allow");
+
+    // WHEN a newer confirmation takes the slot before the response lands
+    useInteractionStore.getState().showConfirmation({
+      requestId: "cr-new",
+      toolName: "bash",
+      riskLevel: "low",
+      input: {},
+    });
+
+    openGate?.();
+    await inFlight;
+
+    // THEN the newer prompt keeps its card, its submitting flag is untouched,
+    // and the dead request's error is not shown in its place
+    expect(useInteractionStore.getState().pendingConfirmation?.requestId).toBe(
+      "cr-new",
+    );
+    expect(useChatSessionStore.getState().error).toBeNull();
+  });
+
+  it("does not act on a slot that moved and came back", async () => {
+    // GIVEN a submission held open with nothing else in the slot
+    let openGate: (() => void) | undefined;
+    submitGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    seedPendingConfirmation("cr-aba");
+    useInteractionStore.getState().dismissConfirmation();
+    const inFlight = handleConfirmationSubmit("allow");
+
+    // WHEN a prompt arrives and settles inside the await, returning the slot
+    // to the null it started from
+    useInteractionStore.getState().showConfirmation({
+      requestId: "cr-transient",
+      toolName: "bash",
+      riskLevel: "low",
+      input: {},
+    });
+    useInteractionStore.getState().dismissConfirmationIfMatches("cr-transient");
+    expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
+
+    openGate?.();
+    await inFlight;
+
+    // THEN the resume writes nothing. Comparing the prompt would read this as
+    // an untouched store, since it ends on the same null it began on.
+    expect(useChatSessionStore.getState().error).toBeNull();
+  });
+
+  it("still applies when the submission is the only one in play", async () => {
+    // GIVEN an ordinary submission with nothing moving underneath it
+    submitConfirmationResult = { ok: true };
+    seedPendingConfirmation("cr-solo");
+
+    await handleConfirmationSubmit("allow");
+
+    // THEN the guard does not stand in the way of the normal path
+    expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
+    expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(false);
   });
 });
 
