@@ -118,6 +118,8 @@ function renderPanel(
     onOpenBilling?: () => void;
     onAddCredits?: () => void;
     conversationId?: string | null;
+    /** Renders with no add-credits handler, the way native Android does. */
+    withoutAddCredits?: boolean;
   } = {},
 ) {
   const client = new QueryClient({
@@ -127,7 +129,11 @@ function renderPanel(
     <QueryClientProvider client={client}>
       <PreferencesUsagePanel
         onOpenBilling={handlers.onOpenBilling ?? (() => {})}
-        onAddCredits={handlers.onAddCredits ?? (() => {})}
+        onAddCredits={
+          handlers.withoutAddCredits
+            ? undefined
+            : (handlers.onAddCredits ?? (() => {}))
+        }
         conversationId={handlers.conversationId}
       />
     </QueryClientProvider>,
@@ -283,6 +289,19 @@ describe("PreferencesUsagePanel", () => {
 
     fireEvent.click(await findByTestId("preferences-usage-add-credits"));
     expect(onAddCredits).toHaveBeenCalledTimes(1);
+  });
+
+  test("without a handler the strip states its case and offers nothing", async () => {
+    usageTotalUsd = "25";
+    creditsExhausted = true;
+    const { findByTestId, getByText, queryByTestId } = renderPanel({
+      withoutAddCredits: true,
+    });
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("100% used");
+    expect(getByText("Add credits to continue.")).toBeTruthy();
+    expect(queryByTestId("preferences-usage-add-credits")).toBeNull();
   });
 
   test("a spent bundle turns negative with credits still in hand", async () => {

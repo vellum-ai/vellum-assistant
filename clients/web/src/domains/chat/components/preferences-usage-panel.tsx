@@ -11,8 +11,8 @@ import { formatUsageResetDate } from "@/lib/billing/usage-reset-date";
 export interface PreferencesUsagePanelProps {
   /** Opens the Billing tab of the usage settings page. */
   onOpenBilling: () => void;
-  /** Opens the add-credits checkout. */
-  onAddCredits: () => void;
+  /** Opens the add-credits checkout. Omitted, the strip states its case only. */
+  onAddCredits?: () => void;
   /** The chat the reading is for, which refines what counts as exhausted. */
   conversationId?: string | null;
 }
@@ -106,21 +106,23 @@ export function PreferencesUsagePanel({
           >
             {t("preferencesUsagePanel.exhausted")}
           </Typography>
-          <div className="flex shrink-0 items-center gap-2">
-            <span
-              aria-hidden
-              className="h-[18px] w-px bg-[var(--system-negative-strong)] opacity-30"
-            />
-            <Button
-              variant="dangerGhost"
-              size="compact"
-              iconOnly={<Plus />}
-              expandOnMobile={false}
-              aria-label={t("preferencesUsagePanel.addCreditsAriaLabel")}
-              onClick={onAddCredits}
-              data-testid="preferences-usage-add-credits"
-            />
-          </div>
+          {onAddCredits ? (
+            <div className="flex shrink-0 items-center gap-2">
+              <span
+                aria-hidden
+                className="h-[18px] w-px bg-[var(--system-negative-strong)] opacity-30"
+              />
+              <Button
+                variant="dangerGhost"
+                size="compact"
+                iconOnly={<Plus />}
+                expandOnMobile={false}
+                aria-label={t("preferencesUsagePanel.addCreditsAriaLabel")}
+                onClick={onAddCredits}
+                data-testid="preferences-usage-add-credits"
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

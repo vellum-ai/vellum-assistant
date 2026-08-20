@@ -287,10 +287,14 @@ function PreferencesMenuContent({
           onClose();
           navigate(routes.settings.usageBilling);
         }}
-        onAddCredits={() => {
-          onClose();
-          onAddCredits();
-        }}
+        onAddCredits={
+          isNativeAndroid
+            ? undefined
+            : () => {
+                onClose();
+                onAddCredits();
+              }
+        }
       />
 
       {showBillingRows && effectiveBalance !== null && showCredits ? (

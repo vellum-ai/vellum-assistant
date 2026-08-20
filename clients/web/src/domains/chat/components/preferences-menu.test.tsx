@@ -148,7 +148,7 @@ mock.module("@/domains/chat/components/preferences-usage-panel", () => ({
     conversationId,
   }: {
     onOpenBilling: () => void;
-    onAddCredits: () => void;
+    onAddCredits?: () => void;
     conversationId?: string | null;
   }) => {
     panelPropsRef.conversationId = conversationId;
@@ -156,7 +156,11 @@ mock.module("@/domains/chat/components/preferences-usage-panel", () => ({
       "div",
       { "data-testid": "preferences-usage" },
       createElement("button", { onClick: onOpenBilling }, "Usage settings"),
-      createElement("button", { onClick: onAddCredits }, "Add usage credits"),
+      // The real panel drops the strip's button with the handler, so the stub
+      // has to as well or the Android gate reads as covered when it is not.
+      onAddCredits
+        ? createElement("button", { onClick: onAddCredits }, "Add usage credits")
+        : null,
     );
   },
 }));
@@ -418,6 +422,26 @@ describe("PreferencesMenu", () => {
     // was opened from.
     expect(await screen.findByTestId("add-credits-modal")).toBeTruthy();
     expect(screen.queryByTestId("preferences-usage")).toBeNull();
+  });
+
+  test("native Android leaves the panel with nothing to buy", async () => {
+    nativeAndroidRef.value = true;
+    await openMenu();
+
+    // Consumption-only: the panel is still the reading, but no surface in the
+    // menu may offer a purchase.
+    expect(screen.getByTestId("preferences-usage")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Add usage credits" }),
+    ).toBeNull();
+  });
+
+  test("off native Android the panel keeps its add-credits action", async () => {
+    await openMenu();
+
+    expect(
+      screen.getByRole("button", { name: "Add usage credits" }),
+    ).toBeTruthy();
   });
 
   test("native Android shows the balance without an add-credits action", async () => {
