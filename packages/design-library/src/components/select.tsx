@@ -42,6 +42,16 @@ export interface SelectOption<T extends string> {
   readonly tooltip?: ReactNode;
   /** Renders dimmed and cannot be chosen by click, keyboard, or typeahead. */
   readonly disabled?: boolean;
+  /**
+   * Pins the row to the bottom edge of the scrolling menu, so it stays on
+   * screen however far the list is scrolled.
+   *
+   * For the row that escapes the list rather than continuing it ("Create
+   * new..."): in a menu long enough to scroll, an unpinned last row is the
+   * one nobody finds. Only meaningful on the last option, and only one row
+   * should claim it.
+   */
+  readonly sticky?: boolean;
 }
 
 export interface SelectProps<T extends string> {
@@ -372,6 +382,12 @@ export function Select<T extends string>({
                   className={cn(
                     "flex items-center gap-2 outline-none transition-colors",
                     OPTION_SIZE_CLASSES[size],
+                    // Opaque fill and a rule along the top, so the rows it
+                    // floats over read as scrolled under it rather than
+                    // bleeding through. `-mb-1` eats the viewport's bottom
+                    // padding, which would otherwise show as a gap below.
+                    option.sticky &&
+                      "sticky bottom-0 z-10 -mb-1 border-t border-[var(--field-border)] bg-[var(--field-bg)]",
                     option.disabled
                       ? "cursor-not-allowed opacity-50"
                       : "cursor-pointer data-[highlighted]:bg-[var(--surface-hover)]",
