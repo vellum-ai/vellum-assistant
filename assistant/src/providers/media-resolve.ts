@@ -24,7 +24,7 @@
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import { getAttachmentContent } from "../persistence/attachments-store.js";
 import {
-  sniffBase64ImageMimeType,
+  heifImageMimeType,
   sniffImageMimeType,
 } from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
@@ -59,13 +59,55 @@ export function mediaSourceBytes(source: MediaSource): Buffer | null {
  * whose payload is gone: that is an unavailable attachment, not an unreadable
  * format. Lets a caller holding a persisted block ask whether the model will
  * see the image.
+ *
+ * Answers for the formats every provider reads, so HEIF counts as unsendable
+ * even though a Gemini turn ({@link MediaResolveOptions}) would carry it.
  */
 export function isUnsendableImageSource(source: MediaSource): boolean {
-  if (source.type === "base64") {
-    return sniffBase64ImageMimeType(source.data) === null;
+  const bytes =
+    source.type === "base64"
+      ? imageHeadBytes(source.data)
+      : getAttachmentContent(source.attachmentId);
+  return bytes != null && sendableImageMimeType(bytes, {}) === null;
+}
+
+/**
+ * Media types a provider accepts for an image block beyond the four every
+ * provider reads (PNG, JPEG, GIF, WebP).
+ *
+ * HEIF is the one format where providers genuinely disagree: Gemini decodes
+ * `image/heic` and `image/heif` directly
+ * (https://ai.google.dev/gemini-api/docs/image-understanding), while
+ * OpenAI-compatible and Anthropic endpoints answer HTTP 400 for the whole
+ * request. HEIF bytes reach a provider whenever transcoding was unavailable
+ * (`convertImageToJpeg` is backed by macOS `sips`), so a Linux-hosted assistant
+ * on Gemini depends on them passing through.
+ */
+export interface MediaResolveOptions {
+  acceptsHeif?: boolean;
+}
+
+// 16 base64 chars decode to the 12 bytes the longest signature needs.
+function imageHeadBytes(dataBase64: string): Buffer {
+  return Buffer.from(dataBase64.slice(0, 16), "base64");
+}
+
+/**
+ * Media type the provider should be told an image is, or null when it cannot
+ * read the bytes at all.
+ */
+function sendableImageMimeType(
+  bytes: Uint8Array,
+  options: MediaResolveOptions,
+): string | null {
+  const sniffed = sniffImageMimeType(bytes);
+  if (sniffed) {
+    return sniffed;
   }
-  const bytes = getAttachmentContent(source.attachmentId);
-  return bytes != null && sniffImageMimeType(bytes) === null;
+  if (options.acceptsHeif) {
+    return heifImageMimeType(bytes);
+  }
+  return null;
 }
 
 /**
@@ -141,20 +183,26 @@ export const UNSENDABLE_IMAGE_FORMAT_NOTE =
  * The declaration is only a claim: web clients derive it from the filename
  * extension, so a HEIC photo saved as `.png` arrives declared `image/png`. One
  * sniff covers both failure modes that claim produces. Bytes that sniff as
- * nothing are unsendable ({@link sniffImageMimeType} names exactly the accepted
- * formats, so an unnamed head is corrupt or a format no provider reads: HEIF,
- * AVIF, BMP, TIFF, SVG) and become {@link UNSENDABLE_IMAGE_FORMAT_NOTE}. Bytes
- * that sniff as something other than the declaration are relabeled, since a
- * mismatch is fatal on its own (Anthropic answers "image does not match the
- * provided media type").
+ * nothing the target provider reads are unsendable (a corrupt head, or a format
+ * outside both the universal four and the provider's own extras: AVIF, BMP,
+ * TIFF, SVG) and become {@link UNSENDABLE_IMAGE_FORMAT_NOTE}. Bytes that sniff
+ * as something other than the declaration are relabeled, since a mismatch is
+ * fatal on its own (Anthropic answers "image does not match the provided media
+ * type").
  *
  * The sniff runs ahead of the transport optimization so sendability cannot
  * depend on an unrelated size threshold: optimization rewrites only the images
  * it decides to rescale.
  */
-async function resolveImageBlock(block: ImageContent): Promise<ContentBlock> {
+async function resolveImageBlock(
+  block: ImageContent,
+  options: MediaResolveOptions,
+): Promise<ContentBlock> {
   if (block.source.type === "base64") {
-    const sniffed = sniffBase64ImageMimeType(block.source.data);
+    const sniffed = sendableImageMimeType(
+      imageHeadBytes(block.source.data),
+      options,
+    );
     if (!sniffed) {
       log.warn(
         { declaredMediaType: block.source.media_type },
@@ -178,7 +226,7 @@ async function resolveImageBlock(block: ImageContent): Promise<ContentBlock> {
       text: "[Attachment unavailable: image could not be loaded]",
     };
   }
-  const sniffed = sniffImageMimeType(bytes);
+  const sniffed = sendableImageMimeType(bytes, options);
   if (!sniffed) {
     log.warn(
       {
@@ -239,10 +287,13 @@ function resolveFileBlock(block: FileContent): ContentBlock {
   };
 }
 
-async function resolveBlock(block: ContentBlock): Promise<ContentBlock> {
+async function resolveBlock(
+  block: ContentBlock,
+  options: MediaResolveOptions,
+): Promise<ContentBlock> {
   switch (block.type) {
     case "image":
-      return resolveImageBlock(block);
+      return resolveImageBlock(block, options);
     case "file":
       return resolveFileBlock(block);
     case "tool_result": {
@@ -252,7 +303,9 @@ async function resolveBlock(block: ContentBlock): Promise<ContentBlock> {
       }
       return {
         ...block,
-        contentBlocks: await Promise.all(block.contentBlocks.map(resolveBlock)),
+        contentBlocks: await Promise.all(
+          block.contentBlocks.map((nested) => resolveBlock(nested, options)),
+        ),
       };
     }
     default:
@@ -269,22 +322,31 @@ async function resolveBlock(block: ContentBlock): Promise<ContentBlock> {
  * every inline block unconditionally, keeps the clean live turn on the identity
  * fast path below at the cost of decoding a 12-byte head per image.
  */
-function base64ImageNeedsRewrite(source: Base64MediaSource): boolean {
-  return sniffBase64ImageMimeType(source.data) !== source.media_type;
+function base64ImageNeedsRewrite(
+  source: Base64MediaSource,
+  options: MediaResolveOptions,
+): boolean {
+  return (
+    sendableImageMimeType(imageHeadBytes(source.data), options) !==
+    source.media_type
+  );
 }
 
-function contentNeedsResolution(content: ContentBlock[]): boolean {
+function contentNeedsResolution(
+  content: ContentBlock[],
+  options: MediaResolveOptions,
+): boolean {
   return content.some((block) => {
     if (block.type === "image") {
       return block.source.type === "workspace_ref"
         ? true
-        : base64ImageNeedsRewrite(block.source);
+        : base64ImageNeedsRewrite(block.source, options);
     }
     if (block.type === "file") {
       return block.source.type === "workspace_ref";
     }
     if (block.type === "tool_result" && block.contentBlocks?.length) {
-      return contentNeedsResolution(block.contentBlocks);
+      return contentNeedsResolution(block.contentBlocks, options);
     }
     return false;
   });
@@ -298,15 +360,18 @@ function contentNeedsResolution(content: ContentBlock[]): boolean {
  */
 export function resolveMediaReferences(
   messages: Message[],
+  options: MediaResolveOptions = {},
 ): Promise<Message[]> {
   return Promise.all(
     messages.map(async (message) => {
-      if (!contentNeedsResolution(message.content)) {
+      if (!contentNeedsResolution(message.content, options)) {
         return message;
       }
       return {
         ...message,
-        content: await Promise.all(message.content.map(resolveBlock)),
+        content: await Promise.all(
+          message.content.map((block) => resolveBlock(block, options)),
+        ),
       };
     }),
   );

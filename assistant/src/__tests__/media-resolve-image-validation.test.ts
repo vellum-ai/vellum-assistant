@@ -125,6 +125,23 @@ describe("resolveMediaReferences image validation", () => {
     });
   });
 
+  test("keeps a HEIC photo for a provider that decodes HEIF", async () => {
+    /**
+     * Gemini reads image/heic and image/heif directly, so an untranscoded HEIC
+     * photo must reach it as an image rather than as an omission note.
+     */
+    // GIVEN a HEIC photo declared as a PNG, as an untranscoded upload arrives
+    const message = userMessage([inlineImage("image/png", HEIC_B64)]);
+
+    // WHEN a provider that accepts HEIF resolves it
+    const [resolved] = await resolveMediaReferences([message], {
+      acceptsHeif: true,
+    });
+
+    // THEN the image survives, declared as the HEIF type its brand names
+    expect(resolved.content[0]).toEqual(inlineImage("image/heic", HEIC_B64));
+  });
+
   test("relabels an inline image whose declared type is not its actual type", async () => {
     // GIVEN PNG bytes declared as JPEG, which every provider rejects outright
     const message = userMessage([inlineImage("image/jpeg", PNG_B64)]);
