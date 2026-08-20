@@ -24,28 +24,30 @@
 
 import { isPlainObject } from "../../util/object.js";
 
-/**
- * Parameter spellings a tool accepts as another parameter's name.
- *
- * `scaffold_managed_skill` declares `body_markdown`, while the skill-authoring
- * prose that drives the call talks throughout about writing "the body" (see
- * `bundled-skills/skill-management/SKILL.md` and the memory retrospective's
- * prompt). A model that follows the prose sends `body`, and the value it sends
- * is the skill body the tool wants.
- *
- * An alias applies only when the canonical parameter is absent, so a call that
- * spells the parameter correctly is never overwritten.
- */
-const PARAMETER_ALIASES: Readonly<
-  Record<string, Readonly<Record<string, string>>>
-> = {
-  scaffold_managed_skill: { body: "body_markdown" },
-};
+interface ToolInputRepairRules {
+  /**
+   * Parameter spellings the tool accepts as another parameter's name.
+   *
+   * `scaffold_managed_skill` declares `body_markdown`, while the
+   * skill-authoring prose that drives the call talks throughout about writing
+   * "the body" (see `bundled-skills/skill-management/SKILL.md` and the memory
+   * retrospective's prompt). A model that follows the prose sends `body`, and
+   * the value it sends is the skill body the tool wants.
+   *
+   * An alias applies only when the canonical parameter is absent, so a call
+   * that spells the parameter correctly is never overwritten.
+   */
+  aliases?: Readonly<Record<string, string>>;
+  /** Whether the tool's `files` parameter also reads a path-keyed map. */
+  filesMap?: boolean;
+}
 
-/** Tools whose `files` parameter accepts a path-keyed map (see below). */
-const FILES_MAP_TOOLS: ReadonlySet<string> = new Set([
-  "scaffold_managed_skill",
-]);
+const REPAIR_RULES: Readonly<Record<string, ToolInputRepairRules>> = {
+  scaffold_managed_skill: {
+    aliases: { body: "body_markdown" },
+    filesMap: true,
+  },
+};
 
 /** The properties one `files` entry declares. */
 const FILE_ENTRY_KEYS: ReadonlySet<string> = new Set([
@@ -53,6 +55,9 @@ const FILE_ENTRY_KEYS: ReadonlySet<string> = new Set([
   "content",
   "copy_from",
 ]);
+
+/** The properties a `files` entry may carry besides its path. */
+const FILE_BYTES_KEYS: ReadonlySet<string> = new Set(["content", "copy_from"]);
 
 /**
  * Read a `files` object written as a map from path to contents, the shape
@@ -62,19 +67,20 @@ const FILE_ENTRY_KEYS: ReadonlySet<string> = new Set([
  *
  * Returns the declared array shape, or `undefined` when any entry is not
  * readable as one file, in which case the whole value is left alone: a partial
- * reading would drop files the caller asked for without saying so.
+ * reading would drop files the caller asked for without saying so. Guessing
+ * which path wins for an entry that names its own is a guess about intent
+ * rather than a repair, so those are left too.
  */
-function filesMapToEntries(value: unknown): unknown[] | undefined {
-  if (!isPlainObject(value)) {
-    return undefined;
-  }
-  const entries = Object.entries(value);
-  if (entries.length === 0) {
-    return undefined;
-  }
+function filesMapToEntries(
+  map: Record<string, unknown>,
+): unknown[] | undefined {
+  const entries = Object.entries(map);
   // An object spelling out one entry's own fields is a single file, not a map
   // of them. Reading it as a map would turn its field names into paths.
-  if (entries.every(([key]) => FILE_ENTRY_KEYS.has(key))) {
+  if (
+    entries.length === 0 ||
+    entries.every(([key]) => FILE_ENTRY_KEYS.has(key))
+  ) {
     return undefined;
   }
   const files: Record<string, unknown>[] = [];
@@ -86,18 +92,14 @@ function filesMapToEntries(value: unknown): unknown[] | undefined {
       files.push({ path, content: entry });
       continue;
     }
-    // Only an entry that carries nothing but the file's bytes is readable as
-    // a map value. Anything else (including an entry naming its own `path`)
-    // is a different shape, and guessing which path wins would be a guess
-    // about intent rather than a repair.
-    const keys = isPlainObject(entry) ? Object.keys(entry) : [];
-    if (
-      keys.length === 0 ||
-      !keys.every((key) => key === "content" || key === "copy_from")
-    ) {
+    if (!isPlainObject(entry)) {
       return undefined;
     }
-    files.push({ path, ...(entry as Record<string, unknown>) });
+    const keys = Object.keys(entry);
+    if (keys.length === 0 || !keys.every((key) => FILE_BYTES_KEYS.has(key))) {
+      return undefined;
+    }
+    files.push({ path, ...entry });
   }
   return files;
 }
@@ -116,29 +118,27 @@ export function bundledToolInputRepairs(
   toolName: string,
   input: Record<string, unknown>,
 ): Record<string, unknown> {
+  const rules = REPAIR_RULES[toolName];
+  if (!rules) {
+    return input;
+  }
   let repaired: Record<string, unknown> | undefined;
 
-  const aliases = PARAMETER_ALIASES[toolName];
-  if (aliases) {
-    for (const [alias, canonical] of Object.entries(aliases)) {
-      if (!(alias in input) || canonical in input) {
-        continue;
-      }
-      repaired ??= { ...input };
-      repaired[canonical] = repaired[alias];
-      delete repaired[alias];
+  for (const [alias, canonical] of Object.entries(rules.aliases ?? {})) {
+    if (!(alias in input) || canonical in input) {
+      continue;
     }
+    repaired ??= { ...input };
+    repaired[canonical] = repaired[alias];
+    delete repaired[alias];
   }
 
-  if (FILES_MAP_TOOLS.has(toolName)) {
-    const source = repaired ?? input;
-    const files = source.files;
-    if (!Array.isArray(files) && isPlainObject(files)) {
-      const entries = filesMapToEntries(files);
-      if (entries) {
-        repaired ??= { ...input };
-        repaired.files = entries;
-      }
+  const files = input.files;
+  if (rules.filesMap && isPlainObject(files)) {
+    const entries = filesMapToEntries(files);
+    if (entries) {
+      repaired ??= { ...input };
+      repaired.files = entries;
     }
   }
 
@@ -147,5 +147,5 @@ export function bundledToolInputRepairs(
 
 /** Every alias a bundled `toolName` accepts, for drift guards. */
 export function bundledToolInputAliases(toolName: string): string[] {
-  return Object.keys(PARAMETER_ALIASES[toolName] ?? {});
+  return Object.keys(REPAIR_RULES[toolName]?.aliases ?? {});
 }

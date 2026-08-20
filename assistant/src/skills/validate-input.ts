@@ -12,6 +12,7 @@
  * (e.g. `surface_id is required`, `mode must be one of "replace", "append"`).
  */
 
+import { parseJsonSafe } from "../util/json.js";
 import { isPlainObject } from "../util/object.js";
 
 export interface InputValidationSuccess {
@@ -206,7 +207,9 @@ export function coerceStringNumbers(
  * means something else (a truncated array, a map keyed by something the item
  * schema does not name) is left for the validator to reject rather than
  * silently reinterpreted. Per-element `items.type` checks still run on the
- * repaired array, so a genuinely wrong element keeps its own error.
+ * repaired array, so a genuinely wrong element keeps its own error, and each
+ * element an array gains here is coerced against the item schema so a repaired
+ * element cannot carry a shape a natively-sent one could not.
  *
  * Pure: returns a new object when a repair applies, otherwise returns `input`
  * unchanged. Never mutates `input` or `schema`.
@@ -220,9 +223,9 @@ export function coerceArrayShapes(
     const itemType = typeof items?.type === "string" ? items.type : undefined;
 
     if (typeof value === "string") {
-      const decoded = parseJson(value);
+      const decoded = parseJsonSafe(value);
       if (Array.isArray(decoded)) {
-        return { value: decoded };
+        return { value: coerceElements(decoded, items) };
       }
       if (itemType !== "string") {
         return undefined;
@@ -245,20 +248,39 @@ export function coerceArrayShapes(
       isPlainObject(value) &&
       matchesItemProperties(value, items)
     ) {
-      return { value: [value] };
+      return { value: coerceElements([value], items) };
     }
 
     return undefined;
   });
 }
 
-/** Parse `text` as JSON, or `undefined` when it does not parse. */
-function parseJson(text: string): unknown {
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return undefined;
+/**
+ * Apply the scalar coercions to each object element against the item schema.
+ *
+ * Only top-level properties are coerced when a call arrives already in the
+ * declared shape, because that is the only level the validator type-checks.
+ * An array this function builds has no such level yet: its elements were text
+ * a moment ago, and their properties carry whatever the model serialized,
+ * including the string-encoded booleans this module exists to read. Coercing
+ * them here keeps a repaired element from reaching an executor in a shape a
+ * natively-sent one could not.
+ */
+function coerceElements(
+  elements: unknown[],
+  itemSchema: Record<string, unknown> | undefined,
+): unknown[] {
+  if (!isPlainObject(itemSchema?.properties)) {
+    return elements;
   }
+  return elements.map((element) =>
+    isPlainObject(element)
+      ? coerceStringNumbers(
+          coerceStringBooleans(element, itemSchema),
+          itemSchema,
+        )
+      : element,
+  );
 }
 
 /**

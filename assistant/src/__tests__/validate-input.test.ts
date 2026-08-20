@@ -468,6 +468,16 @@ describe("coerceArrayShapes", () => {
           required: ["path"],
         },
       },
+      steps: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            action: { type: "string" },
+            require_approval: { type: "boolean" },
+          },
+        },
+      },
       name: { type: "string" },
       tags: { type: ["array", "null"] },
       untyped: { type: "array" },
@@ -576,6 +586,33 @@ describe("coerceArrayShapes", () => {
       validateInputAgainstSchema("scaffold_managed_skill", coerced, schema),
     ).toEqual({ ok: true });
     expect(coerced.activation_hints).toEqual(["user asks to deploy staging"]);
+  });
+
+  describe("elements an array gains here", () => {
+    test("are coerced against the item schema when decoded", () => {
+      const result = coerceArrayShapes(
+        { steps: '[{"action":"send","require_approval":"false"}]' },
+        schema,
+      );
+      expect(result.steps).toEqual([
+        { action: "send", require_approval: false },
+      ]);
+    });
+
+    test("are coerced against the item schema when wrapped", () => {
+      const result = coerceArrayShapes(
+        { steps: { action: "send", require_approval: "true" } },
+        schema,
+      );
+      expect(result.steps).toEqual([
+        { action: "send", require_approval: true },
+      ]);
+    });
+
+    test("leave non-object elements alone", () => {
+      const result = coerceArrayShapes({ steps: '["send",7]' }, schema);
+      expect(result.steps).toEqual(["send", 7]);
+    });
   });
 
   test("still reports a wrong element type after repair", () => {

@@ -53,13 +53,9 @@ export function createSkillTool(
       const repairedInput = bundled
         ? bundledToolInputRepairs(entry.name, input)
         : input;
-      const coercedInput = coerceArrayShapes(
-        coerceStringNumbers(
-          coerceStringBooleans(repairedInput, schema),
-          schema,
-        ),
-        schema,
-      );
+      const withBooleans = coerceStringBooleans(repairedInput, schema);
+      const withNumbers = coerceStringNumbers(withBooleans, schema);
+      const coercedInput = coerceArrayShapes(withNumbers, schema);
       const validation = validateInputAgainstSchema(
         entry.name,
         coercedInput,

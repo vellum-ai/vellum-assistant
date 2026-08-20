@@ -1,11 +1,39 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
+import type { SkillToolEntry } from "../config/skills.js";
 import {
   bundledToolInputAliases,
   bundledToolInputRepairs,
 } from "../tools/shared/input-repairs.js";
 
 const TOOL = "scaffold_managed_skill";
+
+/** The real manifest entry the repairs describe. */
+function scaffoldEntry(): SkillToolEntry {
+  const manifest = JSON.parse(
+    readFileSync(
+      join(
+        import.meta.dir,
+        "../config/bundled-skills/skill-management/TOOLS.json",
+      ),
+      "utf-8",
+    ),
+  ) as { tools: SkillToolEntry[] };
+  const entry = manifest.tools.find((t) => t.name === TOOL);
+  if (!entry) {
+    throw new Error(`${TOOL} is missing from the skill-management TOOLS.json`);
+  }
+  return entry;
+}
+
+function scaffoldProperties(): Record<string, { type?: string }> {
+  const schema = scaffoldEntry().input_schema as {
+    properties: Record<string, { type?: string }>;
+  };
+  return schema.properties;
+}
 
 describe("bundledToolInputRepairs: parameter aliases", () => {
   test("reads `body` as the declared `body_markdown`", () => {
@@ -28,11 +56,22 @@ describe("bundledToolInputRepairs: parameter aliases", () => {
     expect(bundledToolInputRepairs("file_write", input)).toBe(input);
   });
 
-  test("every advertised alias is one the repair applies", () => {
+  test("no alias shadows a parameter the tool actually declares", () => {
+    const declared = scaffoldProperties();
+    const aliases = bundledToolInputAliases(TOOL);
+    expect(aliases.length).toBeGreaterThan(0);
+    for (const alias of aliases) {
+      expect(declared[alias]).toBeUndefined();
+    }
+  });
+
+  test("every alias targets a parameter the tool declares", () => {
+    const declared = scaffoldProperties();
     for (const alias of bundledToolInputAliases(TOOL)) {
       const result = bundledToolInputRepairs(TOOL, { [alias]: "value" });
-      expect(result[alias]).toBeUndefined();
-      expect(Object.values(result)).toContain("value");
+      const target = Object.keys(result).find((key) => key !== alias);
+      expect(target).toBeDefined();
+      expect(declared[target!]).toBeDefined();
     }
   });
 });
@@ -89,6 +128,20 @@ describe("bundledToolInputRepairs: files written as a path-keyed map", () => {
 
   test("leaves an empty object", () => {
     const input = { files: {} };
+    expect(bundledToolInputRepairs(TOOL, input)).toBe(input);
+  });
+
+  test("an entry spelling out every declared file property is read as one file", () => {
+    const schema = scaffoldEntry().input_schema as {
+      properties: {
+        files: { items: { properties: Record<string, unknown> } };
+      };
+    };
+    const declared = Object.keys(schema.properties.files.items.properties);
+    expect(declared).toContain("path");
+    const entry = Object.fromEntries(declared.map((key) => [key, "value"]));
+
+    const input = { files: entry };
     expect(bundledToolInputRepairs(TOOL, input)).toBe(input);
   });
 
