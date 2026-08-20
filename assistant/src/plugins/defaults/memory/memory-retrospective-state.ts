@@ -184,9 +184,8 @@ export function getRetrospectiveState(
  * against. When omitted, the stored log is left untouched (and seeded NULL on
  * first insert).
  *
- * `consecutiveFailures` resets to 0: the pass produced durable evidence, so
- * whatever made earlier passes over this window fail no longer holds and the
- * next one starts from the full surface again.
+ * `consecutiveFailures` resets to 0: durable evidence marks the window healthy,
+ * so the next pass runs at the full surface.
  */
 export async function upsertRetrospectiveState(
   args: Omit<

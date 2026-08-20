@@ -29,7 +29,7 @@ function columns(): ColumnRow[] {
     .all() as ColumnRow[];
 }
 
-describe("migration 367 — memory_retrospective_state.consecutive_failures", () => {
+describe("migration 367: memory_retrospective_state.consecutive_failures", () => {
   beforeEach(() => {
     getMemorySqlite()!.exec("DELETE FROM memory_retrospective_state");
   });
