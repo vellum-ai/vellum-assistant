@@ -28,7 +28,7 @@ const VELVET_THEME_OPTION = {
 
 /**
  * Compact icon-only theme switcher for the sidebar preferences popover.
- * Mirrors the `AppearanceSection` in the Preferences modal — both share the
+ * Mirrors the `ThemePicker` on Settings → General. Both share the
  * `useThemePreference` hook so they stay in sync via the `watchDeviceSetting`
  * listener.
  *
