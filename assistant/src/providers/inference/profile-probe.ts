@@ -18,6 +18,7 @@ import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { dispatchProviderResolvable } from "../connection-resolution.js";
 import {
   createTimeout,
   getConfiguredProvider,
@@ -152,6 +153,10 @@ export async function probeInferenceProfile(
   const winner = selectWinningProfile("inference", llm, {
     overrideProfile: name,
     selectionSeed,
+    // The same resolvability predicate dispatch applies: without it this
+    // pre-check can report the requested profile as winner while the actual
+    // dispatch below falls back to (and bills) a different profile.
+    isResolvableProvider: dispatchProviderResolvable,
     onResolutionFallback: (info) => {
       if (info.requested === name) {
         fallbackReason = info.reason;
