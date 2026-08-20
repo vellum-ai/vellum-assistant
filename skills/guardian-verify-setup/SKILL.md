@@ -15,13 +15,13 @@ metadata:
       - "If the user already specified a channel, do not re-ask"
 ---
 
-You are helping your user set up channel verification for a messaging channel (phone, Telegram, Slack, or email). This links their identity for verified message delivery on the chosen channel. Use the `assistant channel-verification-sessions` CLI for all verification operations.
+You are helping your user set up channel verification for a messaging channel (phone, Telegram, Slack, Discord, or email). This links their identity for verified message delivery on the chosen channel. Use the `assistant channel-verification-sessions` CLI for all verification operations.
 
 ## When to Use
 
 Load this skill when:
 
-- The user says "verify me", "verify my identity", "set up verification", "verify my [phone/telegram/slack/email]", or any equivalent identity-handshake intent.
+- The user says "verify me", "verify my identity", "set up verification", "verify my [phone/telegram/slack/discord/email]", or any equivalent identity-handshake intent.
 - Another skill is wiring up a channel and needs to bind the guardian's identity to it (e.g., `slack-app-setup` invokes this skill at the end of Slack setup so the user can prove ownership of the configured workspace).
 
 Do not load this skill for:
