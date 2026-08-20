@@ -16,6 +16,10 @@ const STATE: CompanionSurfaceState = {
   assistantName: "Ziggy",
   turns: [],
   working: false,
+  // Watch offered, which is what every case below except the flag's own is
+  // about. The flag is main's answer and arrives on the state like everything
+  // else here; the cases that care about it being absent say so.
+  watchEnabled: true,
 };
 
 /** Reset between cases, since `STATE` is what the mocked bridge hands back. */
@@ -23,6 +27,7 @@ const resetState = () => {
   STATE.working = false;
   STATE.call = null;
   delete STATE.watching;
+  STATE.watchEnabled = true;
 };
 
 mock.module("@/runtime/companion-surface", () => ({
@@ -231,9 +236,7 @@ describe("the working ring on the page", () => {
     const { container } = render(<CompanionSurfacePage />);
 
     await waitFor(() => {
-      expect(
-        container.querySelector(".companion-working-ring"),
-      ).not.toBeNull();
+      expect(container.querySelector(".companion-working-ring")).not.toBeNull();
     });
   });
 
@@ -328,6 +331,80 @@ describe("the watch session on the companion surface", () => {
         return type;
       }),
     );
+
+    const stop = await waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Stop watching"]',
+      );
+      if (!found) {
+        throw new Error("Expected the stop control to render");
+      }
+      return found;
+    });
+    fireEvent.click(stop);
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The Watch flag, which this window cannot evaluate for itself.
+ *
+ * The route is standalone: no auth, no `RootLayout`, and so no flag store that
+ * ever settles. Main reads the evaluation the app's window wrote into settings
+ * and pushes it here, and this page's whole job is to believe only a positive
+ * answer.
+ */
+describe("the Watch flag on the companion surface", () => {
+  const watchButton = (container: HTMLElement): HTMLButtonElement | null =>
+    container.querySelector<HTMLButtonElement>('button[aria-label="Watch"]');
+
+  /** Open the pill, which is where the way into a session would be drawn. */
+  const openPill = async (container: HTMLElement): Promise<void> => {
+    await pinPill(container);
+    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
+    await waitFor(() => {
+      if (!container.querySelector('button[aria-label="Talk"]')) {
+        throw new Error("Expected the pill to open");
+      }
+    });
+  };
+
+  test("draws no way in when the pushed state says nothing about it", async () => {
+    delete STATE.watchEnabled;
+    const { container } = render(<CompanionSurfacePage />);
+    await openPill(container);
+
+    expect(watchButton(container)).toBeNull();
+  });
+
+  test("draws no way in when the pushed state says no", async () => {
+    STATE.watchEnabled = false;
+    const { container } = render(<CompanionSurfacePage />);
+    await openPill(container);
+
+    expect(watchButton(container)).toBeNull();
+  });
+
+  test("draws the way in when the pushed state says yes", async () => {
+    STATE.watchEnabled = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await openPill(container);
+
+    expect(watchButton(container)).not.toBeNull();
+  });
+
+  /**
+   * The flag hides the door and never the exit. A session that outlives the
+   * answer is still reading the screen, and a capture the user cannot end is
+   * the one thing this surface exists to prevent.
+   */
+  test("keeps a way out of a session the flag no longer offers", async () => {
+    STATE.watchEnabled = false;
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinPill(container);
+    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
 
     const stop = await waitFor(() => {
       const found = container.querySelector<HTMLButtonElement>(

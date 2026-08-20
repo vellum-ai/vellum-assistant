@@ -94,10 +94,16 @@ const meta: Meta<StoryArgs> = {
     accentHex: { control: "color" },
     glow: { control: "boolean" },
     watching: { control: "boolean" },
+    watchEnabled: { control: "boolean" },
   },
   args: {
     phase: "resting",
     glow: true,
+    // On here, off everywhere a real user meets it until the flag says
+    // otherwise. Design stories are for looking at what the surface can draw,
+    // and a control the stories hid would be one nobody could review. Turn it
+    // off to see the two-control row a user without the flag gets.
+    watchEnabled: true,
     backdrop: "dark",
     avatarSrc: EXAMPLE_AVATAR,
     character: EXAMPLE_CHARACTER,
