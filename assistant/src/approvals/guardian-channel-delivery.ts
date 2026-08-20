@@ -1,11 +1,12 @@
 /**
- * Shared addressing helpers for guardian requester-facing channel notices.
+ * Shared addressing helpers for guardian-flow channel notices.
  *
- * Requester notices (approval, denial, expiry) are delivered straight to the
- * requester's chat via `deliverChannelReply` — independent of the
- * guardian-facing notification pipeline. Centralizing the addressing rules here
- * keeps the decision resolvers and the timer-driven expiry sweep from drifting
- * apart on how a requester is reached.
+ * Requester notices (approval, denial, expiry) and the guardian's own approval
+ * prompt are delivered straight to a chat via `deliverChannelReply` -
+ * independent of the guardian-facing notification pipeline. Centralizing the
+ * addressing rules here keeps the decision resolvers, the timer-driven expiry
+ * sweep and the in-turn approval prompt from drifting apart on who a message
+ * is put in front of.
  */
 
 /**
@@ -110,4 +111,30 @@ export function resolveRequesterDeliveryTarget(params: {
     return requesterExternalUserId;
   }
   return requesterChatId;
+}
+
+/**
+ * Resolve who a guardian's own approval prompt is addressed to.
+ *
+ * The prompt is raised by a turn the guardian is having, and that turn may be
+ * running in a shared room. The tool name, its command preview and live
+ * Approve/Reject buttons are readable by everyone in that room, so on a
+ * channel with a private route to a user id the prompt is addressed to the
+ * guardian's own id and the transport opens the DM.
+ *
+ * Telegram and WhatsApp fall through to the chat the turn is in, because
+ * theirs already is the private one-to-one conversation. Same call, same
+ * reasoning, as {@link resolveRequesterDeliveryTarget} makes for a
+ * requester-facing notice.
+ */
+export function resolveGuardianPromptDeliveryTarget(params: {
+  channel: string;
+  turnChatId: string;
+  guardianExternalUserId: string | undefined;
+}): string {
+  const { channel, turnChatId, guardianExternalUserId } = params;
+  if (channelDeliversToUserId(channel) && guardianExternalUserId) {
+    return guardianExternalUserId;
+  }
+  return turnChatId;
 }
