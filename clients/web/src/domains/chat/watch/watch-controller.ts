@@ -370,11 +370,6 @@ function openSession(
         // Already closing, so there is nothing left to close.
       }
     }
-    // A socket that was already shut will never report a close, so there is
-    // nothing left to wait on before letting the next start through.
-    if (ws.readyState === WebSocket.CLOSED) {
-      releaseHandoff();
-    }
   };
 
   /**
@@ -394,9 +389,25 @@ function openSession(
     drainRelease = new Promise<void>((resolve) => {
       releaseDrain = resolve;
     });
-    // The socket's own close is the signal, and this is the backstop for a
-    // close that never arrives. A start held up forever is the failure this
-    // whole claim exists to avoid, in a different costume.
+    // **Two honest signals, and this socket closing is not one of them.**
+    //
+    // The runtime's `closed` frame is one: it is sent after `manager.stop()`,
+    // so it is the runtime saying the slot is free. The timer below is the
+    // other, as a bound rather than as evidence.
+    //
+    // A downstream close is not, because there is a proxy in between. The
+    // gateway's close handler calls `upstream.close()` and returns
+    // (`runtime-audio-stream.ts`); it waits for neither the upstream handshake
+    // nor the runtime's `handleClose`. So this socket reporting closed says
+    // the browser and the gateway are done, and says nothing about whether the
+    // runtime has released anything.
+    //
+    // A session stopped before `ready` therefore has only the timer: it is
+    // closed without a stop frame, so no `closed` frame is coming. That makes
+    // a restart straight after such a stop wait out the bound. Deliberate, and
+    // the smaller cost: the alternative is a restart that reaches a runtime
+    // still holding its slot and is refused, which the user reads as the
+    // button not working.
     handoffTimer = setTimeout(
       releaseHandoff,
       options.drainTimeoutMs ?? STOP_DRAIN_TIMEOUT_MS,
@@ -613,18 +624,11 @@ function openSession(
     }
   });
 
-  /**
-   * The socket is gone, which is also the closest thing to proof the runtime
-   * has seen it go and let its session slot go with it. Whatever is waiting on
-   * the handoff may start now.
-   */
-  const onSocketGone = (): void => {
-    finish();
-    releaseHandoff();
-  };
-
-  ws.addEventListener("close", onSocketGone);
-  ws.addEventListener("error", onSocketGone);
+  // The socket is gone, so the session is over. Deliberately does not release
+  // the handoff: see `claimHandoff` for why a downstream close is not evidence
+  // that the runtime has let go of its session slot.
+  ws.addEventListener("close", finish);
+  ws.addEventListener("error", finish);
 }
 
 /**

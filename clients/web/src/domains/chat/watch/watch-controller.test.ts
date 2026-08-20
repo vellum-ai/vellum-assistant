@@ -212,7 +212,7 @@ type Timeouts = { readyTimeoutMs?: number; drainTimeoutMs?: number };
 
 const toggle = ({
   readyTimeoutMs = 50,
-  drainTimeoutMs = 5_000,
+  drainTimeoutMs = 25,
 }: Timeouts = {}): Promise<void> => {
   return toggleWatch({
     webSocketFactory: (url) => {
@@ -283,6 +283,16 @@ const flagEmissions = async (run: () => Promise<void>): Promise<boolean[]> => {
 
 /** Let a bounded timer that is shorter than this fire. */
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * A handoff bound for cases that assert a restart is still waiting.
+ *
+ * They sample a few milliseconds in, so the bound has to be far enough away
+ * that a slow machine cannot let it expire first and turn "held back" into
+ * "already started". Cases that only wait *for* the bound can use a small one:
+ * overshooting that direction is harmless.
+ */
+const HELD = 200;
 
 beforeEach(() => {
   ingressUrl = "http://localhost:8500";
@@ -697,7 +707,7 @@ describe("the flush window after the user stops", () => {
    * the difference between a restart that is slow and one that silently fails.
    */
   test("starts a session pressed during the drain, once the drain ends", async () => {
-    await startRunning();
+    await startRunning({ drainTimeoutMs: HELD });
     stopWatch();
 
     const pressed = toggle();
@@ -721,14 +731,16 @@ describe("the flush window after the user stops", () => {
 
   /** The wait is bounded by the drain's own timer, not by the runtime. */
   test("starts a session pressed during a drain the runtime never ends", async () => {
-    await startRunning({ drainTimeoutMs: 20 });
+    await startRunning({ drainTimeoutMs: HELD });
     stopWatch();
 
     const pressed = toggle();
     await wait(5);
     const openedBeforeTheTimeout = sockets.length;
 
-    await wait(40);
+    // The press resolves when the bound releases the handoff, so awaiting it
+    // is the wait. Sleeping past that point would burn the new session's own
+    // ready timer before this test could answer it.
     await pressed;
     socket().serverOpen();
     await serverReady();
@@ -750,7 +762,7 @@ describe("the flush window after the user stops", () => {
 
   /** A press waiting on the handoff is still the user's to take back. */
   test("stays cancellable while it waits for the handoff", async () => {
-    await startRunning();
+    await startRunning({ drainTimeoutMs: HELD });
     stopWatch();
 
     const pressed = toggle();
@@ -827,7 +839,7 @@ describe("the flush window after the user stops", () => {
    * busy, which is the same silent failure as the wider case next door.
    */
   test("holds a restart until a session the runtime never announced is released", async () => {
-    await startPending();
+    await startPending({ drainTimeoutMs: HELD });
     stopWatch();
 
     const pressed = toggle();
@@ -836,23 +848,37 @@ describe("the flush window after the user stops", () => {
     await wait(5);
     const openedBeforeTheHandoff = sockets.length;
 
+    // **The downstream close is not evidence.** The gateway's close handler
+    // calls `upstream.close()` and returns without waiting for the upstream
+    // handshake or the runtime's `handleClose`, so this socket reporting
+    // closed says nothing about whether the runtime has let its slot go. The
+    // claim has to outlive it.
     socket().serverAcknowledgeClose();
+    await wait(5);
+    const openedAfterTheSocketClosed = sockets.length;
+
+    // Which leaves the bound as the only signal, since a session closed
+    // before `ready` sends no stop frame and so gets no `closed` frame back.
     await pressed;
     socket().serverOpen();
     await serverReady();
 
     expect(openedBeforeTheHandoff).toBe(1);
+    expect(openedAfterTheSocketClosed).toBe(1);
     expect(sockets).toHaveLength(2);
     expect(useWatchStore.getState().watching).toBe(true);
   });
 
-  /** Bounded, like every other wait here. */
-  test("starts anyway when the close is never acknowledged", async () => {
+  /**
+   * The cost of holding to honest signals: a restart pressed straight after a
+   * pending stop waits out the bound. Deliberate, and cheaper than a restart
+   * the runtime refuses.
+   */
+  test("starts once the bound expires, with no runtime answer coming", async () => {
     await startPending({ drainTimeoutMs: 20 });
     stopWatch();
 
     const pressed = toggle();
-    await wait(40);
     await pressed;
     socket().serverOpen();
     await serverReady();
