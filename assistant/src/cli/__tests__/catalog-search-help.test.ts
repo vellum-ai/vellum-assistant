@@ -36,15 +36,15 @@ describe("catalog search help for setup-intent retrieval", () => {
     expect(indexed.toLowerCase()).not.toContain("empty query");
   });
 
-  test("skills help indexes setup, superpowers, and web-search fallback", () => {
+  test("skills help indexes setup as the second stop before web search", () => {
     const indexed = buildCliCommandHelpContent(skillsHelp);
     const search = searchHelp(skillsHelp);
 
     expect(search.helpText).toBeDefined();
-    expect(indexed.toLowerCase()).toContain("superpowers");
+    expect(indexed).toContain("Second stop after plugin search");
     expect(indexed).toContain("Setup <app> for me");
     expect(indexed.toLowerCase()).toContain("before searching the web");
     expect(indexed).toContain("assistant skills search");
-    expect(indexed).toContain("assistant plugins search");
+    expect(indexed).toContain("try web search");
   });
 });

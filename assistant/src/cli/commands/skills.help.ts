@@ -6,10 +6,8 @@ export const skillsHelp: CliCommandHelp = {
   name: "skills",
   description: "Browse and install skills from the Vellum catalog",
   helpText: `
-Manage skills from the Vellum catalog. Skills are superpowers: pre-built
-workflows and tools that extend the assistant. When the user asks to set up,
-install, or add a capability, run 'assistant skills search <query>' first
-before searching the web.`,
+Manage skills from the Vellum catalog. Skills are instructions of
+workflows and tools that teach the assistant when dynamically relevant.`,
   subcommands: [
     {
       name: "list",
@@ -60,8 +58,8 @@ Examples:
       ],
       helpText: `
 When to use:
-  First stop when the user asks to set up, install, or add a capability
-  (for example "Setup <app> for me", "add a skill for file management").
+  Second stop after plugin search when the user asks to set up, install, or
+  add a capability (for example "Setup <app> for me", "add a skill for file management").
   Search here before searching the web.
 
 Arguments:
@@ -76,7 +74,7 @@ note is shown with guidance on which install command to use.
 
 If a catalog match is found, install it with 'assistant skills install <id>'.
 If a community match is found, add it with 'assistant skills add <source>'.
-If nothing matches, try 'assistant plugins search <query>', then web search.
+If nothing matches, try web search.
 
 Examples:
   $ assistant skills search react
