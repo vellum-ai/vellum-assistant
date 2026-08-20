@@ -186,6 +186,75 @@ describe("watch session manager", () => {
     manager.stop();
   });
 
+  test("observes the screen the session opens on", async () => {
+    const { manager, calls } = newManager();
+    const started = start(manager);
+
+    // Before a word is spoken. A demonstration starts with the user already
+    // somewhere, and where that is decides whether the first narrated step is
+    // navigating there or working there.
+    expect(calls).toHaveLength(1);
+    await settle();
+    expect(renderWatchTimeline(started.sessionId).totalEntries).toBe(1);
+
+    manager.stop();
+  });
+
+  test("observes on speech onset rather than waiting for the sentence to land", async () => {
+    const { manager, calls } = newManager();
+    start(manager);
+    await settle();
+    await elapse(6_000);
+
+    await manager.handleNarrationStart();
+
+    expect(calls).toHaveLength(2);
+
+    manager.stop();
+  });
+
+  test("files no entry for speech onset, since the final files the narration", async () => {
+    const { manager } = newManager();
+    const started = start(manager);
+    await settle();
+    await elapse(6_000);
+
+    await manager.handleNarrationStart();
+    await manager.handleNarrationFinal("now I drag it to the Trash");
+
+    // The opening observation, the onset's observation, and one narration.
+    // An entry at onset would make a second, emptier record of one utterance.
+    const summary = manager.stop();
+    expect(summary?.entryCount).toBe(3);
+    expect(renderWatchTimeline(started.sessionId).totalEntries).toBe(3);
+  });
+
+  test("holds speech onset to the same floor as a final", async () => {
+    const { manager, calls } = newManager();
+    start(manager);
+    await settle();
+
+    // Onset lands inside the interval the opening observation just spent.
+    await elapse(1_000);
+    await manager.handleNarrationStart();
+    expect(calls).toHaveLength(1);
+
+    await elapse(4_000);
+    await manager.handleNarrationStart();
+    expect(calls).toHaveLength(2);
+
+    manager.stop();
+  });
+
+  test("ignores speech onset when no session is running", async () => {
+    const { manager, calls } = newManager();
+
+    await manager.handleNarrationStart();
+
+    expect(calls).toHaveLength(0);
+    expect(manager.isActive()).toBe(false);
+  });
+
   test("observes four times across a 60s session of ten narration finals", async () => {
     const { manager, calls } = newManager();
     const started = start(manager);
@@ -216,16 +285,22 @@ describe("watch session manager", () => {
     const { manager, calls } = newManager();
     const started = start(manager);
 
-    // Not a word spoken for a minute and a half.
-    await elapse(30_000);
+    // The opening observation goes out with the session, before a word is
+    // spoken, so the ceiling's own ticks are the ones after it. Settled first
+    // because the ceiling is armed when a read finishes, not when it is sent.
     expect(calls).toHaveLength(1);
-    await elapse(30_000);
+    await settle();
+
+    // Not a word spoken for the next three quarters of a minute.
+    await elapse(15_000);
     expect(calls).toHaveLength(2);
-    await elapse(30_000);
+    await elapse(15_000);
     expect(calls).toHaveLength(3);
+    await elapse(15_000);
+    expect(calls).toHaveLength(4);
 
     const rendered = renderWatchTimeline(started.sessionId);
-    expect(rendered.totalEntries).toBe(3);
+    expect(rendered.totalEntries).toBe(4);
 
     manager.stop();
   });
@@ -303,18 +378,20 @@ describe("watch session manager", () => {
     const { manager, releases } = newDeferredManager();
     start(manager);
 
-    // Silence, so the ceiling is what dispatches the read.
-    await elapse(30_000);
+    // The session's opening read, dispatched with the session itself. Nothing
+    // arms the ceiling while it is outstanding, so silence adds no second one.
+    expect(releases).toHaveLength(1);
+    await elapse(8_000);
     expect(releases).toHaveLength(1);
 
     // The host takes 8s to answer, most of the 10s the session allows it.
-    await elapse(8_000);
     releases[0](richObservation());
     await settle();
 
-    // The next read is due 30s after the one that went out, so 22s from here.
-    // A fresh interval measured from the answer would put it 8s later.
-    await elapse(21_999);
+    // That read went out at t=0, so its successor is due at t=15s: 7s from
+    // here, not the full 15s a fresh interval measured from the answer would
+    // give it.
+    await elapse(6_999);
     expect(releases).toHaveLength(1);
     await elapse(1);
     expect(releases).toHaveLength(2);
@@ -332,7 +409,7 @@ describe("watch session manager", () => {
 
     // The ceiling comes due while that read is still out. It stacks no second
     // request, and the deadline it belongs to is already spent.
-    await elapse(30_000);
+    await elapse(15_000);
     expect(releases).toHaveLength(1);
 
     releases[0](richObservation());

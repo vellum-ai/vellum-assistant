@@ -447,6 +447,18 @@ export class WatchStreamSession {
       return;
     }
 
+    if (event.type === "turn-start") {
+      // Onset, not text. Observing here catches the screen the user is about
+      // to describe rather than the one their sentence left behind; the
+      // narration itself is filed by the `final` below. Fire and forget for
+      // the same reason as that one, and no `entry` frame is sent because
+      // nothing was appended.
+      void this.manager.handleNarrationStart().catch((err: unknown) => {
+        log.warn({ err }, "Watch narration-start observation threw");
+      });
+      return;
+    }
+
     if (event.type === "final") {
       const text = event.text.trim();
       if (!text) {
