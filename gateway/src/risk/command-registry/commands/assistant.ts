@@ -104,6 +104,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "conversations defer list",
   "conversations defer cancel",
   "conversations list",
+  "conversations search",
   "conversations new",
   "conversations rename",
   "conversations export",
