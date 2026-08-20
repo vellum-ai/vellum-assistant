@@ -11,6 +11,7 @@ import {
   type UseConnectClaudeResult,
 } from "@/hooks/use-connect-claude";
 import { useSupportsAcpConnect } from "@/lib/backwards-compat/use-supports-acp-connect";
+import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import { isElectron } from "@/runtime/is-electron";
 
 // ---------------------------------------------------------------------------
@@ -98,10 +99,23 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   }, [assistantId, reason]);
 
   useEffect(() => {
-    if (alreadyConnected && connection.phase === "idle") {
-      useInteractionStore.getState().dismissAcpConnect();
+    if (!alreadyConnected || connection.phase !== "idle") {
+      return;
     }
-  }, [alreadyConnected, connection.phase]);
+    // Leave a breadcrumb: the card flashing and vanishing is otherwise silent,
+    // and a self-heal dismissal next to a fresh missing-token failure is the
+    // signature of a status/spawn predicate mismatch. It goes in the durable
+    // lifecycle ring because streaming floods the high-volume ring, which then
+    // evicts within minutes, and the breadcrumb has to survive until a feedback
+    // bundle is captured.
+    const store = useInteractionStore.getState();
+    recordLifecycleDiagnostic("acp_connect_self_heal_dismiss", {
+      assistantId,
+      toolUseId: store.pendingAcpConnect?.toolUseId ?? null,
+      reason: store.pendingAcpConnect?.reason ?? "missing",
+    });
+    store.dismissAcpConnect();
+  }, [alreadyConnected, assistantId, connection.phase]);
 
   // When the in-card connect flow completes, signal the chat view to
   // auto-continue the failed task (via a hidden "retry" send) so the user

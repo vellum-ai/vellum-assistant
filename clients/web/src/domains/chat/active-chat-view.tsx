@@ -42,6 +42,7 @@ import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loa
 import { useDraftPersistence } from "@/domains/chat/hooks/use-draft-persistence";
 import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-orchestrator";
 
+import { useCanForkConversation } from "@/domains/chat/fork/access";
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
 import { useAssistantCapability } from "@/hooks/use-assistant-capability";
 import { useSupportsResourcePressureStatus } from "@/lib/backwards-compat/use-supports-resource-pressure-status";
@@ -88,6 +89,7 @@ import type { ChatMainPanelProps } from "@/domains/chat/components/chat-route-co
 
 export function ActiveChatView() {
   const showLlmInspector = useCanUseLlmInspector();
+  const canFork = useCanForkConversation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{
     conversationId?: string;
@@ -521,7 +523,9 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   useChatHeaderRegistration({
     assetsRefreshKey,
-    handleForkConversationFromMenu,
+    handleForkConversationFromMenu: canFork
+      ? handleForkConversationFromMenu
+      : undefined,
     handleOpenInNewWindow,
     handleInspectConversation,
     handleCopyConversation,
@@ -571,7 +575,7 @@ export function ActiveChatView() {
     handleEditQueueTail,
 
     // Conversation secondary actions
-    handleForkConversation,
+    handleForkConversation: canFork ? handleForkConversation : undefined,
     onSummarizeUpToHere: supportsSummarizeUpToHere
       ? handleSummarizeUpToHere
       : undefined,

@@ -44,8 +44,24 @@ import { setSecureKeyAsync } from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
   _setMetadataPath,
+  type CredentialMetadata,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
+import { serverUseDenialReason } from "../tools/credentials/tool-policy.js";
+
+/** The shared policy's verdict for a state the broker must also deny. */
+function sharedDenialReason(
+  metadata: CredentialMetadata,
+  toolName: string,
+  service: string,
+  field: string,
+): string {
+  const reason = serverUseDenialReason(metadata, toolName, service, field);
+  if (!reason) {
+    throw new Error("expected a denial reason from the shared policy");
+  }
+  return reason;
+}
 
 // ---------------------------------------------------------------------------
 // Tests — serverUse (publish_page / unpublish_page regression)
@@ -518,9 +534,10 @@ describe("CredentialBroker.serverUseById", () => {
     if (result.success) {
       throw new Error("expected denial");
     }
-    expect(result.reason).toContain("not allowed");
-    expect(result.reason).toContain("unauthorized_tool");
-    expect(result.reason).toContain("media_proxy");
+    // The broker passes the shared server-use policy's verdict through verbatim.
+    expect(result.reason).toBe(
+      sharedDenialReason(meta, "unauthorized_tool", "fal", "api_key"),
+    );
   });
 
   test("returns not found for unknown credential ID", async () => {
@@ -553,8 +570,10 @@ describe("CredentialBroker.serverUseById", () => {
     if (result.success) {
       throw new Error("expected denial");
     }
-    expect(result.reason).toContain("domain restrictions");
-    expect(result.reason).toContain("cannot be used server-side");
+    // The broker passes the shared server-use policy's verdict through verbatim.
+    expect(result.reason).toBe(
+      sharedDenialReason(meta, "media_proxy", "github", "oauth_token"),
+    );
   });
 
   test("returns empty injection templates when credential has none", async () => {

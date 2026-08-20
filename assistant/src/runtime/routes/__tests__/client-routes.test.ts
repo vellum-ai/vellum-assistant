@@ -333,3 +333,153 @@ describe("report_client_presence route", () => {
     ).toBeUndefined();
   });
 });
+
+describe("report_web_presence route", () => {
+  beforeEach(() => {
+    fakeHttpAuthDisabled = false;
+    clearHubClients(assistantEventHub);
+  });
+
+  function registerWebClient(args: {
+    clientId: string;
+    actorPrincipalId?: string;
+  }): void {
+    registerHubClient({
+      hub: assistantEventHub,
+      clientId: args.clientId,
+      interfaceId: "web",
+      actorPrincipalId: args.actorPrincipalId,
+    });
+  }
+
+  test("records visibility and focused conversation against the client named by the header", () => {
+    registerWebClient({ clientId: "client-A1", actorPrincipalId: "user-A" });
+
+    const handler = findHandler("report_web_presence");
+    const result = handler({
+      headers: {
+        "x-vellum-client-id": "client-A1",
+        "x-vellum-actor-principal-id": "user-A",
+      },
+      body: { visible: true, focusedConversationId: "conv-1" },
+    }) as { recorded: boolean };
+
+    expect(result).toEqual({ recorded: true });
+    expect(
+      assistantEventHub.getClientById("client-A1")?.webPresence,
+    ).toMatchObject({
+      visible: true,
+      focusedConversationId: "conv-1",
+    });
+  });
+
+  test("accepts a null focusedConversationId", () => {
+    registerWebClient({ clientId: "client-A1", actorPrincipalId: "user-A" });
+
+    const handler = findHandler("report_web_presence");
+    const result = handler({
+      headers: {
+        "x-vellum-client-id": "client-A1",
+        "x-vellum-actor-principal-id": "user-A",
+      },
+      body: { visible: false, focusedConversationId: null },
+    }) as { recorded: boolean };
+
+    expect(result).toEqual({ recorded: true });
+    expect(
+      assistantEventHub.getClientById("client-A1")?.webPresence,
+    ).toMatchObject({
+      visible: false,
+      focusedConversationId: null,
+    });
+  });
+
+  test("returns recorded false when the reported client is not connected", () => {
+    const handler = findHandler("report_web_presence");
+    const result = handler({
+      headers: {
+        "x-vellum-client-id": "client-gone",
+        "x-vellum-actor-principal-id": "user-A",
+      },
+      body: { visible: true, focusedConversationId: "conv-1" },
+    }) as { recorded: boolean };
+
+    expect(result).toEqual({ recorded: false });
+  });
+
+  test("returns recorded false when the caller does not own the client", () => {
+    registerWebClient({ clientId: "client-A1", actorPrincipalId: "user-A" });
+
+    const handler = findHandler("report_web_presence");
+    const result = handler({
+      headers: {
+        "x-vellum-client-id": "client-A1",
+        "x-vellum-actor-principal-id": "user-B",
+      },
+      body: { visible: true, focusedConversationId: "conv-1" },
+    }) as { recorded: boolean };
+
+    expect(result).toEqual({ recorded: false });
+    expect(
+      assistantEventHub.getClientById("client-A1")?.webPresence,
+    ).toBeUndefined();
+  });
+
+  test("returns recorded false for a client with no stored actorPrincipalId", () => {
+    registerWebClient({ clientId: "client-noprincipal" });
+
+    const handler = findHandler("report_web_presence");
+    const result = handler({
+      headers: {
+        "x-vellum-client-id": "client-noprincipal",
+        "x-vellum-actor-principal-id": "user-A",
+      },
+      body: { visible: true, focusedConversationId: "conv-1" },
+    }) as { recorded: boolean };
+
+    expect(result).toEqual({ recorded: false });
+    expect(
+      assistantEventHub.getClientById("client-noprincipal")?.webPresence,
+    ).toBeUndefined();
+  });
+
+  test("dev-bypass mode records presence without an ownership check", () => {
+    fakeHttpAuthDisabled = true;
+    registerWebClient({ clientId: "client-A1", actorPrincipalId: "user-A" });
+
+    const handler = findHandler("report_web_presence");
+    const result = handler({
+      headers: {
+        "x-vellum-client-id": "client-A1",
+        "x-vellum-actor-principal-id": "user-B",
+      },
+      body: { visible: true, focusedConversationId: "conv-1" },
+    }) as { recorded: boolean };
+
+    expect(result).toEqual({ recorded: true });
+  });
+
+  test("throws BadRequestError when the client-id header is missing", () => {
+    const handler = findHandler("report_web_presence");
+
+    expect(() =>
+      handler({ body: { visible: true, focusedConversationId: "conv-1" } }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("throws BadRequestError for a malformed body", () => {
+    registerWebClient({ clientId: "client-A1", actorPrincipalId: "user-A" });
+
+    const handler = findHandler("report_web_presence");
+
+    expect(() =>
+      handler({
+        headers: {
+          "x-vellum-client-id": "client-A1",
+          "x-vellum-actor-principal-id": "user-A",
+        },
+        body: { visible: "yes", focusedConversationId: "conv-1" },
+      }),
+    ).toThrow(BadRequestError);
+  });
+});

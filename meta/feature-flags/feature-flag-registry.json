@@ -145,7 +145,7 @@
       "scope": "client",
       "key": "fork-from-message",
       "label": "Fork from Message",
-      "description": "Show the 'Fork from here' option in message overflow menus",
+      "description": "Show the fork affordance: 'Fork from here' on messages and 'Fork Conversation' in the thread menu. Staff-only: the client also requires the viewer to be Vellum staff, so enabling this for a non-staff account still shows nothing.",
       "defaultEnabled": false
     },
     {
@@ -354,6 +354,14 @@
       "key": "desktop-presence-suppression",
       "label": "Desktop Presence Suppression",
       "description": "Gates whether a `chat.assistant_reply` push is suppressed while a Mac desktop client reports itself attended. On by default; turn it off to restore unconditional reply pushes.",
+      "defaultEnabled": true
+    },
+    {
+      "id": "web-presence-suppression",
+      "scope": "assistant",
+      "key": "web-presence-suppression",
+      "label": "Web Presence Suppression",
+      "description": "Gates whether a `chat.assistant_reply` push is suppressed while a browser tab reports itself visible on that conversation. On by default; turn it off to restore unconditional reply pushes for web-visible conversations.",
       "defaultEnabled": true
     },
     {

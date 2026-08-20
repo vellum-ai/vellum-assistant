@@ -136,6 +136,11 @@ import { WorkflowProgressEventSchema } from "./events/workflow-progress.js";
 import { WorkflowStartedEventSchema } from "./events/workflow-started.js";
 
 export {
+  APP_MUTATION_TOOL_NAMES,
+  APP_MUTATION_TOOLS,
+  type AppMutationTool,
+} from "./constants/app-tools.js";
+export {
   CALL_SITE_COMPACTION_AGENT,
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
 } from "./constants/call-sites.js";

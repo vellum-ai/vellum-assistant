@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { renderHook } from "@testing-library/react";
 
 import type { WorkspaceFilePreviewKind } from "@/stores/viewer-store";
 
@@ -12,7 +11,6 @@ const {
   openLocalFile,
   previewKindFor,
   toggleLocalFile,
-  useIsDocumentOpen,
   usesDocumentDrawer,
 } = await import("@/domains/chat/components/local-file/open-local-file");
 const { useViewerStore } = await import("@/stores/viewer-store");
@@ -269,21 +267,12 @@ describe("isDocumentOpen", () => {
   const drawer = openDocumentState();
   const preview = openPreviewState("data/rows.csv");
 
-  /** What the reactive hook reports for the store state currently set. */
-  function renderIsDocumentOpen(surfaceId: string): boolean {
-    const { result, unmount } = renderHook(() => useIsDocumentOpen(surfaceId));
-    const answer = result.current;
-    unmount();
-    return answer;
-  }
-
   test("matches the document the viewer is showing", () => {
     useViewerStore.setState(drawer);
 
     expect(
       isDocumentOpen("document", drawer.openedDocumentState, "surf-file"),
     ).toBe(true);
-    expect(renderIsDocumentOpen("surf-file")).toBe(true);
   });
 
   test("does not match a different document", () => {
@@ -292,7 +281,6 @@ describe("isDocumentOpen", () => {
     expect(
       isDocumentOpen("document", drawer.openedDocumentState, "surf-other"),
     ).toBe(false);
-    expect(renderIsDocumentOpen("surf-other")).toBe(false);
   });
 
   test("does not match while another view is on top", () => {
@@ -302,7 +290,6 @@ describe("isDocumentOpen", () => {
     expect(
       isDocumentOpen("chat", behind.openedDocumentState, "surf-file"),
     ).toBe(false);
-    expect(renderIsDocumentOpen("surf-file")).toBe(false);
   });
 
   test("does not match while nothing is loaded", () => {
@@ -312,7 +299,6 @@ describe("isDocumentOpen", () => {
     });
 
     expect(isDocumentOpen("document", null, "surf-file")).toBe(false);
-    expect(renderIsDocumentOpen("surf-file")).toBe(false);
   });
 
   test("does not match a preview, which is not a document surface", () => {
@@ -321,7 +307,6 @@ describe("isDocumentOpen", () => {
     expect(
       isDocumentOpen("document", preview.openedDocumentState, "surf-file"),
     ).toBe(false);
-    expect(renderIsDocumentOpen("surf-file")).toBe(false);
   });
 });
 

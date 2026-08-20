@@ -13,7 +13,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Brain,
-  CalendarClock,
+  Calendar,
   ChevronRight,
   FolderOpen,
   LayoutGrid,
@@ -71,7 +71,7 @@ import { PersonalitySignature } from "./personality-signature";
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
   personality: Sparkles,
-  schedules: CalendarClock,
+  schedules: Calendar,
   superpowers: Zap,
   memory: Brain,
   library: LayoutGrid,
@@ -480,8 +480,10 @@ function SectionCard({
         >
           {floodOverlay}
           <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
+            {/* The stacked tiles keep the 40px slot but sit a smaller glyph
+                in it, so the title leads the row rather than the icon. */}
             <Icon
-              className={`h-5 w-5 transition-colors duration-300 ${fgMuted}`}
+              className={`${compact ? "h-3.5 w-3.5" : "h-5 w-5"} transition-colors duration-300 ${fgMuted}`}
               aria-hidden
             />
           </span>
@@ -993,7 +995,7 @@ function OverviewBento({
                 to={schedulesSection.to}
                 className="flex w-full cursor-pointer items-center gap-2 p-4 transition-all duration-150 hover:bg-[var(--card-hover)] active:scale-[0.98]"
               >
-                <CalendarClock
+                <Calendar
                   className="h-6 w-6 shrink-0 text-[var(--content-default)]"
                   aria-hidden
                 />
@@ -1049,8 +1051,13 @@ function OverviewBento({
                         : "text-[var(--content-secondary)]"
                     }`}
                   >
+                    {/* The mark's height follows its width, so the full frame
+                        at card width runs past 250px and the card swallows
+                        the tiles below it. The compact frame holds the band
+                        near 110px without shrinking the labels. */}
                     <PersonalitySignature
                       values={signature}
+                      compact
                       className="h-auto w-full"
                     />
                   </span>

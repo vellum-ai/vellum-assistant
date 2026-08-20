@@ -1,13 +1,21 @@
 /**
  * Tests for the Claude OAuth config + capture/store helpers.
  *
- * The store helper reaches into secure-keys and the ACP credential policy, so
- * we mock both (wired BEFORE importing the module under test via dynamic
- * import) and assert the vault write targets `credential/acp/claude_oauth_token`
- * and throws when the backend rejects the write.
+ * The store helper reaches into secure-keys, so we mock that (wired BEFORE
+ * importing the module under test via dynamic import) and assert the vault
+ * write targets `credential/acp/claude_oauth_token` and throws when the backend
+ * rejects the write.
+ *
+ * The ACP credential policy is NOT mocked: `hasAcpClaudeToken` has to answer
+ * exactly what the spawn-time broker read would, so it is exercised against the
+ * real metadata store (pointed at a temp dir) and the real policy evaluation.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { randomBytes } from "node:crypto";
+import { mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — wired BEFORE importing the module via dynamic import.
@@ -19,20 +27,17 @@ const setSecureKeyAsync = mock(
   async (_account: string, _value: string) => storeReturn,
 );
 const getSecureKeyAsync = mock(async (_account: string) => getReturn);
-const grantAcpSpawnPolicy = mock(
-  (_field: string, _usageDescription: string) => {},
-);
-let spawnCanRead = true;
-const acpSpawnCanReadCredential = mock((_field: string) => spawnCanRead);
 
 mock.module("../../security/secure-keys.js", () => ({
   setSecureKeyAsync,
   getSecureKeyAsync,
 }));
-mock.module("../prepare-agent-env.js", () => ({
-  grantAcpSpawnPolicy,
-  acpSpawnCanReadCredential,
-}));
+
+const { _setMetadataPath, getCredentialMetadata, upsertCredentialMetadata } =
+  await import("../../tools/credentials/metadata-store.js");
+
+const { acpSpawnCredentialDenialReason } =
+  await import("../prepare-agent-env.js");
 
 const {
   CLAUDE_OAUTH_CONFIG,
@@ -43,14 +48,31 @@ const {
   hasAcpClaudeToken,
 } = await import("../acp-claude-oauth.js");
 
+const ACP_SERVICE = "acp";
+const OAUTH_FIELD = "claude_oauth_token";
+const ACP_SPAWN_TOOL = "acp_spawn";
+
+const TEST_DIR = join(
+  tmpdir(),
+  `vellum-acp-claude-oauth-test-${randomBytes(4).toString("hex")}`,
+);
+
+function oauthMetadata() {
+  return getCredentialMetadata(ACP_SERVICE, OAUTH_FIELD);
+}
+
 beforeEach(() => {
+  mkdirSync(TEST_DIR, { recursive: true });
+  _setMetadataPath(join(TEST_DIR, "metadata.json"));
   storeReturn = true;
   getReturn = undefined;
-  spawnCanRead = true;
   setSecureKeyAsync.mockClear();
   getSecureKeyAsync.mockClear();
-  grantAcpSpawnPolicy.mockClear();
-  acpSpawnCanReadCredential.mockClear();
+});
+
+afterEach(() => {
+  _setMetadataPath(null);
+  rmSync(TEST_DIR, { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -149,7 +171,7 @@ describe("parseManualClaudeCode", () => {
 // ---------------------------------------------------------------------------
 
 describe("storeAcpClaudeToken", () => {
-  test("writes the token and force-grants the acp_spawn policy (repairs a denied policy)", async () => {
+  test("writes the token to the acp/claude_oauth_token vault field", async () => {
     await storeAcpClaudeToken("sk-ant-oat-token");
 
     expect(setSecureKeyAsync).toHaveBeenCalledTimes(1);
@@ -157,10 +179,25 @@ describe("storeAcpClaudeToken", () => {
       "credential/acp/claude_oauth_token",
       "sk-ant-oat-token",
     );
-    // grant (union), not merely ensure (preserve) — so an explicit Connect
-    // repairs a credential whose allowedTools omitted acp_spawn.
-    expect(grantAcpSpawnPolicy).toHaveBeenCalledTimes(1);
-    expect(grantAcpSpawnPolicy.mock.calls[0][0]).toBe("claude_oauth_token");
+  });
+
+  test("takes a domain-restricted credential from not-connected to connected", async () => {
+    // Invariant: when the vault holds a usable token whose domain policy
+    // makes the spawn read fail, the status check keeps the Connect card
+    // offered, and completing Connect repairs the policy so the retry after
+    // a successful sign-in succeeds. The per-shape repair details are covered
+    // by the repairAcpSpawnPolicy suite in prepare-agent-env.test.ts.
+    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
+      allowedTools: [ACP_SPAWN_TOOL],
+      allowedDomains: ["api.anthropic.com"],
+    });
+    getReturn = "sk-ant-oat-token";
+    expect(await hasAcpClaudeToken()).toBe(false);
+
+    await storeAcpClaudeToken("sk-ant-oat-token");
+
+    expect(await hasAcpClaudeToken()).toBe(true);
+    expect(acpSpawnCredentialDenialReason(OAUTH_FIELD)).toBeUndefined();
   });
 
   test("throws when the secure store rejects the write", async () => {
@@ -169,7 +206,7 @@ describe("storeAcpClaudeToken", () => {
     await expect(storeAcpClaudeToken("sk-ant-oat-token")).rejects.toThrow(
       /Failed to store/,
     );
-    expect(grantAcpSpawnPolicy).not.toHaveBeenCalled();
+    expect(oauthMetadata()).toBeUndefined();
   });
 });
 
@@ -202,13 +239,44 @@ describe("hasAcpClaudeToken", () => {
     expect(await hasAcpClaudeToken()).toBe(false);
   });
 
-  test("reports false when the spawn policy can't read the token (denied allowedTools)", async () => {
-    // A valid OAuth token is stored, but an explicit `allowedTools` that omits
-    // `acp_spawn` means the broker denies the spawn read. Reporting "connected"
-    // would self-dismiss the card and trap the user in a missing-token loop, so
-    // it stays not-connected to keep the repair CTA visible.
+  test("reports true for metadata with an empty allowedTools (the spawn would grant acp_spawn)", async () => {
+    // One allow-state case: the full policy matrix is guarded by the parity
+    // suite in prepare-agent-env.test.ts and the tool-policy unit tests.
+    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, { allowedTools: [] });
     getReturn = "sk-ant-oat-token";
-    spawnCanRead = false;
+
+    expect(await hasAcpClaudeToken()).toBe(true);
+  });
+
+  test("reports false for a domain-restricted credential the broker refuses server-side", async () => {
+    // acp_spawn is allowed, but a non-empty allowedDomains scopes the credential
+    // to browser fills, so every spawn read is denied. The status check has to
+    // see that too, otherwise the Connect card self-dismisses while acp_spawn
+    // keeps failing with the missing-token marker.
+    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
+      allowedTools: [ACP_SPAWN_TOOL],
+      allowedDomains: ["api.anthropic.com"],
+    });
+    getReturn = "sk-ant-oat-token";
+
     expect(await hasAcpClaudeToken()).toBe(false);
+  });
+
+  test("writes nothing to the metadata store (the status route is a GET)", async () => {
+    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, { allowedTools: [] });
+    getReturn = "sk-ant-oat-token";
+    const before = oauthMetadata();
+
+    await hasAcpClaudeToken();
+
+    expect(oauthMetadata()).toEqual(before);
+  });
+
+  test("creates no metadata when there is none to begin with", async () => {
+    getReturn = "sk-ant-oat-token";
+
+    await hasAcpClaudeToken();
+
+    expect(oauthMetadata()).toBeUndefined();
   });
 });
