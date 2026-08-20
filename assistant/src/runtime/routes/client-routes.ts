@@ -37,6 +37,23 @@ const PresenceBodySchema = z.object({
     .describe("Reported desktop presence state."),
 });
 
+/**
+ * Body of `POST /v1/clients/web-presence`, declared as the route's
+ * `requestBody` and parsed by the handler, so the OpenAPI contract and the
+ * runtime check are one schema rather than two hand-kept copies.
+ */
+const WebPresenceBodySchema = z.object({
+  visible: z
+    .boolean()
+    .describe("Whether the reporting tab is currently visible."),
+  focusedConversationId: z
+    .string()
+    .nullable()
+    .describe(
+      "The conversation currently focused (chat composer on screen) in the tab, or null.",
+    ),
+});
+
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "list_clients",
@@ -224,6 +241,102 @@ export const ROUTES: RouteDefinition[] = [
           interfaceId: client.interfaceId,
         },
         "Recorded desktop presence",
+      );
+      return { recorded: true };
+    },
+  },
+  {
+    operationId: "report_web_presence",
+    endpoint: "clients/web-presence",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Report web tab visibility and focused conversation",
+    description:
+      "Record the visibility and focused conversation reported by the web client identified by the X-Vellum-Client-Id header.",
+    tags: ["clients"],
+    requestBody: WebPresenceBodySchema,
+    responseBody: z.object({
+      recorded: z
+        .boolean()
+        .describe("Whether a connected client matched the reporting clientId."),
+    }),
+    handler: ({ body, headers }) => {
+      const clientId = headers?.["x-vellum-client-id"]?.trim();
+      if (!clientId) {
+        throw new BadRequestError(
+          "x-vellum-client-id header is required to report presence.",
+        );
+      }
+      const { visible, focusedConversationId } = parseBody(
+        WebPresenceBodySchema,
+        body,
+      );
+
+      // Resolving the client first separates "nobody is listening" from
+      // "somebody else owns this", so only the second one is worth a warn.
+      const client = assistantEventHub.getClientById(clientId);
+      if (!client) {
+        // Debug, not warn: a report racing an SSE reconnect matches nothing,
+        // and a reconnect storm would otherwise emit a warn per client for a
+        // benign race. Not a 404 either, for the same reason.
+        log.debug(
+          { op: "report_web_presence" },
+          "Web presence report matched no connected client",
+        );
+        return { recorded: false };
+      }
+
+      // Only the actor that opened the target client's SSE stream may report
+      // its presence, so a caller who learns another user's clientId cannot
+      // spoof that tab. Clients with no stored `actorPrincipalId` (legacy SSE
+      // subscribers, service-gateway tokens) never match: fail-closed, the
+      // same posture as `report_client_presence`. Dev-bypass mode
+      // (DISABLE_HTTP_AUTH=true) skips the check for platform-managed
+      // deployments where the platform handles auth.
+      if (!isHttpAuthDisabled()) {
+        const callerPrincipalId = headers?.["x-vellum-actor-principal-id"];
+        const ownerPrincipalId = client.actorPrincipalId;
+        if (
+          ownerPrincipalId === undefined ||
+          ownerPrincipalId !== callerPrincipalId
+        ) {
+          // Warn, not debug: the client is connected, so a mismatch means the
+          // gateway stopped forwarding the actor header, a scope profile
+          // shifted, or a caller is probing someone else's client. Without
+          // this line presence gating dies silently and every suppressed
+          // push quietly resumes. Client and principal ids stay out of the
+          // entry so the log cannot be used to enumerate them.
+          log.warn(
+            {
+              op: "report_web_presence",
+              hasStoredOwner: ownerPrincipalId !== undefined,
+              hasCallerPrincipal: callerPrincipalId !== undefined,
+              targetInterfaceId: client.interfaceId,
+            },
+            "Rejecting web presence report from a caller that does not own the client",
+          );
+          // Answering like "no match" keeps the reply from probing client ids.
+          return { recorded: false };
+        }
+      }
+
+      // The lookup ran in this same synchronous handler, so the write lands on
+      // the entry it resolved.
+      assistantEventHub.setClientWebPresence(clientId, {
+        visible,
+        focusedConversationId,
+      });
+
+      log.debug(
+        {
+          op: "report_web_presence",
+          visible,
+          interfaceId: client.interfaceId,
+        },
+        "Recorded web presence",
       );
       return { recorded: true };
     },

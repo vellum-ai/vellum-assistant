@@ -31,6 +31,7 @@ import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
+import { hasVisibleText } from "../providers/content-blocks.js";
 import { isMaxTokensStopReason } from "../providers/stop-reasons.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
 import type {
@@ -528,13 +529,6 @@ function assistantTextOf(content: ReadonlyArray<ContentBlock>): string {
   return text;
 }
 
-/** Whether `content` carries at least one non-empty `text` block. */
-function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
-  return content.some(
-    (block) => block.type === "text" && block.text.trim().length > 0,
-  );
-}
-
 type AgentLoopContextWindowResolver = () => {
   maxInputTokens: number;
   overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
@@ -704,10 +698,56 @@ export type LoopToolExecutor = (
   errorCode?: string;
 }>;
 
+type ToolUseBlock = Extract<ContentBlock, { type: "tool_use" }>;
+
+interface NormalizedToolUse {
+  /** Assistant content with at most one `tool_use` block per call id. */
+  content: ContentBlock[];
+  /** The `tool_use` blocks in `content`, in order. */
+  toolUseBlocks: ToolUseBlock[];
+  /** Coalesced copies: a call id and name for each block dropped. */
+  duplicates: Array<{ id: string; name: string }>;
+}
+
+/**
+ * Resolves an assistant reply's `tool_use` blocks into an executable set keyed
+ * by call id: a block with no id gets one, and a repeat of an id already in the
+ * reply is dropped so the call runs once and its single `tool_result` correlates
+ * unambiguously. Providers occasionally emit the same call twice under one id,
+ * and both Anthropic and OpenAI require one `tool_result` per `tool_use` id, so
+ * the duplicate has no well-formed representation downstream.
+ */
+function normalizeToolUseBlocks(
+  content: ReadonlyArray<ContentBlock>,
+): NormalizedToolUse {
+  const nextContent: ContentBlock[] = [];
+  const toolUseBlocks: ToolUseBlock[] = [];
+  const duplicates: Array<{ id: string; name: string }> = [];
+  const seenIds = new Set<string>();
+
+  for (const block of content) {
+    if (block.type !== "tool_use") {
+      nextContent.push(block);
+      continue;
+    }
+    if (seenIds.has(block.id)) {
+      duplicates.push({ id: block.id, name: block.name });
+      continue;
+    }
+    const normalized: ToolUseBlock =
+      block.id.length === 0 ? { ...block, id: crypto.randomUUID() } : block;
+    seenIds.add(normalized.id);
+    nextContent.push(normalized);
+    toolUseBlocks.push(normalized);
+  }
+
+  return { content: nextContent, toolUseBlocks, duplicates };
+}
+
 /**
  * The benign result returned for a sibling tool call that was deferred because
  * an exclusive tool ran in the same turn. Phrased so the model treats it as a
- * "not run yet" signal — read the exclusive tool's output, then re-issue this
+ * "not run yet" signal: read the exclusive tool's output, then re-issue this
  * call if it is still the right next step.
  */
 function deferredForExclusiveMessage(exclusiveToolName: string): string {
@@ -1176,7 +1216,7 @@ export class AgentLoop {
         "Agent loop iteration start",
       );
 
-      let toolUseBlocks: Extract<ContentBlock, { type: "tool_use" }>[] = [];
+      let toolUseBlocks: ToolUseBlock[] = [];
       // The provider rejection thrown by this iteration's call, if any. Set in
       // the inner provider catch and read by the outer catch to confine
       // error-stop recovery to genuine provider rejections — a throw from
@@ -1864,8 +1904,7 @@ export class AgentLoop {
         // the `post-model-call` hook below, which may add or drop tool calls;
         // this raw set drives only the completion log and the max-tokens branch.
         const modelToolUseBlocks = response.content.filter(
-          (block): block is Extract<ContentBlock, { type: "tool_use" }> =>
-            block.type === "tool_use",
+          (block): block is ToolUseBlock => block.type === "tool_use",
         );
 
         rlog.info(
@@ -1979,19 +2018,26 @@ export class AgentLoop {
         // if the model had called it (the supported way for a plugin to surface
         // a card or take a follow-up action), or drop one the model emitted, so
         // the loop runs whatever the assistant message ends up carrying.
-        // Normalize ids so the executor and tool_result correlation stay 1:1 —
-        // a hook-added block may carry an empty or duplicate id.
-        toolUseBlocks = assistantMessage.content.filter(
-          (block): block is Extract<ContentBlock, { type: "tool_use" }> =>
-            block.type === "tool_use",
+        // Normalizing ids keeps executor dispatch and tool_result correlation
+        // 1:1 for the rest of the turn.
+        const normalizedToolUse = normalizeToolUseBlocks(
+          assistantMessage.content,
         );
-        const seenToolUseIds = new Set<string>();
-        for (const block of toolUseBlocks) {
-          if (block.id.length === 0 || seenToolUseIds.has(block.id)) {
-            block.id = crypto.randomUUID();
-          }
-          seenToolUseIds.add(block.id);
+        for (const duplicate of normalizedToolUse.duplicates) {
+          rlog.warn(
+            {
+              turn: toolUseTurns,
+              duplicateId: duplicate.id,
+              duplicateName: duplicate.name,
+            },
+            "Duplicate tool_use id in the assistant reply, coalescing into a single call",
+          );
         }
+        assistantMessage = {
+          ...assistantMessage,
+          content: normalizedToolUse.content,
+        };
+        toolUseBlocks = normalizedToolUse.toolUseBlocks;
 
         // At the no-tool stop boundary the retry decision is actionable: a
         // recovery hook may repair history and ask to re-query (a tool-bearing

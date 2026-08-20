@@ -7,6 +7,17 @@
   "aiProviderPicker": {
     "defaultEntryMeta": "Default"
   },
+  "autoTopUpCard": {
+    "connectCardBanner": "Auto-reload requires you to connect a credit card.",
+    "disableError": "Failed to disable auto-reload. Please try again.",
+    "loadError": "Failed to load auto-reload configuration.",
+    "toggleLabel": "Enable auto-reload",
+    "updateError": "Failed to save auto-reload settings. Please try again."
+  },
+  "autoTopUpDisableConfirm": {
+    "message": "Auto-reload will stop. Any saved payment method stays on file.",
+    "title": "Disable auto-reload?"
+  },
   "billingOnboardingModal": {
     "backgroundConfirmContinue": "Continue",
     "backgroundConfirmKeepWaiting": "Keep waiting",
@@ -21,6 +32,14 @@
     "loadingBilling": "Loading billing…",
     "platformLoginNotice": "Log in to the Vellum platform to manage billing and usage.",
     "usageTab": "Usage"
+  },
+  "billingPanel": {
+    "addCreditsButton": "Add Credits",
+    "balanceLabel": "Credits",
+    "earnCreditsButton": "Earn Free Credits",
+    "lowBalanceToggle": "Custom Low Balance Alert",
+    "subtitle": "Quick overview of your balances and other things",
+    "title": "Credits"
   },
   "billingStatusHandler": {
     "successToast": "Payment received! Your credit balance will update shortly.",
@@ -156,14 +175,17 @@
     "addCredentialButton": "Add Credential",
     "copyLinkButton": "Copy link",
     "credentialSourceAriaLabel": "Credential source",
-    "deleteDialogConfirm": "Delete",
-    "deleteDialogMessage": "Delete {name}? Tools and integrations using it will lose access.",
-    "deleteDialogTitle": "Delete credential",
-    "deleteFailedToast": "Failed to delete credential",
-    "deletedToast": "Deleted {name}.",
+    "deleteConfirmLabel": "Delete",
+    "deleteConfirmMessage": "Delete {name}? Tools and integrations using it will lose access.",
+    "deleteConfirmTitle": "Delete credential",
+    "deleteErrorToast": "Failed to delete credential",
+    "deleteSuccessToast": "Deleted {name}.",
     "emptySubtitle": "Add an API key or token to let tools and integrations use it.",
     "emptyTitle": "No credentials yet",
     "generateLinkFailedToast": "Failed to generate a one-time link",
+    "inUseConfirmLabel": "Delete anyway",
+    "inUseMessage": "{count, plural, one {{name} is the credential that the connection {connections} uses to send requests. Deleting it stops that connection from answering until you add a new credential.} other {{name} is the credential that the connections {connections} use to send requests. Deleting it stops those connections from answering until you add a new credential.}}",
+    "inUseTitle": "Credential is in use",
     "linkCopiedToast": "Link copied to clipboard.",
     "linkCopyFailedToast": "Couldn't copy the link. Select it and copy manually.",
     "linkLabel": "Link",
@@ -209,6 +231,10 @@
     "genericDescriptor": "Select custom CPU power, Ram and Storage. Or just throw in some tokens.",
     "prompt": "Need something more tailored to your needs?",
     "title": "Custom Plan"
+  },
+  "dailyCreditLimitCard": {
+    "requiredNote": "A daily credit limit is required while auto-reload is enabled.",
+    "toggleLabel": "Daily Credit Limit"
   },
   "developerPage": {
     "sectionsAriaLabel": "Developer sections",
@@ -392,6 +418,11 @@
     "tabMcp": "MCP",
     "tabOAuth": "OAuth",
     "tipBanner": "<tip>Tip:</tip> You can enable integrations by mentioning them in chat."
+  },
+  "invoicesTable": {
+    "hideButton": "Hide Invoices",
+    "showButton": "Show Invoices",
+    "title": "Invoices"
   },
   "languageModelCard": {
     "defaultProviderUnavailable": "Your default provider is not available.",
@@ -627,6 +658,20 @@
     "revokeButton": "Revoke",
     "thisMachine": "This machine",
     "title": "Paired devices ({count})"
+  },
+  "paymentMethodsCard": {
+    "addButton": "Add Payment Method",
+    "empty": "No payment method on file. Add one to use auto-reload.",
+    "loadError": "Failed to load payment methods.",
+    "loading": "Loading…",
+    "removeConfirmCancel": "Keep card",
+    "removeConfirmConfirm": "Remove",
+    "removeConfirmMessage": "Removing your card will turn off auto-reload.",
+    "removeConfirmPending": "Removing…",
+    "removeConfirmTitle": "Remove payment method?",
+    "removeError": "Failed to remove the payment method. Please try again.",
+    "subtitle": "Payment methods linked to your account.",
+    "title": "Payment Methods"
   },
   "pendingPairingRequests": {
     "approveButton": "Approve",
@@ -917,9 +962,9 @@
     "conflictNoticePrefix": "That shortcut is already used by {label}.",
     "conflictRecordingHint": "Pick a different combination, or press Esc to cancel.",
     "conflictResetHint": "Remove or change that binding before resetting.",
-    "disabled": "Disabled",
     "globalDescription": "Work anywhere, even when Vellum is in the background.",
     "globalTitle": "Global shortcuts",
+    "none": "None",
     "record": "Record",
     "recordShortcutAriaLabel": "Record shortcut for {label}",
     "recordingHint": "Recording… press a shortcut, or Esc to cancel",
@@ -1078,7 +1123,9 @@
     "captionsTitle": "Captions",
     "customKey": "Custom",
     "defaultBadge": "Default",
-    "enablePushToTalk": "Enable Push to Talk",
+    "enableVoiceShortcut": "Enable voice mode shortcut",
+    "fnKeyLabel": "Fn",
+    "fnRefusedNote": "Fn needs Input Monitoring. Grant it in System Settings, or set a custom shortcut.",
     "focusedTabNote": "Push-to-Talk only works while this tab is focused, and browsers may intercept some shortcuts (e.g. Ctrl+T) before the page can see them. For always-on PTT, use the Vellum desktop app.",
     "grantMicrophoneAccessHint": "Grant microphone access to list your available input devices.",
     "interruptSensitivityAriaLabel": "Interrupt sensitivity",
@@ -1094,9 +1141,9 @@
     "pauseBeforeReplyAriaLabel": "Pause before reply",
     "pauseBeforeReplyDescription": "How long the assistant waits after you stop speaking before it replies. A longer pause lets you gather your thoughts mid-sentence without being cut off.",
     "pauseBeforeReplyLabel": "Pause before reply",
-    "pressAnyKey": "Press any key…",
-    "pushToTalkSubtitle": "Hold the activation key to dictate text or start a voice conversation.",
-    "pushToTalkTitle": "Push to Talk",
+    "pressShortcut": "Press a shortcut…",
+    "recommendedBadge": "Recommended",
+    "recordingPrompt": "Press a chord or keystroke…",
     "resetToDefaults": "Reset to defaults",
     "savedMicrophone": "Saved microphone",
     "savedMicrophoneNotConnected": "Saved microphone (not connected)",
@@ -1105,11 +1152,16 @@
     "sectionInputHeading": "Input",
     "sectionOutputDescription": "How your assistant sounds.",
     "sectionOutputHeading": "Output",
+    "shortcutChordHint": "Hold a modifier (Cmd, Ctrl, Option, or Shift) and press a key.",
+    "shortcutConflict": "Already used by {command}",
     "speechServicesBannerLink": "Set it up in Models & Services",
     "speechServicesBannerPrompt": "Want to use your own API key for STT or TTS, or set a custom voice?",
     "systemDefault": "System Default",
     "turnTakingSubtitle": "Where your turn ends and the assistant's begins. Applies to hands-free conversations. Under push to talk, the key decides.",
-    "turnTakingTitle": "Turn taking"
+    "turnTakingTitle": "Turn taking",
+    "voiceShortcutSubtitle": "Press the shortcut to start or end a voice conversation, from anywhere in the app.",
+    "voiceShortcutSubtitleDesktop": "Global shortcut for starting/ending a voice conversation.",
+    "voiceShortcutTitle": "Voice Mode Shortcut"
   },
   "voicePickerCard": {
     "changeButton": "Change",

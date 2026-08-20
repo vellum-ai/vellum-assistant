@@ -30,6 +30,7 @@ import {
   getBindingByChannelChat,
   upsertOutboundBinding,
 } from "../persistence/external-conversation-store.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
@@ -92,6 +93,13 @@ export interface PairingOptions {
  *
  * Invalid/stale targets at any level fall through to the next.
  *
+ * Passive vellum notifications (those without `requiresConversation`) never
+ * reach that order. They create nothing, and instead append their body to the
+ * producing conversation named by `sourceContextId` when it resolves, since
+ * that is the row the home feed's "Go to Conversation" button already targets.
+ * The returned `conversationId` is that producing conversation, with
+ * `createdNewConversation` false.
+ *
  * Errors are caught and logged — this function never throws so the
  * notification pipeline is not disrupted by pairing failures.
  */
@@ -117,20 +125,47 @@ export async function pairDeliveryWithConversation(
     const conversationAction = options?.conversationAction;
     const bindingContext = options?.bindingContext;
 
-    // Passive vellum notifications surface via the home feed alone and link
-    // back to the originating conversation via `signal.sourceContextId`.
-    // Materializing a fresh per-notification conversation just to host the
-    // seed message leaves a graveyard entry in the sidebar; skip it
-    // unconditionally when the producer did not opt in via
-    // `requiresConversation`. The decision engine's `reuse_existing` hint is
-    // also ignored here: even a successful reuse would append a seed message
-    // to a conversation that the user didn't ask for, and a failed reuse
-    // (stale target / source mismatch) falls through to `createConversation`
-    // — producing exactly the graveyard entry we want to avoid.
+    // Structured content blocks take precedence. They enable Surface-based
+    // rendering in the web/macOS/iOS apps (e.g. a card widget instead of
+    // plain text). Falls back to model-provided seed or runtime composer.
+    const messageContent = copy.seedContentBlocks
+      ? JSON.stringify(copy.seedContentBlocks)
+      : isConversationSeedSane(copy.conversationSeedMessage)
+        ? copy.conversationSeedMessage
+        : composeConversationSeed(signal, channel, copy);
+
+    // Passive vellum notifications link back to the originating conversation
+    // via `signal.sourceContextId` rather than materializing one of their own.
+    // A fresh per-notification conversation just to host the seed message
+    // leaves a graveyard entry in the sidebar, so nothing is created here when
+    // the producer did not opt in via `requiresConversation`. The decision
+    // engine's `reuse_existing` hint is ignored for the same reason: a failed
+    // reuse (stale target / source mismatch) falls through to
+    // `createConversation`, producing exactly the graveyard entry we want to
+    // avoid.
+    //
+    // The body is still appended to the producing conversation when
+    // `sourceContextId` resolves, because every route the user has into this
+    // notification ends at that conversation. Tapping the banner deep-links
+    // there, and resolves there with or without this append, since the
+    // broadcaster falls back to `sourceContextId` for the vellum deep link.
+    // The client suppresses the banner outright when that conversation is
+    // already on screen, leaving the transcript as the only place the
+    // notification can appear. The home feed aims its "Go to Conversation"
+    // button at the same row whenever it mirrors the signal.
+    //
+    // So this is deliberately not gated on home-feed eligibility: a signal the
+    // feed declines to mirror still reaches the user through the banner, and
+    // this row is what makes that landing honest.
     if (strategy === "start_new_conversation" && !signal.requiresConversation) {
+      const appended = await appendBodyToSourceConversation(
+        signal,
+        channel,
+        messageContent,
+      );
       return {
-        conversationId: null,
-        messageId: null,
+        conversationId: appended?.conversationId ?? null,
+        messageId: appended?.messageId ?? null,
         strategy,
         createdNewConversation: false,
         conversationFallbackUsed: false,
@@ -146,15 +181,6 @@ export async function pairDeliveryWithConversation(
     const conversationType =
       signal.conversationMetadata?.conversationType ??
       (strategy === "start_new_conversation" ? "standard" : "background");
-
-    // Structured content blocks take precedence — they enable Surface-based
-    // rendering in the web/macOS/iOS apps (e.g. a card widget instead of
-    // plain text). Falls back to model-provided seed or runtime composer.
-    const messageContent = copy.seedContentBlocks
-      ? JSON.stringify(copy.seedContentBlocks)
-      : isConversationSeedSane(copy.conversationSeedMessage)
-        ? copy.conversationSeedMessage
-        : composeConversationSeed(signal, channel, copy);
 
     // Attempt to reuse an existing conversation when the model requests it
     if (conversationAction?.action === "reuse_existing") {
@@ -455,4 +481,68 @@ export async function pairDeliveryWithConversation(
       conversationFallbackUsed: false,
     };
   }
+}
+
+/**
+ * Append a delivered notification body to the conversation that produced it.
+ *
+ * Passive notifications never materialize a conversation of their own, so the
+ * home feed points "Go to Conversation" at the producing conversation
+ * (`resolveHomeFeedMirror` prefers `sourceContextId`). Writing the body there
+ * makes that button truthful: whenever it renders, the conversation it opens
+ * contains the notification the user tapped.
+ *
+ * Reuse only. Producers may pass sentinels (job ids, call session ids,
+ * `access-req-*` strings) as `sourceContextId`; those resolve to nothing and
+ * append nothing, which matches the button staying hidden for them.
+ *
+ * This covers vellum deliveries only, since no other channel takes the
+ * passive branch. A signal routed away from vellum still gets a card, so
+ * `writeHomeFeedItemForSignal` writes the body itself when no vellum
+ * conversation was paired. Between them the button holds whatever the
+ * routing was, and only one of the two ever writes.
+ *
+ * Indexing is skipped for parity with the other notification write paths:
+ * notification copy is delivery audit, not conversational memory.
+ */
+async function appendBodyToSourceConversation(
+  signal: NotificationSignal,
+  channel: NotificationChannel,
+  messageContent: string,
+): Promise<{ conversationId: string; messageId: string } | null> {
+  const sourceContextId = signal.sourceContextId;
+  if (!sourceContextId) {
+    return null;
+  }
+
+  let existing: ReturnType<typeof getConversation>;
+  try {
+    existing = getConversation(sourceContextId);
+  } catch {
+    return null;
+  }
+  if (!existing) {
+    return null;
+  }
+
+  const message = await addMessage(existing.id, "assistant", messageContent, {
+    skipIndexing: true,
+  });
+  // `addMessage` projects attention metadata alone, so a client with this
+  // conversation open needs the messages tag to refetch the transcript. A
+  // notification the user taps through to has every chance of landing on an
+  // already-open conversation.
+  publishConversationMessagesChanged(existing.id);
+
+  log.info(
+    {
+      signalId: signal.signalId,
+      channel,
+      conversationId: existing.id,
+      messageId: message.id,
+    },
+    "Appended notification body to producing conversation",
+  );
+
+  return { conversationId: existing.id, messageId: message.id };
 }

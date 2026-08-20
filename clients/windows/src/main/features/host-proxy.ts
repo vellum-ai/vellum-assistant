@@ -16,7 +16,10 @@ import {
   getWatchedLockfile,
   onLockfileChange,
 } from "@vellumai/electron-desktop/lockfile-watcher";
-import { getSessionToken } from "@vellumai/electron-desktop/session-token-store";
+import {
+  getSessionToken,
+  onSessionTokenChange,
+} from "@vellumai/electron-desktop/session-token-store";
 import {
   getGuardianAccessToken,
   resolveConfigDir,
@@ -74,6 +77,7 @@ const installBridge = (capabilities: DesktopCapabilityRegistry): void => {
         return result.accessToken;
       },
       getSessionToken,
+      onSessionTokenChange,
       getLockfile: getWatchedLockfile,
       onLockfileChange,
       // Windows has no user-attention monitor yet. Reporting nothing is

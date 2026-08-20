@@ -15,6 +15,7 @@ import { credentialsListPost } from "@/generated/daemon/sdk.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useSupportsCredentialsSettings } from "@/lib/backwards-compat/use-supports-credentials-settings";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
@@ -30,6 +31,10 @@ import {
 import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import {
+  credentialInUseConnections,
+  formatConnectionNames,
+} from "./credential-in-use";
 import { CredentialRow, type StoredCredential } from "./credential-row";
 import {
   createCredentialRequest,
@@ -58,6 +63,15 @@ const SEARCH_VISIBILITY_THRESHOLD = 6;
 
 /** Which credential group the segment control is showing. */
 type CredentialView = "own" | "managed";
+
+/**
+ * A delete the daemon refused because provider connections still dispatch
+ * through the credential, held until the user decides about those connections.
+ */
+interface InUseDeletion {
+  credential: StoredCredential;
+  connections: string[];
+}
 
 export function CredentialsPage() {
   const assistantId = useActiveAssistantId();
@@ -119,12 +133,6 @@ function CredentialsPageInner() {
     [isDeveloperMode, listQuery.data],
   );
 
-  const deleteMutation = useCredentialsDeletePostMutation({
-    onError: (err) => {
-      toast.error(err.message || t("credentialsPage.deleteFailedToast"));
-    },
-  });
-
   // --- Ephemeral UI state ---
 
   const [isShowingAddForm, setIsShowingAddForm] = useState(false);
@@ -132,12 +140,43 @@ function CredentialsPageInner() {
   const [searchText, setSearchText] = useState("");
   const [pendingDeletion, setPendingDeletion] =
     useState<StoredCredential | null>(null);
+  const [inUseDeletion, setInUseDeletion] = useState<InUseDeletion | null>(
+    null,
+  );
   const [generatedLink, setGeneratedLink] = useState<GeneratedLink | null>(
     null,
   );
   const [generatingLinkName, setGeneratingLinkName] = useState<string | null>(
     null,
   );
+
+  // A credential an LLM connection resolves its auth through is refused on the
+  // first attempt; the retry carries `force` once the user has seen which
+  // connections the delete takes offline.
+  const deleteMutation = useCredentialsDeletePostMutation({
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: listQueryKey });
+      toast.success(
+        t("credentialsPage.deleteSuccessToast", {
+          name: `${variables.body.service}:${variables.body.field}`,
+        }),
+      );
+    },
+    onError: (err, variables) => {
+      const connections = credentialInUseConnections(err);
+      const credential = credentials.find(
+        (candidate) =>
+          candidate.service === variables.body.service &&
+          candidate.field === variables.body.field,
+      );
+      if (connections && credential) {
+        setInUseDeletion({ credential, connections });
+        return;
+      }
+      captureError(err, { context: "credentials-delete" });
+      toast.error(err.message || t("credentialsPage.deleteErrorToast"));
+    },
+  });
 
   const deletingName = deleteMutation.isPending
     ? `${deleteMutation.variables?.body?.service}:${deleteMutation.variables?.body?.field}`
@@ -182,28 +221,33 @@ function CredentialsPageInner() {
 
   // --- Handlers ---
 
+  const deleteCredential = (credential: StoredCredential, force: boolean) => {
+    deleteMutation.mutate({
+      path: { assistant_id: assistantId },
+      body: {
+        service: credential.service,
+        field: credential.field,
+        ...(force ? { force: true } : {}),
+      },
+    });
+  };
+
   const confirmDelete = () => {
     const credential = pendingDeletion;
     setPendingDeletion(null);
     if (!credential) {
       return;
     }
-    deleteMutation.mutate(
-      {
-        path: { assistant_id: assistantId },
-        body: { service: credential.service, field: credential.field },
-      },
-      {
-        onSuccess: () => {
-          void queryClient.invalidateQueries({ queryKey: listQueryKey });
-          toast.success(
-            t("credentialsPage.deletedToast", {
-              name: `${credential.service}:${credential.field}`,
-            }),
-          );
-        },
-      },
-    );
+    deleteCredential(credential, false);
+  };
+
+  const confirmForcedDelete = () => {
+    const refused = inUseDeletion;
+    setInUseDeletion(null);
+    if (!refused) {
+      return;
+    }
+    deleteCredential(refused.credential, true);
   };
 
   const handleGenerateLink = async (credential: StoredCredential) => {
@@ -405,18 +449,36 @@ function CredentialsPageInner() {
 
       <ConfirmDialog
         open={pendingDeletion !== null}
-        title={t("credentialsPage.deleteDialogTitle")}
+        title={t("credentialsPage.deleteConfirmTitle")}
         message={
           pendingDeletion
-            ? t("credentialsPage.deleteDialogMessage", {
+            ? t("credentialsPage.deleteConfirmMessage", {
                 name: `${pendingDeletion.service}:${pendingDeletion.field}`,
               })
             : ""
         }
-        confirmLabel={t("credentialsPage.deleteDialogConfirm")}
+        confirmLabel={t("credentialsPage.deleteConfirmLabel")}
         destructive
         onConfirm={confirmDelete}
         onCancel={() => setPendingDeletion(null)}
+      />
+
+      <ConfirmDialog
+        open={inUseDeletion !== null}
+        title={t("credentialsPage.inUseTitle")}
+        message={
+          inUseDeletion
+            ? t("credentialsPage.inUseMessage", {
+                count: inUseDeletion.connections.length,
+                name: `${inUseDeletion.credential.service}:${inUseDeletion.credential.field}`,
+                connections: formatConnectionNames(inUseDeletion.connections),
+              })
+            : ""
+        }
+        confirmLabel={t("credentialsPage.inUseConfirmLabel")}
+        destructive
+        onConfirm={confirmForcedDelete}
+        onCancel={() => setInUseDeletion(null)}
       />
 
       <AddCredentialModal

@@ -67,6 +67,16 @@ export type VellumCommand =
    */
   | { kind: "startVoice" }
   /**
+   * Start a live-voice session, or end the one that is running.
+   *
+   * The keyboard's version of Talk. It differs from `startVoice` in the one
+   * way a key differs from a button: the same press has to undo itself,
+   * because a global shortcut is often the only voice control within reach of
+   * someone working in another app. Talk stays start-only, since the surface
+   * that draws it also draws a way to stop.
+   */
+  | { kind: "toggleVoice" }
+  /**
    * Send what the user typed on the companion surface, the way its Type option
    * asks.
    *
@@ -818,4 +828,35 @@ export interface CompanionSurfaceState {
    * surface, so the companion cannot drift from the icon in the Dock beside it.
    */
   avatarBase64?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Windows title bar
+// ---------------------------------------------------------------------------
+
+/** Which of the app's two color schemes a theme paints. */
+export type ColorScheme = "light" | "dark";
+
+/**
+ * How the Windows title-bar overlay (the native minimize / maximize / close
+ * buttons drawn over the webview) is painted.
+ *
+ * The overlay is chrome the OS draws, so it has no access to the renderer's
+ * theme tokens and defaults to the system caption colors. The renderer
+ * publishes the active theme's surface and content colors so the buttons match
+ * the title bar they sit in, plus the scheme those colors come from, which is
+ * what Chromium derives the buttons' hover and press wash from.
+ *
+ * The colors are CSS color strings, which Electron parses with Chromium's color
+ * parser (hex, `rgb()`, `hsl()`, and named colors).
+ *
+ * @see https://www.electronjs.org/docs/latest/tutorial/window-customization#set-custom-window-controls-colors
+ */
+export interface TitleBarOverlayTheme {
+  /** The overlay's background, matching the title bar's own surface. */
+  color: string;
+  /** The button glyphs, matching the title bar's text. */
+  symbolColor: string;
+  /** The scheme the two colors are drawn from. */
+  colorScheme: ColorScheme;
 }

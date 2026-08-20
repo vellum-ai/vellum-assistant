@@ -293,6 +293,19 @@
       "icon": "🎬"
     },
     {
+      "name": "natural",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/natural",
+        "ref": "3cfc8c97c14df311fc64992ab8b172c1b2d64eb0"
+      },
+      "description": "Hosted MCP access to Natural payment operations for Vellum assistants.",
+      "category": "finance",
+      "homepage": "https://www.natural.com",
+      "license": "MIT",
+      "icon": "💳"
+    },
+    {
       "name": "originkit",
       "source": {
         "source": "github",

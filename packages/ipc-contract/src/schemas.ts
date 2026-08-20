@@ -110,3 +110,26 @@ export const companionContextSchema = z.object({
   // reporting one.
   working: z.boolean().default(false),
 });
+
+// ---------------------------------------------------------------------------
+// Windows title bar
+// ---------------------------------------------------------------------------
+
+/**
+ * A CSS color in one of the notations Chromium's parser accepts: hex,
+ * functional `rgb()` / `rgba()` / `hsl()` / `hsla()`, or a named color.
+ * Bounded so an unparseable string is rejected at the boundary rather than
+ * silently dropped by Electron, and so nothing unbounded reaches the store the
+ * colors are persisted in.
+ */
+const cssColorSchema = z
+  .string()
+  .max(64)
+  .regex(/^(#[0-9a-fA-F]{3,8}|(?:rgb|hsl)a?\([^()]*\)|[a-zA-Z]+)$/);
+
+/** See `TitleBarOverlayTheme`: how the Windows caption buttons are painted. */
+export const titleBarOverlayThemeSchema = z.object({
+  color: cssColorSchema,
+  symbolColor: cssColorSchema,
+  colorScheme: z.enum(["light", "dark"]),
+});

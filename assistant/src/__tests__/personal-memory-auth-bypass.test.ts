@@ -14,7 +14,10 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { isPersonalMemoryAllowed } from "../daemon/trust-context.js";
+import {
+  FALLBACK_TURN_TRUST,
+  isPersonalMemoryAllowed,
+} from "../daemon/trust-context.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 
@@ -45,16 +48,29 @@ describe("isPersonalMemoryAllowed — no exposure to non-guardian channel actors
     expect(isPersonalMemoryAllowed(slack("unverified_contact"))).toBe(false);
   });
 
-  test("allows personal memory for the guardian and for local / internal turns", () => {
+  test("allows personal memory for the guardian and for local / native turns", () => {
     expect(isPersonalMemoryAllowed(slack("guardian"))).toBe(true);
-    // Local/native turn — no resolved actor.
+    // Local/native turn: no actor bound at all. `resolveTrustClass` elevates
+    // this to guardian under a disabled-auth posture, so identity resolution
+    // admits it rather than the memory gate carving out an exception.
     expect(isPersonalMemoryAllowed(undefined)).toBe(true);
-    // Internal vellum-channel flow.
+  });
+
+  test("blocks personal memory for the fail-closed fallback trust", () => {
+    // `{vellum, unknown}` is FALLBACK_TURN_TRUST, not an internal flow: it is
+    // what the daemon substitutes when no per-turn actor was captured. Its own
+    // contract is to bias to `unknown` "so a missing snapshot cannot
+    // accidentally grant elevated trust", and every other consumer treats it
+    // as low-trust and never guardian. Personal memory is elevated trust, so
+    // the gate has to agree with them.
+    expect(isPersonalMemoryAllowed(FALLBACK_TURN_TRUST)).toBe(false);
+    // And a resolved non-guardian is denied on the console for the same
+    // reason: a surface is not an actor.
     expect(
       isPersonalMemoryAllowed({
         sourceChannel: "vellum",
-        trustClass: "unknown",
+        trustClass: "unverified_contact",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 });

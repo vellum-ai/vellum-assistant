@@ -14,12 +14,16 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Slider } from "@vellumai/design-library/components/slider";
+import { ShortcutKeys } from "@vellumai/design-library/components/shortcut-keys";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { ListeningLanguageCard } from "@/domains/settings/pages/listening-language-card";
 import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { isElectron } from "@/runtime/is-electron";
+import { useFnRegistrationStore } from "@/stores/fn-registration-store";
+import { useHotkeyRecorder } from "@/domains/settings/keyboard-shortcuts/use-hotkey-recorder";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 
 import { DetailCard } from "@/components/detail-card";
@@ -33,51 +37,30 @@ import {
   type InterruptSensitivity,
 } from "@/stores/voice-prefs-store";
 import { VoiceTranscriptToggles } from "@/components/voice-transcript-toggles";
+import { removeLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
-  getLocalSetting,
-  removeLocalSetting,
-  setLocalSetting,
-} from "@/utils/local-settings";
-import {
-  CTRL_PTT_ACTIVATOR,
   FN_PTT_ACTIVATOR,
-  LS_PTT_ACTIVATION_KEY,
   activatorDisplayName,
   activatorsEqual,
   modifierLabel,
-  parseActivator,
-  serializeActivator,
   sortModifiers,
-  type PTTActivator,
   type PTTModifier,
 } from "@/utils/ptt-activator";
+import {
+  defaultVoiceModeActivator,
+  isFnVoiceModeActivator,
+  keyboardDefaultActivator,
+  readVoiceModeActivator,
+  writeVoiceModeActivator,
+  type VoiceModeActivator,
+} from "@/utils/voice-mode-activation";
 import {
   LS_VOICE_INPUT_DEVICE,
   getPreferredInputDeviceId,
 } from "@/utils/voice-input-device";
-import { canConfigureFnPushToTalk } from "@/runtime/hotkey";
+import { supportsFnPushToTalk } from "@/runtime/hotkey";
 import { routes } from "@/utils/routes";
 import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
-
-const PTT_PRESETS: ReadonlyArray<{ label: string; activator: PTTActivator }> = [
-  {
-    label: "Ctrl",
-    activator: { kind: "modifierOnly", modifiers: ["control"] },
-  },
-  {
-    label: "Alt",
-    activator: { kind: "modifierOnly", modifiers: ["option"] },
-  },
-  {
-    label: "Ctrl+Shift",
-    activator: { kind: "modifierOnly", modifiers: ["control", "shift"] },
-  },
-];
-
-const FN_PTT_PRESET: { label: string; activator: PTTActivator } = {
-  label: "Fn",
-  activator: FN_PTT_ACTIVATOR,
-};
 
 const labelClasses = "text-body-small-default text-[var(--content-tertiary)]";
 
@@ -132,7 +115,7 @@ export function VoiceSections() {
       >
         <MicrophoneCard />
         <ListeningLanguageCard />
-        <PushToTalkCard />
+        <VoiceModeShortcutCard />
         <ConversationTuningCard />
       </VoiceSection>
 
@@ -377,41 +360,85 @@ function MicrophoneCard() {
   );
 }
 
-function PushToTalkCard() {
+/** Keys that only ever appear as part of a chord, never as its subject. */
+const MODIFIER_KEY_NAMES = new Set(["Control", "Alt", "Shift", "Meta", "Fn"]);
+
+/**
+ * The binding that starts and ends a voice conversation.
+ *
+ * Records a chord rather than a bare modifier: voice mode is a toggle, so a
+ * modifier-only binding would fire on every abandoned Ctrl chord. Fn is the
+ * one exception the recorder accepts on its own, and only on a desktop host
+ * that can see it.
+ */
+/** The Keyboard Shortcuts key the desktop host binds Talk to, globally. */
+const TALK_HOTKEY_KEY = "toggleVoice";
+
+function VoiceModeShortcutCard() {
   const { t } = useTranslation("settings");
-  const fnPushToTalkConfigurable = canConfigureFnPushToTalk();
-  const [activator, setActivator] = useState<PTTActivator>(() => {
-    const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
-    return raw
-      ? parseActivator(raw, { preserveFunction: fnPushToTalkConfigurable })
-      : fnPushToTalkConfigurable
-        ? FN_PTT_PRESET.activator
-        : { kind: "off" };
-  });
+  const fnConfigurable = supportsFnPushToTalk();
+  /**
+   * On the desktop app the keyboard binding is an Electron `globalShortcut`
+   * the host owns, listed in Keyboard Shortcuts as "Talk". This card does not
+   * record chords there: it would be writing a second binding that nothing
+   * reads. Fn is the one thing still configured here, since it is not an
+   * accelerator and cannot live on that rail.
+   */
+  const desktopHost = isElectron();
+  // `false` only after an attempt was refused; `null` means none was made.
+  const fnRefused =
+    useFnRegistrationStore((state) => state.registered) === false;
+  const [activator, setActivator] = useState<VoiceModeActivator>(() =>
+    readVoiceModeActivator(fnConfigurable),
+  );
   const [isRecording, setIsRecording] = useState(false);
   const [pendingModifiers, setPendingModifiers] = useState<PTTModifier[]>([]);
+  const [showChordHint, setShowChordHint] = useState(false);
   const recordingZoneRef = useRef<HTMLDivElement | null>(null);
-  const nonModifierPressedRef = useRef(false);
-  const pttPresets = useMemo(
-    () =>
-      fnPushToTalkConfigurable ? [FN_PTT_PRESET, ...PTT_PRESETS] : PTT_PRESETS,
-    [fnPushToTalkConfigurable],
-  );
 
-  const pttEnabled = activator.kind !== "off";
-  const showFocusedTabNote = pttEnabled && !fnPushToTalkConfigurable;
+  const presets = useMemo(() => {
+    const keyboard = keyboardDefaultActivator();
+    const keyboardPreset = {
+      label: activatorDisplayName(keyboard),
+      activator: keyboard,
+    };
+    return fnConfigurable
+      ? [{ label: "Fn", activator: FN_PTT_ACTIVATOR }, keyboardPreset]
+      : [keyboardPreset];
+  }, [fnConfigurable]);
 
-  const selectActivator = useCallback((next: PTTActivator) => {
+  const shortcutEnabled = activator.kind !== "off";
+
+  const selectActivator = useCallback((next: VoiceModeActivator) => {
     setActivator(next);
-    setLocalSetting(LS_PTT_ACTIVATION_KEY, serializeActivator(next));
+    writeVoiceModeActivator(next);
     setIsRecording(false);
     setPendingModifiers([]);
+    setShowChordHint(false);
   }, []);
+
+  /**
+   * Fn and a recorded chord are one choice, not two settings: the row asks
+   * what starts Talk and takes one answer. Recording therefore clears Fn, and
+   * choosing Fn clears the chord, so the selected chip is always the truth.
+   */
+  const recorder = useHotkeyRecorder({
+    onBound: () => selectActivator({ kind: "off" }),
+  });
+  const talkHotkey = recorder.catalog.find(
+    (entry) => entry.key === TALK_HOTKEY_KEY,
+  );
+  const talkAccelerator = talkHotkey?.accelerator ?? "";
+  const recordingTalk = recorder.recordingKey === TALK_HOTKEY_KEY;
+  const chooseFn = useCallback(() => {
+    selectActivator(FN_PTT_ACTIVATOR);
+    recorder.removeHotkey(TALK_HOTKEY_KEY);
+  }, [recorder, selectActivator]);
 
   const beginRecording = useCallback(() => {
     setIsRecording(true);
     setPendingModifiers([]);
-    nonModifierPressedRef.current = false;
+    setShowChordHint(false);
     requestAnimationFrame(() => {
       recordingZoneRef.current?.focus();
     });
@@ -420,13 +447,13 @@ function PushToTalkCard() {
   const cancelRecording = useCallback(() => {
     setIsRecording(false);
     setPendingModifiers([]);
-    nonModifierPressedRef.current = false;
+    setShowChordHint(false);
   }, []);
 
   const collectModifiers = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>): PTTModifier[] => {
       const modifiers: PTTModifier[] = [];
-      if (fnPushToTalkConfigurable && event.getModifierState("Fn")) {
+      if (fnConfigurable && event.getModifierState("Fn")) {
         modifiers.push("function");
       }
       if (event.ctrlKey) {
@@ -443,7 +470,7 @@ function PushToTalkCard() {
       }
       return modifiers;
     },
-    [fnPushToTalkConfigurable],
+    [fnConfigurable],
   );
 
   const handleCaptureKeyDown = useCallback(
@@ -457,30 +484,32 @@ function PushToTalkCard() {
       }
 
       const modifiers = collectModifiers(event);
-      const key = event.key;
-      const isModifierOnly =
-        key === "Control" ||
-        key === "Alt" ||
-        key === "Shift" ||
-        key === "Meta" ||
-        key === "Fn";
-      if (isModifierOnly) {
-        setPendingModifiers(
-          modifiers.includes("function")
-            ? FN_PTT_ACTIVATOR.modifiers
-            : sortModifiers(modifiers),
-        );
-        return;
-      }
 
+      // Fn stands alone: nothing else on macOS claims a bare Fn tap, and the
+      // host helper reports it over the hotkey bridge rather than as a key.
       if (modifiers.includes("function")) {
         selectActivator(FN_PTT_ACTIVATOR);
         return;
       }
 
-      nonModifierPressedRef.current = true;
-      const label = key.length === 1 ? key.toUpperCase() : key;
-      selectActivator({ kind: "key", label, modifiers });
+      // Show the chord building as it is held. Whether it becomes a binding
+      // depends on a real key arriving before the modifiers are released.
+      if (MODIFIER_KEY_NAMES.has(event.key)) {
+        setShowChordHint(false);
+        setPendingModifiers(sortModifiers(modifiers));
+        return;
+      }
+
+      if (modifiers.length === 0) {
+        setShowChordHint(true);
+        return;
+      }
+
+      selectActivator({
+        kind: "key",
+        label: event.key.length === 1 ? event.key.toUpperCase() : event.key,
+        modifiers: sortModifiers(modifiers),
+      });
     },
     [cancelRecording, collectModifiers, selectActivator],
   );
@@ -490,35 +519,15 @@ function PushToTalkCard() {
       if (!isRecording) {
         return;
       }
-      event.preventDefault();
-      event.stopPropagation();
-
-      const key = event.key;
-      const isModifierOnly =
-        key === "Control" ||
-        key === "Alt" ||
-        key === "Shift" ||
-        key === "Meta" ||
-        key === "Fn";
-      if (!isModifierOnly) {
-        return;
-      }
-
-      if (nonModifierPressedRef.current) {
-        nonModifierPressedRef.current = false;
-        setPendingModifiers([]);
-        return;
-      }
-
+      // Every modifier released with no key pressed in between: the user tried
+      // to bind a bare modifier. Stay open and say what is missing.
       const remaining = collectModifiers(event);
       if (remaining.length === 0 && pendingModifiers.length > 0) {
-        selectActivator({
-          kind: "modifierOnly",
-          modifiers: pendingModifiers,
-        });
+        setPendingModifiers([]);
+        setShowChordHint(true);
       }
     },
-    [collectModifiers, isRecording, pendingModifiers, selectActivator],
+    [collectModifiers, isRecording, pendingModifiers],
   );
 
   useEffect(() => {
@@ -538,34 +547,93 @@ function PushToTalkCard() {
   }, [cancelRecording, isRecording]);
 
   const isCustom =
-    pttEnabled &&
-    !pttPresets.some((p) => activatorsEqual(p.activator, activator));
+    shortcutEnabled &&
+    !presets.some((p) => activatorsEqual(p.activator, activator));
+
+  if (desktopHost) {
+    return (
+      <DetailCard
+        title={t("voicePage.voiceShortcutTitle")}
+        subtitle={t("voicePage.voiceShortcutSubtitleDesktop")}
+      >
+        <div className="flex flex-col gap-2">
+          {/* Both answers to "what starts Talk" are the same control, so
+              neither reads as the primary one with the other bolted on. The
+              write still goes to the host: Fn through the helper, a chord
+              through `settings.hotkeys`. */}
+          <div className="flex flex-wrap items-center gap-2">
+            {fnConfigurable && (
+              <ActivationKeyOption
+                label={t("voicePage.fnKeyLabel")}
+                badge={t("voicePage.recommendedBadge")}
+                selected={isFnVoiceModeActivator(activator)}
+                onClick={chooseFn}
+              />
+            )}
+            <ActivationKeyOption
+              label={
+                recordingTalk ? (
+                  t("voicePage.recordingPrompt")
+                ) : talkAccelerator ? (
+                  <ShortcutKeys accelerator={talkAccelerator} />
+                ) : (
+                  t("voicePage.customKey")
+                )
+              }
+              selected={talkAccelerator !== ""}
+              recording={recordingTalk}
+              onClick={
+                recordingTalk
+                  ? recorder.stopRecording
+                  : () => recorder.startRecording(TALK_HOTKEY_KEY)
+              }
+            />
+          </div>
+
+          {/* An offer the host has already refused. Fn is presented as the
+              recommended binding, so saying nothing would leave the user
+              pressing a key that cannot fire. */}
+          {isFnVoiceModeActivator(activator) && fnRefused && (
+            <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--system-negative-strong)]">
+              <Info className="mt-0.5 h-3 w-3 shrink-0" />
+              <span>{t("voicePage.fnRefusedNote")}</span>
+            </div>
+          )}
+
+          {recorder.conflict?.key === TALK_HOTKEY_KEY && (
+            <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--system-negative-strong)]">
+              <Info className="mt-0.5 h-3 w-3 shrink-0" />
+              <span>
+                {t("voicePage.shortcutConflict", {
+                  command: recorder.conflict.label,
+                })}
+              </span>
+            </div>
+          )}
+        </div>
+      </DetailCard>
+    );
+  }
 
   return (
     <DetailCard
-      title={t("voicePage.pushToTalkTitle")}
-      subtitle={t("voicePage.pushToTalkSubtitle")}
+      title={t("voicePage.voiceShortcutTitle")}
+      subtitle={t("voicePage.voiceShortcutSubtitle")}
     >
       <div className="flex flex-col gap-4">
         <Toggle
-          checked={pttEnabled}
+          checked={shortcutEnabled}
           onChange={(next: boolean) => {
-            if (next) {
-              if (activator.kind === "off") {
-                selectActivator(
-                  fnPushToTalkConfigurable
-                    ? FN_PTT_PRESET.activator
-                    : CTRL_PTT_ACTIVATOR,
-                );
-              }
-            } else {
-              selectActivator({ kind: "off" });
-            }
+            selectActivator(
+              next
+                ? defaultVoiceModeActivator(fnConfigurable)
+                : { kind: "off" },
+            );
           }}
-          label={t("voicePage.enablePushToTalk")}
+          label={t("voicePage.enableVoiceShortcut")}
         />
 
-        {pttEnabled && (
+        {shortcutEnabled && (
           <div className="flex flex-col gap-2">
             <span className={labelClasses}>
               {t("voicePage.activationKeyLabel")}
@@ -577,42 +645,46 @@ function PushToTalkCard() {
               onKeyUp={isRecording ? handleCaptureKeyUp : undefined}
               className="flex flex-wrap items-center gap-2 focus:outline-none"
             >
-              {pttPresets.map((preset) => {
-                const selected = activatorsEqual(preset.activator, activator);
-                return (
-                  <ActivationKeyOption
-                    key={preset.label}
-                    label={preset.label}
-                    selected={selected}
-                    onClick={() => selectActivator(preset.activator)}
-                  />
-                );
-              })}
+              {presets.map((preset) => (
+                <ActivationKeyOption
+                  key={preset.label}
+                  label={preset.label}
+                  selected={activatorsEqual(preset.activator, activator)}
+                  onClick={() => selectActivator(preset.activator)}
+                />
+              ))}
               {isRecording ? (
-                <ActivationKeyOption
-                  label={
-                    pendingModifiers.length > 0
-                      ? modifierLabel(pendingModifiers)
-                      : t("voicePage.pressAnyKey")
-                  }
-                  selected
-                  recording
-                  onClick={cancelRecording}
-                />
-              ) : (
-                <ActivationKeyOption
-                  label={
-                    isCustom
-                      ? activatorDisplayName(activator)
-                      : t("voicePage.customKey")
-                  }
-                  selected={isCustom}
-                  onClick={beginRecording}
-                />
-              )}
+                  <ActivationKeyOption
+                    label={
+                      pendingModifiers.length > 0
+                        ? modifierLabel(pendingModifiers)
+                        : t("voicePage.pressShortcut")
+                    }
+                    selected
+                    recording
+                    onClick={cancelRecording}
+                  />
+                ) : (
+                  <ActivationKeyOption
+                    label={
+                      isCustom
+                        ? activatorDisplayName(activator)
+                        : t("voicePage.customKey")
+                    }
+                    selected={isCustom}
+                    onClick={beginRecording}
+                  />
+                )}
             </div>
 
-            {showFocusedTabNote && (
+            {showChordHint && (
+              <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
+                <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                <span>{t("voicePage.shortcutChordHint")}</span>
+              </div>
+            )}
+
+            {shortcutEnabled && (
               <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
                 <Info className="mt-0.5 h-3 w-3 shrink-0" />
                 <span>{t("voicePage.focusedTabNote")}</span>
@@ -627,11 +699,14 @@ function PushToTalkCard() {
 
 function ActivationKeyOption({
   label,
+  badge,
   selected,
   recording = false,
   onClick,
 }: {
-  label: string;
+  label: ReactNode;
+  /** Muted suffix inside the chip, e.g. marking the recommended option. */
+  badge?: string;
   selected: boolean;
   recording?: boolean;
   onClick: () => void;
@@ -658,10 +733,14 @@ function ActivationKeyOption({
         ].join(" ")}
       />
       <span className="text-[var(--content-default)]">{label}</span>
+      {badge && (
+        <span className="text-body-small-default text-[var(--content-quiet)]">
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
-
 
 /**
  * The two turn-taking dials, in one card because they're one idea — where the
@@ -687,7 +766,10 @@ function ConversationTuningCard() {
         value: "medium" as const,
         label: t("voicePage.interruptSensitivityMedium"),
       },
-      { value: "high" as const, label: t("voicePage.interruptSensitivityHigh") },
+      {
+        value: "high" as const,
+        label: t("voicePage.interruptSensitivityHigh"),
+      },
     ],
     [t],
   );

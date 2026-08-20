@@ -1,11 +1,36 @@
 import { describe, expect, test } from "bun:test";
 
-import { OpenAIChatCompletionsProvider } from "../../openai/chat-completions-provider.js";
+import {
+  EMPTY_ASSISTANT_TURN_PLACEHOLDER,
+  OpenAIChatCompletionsProvider,
+} from "../../openai/chat-completions-provider.js";
 import {
   buildProviderAdapter,
   createAdapterFromConnection,
 } from "../adapter-factory.js";
 import type { ProviderConnection, ResolvedAuth } from "../auth.js";
+
+function stubChatCreate(provider: OpenAIChatCompletionsProvider): unknown[] {
+  const requests: unknown[] = [];
+  (provider as unknown as { client: unknown }).client = {
+    chat: {
+      completions: {
+        create: async (params: unknown) => {
+          requests.push(params);
+          return {
+            async *[Symbol.asyncIterator]() {
+              yield {
+                choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 2, completion_tokens: 1 },
+              };
+            },
+          };
+        },
+      },
+    },
+  };
+  return requests;
+}
 
 interface RetryOptions {
   credentialSource?: string;
@@ -47,6 +72,74 @@ describe("adapter factory", () => {
       (adapter as unknown as { omitToolChoiceWhenReasoning: boolean })
         .omitToolChoiceWhenReasoning,
     ).toBe(true);
+  });
+
+  test("openai-compatible round-trips thinking as reasoning_content", () => {
+    const adapter = buildProviderAdapter("openai-compatible", {
+      apiKey: "test-key",
+      model: "deepseek-reasoner",
+      streamTimeoutMs: 60_000,
+      baseURL: "https://example.com/v1",
+      useNativeWebSearch: false,
+    });
+    expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
+    expect(
+      (adapter as unknown as { assistantReasoningField?: string })
+        .assistantReasoningField,
+    ).toBe("reasoning_content");
+  });
+
+  test("litellm round-trips thinking as reasoning_content", () => {
+    const adapter = buildProviderAdapter("litellm", {
+      apiKey: "test-key",
+      model: "deepseek-reasoner",
+      streamTimeoutMs: 60_000,
+      baseURL: "https://example.com/v1",
+      useNativeWebSearch: false,
+    });
+    expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
+    expect(
+      (adapter as unknown as { assistantReasoningField?: string })
+        .assistantReasoningField,
+    ).toBe("reasoning_content");
+  });
+
+  test("backfills placeholder content after an aborted empty assistant turn", async () => {
+    const adapter = buildProviderAdapter("openai-compatible", {
+      apiKey: "test-key",
+      model: "deepseek-v4",
+      streamTimeoutMs: 60_000,
+      baseURL: "http://localhost:8080/v1",
+      useNativeWebSearch: false,
+    });
+    expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
+    const provider = adapter as OpenAIChatCompletionsProvider;
+    const requests = stubChatCreate(provider);
+
+    await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "question" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "aborted mid-thought",
+            signature: "",
+          },
+        ],
+      },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{
+        role: string;
+        content: string | null;
+        tool_calls?: unknown;
+      }>;
+    };
+    const assistantMsg = params.messages.find((m) => m.role === "assistant")!;
+    expect(assistantMsg.content).toBe(EMPTY_ASSISTANT_TURN_PLACEHOLDER);
+    expect(assistantMsg.tool_calls).toBeUndefined();
   });
 
   test("createAdapterFromConnection wires baseURL from ResolvedAuth", () => {

@@ -65,6 +65,12 @@ mock.module("@/runtime/native-audio-session", () => ({
 // need to be steerable; the rest should behave normally.
 const actualPlatformDetection = await import("@/runtime/platform-detection");
 
+// Voice entry preflights readiness before a session opens; stub it ready so
+// the controller's drain tests stay about the starter. See `voice-entry-guards`.
+mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
+  preflightLiveVoice: async () => ({ status: "ready" }),
+}));
+
 mock.module("@/runtime/platform-detection", () => ({
   ...actualPlatformDetection,
   isNativeAndroid: () => onNativeAndroid,
@@ -179,6 +185,10 @@ beforeEach(() => {
   useVoicePrefsStore.setState({
     pauseBeforeReplyMs: null,
     interruptSensitivity: null,
+    // A first-ever voice entry gets the preferences card rather than a session
+    // (see `voice-entry-guards`); the drain tests here are about the starter,
+    // so they run as a user who has entered voice before.
+    firstRunSeen: true,
   });
   __resetPendingDeepLinkForTesting();
   useAssistantIdentityStore.setState({ assistantId: null, version: null });

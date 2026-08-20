@@ -148,6 +148,9 @@ mock.module("@/domains/settings/components/grace-period-banner", () => ({
 mock.module("@/domains/settings/components/invoices-table", () => ({
   InvoicesTable: () => null,
 }));
+mock.module("@/domains/settings/components/payment-methods-card", () => ({
+  PaymentMethodsCard: () => null,
+}));
 mock.module("@/domains/settings/components/plan-card", () => ({
   PlanCard: ({ onTierUpgraded }: { onTierUpgraded?: () => void }) => (
     <button data-testid="plan-card-tier-upgraded" onClick={onTierUpgraded} />

@@ -41,7 +41,11 @@ import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
 import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-detection";
 import type { SendChatMessageOptions } from "@/domains/chat/hooks/use-send-message";
-import { DiskPressureBannerSlot } from "@/domains/chat/components/disk-pressure-banner-slot";
+import {
+  DiskPressureBannerSlot,
+  useDiskPressureBannerVisibility,
+} from "@/domains/chat/components/disk-pressure-banner-slot";
+import { ResourcePressureBannerSlot } from "@/domains/chat/components/resource-pressure-banner-slot";
 import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge";
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
@@ -49,6 +53,7 @@ import { TextSelectionPopover } from "@/domains/chat/components/text-selection-p
 import { useNativeQuoteReply } from "@/domains/chat/hooks/use-native-quote-reply";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { resolveComposerPlaceholder } from "@/domains/chat/utils/composer-placeholder";
 import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -136,6 +141,7 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 
 import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
+import type { UseResourcePressureMonitorResult } from "@/assistant/use-resource-pressure-monitor";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
 import {
@@ -158,6 +164,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { shouldMintNewChatDraft } from "@/domains/chat/utils/conversation-selection";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
+import { paneState } from "@/stores/pane-state";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
@@ -188,7 +195,9 @@ export interface ChatMainPanelProps {
   handleEditQueueTail: () => void;
 
   // Conversation secondary actions (orchestration dependency)
-  handleForkConversation: (throughMessageId: string) => Promise<void>;
+  /** Forks through a message. Omitted unless the viewer passes the
+   *  staff + `fork-from-message` gate, which hides the hover action. */
+  handleForkConversation?: (throughMessageId: string) => Promise<void>;
   /** Opens the "Summarize up to here" confirm dialog for a message. */
   onSummarizeUpToHere?: (messageId: string) => void;
   /** Opens the "Retry" confirm dialog for the latest assistant turn. */
@@ -201,6 +210,9 @@ export interface ChatMainPanelProps {
   // Disk pressure (single instance lives in ActiveChatView; passed down to
   // avoid duplicate polling intervals and bus subscriptions)
   diskPressure: UseDiskPressureMonitorResult;
+
+  // Resource pressure (single instance, same reasoning as disk pressure)
+  resourcePressure: UseResourcePressureMonitorResult;
 
   // Upward signals to ActiveChatView local state
   setRefreshEpoch: Dispatch<SetStateAction<number>>;
@@ -283,6 +295,7 @@ export function ChatMainPanel({
   handleInspectMessage,
   historyPagination,
   diskPressure,
+  resourcePressure,
   setRefreshEpoch,
   inputRef,
   sanitizedMessagesRef,
@@ -499,10 +512,13 @@ export function ChatMainPanel({
     [],
   );
 
-  const handleForkConversationCallback = useCallback(
-    (messageId: string) => {
-      void handleForkConversation(messageId);
-    },
+  const handleForkConversationCallback = useMemo(
+    () =>
+      handleForkConversation
+        ? (messageId: string) => {
+            void handleForkConversation(messageId);
+          }
+        : undefined,
     [handleForkConversation],
   );
 
@@ -1115,11 +1131,35 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Disk pressure banner (localStorage-backed dismiss/suppress)
   // -------------------------------------------------------------------------
+  // One visibility instance is shared between the slot and the precedence
+  // gate below, so the gate tracks what the slot actually renders even when
+  // a dismissal's storage write fails and no cross-instance notification
+  // fires.
+  const diskPressureVisibility = useDiskPressureBannerVisibility(
+    diskPressure,
+    assistantId,
+  );
+  const diskPressureBannerVisible = diskPressureVisibility.visibleMode !== null;
   const diskPressureBannerSlot = (
     <DiskPressureBannerSlot
       diskPressure={diskPressure}
+      visibility={diskPressureVisibility}
+      assistantStateKind={assistantState.kind}
+    />
+  );
+
+  // -------------------------------------------------------------------------
+  // Resource pressure banner (localStorage-backed dismiss/cooldown)
+  // -------------------------------------------------------------------------
+  // The slot stays mounted even while yielding to the disk banner so its
+  // in-memory dismissal fallback (for failed storage writes) survives the
+  // disk episode; it hides its own output via `hidden`.
+  const resourcePressureBannerSlot = (
+    <ResourcePressureBannerSlot
+      resourcePressure={resourcePressure}
       assistantId={assistantId}
       assistantStateKind={assistantState.kind}
+      hidden={diskPressureBannerVisible}
     />
   );
 
@@ -1131,6 +1171,7 @@ export function ChatMainPanel({
     startersSlot,
     belowFoldSlot,
     dockStartersToBottom,
+    startersDockCollapsed,
     renderAvatar,
     emptyStatePlaceholder,
     composerPeekSlot,
@@ -1247,17 +1288,19 @@ export function ChatMainPanel({
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const settingsSheetOpen = accessSheetOpen || profileSheetOpen;
 
-  // The narrow composer is one slim row with no room for a sentence, so it
-  // names the assistant it is addressed to instead. An assistant whose name
-  // has not loaded keeps the wider copy.
   const { t } = useTranslation("chat");
   const composerAssistantName = assistantName?.trim();
-  const mobilePlaceholder =
-    isMobile && composerAssistantName
-      ? t("chatComposer.askAssistantPlaceholder", {
-          assistantName: composerAssistantName,
-        })
-      : null;
+  const composerPlaceholder = resolveComposerPlaceholder({
+    isEmptyConversation,
+    emptyStatePlaceholder,
+    assistantPlaceholder:
+      isMobile && composerAssistantName
+        ? t("chatComposer.askAssistantPlaceholder", {
+            assistantName: composerAssistantName,
+          })
+        : null,
+    defaultPlaceholder: "What would you like to do?",
+  });
 
   // Explicit props (no spread bundle): the contract is visible here, and the
   // composer self-sources its own store state, so nothing high-frequency is
@@ -1265,12 +1308,7 @@ export function ChatMainPanel({
   const composerNode = (
     <ChatComposer
       cmdEnterMode={cmdEnterMode}
-      placeholder={
-        mobilePlaceholder ??
-        (isEmptyConversation
-          ? emptyStatePlaceholder
-          : "What would you like to do?")
-      }
+      placeholder={composerPlaceholder}
       onSubmit={handleFormSubmit}
       inputRef={inputRef}
       typingDisabled={typingDisabled}
@@ -1368,6 +1406,13 @@ export function ChatMainPanel({
               ) : null
             }
             diskPressureBanner={diskPressureBannerSlot}
+            // A storage warning is actionable-critical and must not stack
+            // with or compete against an upsell banner, so the resource
+            // slot yields whenever the disk-pressure banner is actually
+            // visible. Acknowledgement-required and cleanup modes are never
+            // dismissible, so disk always wins there; a dismissed or
+            // suppressed warning hands the space to the resource banner.
+            resourcePressureBanner={resourcePressureBannerSlot}
             showMissingApiKeyBanner={error?.code === "PROVIDER_NOT_CONFIGURED"}
             onOpenAiSettings={pushToAiSettings}
             onDismissApiKeyError={handleDismissApiKeyError}
@@ -1405,19 +1450,23 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const editingConversationId =
     useConversationStore.use.editingConversationId();
-  const isSidePanel =
-    mainView === "app-editing" && !!openedAppState && !!editingConversationId;
+  const paneArrangement = paneState({
+    mainView,
+    appId: openedAppState?.appId ?? null,
+    conversationId: activeConversationId,
+    boundConversationId: editingConversationId,
+    isAppMinimized,
+  }).presentation;
+  const isSidePanel = paneArrangement === "side";
   const variant = isSidePanel ? "side-panel" : "main";
 
-  // Mobile-only: while the app overlay is minimized to its bottom strip, the
-  // strip covers the bottom of the chat. Reserve its height so the composer
-  // sits above it. The guard mirrors the strip's mount condition — the strip
-  // renders only while `mainView === "app"`, and navigation can leave
-  // `isAppMinimized`/`openedAppState` set after it unmounts. The strip peeks
-  // `--app-strip-h` above the safe area, and the chat shell already pads for
-  // the safe area itself, so only the strip height needs reserving.
+  // Mobile-only: while the app is parked to its bottom strip, the strip covers
+  // the bottom of the chat, so its height is reserved to keep the composer
+  // above it. The strip peeks `--app-strip-h` above the safe area, and the
+  // chat shell already pads for the safe area itself, so only the strip height
+  // needs reserving.
   const appStripBottomInset =
-    isMobile && mainView === "app" && isAppMinimized && openedAppState
+    isMobile && paneArrangement === "bottom"
       ? "var(--app-strip-h, 64px)"
       : undefined;
 
@@ -1450,6 +1499,7 @@ export function ChatMainPanel({
       startersSlot={startersSlot}
       belowFoldSlot={belowFoldSlot}
       dockStartersToBottom={dockStartersToBottom}
+      startersDockCollapsed={startersDockCollapsed}
       activeProcessOverlaysSlot={
         hasActiveProcess ? activeProcessOverlays : undefined
       }

@@ -33,6 +33,7 @@ import { router } from "./routes";
 import "@/lib/api-interceptors";
 import "./index.css";
 
+import { initWindowsTitleBarOverlay } from "@/runtime/electron-window-chrome";
 import { initNativeKeyboard } from "@/runtime/native-keyboard";
 import { initNativePlatformAttributes } from "@/runtime/native-platform-attributes";
 import { initSafeAreaBridge } from "@/runtime/native-safe-area";
@@ -47,6 +48,7 @@ async function boot() {
 
   initInputModality();
   initNativePlatformAttributes();
+  initWindowsTitleBarOverlay();
   await initSafeAreaBridge();
   // First render waits on this bridge, so it is the first boot gate worth a
   // number. See `lib/telemetry/boot-telemetry.ts` for the mark family.

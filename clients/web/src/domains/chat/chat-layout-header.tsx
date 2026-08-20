@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 
-import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
+import { WindowsMenuBar } from "@/components/windows-menu-bar";
 import { WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX } from "@/runtime/electron-window-chrome";
 import {
   detectElectronHostOS,
@@ -114,7 +114,6 @@ export function ChatLayoutHeader({
       iconOnly={<Search />}
       aria-label="Search (Ctrl+K)"
       tooltip="Search (Ctrl+K)"
-      className={NATIVE_MOBILE_BARE_ICON_BUTTON}
       onClick={handleSearchClick}
     />
   ) : null;
@@ -135,7 +134,10 @@ export function ChatLayoutHeader({
   // neutral band across the top. Off native mobile, and on any route that
   // publishes nothing, this resolves to the usual neutral chrome.
   const pageSurface = usePageSurfaceStore.use.surface();
-  const headerBackground = resolveShellBackground(pageSurface, isNativeMobile());
+  const headerBackground = resolveShellBackground(
+    pageSurface,
+    isNativeMobile(),
+  );
 
   return (
     <header
@@ -180,7 +182,6 @@ export function ChatLayoutHeader({
             aria-expanded={drawerOpen}
             aria-controls="chat-side-menu"
             tooltip="Open navigation"
-            className={NATIVE_MOBILE_BARE_ICON_BUTTON}
             onClick={toggleSidebar}
           />
         ) : (
@@ -223,6 +224,12 @@ export function ChatLayoutHeader({
             />
           </>
         ) : null}
+        {/* Outside the isMobile branch: while this header is mounted the
+            fallback strip yields, so a narrow (zoomed) Windows window would
+            otherwise lose the menus entirely. Self-gates to the Windows
+            shell (renders nothing elsewhere), so no `electronHostOS`
+            branch here. */}
+        <WindowsMenuBar />
       </div>
 
       <div

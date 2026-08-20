@@ -34,6 +34,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantReachability } from "@/assistant/use-assistant-reachability";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
+import { useResourcePressureMonitor } from "@/assistant/use-resource-pressure-monitor";
 import { useActiveAssistantIsPlatformHosted } from "@/hooks/use-platform-gate";
 import { useComposerStore } from "@/domains/chat/composer-store";
 
@@ -43,8 +44,9 @@ import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-o
 
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
 import { useAssistantCapability } from "@/hooks/use-assistant-capability";
+import { useSupportsResourcePressureStatus } from "@/lib/backwards-compat/use-supports-resource-pressure-status";
 import { useSupportsSummarizeUpToHere } from "@/lib/backwards-compat/use-supports-summarize-up-to-here";
-import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useMessageLifecycle } from "@/domains/chat/hooks/use-message-lifecycle";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
@@ -85,7 +87,7 @@ import type { ChatMainPanelProps } from "@/domains/chat/components/chat-route-co
 // ---------------------------------------------------------------------------
 
 export function ActiveChatView() {
-  const showLlmInspector = useCanUseLlmInspector();
+  const canUseInternalActions = useCanUseInternalThreadActions();
   const [searchParams, setSearchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{
     conversationId?: string;
@@ -180,6 +182,13 @@ export function ActiveChatView() {
     monitorEnabled: diskPressure.mode !== null,
     hasResolvedStatus: diskPressure.hasResolvedStatus,
     status: diskPressure.status,
+  });
+  // Daemons below the gate's floor lack the status route; the gate keeps
+  // the poller from 404ing against them every tick and app resume.
+  const supportsResourcePressureStatus = useSupportsResourcePressureStatus();
+  const resourcePressure = useResourcePressureMonitor({
+    assistantId,
+    enabled: isPlatformHosted && supportsResourcePressureStatus,
   });
 
   // -------------------------------------------------------------------------
@@ -512,7 +521,9 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   useChatHeaderRegistration({
     assetsRefreshKey,
-    handleForkConversationFromMenu,
+    handleForkConversationFromMenu: canUseInternalActions
+      ? handleForkConversationFromMenu
+      : undefined,
     handleOpenInNewWindow,
     handleInspectConversation,
     handleCopyConversation,
@@ -562,20 +573,27 @@ export function ActiveChatView() {
     handleEditQueueTail,
 
     // Conversation secondary actions
-    handleForkConversation,
+    handleForkConversation: canUseInternalActions
+      ? handleForkConversation
+      : undefined,
     onSummarizeUpToHere: supportsSummarizeUpToHere
       ? handleSummarizeUpToHere
       : undefined,
     onRetryLatestTurn: supportsRetryTurn
       ? handleRetryLatestTurnRequested
       : undefined,
-    handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
+    handleInspectMessage: canUseInternalActions
+      ? handleInspectMessage
+      : undefined,
 
     // History pagination
     historyPagination: historyResult.pagination,
 
     // Disk pressure (single instance — avoids duplicate polling/subscriptions)
     diskPressure,
+
+    // Resource pressure (single instance, same reasoning as disk pressure)
+    resourcePressure,
 
     // Upward signals
     setRefreshEpoch,

@@ -20,6 +20,7 @@ import { BillingPortalReturnHandler } from "@/domains/settings/components/billin
 import { BillingUsagePanel } from "@/domains/settings/components/billing-usage/billing-usage-panel";
 import { GracePeriodBanner } from "@/domains/settings/components/grace-period-banner";
 import { InvoicesTable } from "@/domains/settings/components/invoices-table";
+import { PaymentMethodsCard } from "@/domains/settings/components/payment-methods-card";
 import { PlanCard } from "@/domains/settings/components/plan-card";
 import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
 import {
@@ -305,6 +306,9 @@ function BillingTabContent() {
         onOpenChange={onBonusOpenChange}
         amountUsd={amountUsd}
       />
+      <Suspense fallback={null}>
+        <PaymentMethodsCard />
+      </Suspense>
       <Suspense fallback={null}>
         <BillingPanel />
       </Suspense>

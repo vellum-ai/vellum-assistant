@@ -98,6 +98,7 @@ import {
   registerMessagingProviders,
   registerWatcherProviders,
 } from "./providers-setup.js";
+import { startResourcePressureGuardForLifecycle } from "./resource-pressure-guard-lifecycle.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { broadcastDaemonStatus } from "./status.js";
 
@@ -197,8 +198,10 @@ export async function runDaemon(): Promise<void> {
     }
   }
 
-  // Start the runtime HTTP server early so /healthz answers ASAP. A bind
-  // failure is non-fatal — the daemon falls back to IPC-only operation.
+  // Start the runtime HTTP server early so /healthz answers ASAP. Throws on
+  // EADDRINUSE to abort startup: another process holds the port every HTTP
+  // client (and the gateway's /v1/* proxy) targets, so an IPC-only daemon
+  // would look healthy while all HTTP traffic 502s.
   await startRuntimeHttpServer();
 
   // Warms the configured-probe cache (credential reads only, no DB). Fired
@@ -700,6 +703,7 @@ export async function runDaemon(): Promise<void> {
 
   startUsageTelemetryReporter();
   startDiskPressureGuardForLifecycle();
+  startResourcePressureGuardForLifecycle();
   startOrphanReaper();
   startEventLoopWatchdog();
 

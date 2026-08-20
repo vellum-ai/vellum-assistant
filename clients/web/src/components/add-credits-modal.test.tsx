@@ -167,7 +167,7 @@ describe("AddCreditsModal", () => {
     renderModal();
 
     const link = screen.getByRole("link", {
-      name: /Configure Automatic Top-Ups/,
+      name: /Configure Auto-Reload/,
     });
     expect(link.getAttribute("href")).toBe(
       routes.settings.usageBillingConfigureTopUps,

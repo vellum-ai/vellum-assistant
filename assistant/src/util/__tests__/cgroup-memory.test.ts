@@ -19,6 +19,7 @@ vmalloc 0
 shmem 8192
 zswap 0
 zswapped 0
+inactive_file 1073741824
 file_mapped 209715200
 file_dirty 135168
 file_writeback 0
@@ -38,6 +39,7 @@ describe("parseMemoryStat", () => {
     expect(stat).toEqual({
       anonBytes: 2147483648,
       fileBytes: 1610612736,
+      inactiveFileBytes: 1073741824,
       kernelBytes: 943718400,
       slabReclaimableBytes: 838860800,
       slabUnreclaimableBytes: 104857600,
@@ -72,6 +74,7 @@ describe("parseMemoryStat", () => {
     expect(parseMemoryStat("")).toEqual({
       anonBytes: null,
       fileBytes: null,
+      inactiveFileBytes: null,
       kernelBytes: null,
       slabReclaimableBytes: null,
       slabUnreclaimableBytes: null,

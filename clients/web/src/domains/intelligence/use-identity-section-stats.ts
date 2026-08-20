@@ -159,41 +159,35 @@ export function useIdentitySectionStats(
           ? completeSliderValues(sliders.data ?? {})
           : undefined,
     },
-    // Skills and plugins share the merged My Superpowers card; the stat
-    // names both kinds (interpunct-separated) so a plugin never hides
-    // inside a bare count. The plugin half appears once its query resolves
-    // — on assistants without the plugin surface it never does, and the
-    // stat stays skills-only.
+    // Skills and plugins share the merged Superpowers card, and the tile
+    // states them as one total rather than two counts. Until the plugin
+    // query resolves, and forever on assistants without the plugin surface,
+    // that total would understate itself, so the stat stays skills-only.
     superpowers:
       skills.data !== undefined
         ? {
-            text: [
-              t("useIdentitySectionStats.skillCount", { count: skills.data }),
-              ...(plugins.data !== undefined
-                ? [
-                    t("useIdentitySectionStats.pluginCount", {
-                      count: plugins.data,
-                    }),
-                  ]
-                : []),
-            ].join(" · "),
+            text:
+              plugins.data !== undefined
+                ? t("useIdentitySectionStats.skillAndPluginCount", {
+                    count: skills.data + plugins.data,
+                  })
+                : t("useIdentitySectionStats.skillCount", {
+                    count: skills.data,
+                  }),
           }
         : undefined,
-    // Apps and documents share the Library card; like the superpowers stat,
-    // both kinds are named (interpunct-separated) once their reads resolve.
+    // Apps and documents share the Library card and read as one total, on
+    // the same terms as the superpowers stat above: apps alone until the
+    // document read resolves.
     library:
       apps.data !== undefined
         ? {
-            text: [
-              t("useIdentitySectionStats.appCount", { count: apps.data }),
-              ...(documents.data !== undefined
-                ? [
-                    t("useIdentitySectionStats.docCount", {
-                      count: documents.data,
-                    }),
-                  ]
-                : []),
-            ].join(" · "),
+            text:
+              documents.data !== undefined
+                ? t("useIdentitySectionStats.appAndDocCount", {
+                    count: apps.data + documents.data,
+                  })
+                : t("useIdentitySectionStats.appCount", { count: apps.data }),
           }
         : undefined,
     workspace:

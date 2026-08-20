@@ -215,6 +215,11 @@ export const routes = {
   settings: {
     root: r("/assistant/settings"),
     general: r("/assistant/settings/general"),
+    // Keyboard Shortcuts lives in the Preferences modal on General, not on a
+    // page of its own, so "go to the shortcuts" is General plus the param that
+    // opens it. `/assistant/settings/keyboard-shortcuts` still resolves and
+    // redirects here for older links.
+    keyboardShortcuts: "/assistant/settings/general?preferences=open",
     ai: r("/assistant/settings/ai"),
     integrations: r("/assistant/settings/integrations"),
     credentials: r("/assistant/settings/credentials"),
