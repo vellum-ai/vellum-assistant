@@ -5,6 +5,7 @@ import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { useTranslation } from "@/i18n";
+import { formatUsageResetDate } from "@/lib/billing/usage-reset-date";
 
 export interface UsageBalancePanelProps {
   /** Spend against the included bundle, already clamped to 0..1. */
@@ -43,10 +44,7 @@ export function UsageBalancePanel({
   // whatever the wallet behind it still holds.
   const spent = ratio >= 1;
   const resetDate = resetsAt
-    ? new Intl.DateTimeFormat(i18n.language, {
-        month: "short",
-        day: "numeric",
-      }).format(new Date(resetsAt))
+    ? formatUsageResetDate(resetsAt, i18n.language)
     : null;
 
   return (

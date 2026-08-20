@@ -6,6 +6,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { useTranslation } from "@/i18n";
+import { formatUsageResetDate } from "@/lib/billing/usage-reset-date";
 
 export interface PreferencesUsagePanelProps {
   /** Opens the Billing tab of the usage settings page. */
@@ -36,10 +37,7 @@ export function PreferencesUsagePanel({
   const title = t("preferencesUsagePanel.title");
   const pct = Math.round(usage.ratio * 100);
   const resetDate = usage.resetsAt
-    ? new Intl.DateTimeFormat(i18n.language, {
-        month: "short",
-        day: "numeric",
-      }).format(new Date(usage.resetsAt))
+    ? formatUsageResetDate(usage.resetsAt, i18n.language)
     : null;
   // Spending the whole bundle is the negative reading in its own right; the
   // strip below it waits until the wallet behind the bundle is empty too.
