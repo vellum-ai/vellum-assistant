@@ -161,9 +161,8 @@ export function isDirectDelivery(callbackUrl: string): boolean {
  * Deliver a channel reply directly to the provider API, bypassing the gateway
  * HTTP proxy. Callers MUST check `isDirectDelivery()` first.
  *
- * Sub-operations (reaction, thread status) route to the transport's optional
- * method when both the payload field and the method are present; otherwise
- * the reply is delivered as text / approval / attachments.
+ * Delivers the reply itself: text, approval card, attachments. Every other
+ * operation a transport supports is reached through its own entry point.
  */
 export async function deliverDirect(
   callbackUrl: string,
