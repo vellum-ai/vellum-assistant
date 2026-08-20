@@ -95,14 +95,6 @@ mock.module("../plugins/defaults/memory/substrate/boot-maintenance.js", () => ({
   maybeReseedCapabilitiesAfterManagedCredential: async () => {},
 }));
 
-// This suite drives the secret routes without the inference schema, so the
-// in-use lookup a delete performs has no `provider_connections` table to read.
-// Report no dependents; the refusal itself is covered by
-// runtime/routes/__tests__/credential-delete-in-use.test.ts.
-mock.module("../providers/inference/credential-usage.js", () => ({
-  findConnectionsUsingCredential: () => [],
-}));
-
 // secret-routes evicts conversations after a credential change so the next turn
 // rebuilds against the new providers; count the calls to assert that happens.
 mock.module("../daemon/conversation-store.js", () => ({
@@ -111,6 +103,7 @@ mock.module("../daemon/conversation-store.js", () => ({
   },
 }));
 
+import { initializeDb } from "../persistence/db-init.js";
 import {
   getProviderRoutingSource,
   initializeProviders,
@@ -120,6 +113,12 @@ import {
   notifyCesOfAssistantApiKeyUpdate,
   ROUTES,
 } from "../runtime/routes/secret-routes.js";
+
+// A delete looks up the provider connections that resolve their auth through
+// the credential, so the inference schema has to exist. No connection is
+// created here: the refusal is covered by
+// runtime/routes/__tests__/credential-delete-in-use.test.ts.
+await initializeDb();
 
 const addRoute = ROUTES.find(
   (r) => r.method === "POST" && r.endpoint === "secrets",

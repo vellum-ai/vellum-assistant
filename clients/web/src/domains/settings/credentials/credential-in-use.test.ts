@@ -71,7 +71,7 @@ describe("the in-use warning", () => {
 
     // THEN it names the credential and that connection in the singular
     expect(warning).toBe(
-      "agentrouter:api_key is the credential connection router-primary sends requests with. Deleting it stops that connection from answering until you add a new credential.",
+      "agentrouter:api_key is the credential that the connection router-primary uses to send requests. Deleting it stops that connection from answering until you add a new credential.",
     );
   });
 
@@ -88,7 +88,7 @@ describe("the in-use warning", () => {
 
     // THEN both are named as a list, in the plural
     expect(warning).toBe(
-      "agentrouter:api_key is the credential connections router-primary and router-fallback send requests with. Deleting it stops those connections from answering until you add a new credential.",
+      "agentrouter:api_key is the credential that the connections router-primary and router-fallback use to send requests. Deleting it stops those connections from answering until you add a new credential.",
     );
   });
 });

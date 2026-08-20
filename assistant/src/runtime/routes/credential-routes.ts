@@ -517,6 +517,11 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
     );
   }
 
+  // Cached provider adapters hold the deleted credential, so they are dropped
+  // as soon as the secure vault no longer has it: a later failure in this
+  // handler must not leave them dispatching with a credential that is gone.
+  invalidateConnectionsAfterCredentialDelete(affectedConnections);
+
   const metadataDeleted = deleteCredentialMetadata(service, field);
 
   // Clean up OAuth connection (best-effort).

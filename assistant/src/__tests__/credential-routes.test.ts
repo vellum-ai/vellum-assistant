@@ -41,13 +41,6 @@ mock.module("../security/credential-key.js", () => ({
   credentialKey: (service: string, field: string) => `${service}:${field}`,
 }));
 
-// This suite runs without the inference schema, so no connection can depend on
-// a credential here. `credential-delete-in-use.test.ts` covers the lookup and
-// the refusal it drives against real connection rows.
-mock.module("../providers/inference/credential-usage.js", () => ({
-  findConnectionsUsingCredential: mock(() => []),
-}));
-
 mock.module("../security/secure-keys.js", () => ({
   setSecureKeyAsync: mock(async (key: string, value: string) => {
     secureStore.set(key, value);
@@ -153,6 +146,7 @@ mock.module("../tools/credentials/broker.js", () => ({
 }));
 
 import { persistPromptedCredential } from "../credential-execution/prompted-credential.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   forChatMintsSince,
   resetForChatMintRegistryForTest,
@@ -164,6 +158,12 @@ import {
   revealedValueSince,
 } from "../runtime/reveal-success-registry.js";
 import { ROUTES } from "../runtime/routes/credential-routes.js";
+
+// A delete looks up the provider connections that resolve their auth through
+// the credential, so the inference schema has to exist. No connection is
+// created here: the refusal is covered by
+// runtime/routes/__tests__/credential-delete-in-use.test.ts.
+await initializeDb();
 
 const setRoute = ROUTES.find((r) => r.operationId === "credentials_set");
 const listRoute = ROUTES.find((r) => r.operationId === "credentials_list");
