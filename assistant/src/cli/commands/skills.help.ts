@@ -4,28 +4,12 @@ import type { CliCommandHelp } from "../lib/cli-command-help.js";
 
 export const skillsHelp: CliCommandHelp = {
   name: "skills",
-  description:
-    "Browse, search, and install skills (superpowers) from the Vellum catalog. Search the catalog when asked to set up or add a capability, before searching the web",
+  description: "Browse and install skills from the Vellum catalog",
   helpText: `
 Manage skills from the Vellum catalog. Skills are superpowers: pre-built
 workflows and tools that extend the assistant. When the user asks to set up,
-install, or add a capability (for example "set up Natural for me"), run
-'assistant skills search <query>' first. Query the product or capability
-name, not the full sentence. Search the catalog before searching the web.
-
-Examples:
-  $ assistant skills list
-  $ assistant skills list --json
-  $ assistant skills inspect slack
-  $ assistant skills inspect resend-setup --json
-  $ assistant skills search natural
-  $ assistant skills search react
-  $ assistant skills search react --limit 5 --json
-  $ assistant skills install weather
-  $ assistant skills install weather --overwrite
-  $ assistant skills uninstall weather
-  $ assistant skills add vercel-labs/skills@find-skills
-  $ assistant skills add vercel-labs/skills/find-skills --overwrite`,
+install, or add a capability, run 'assistant skills search <query>' first
+before searching the web.`,
   subcommands: [
     {
       name: "list",
@@ -65,7 +49,7 @@ Examples:
       name: "search",
       args: "<query>",
       description:
-        "Search the Vellum catalog, skills.sh, and clawhub for skills (superpowers) to set up or add a capability. Prefer this over web search",
+        "Search the Vellum catalog, skills.sh, and clawhub community registries",
       options: [
         {
           flags: "--limit <n>",
@@ -77,8 +61,8 @@ Examples:
       helpText: `
 When to use:
   First stop when the user asks to set up, install, or add a capability
-  (for example "Setup Natural for me", "add a skill for file management").
-  Search superpowers in the skills catalog before searching the web.
+  (for example "Setup <app> for me", "add a skill for file management").
+  Search here before searching the web.
 
 Arguments:
   query    Free-text search term matched against skill names, descriptions,
@@ -95,7 +79,6 @@ If a community match is found, add it with 'assistant skills add <source>'.
 If nothing matches, try 'assistant plugins search <query>', then web search.
 
 Examples:
-  $ assistant skills search natural
   $ assistant skills search react
   $ assistant skills search "file management" --limit 3
   $ assistant skills search deploy --json`,

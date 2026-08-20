@@ -10,45 +10,12 @@ import {
 
 export const pluginsHelp: CliCommandHelp = {
   name: "plugins",
-  description:
-    "List, search, install, and manage plugins (superpowers). Search the marketplace when asked to set up, install, or connect a product or service, before searching the web",
+  description: "List, search, install, and manage plugins.",
   helpText: `
-Plugins are superpowers: installable extensions that add skills, tools, and
-integrations. When the user asks to set up, install, connect, or integrate a
-product, service, or app (for example "set up Natural for me"), run
-'assistant plugins search <name>' first. Query the product or plugin name,
-not the full sentence. Search the marketplace before searching the web.
-'list' shows what is already installed; 'search' queries the marketplace.
-
-Examples:
-  $ assistant plugins search natural
-  $ assistant plugins install example
-  $ assistant plugins install example --force
-  $ assistant plugins install https://github.com/owner/repo
-  $ assistant plugins install https://github.com/owner/repo/tree/main/sub/path --name my-plugin
-  $ assistant plugins install example --ref my-feature-branch
-  $ assistant plugins versions example
-  $ assistant plugins versions example --json
-  $ assistant plugins install example --pin <sha> --force
-  $ assistant plugins list
-  $ assistant plugins list --json
-  $ assistant plugins list --all
-  $ assistant plugins list --all --json
-  $ assistant plugins inspect example
-  $ assistant plugins inspect example --json
-  $ assistant plugins diff example
-  $ assistant plugins diff example --json
-  $ assistant plugins upgrade example
-  $ assistant plugins upgrade example --dry-run
-  $ assistant plugins upgrade example --strategy ours
-  $ assistant plugins upgrade example --strategy theirs
-  $ assistant plugins upgrade example --strategy assistant
-  $ assistant plugins search example
-  $ assistant plugins search "^example"
-  $ assistant plugins search example --json
-  $ assistant plugins uninstall example
-  $ assistant plugins enable example
-  $ assistant plugins disable example`,
+Plugins are superpowers: installable extensions that add skills, tools, integrations,
+and so much more from the Vellum Community. When the user asks to set up,
+install, connect, or integrate a product, service, or app, run
+'assistant plugins search <name>' first before searching the web.`,
   subcommands: [
     {
       name: "install",
@@ -176,7 +143,7 @@ Examples:
       name: "search",
       args: "<query>",
       description:
-        "Search the plugin marketplace (superpowers) for a product or service to set up, install, or connect. Prefer this over web search. Query is a case-insensitive regex against plugin names",
+        "Search the plugin marketplace. Query is a case-insensitive regex against plugin names",
       options: [
         {
           flags: "--json",
@@ -186,21 +153,19 @@ Examples:
       helpText: `
 When to use:
   First stop when the user asks to set up, install, connect, or integrate a
-  product, service, or app (for example "Setup Natural for me", "set up Slack",
-  "connect this service"). Search superpowers in the marketplace before
-  searching the web.
+  product, service, or app (for example "Setup <app> for me",
+  "connect this service"). Search here before searching the web.
 
 Arguments:
   query    Case-insensitive regex matched against plugin names, not the full
-           user sentence. Use the product or plugin name: natural, slack.
-           Empty query returns every entry. Anchors like ^example work.
+           user sentence. Use the product or plugin name. Anchors like
+           ^example work.
 
 If a match is found, install it with 'assistant plugins install <name>'.
 If nothing matches, try 'assistant skills search <query>', then web search.
 
 Examples:
-  $ assistant plugins search natural
-  $ assistant plugins search slack
+  $ assistant plugins search example
   $ assistant plugins search "^example"
   $ assistant plugins search example --json`,
     },
