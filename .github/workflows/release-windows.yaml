@@ -2,7 +2,8 @@ name: Release Windows
 
 # Reusable Windows desktop release: build, sign, verify, and publish the NSIS
 # installers and electron-updater feed for one environment. Called by
-# dev-release.yaml and release.yml; never dispatched on its own.
+# dev-release.yaml (production and staging wiring in release.yml is a
+# follow-up); never dispatched on its own.
 #
 # External gates (per GitHub environment):
 #   vars.WINDOWS_SIGNING_PROVIDER   pfx | azure-trusted-signing | command
