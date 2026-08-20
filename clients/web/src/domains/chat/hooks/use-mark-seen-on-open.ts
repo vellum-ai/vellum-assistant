@@ -1,9 +1,6 @@
 import { useEffect, useRef } from "react";
-import { useLocation } from "react-router";
 
 import { useMarkConversationSeenMutation } from "@/domains/chat/hooks/use-mark-conversation-seen-mutation";
-import { useViewerStore } from "@/stores/viewer-store";
-import { isConversationPath } from "@/utils/routes";
 import type { AssistantState } from "@/assistant/types";
 import type { Conversation } from "@/types/conversation-types";
 
@@ -20,40 +17,32 @@ import type { Conversation } from "@/types/conversation-types";
  * attention tracking — it lives here because its concern is state
  * mutation, not observation.
  *
- * Seen means the user saw it, so the conversation has to be on screen. The
- * selected conversation outlives the route it was selected on, because the
- * streams read the same field and need it to, and it can also sit behind a
- * full-width app on its own route. In both the user is somewhere else, and a
- * message that arrives there is unread until they come back.
+ * Seen means the user saw it, so the caller says whether the transcript is on
+ * screen. The selected conversation is not the same as a visible one: it
+ * outlives the route it was selected on, and the viewer can cover it on that
+ * route. A message arriving in either case is unread until the user returns.
  */
 export function useMarkSeenOnOpen({
   assistantId,
   assistantStateKind,
   activeConversationId,
   activeConversation,
+  isTranscriptOnScreen,
 }: {
   assistantId: string | null;
   assistantStateKind: AssistantState["kind"];
   activeConversationId: string | null;
   activeConversation: Conversation | undefined;
+  isTranscriptOnScreen: boolean;
 }) {
   const { mutate: markSeen } = useMarkConversationSeenMutation();
   const lastSeenOnOpenConversationIdRef = useRef<string | null>(null);
-  const { pathname } = useLocation();
-  const mainView = useViewerStore.use.mainView();
-  const isAppMinimized = useViewerStore.use.isAppMinimized();
-
-  // A full-width app replaces the transcript; minimized, it is a strip over a
-  // chat the user can still read.
-  const isCoveredByApp = mainView === "app" && !isAppMinimized;
-  const isOnScreen = isConversationPath(pathname) && !isCoveredByApp;
-
   useEffect(() => {
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
       !activeConversationId ||
-      !isOnScreen
+      !isTranscriptOnScreen
     ) {
       return;
     }
@@ -87,7 +76,7 @@ export function useMarkSeenOnOpen({
     activeConversationId,
     assistantId,
     assistantStateKind,
-    isOnScreen,
+    isTranscriptOnScreen,
     markSeen,
   ]);
 }

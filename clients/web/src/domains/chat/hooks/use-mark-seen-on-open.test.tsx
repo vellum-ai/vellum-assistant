@@ -12,9 +12,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
-import { MemoryRouter } from "react-router";
-
-import { useViewerStore } from "@/stores/viewer-store";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
@@ -47,7 +44,6 @@ const { useMarkSeenOnOpen } =
   await import("@/domains/chat/hooks/use-mark-seen-on-open");
 
 const ASSISTANT_ID = "asst-1";
-const CONVERSATION_PATH = "/assistant/conversations/conv-1";
 
 function unreadConversation(): Conversation {
   return {
@@ -56,20 +52,10 @@ function unreadConversation(): Conversation {
   } as Conversation;
 }
 
-interface SetupOptions {
-  /** Where the user is. Defaults to the conversation's own route. */
-  path?: string;
-  /** The viewer arrangement, which decides whether the transcript is on screen. */
-  viewer?: {
-    mainView: "chat" | "app" | "app-editing";
-    isAppMinimized?: boolean;
-  };
-}
-
 function setup(
   conversation: Conversation | undefined,
   unreadCount: number,
-  options: SetupOptions = {},
+  isTranscriptOnScreen = true,
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -83,11 +69,6 @@ function setup(
     unreadCount,
   );
 
-  useViewerStore.setState({
-    mainView: options.viewer?.mainView ?? "chat",
-    isAppMinimized: options.viewer?.isAppMinimized ?? false,
-  });
-
   renderHook(
     () =>
       useMarkSeenOnOpen({
@@ -95,14 +76,11 @@ function setup(
         assistantStateKind: "active",
         activeConversationId: conversation?.conversationId ?? null,
         activeConversation: conversation,
+        isTranscriptOnScreen,
       }),
     {
       wrapper: ({ children }: { children: ReactNode }) =>
-        createElement(
-          MemoryRouter,
-          { initialEntries: [options.path ?? CONVERSATION_PATH] },
-          createElement(QueryClientProvider, { client }, children),
-        ),
+        createElement(QueryClientProvider, { client }, children),
     },
   );
 
@@ -139,7 +117,6 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  useViewerStore.setState({ mainView: "chat", isAppMinimized: false });
 });
 
 describe("useMarkSeenOnOpen", () => {
@@ -198,12 +175,8 @@ describe("useMarkSeenOnOpen", () => {
 });
 
 describe("useMarkSeenOnOpen only marks what the user can see", () => {
-  test("leaves a reply unread while the user is on another route", async () => {
-    // The selected conversation outlives the route it was selected on, so a
-    // reply arriving while the user browses the Library is not one they saw.
-    const { client } = setup(unreadConversation(), 1, {
-      path: "/assistant/library",
-    });
+  test("leaves the reply unread while the transcript is off screen", async () => {
+    const { client } = setup(unreadConversation(), 1, false);
 
     await waitFor(() => {
       expect(readUnseen(client)).toBe(true);
@@ -211,29 +184,8 @@ describe("useMarkSeenOnOpen only marks what the user can see", () => {
     expect(seenCalls).toHaveLength(0);
   });
 
-  test("leaves a reply unread while a full-width app covers the transcript", async () => {
-    const { client } = setup(unreadConversation(), 1, {
-      viewer: { mainView: "app" },
-    });
-
-    await waitFor(() => {
-      expect(readUnseen(client)).toBe(true);
-    });
-    expect(seenCalls).toHaveLength(0);
-  });
-
-  test("marks it seen with the app minimized to its strip, which leaves the chat readable", async () => {
-    setup(unreadConversation(), 1, {
-      viewer: { mainView: "app", isAppMinimized: true },
-    });
-
-    await waitFor(() => {
-      expect(seenCalls).toHaveLength(1);
-    });
-  });
-
-  test("marks it seen beside an app in the side-by-side layout", async () => {
-    setup(unreadConversation(), 1, { viewer: { mainView: "app-editing" } });
+  test("marks it seen once the transcript is on screen", async () => {
+    setup(unreadConversation(), 1, true);
 
     await waitFor(() => {
       expect(seenCalls).toHaveLength(1);

@@ -50,6 +50,15 @@ export function isAppMainView(mainView: MainView): boolean {
   return mainView === "app" || mainView === "app-editing";
 }
 
+/**
+ * Whether the viewer is showing a surface that overlays the chat: a document,
+ * a detail panel, channel setup. Everything that is neither the chat itself
+ * nor an app.
+ */
+export function isOverlayView(mainView: MainView): boolean {
+  return mainView !== "chat" && !isAppMainView(mainView);
+}
+
 /** The fields the viewer stores about an app and the conversation beside it. */
 export interface ViewerPaneFields {
   mainView: MainView;
