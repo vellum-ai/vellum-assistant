@@ -215,6 +215,19 @@
       "icon": "📣"
     },
     {
+      "name": "imessage",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/imessage",
+        "ref": "cf65266908f370a4efe266d0cb4fd953efc13c05"
+      },
+      "description": "iMessage and SMS channel for the Vellum assistant, backed by a Photon or Comms by Osis line.",
+      "category": "productivity",
+      "homepage": "https://github.com/vellum-ai/imessage",
+      "license": "MIT",
+      "icon": "📲"
+    },
+    {
       "name": "kitchen-companion",
       "source": {
         "source": "github",
