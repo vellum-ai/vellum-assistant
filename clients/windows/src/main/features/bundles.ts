@@ -25,11 +25,14 @@ const bundles: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "windows.bundles",
   install(registry) {
     configureBundlePlatform({
-      // The CLI provider installs after this module (modules install in path
-      // order), so it is looked up when a bundle is actually opened.
-      ...createBundleHostProvider(() =>
-        registry.require(LOCAL_MODE_CLI).resolveInvocation(),
-      ),
+      // Modules install synchronously in path order and `local-mode` (the CLI
+      // provider) sorts after this one, while a cold launch from a `.vellum`
+      // file replays argv during `file-open`'s install. Yielding once lets
+      // every module finish installing before the CLI is looked up.
+      ...createBundleHostProvider(async () => {
+        await Promise.resolve();
+        return registry.require(LOCAL_MODE_CLI).resolveInvocation();
+      }),
       bundlesRoot: () => path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
       rendererBase: () =>
         app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
