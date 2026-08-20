@@ -250,6 +250,18 @@ export interface VoiceTurnCallbacks {
     toolName: string,
     detail?: { toolUseId?: string; input?: Record<string, unknown> },
   ) => void;
+  /**
+   * Fired when the provider OPENS a tool-use content block, before its input
+   * JSON streams - earlier and weaker than `tool_use_start`, which waits for a
+   * definitive, parsed call.
+   *
+   * Consumers must not use this to display or act on a tool: the call may
+   * never materialize. It is a structural signal about the RESPONSE, not the
+   * tool - once a tool-use block opens, the text block before it is closed, so
+   * any text streamed since the last block boundary was working commentary
+   * rather than the turn's answer.
+   */
+  tool_use_preview_start?: (toolName: string, toolUseId: string) => void;
   /** Fired when a tool invocation finishes. */
   tool_result?: (event: VoiceToolResultEvent) => void;
 }
@@ -1700,6 +1712,16 @@ export async function startVoiceTurn(
             eventSink.onError(msg.userMessage);
           } else if (msg.type === "tool_use_start") {
             eventSink.onToolUse(msg.toolName, msg.input, msg.toolUseId);
+          } else if (msg.type === "tool_use_preview_start") {
+            // Routed through `opts.callbacks` rather than `eventSink`: the
+            // sink is the phone-shaped surface, and this is a live-voice-only
+            // structural signal about the response. Activity display stays on
+            // the definitive `tool_use_start`, which is the only tool event a
+            // consumer may show or act on.
+            opts.callbacks?.tool_use_preview_start?.(
+              msg.toolName,
+              msg.toolUseId,
+            );
           } else if (msg.type === "tool_result") {
             eventSink.onToolResult({
               toolName: msg.toolName,
@@ -1711,8 +1733,6 @@ export async function startVoiceTurn(
               ),
             });
           }
-          // Note: tool_use_preview_start is intentionally not handled here.
-          // Voice only reacts to the definitive tool_use_start event.
         },
         // Front-door legs resolve through their own call site, whose shipped
         // default pins the latency-class verdict model (see

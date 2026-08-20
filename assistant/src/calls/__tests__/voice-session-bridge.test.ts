@@ -1472,10 +1472,11 @@ describe("startVoiceTurn race-loss state restore", () => {
 });
 
 describe("startVoiceTurn tool-event forwarding", () => {
-  // The agent loop's tool_use_start / tool_result events reach the voice
-  // callbacks so the session can track per-turn tool activity. The bridge is
-  // the single truncation point for tool results — the raw result can be
-  // huge and must never travel further into the voice layer.
+  // The agent loop's tool_use_preview_start / tool_use_start / tool_result
+  // events reach the voice callbacks so the session can track per-turn tool
+  // activity. The bridge is the single truncation point for tool results —
+  // the raw result can be huge and must never travel further into the voice
+  // layer.
 
   /** Scripts runAgentLoop to emit the given agent-loop events in order. */
   function makeEventEmittingConversation(events: unknown[]) {
@@ -1598,8 +1599,95 @@ describe("startVoiceTurn tool-event forwarding", () => {
     ]);
   });
 
+  test("tool_use_preview_start delivers the tool name and id", async () => {
+    makeEventEmittingConversation([
+      {
+        type: "tool_use_preview_start",
+        toolName: "web_search",
+        toolUseId: "toolu-1",
+      },
+    ]);
+
+    const previews: Array<{ toolName: string; toolUseId: string }> = [];
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {
+        tool_use_preview_start: (toolName, toolUseId) =>
+          previews.push({ toolName, toolUseId }),
+      },
+    });
+    await flushMicrotasks();
+
+    expect(previews).toEqual([
+      { toolName: "web_search", toolUseId: "toolu-1" },
+    ]);
+  });
+
+  test("a turn with no tool calls never fires tool_use_preview_start", async () => {
+    makeEventEmittingConversation([
+      { type: "assistant_text_delta", text: "hello" },
+    ]);
+
+    const previews: string[] = [];
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {
+        tool_use_preview_start: (toolName) => previews.push(toolName),
+      },
+    });
+    await flushMicrotasks();
+
+    expect(previews).toEqual([]);
+  });
+
+  test("the preview and the definitive start are independent callbacks", async () => {
+    // The preview is a structural signal only. Activity display keys off
+    // tool_use_start, so that callback must still fire with its full detail
+    // regardless of whether a consumer observes the preview.
+    makeEventEmittingConversation([
+      {
+        type: "tool_use_preview_start",
+        toolName: "web_search",
+        toolUseId: "toolu-1",
+      },
+      {
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: { query: "weather" },
+        toolUseId: "toolu-1",
+      },
+    ]);
+
+    const fired: string[] = [];
+    const starts: Array<{ toolName: string; detail?: unknown }> = [];
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {
+        tool_use_preview_start: () => fired.push("preview"),
+        tool_use_start: (toolName, detail) => {
+          fired.push("start");
+          starts.push({ toolName, detail });
+        },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(fired).toEqual(["preview", "start"]);
+    expect(starts).toEqual([
+      {
+        toolName: "web_search",
+        detail: { toolUseId: "toolu-1", input: { query: "weather" } },
+      },
+    ]);
+  });
+
   test("a callbacks object without the tool-event members doesn't throw", async () => {
     makeEventEmittingConversation([
+      {
+        type: "tool_use_preview_start",
+        toolName: "web_search",
+        toolUseId: "toolu-1",
+      },
       {
         type: "tool_use_start",
         toolName: "web_search",
