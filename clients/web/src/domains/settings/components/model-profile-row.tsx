@@ -30,7 +30,7 @@ function callSiteOverrideLabel(
   if (override == null) {
     return undefined;
   }
-  if (override.provider != null || override.model != null) {
+  if (override.model != null) {
     return CUSTOM_CALL_SITE_MODEL_LABEL;
   }
   const profile = override.profile?.trim();

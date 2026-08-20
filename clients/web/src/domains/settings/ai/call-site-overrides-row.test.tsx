@@ -1,32 +1,30 @@
 /**
- * A pinned provider this assistant cannot select must still be shown as the
- * pin, not swapped for a selectable one.
- *
- * Displaying a fallback while storing something else would be wrong on its
- * own, and `Select` gives it teeth: it reports changes rather than clicks, so
- * re-picking the shown provider is a no-op and the mismatch survives into a
- * save of the wrong provider.
+ * The custom-pin editor is a model choice only: the route comes from the
+ * site's winning profile, so the model list is scoped by that route's
+ * provider kind and no provider is ever written into a draft.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-let selfHosted = false;
-
-mock.module("@/hooks/use-platform-gate", () => ({
-  usePlatformGate: () => "full",
-  useActiveAssistantIsSelfHosted: () => selfHosted,
-}));
-
-const { CallSiteOverrideRow } =
-  await import("@/domains/settings/ai/call-site-overrides-row");
+import { getDefaultModelForProvider } from "@/assistant/llm-model-catalog";
+import { CUSTOM_SENTINEL } from "@/domains/settings/ai/call-site-helpers";
+import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
 
 const drafts: unknown[] = [];
 
+const PROFILE_OPTIONS = [
+  { value: "balanced", label: "Balanced" },
+  { value: CUSTOM_SENTINEL, label: "Custom" },
+];
+
 function renderRow(
   draft: Record<string, unknown> | null,
-  connections?: Record<string, unknown>[],
+  options?: {
+    winningProvider?: string;
+    connections?: Record<string, unknown>[];
+  },
 ) {
   return render(
     <CallSiteOverrideRow
@@ -34,8 +32,9 @@ function renderRow(
       displayName="Workflow Leaf"
       defaultProfileLabel="Balanced"
       draft={draft as never}
-      profileOptions={[{ value: "balanced", label: "Balanced" }] as never}
-      connections={connections as never}
+      profileOptions={PROFILE_OPTIONS as never}
+      winningProvider={options?.winningProvider}
+      connections={options?.connections as never}
       onDraftChange={(_id, next) => {
         drafts.push(next);
       }}
@@ -44,25 +43,22 @@ function renderRow(
   );
 }
 
-function triggerLabels(): string[] {
+function triggers(): HTMLElement[] {
   return Array.from(
     document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
-  ).map((t) => t.textContent?.trim() ?? "");
+  );
 }
 
-/**
- * The row renders three pickers in order: profile, provider, model. Index,
- * not text, because the provider trigger's text is the thing under test.
- */
-function providerTrigger(): HTMLElement {
-  const triggers = document.querySelectorAll<HTMLElement>(
-    'button[role="combobox"]',
-  );
-  const el = triggers[1];
+function triggerLabels(): string[] {
+  return triggers().map((t) => t.textContent?.trim() ?? "");
+}
+
+/** The row renders two pickers in order: profile, model. */
+function modelTrigger(): HTMLElement {
+  const all = triggers();
+  const el = all[1];
   if (!el) {
-    throw new Error(
-      `expected a provider trigger, saw ${triggers.length} comboboxes`,
-    );
+    throw new Error(`expected a model trigger, saw ${all.length} comboboxes`);
   }
   return el;
 }
@@ -76,77 +72,96 @@ function optionLabels(): string[] {
 afterEach(() => {
   cleanup();
   drafts.length = 0;
-  selfHosted = false;
 });
 
-describe("CallSiteOverrideRow provider picker", () => {
-  test("a pin this assistant cannot select is shown as itself, marked unavailable", () => {
-    // `ollama` is local-only, so a platform-hosted assistant cannot pick it.
-    renderRow({ provider: "ollama", model: "llama3" });
+describe("CallSiteOverrideRow custom pin", () => {
+  test("a custom draft renders the profile and model pickers only", () => {
+    renderRow({ model: "claude-fable-5" }, { winningProvider: "anthropic" });
 
-    const labels = triggerLabels();
-    expect(labels.some((l) => l.includes("Ollama"))).toBe(true);
-    // The bug this guards: showing a provider the draft does not hold.
-    expect(labels.some((l) => l.includes("Anthropic"))).toBe(false);
+    expect(triggers().length).toBe(2);
   });
 
-  test("the unavailable pin is offered so the user has a way out", () => {
-    renderRow({ provider: "ollama", model: "llama3" });
+  test("picking Custom sends a model-only draft", () => {
+    renderRow({ profile: "balanced" }, { winningProvider: "anthropic" });
 
-    fireEvent.click(providerTrigger());
-
-    expect(optionLabels().some((l) => l.includes("(unavailable)"))).toBe(true);
-  });
-
-  test("picking a real provider over an unavailable pin saves that provider", () => {
-    // The repair path. Under the old fallback display this was impossible:
-    // the trigger already showed Anthropic, so choosing Anthropic was a
-    // no-op and the stale `ollama` was saved.
-    renderRow({ provider: "ollama", model: "llama3" });
-
-    fireEvent.click(providerTrigger());
-    const anthropic = Array.from(
+    const profileTrigger = triggers()[0]!;
+    fireEvent.click(profileTrigger);
+    const custom = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).find((o) => o.textContent?.trim() === "Anthropic");
-    expect(anthropic).toBeTruthy();
-    fireEvent.click(anthropic!);
+    ).find((o) => o.textContent?.trim() === "Custom");
+    expect(custom).toBeTruthy();
+    fireEvent.click(custom!);
 
-    expect(drafts.length).toBeGreaterThan(0);
-    expect(drafts.at(-1)).toMatchObject({ provider: "anthropic" });
+    expect(drafts.at(-1)).toEqual({
+      profile: null,
+      model: getDefaultModelForProvider("anthropic"),
+    });
   });
 
-  test("a selectable pin is not marked unavailable", () => {
-    renderRow({ provider: "anthropic", model: "claude-opus-5" });
+  test("picking a model keeps the draft model-only", () => {
+    renderRow({ model: "claude-fable-5" }, { winningProvider: "anthropic" });
 
-    fireEvent.click(providerTrigger());
+    fireEvent.click(modelTrigger());
+    const option = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((o) => o.textContent?.trim() === "Claude Opus 5");
+    expect(option).toBeTruthy();
+    fireEvent.click(option!);
 
-    expect(optionLabels().some((l) => l.includes("(unavailable)"))).toBe(false);
-  });
-
-  test("on a self-hosted assistant ollama is a normal option", () => {
-    selfHosted = true;
-    renderRow({ provider: "ollama", model: "llama3" });
-
-    fireEvent.click(providerTrigger());
-
-    expect(optionLabels().some((l) => l.includes("(unavailable)"))).toBe(false);
-    expect(optionLabels().some((l) => l.includes("Ollama"))).toBe(true);
+    expect(drafts.at(-1)).toEqual({ model: "claude-opus-5" });
   });
 });
 
-/** The row renders three pickers in order: profile, provider, model. */
-function modelTrigger(): HTMLElement {
-  const triggers = document.querySelectorAll<HTMLElement>(
-    'button[role="combobox"]',
-  );
-  const el = triggers[2];
-  if (!el) {
-    throw new Error(
-      `expected a model trigger, saw ${triggers.length} comboboxes`,
-    );
-  }
-  return el;
-}
+describe("CallSiteOverrideRow model scoping by the winning route", () => {
+  test("a BYOK winner scopes the list to its provider's catalog", () => {
+    renderRow({ model: "claude-fable-5" }, { winningProvider: "anthropic" });
+
+    fireEvent.click(modelTrigger());
+
+    const labels = optionLabels();
+    expect(labels.some((l) => l.includes("Claude Fable 5"))).toBe(true);
+    expect(labels.some((l) => l.includes("GPT-5.6 Luna"))).toBe(false);
+  });
+
+  test("a vellum winner offers the managed model union", () => {
+    renderRow({ model: "claude-fable-5" }, { winningProvider: "vellum" });
+
+    fireEvent.click(modelTrigger());
+
+    const labels = optionLabels();
+    expect(labels.some((l) => l.includes("Claude Fable 5"))).toBe(true);
+    expect(labels.some((l) => l.includes("GPT-5.6 Luna"))).toBe(true);
+  });
+
+  test("an indeterminate winner falls back to the full catalog union", () => {
+    // The daemon validates servability on save, so offering everything is
+    // safe; hiding models would strand a user whose winner the client
+    // cannot resolve.
+    renderRow({ model: "claude-fable-5" });
+
+    fireEvent.click(modelTrigger());
+
+    const labels = optionLabels();
+    expect(labels.some((l) => l.includes("Claude Fable 5"))).toBe(true);
+    expect(labels.some((l) => l.includes("GPT-5.6 Luna"))).toBe(true);
+    expect(labels.some((l) => l.includes("Llama 3.2"))).toBe(true);
+  });
+
+  test("a stored pin outside the offered set stays visible as unavailable", () => {
+    // The trigger shows the stored pin instead of rendering blank while the
+    // out-of-route value is still saved.
+    renderRow({ model: "gpt-5.4-nano" }, { winningProvider: "anthropic" });
+
+    expect(
+      triggerLabels().some((l) => l.includes("GPT-5.4 Nano (unavailable)")),
+    ).toBe(true);
+
+    fireEvent.click(modelTrigger());
+    expect(
+      optionLabels().some((l) => l.includes("GPT-5.4 Nano (unavailable)")),
+    ).toBe(true);
+  });
+});
 
 const SUBSCRIPTION_CONNECTION = {
   name: "chatgpt-subscription",
@@ -167,17 +182,12 @@ const SUBSCRIPTION_CONNECTION_366 = {
   auth: { type: "oauth_subscription", credential: "credential/chatgpt" },
 };
 
-const VELLUM_CONNECTION = {
-  name: "vellum",
-  provider: "vellum",
-  auth: { type: "platform" },
-};
-
 describe("CallSiteOverrideRow model picker under a ChatGPT subscription", () => {
   test("only Codex-servable models are offered when every openai connection is a subscription", () => {
-    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
-      SUBSCRIPTION_CONNECTION,
-    ]);
+    renderRow(
+      { model: "gpt-5.6-luna" },
+      { winningProvider: "openai", connections: [SUBSCRIPTION_CONNECTION] },
+    );
 
     fireEvent.click(modelTrigger());
 
@@ -188,116 +198,54 @@ describe("CallSiteOverrideRow model picker under a ChatGPT subscription", () => 
     expect(labels.some((l) => l.includes("Nano"))).toBe(false);
   });
 
-  test("a migrated subscription row (provider chatgpt) does not gate the openai picker", () => {
-    // Post-366 semantics: dispatch matches connections by exact provider, so
-    // the subscription cannot serve an openai override. The subscription is
-    // offered as its own ChatGPT provider entry instead.
-    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
-      SUBSCRIPTION_CONNECTION_366,
-    ]);
+  test("a migrated subscription row (provider chatgpt) does not gate an openai winner", () => {
+    // Post-366 semantics: dispatch matches connections by exact provider,
+    // so the subscription cannot serve an openai route.
+    renderRow(
+      { model: "gpt-5.6-luna" },
+      { winningProvider: "openai", connections: [SUBSCRIPTION_CONNECTION_366] },
+    );
 
     fireEvent.click(modelTrigger());
 
     expect(optionLabels().some((l) => l.includes("Nano"))).toBe(true);
   });
 
-  test("the subscription row adds ChatGPT to the provider picker", () => {
-    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
-      SUBSCRIPTION_CONNECTION_366,
-    ]);
-
-    fireEvent.click(providerTrigger());
-
-    expect(optionLabels().some((l) => l.includes("ChatGPT Subscription"))).toBe(
-      true,
+  test("a chatgpt winner offers the Codex model list", () => {
+    renderRow(
+      { model: "gpt-5.6-terra" },
+      {
+        winningProvider: "chatgpt",
+        connections: [SUBSCRIPTION_CONNECTION_366],
+      },
     );
-  });
-
-  test("without the subscription row ChatGPT is not offered", () => {
-    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
-      API_KEY_CONNECTION,
-    ]);
-
-    fireEvent.click(providerTrigger());
-
-    expect(optionLabels().some((l) => l.includes("ChatGPT Subscription"))).toBe(
-      false,
-    );
-  });
-
-  test("a chatgpt draft renders as itself with the Codex model list", () => {
-    renderRow({ provider: "chatgpt", model: "gpt-5.6-terra" }, [
-      SUBSCRIPTION_CONNECTION_366,
-    ]);
-
-    expect(
-      triggerLabels().some((l) => l.includes("ChatGPT Subscription")),
-    ).toBe(true);
 
     fireEvent.click(modelTrigger());
+
     const labels = optionLabels();
     expect(labels.some((l) => l.includes("GPT-5.6 Terra"))).toBe(true);
     expect(labels.some((l) => l.includes("Nano"))).toBe(false);
   });
 
-  test("a chatgpt draft without the subscription renders as an unavailable pin", () => {
-    renderRow({ provider: "chatgpt", model: "gpt-5.6-terra" }, [
-      API_KEY_CONNECTION,
-    ]);
-
-    fireEvent.click(providerTrigger());
-
-    expect(
-      optionLabels().some((l) =>
-        l.includes("ChatGPT Subscription (unavailable)"),
-      ),
-    ).toBe(true);
-  });
-
-  test("a vellum-managed connection lifts the restriction (openai routes through the managed proxy)", () => {
-    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
-      SUBSCRIPTION_CONNECTION_366,
-      VELLUM_CONNECTION,
-    ]);
+  test("an api-key connection restores the full openai catalog", () => {
+    renderRow(
+      { model: "gpt-5.6-luna" },
+      {
+        winningProvider: "openai",
+        connections: [SUBSCRIPTION_CONNECTION, API_KEY_CONNECTION],
+      },
+    );
 
     fireEvent.click(modelTrigger());
 
     expect(optionLabels().some((l) => l.includes("Nano"))).toBe(true);
   });
 
-  test("an api-key connection restores the full catalog", () => {
-    renderRow({ provider: "openai", model: "gpt-5.6-luna" }, [
-      SUBSCRIPTION_CONNECTION,
-      API_KEY_CONNECTION,
-    ]);
+  test("absent connection data leaves the winner's catalog unfiltered", () => {
+    renderRow({ model: "gpt-5.6-luna" }, { winningProvider: "openai" });
 
     fireEvent.click(modelTrigger());
 
     expect(optionLabels().some((l) => l.includes("Nano"))).toBe(true);
-  });
-
-  test("absent connection data leaves the catalog unfiltered", () => {
-    renderRow({ provider: "openai", model: "gpt-5.6-luna" });
-
-    fireEvent.click(modelTrigger());
-
-    expect(optionLabels().some((l) => l.includes("Nano"))).toBe(true);
-  });
-
-  test("a stored pin outside the filtered set stays visible as unavailable", () => {
-    renderRow({ provider: "openai", model: "gpt-5.4-nano" }, [
-      SUBSCRIPTION_CONNECTION,
-    ]);
-
-    // The trigger shows the stored pin instead of rendering blank while the
-    // incompatible value is still saved.
-    expect(
-      triggerLabels().some((l) => l.includes("GPT-5.4 Nano (unavailable)")),
-    ).toBe(true);
-
-    fireEvent.click(modelTrigger());
-    expect(
-      optionLabels().some((l) => l.includes("GPT-5.4 Nano (unavailable)")),
-    ).toBe(true);
   });
 });

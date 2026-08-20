@@ -1,8 +1,3 @@
-import {
-  getModelsForProvider,
-  MODELS_BY_PROVIDER,
-  VELLUM_SERVED_PROVIDERS,
-} from "@/assistant/llm-model-catalog";
 import type {
   ConfigGetResponse,
   DefaultProviderStatus,
@@ -122,92 +117,6 @@ function classifyEntry(
   return burns;
 }
 
-const MANAGED_ROUTABLE = new Set<string>(VELLUM_SERVED_PROVIDERS);
-
-/** The provider whose catalog owns a model id, mirroring the daemon's lookup. */
-function catalogProviderForModel(model: string): string | undefined {
-  for (const [provider, models] of Object.entries(MODELS_BY_PROVIDER)) {
-    if (models.some((m) => m.id === model)) {
-      return provider;
-    }
-  }
-  return undefined;
-}
-
-/**
- * The billing route after the daemon layers the workspace
- * `llm.callSites.mainAgent` tweak over the winning fragment
- * (`resolveOverrideOrDefault` in assistant/src/config/llm-resolver.ts): an
- * explicit tweak provider replaces the winner's while keeping its binding; a
- * tweak model the winner's provider does not serve stamps the model's
- * catalog owner and drops the binding (the provider-agnostic managed
- * connection survives); and a vellum winner re-gains the managed connection
- * under a concrete managed-routable provider. The shipped mainAgent
- * call-site default carries only a profile intent, so the workspace entry is
- * the only route-affecting tweak source.
- *
- * Returns the composed route plus whether composition altered it (callers
- * void the winner's availability proof for altered routes, since the proof
- * attests a binding the composed route no longer dispatches on), or `null`
- * when the client catalog cannot settle the serves-model question.
- */
-function composedMainAgentRoute(
-  entry: CreditRouteEntry,
-  llm: LlmConfig,
-): { route: CreditRouteEntry; altered: boolean } | null {
-  const tweak = llm?.callSites?.mainAgent;
-  const tweakProvider = tweak?.provider ?? undefined;
-  const tweakModel = tweak?.model ?? undefined;
-  let route = entry;
-  let altered = false;
-  if (tweakProvider) {
-    if (tweakProvider !== entry.provider) {
-      route = {
-        provider: tweakProvider,
-        provider_connection: entry.provider_connection,
-      };
-      altered = true;
-    }
-  } else if (tweakModel) {
-    if (!entry.provider) {
-      // The daemon implies from its code-default provider here, which the
-      // client does not know.
-      return null;
-    }
-    const winnerModels = getModelsForProvider(entry.provider);
-    if (winnerModels.length === 0) {
-      // Unknown or routing-identity provider: serves-model can't be settled.
-      return null;
-    }
-    if (!winnerModels.some((m) => m.id === tweakModel)) {
-      const implied = catalogProviderForModel(tweakModel);
-      if (implied && implied !== entry.provider) {
-        const managedConnectionSurvives =
-          entry.provider_connection === "vellum" &&
-          MANAGED_ROUTABLE.has(implied);
-        route = {
-          provider: implied,
-          ...(managedConnectionSurvives
-            ? { provider_connection: "vellum" }
-            : {}),
-        };
-        altered = true;
-      }
-    }
-  }
-  if (
-    entry.provider === "vellum" &&
-    route.provider &&
-    route.provider !== "vellum" &&
-    !route.provider_connection &&
-    MANAGED_ROUTABLE.has(route.provider)
-  ) {
-    route = { ...route, provider_connection: "vellum" };
-    altered = true;
-  }
-  return { route, altered };
-}
-
 /**
  * Whether the assistant's default chat route spends managed Vellum credits.
  *
@@ -220,9 +129,10 @@ function composedMainAgentRoute(
  * unusable rungs. A mix rung follows the daemon's per-conversation seeded
  * pick: each usable arm classifies on its own route, and an unusable arm
  * stands for the seeds that fall through to the rest of the chain, so the
- * mix classifies as the tri-state any() of both. Every winner is classified
- * as dispatched, with the workspace mainAgent call-site tweak composed over
- * it (see {@link composedMainAgentRoute}).
+ * mix classifies as the tri-state any() of both. Every winner classifies on
+ * its own route: a workspace `llm.callSites.mainAgent` model tweak rides
+ * the winner's route unchanged (the daemon validates the model is servable
+ * there), so it never moves the billing verdict.
  *
  * `null` (never a BYOK verdict) whenever the evidence can't settle the
  * question; callers fail open to showing the banners. That includes the
@@ -252,7 +162,11 @@ export function defaultChatRouteBurnsManagedCredits(
     if (!entry) {
       return null;
     }
-    return classifyDispatched(entry, evidence, profileAvailability.get(name));
+    return classifyEntry(
+      entry,
+      evidence.connections,
+      profileAvailability.get(name),
+    );
   };
 
   const classifyFromRung = (index: number): boolean | null => {
@@ -342,33 +256,10 @@ function classifyStaleDefaultStub(evidence: ChatRouteEvidence): boolean | null {
   if (!entry) {
     return true;
   }
-  return classifyDispatched(
-    entry,
-    evidence,
-    evidence.defaultProviderAvailability,
-  );
-}
-
-/**
- * Classify what the mainAgent call site actually dispatches: the winning
- * fragment with the workspace call-site tweak composed over it. The winner's
- * availability proof only carries when composition left the route unchanged;
- * an altered route dispatches on something the proof never attested, so its
- * BYOK verdicts degrade to unknown while managed verdicts stand.
- */
-function classifyDispatched(
-  entry: CreditRouteEntry,
-  evidence: ChatRouteEvidence,
-  availability: DefaultProviderAvailabilityStatus | undefined,
-): boolean | null {
-  const composed = composedMainAgentRoute(entry, evidence.llm);
-  if (composed === null) {
-    return null;
-  }
   return classifyEntry(
-    composed.route,
+    entry,
     evidence.connections,
-    composed.altered ? undefined : availability,
+    evidence.defaultProviderAvailability,
   );
 }
 
@@ -384,9 +275,9 @@ function classifyAnchor(evidence: ChatRouteEvidence): boolean | null {
   if (!entry) {
     return null;
   }
-  return classifyDispatched(
+  return classifyEntry(
     entry,
-    evidence,
+    evidence.connections,
     evidence.defaultProviderAvailability,
   );
 }

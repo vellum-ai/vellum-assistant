@@ -91,9 +91,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { OverridesDetailPanel } = await import(
-  "@/domains/settings/ai/overrides-detail-panel"
-);
+const { OverridesDetailPanel } =
+  await import("@/domains/settings/ai/overrides-detail-panel");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -443,15 +442,14 @@ describe("OverridesDetailPanel - bulk change", () => {
   };
 
   test("disabled when no action carries a profile", async () => {
-    // The fixture catalog has no default profiles, and a provider/model
-    // pin renders as "Custom" and references no profile, so nothing is
-    // swappable.
+    // The fixture catalog has no default profiles, and a model pin renders
+    // as "Custom" and references no profile, so nothing is swappable.
     const CUSTOM_ONLY_CONFIG = {
       ...CONFIG,
       llm: {
         ...CONFIG.llm,
         callSites: {
-          workflowLeaf: { provider: "anthropic", model: "claude-fable-5" },
+          workflowLeaf: { model: "claude-fable-5" },
         },
       },
     };

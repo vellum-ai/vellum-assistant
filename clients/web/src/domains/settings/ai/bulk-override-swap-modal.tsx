@@ -85,8 +85,8 @@ export function BulkOverrideSwapModal({
     [requireOwnProviderAndModel],
   );
 
-  // What each action currently runs on. Sites with a provider/model
-  // ("Custom") pin reference no profile and stay out.
+  // What each action currently runs on. Sites with a model ("Custom") pin
+  // reference no profile and stay out.
   const effectiveByCallSite = useMemo(() => {
     const map = new Map<string, CallSiteEffectiveProfile>();
     for (const cs of callSites) {

@@ -22,16 +22,19 @@ describe("isDraftActive", () => {
     expect(isDraftActive({})).toBe(false);
   });
 
-  test("returns true when any field is set", () => {
+  test("returns true when a picker field is set", () => {
     expect(isDraftActive({ profile: "fast" })).toBe(true);
-    expect(isDraftActive({ provider: "openai" })).toBe(true);
     expect(isDraftActive({ model: "gpt-4o" })).toBe(true);
   });
 
-  test("returns false when all fields are null", () => {
-    expect(isDraftActive({ profile: null, provider: null, model: null })).toBe(
-      false,
-    );
+  test("returns false when all picker fields are null", () => {
+    expect(isDraftActive({ profile: null, model: null })).toBe(false);
+  });
+
+  test("a legacy provider-only entry reads as inactive", () => {
+    // Drafts pick a model only; a stale provider field persisted by an
+    // older daemon does not activate the row.
+    expect(isDraftActive({ provider: "openai" })).toBe(false);
   });
 });
 
@@ -78,15 +81,9 @@ describe("effectiveCallSiteProfile", () => {
     ).toEqual({ profile: "balanced", via: "default" });
   });
 
-  test("a provider or model pin references no profile", () => {
+  test("a model pin references no profile", () => {
     expect(
       effectiveCallSiteProfile({ defaultProfile: "slow" }, { model: "gpt-4o" }),
-    ).toBe(null);
-    expect(
-      effectiveCallSiteProfile(
-        { defaultProfile: "slow" },
-        { provider: "openai" },
-      ),
     ).toBe(null);
     expect(
       effectiveCallSiteProfile(
@@ -121,7 +118,6 @@ describe("draftsEqual", () => {
   test("identical active drafts are equal", () => {
     const a: CallSiteOverrideDraft = {
       profile: "fast",
-      provider: "openai",
       model: "gpt-4o",
     };
     expect(draftsEqual(a, { ...a })).toBe(true);
@@ -130,11 +126,9 @@ describe("draftsEqual", () => {
   test("differing fields are detected", () => {
     const base: CallSiteOverrideDraft = {
       profile: "fast",
-      provider: "openai",
       model: "gpt-4o",
     };
     expect(draftsEqual(base, { ...base, profile: "slow" })).toBe(false);
-    expect(draftsEqual(base, { ...base, provider: "anthropic" })).toBe(false);
     expect(
       draftsEqual(base, { ...base, model: "claude-sonnet-4-20250514" }),
     ).toBe(false);
@@ -143,8 +137,8 @@ describe("draftsEqual", () => {
   test("null and undefined fields are treated as equivalent", () => {
     expect(
       draftsEqual(
-        { profile: "fast", provider: null, model: null },
-        { profile: "fast", provider: undefined, model: undefined },
+        { profile: "fast", model: null },
+        { profile: "fast", model: undefined },
       ),
     ).toBe(true);
   });

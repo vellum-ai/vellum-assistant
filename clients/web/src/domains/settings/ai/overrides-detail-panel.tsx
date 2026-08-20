@@ -35,6 +35,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
+import { badRequestMessage } from "@/utils/api-errors";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useTranslation } from "@/i18n";
 import { DetailShell } from "@/components/detail-shell";
@@ -146,7 +147,6 @@ export function OverridesDetailPanel({
     advisorDirty,
     callSiteDraftsDirty,
     hasUnsavedDrafts,
-    hasValidationError,
     setDraft,
     setAdvisor,
     clearEdits,
@@ -171,6 +171,18 @@ export function OverridesDetailPanel({
   const profileLabelFor = useCallback(
     (name: string) => profileDisplayLabel(orderedProfiles, name),
     [orderedProfiles],
+  );
+
+  // Scopes each row's custom model picker to its winning route. Code-owned
+  // default profiles have no stored body, but the config GET wire view
+  // materializes their effective provider (`overlayEffectiveProfilesForWire`
+  // daemon-side), so this resolves for them too.
+  const providerForProfile = useCallback(
+    (name: string) => {
+      const provider = profiles[name]?.provider;
+      return typeof provider === "string" ? provider : undefined;
+    },
+    [profiles],
   );
 
   // An entry only reaches a picker while undispatchable when it is the
@@ -227,7 +239,7 @@ export function OverridesDetailPanel({
       Object.entries(persistedOverrides).some(
         ([id, s]) =>
           gatedCallSiteIdSet.has(id) &&
-          (s?.profile != null || s?.provider != null || s?.model != null),
+          (s?.profile != null || s?.model != null),
       ),
     [persistedOverrides, gatedCallSiteIdSet],
   );
@@ -241,7 +253,10 @@ export function OverridesDetailPanel({
       );
       return [
         ...visible.map(toProfileOption),
-        { value: CUSTOM_SENTINEL, label: t("overridesDetailPanel.customProfileOption") },
+        {
+          value: CUSTOM_SENTINEL,
+          label: t("overridesDetailPanel.customProfileOption"),
+        },
       ];
     },
     [orderedProfiles, toProfileOption, dispatchOptions, t],
@@ -279,7 +294,10 @@ export function OverridesDetailPanel({
     );
     if (unknownSites.length > 0) {
       groups.push({
-        domain: { id: "other", displayName: t("overridesDetailPanel.otherDomain") },
+        domain: {
+          id: "other",
+          displayName: t("overridesDetailPanel.otherDomain"),
+        },
         sites: unknownSites,
       });
     }
@@ -305,10 +323,12 @@ export function OverridesDetailPanel({
       if (seedProfile) {
         setDraft(id, { profile: seedProfile });
       } else {
+        // No dispatchable profile to seed with, so the row starts as a
+        // custom model pin; the daemon validates servability on save.
         const defaultProvider =
           selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
         const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
-        setDraft(id, { provider: defaultProvider, model: defaultModel });
+        setDraft(id, { model: defaultModel });
       }
     },
     [
@@ -345,8 +365,14 @@ export function OverridesDetailPanel({
       onClose();
       toast.success(t("overridesDetailPanel.overridesSavedToast"));
     } catch (error) {
-      toast.error(t("overridesDetailPanel.saveFailedToast"));
-      captureError(error, { context: "call_site_overrides_save" });
+      // A 400 is the daemon's verdict on the pins themselves (e.g. a model
+      // the site's winning route cannot serve). Show it verbatim and skip
+      // Sentry: it's a config problem the user can fix, not an app fault.
+      const serverMessage = badRequestMessage(error);
+      toast.error(serverMessage ?? t("overridesDetailPanel.saveFailedToast"));
+      if (!serverMessage) {
+        captureError(error, { context: "call_site_overrides_save" });
+      }
     } finally {
       setSaving(false);
     }
@@ -399,7 +425,7 @@ export function OverridesDetailPanel({
       <Button
         variant="primary"
         onClick={() => void handleSave()}
-        disabled={!hasUnsavedDrafts || hasValidationError || saving}
+        disabled={!hasUnsavedDrafts || saving}
       >
         {saving ? (
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -502,6 +528,7 @@ export function OverridesDetailPanel({
             drafts={drafts}
             buildProfileOptionsForRow={buildProfileOptionsForRow}
             profileLabelFor={profileLabelFor}
+            providerForProfile={providerForProfile}
             advisorMatchesSearch={advisorMatchesSearch}
             connections={connectionsData?.connections}
             onDraftChange={setDraft}

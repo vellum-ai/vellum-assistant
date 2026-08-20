@@ -19,7 +19,7 @@ export function isDraftActive(
   if (!d) {
     return false;
   }
-  return !!(d.profile || d.provider || d.model);
+  return !!(d.profile || d.model);
 }
 
 /**
@@ -33,8 +33,8 @@ export function isDraftActive(
  * else entirely.
  *
  * `via` is therefore derived by asking whether the winner is the pin, rather
- * than assuming a pin wins. Returns null for provider/model ("Custom") pins,
- * which reference no profile at all.
+ * than assuming a pin wins. Returns null for model ("Custom") pins, which
+ * reference no profile at all.
  */
 export interface CallSiteEffectiveProfile {
   profile: string;
@@ -51,7 +51,7 @@ export function effectiveCallSiteProfile(
   callSite: CallSiteDefaults,
   override: CallSiteOverrideDraft | null | undefined,
 ): CallSiteEffectiveProfile | null {
-  if (override?.provider || override?.model) {
+  if (override?.model) {
     return null;
   }
   // `shippedDefaultProfile` covers the profileless case, where the winner is
@@ -81,7 +81,6 @@ export function draftsEqual(
   }
   return (
     (a?.profile ?? null) === (b?.profile ?? null) &&
-    (a?.provider ?? null) === (b?.provider ?? null) &&
     (a?.model ?? null) === (b?.model ?? null)
   );
 }

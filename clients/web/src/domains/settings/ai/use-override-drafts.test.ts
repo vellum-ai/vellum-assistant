@@ -19,7 +19,7 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("buildCallSiteSavePatch", () => {
-  test("an active profile draft sends the picker triple with explicit nulls", () => {
+  test("an active profile draft sends the picker fields with explicit nulls", () => {
     const drafts: CallSiteDraftMap = { workflowLeaf: { profile: "quality" } };
     const patch = buildCallSiteSavePatch(drafts, {});
     expect(patch.workflowLeaf).toEqual({
@@ -29,14 +29,16 @@ describe("buildCallSiteSavePatch", () => {
     });
   });
 
-  test("an active custom draft sends provider and model with a null profile", () => {
+  test("an active custom draft sends the model with a null profile and provider", () => {
+    // `provider: null` is an explicit clear: it scrubs a stale provider pin
+    // persisted by an older daemon.
     const drafts: CallSiteDraftMap = {
-      workflowLeaf: { provider: "openai", model: "gpt-4o" },
+      workflowLeaf: { model: "gpt-4o" },
     };
     const patch = buildCallSiteSavePatch(drafts, {});
     expect(patch.workflowLeaf).toEqual({
       profile: null,
-      provider: "openai",
+      provider: null,
       model: "gpt-4o",
     });
   });

@@ -186,7 +186,6 @@ describe("pending provider key", () => {
       body: {
         provider: "ollama",
         model: "mistral",
-        provider_connection: "ollama",
         source: "user",
         label: "Ollama",
         maxTokens: 4096,
@@ -243,7 +242,6 @@ describe("pending provider key", () => {
       body: {
         provider: "openai-compatible",
         model: "model-a",
-        provider_connection: "openai-compatible",
         source: "user",
         label: "OpenAI-compatible",
         maxTokens: 16_000,
@@ -297,7 +295,6 @@ describe("pending provider key", () => {
       body: {
         provider: "anthropic",
         model: "claude-sonnet-4-6",
-        provider_connection: "anthropic",
         source: "user",
         label: "Balanced",
         description: "Good balance of quality, cost, and speed",
