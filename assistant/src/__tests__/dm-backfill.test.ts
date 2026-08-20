@@ -589,8 +589,6 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
   });
 
   test("backfill refuses history rows carrying a secret, keeping the rest", async () => {
-    // Live ingress refuses a body carrying a credential; replayed history
-    // carries the same bodies, so backfill refuses them on the same terms.
     const leakedKey = "AKIA3H7QWERTY9MNBVC2";
     backfillDmMock.mockImplementation(async () => [
       makeBackfilledMessage({
@@ -610,11 +608,9 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     );
 
     const rows = readPersistedSlackRows();
-    // The secret-bearing row is refused; the clean row still lands, so the
-    // gate rejects one message rather than abandoning the whole backfill.
     expect(rows.map((r) => r.content)).toEqual(["ordinary older chatter"]);
-    // The invariant that matters: the key must not survive anywhere in the
-    // stored transcript, in any encoding the row went through.
+    // `rawContent`, not `content`: the latter is unwrapped by the test
+    // helper, so only the raw column proves what reached storage.
     for (const row of rows) {
       expect(row.rawContent).not.toContain(leakedKey);
     }

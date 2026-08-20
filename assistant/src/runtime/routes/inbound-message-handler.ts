@@ -1678,10 +1678,9 @@ function readStoredSlackThreadState(
  * Caller is responsible for dedup checks before invoking; this helper
  * performs no idempotency check itself.
  *
- * Returns false when the row was deliberately not written (secret detected),
- * so callers can keep their persisted counts honest. The channel ts should
- * still be marked seen either way: the message has been processed, and a
- * refused body must not be reconsidered on the next backfill pass.
+ * Returns false when the row was refused rather than written. Callers mark
+ * the channel ts seen either way, so a refused body is not reconsidered on
+ * the next pass.
  */
 async function persistBackfilledSlackMessage(params: {
   conversationId: string;
