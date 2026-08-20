@@ -67,6 +67,49 @@ function quoteList(values: readonly string[]): string {
 }
 
 /**
+ * Walk the properties a schema declares as `declaredType`, offering each
+ * present value to `coerceValue`. A converter returns `{ value }` to replace
+ * the input's value, or `undefined` to leave it alone.
+ *
+ * The shared traversal is what keeps the coercions below agreeing on the
+ * details a caller depends on: union types (`["boolean", "null"]`) are skipped
+ * rather than coerced, an absent property is never introduced, and the input
+ * object is cloned lazily so an input with nothing to coerce comes back by
+ * reference.
+ *
+ * Pure: returns a new object when a coercion applies, otherwise returns
+ * `input` unchanged. Never mutates `input` or `schema`.
+ */
+function coercePropertiesOfType(
+  input: Record<string, unknown>,
+  schema: Record<string, unknown> | undefined,
+  declaredType: string,
+  coerceValue: (value: unknown) => { value: unknown } | undefined,
+): Record<string, unknown> {
+  if (!schema) {
+    return input;
+  }
+  const properties = schema.properties;
+  if (!isPlainObject(properties)) {
+    return input;
+  }
+
+  let coerced: Record<string, unknown> | undefined;
+  for (const [key, rawSubSchema] of Object.entries(properties)) {
+    if (!isPlainObject(rawSubSchema) || rawSubSchema.type !== declaredType) {
+      continue;
+    }
+    const result = coerceValue(input[key]);
+    if (!result) {
+      continue;
+    }
+    coerced ??= { ...input };
+    coerced[key] = result.value;
+  }
+  return coerced ?? input;
+}
+
+/**
  * Coerce string-encoded booleans (`"true"`/`"false"`) to real booleans for
  * properties the schema declares as `type: "boolean"`.
  *
@@ -84,34 +127,16 @@ export function coerceStringBooleans(
   input: Record<string, unknown>,
   schema: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  if (!schema) {
-    return input;
-  }
-  const properties = schema.properties;
-  if (!isPlainObject(properties)) {
-    return input;
-  }
-
-  let coerced: Record<string, unknown> | undefined;
-  for (const [key, rawSubSchema] of Object.entries(properties)) {
-    if (!isPlainObject(rawSubSchema)) {
-      continue;
-    }
-    if (rawSubSchema.type !== "boolean") {
-      continue;
-    }
-    const value = input[key];
+  return coercePropertiesOfType(input, schema, "boolean", (value) => {
     if (typeof value !== "string") {
-      continue;
+      return undefined;
     }
     const normalized = value.trim().toLowerCase();
     if (normalized !== "true" && normalized !== "false") {
-      continue;
+      return undefined;
     }
-    coerced ??= { ...input };
-    coerced[key] = normalized === "true";
-  }
-  return coerced ?? input;
+    return { value: normalized === "true" };
+  });
 }
 
 /**
@@ -141,36 +166,18 @@ export function coerceStringNumbers(
   input: Record<string, unknown>,
   schema: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  if (!schema) {
-    return input;
-  }
-  const properties = schema.properties;
-  if (!isPlainObject(properties)) {
-    return input;
-  }
-
-  let coerced: Record<string, unknown> | undefined;
-  for (const [key, rawSubSchema] of Object.entries(properties)) {
-    if (!isPlainObject(rawSubSchema)) {
-      continue;
-    }
-    if (rawSubSchema.type !== "string") {
-      continue;
-    }
-    const value = input[key];
+  return coercePropertiesOfType(input, schema, "string", (value) => {
     if (typeof value !== "number" || !Number.isFinite(value)) {
-      continue;
+      return undefined;
     }
     // An integer beyond the safe range was already rounded by JSON.parse;
     // coercing it would lock in a corrupted identifier. Skip it so validation
     // fails and the model retries with a lossless quoted string.
     if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
-      continue;
+      return undefined;
     }
-    coerced ??= { ...input };
-    coerced[key] = String(value);
-  }
-  return coerced ?? input;
+    return { value: String(value) };
+  });
 }
 
 /**
@@ -198,39 +205,18 @@ export function coerceStringArrays(
   input: Record<string, unknown>,
   schema: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  if (!schema) {
-    return input;
-  }
-  const properties = schema.properties;
-  if (!isPlainObject(properties)) {
-    return input;
-  }
-
-  let coerced: Record<string, unknown> | undefined;
-  for (const [key, rawSubSchema] of Object.entries(properties)) {
-    if (!isPlainObject(rawSubSchema)) {
-      continue;
-    }
-    if (rawSubSchema.type !== "array") {
-      continue;
-    }
-    const value = input[key];
+  return coercePropertiesOfType(input, schema, "array", (value) => {
     if (typeof value !== "string") {
-      continue;
+      return undefined;
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(value);
     } catch {
-      continue;
+      return undefined;
     }
-    if (!Array.isArray(parsed)) {
-      continue;
-    }
-    coerced ??= { ...input };
-    coerced[key] = parsed;
-  }
-  return coerced ?? input;
+    return Array.isArray(parsed) ? { value: parsed } : undefined;
+  });
 }
 
 /**
