@@ -97,6 +97,35 @@ describe("migrateCreateProviderConnections", () => {
 // ---------------------------------------------------------------------------
 
 describe("Connection CRUD", () => {
+  test("create, update, and seed persist payload-only auth (no type key)", () => {
+    const { db, raw } = setupDb();
+    const storedAuth = (name: string): Record<string, unknown> => {
+      const row = raw
+        .query(`SELECT auth FROM provider_connections WHERE name = ?`)
+        .get(name) as { auth: string };
+      return JSON.parse(row.auth) as Record<string, unknown>;
+    };
+
+    createConnection(db, {
+      name: "stored-shape",
+      provider: "anthropic",
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+    });
+    expect(storedAuth("stored-shape")).toEqual({
+      credential: "credential/anthropic/api_key",
+    });
+
+    updateConnection(db, "stored-shape", {
+      auth: { type: "api_key", credential: "credential/anthropic/other_key" },
+    });
+    expect(storedAuth("stored-shape")).toEqual({
+      credential: "credential/anthropic/other_key",
+    });
+
+    seedCanonicalConnections(db);
+    expect(storedAuth("vellum")).toEqual({});
+  });
+
   test("createConnection — happy path", () => {
     const { db } = setupDb();
     const result = createConnection(db, {
@@ -132,12 +161,12 @@ describe("Connection CRUD", () => {
     createConnection(db, {
       name: "dup-conn",
       provider: "openai",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
     });
     const result = createConnection(db, {
       name: "dup-conn",
       provider: "openai",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
     });
     expect(result.ok).toBe(false);
     if (result.ok) {
@@ -167,7 +196,7 @@ describe("Connection CRUD", () => {
     createConnection(db, {
       name: "updatable",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/old_key" },
     });
     const result = updateConnection(db, "updatable", {
       auth: { type: "api_key", credential: "credential/anthropic/api_key" },
@@ -182,7 +211,7 @@ describe("Connection CRUD", () => {
   });
 
   test("updateConnection: provider correction rides an auth rewrite", () => {
-    // The ChatGPT sign-in flow stamps provider "openai" when it writes
+    // The ChatGPT sign-in flow stamps provider "chatgpt" when it writes
     // subscription auth, so a claiming row with another provider cannot
     // strand the fresh token behind derived platform auth.
     const { db } = setupDb();
@@ -196,11 +225,11 @@ describe("Connection CRUD", () => {
         type: "oauth_subscription",
         credential: "credential/chatgpt/access_token",
       },
-      provider: "openai",
+      provider: "chatgpt",
     });
     expect(result.ok).toBe(true);
     const fetched = getConnection(db, "chatgpt-subscription");
-    expect(fetched?.provider).toBe("openai");
+    expect(fetched?.provider).toBe("chatgpt");
     expect(fetched?.auth.type).toBe("oauth_subscription");
   });
 
@@ -236,7 +265,7 @@ describe("Connection CRUD", () => {
     createConnection(db, {
       name: "to-delete",
       provider: "gemini",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/gemini/api_key" },
     });
     const result = deleteConnection(db, "to-delete");
     expect(result.ok).toBe(true);
@@ -258,7 +287,7 @@ describe("Connection CRUD", () => {
     createConnection(db, {
       name: "referenced",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     const result = deleteConnection(db, "referenced", {
       force: false,
@@ -280,7 +309,7 @@ describe("Connection CRUD", () => {
     createConnection(db, {
       name: "force-delete",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     const result = deleteConnection(db, "force-delete", {
       force: true,
@@ -337,12 +366,12 @@ describe("Mix-and-match: two profiles, same provider, different connections", ()
   test("getConnection returns the right auth for each connection name", () => {
     const { db } = setupDb();
 
-    // Two connections for the same provider with distinct auth resolve
-    // independently: one platform-auth, one personal api_key.
+    // Two connections for the same provider with distinct credentials
+    // resolve independently.
     createConnection(db, {
-      name: "anthropic-platform",
+      name: "anthropic-work",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/work_key" },
     });
     createConnection(db, {
       name: "anthropic-personal",
@@ -350,23 +379,22 @@ describe("Mix-and-match: two profiles, same provider, different connections", ()
       auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
 
-    expect(getConnection(db, "anthropic-platform")?.auth.type).toBe("platform");
-    expect(getConnection(db, "anthropic-personal")?.auth.type).toBe("api_key");
-
     // Both connections exist for the same provider.
     const anthropicConns = listConnections(db, { provider: "anthropic" });
     const names = anthropicConns.map((c) => c.name);
-    expect(names).toContain("anthropic-platform");
+    expect(names).toContain("anthropic-work");
     expect(names).toContain("anthropic-personal");
 
-    // Auth is distinct per connection.
-    const platform = anthropicConns.find(
-      (c) => c.name === "anthropic-platform",
-    );
-    const personal = anthropicConns.find(
-      (c) => c.name === "anthropic-personal",
-    );
-    expect(platform?.auth.type).toBe("platform");
-    expect(personal?.auth.type).toBe("api_key");
+    // The credential is distinct per connection.
+    const work = getConnection(db, "anthropic-work");
+    const personal = getConnection(db, "anthropic-personal");
+    expect(work?.auth).toEqual({
+      type: "api_key",
+      credential: "credential/anthropic/work_key",
+    });
+    expect(personal?.auth).toEqual({
+      type: "api_key",
+      credential: "credential/anthropic/api_key",
+    });
   });
 });

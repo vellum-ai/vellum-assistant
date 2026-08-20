@@ -577,7 +577,9 @@ describe("DELETE inference/profiles/:name protection", () => {
 
 describe("POST inference/profiles create conflict", () => {
   test("409s when a profile with the name already exists", async () => {
-    seedConnection("anthropic-personal", "anthropic");
+    seedConnection("anthropic-personal", "anthropic", {
+      credential: "credential/anthropic/api_key",
+    });
     setConfig("llm", {
       profiles: { existing: { source: "user", provider: "anthropic" } },
     });

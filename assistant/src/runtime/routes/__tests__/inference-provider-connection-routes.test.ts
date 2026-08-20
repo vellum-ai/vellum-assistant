@@ -94,35 +94,40 @@ describe("GET inference/provider-connections (list)", () => {
   });
 
   test("returns all connections when no filter", async () => {
+    // A legacy row with a stored auth type and a payload-only row both load;
+    // the stored type is inert and the echo derives from the provider.
     seedConnection({
       name: "conn-a",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     seedConnection({
       name: "conn-b",
       provider: "openai",
-      auth: { type: "none" },
+      auth: { credential: "credential/openai/api_key" },
     });
 
     const result = (await call(
       findHandler("inference_provider_connections_list"),
       {},
-    )) as { connections: Array<{ name: string }> };
+    )) as { connections: Array<{ name: string; auth: { type: string } }> };
     const names = result.connections.map((c) => c.name).sort();
     expect(names).toEqual(["conn-a", "conn-b"]);
+    for (const conn of result.connections) {
+      expect(conn.auth.type).toBe("api_key");
+    }
   });
 
   test("filters by ?provider= query param", async () => {
     seedConnection({
       name: "ant-1",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { credential: "credential/anthropic/api_key" },
     });
     seedConnection({
       name: "oai-1",
       provider: "openai",
-      auth: { type: "platform" },
+      auth: { credential: "credential/openai/api_key" },
     });
 
     const result = (await call(
@@ -138,7 +143,7 @@ describe("GET inference/provider-connections (list)", () => {
     seedConnection({
       name: "ant-1",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { credential: "credential/anthropic/api_key" },
     });
 
     const result = (await call(
@@ -156,7 +161,7 @@ describe("GET inference/provider-connections/:name (single)", () => {
     seedConnection({
       name: "my-conn",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
 
     const result = (await call(
@@ -165,7 +170,45 @@ describe("GET inference/provider-connections/:name (single)", () => {
     )) as { name: string; provider: string; auth: object };
     expect(result.name).toBe("my-conn");
     expect(result.provider).toBe("anthropic");
-    expect(result.auth).toEqual({ type: "platform" });
+    expect(result.auth).toEqual({
+      type: "api_key",
+      credential: "credential/anthropic/api_key",
+    });
+  });
+
+  test("derives the typed echo for payload-only rows of every kind", async () => {
+    seedConnection({ name: "vellum", provider: "vellum", auth: {} });
+    seedConnection({
+      name: "chatgpt-subscription",
+      provider: "chatgpt",
+      auth: { credential: "credential/chatgpt/access_token" },
+    });
+    seedConnection({ name: "ollama-local", provider: "ollama", auth: {} });
+    seedConnection({
+      name: "ollama-remote",
+      provider: "ollama",
+      auth: { credential: "credential/ollama/api_key" },
+    });
+
+    const get = findHandler("inference_provider_connections_get");
+    const expected: Record<string, object> = {
+      vellum: { type: "platform" },
+      "chatgpt-subscription": {
+        type: "oauth_subscription",
+        credential: "credential/chatgpt/access_token",
+      },
+      "ollama-local": { type: "none" },
+      "ollama-remote": {
+        type: "api_key",
+        credential: "credential/ollama/api_key",
+      },
+    };
+    for (const [name, auth] of Object.entries(expected)) {
+      const result = (await call(get, { pathParams: { name } })) as {
+        auth: object;
+      };
+      expect(result.auth).toEqual(auth);
+    }
   });
 
   test("throws 404 when connection not found", async () => {
@@ -701,7 +744,7 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
     seedConnection({
       name: "upd-conn",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "vault/old-key" },
     });
 
     const result = (await call(
@@ -743,42 +786,59 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
     expect((err as BadRequestError).message).toContain("platform");
   });
 
-  // A persisted row whose provider and auth disagree stays editable: both the
-  // web editor and the CLI resend the stored auth on every edit, so the guard
-  // keys on an actual auth change rather than on the field being present.
-  test("allows editing a legacy mismatched row when the client resends the stored auth", async () => {
+  // The web editor and the CLI resend the stored auth on every edit, so a
+  // label-only PATCH that round-trips the derived echo must compare
+  // fingerprint-equal to the stored auth and never trip the pairing guard.
+  // Pinned against both stored shapes: a legacy row that still carries a
+  // `type` key and a payload-only row.
+  test("a label-only PATCH resending the echoed auth succeeds on a legacy typed row", async () => {
     seedConnection({
-      name: "legacy-managed-openai",
-      provider: "openai",
-      auth: { type: "platform" },
+      name: "legacy-typed",
+      provider: "anthropic",
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
+
+    const echoed = (await call(
+      findHandler("inference_provider_connections_get"),
+      { pathParams: { name: "legacy-typed" } },
+    )) as { auth: object };
 
     const result = (await call(
       findHandler("inference_provider_connections_update"),
       {
-        pathParams: { name: "legacy-managed-openai" },
-        body: { auth: { type: "platform" }, label: "Legacy" },
+        pathParams: { name: "legacy-typed" },
+        body: { auth: echoed.auth, label: "Renamed" },
       },
     )) as { label: string | null; auth: object };
-    expect(result.label).toBe("Legacy");
-    expect(result.auth).toEqual({ type: "platform" });
+    expect(result.label).toBe("Renamed");
+    expect(result.auth).toEqual(echoed.auth);
   });
 
-  test("allows editing a legacy mismatched row when auth is omitted", async () => {
+  test("a label-only PATCH resending the echoed auth succeeds on a payload-only row", async () => {
     seedConnection({
-      name: "legacy-managed-gemini",
-      provider: "gemini",
-      auth: { type: "platform" },
+      name: "typeless-row",
+      provider: "anthropic",
+      auth: { credential: "credential/anthropic/api_key" },
+    });
+
+    const echoed = (await call(
+      findHandler("inference_provider_connections_get"),
+      { pathParams: { name: "typeless-row" } },
+    )) as { auth: object };
+    expect(echoed.auth).toEqual({
+      type: "api_key",
+      credential: "credential/anthropic/api_key",
     });
 
     const result = (await call(
       findHandler("inference_provider_connections_update"),
       {
-        pathParams: { name: "legacy-managed-gemini" },
-        body: { label: "Legacy" },
+        pathParams: { name: "typeless-row" },
+        body: { auth: echoed.auth, label: "Renamed" },
       },
-    )) as { label: string | null };
-    expect(result.label).toBe("Legacy");
+    )) as { label: string | null; auth: object };
+    expect(result.label).toBe("Renamed");
+    expect(result.auth).toEqual(echoed.auth);
   });
 
   // The guard must not trap a legacy row in its mismatched state: an auth
@@ -829,31 +889,11 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
     expect(result.provider).toBe("openai");
   });
 
-  test("allows repairing a legacy mismatched row with a valid auth change", async () => {
-    seedConnection({
-      name: "legacy-managed-anthropic",
-      provider: "anthropic",
-      auth: { type: "platform" },
-    });
-
-    const result = (await call(
-      findHandler("inference_provider_connections_update"),
-      {
-        pathParams: { name: "legacy-managed-anthropic" },
-        body: { auth: { type: "api_key", credential: "vault/anthropic/key" } },
-      },
-    )) as { auth: object };
-    expect(result.auth).toEqual({
-      type: "api_key",
-      credential: "vault/anthropic/key",
-    });
-  });
-
   test("throws 400 when auth schema is invalid", async () => {
     seedConnection({
       name: "bad-auth",
       provider: "openai",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "vault/openai/key" },
     });
 
     await expect(
@@ -867,7 +907,7 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
   test("keeps stored auth when both auth and credential are omitted", async () => {
     seedConnection({
       name: "label-only",
-      provider: "openai",
+      provider: "chatgpt",
       auth: { type: "oauth_subscription", credential: "vault/chatgpt/token" },
     });
 
@@ -888,7 +928,7 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
   test("throws 400 on credential-only PATCH of an oauth_subscription connection", async () => {
     seedConnection({
       name: "chatgpt-subscription",
-      provider: "openai",
+      provider: "chatgpt",
       auth: { type: "oauth_subscription", credential: "vault/chatgpt/token" },
     });
 
@@ -925,7 +965,7 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
     seedConnection({
       name: "del-me",
       provider: "gemini",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/gemini/api_key" },
     });
 
     const result = (await call(
@@ -954,7 +994,7 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
     seedConnection({
       name: "ref-conn",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     setConfig("llm", {
       profiles: {
@@ -993,7 +1033,7 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
     seedConnection({
       name: "shared-conn",
       provider: "anthropic",
-      auth: { type: "none" },
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     setConfig("llm", {
       profiles: {
@@ -1019,7 +1059,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     seedConnection({
       name: "anthropic-personal",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
@@ -1039,7 +1079,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     seedConnection({
       name: "my-conn",
       provider: "openai",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
     });
     setConfig("llm", {
       defaultProvider: { provider: "openai", connectionName: "my-conn" },
@@ -1059,7 +1099,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     seedConnection({
       name: "anthropic-work",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
@@ -1080,7 +1120,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     seedConnection({
       name: "anthropic-work",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     setConfig("llm", {
       defaultProvider: {
@@ -1102,7 +1142,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     seedConnection({
       name: "anthropic-work",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     seedConnection({
       name: "anthropic-managed",
@@ -1126,12 +1166,12 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     seedConnection({
       name: "anthropic-personal",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     seedConnection({
       name: "anthropic-other",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
@@ -1146,7 +1186,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     seedConnection({
       name: "openai-conn",
       provider: "openai",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
     });
     setConfig("llm", { defaultProvider: { provider: "anthropic" } });
 
@@ -1161,7 +1201,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     seedConnection({
       name: "openai-conn",
       provider: "openai",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
     });
     // No "anthropic" rows exist at all — an already-dangling default is a
     // legal state; the guard must no-op rather than crash on an empty list.
@@ -1178,7 +1218,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     seedConnection({
       name: "some-conn",
       provider: "openai",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
     });
     setConfig("llm", {});
 
@@ -1193,7 +1233,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     seedConnection({
       name: "some-conn",
       provider: "openai",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
     });
     const parsed = LLMSchema.parse({
       defaultProvider: { provider: "not-a-provider" },

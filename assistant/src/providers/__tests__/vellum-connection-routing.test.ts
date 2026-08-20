@@ -9,9 +9,9 @@ import { migrateProviderConnectionStatusLabel } from "../../persistence/migratio
 import { migrateProviderConnectionBaseUrlAndModels } from "../../persistence/migrations/250-provider-connection-base-url-and-models.js";
 import * as schema from "../../persistence/schema/index.js";
 import { createAdapterFromConnection } from "../inference/adapter-factory.js";
-import type { Auth, ProviderConnection } from "../inference/auth.js";
+import type { ProviderConnection } from "../inference/auth.js";
 import type { ResolvedAuth } from "../inference/auth.js";
-import { effectiveConnectionAuth } from "../inference/auth.js";
+import { deriveStoredAuth } from "../inference/auth.js";
 import {
   createConnection,
   getConnection,
@@ -78,38 +78,49 @@ describe("vellum connection routing", () => {
   });
 });
 
-describe("effectiveConnectionAuth", () => {
-  test("a vellum row dispatches on platform auth regardless of the stored variant", () => {
-    for (const stored of [
-      { type: "api_key", credential: "vault/x" },
-      { type: "none" },
-      { type: "platform" },
-    ] as Auth[]) {
-      expect(
-        effectiveConnectionAuth({ provider: "vellum", auth: stored }),
-      ).toEqual({ type: "platform" });
-    }
+describe("deriveStoredAuth", () => {
+  test("a vellum row dispatches on platform auth regardless of the stored payload", () => {
+    expect(deriveStoredAuth("vellum")).toEqual({ type: "platform" });
+    expect(deriveStoredAuth("vellum", "vault/x")).toEqual({
+      type: "platform",
+    });
   });
 
-  test("payload-carrying rows keep their stored auth verbatim", () => {
-    const keyed: Auth = { type: "api_key", credential: "vault/anthropic" };
+  test("a chatgpt row is the subscription route; without a token it is invalid", () => {
     expect(
-      effectiveConnectionAuth({ provider: "anthropic", auth: keyed }),
-    ).toBe(keyed);
-    const subscription: Auth = { type: "oauth_subscription" } as Auth;
-    expect(
-      effectiveConnectionAuth({ provider: "openai", auth: subscription }),
-    ).toBe(subscription);
+      deriveStoredAuth("chatgpt", "credential/chatgpt/access_token"),
+    ).toEqual({
+      type: "oauth_subscription",
+      credential: "credential/chatgpt/access_token",
+    });
+    expect(deriveStoredAuth("chatgpt")).toBeNull();
+  });
+
+  test("keyed providers require a credential", () => {
+    expect(deriveStoredAuth("anthropic", "vault/anthropic")).toEqual({
+      type: "api_key",
+      credential: "vault/anthropic",
+    });
+    expect(deriveStoredAuth("anthropic")).toBeNull();
   });
 
   test("a deliberately keyed keyless provider keeps its key", () => {
     // Keyless means no key REQUIRED, not no key possible: the ollama adapter
-    // accepts one, so stored api_key auth on an ollama row is payload and
+    // accepts one, so a stored credential on an ollama row is payload and
     // must never be derived away.
-    const keyed: Auth = { type: "api_key", credential: "vault/ollama" };
-    expect(effectiveConnectionAuth({ provider: "ollama", auth: keyed })).toBe(
-      keyed,
-    );
+    expect(deriveStoredAuth("ollama", "vault/ollama")).toEqual({
+      type: "api_key",
+      credential: "vault/ollama",
+    });
+    expect(deriveStoredAuth("ollama")).toEqual({ type: "none" });
+  });
+
+  test("openai-compatible endpoints are dual-mode on credential presence", () => {
+    expect(deriveStoredAuth("openai-compatible", "vault/custom")).toEqual({
+      type: "api_key",
+      credential: "vault/custom",
+    });
+    expect(deriveStoredAuth("openai-compatible")).toEqual({ type: "none" });
   });
 });
 

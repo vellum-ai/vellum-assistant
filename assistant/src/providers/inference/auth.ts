@@ -73,19 +73,36 @@ export function deriveAuthForProvider(
 }
 
 /**
- * The auth a connection dispatches with. The stored auth object is
- * authoritative only where it carries a payload (an api_key credential ref,
- * the oauth_subscription marker, a deliberately keyed keyless provider);
- * the vellum provider IS the managed route, so its auth derives from the
- * provider and the stored value can never mislead dispatch.
+ * Derive the typed auth of a stored `provider_connections` row from its
+ * provider column and the credential payload. The stored auth JSON carries
+ * only the payload (`{credential?}`); the type is implied by the provider:
+ * `vellum` IS the managed route (platform), `chatgpt` IS the subscription
+ * route (oauth_subscription), keyless catalog providers (`setupMode:
+ * "keyless"`, e.g. ollama) and openai-compatible endpoints run keyless
+ * unless deliberately keyed (e.g. a remote Ollama behind an authenticating
+ * proxy), and every other provider authenticates by API key. Returns null
+ * when no derivation can dispatch the row (a keyed provider with no
+ * credential, a chatgpt row with no token); callers drop such rows as
+ * invalid.
+ *
+ * `service_account` is not derivable: nothing writes it, the wire AuthSchema
+ * still accepts it, and the runtime rejects it at dispatch (resolve-auth.ts).
  */
-export function effectiveConnectionAuth(connection: {
-  provider: string;
-  auth: Auth;
-}): Auth {
-  return connection.provider === VELLUM_MANAGED_PROVIDER
-    ? { type: "platform" }
-    : connection.auth;
+export function deriveStoredAuth(
+  provider: string,
+  credential?: string,
+): Auth | null {
+  if (provider === VELLUM_MANAGED_PROVIDER) {
+    return { type: "platform" };
+  }
+  if (provider === "chatgpt") {
+    return credential ? { type: "oauth_subscription", credential } : null;
+  }
+  const entry = PROVIDER_CATALOG.find((p) => p.id === provider);
+  if (entry?.setupMode === "keyless" || provider === "openai-compatible") {
+    return credential ? { type: "api_key", credential } : { type: "none" };
+  }
+  return credential ? { type: "api_key", credential } : null;
 }
 
 // ---------------------------------------------------------------------------
