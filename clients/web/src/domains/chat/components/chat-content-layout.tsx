@@ -2,9 +2,9 @@
  * Chat content layout — routes the active `mainView` to the appropriate
  * panel arrangement.
  *
- * Single responsibility: reads `mainView` from the viewer store, renders
- * `ChatMainPanel` inside the correct layout shell (standalone, or
- * as the left pane of a `ResizablePanel` with a side panel on the right).
+ * Single responsibility: reads the viewer store, resolves the arrangement,
+ * and hands the surfaces to `WorkspacePanes`, which draws them. Side panels
+ * and overlays keep their own shells.
  *
  * Side-panel state (app, document, subagent, tool-detail) is read directly
  * from stores — no props required for layout decisions.
@@ -13,7 +13,6 @@
 import { lazy, useCallback, useEffect, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
-import { ResizablePanel } from "@vellumai/design-library";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
@@ -27,6 +26,7 @@ import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { paneState } from "@/stores/pane-state";
+import { WorkspacePanes } from "@/domains/chat/components/workspace-panes";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -354,14 +354,10 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     openedAppState
   ) {
     return (
-      <ResizablePanel
-        storageKey="appEditPanelWidth"
-        hideDivider
-        defaultRightWidth={400}
-        minLeftWidth={300}
-        minRightWidth={400}
-        left={<ChatMainPanel {...props} />}
-        right={
+      <WorkspacePanes
+        presentation="side"
+        secondary={<ChatMainPanel {...props} />}
+        primary={
           <AppViewerContainer
             appId={openedAppState.appId}
             appName={openedAppState.name}
@@ -392,18 +388,23 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       );
     }
     return (
-      <AppViewerContainer
-        appId={openedAppState.appId}
-        appName={openedAppState.name}
-        html={openedAppState.html}
-        assistantId={assistantId ?? ""}
-        onClose={handleCloseApp}
-        onEdit={handleEditApp}
-        onShare={handleShareApp}
-        isSharing={isSharing}
-        onDeploy={handleDeployApp}
-        isDeploying={isDeploying}
-        onAction={handleAppAction}
+      <WorkspacePanes
+        presentation="single"
+        primary={
+          <AppViewerContainer
+            appId={openedAppState.appId}
+            appName={openedAppState.name}
+            html={openedAppState.html}
+            assistantId={assistantId ?? ""}
+            onClose={handleCloseApp}
+            onEdit={handleEditApp}
+            onShare={handleShareApp}
+            isSharing={isSharing}
+            onDeploy={handleDeployApp}
+            isDeploying={isDeploying}
+            onAction={handleAppAction}
+          />
+        }
       />
     );
   }

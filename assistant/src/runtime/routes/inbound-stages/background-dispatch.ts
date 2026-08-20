@@ -21,9 +21,10 @@ import {
 } from "../../../contacts/guardian-delivery-reader.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
-import { sendChannelReaction } from "../../../messaging/providers/index.js";
 import {
+  sendChannelReaction,
   sendChannelTyping,
+  setChannelThreadStatus,
   supportsChannelTyping,
 } from "../../../messaging/providers/index.js";
 import {
@@ -176,7 +177,6 @@ export function processChannelMessageInBackground(
       sourceChannel,
       replyCallbackUrl,
       chatId: externalChatId,
-      assistantId,
       startImmediately: shouldStartSlackThinkingStatusImmediately({
         sourceChannel,
         chatType,
@@ -228,7 +228,6 @@ export function processChannelMessageInBackground(
         chatType,
         replyCallbackUrl,
         chatId: externalChatId,
-        assistantId,
         recipientUserId: slackInbound?.actorExternalUserId,
         recipientTeamId: slackInbound?.actorTeamId,
         // Durably record the streamed message `ts` the instant the stream
@@ -475,16 +474,9 @@ function createSlackThinkingStatusController(params: {
   sourceChannel: ChannelId;
   replyCallbackUrl?: string;
   chatId: string;
-  assistantId?: string;
   startImmediately?: boolean;
 }): SlackThinkingStatusController | undefined {
-  const {
-    sourceChannel,
-    replyCallbackUrl,
-    chatId,
-    assistantId,
-    startImmediately,
-  } = params;
+  const { sourceChannel, replyCallbackUrl, chatId, startImmediately } = params;
   if (
     !replyCallbackUrl ||
     !shouldEmitSlackThinkingStatus(sourceChannel, replyCallbackUrl)
@@ -509,7 +501,6 @@ function createSlackThinkingStatusController(params: {
     slackThinkingStatus = setSlackThinkingStatus(
       callbackUrl,
       chatId,
-      assistantId,
       currentLoadingMessages,
     );
     lastSentLoadingMessageKey = getLoadingMessagesKey(currentLoadingMessages);
@@ -626,7 +617,6 @@ function getTaskProgressLoadingMessage(
 function setSlackThinkingStatus(
   callbackUrl: string,
   chatId: string,
-  assistantId?: string,
   loadingMessages?: string[],
 ): SlackThinkingStatusHandle {
   let cleared = false;
@@ -689,15 +679,11 @@ function setSlackThinkingStatus(
 
   // Track the set promise so clear waits for it to settle first,
   // preventing a race where clear arrives at Slack before set.
-  let statusPromise = deliverChannelReply(callbackUrl, {
+  let statusPromise = setChannelThreadStatus(callbackUrl, {
     chatId,
-    assistantId,
-    assistantThreadStatus: {
-      channel: chatId,
-      threadTs,
-      status: getRandomSlackThinkingStatus(),
-      ...(loadingMessages ? { loadingMessages } : {}),
-    },
+    threadTs,
+    status: getRandomSlackThinkingStatus(),
+    ...(loadingMessages ? { loadingMessages } : {}),
   }).catch((err) => {
     log.debug({ err, chatId, threadTs }, "Failed to set Slack thinking status");
   });
@@ -707,17 +693,13 @@ function setSlackThinkingStatus(
       return;
     }
     statusPromise = statusPromise.then(() =>
-      deliverChannelReply(callbackUrl, {
+      setChannelThreadStatus(callbackUrl, {
         chatId,
-        assistantId,
-        assistantThreadStatus: {
-          channel: chatId,
-          threadTs,
-          status: getRandomSlackThinkingStatus(),
-          ...(nextLoadingMessages
-            ? { loadingMessages: nextLoadingMessages }
-            : {}),
-        },
+        threadTs,
+        status: getRandomSlackThinkingStatus(),
+        ...(nextLoadingMessages
+          ? { loadingMessages: nextLoadingMessages }
+          : {}),
       }).catch((err) => {
         log.debug(
           { err, chatId, threadTs },
@@ -734,14 +716,10 @@ function setSlackThinkingStatus(
     cleared = true;
     clearTimeout(safetyTimer);
     void statusPromise.then(() =>
-      deliverChannelReply(callbackUrl, {
+      setChannelThreadStatus(callbackUrl, {
         chatId,
-        assistantId,
-        assistantThreadStatus: {
-          channel: chatId,
-          threadTs,
-          status: "",
-        },
+        threadTs,
+        status: "",
       }).catch((err) => {
         log.debug(
           { err, chatId, threadTs },

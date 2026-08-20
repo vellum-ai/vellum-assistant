@@ -8,6 +8,7 @@
     "./about": "./src/about.ts",
     "./accelerator": "./src/accelerator.ts",
     "./app-origin": "./src/app-origin.ts",
+    "./auto-update": "./src/auto-update.ts",
     "./avatar": "./src/avatar.ts",
     "./avatar-image": "./src/avatar-image.ts",
     "./bundle-confirmation": "./src/bundle-confirmation.ts",

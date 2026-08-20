@@ -528,6 +528,14 @@
     },
     "noColor": "Sin color"
   },
+  "preferencesUsagePanel": {
+    "addCreditsAriaLabel": "Añadir créditos",
+    "exhausted": "Añade créditos para continuar.",
+    "pctUsed": "{pct}% usado",
+    "resets": "Se restablece el {date}",
+    "settingsAriaLabel": "Ajustes de uso y facturación",
+    "title": "Uso"
+  },
   "promptTab": {
     "availableTools": "Herramientas disponibles",
     "bannerNoSections": "Esta llamada aún no tiene secciones de prompt normalizadas.",

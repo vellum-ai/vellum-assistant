@@ -534,7 +534,7 @@ export function AssistantSideMenu({
                   variant="ghost"
                   iconOnly={<X />}
                   aria-label="Close navigation"
-                  className={`pointer-events-auto ${NATIVE_MOBILE_BARE_ICON_BUTTON}`}
+                  className="pointer-events-auto"
                   onClick={() => onClose?.()}
                 />
                 <SearchButton />
