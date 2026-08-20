@@ -387,8 +387,13 @@ export function Select<T extends string>({
         >
           <RadixSelect.Viewport
             className={cn(
-              "py-1",
-              hasStickyOption && STICKY_SCROLL_PADDING_CLASSES[size],
+              "pt-1",
+              // A pinned row sticks to the padding edge, so bottom padding
+              // leaves a band below it where scrolling rows stay visible.
+              // Drop the padding and let the pinned row close the menu.
+              hasStickyOption
+                ? cn("pb-0", STICKY_SCROLL_PADDING_CLASSES[size])
+                : "pb-1",
             )}
           >
             {selectableOptions.map((option) => {
@@ -403,10 +408,12 @@ export function Select<T extends string>({
                     OPTION_SIZE_CLASSES[size],
                     // Opaque fill and a rule along the top, so the rows it
                     // floats over read as scrolled under it rather than
-                    // bleeding through. `-mb-1` eats the viewport's bottom
-                    // padding, which would otherwise show as a gap below.
+                    // bleeding through. The rule uses `--border-element`
+                    // rather than `--field-border`, which is transparent in
+                    // the dark and velvet themes and would leave the row
+                    // indistinguishable from an ordinary last row.
                     option.sticky &&
-                      "sticky bottom-0 z-10 -mb-1 border-t border-[var(--field-border)] bg-[var(--field-bg)]",
+                      "sticky bottom-0 z-10 border-t border-[var(--border-element)] bg-[var(--field-bg)]",
                     option.disabled
                       ? "cursor-not-allowed opacity-50"
                       : "cursor-pointer data-[highlighted]:bg-[var(--surface-hover)]",
