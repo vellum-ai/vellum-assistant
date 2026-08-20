@@ -466,20 +466,26 @@ export function ActiveChatView() {
     string | null
   >(null);
   const [summarizePending, setSummarizePending] = useState(false);
+  // A pending target only counts while the viewer still qualifies, so a flag
+  // sync that revokes the gate mid-dialog closes it and takes its confirm
+  // button with it rather than leaving one summarize reachable.
+  const activeSummarizeMessageId = canUseInternalActions
+    ? pendingSummarizeMessageId
+    : null;
   const handleSummarizeUpToHere = useCallback((messageId: string) => {
     setPendingSummarizeMessageId(messageId);
   }, []);
   const handleConfirmSummarize = useCallback(() => {
-    if (!pendingSummarizeMessageId) {
+    if (!activeSummarizeMessageId) {
       return;
     }
     setSummarizePending(true);
     // Errors toast inside the handler; the dialog just closes.
-    void handleSummarizeUpToMessage(pendingSummarizeMessageId).finally(() => {
+    void handleSummarizeUpToMessage(activeSummarizeMessageId).finally(() => {
       setSummarizePending(false);
       setPendingSummarizeMessageId(null);
     });
-  }, [pendingSummarizeMessageId, handleSummarizeUpToMessage]);
+  }, [activeSummarizeMessageId, handleSummarizeUpToMessage]);
   const handleCancelSummarize = useCallback(() => {
     setPendingSummarizeMessageId(null);
   }, []);
@@ -626,7 +632,7 @@ export function ActiveChatView() {
         </LazyBoundary>
       ) : null}
       <ConfirmDialog
-        open={pendingSummarizeMessageId !== null}
+        open={activeSummarizeMessageId !== null}
         title="Summarize up to here?"
         message="The assistant will summarize the conversation before this point and carry only the summary in its working memory going forward. Messages stay visible and are never deleted."
         confirmLabel="Summarize"
