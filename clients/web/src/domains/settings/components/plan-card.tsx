@@ -6,6 +6,7 @@ import { useNavigate } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { AddCreditsModal } from "@/components/add-credits-modal";
 import {
   isCleanPin,
   nextPackageUp,
@@ -44,6 +45,7 @@ import type {
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import { useTranslation } from "@/i18n";
+import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
 import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
@@ -363,6 +365,8 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   );
   const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
   const obscureCredits = useObscureCredits();
+  const { isExhausted } = useBillingBalanceStatus();
+  const [addCreditsOpen, setAddCreditsOpen] = useState(false);
   // Resolved before the early returns below so the usage hook is never
   // conditional; both tolerate data that has not landed yet.
   const currentPackage = resolveCurrentPackage(
@@ -495,13 +499,22 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       </Typography>
     </div>
   ) : undefined;
+  // Spending the bundle is only an alarm once the wallet behind it is empty
+  // too: a sub at 100% whose purchased credits still cover the next turn keeps
+  // the neutral reading.
+  const creditsExhausted = usage != null && usage.ratio >= 1 && isExhausted;
   // A paid tile trades its price for the usage balance, so the two never state
   // the same allowance twice. The free tile has no bundle to measure and no
   // dollar figure to obscure, so "Free Forever" stays either way.
   const currentFooter: ReactNode =
     obscureCredits && !isFreePlan
       ? usage && (
-          <UsageBalancePanel ratio={usage.ratio} resetsAt={usage.resetsAt} />
+          <UsageBalancePanel
+            ratio={usage.ratio}
+            resetsAt={usage.resetsAt}
+            exhausted={creditsExhausted}
+            onAddCredits={() => setAddCreditsOpen(true)}
+          />
         )
       : priceRow;
 
@@ -568,6 +581,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
           />
         </div>
       </div>
+      <AddCreditsModal open={addCreditsOpen} onOpenChange={setAddCreditsOpen} />
     </Card>
   );
 }

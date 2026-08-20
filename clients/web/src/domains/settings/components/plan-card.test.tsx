@@ -151,6 +151,30 @@ mock.module("@/lib/billing/takeover-avatar-stash", () => ({
   },
 }));
 
+// The wallet behind the bundle. The real hook reads the billing summary
+// through the platform gate and the org store, neither of which these tests
+// drive; the card only asks it whether the credits are gone.
+let creditsExhausted = false;
+mock.module("@/hooks/use-billing-balance-status", () => ({
+  useBillingBalanceStatus: () => ({
+    isExhausted: creditsExhausted,
+    isLowBalance: false,
+    dailyLimitReached: false,
+    dailyLimitSnoozed: false,
+    dailyLimit: null,
+    dailySpend: null,
+    balance: null,
+    enabled: true,
+  }),
+}));
+
+// Stand in for the checkout modal: opening it is the assertion, and the real
+// one pulls its own billing-summary read and Stripe mutation into the render.
+mock.module("@/components/add-credits-modal", () => ({
+  AddCreditsModal: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="add-credits-modal" /> : null,
+}));
+
 const { PlanCard } = await import("./plan-card");
 const { useClientFeatureFlagStore } =
   await import("@/stores/client-feature-flag-store");
@@ -1088,11 +1112,13 @@ describe("PlanCard with obscure-credits on", () => {
     usageTotalUsd = "10";
     usageShouldFail = false;
     usageTotalsCalls = 0;
+    creditsExhausted = false;
     setObscureCredits(true);
   });
 
   afterEach(() => {
     setObscureCredits(false);
+    creditsExhausted = false;
   });
 
   test("a Pro clean pin trades its price footer for the usage balance", async () => {
@@ -1212,6 +1238,72 @@ describe("PlanCard with obscure-credits on", () => {
       container.querySelector('[data-testid="plan-card-price"]'),
     ).toBeNull();
     expect(usageTotalsCalls).toBe(0);
+  });
+
+  test("a spent bundle with an empty wallet alarms and offers credits", async () => {
+    // Mighty's whole $25 bundle spent, and no purchased credits behind it.
+    usageTotalUsd = "25";
+    creditsExhausted = true;
+    const { findByTestId, getByText, queryByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+    );
+
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("100% used");
+    expect(
+      getByText("Add credits to continue using your assistant"),
+    ).toBeTruthy();
+    expect(
+      panel
+        .querySelector('[data-slot="progress-bar-fill"]')
+        ?.getAttribute("style"),
+    ).toContain("--system-negative-strong");
+
+    expect(queryByTestId("add-credits-modal")).toBeNull();
+    fireEvent.click(await findByTestId("plan-usage-add-credits"));
+    expect(await findByTestId("add-credits-modal")).toBeTruthy();
+  });
+
+  test("a spent bundle with credits still in hand stays neutral", async () => {
+    // 100% of the included usage, but the wallet still covers the next turn,
+    // so there is nothing to warn about.
+    usageTotalUsd = "25";
+    const { findByTestId, queryByText, queryByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+    );
+
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("100% used");
+    expect(
+      queryByText("Add credits to continue using your assistant"),
+    ).toBeNull();
+    expect(queryByTestId("plan-usage-add-credits")).toBeNull();
+    expect(
+      panel
+        .querySelector('[data-slot="progress-bar-fill"]')
+        ?.getAttribute("style"),
+    ).not.toContain("--system-negative-strong");
+  });
+
+  test("an empty wallet mid-cycle leaves the bar alone", async () => {
+    // The strip belongs to a spent bundle. Below 100% the tile reads the same
+    // as it always has, whatever the wallet says.
+    creditsExhausted = true;
+    const { findByTestId, queryByText } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+    );
+
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("40% used");
+    expect(
+      queryByText("Add credits to continue using your assistant"),
+    ).toBeNull();
   });
 
   test("a free plan keeps its Free Forever footer and its own chips", () => {

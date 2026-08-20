@@ -613,6 +613,8 @@
     "title": "Solicitudes de vinculación"
   },
   "planCard": {
+    "usageBalanceAddCredits": "Añadir",
+    "usageBalanceExhausted": "Añade créditos para seguir usando tu asistente",
     "usageBalancePctUsed": "{pct}% usado",
     "usageBalanceResets": "Se restablece el {date}",
     "usageBalanceTitle": "Saldo de uso",
