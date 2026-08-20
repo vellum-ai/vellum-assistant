@@ -587,4 +587,35 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     const texts = rows.map((r) => r.content).sort();
     expect(texts).toEqual(["older A", "older B", "older D"]);
   });
+
+  test("backfill refuses history rows carrying a secret, keeping the rest", async () => {
+    const leakedKey = "AKIA3H7QWERTY9MNBVC2";
+    backfillDmMock.mockImplementation(async () => [
+      makeBackfilledMessage({
+        id: "1700000000.000001",
+        text: "ordinary older chatter",
+      }),
+      makeBackfilledMessage({
+        id: "1700000000.000002",
+        text: `here is the access key ${leakedKey} for the deploy`,
+      }),
+    ]);
+
+    await handleChannelInbound(
+      buildDmRequest("live new DM"),
+      noopProcessMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    const rows = readPersistedSlackRows();
+    expect(rows.map((r) => r.content)).toEqual(["ordinary older chatter"]);
+    // `rawContent`, not `content`: the latter is unwrapped by the test
+    // helper, so only the raw column proves what reached storage.
+    for (const row of rows) {
+      expect(row.rawContent).not.toContain(leakedKey);
+    }
+    expect(
+      rows.some((r) => r.slackMeta?.channelTs === "1700000000.000002"),
+    ).toBe(false);
+  });
 });

@@ -6746,6 +6746,15 @@ components:
           nullable: true
           description: Earliest upcoming expiry across grants that still hold credit,
             or null when no unexpired credit remains.
+        available_usage_balance:
+          type: string
+          description: Unused credit (USD, decimal string) remaining on unexpired
+            initial-credit and subscription (Pro bundle) grants.
+        total_usage_balance:
+          type: string
+          description: Total granted credit (USD, decimal string) across unexpired
+            initial-credit and subscription (Pro bundle) grants, including amounts
+            already used but net of refunded credit.
       required:
       - allowed_top_up_amounts
       - credits_expiring_soon_usd

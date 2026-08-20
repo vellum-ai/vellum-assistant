@@ -26,7 +26,7 @@ import {
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { viewerPanePresentation } from "@/stores/pane-presentation";
+import { paneState } from "@/stores/pane-state";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -97,6 +97,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const openedDocumentState = useViewerStore.use.openedDocumentState();
   const editingConversationId =
     useConversationStore.use.editingConversationId();
+  const activeConversationId = useConversationStore.use.activeConversationId();
   const activeSubagentId = useViewerStore.use.activeSubagentId();
   const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
@@ -343,12 +344,13 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   // App editing: resizable split with chat + app editor
   if (
-    viewerPanePresentation({
+    paneState({
       mainView,
-      hasApp: !!openedAppState,
-      hasBoundConversation: !!editingConversationId,
+      appId: openedAppState?.appId ?? null,
+      conversationId: activeConversationId,
+      boundConversationId: editingConversationId,
       isAppMinimized,
-    }) === "side" &&
+    }).presentation === "side" &&
     openedAppState
   ) {
     return (

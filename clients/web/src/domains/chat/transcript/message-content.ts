@@ -17,6 +17,7 @@ import type {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
+import { isArtifactPointerSurface } from "@/domains/chat/transcript/response-artifacts";
 import {
   containsInlineThinkingTag,
   parseInlineThinkingTags,
@@ -110,7 +111,9 @@ function splitInlineThinkingBlocks(
  * activity group and passes through unchanged as its own group; the render
  * body reads the surface straight off the block's `surface`, narrowed to the
  * display `Surface` at render. `attachment` blocks are skipped — attachments
- * render in their own region from `message.attachments`. Pure — no React/DOM.
+ * render in their own region from `message.attachments`, and so are pointer
+ * surfaces naming an asset, which the transcript draws once per response
+ * instead (see the branch for why). Pure: no React/DOM.
  */
 export function groupContentBlocks(
   blocks: ConversationContentBlock[],
@@ -174,6 +177,19 @@ export function groupContentBlocks(
       current = null;
       groups.push(block);
     } else if (block.type === "surface") {
+      // A pointer surface, one that merely names an asset (see
+      // `response-artifacts.ts`), is dropped rather than grouped: the
+      // transcript draws a response's assets once each, as a card at the end of
+      // the response, so drawing this one where its tool ran produced a second
+      // card for the same asset. Dropping it here, rather than at the render
+      // body, keeps every consumer indexing the same group list, since
+      // `groupIndex` is what the activity drawer resolves a group by (see
+      // `use-live-activity-group.ts`). It also leaves the open activity run
+      // open, so the tool calls either side of a pointer merge into one run the
+      // way they would have had it never been emitted.
+      if (isArtifactPointerSurface(block.surface)) {
+        continue;
+      }
       current = null;
       groups.push(block);
     }

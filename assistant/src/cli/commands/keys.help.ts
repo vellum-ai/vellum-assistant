@@ -46,6 +46,13 @@ Examples:
       name: "delete",
       args: "<provider>",
       description: "Delete a stored API key",
+      options: [
+        {
+          flags: "--force",
+          description:
+            "Delete even when LLM provider connections resolve their auth through the key; those connections stop answering until a new key is stored",
+        },
+      ],
       helpText: `
 Arguments:
   provider   Provider name whose key should be removed from secure storage
@@ -53,9 +60,14 @@ Arguments:
 Removes the API key for the given provider from secure local storage. If
 no key exists for the provider, exits with an error.
 
+The delete is refused while an LLM provider connection resolves its auth
+through the key; the error names the connections that depend on it. Run
+'assistant inference providers list' to inspect them, and pass --force to delete
+anyway.
+
 Examples:
   $ assistant keys delete openai
-  $ assistant keys delete anthropic`,
+  $ assistant keys delete anthropic --force`,
     },
   ],
 };

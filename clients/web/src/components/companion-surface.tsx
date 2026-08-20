@@ -435,8 +435,13 @@ export function CompanionSurface({
   // eye and cursor would have no fixed target to aim at.
   //
   // Each direction therefore fixes the avatar's own edge to the centre and lets
-  // the body run the other way. Growing left also reverses the row, because the
-  // body has to end up on the avatar's left.
+  // the body run the other way: this anchors the surface by the edge the avatar
+  // is on, and the avatar's own row is mirrored below so the avatar ends up
+  // against that edge. Both halves are required. Anchoring by the right edge without
+  // mirroring puts the avatar at the far end of the pill, which is a different
+  // point from the one the host positioned the window by, and every drag,
+  // clamp and direction check main makes from then on is measured against a
+  // place the avatar is not.
   const placement: CSSProperties =
     growth === "left"
       ? { right: "50%", marginRight: -(AVATAR_BOX / 2) }
@@ -478,7 +483,7 @@ export function CompanionSurface({
     // press, so everything that is not a button can be grabbed, which at rest
     // means the avatar and when expanded means the pill around the controls.
     <div
-      className={`absolute cursor-grab transition-[width] duration-300 will-change-[width] active:cursor-grabbing ${
+      className={`absolute cursor-grab transition-[width] duration-300 select-none will-change-[width] active:cursor-grabbing ${
         typing
           ? // The composer row is the column's last child, so a card growing
             // downward reverses the column for the same reason a pill growing
@@ -488,9 +493,12 @@ export function CompanionSurface({
             `flex rounded-[22px] ${cardGrowth === "up" ? "flex-col" : "flex-col-reverse"}`
           : "flex h-11 items-center rounded-full"
       } ${
-        // The avatar is the row's first child, so growing leftward means
-        // reversing the row rather than repositioning it. The card is a column,
-        // so it never wants this.
+        // Alignment, not ordering. The row is `INNER_GAP` narrower than the
+        // pill, because that gap is trailing space past the last control, so
+        // the row has to sit against the end the avatar is anchored to and
+        // leave the slack at the other. Reversing a one-item row is how a
+        // `flex-start` box puts its item at the far end. The card is a column
+        // whose row is stretched to its full width, so it needs no help.
         growth === "left" && !typing ? "flex-row-reverse" : ""
       }`}
       style={style}
@@ -530,7 +538,20 @@ export function CompanionSurface({
         />
       )}
       {typing && turns.length > 0 && <RecentTurns turns={turns} />}
-      <div className="relative flex h-11 shrink-0 items-center">
+      {/* The avatar's own row, and the half of the mirroring that orders it.
+          This row is the surface's only in-flow child, so it is the one place
+          the reversal has any ordering to do: reversing the surface around it
+          moves the row within the box and leaves the avatar wherever the row
+          put it. The avatar has to land against the edge `placement` anchored
+          by, since that edge is derived from the point the host positioned the
+          window by. True of the card as much as the pill, and the card is
+          anchored the same way with a card's width to be wrong by, so this
+          holds whether or not the composer is open. */}
+      <div
+        className={`relative flex h-11 shrink-0 items-center ${
+          growth === "left" ? "flex-row-reverse" : ""
+        }`}
+      >
         <Avatar
           glow={glow && !expanded}
           accentHex={accentHex}
@@ -608,7 +629,11 @@ function RecentTurns({ turns }: { turns: CompanionTurn[] }) {
   return (
     <div
       ref={scrollRef}
-      className="relative flex flex-col gap-1.5 overflow-y-auto px-3 pt-3 pb-1"
+      // Selectable, against the surface's `select-none`. That rule is there so
+      // a drag across the controls does not highlight their labels, and this is
+      // the one part of the surface that is prose rather than chrome: an answer
+      // the user may well want to copy out of.
+      className="relative flex flex-col gap-1.5 overflow-y-auto px-3 pt-3 pb-1 select-text"
       style={{ maxHeight: TURNS_MAX_HEIGHT }}
     >
       {/* Sides, as the transcript does it: the user's turn is a bubble pushed
@@ -712,7 +737,7 @@ function Composer({
         onMouseDown={(event) => {
           event.stopPropagation();
         }}
-        className="min-w-0 flex-1 bg-transparent text-[12px] text-white/85 placeholder:text-white/40 focus:outline-none"
+        className="min-w-0 flex-1 bg-transparent text-[12px] text-white/85 select-text placeholder:text-white/40 focus:outline-none"
       />
       {/* **The way out, and the way on, in one control.** With nothing typed
           there is nothing to send, so the trailing control is the way back to

@@ -1,3 +1,12 @@
+// `cli/no-daemon-internals` forbids hoisting `channels/types.js`, so the CLI
+// reads the vocabulary straight from the contract package that file re-exports.
+// Both sides then validate `--channel` against the same set.
+
+import {
+  CHANNEL_IDS,
+  type ChannelId,
+  isChannelId,
+} from "@vellumai/service-contracts/channels";
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
@@ -5,25 +14,6 @@ import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { writeOutput } from "../output.js";
 import { channelVerificationSessionsHelp } from "./channel-verification-sessions.help.js";
-
-// ---------------------------------------------------------------------------
-// Local channel validation (replaces daemon-internal channels/types.js import)
-// ---------------------------------------------------------------------------
-
-const VALID_CHANNEL_IDS = [
-  "telegram",
-  "phone",
-  "vellum",
-  "whatsapp",
-  "slack",
-  "email",
-  "platform",
-] as const;
-type ChannelId = (typeof VALID_CHANNEL_IDS)[number];
-
-function isChannelId(raw: string): raw is ChannelId {
-  return (VALID_CHANNEL_IDS as readonly string[]).includes(raw);
-}
 
 /**
  * Validate the --channel option. Returns the validated ChannelId or writes an
@@ -49,7 +39,7 @@ function validateChannelOpt(
     if (required) {
       writeOutput(cmd, {
         ok: false,
-        error: `The "channel" option is required. Valid values: ${VALID_CHANNEL_IDS.join(", ")}`,
+        error: `The "channel" option is required. Valid values: ${CHANNEL_IDS.join(", ")}`,
       });
       process.exitCode = 1;
       return false;
@@ -59,7 +49,7 @@ function validateChannelOpt(
   if (!isChannelId(raw)) {
     writeOutput(cmd, {
       ok: false,
-      error: `Invalid channel "${raw}". Valid values: ${VALID_CHANNEL_IDS.join(", ")}`,
+      error: `Invalid channel "${raw}". Valid values: ${CHANNEL_IDS.join(", ")}`,
     });
     process.exitCode = 1;
     return false;

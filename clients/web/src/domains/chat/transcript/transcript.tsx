@@ -10,7 +10,7 @@ import {
 } from "react";
 
 import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn";
-import { resolveResponseDocumentIds } from "@/domains/chat/transcript/resolve-response-documents";
+import { resolveResponseArtifacts } from "@/domains/chat/transcript/resolve-response-artifacts";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 
@@ -220,8 +220,8 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     // paused turn never reads as finished.
     const turnPhase = useTurnStore.use.phase();
     const turnActive = isSending(turnPhase);
-    const changedDocumentIdsByKey = useMemo(
-      () => resolveResponseDocumentIds(items, { turnActive }),
+    const responseArtifactsByKey = useMemo(
+      () => resolveResponseArtifacts(items, { turnActive }),
       [items, turnActive],
     );
 
@@ -357,7 +357,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                 <TranscriptRow
                   item={item}
                   {...rowProps}
-                  changedDocumentIds={changedDocumentIdsByKey.get(item.key)}
+                  responseArtifacts={responseArtifactsByKey.get(item.key)}
                   isLatestMessage={i === latestHistoryMessageIndex}
                 />
               </TranscriptColumn>
@@ -405,7 +405,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                   anchorMessage={partition.anchorMessage}
                   responseItems={partition.responseItems}
                   {...rowProps}
-                  changedDocumentIdsByKey={changedDocumentIdsByKey}
+                  responseArtifactsByKey={responseArtifactsByKey}
                 />
               )}
               {rest.renderAvatar && (

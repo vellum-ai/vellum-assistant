@@ -301,6 +301,16 @@ export function registerPluginsCommand(program: Command): void {
             console.log(
               `Installed ${label} "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})${pinned} → ${result.target}`,
             );
+            const { skills } = libs.surfaces.detectPluginSurfaces(
+              result.target,
+            );
+            const setupSkill = libs.surfaces.findPluginSetupSkill(
+              result.name,
+              skills,
+            );
+            if (setupSkill !== undefined) {
+              console.log(libs.surfaces.formatPluginSetupHint(setupSkill));
+            }
           } catch (err) {
             if (err instanceof libs.installGitHub.PluginInstallDeclinedError) {
               // The consent gate already printed the outcome and set the exit

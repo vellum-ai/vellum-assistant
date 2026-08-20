@@ -15,6 +15,8 @@ import {
   removeIpcEndpointFile,
 } from "@vellumai/ipc-server-utils";
 
+import { makeAddrInUseError } from "../daemon/startup-error.js";
+
 /**
  * Maximum time to wait for the probe `connect()` to settle before declaring
  * the path occupied. Without a bound, a hung process holding the socket would
@@ -24,17 +26,6 @@ import {
  * case.
  */
 const PROBE_CONNECT_TIMEOUT_MS = 2000;
-
-/**
- * Build an `EADDRINUSE`-coded error so callers (and `categorizeDaemonError`)
- * can branch on `err.code` and surface the structured "already running"
- * guidance instead of a generic UNKNOWN.
- */
-function makeAddrInUseError(message: string): NodeJS.ErrnoException {
-  const err = new Error(message) as NodeJS.ErrnoException;
-  err.code = "EADDRINUSE";
-  return err;
-}
 
 /**
  * Probe-connect to `socketPath`. Behavior:

@@ -12,16 +12,17 @@
  * When a plugin is in context (its hook, tool, or one of its own
  * `/x/plugins/<name>/` routes is executing, tracked by
  * {@link ../plugins/plugin-execution-context.getCurrentPluginName}), resolution
- * is restricted: the plugin may only resolve credentials whose `field` equals
- * the plugin's own manifest name. A plugin named `acme` can therefore read
- * `openai/acme` or `stripe/acme` but not `openai/api_key`. Outside any plugin
- * context (host-internal callers, CLI, tests) the resolver is unscoped and
- * behaves like a direct reveal.
+ * is restricted: the plugin may only resolve credentials whose `service`
+ * equals its manifest name (`imessage/api_key` for plugin `imessage`). It
+ * cannot read another service (`openai/api_key`, `openai/imessage`). Outside
+ * any plugin context (host-internal callers, CLI, tests) the resolver is
+ * unscoped and behaves like a direct reveal.
  */
 
 import { getCurrentPluginName } from "../plugins/plugin-execution-context.js";
 import { getSecureKeyResultAsync } from "../security/secure-keys.js";
 import { resolveCredentialRef } from "../tools/credentials/resolve.js";
+import { credentialInPluginScope } from "./credential-scope.js";
 
 /**
  * Raised when a credential cannot be resolved: the reference does not match a
@@ -49,13 +50,16 @@ export async function resolveCredential(ref: string): Promise<string> {
     throw new CredentialResolutionError(`Credential not found: ${ref}`);
   }
 
-  // Scope the resolution to the plugin in context, if any. The field-name gate
+  // Scope the resolution to the plugin in context, if any. The ownership gate
   // is enforced before the plaintext is read so an out-of-scope plugin never
   // touches the secure backend.
   const pluginName = getCurrentPluginName();
-  if (pluginName !== undefined && resolved.field !== pluginName) {
+  if (
+    pluginName !== undefined &&
+    !credentialInPluginScope(pluginName, resolved.service)
+  ) {
     throw new CredentialResolutionError(
-      `Plugin "${pluginName}" may only resolve credentials whose field matches its name; ` +
+      `Plugin "${pluginName}" may only resolve credentials under its own service; ` +
         `"${resolved.service}/${resolved.field}" is out of scope.`,
     );
   }
