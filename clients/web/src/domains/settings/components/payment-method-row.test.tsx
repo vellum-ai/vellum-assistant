@@ -90,6 +90,42 @@ describe("PaymentMethodRow", () => {
     expect(onRemove).toHaveBeenCalledTimes(1);
   });
 
+  test("outlines Remove by default, which is the flag-off row", () => {
+    const { getByTestId } = render(
+      <PaymentMethodRow
+        brand="Visa"
+        last4="4242"
+        onUpdateCard={() => {}}
+        onRemove={() => {}}
+      />,
+    );
+    const remove = getByTestId("payment-method-remove");
+    expect(remove.className).toContain(
+      "border-[var(--system-negative-strong)]",
+    );
+  });
+
+  test("borderlessRemove draws Remove as plain red text", () => {
+    const { getByTestId } = render(
+      <PaymentMethodRow
+        brand="Visa"
+        last4="4242"
+        onUpdateCard={() => {}}
+        onRemove={() => {}}
+        borderlessRemove
+      />,
+    );
+    const remove = getByTestId("payment-method-remove");
+    // Still the negative foreground, with nothing drawn around it.
+    expect(remove.className).toContain(
+      "[--vbtn-fg:var(--system-negative-strong)]",
+    );
+    expect(remove.className).toContain("border-transparent");
+    expect(remove.className).not.toContain(
+      "border-[var(--system-negative-strong)]",
+    );
+  });
+
   test("disables Remove and shows a pending label while removing", () => {
     const { getByTestId } = render(
       <PaymentMethodRow

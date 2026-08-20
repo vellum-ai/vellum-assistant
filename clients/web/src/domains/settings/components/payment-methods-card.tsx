@@ -156,6 +156,7 @@ export function PaymentMethodsCard() {
             onRemove={() => setConfirmingRemove(true)}
             removing={removeMutation.isPending}
             showRemove={showRemove}
+            borderlessRemove={obscureCredits}
           />
         ))}
       </div>
