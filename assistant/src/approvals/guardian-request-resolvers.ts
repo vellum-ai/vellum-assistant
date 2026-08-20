@@ -25,7 +25,6 @@ import type {
 import { getGuardianRequestOrNull } from "../channels/gateway-guardian-requests.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import { findConversation } from "../daemon/conversation-registry.js";
-import { isSlackDmChatId } from "../messaging/providers/slack/conversation-utils.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { parseQuestionAnswerActionId } from "../notifications/guardian-question-mode.js";
 import {
@@ -88,12 +87,6 @@ function shouldUseEphemeral(sourceChannel: string, chatId: string): boolean {
   return sourceChannel === "slack" && chatId.startsWith("C");
 }
 
-/**
- * Strip the `threadTs` query param from a reply callback URL. The param
- * addresses the guardian's channel thread; reusing it for a DM delivery
- * raises `thread_not_found`. Relative or malformed URLs are returned as-is —
- * they carry no threadTs to strip.
- */
 /**
  * Deliver the verification code straight to the requester's DM so the
  * guardian is never an out-of-band courier for the secret.
@@ -1331,7 +1324,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         codeDelivered &&
         ctx.actor.channel === "slack" &&
         guardianUserId &&
-        !isSlackDmChatId(guardianInBandContext.guardianChatId)
+        !guardianInBandContext.guardianChatId.startsWith("D")
       ) {
         const dmCallbackUrl = stripThreadTsParam(
           guardianInBandContext.replyCallbackUrl,

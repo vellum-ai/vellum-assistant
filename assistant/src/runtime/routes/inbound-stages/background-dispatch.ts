@@ -817,9 +817,9 @@ function startPendingApprovalPromptWatcher(params: {
         if (prompt && info && !deliveredRequestIds.has(info.requestId)) {
           deliveredRequestIds.add(info.requestId);
           // Addressed to the guardian, not to the chat the turn is running
-          // in, which on Slack can be a room that reads the tool and presses
-          // its buttons. `null` means no private address exists, and the room
-          // is not an acceptable substitute.
+          // in, which on Slack can be a room that reads the tool and its
+          // command preview. `null` means no private address exists, and the
+          // room is not an acceptable substitute.
           const promptDelivery = resolveGuardianPromptDelivery({
             channel: sourceChannel,
             turnChatId: externalChatId,

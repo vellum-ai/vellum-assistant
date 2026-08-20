@@ -16,7 +16,6 @@ import type { GuardianDelivery } from "@vellumai/gateway-client";
 import { isNotificationDeliverable } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
 import { guardianForChannel } from "../contacts/guardian-delivery-reader.js";
-import { isSlackDmChatId } from "../messaging/providers/slack/conversation-utils.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDestination, NotificationChannel } from "./types.js";
 
@@ -127,7 +126,7 @@ export function resolveDestinations(
         // Slack bindings can originate from app_mention in shared channels.
         // Only route notifications to DM channels (IDs starting with "D")
         // to prevent leaking notifications into shared workspaces.
-        if (guardian && chatId && isSlackDmChatId(chatId)) {
+        if (guardian && chatId && isSlackDmChannel(chatId)) {
           result.set("slack", {
             channel: "slack",
             endpoint: chatId,
@@ -150,7 +149,7 @@ export function resolveDestinations(
           {
             channel: "slack",
             source: "guardian-delivery",
-            hasEndpoint: !!(chatId && isSlackDmChatId(chatId)),
+            hasEndpoint: !!(chatId && isSlackDmChannel(chatId)),
           },
           "destination resolved",
         );
@@ -188,4 +187,14 @@ export function resolveDestinations(
   }
 
   return result;
+}
+
+/**
+ * Slack DM channel IDs start with "D". Channels starting with "C" are
+ * public/shared channels, "G" are legacy group DMs. We restrict proactive
+ * notification delivery to "D"-prefixed IDs to avoid leaking into shared
+ * channels where app_mention bindings may have been created.
+ */
+function isSlackDmChannel(channelId: string): boolean {
+  return channelId.startsWith("D");
 }
