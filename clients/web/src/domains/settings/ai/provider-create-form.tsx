@@ -324,7 +324,7 @@ export function ProviderCreateForm({
       // Single success confirmation for both the standalone and inline
       // surfaces; failures above already surface inline via `error` (no toast).
       toast.success(t("providerCreateForm.providerConnectedToast"));
-      warnOnFailedEndpointCheck(created);
+      warnOnFailedEndpointCheck(created, t);
       onCreated(created);
     } catch {
       setError(t("providerCreateForm.failedSaveProvider"));

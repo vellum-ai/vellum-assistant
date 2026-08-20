@@ -70,7 +70,7 @@ const providerConnectionResponseSchema = ProviderConnectionSchema;
 
 /**
  * Create/update responses carry the save-time endpoint probe result for
- * connections with a custom base URL. Advisory only — a failed probe never
+ * connections with a custom base URL. Advisory only: a failed probe never
  * fails the save (some endpoints legitimately reject unauthenticated or
  * minimal requests); clients render `hint` as a warning.
  */

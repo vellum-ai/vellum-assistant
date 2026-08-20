@@ -4,7 +4,7 @@
  * A wrong base path (e.g. NVIDIA without `/v1`) otherwise stays invisible
  * until the first chat turn fails with an opaque provider 404. The probe
  * fires one minimal chat-completions request against the stored endpoint and
- * reports the outcome as a non-blocking hint — the save always succeeds.
+ * reports the outcome as a non-blocking hint. The save always succeeds.
  */
 
 import { z } from "zod";
@@ -33,10 +33,10 @@ export type EndpointCheck = z.infer<typeof EndpointCheckSchema>;
 
 function hintForStatus(status: number): string {
   if (status === 404) {
-    return "The endpoint returned 404 for a test request — check the base path for this provider (e.g. NVIDIA needs /v1, OpenRouter needs /api/v1). Some providers gate requests behind auth, so this may be a false alarm.";
+    return "The endpoint returned 404 for a test request: check the base path for this provider (e.g. NVIDIA needs /v1, OpenRouter needs /api/v1). Some providers gate requests behind auth, so this may be a false alarm.";
   }
   if (status === 401 || status === 403) {
-    return `The endpoint rejected the credential for a test request (HTTP ${status}) — check the API key.`;
+    return `The endpoint rejected the credential for a test request (HTTP ${status}). Check the API key.`;
   }
   return `The endpoint returned HTTP ${status} for a test request.`;
 }

@@ -290,7 +290,7 @@ export function ProviderEditorContent({
         setError(t("providerEditorContent.emptyServerResponse"));
         return;
       }
-      warnOnFailedEndpointCheck(updated);
+      warnOnFailedEndpointCheck(updated, t);
       onSave(updated);
     } catch {
       setError(t("providerEditorContent.failedSaveProvider"));
