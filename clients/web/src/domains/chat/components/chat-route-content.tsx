@@ -164,7 +164,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { shouldMintNewChatDraft } from "@/domains/chat/utils/conversation-selection";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
-import { viewerPanePresentation } from "@/stores/pane-presentation";
+import { paneState } from "@/stores/pane-state";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
@@ -1450,12 +1450,13 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const editingConversationId =
     useConversationStore.use.editingConversationId();
-  const paneArrangement = viewerPanePresentation({
+  const paneArrangement = paneState({
     mainView,
-    hasApp: !!openedAppState,
-    hasBoundConversation: !!editingConversationId,
+    appId: openedAppState?.appId ?? null,
+    conversationId: activeConversationId,
+    boundConversationId: editingConversationId,
     isAppMinimized,
-  });
+  }).presentation;
   const isSidePanel = paneArrangement === "side";
   const variant = isSidePanel ? "side-panel" : "main";
 
