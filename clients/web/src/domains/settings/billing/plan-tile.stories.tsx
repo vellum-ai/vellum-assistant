@@ -180,9 +180,10 @@ export const CurrentPaid: Story = {
 
 /**
  * The same tile with the `obscure-credits` flag on: the credits chip names the
- * package's usage allowance instead of a dollar bundle, the chips wrap into a
- * row, and the price footer gives way to the Usage Balance bar. Props only, so
- * the ratio here is a fixture rather than a live usage read.
+ * package's usage allowance instead of a dollar bundle, the machine and storage
+ * chips wrap into a row with that longer chip on its own beneath them, and the
+ * price footer gives way to the Usage Balance bar. Props only, so the ratio here
+ * is a fixture rather than a live usage read.
  */
 export const CurrentObscuredCredits: Story = {
   args: {
