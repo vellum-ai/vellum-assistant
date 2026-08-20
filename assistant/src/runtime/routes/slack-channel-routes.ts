@@ -5,6 +5,7 @@ import {
   SYNC_TAGS,
 } from "../../daemon/message-types/sync.js";
 import { getSlackConversationInfo } from "../../messaging/providers/slack/api.js";
+import { isSlackDmChatId } from "../../messaging/providers/slack/conversation-utils.js";
 import { SlackApiError } from "../../messaging/providers/slack/web-api-transport.js";
 import {
   getBindingByConversation,
@@ -120,7 +121,7 @@ async function handleSlackChannelNameResolve({
     };
   }
 
-  if (channelId.startsWith("D")) {
+  if (isSlackDmChatId(channelId)) {
     return {
       channelId,
       cached: false,

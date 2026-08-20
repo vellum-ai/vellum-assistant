@@ -190,6 +190,7 @@ export function processChannelMessageInBackground(
           externalChatId,
           trustClass: trustCtx.trustClass,
           guardianExternalUserId: trustCtx.guardianExternalUserId,
+          guardianChatId: trustCtx.guardianChatId,
           requesterExternalUserId: trustCtx.requesterExternalUserId,
           replyCallbackUrl,
           assistantId,
@@ -771,6 +772,7 @@ function startPendingApprovalPromptWatcher(params: {
   externalChatId: string;
   trustClass: TrustContext["trustClass"];
   guardianExternalUserId?: string;
+  guardianChatId?: string;
   requesterExternalUserId?: string;
   replyCallbackUrl: string;
   assistantId?: string;
@@ -782,6 +784,7 @@ function startPendingApprovalPromptWatcher(params: {
     externalChatId,
     trustClass,
     guardianExternalUserId,
+    guardianChatId,
     requesterExternalUserId,
     replyCallbackUrl,
     assistantId,
@@ -814,14 +817,26 @@ function startPendingApprovalPromptWatcher(params: {
         if (prompt && info && !deliveredRequestIds.has(info.requestId)) {
           deliveredRequestIds.add(info.requestId);
           // Addressed to the guardian, not to the chat the turn is running
-          // in, which on a shared channel is a room that can read the tool and
-          // its buttons. The route moves with the address.
+          // in, which on Slack can be a room that reads the tool and presses
+          // its buttons. `null` means no private address exists, and the room
+          // is not an acceptable substitute.
           const promptDelivery = resolveGuardianPromptDelivery({
             channel: sourceChannel,
             turnChatId: externalChatId,
             turnCallbackUrl: replyCallbackUrl,
-            guardianExternalUserId,
+            guardianChatId,
           });
+          if (!promptDelivery) {
+            log.error(
+              { conversationId, sourceChannel, externalChatId },
+              "No private address for the guardian's approval prompt; leaving it to the in-app confirmation",
+            );
+            // Left in `deliveredRequestIds` deliberately. Retrying cannot
+            // help: the binding is not going to become a DM while this turn
+            // waits, and each retry would re-log.
+            await delay(PENDING_APPROVAL_POLL_INTERVAL_MS);
+            continue;
+          }
           const delivered = await deliverGeneratedApprovalPrompt({
             replyCallbackUrl: promptDelivery.callbackUrl,
             chatId: promptDelivery.chatId,

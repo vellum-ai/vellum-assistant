@@ -17,6 +17,7 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../contacts/guardian-delivery-reader.js";
+import { isSlackDmChatId } from "../messaging/providers/slack/conversation-utils.js";
 import type { ConversationCreateType } from "../persistence/conversation-types.js";
 import { isPlatformClientConfigured } from "../platform/client.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -144,11 +145,10 @@ export async function getConnectedChannels(): Promise<NotificationChannel[]> {
         break;
       }
       case "slack": {
-        // Slack bindings can originate from shared channels (app_mention).
-        // Only consider Slack connected when the resolved chat ID is a DM
-        // channel (D-prefixed), matching destination-resolver's DM gate.
+        // Slack bindings can originate from shared channels (app_mention),
+        // so Slack counts as connected only when the resolved chat is a DM.
         const chatId = resolveChannelChatId(guardians, "slack");
-        if (chatId && chatId.startsWith("D")) {
+        if (chatId && isSlackDmChatId(chatId)) {
           channels.push(channel);
         }
         break;

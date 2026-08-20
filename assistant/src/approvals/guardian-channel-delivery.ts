@@ -1,3 +1,5 @@
+import { isSlackDmChatId } from "../messaging/providers/slack/conversation-utils.js";
+
 /**
  * Shared addressing helpers for guardian-flow channel notices.
  *
@@ -114,45 +116,70 @@ export function resolveRequesterDeliveryTarget(params: {
 }
 
 /**
- * Resolve where a guardian's own approval prompt is delivered: who it is
- * addressed to, and the route that addressing is valid on.
+ * Strip the `threadTs` query param from a reply callback URL.
  *
- * The prompt is raised by a turn the guardian is having, and that turn can be
- * running in a shared room. The tool name, its command preview and live
- * Approve/Reject buttons are readable by everyone in that room, so on a
- * channel with a private route to a user id the prompt is addressed to the
- * guardian's own id and the transport opens the DM. Same call, same reasoning,
- * as {@link resolveRequesterDeliveryTarget} makes for a requester notice.
+ * The param addresses a thread in the channel the turn arrived on. Carried
+ * onto a delivery aimed somewhere else, it asks the transport to attach the
+ * message to a thread that does not exist there, which Slack rejects as
+ * `thread_not_found`. Relative or malformed URLs are returned as-is.
+ */
+export function stripThreadTsParam(replyCallbackUrl: string): string {
+  try {
+    const url = new URL(replyCallbackUrl);
+    url.searchParams.delete("threadTs");
+    return url.toString();
+  } catch {
+    return replyCallbackUrl;
+  }
+}
+
+/**
+ * Resolve where a guardian's own approval prompt is delivered, or `null` when
+ * it cannot be delivered privately at all.
  *
- * The address and the route are returned together because neither is valid
- * without the other. The turn's own callback carries that turn's channel
- * coordinates: on Slack a `threadTs` belonging to the room, which posted
- * alongside a DM id asks Slack to attach a message to a thread in a different
- * channel, and on Discord the absence of the `dm` marker that tells its
- * transport a user id is a person rather than a channel. Either mismatch fails
- * the send, and this watcher retries a failed send until the gated tool times
- * out. Redirecting therefore also moves to
- * {@link resolveDeliverCallbackUrlForChannel}, the callback-less route those
- * coordinates do not appear on.
+ * The prompt is raised by a turn the guardian is having, and on Slack that
+ * turn can be running in a shared room. The card carries the tool name, a
+ * command preview and live Approve/Reject buttons, so posting it there shows
+ * all three to everyone in the room and lets any of them decide.
  *
- * Falls back to the turn's own chat and callback whenever a private address
- * cannot be formed, which is the delivery every non-`channelDeliversToUserId`
- * channel already gets.
+ * It is addressed to the guardian's bound DM, the same value and the same
+ * `isSlackDmChatId` gate the notification pipeline's Slack destination uses,
+ * and for the same reason: a binding created from an `app_mention` names a
+ * shared channel, so a bound chat is not private by construction.
+ *
+ * A DM chat id rather than the guardian's user id, though posting to a user id
+ * would also open the DM, because this address is recorded on the delivery row
+ * and read back three times: to match an emoji reaction to its request, to
+ * scope which requests a plain-text reply may decide, and to edit the card
+ * once it is decided. Those readers compare against the DM channel the
+ * guardian's replies arrive on, which a `U…` id never equals.
+ *
+ * Returns `null` rather than falling back to the room, because the room is the
+ * disclosure this exists to prevent. The caller delivers nothing and the
+ * prompt remains answerable in the app.
  */
 export function resolveGuardianPromptDelivery(params: {
   channel: string;
   turnChatId: string;
   turnCallbackUrl: string;
-  guardianExternalUserId: string | undefined;
-}): { chatId: string; callbackUrl: string } {
-  const { channel, turnChatId, turnCallbackUrl, guardianExternalUserId } =
-    params;
+  guardianChatId: string | undefined;
+}): { chatId: string; callbackUrl: string } | null {
+  const { channel, turnChatId, turnCallbackUrl, guardianChatId } = params;
   const inTurn = { chatId: turnChatId, callbackUrl: turnCallbackUrl };
-  if (!channelDeliversToUserId(channel) || !guardianExternalUserId) {
+
+  // Only Slack has a chat whose privacy can be read off the id. A Telegram
+  // group chat carries the same exposure and is not covered here.
+  if (channel !== "slack") {
     return inTurn;
   }
-  const privateRoute = resolveDeliverCallbackUrlForChannel(channel);
-  return privateRoute
-    ? { chatId: guardianExternalUserId, callbackUrl: privateRoute }
-    : inTurn;
+  if (isSlackDmChatId(turnChatId)) {
+    return inTurn;
+  }
+  if (!guardianChatId || !isSlackDmChatId(guardianChatId)) {
+    return null;
+  }
+  return {
+    chatId: guardianChatId,
+    callbackUrl: stripThreadTsParam(turnCallbackUrl),
+  };
 }

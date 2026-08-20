@@ -25,6 +25,7 @@ import type {
 import { getGuardianRequestOrNull } from "../channels/gateway-guardian-requests.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import { findConversation } from "../daemon/conversation-registry.js";
+import { isSlackDmChatId } from "../messaging/providers/slack/conversation-utils.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { parseQuestionAnswerActionId } from "../notifications/guardian-question-mode.js";
 import {
@@ -62,6 +63,7 @@ import {
   channelDeliversToUserId,
   resolveDeliverCallbackUrlForChannel,
   resolveRequesterDeliveryTarget,
+  stripThreadTsParam,
 } from "./guardian-channel-delivery.js";
 
 const log = getLogger("guardian-request-resolvers");
@@ -92,16 +94,6 @@ function shouldUseEphemeral(sourceChannel: string, chatId: string): boolean {
  * raises `thread_not_found`. Relative or malformed URLs are returned as-is —
  * they carry no threadTs to strip.
  */
-function stripThreadTsParam(replyCallbackUrl: string): string {
-  try {
-    const url = new URL(replyCallbackUrl);
-    url.searchParams.delete("threadTs");
-    return url.toString();
-  } catch {
-    return replyCallbackUrl;
-  }
-}
-
 /**
  * Deliver the verification code straight to the requester's DM so the
  * guardian is never an out-of-band courier for the secret.
@@ -1339,7 +1331,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         codeDelivered &&
         ctx.actor.channel === "slack" &&
         guardianUserId &&
-        !guardianInBandContext.guardianChatId.startsWith("D")
+        !isSlackDmChatId(guardianInBandContext.guardianChatId)
       ) {
         const dmCallbackUrl = stripThreadTsParam(
           guardianInBandContext.replyCallbackUrl,
