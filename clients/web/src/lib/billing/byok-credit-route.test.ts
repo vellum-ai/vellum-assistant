@@ -456,7 +456,9 @@ describe("mix rungs (per-conversation seeded pick)", () => {
   });
 });
 
-describe("mainAgent call-site model tweak", () => {
+describe("mainAgent call-site tweak composition (pre-migration-147 daemons)", () => {
+  // Real catalog ids: the composition's serves-model check reads the client
+  // model catalog, so fake ids would always look foreign.
   const ANTHROPIC_MODEL = MODELS_BY_PROVIDER.anthropic[0]?.id ?? "";
   const OPENAI_MODEL = MODELS_BY_PROVIDER.openai[0]?.id ?? "";
 
@@ -474,29 +476,93 @@ describe("mainAgent call-site model tweak", () => {
     },
   });
 
-  test("a model tweak rides the winner's route and keeps its verdict", () => {
-    // A call-site pin picks a model only; it dispatches on the winner's
-    // route (the daemon rejects a model that route cannot serve), so the
-    // billing verdict and its availability proof both carry.
-    for (const model of [ANTHROPIC_MODEL, OPENAI_MODEL]) {
-      expect(
-        classify({
-          llm: BYOK_WINNER_LLM({ mainAgent: { model } }),
-          connections: [BYOK_ANTHROPIC],
-        }),
-      ).toBe(false);
-    }
+  test("a model tweak served by the winner's provider keeps the BYOK verdict", () => {
+    expect(
+      classify({
+        llm: BYOK_WINNER_LLM({ mainAgent: { model: ANTHROPIC_MODEL } }),
+        connections: [BYOK_ANTHROPIC],
+      }),
+    ).toBe(false);
   });
 
-  test("a legacy provider field on the entry is not consulted", () => {
-    // Older daemons persisted provider pins; the classification reads only
-    // the winner's own route.
+  test("a model tweak owned by another provider voids the BYOK proof", () => {
+    // Pre-147 daemons stamp the model's catalog owner and drop the winner's
+    // binding, so the availability proof no longer attests the dispatch
+    // route and the verdict degrades to unknown (banners up). Post-147
+    // daemons cannot hold this shape (foreign pins 400 at write time and
+    // migration 147 strips persisted ones), so over-warning is confined to
+    // lagging daemons.
+    expect(
+      classify({
+        llm: BYOK_WINNER_LLM({ mainAgent: { model: OPENAI_MODEL } }),
+        connections: [BYOK_ANTHROPIC],
+      }),
+    ).toBeNull();
+  });
+
+  test("a foreign model tweak classifies by the implied provider's connections", () => {
+    // Unbound implied dispatch consults the implied provider's connections:
+    // a platform-auth openai connection makes the route managed, while an
+    // api-key one leaves a BYOK-looking route whose proof was voided.
+    expect(
+      classify({
+        llm: BYOK_WINNER_LLM({ mainAgent: { model: OPENAI_MODEL } }),
+        connections: [
+          BYOK_ANTHROPIC,
+          conn({
+            name: "managed-openai",
+            provider: "openai",
+            auth: { type: "platform" },
+          }),
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      classify({
+        llm: BYOK_WINNER_LLM({ mainAgent: { model: OPENAI_MODEL } }),
+        connections: [
+          BYOK_ANTHROPIC,
+          conn({ name: "my-openai", provider: "openai" }),
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  test("an explicit provider tweak voids the BYOK proof but keeps a managed binding decisive", () => {
     expect(
       classify({
         llm: BYOK_WINNER_LLM({ mainAgent: { provider: "openai" } }),
         connections: [BYOK_ANTHROPIC],
       }),
-    ).toBe(false);
+    ).toBeNull();
+    expect(
+      classify({
+        llm: {
+          activeProfile: "p",
+          callSites: { mainAgent: { provider: "openai" } },
+          profiles: {
+            p: {
+              provider: "anthropic",
+              model: ANTHROPIC_MODEL,
+              provider_connection: "managed-anthropic",
+            },
+          },
+        },
+        connections: [PLATFORM_ANTHROPIC],
+      }),
+    ).toBe(true);
+  });
+
+  test("a vellum winner keeps managed routing under a concrete provider tweak", () => {
+    expect(
+      classify({
+        llm: {
+          activeProfile: "p",
+          callSites: { mainAgent: { provider: "anthropic" } },
+          profiles: { p: { provider: "vellum", model: ANTHROPIC_MODEL } },
+        },
+      }),
+    ).toBe(true);
   });
 });
 

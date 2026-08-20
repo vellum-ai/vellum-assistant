@@ -541,3 +541,104 @@ describe("OverridesDetailPanel - bulk change", () => {
     expect(getButton("Bulk change").disabled).toBe(true);
   });
 });
+
+describe("OverridesDetailPanel - Custom under a mix winner", () => {
+  // A mix winner has no single provider kind (the serving arm is seeded per
+  // conversation), so no model list is honest and the row must not offer a
+  // new Custom pin.
+  const MIX_CONFIG = {
+    ...CONFIG,
+    llm: {
+      ...CONFIG.llm,
+      profiles: {
+        ...CONFIG.llm.profiles,
+        blend: {
+          label: "Blend",
+          mix: [
+            { profile: "my-byok", weight: 1 },
+            { profile: "quality", weight: 1 },
+          ],
+        },
+      },
+      profileOrder: ["my-byok", "quality", "blend"],
+    },
+  };
+
+  const MIX_CATALOG = {
+    domains: [{ id: "agentLoop", displayName: "Agent Loop" }],
+    callSites: [
+      {
+        id: "workflowLeaf",
+        displayName: "Workflow Leaf",
+        description: "Runs an ephemeral leaf agent.",
+        domain: "agentLoop",
+        defaultProfile: "blend",
+      },
+    ],
+  };
+
+  function renderWith(config: unknown, catalog: unknown) {
+    servedConfig = config;
+    servedCatalog = catalog;
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    client.setQueryData([{ _id: "configLlmCallsitesGet" }], catalog);
+    client.setQueryData([{ _id: "configGet" }], config);
+    return render(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(OverridesDetailPanel, {
+          assistantId: "asst-1",
+          onClose: () => {},
+        }),
+      ),
+    );
+  }
+
+  function toggleOnAndOpenRowPicker() {
+    const toggle = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="switch"]'),
+    ).find((el) =>
+      (el.getAttribute("aria-label") ?? "").includes("Workflow Leaf"),
+    );
+    if (!toggle) {
+      throw new Error("expected the Workflow Leaf toggle");
+    }
+    fireEvent.click(toggle);
+    // The advisor combobox renders first; the row's picker is the last one.
+    const combos = Array.from(
+      document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
+    );
+    const rowTrigger = combos.at(-1);
+    if (!rowTrigger) {
+      throw new Error("expected the row's profile picker");
+    }
+    fireEvent.click(rowTrigger);
+    return Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => o.textContent?.trim() ?? "");
+  }
+
+  test("a mix winner's row offers profiles but no Custom option", async () => {
+    renderWith(MIX_CONFIG, MIX_CATALOG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+
+    const options = toggleOnAndOpenRowPicker();
+    expect(options.some((l) => l.includes("My BYOK"))).toBe(true);
+    expect(options.some((l) => l === "Custom")).toBe(false);
+  });
+
+  test("a non-mix winner's row still offers Custom", async () => {
+    renderWith(CONFIG, CATALOG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+
+    const options = toggleOnAndOpenRowPicker();
+    expect(options.some((l) => l === "Custom")).toBe(true);
+  });
+});

@@ -1006,7 +1006,7 @@ export const VELLUM_SERVED_PROVIDERS = [
  * Union of the given providers' catalogs, deduplicated by display label as
  * well as id: two upstreams can host the same model under different ids
  * (e.g. MiniMax M3 on Fireworks and Together), and provider-agnostic pickers
- * render labels only — duplicate labels would be indistinguishable options.
+ * render labels only, so duplicate labels would be indistinguishable options.
  * First provider in the given order wins.
  */
 function dedupedModelUnion(

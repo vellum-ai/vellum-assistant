@@ -43,6 +43,27 @@ describe("buildCallSiteSavePatch", () => {
     });
   });
 
+  test("an untouched legacy provider-only row is omitted, not rewritten", () => {
+    // The row reads as active (old daemons still route on the pin), but the
+    // serialized entry carries no provider: rewriting it without a user
+    // edit would silently clear the pin.
+    const drafts: CallSiteDraftMap = { heartbeatAgent: { provider: "openai" } };
+    const patch = buildCallSiteSavePatch(drafts, {});
+    expect("heartbeatAgent" in patch).toBe(false);
+  });
+
+  test("an edited legacy row serializes with the explicit provider clear", () => {
+    const edited: CallSiteDraftMap = {
+      heartbeatAgent: { provider: "openai", model: "gpt-4o" },
+    };
+    const patch = buildCallSiteSavePatch(edited, edited);
+    expect(patch.heartbeatAgent).toEqual({
+      profile: null,
+      provider: null,
+      model: "gpt-4o",
+    });
+  });
+
   test("a row switched off this session serializes to null", () => {
     const drafts: CallSiteDraftMap = { heartbeatAgent: null };
     const draftEdits: CallSiteDraftMap = { heartbeatAgent: null };

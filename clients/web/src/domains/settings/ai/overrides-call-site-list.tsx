@@ -35,6 +35,7 @@ export interface OverridesCallSiteListProps {
   drafts: CallSiteDraftMap;
   buildProfileOptionsForRow: (
     selectedProfile: string | null,
+    includeCustom: boolean,
   ) => ProfileOption[];
   profileLabelFor: (name: string) => string;
   /**
@@ -43,6 +44,11 @@ export interface OverridesCallSiteListProps {
    * model picker to its winning route.
    */
   providerForProfile: (name: string) => string | undefined;
+  /**
+   * Whether a named profile is a mix. A mix winner has no single provider
+   * kind, so its rows do not offer new Custom pins.
+   */
+  isMixProfile: (name: string) => boolean;
   advisorMatchesSearch: boolean;
   /** Passed through to each row's model picker; see CallSiteOverrideRowProps. */
   connections?: ProviderConnection[];
@@ -64,6 +70,7 @@ export function OverridesCallSiteList({
   buildProfileOptionsForRow,
   profileLabelFor,
   providerForProfile,
+  isMixProfile,
   advisorMatchesSearch,
   connections,
   onDraftChange,
@@ -95,7 +102,7 @@ export function OverridesCallSiteList({
                   if (!d || !isDraftActive(d)) {
                     return "";
                   }
-                  if (d.model) {
+                  if (d.model || d.provider != null) {
                     return CUSTOM_SENTINEL;
                   }
                   return d.profile ?? "";
@@ -116,9 +123,19 @@ export function OverridesCallSiteList({
                 // offers the full model union and the daemon validates.
                 const winnerName =
                   cs.defaultProfile ?? cs.shippedDefaultProfile;
-                const winningProvider = winnerName
-                  ? providerForProfile(winnerName)
-                  : undefined;
+                const winnerIsMix =
+                  winnerName != null && isMixProfile(winnerName);
+                const winningProvider =
+                  winnerName != null && !winnerIsMix
+                    ? providerForProfile(winnerName)
+                    : undefined;
+                // A mix winner offers no NEW Custom pins (which arm serves
+                // a conversation is seeded per conversation, so no single
+                // model list is honest). An existing custom pin stays
+                // representable: hiding its option would blank the trigger
+                // while the pin is still saved.
+                const includeCustom =
+                  !winnerIsMix || profileVal === CUSTOM_SENTINEL;
 
                 return (
                   <CallSiteOverrideRow
@@ -132,6 +149,7 @@ export function OverridesCallSiteList({
                       profileVal === "" || profileVal === CUSTOM_SENTINEL
                         ? null
                         : profileVal,
+                      includeCustom,
                     )}
                     winningProvider={winningProvider}
                     connections={connections}

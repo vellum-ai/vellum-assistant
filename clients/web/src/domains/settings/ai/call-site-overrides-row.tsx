@@ -80,7 +80,9 @@ export function CallSiteOverrideRow({
     if (!draft || !overrideOn) {
       return "";
     }
-    if (draft.model) {
+    // A legacy provider-only pin renders as Custom: picking a model is its
+    // repair path (the save clears the provider).
+    if (draft.model || draft.provider != null) {
       return CUSTOM_SENTINEL;
     }
     return draft.profile ?? "";
@@ -97,11 +99,16 @@ export function CallSiteOverrideRow({
         connectionServesProvider(c.provider, winningProvider),
       )
     : [];
-  const availableModels = !winningProvider
+  const scopedModels = !winningProvider
     ? ALL_CATALOG_MODELS
     : restrictsToSubscriptionModels(winningProvider, "", connectionsForProvider)
       ? codexServableModels(winningProvider)
       : getModelsForProvider(winningProvider);
+  // A winner with an empty catalog (litellm, openai-compatible: models live
+  // on the connection) would leave nothing to pick; fall back to the full
+  // union and let the daemon validate on save.
+  const availableModels =
+    scopedModels.length > 0 ? scopedModels : ALL_CATALOG_MODELS;
   const modelOptions = availableModels.map((m) => ({
     value: m.id,
     label: m.displayName,
@@ -124,11 +131,14 @@ export function CallSiteOverrideRow({
 
   function handleProfilePickerChange(val: string) {
     if (val === CUSTOM_SENTINEL) {
+      // `||` chains so an empty-string catalog default (empty-catalog
+      // providers) falls through; a model-less seed would read as an
+      // inactive draft.
       const defaultModel =
         (winningProvider
           ? getDefaultModelForProvider(winningProvider)
-          : undefined) ??
-        availableModels[0]?.id ??
+          : undefined) ||
+        availableModels[0]?.id ||
         "";
       onDraftChange(id, { profile: null, model: defaultModel });
     } else if (val === "") {

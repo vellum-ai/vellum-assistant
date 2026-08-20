@@ -28,13 +28,16 @@ describe("isDraftActive", () => {
   });
 
   test("returns false when all picker fields are null", () => {
-    expect(isDraftActive({ profile: null, model: null })).toBe(false);
+    expect(isDraftActive({ profile: null, provider: null, model: null })).toBe(
+      false,
+    );
   });
 
-  test("a legacy provider-only entry reads as inactive", () => {
-    // Drafts pick a model only; a stale provider field persisted by an
-    // older daemon does not activate the row.
-    expect(isDraftActive({ provider: "openai" })).toBe(false);
+  test("a legacy provider-only entry reads as active", () => {
+    // Drafts can no longer set a provider, but old daemons still route on a
+    // persisted pin: the row must show as modified and stay clearable
+    // rather than hiding a live routing change.
+    expect(isDraftActive({ provider: "openai" })).toBe(true);
   });
 });
 
@@ -81,9 +84,15 @@ describe("effectiveCallSiteProfile", () => {
     ).toEqual({ profile: "balanced", via: "default" });
   });
 
-  test("a model pin references no profile", () => {
+  test("a model or legacy provider pin references no profile", () => {
     expect(
       effectiveCallSiteProfile({ defaultProfile: "slow" }, { model: "gpt-4o" }),
+    ).toBe(null);
+    expect(
+      effectiveCallSiteProfile(
+        { defaultProfile: "slow" },
+        { provider: "openai" },
+      ),
     ).toBe(null);
     expect(
       effectiveCallSiteProfile(
@@ -134,11 +143,22 @@ describe("draftsEqual", () => {
     ).toBe(false);
   });
 
+  test("clearing a legacy provider pin reads as a change", () => {
+    // Repairing a legacy pin can leave the model identical; the provider
+    // difference alone must make the row dirty so the clearing save fires.
+    expect(
+      draftsEqual(
+        { provider: "openai", model: "gpt-4o" },
+        { profile: null, model: "gpt-4o" },
+      ),
+    ).toBe(false);
+  });
+
   test("null and undefined fields are treated as equivalent", () => {
     expect(
       draftsEqual(
-        { profile: "fast", model: null },
-        { profile: "fast", model: undefined },
+        { profile: "fast", provider: null, model: null },
+        { profile: "fast", provider: undefined, model: undefined },
       ),
     ).toBe(true);
   });

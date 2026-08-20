@@ -73,7 +73,10 @@ export function LanguageModelCard({
 
   const callSites = config?.llm?.callSites ?? {};
   const overrideCount = Object.entries(callSites).filter(
-    ([id, s]) => id !== "mainAgent" && (s?.profile != null || s?.model != null),
+    // Legacy provider-only pins count: old daemons still route on them.
+    ([id, s]) =>
+      id !== "mainAgent" &&
+      (s?.profile != null || s?.model != null || s?.provider != null),
   ).length;
 
   return (

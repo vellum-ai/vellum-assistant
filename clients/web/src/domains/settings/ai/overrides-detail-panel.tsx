@@ -185,6 +185,14 @@ export function OverridesDetailPanel({
     [profiles],
   );
 
+  // A mix profile has no single provider kind: the arm is seeded per
+  // conversation, so a model pin's servability cannot be judged client-side
+  // and rows with a mix winner do not offer the Custom option.
+  const isMixProfile = useCallback(
+    (name: string) => (profiles[name]?.mix?.length ?? 0) > 0,
+    [profiles],
+  );
+
   // An entry only reaches a picker while undispatchable when it is the
   // current selection. It carries the same warning affordance the Profiles
   // row uses, rather than a word appended to its name.
@@ -237,15 +245,17 @@ export function OverridesDetailPanel({
   const hasAnyPersistedOverride = useMemo(
     () =>
       Object.entries(persistedOverrides).some(
+        // Legacy provider-only pins count: old daemons still route on
+        // them, and Reset is the affordance that clears them.
         ([id, s]) =>
           gatedCallSiteIdSet.has(id) &&
-          (s?.profile != null || s?.model != null),
+          (s?.profile != null || s?.model != null || s?.provider != null),
       ),
     [persistedOverrides, gatedCallSiteIdSet],
   );
 
   const buildProfileOptionsForRow = useCallback(
-    (selectedProfile: string | null) => {
+    (selectedProfile: string | null, includeCustom: boolean) => {
       const visible = visibleProfilesForPicker(
         orderedProfiles,
         [selectedProfile],
@@ -253,10 +263,14 @@ export function OverridesDetailPanel({
       );
       return [
         ...visible.map(toProfileOption),
-        {
-          value: CUSTOM_SENTINEL,
-          label: t("overridesDetailPanel.customProfileOption"),
-        },
+        ...(includeCustom
+          ? [
+              {
+                value: CUSTOM_SENTINEL,
+                label: t("overridesDetailPanel.customProfileOption"),
+              },
+            ]
+          : []),
       ];
     },
     [orderedProfiles, toProfileOption, dispatchOptions, t],
@@ -529,6 +543,7 @@ export function OverridesDetailPanel({
             buildProfileOptionsForRow={buildProfileOptionsForRow}
             profileLabelFor={profileLabelFor}
             providerForProfile={providerForProfile}
+            isMixProfile={isMixProfile}
             advisorMatchesSearch={advisorMatchesSearch}
             connections={connectionsData?.connections}
             onDraftChange={setDraft}

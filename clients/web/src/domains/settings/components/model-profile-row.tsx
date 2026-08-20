@@ -30,7 +30,9 @@ function callSiteOverrideLabel(
   if (override == null) {
     return undefined;
   }
-  if (override.model != null) {
+  // Legacy provider-only pins read as custom too: old daemons still route
+  // on them, so the label must not claim the default profile.
+  if (override.model != null || override.provider != null) {
     return CUSTOM_CALL_SITE_MODEL_LABEL;
   }
   const profile = override.profile?.trim();

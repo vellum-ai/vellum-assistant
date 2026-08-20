@@ -147,6 +147,44 @@ describe("CallSiteOverrideRow model scoping by the winning route", () => {
     expect(labels.some((l) => l.includes("Llama 3.2"))).toBe(true);
   });
 
+  test("an empty-catalog winner falls back to the full union", () => {
+    // litellm serves models from its connection, so its catalog column is
+    // empty; scoping to it would leave nothing to pick.
+    renderRow({ model: "claude-fable-5" }, { winningProvider: "litellm" });
+
+    fireEvent.click(modelTrigger());
+
+    const labels = optionLabels();
+    expect(labels.some((l) => l.includes("Claude Fable 5"))).toBe(true);
+    expect(labels.some((l) => l.includes("GPT-5.6 Luna"))).toBe(true);
+  });
+
+  test("picking Custom under an empty-catalog winner seeds a real model", () => {
+    // A model-less seed would read as an inactive draft.
+    renderRow({ profile: "balanced" }, { winningProvider: "litellm" });
+
+    const profileTrigger = triggers()[0]!;
+    fireEvent.click(profileTrigger);
+    const custom = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((o) => o.textContent?.trim() === "Custom");
+    fireEvent.click(custom!);
+
+    const draft = drafts.at(-1) as { model?: string };
+    expect(typeof draft.model).toBe("string");
+    expect(draft.model!.length).toBeGreaterThan(0);
+  });
+
+  test("a legacy provider-only draft renders as an active Custom row", () => {
+    // Old daemons still route on a persisted provider pin: the row shows as
+    // modified with the Custom picker (picking a model is the repair path).
+    renderRow({ provider: "ollama" }, { winningProvider: "anthropic" });
+
+    const all = triggers();
+    expect(all.length).toBe(2);
+    expect(all[0]!.textContent).toContain("Custom");
+  });
+
   test("a stored pin outside the offered set stays visible as unavailable", () => {
     // The trigger shows the stored pin instead of rendering blank while the
     // out-of-route value is still saved.

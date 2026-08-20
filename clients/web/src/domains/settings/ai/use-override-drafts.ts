@@ -76,6 +76,13 @@ export function buildCallSiteSavePatch(
   for (const id of Object.keys(drafts)) {
     const d = drafts[id] ?? null;
     if (isDraftActive(d)) {
+      // A row active only through a legacy provider pin is omitted unless
+      // the user edited it: the serialized entry carries no provider, so
+      // rewriting an untouched row would silently clear a pin an old
+      // daemon still routes on.
+      if (!(id in draftEdits) && !d?.profile && !d?.model) {
+        continue;
+      }
       patch[id] = {
         profile: d?.profile ?? null,
         // Drafts carry no provider. The literal null is an explicit clear:
