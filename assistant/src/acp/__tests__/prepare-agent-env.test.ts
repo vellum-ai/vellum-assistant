@@ -10,15 +10,21 @@
  * exercised for real here: the metadata store and the encrypted secure-key
  * store are pointed at a temp dir, so the tool and domain policy these tests
  * observe is the same policy production evaluates.
+ *
+ * The module logger is the one exception. `mock.module` does not hoist above
+ * static imports, so the module under test is imported dynamically AFTER the
+ * mock is installed: that makes `prepare-agent-env.js` the only module holding
+ * the spy logger, so every warn the spy records came from `prepareAgentEnv`.
  */
 
 import { randomBytes } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setStorePathForTesting } from "../../__tests__/encrypted-store-test-helpers.js";
+import { createMockLoggerModule } from "../../__tests__/helpers/mock-logger.js";
 import { FailedDependencyError } from "../../runtime/routes/errors.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -33,13 +39,29 @@ import {
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "../acp-credentials.js";
-import {
+
+const mockLogWarn = mock((_fields: unknown, _msg: string) => {});
+
+mock.module("../../util/logger.js", () =>
+  createMockLoggerModule({
+    getLogger: () => ({
+      warn: mockLogWarn,
+      info: () => {},
+      error: () => {},
+      debug: () => {},
+      trace: () => {},
+      fatal: () => {},
+    }),
+  }),
+);
+
+const {
   ACP_CLAUDE_OAUTH_MISSING_CODE,
   acpSpawnCredentialDenialReason,
   ensureAcpCredentialPolicy,
   grantAcpSpawnPolicy,
   prepareAgentEnv,
-} from "../prepare-agent-env.js";
+} = await import("../prepare-agent-env.js");
 
 const ACP_SPAWN_TOOL = "acp_spawn";
 
@@ -53,6 +75,7 @@ beforeEach(() => {
   setStorePathForTesting(join(TEST_DIR, "keys.enc"));
   _resetBackend();
   _setMetadataPath(join(TEST_DIR, "metadata.json"));
+  mockLogWarn.mockClear();
 });
 
 afterEach(() => {
@@ -76,6 +99,22 @@ function seedVaultToken(token: string): Promise<void> {
 
 function oauthMetadata() {
   return getCredentialMetadata(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD);
+}
+
+/**
+ * Structured fields of the single injection-miss warn the module emitted.
+ * Exactly one line per failed spawn: it is the operator's only record of WHY
+ * the token was missing, and a duplicate would double-count in log searches.
+ */
+function soleInjectionMissWarnFields(): Record<string, unknown> {
+  expect(mockLogWarn).toHaveBeenCalledTimes(1);
+  const [fields, message] = mockLogWarn.mock.calls[0] as [
+    Record<string, unknown>,
+    string,
+  ];
+  expect(message).toBe("Claude OAuth token not injected for acp_spawn");
+  expect(fields.field).toBe(ACP_OAUTH_TOKEN_FIELD);
+  return fields;
 }
 
 describe("prepareAgentEnv — claude-agent-acp gating", () => {
@@ -198,6 +237,66 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     // card actually renders above the model's reply, so "below" is always wrong.
     expect(message).toContain('never say "below"');
     expect(message).toContain('"above"');
+    // Pins the seam between the opening and the shared guidance: an absent
+    // value keeps the "which is not set" wording verbatim.
+    expect(message).toContain(
+      'which is not set. The app shows the user an inline "Connect Claude Code" card.',
+    );
+
+    // The operator-facing half: the broker's own reason, classified.
+    const fields = soleInjectionMissWarnFields();
+    expect(fields.missReason).toContain("no stored value");
+    expect(fields.policyBlocked).toBe(false);
+    expect(fields.apiKeyShaped).toBe(false);
+  });
+
+  test("a policy-denied read logs the broker reason and reports the policy block", async () => {
+    // Invariant: a policy-denied read must be reported as a policy block, not
+    // as an absent value. The two states have different repair stories, and
+    // the message must never assert that a value is stored (policy is checked
+    // before the value, so metadata alone can trigger this branch).
+    upsertCredentialMetadata(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD, {
+      allowedTools: ["bash"],
+    });
+    await seedVaultToken("sk-ant-oat01-policy-blocked");
+
+    let caught: unknown;
+    try {
+      await prepareAgentEnv({ command: "claude-agent-acp", args: [] });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(FailedDependencyError);
+    // Same wire contract: old clients keep rendering the same Connect card.
+    expect((caught as FailedDependencyError).details).toEqual({
+      code: ACP_CLAUDE_OAUTH_MISSING_CODE,
+    });
+    const message = (caught as Error).message;
+    expect(message).toContain("cannot read the Claude OAuth token");
+    expect(message).toContain("blocks the acp_spawn read");
+    expect(message).toContain("CLAUDE_CODE_OAUTH_TOKEN");
+    expect(message).toContain("signs in again and repairs that policy");
+    // Policy is checked before the value, so the message must never assert
+    // that a value is actually stored.
+    expect(message).not.toContain("has a stored");
+    expect(message).not.toContain("which is not set");
+    // The guidance steering the model away from CLI/token-paste workarounds is
+    // shared with the missing-value variant, so it must survive here too.
+    expect(message).toContain("ONE short sentence");
+    expect(message).toContain("Do NOT");
+    expect(message).toContain("claude setup-token");
+    expect(message).toContain("do NOT retry the spawn yourself");
+    expect(message).toContain("assistant credentials prompt");
+
+    const fields = soleInjectionMissWarnFields();
+    expect(fields.missReason).toContain(
+      'Tool "acp_spawn" is not allowed to use credential acp/claude_oauth_token',
+    );
+    expect(fields.policyBlocked).toBe(true);
+    expect(fields.apiKeyShaped).toBe(false);
+    // The denial reason is a policy verdict, never the credential itself.
+    expect(JSON.stringify(fields)).not.toContain("sk-ant-oat01-policy-blocked");
   });
 
   test("does NOT attach the marker when a token is present (happy path unchanged)", async () => {
@@ -229,6 +328,20 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     expect((caught as FailedDependencyError).details).toEqual({
       code: ACP_CLAUDE_OAUTH_MISSING_CODE,
     });
+    // Connect genuinely repairs this by storing a fresh OAuth token, so the
+    // message stays the missing-token one rather than the policy-blocked one.
+    expect((caught as Error).message).toContain(
+      'which is not set. The app shows the user an inline "Connect Claude Code" card.',
+    );
+
+    // The log is where the api-key shape is recorded; the value never is.
+    const fields = soleInjectionMissWarnFields();
+    expect(fields.apiKeyShaped).toBe(true);
+    expect(fields.policyBlocked).toBe(false);
+    expect(fields.missReason).toBeUndefined();
+    expect(JSON.stringify(fields)).not.toContain(
+      "sk-ant-api03-legacy-bad-value",
+    );
   });
 
   test("routes an API key supplied via agent.env (config override) to the missing-token path", async () => {

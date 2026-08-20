@@ -287,25 +287,57 @@ export async function prepareAgentEnv(
     };
 
     dropApiKeyOauthToken();
+    let missReason: string | undefined;
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
-      await injectCredential(
+      missReason = await injectCredential(
         env,
         ACP_OAUTH_TOKEN_FIELD,
         "CLAUDE_CODE_OAUTH_TOKEN",
         "Claude OAuth token for ACP agent authentication",
       );
     }
+    // Any api-key-shaped value still standing here came from the vault read:
+    // the config override was already dropped above, and the read only runs
+    // when the override left the var unset.
+    const storedValueIsApiKeyShaped =
+      env.CLAUDE_CODE_OAUTH_TOKEN !== undefined &&
+      classifyAnthropicToken(env.CLAUDE_CODE_OAUTH_TOKEN) === "api_key";
     dropApiKeyOauthToken();
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
+      // The operator's record of WHY the spawn has no token. `missReason` is
+      // the broker's own reason string and the rest are policy verdicts, so no
+      // field can carry the credential value.
+      const policyDenialReason = acpSpawnCredentialDenialReason(
+        ACP_OAUTH_TOKEN_FIELD,
+      );
+      log.warn(
+        {
+          field: ACP_OAUTH_TOKEN_FIELD,
+          missReason,
+          policyBlocked: policyDenialReason !== undefined,
+          apiKeyShaped: storedValueIsApiKeyShaped,
+        },
+        "Claude OAuth token not injected for acp_spawn",
+      );
       // Carry the stable marker as structured `details` so the client renders
       // the inline "Connect Claude Code" card. The message itself is the tool
       // result the model reads at the failure moment, so it directs the model
       // AT that card and away from CLI/token-paste workarounds — otherwise the
       // model relays a `claude setup-token` / paste-a-token flow that the card
       // exists to replace. The CLI command stays only as a headless fallback.
+      // A policy-blocked read is a different repair story from an absent value,
+      // so the opening states which one happened. The guidance after it is
+      // shared: the Connect card fixes both.
+      const opening = policyDenialReason
+        ? "claude-agent-acp cannot read the Claude OAuth token: the credential " +
+          "policy on acp/claude_oauth_token blocks the acp_spawn read, so " +
+          "CLAUDE_CODE_OAUTH_TOKEN is not set for the spawn. Clicking Connect " +
+          "signs in again and repairs that policy. "
+        : "claude-agent-acp needs a Claude OAuth token (CLAUDE_CODE_OAUTH_TOKEN), " +
+          "which is not set. ";
       throw new FailedDependencyError(
-        "claude-agent-acp needs a Claude OAuth token (CLAUDE_CODE_OAUTH_TOKEN), " +
-          'which is not set. The app shows the user an inline "Connect Claude ' +
+        opening +
+          'The app shows the user an inline "Connect Claude ' +
           'Code" card. Reply with ONE short sentence: ask them to click Connect ' +
           "in that card to sign in, and tell them you'll continue automatically " +
           "once they're connected. Do NOT say where the card is — never say " +
