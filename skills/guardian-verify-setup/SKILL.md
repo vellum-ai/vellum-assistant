@@ -107,7 +107,7 @@ Based on the chosen channel, ask for the required destination:
 
   The bot will send a verification code via Slack DM once the member ID is resolved.
 
-- **Discord**: Ask for their Discord user ID, a numeric snowflake such as `216761906512297985`. To find it: **User Settings > Advanced > Developer Mode**, then right-click their own name in any channel or the member list and choose **Copy User ID**. A username or `@handle` will not work.
+- **Discord**: Ask for their Discord user ID, a numeric snowflake such as `900000000000000001`. To find it: **User Settings > Advanced > Developer Mode**, then right-click their own name in any channel or the member list and choose **Copy User ID**. A username or `@handle` will not work.
 
   The bot DMs the code to that user. Discord only permits that DM when the bot and the user share a server, so complete the invite step of `discord-app-setup` first, and note that a user who has turned off direct messages from server members cannot receive it.
 
@@ -205,9 +205,11 @@ Email is slower than chat, which is why it waits longer before giving up.
 **Polling procedure:**
 
 1. Wait one interval after delivering the code, to give the user time to receive it and reply.
-2. Check the binding status, with `CHANNEL` set to the channel being verified:
+2. Check the binding status. Each bash invocation starts fresh, so set `CHANNEL` in the same block as the command:
 
 ```bash
+CHANNEL=""  # ← MUST set to one of: phone, slack, discord, email
+if [ -z "$CHANNEL" ]; then echo "ERROR: CHANNEL not set"; exit 1; fi
 assistant channel-verification-sessions status --channel "$CHANNEL" --json
 ```
 
