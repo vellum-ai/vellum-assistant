@@ -11,6 +11,7 @@ import {
   isImageDimensionsTooLargeError,
   isImageMediaTypeMismatchError,
   isImageUnprocessableError,
+  isImageUnsupportedFormatError,
 } from "../plugins/defaults/image-recovery/detect.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
@@ -537,6 +538,18 @@ function classifyCore(
             "An image in this conversation is in a format the AI provider can't read, and it couldn't be converted automatically. Re-save it as PNG or JPEG and upload it again.",
           retryable: false,
           errorCategory: "image_media_type_mismatch",
+        };
+      }
+      if (isImageUnsupportedFormatError(message)) {
+        // Same wire-code reuse as image_unprocessable above. The provider read
+        // the bytes and found no image it accepts, so no relabel or resize can
+        // rescue the attachment: name the accepted formats instead.
+        return {
+          code: "IMAGE_TOO_LARGE",
+          userMessage:
+            "An image in this conversation is not in a format the AI provider accepts (PNG, JPEG, GIF, and WebP are). Remove or convert it and send your message again.",
+          retryable: false,
+          errorCategory: "image_unsupported_format",
         };
       }
       if (isVisionNotSupportedError(message)) {
