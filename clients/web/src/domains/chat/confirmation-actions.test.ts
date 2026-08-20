@@ -102,22 +102,31 @@ describe("handleConfirmationSubmit — stale (404) interaction", () => {
   });
 });
 
-describe("handleConfirmationSubmit — a resume that no longer owns the state", () => {
-  it("leaves a newer prompt alone when a late response lands", async () => {
-    // GIVEN a submission held open mid-flight
-    let openGate: (() => void) | undefined;
+describe("handleConfirmationSubmit: a resume that no longer owns the state", () => {
+  /** Starts a submit that parks inside the request, and returns the release. */
+  function submitParked(decision: "allow" | "deny"): {
+    inFlight: Promise<void>;
+    release: () => void;
+  } {
+    let release: (() => void) | undefined;
     submitGate = new Promise<void>((resolve) => {
-      openGate = resolve;
+      release = resolve;
     });
+    const inFlight = handleConfirmationSubmit(decision);
+    return { inFlight, release: () => release?.() };
+  }
+
+  it("leaves a newer prompt alone when a late response lands", async () => {
+    // GIVEN a submission parked mid-request
     submitConfirmationResult = {
       ok: false,
       status: 500,
       error: "Internal error",
     };
     seedPendingConfirmation("cr-old");
-    const inFlight = handleConfirmationSubmit("allow");
+    const { inFlight, release } = submitParked("allow");
 
-    // WHEN a newer confirmation takes the slot before the response lands
+    // WHEN a different confirmation takes the slot before the response lands
     useInteractionStore.getState().showConfirmation({
       requestId: "cr-new",
       toolName: "bash",
@@ -125,29 +134,32 @@ describe("handleConfirmationSubmit — a resume that no longer owns the state", 
       input: {},
     });
 
-    openGate?.();
+    release();
     await inFlight;
 
-    // THEN the newer prompt keeps its card, its submitting flag is untouched,
-    // and the dead request's error is not shown in its place
+    // THEN the newer prompt keeps its card, and the dead request's error is
+    // not shown in its place
+    expect(submitConfirmationCalls).toHaveLength(1);
     expect(useInteractionStore.getState().pendingConfirmation?.requestId).toBe(
       "cr-new",
     );
     expect(useChatSessionStore.getState().error).toBeNull();
   });
 
-  it("does not act on a slot that moved and came back", async () => {
-    // GIVEN a submission held open with nothing else in the slot
-    let openGate: (() => void) | undefined;
-    submitGate = new Promise<void>((resolve) => {
-      openGate = resolve;
-    });
+  it("stands down when another prompt came and went during the request", async () => {
+    // GIVEN a submission parked mid-request, with its own prompt in the slot
+    // so the guarded path is genuinely reached
+    submitConfirmationResult = {
+      ok: false,
+      status: 500,
+      error: "Internal error",
+    };
     seedPendingConfirmation("cr-aba");
-    useInteractionStore.getState().dismissConfirmation();
-    const inFlight = handleConfirmationSubmit("allow");
+    const { inFlight, release } = submitParked("allow");
 
-    // WHEN a prompt arrives and settles inside the await, returning the slot
-    // to the null it started from
+    // WHEN its prompt settles and a different one comes and goes, returning
+    // the slot to the null it would have reached anyway
+    useInteractionStore.getState().dismissConfirmationIfMatches("cr-aba");
     useInteractionStore.getState().showConfirmation({
       requestId: "cr-transient",
       toolName: "bash",
@@ -157,22 +169,64 @@ describe("handleConfirmationSubmit — a resume that no longer owns the state", 
     useInteractionStore.getState().dismissConfirmationIfMatches("cr-transient");
     expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
 
-    openGate?.();
+    release();
     await inFlight;
 
-    // THEN the resume writes nothing. Comparing the prompt would read this as
-    // an untouched store, since it ends on the same null it began on.
+    // THEN nothing is written. The slot ends on the same null the submission
+    // would have left behind, so only the id of whoever left last can tell
+    // this apart from its own resolution.
+    expect(submitConfirmationCalls).toHaveLength(1);
     expect(useChatSessionStore.getState().error).toBeNull();
   });
 
+  it("still cleans up when its own resolution retired the card first", async () => {
+    // GIVEN a submission parked mid-request. The daemon broadcasts
+    // `interaction_resolved` before its POST response returns, so this is the
+    // ordinary ordering rather than an edge case.
+    submitConfirmationResult = { ok: true };
+    seedPendingConfirmation("cr-self");
+    useChatSessionStore.getState().setError({ message: "stale banner" });
+    const { inFlight, release } = submitParked("allow");
+
+    // WHEN the matching resolution lands first and retires the card
+    useInteractionStore.getState().dismissConfirmationIfMatches("cr-self");
+
+    release();
+    await inFlight;
+
+    // THEN the resume still finishes its own cleanup, rather than mistaking
+    // its own resolution for someone else taking the slot
+    expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(false);
+    expect(useChatSessionStore.getState().error).toBeNull();
+  });
+
+  it("keeps ownership across a re-show of the same request", async () => {
+    // GIVEN a submission parked mid-request
+    submitConfirmationResult = { ok: true };
+    seedPendingConfirmation("cr-reshow");
+    const { inFlight, release } = submitParked("allow");
+
+    // WHEN the same prompt is re-raised (an SSE re-emit or a reseed)
+    useInteractionStore.getState().showConfirmation({
+      requestId: "cr-reshow",
+      toolName: "acp_spawn",
+      riskLevel: "high",
+      input: {},
+    });
+
+    release();
+    await inFlight;
+
+    // THEN it is still this submission's prompt, so the decision applies
+    expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
+  });
+
   it("still applies when the submission is the only one in play", async () => {
-    // GIVEN an ordinary submission with nothing moving underneath it
     submitConfirmationResult = { ok: true };
     seedPendingConfirmation("cr-solo");
 
     await handleConfirmationSubmit("allow");
 
-    // THEN the guard does not stand in the way of the normal path
     expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
     expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(false);
   });

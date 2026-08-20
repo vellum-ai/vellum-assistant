@@ -113,20 +113,39 @@ function cleanupAfterConfirmationDecision(
  * `isSubmittingConfirmation`, the session error, and the card itself are single
  * slots, not per-request. Only one in-flight submission may write them, and it
  * is whichever request occupies the prompt slot now. A submission whose prompt
- * has since been replaced, retired, or superseded has to leave all three alone,
- * or it clears a newer prompt's submitting flag, overwrites its error, and can
- * retire its card.
+ * has since been replaced has to leave all three alone, or it clears a newer
+ * prompt's submitting flag, overwrites its error, and can retire its card.
  *
- * Answered by comparing the revision captured before the request went out,
- * rather than the prompt itself: a confirmation that arrives and settles inside
- * the same await leaves the slot on the value it started from, so comparing
- * prompts reads that as "nothing happened". Requests that are still the sole
- * occupant see an unchanged revision and proceed, including the common case
- * where the slot was empty throughout (an inline card submitted while no
- * standalone prompt was up).
+ * Three questions, in order, because no one of them answers the others:
+ *
+ *  - **Someone is in the slot.** Ownership is theirs, so this resume proceeds
+ *    only for its own request. A re-show of the same request (an SSE re-emit,
+ *    a reseed) is still that request, so it stays owned.
+ *  - **The slot is empty and nothing moved.** The submission never had a
+ *    standalone card, which is the ordinary inline case.
+ *  - **The slot is empty and something did move.** Whoever left last decides.
+ *    The daemon broadcasts `interaction_resolved` before its POST response
+ *    returns, so a submission's own resolution routinely retires the card while
+ *    it is still awaiting; that is this request's cleanup to finish, not a
+ *    foreign change. A prompt that came and went in between leaves a different
+ *    id behind, and the resume stands down.
  */
-function stillOwnsConfirmationState(revisionBefore: number): boolean {
-  return useInteractionStore.getState().confirmationRevision === revisionBefore;
+function stillOwnsConfirmationState(
+  requestId: string,
+  revisionBefore: number,
+): boolean {
+  const {
+    pendingConfirmation,
+    confirmationRevision,
+    lastSettledConfirmationRequestId,
+  } = useInteractionStore.getState();
+  if (pendingConfirmation) {
+    return pendingConfirmation.requestId === requestId;
+  }
+  if (confirmationRevision === revisionBefore) {
+    return true;
+  }
+  return lastSettledConfirmationRequestId === requestId;
 }
 
 /**
@@ -224,7 +243,7 @@ export async function handleConfirmationSubmit(
       ruleHint,
     );
 
-    if (!stillOwnsConfirmationState(revisionBefore)) {
+    if (!stillOwnsConfirmationState(snapshot.requestId, revisionBefore)) {
       return;
     }
 
@@ -244,7 +263,7 @@ export async function handleConfirmationSubmit(
     // Always reported; only surfaced when this submission still owns the
     // banner, so a dead request cannot mask a live one's failure.
     captureError(err, { context: "submit_confirmation" });
-    if (!stillOwnsConfirmationState(revisionBefore)) {
+    if (!stillOwnsConfirmationState(snapshot.requestId, revisionBefore)) {
       return;
     }
     useChatSessionStore.getState().setError({
@@ -317,7 +336,8 @@ export async function handleAllowAndCreateRule(
   // The rule editor is this user's own request and the transcript patch names
   // its own requestId, so both stay outside the ownership guard: neither can
   // touch a newer prompt, and withholding the editor would swallow the click.
-  const owns = () => stillOwnsConfirmationState(revisionBefore);
+  const owns = () =>
+    stillOwnsConfirmationState(snapshot.requestId, revisionBefore);
 
   try {
     const result = await submitConfirmation(

@@ -44,6 +44,19 @@ export interface InteractionState {
    * store and write over whatever is there now. Mirrors `questionRevision`.
    */
   confirmationRevision: number;
+  /**
+   * The request whose confirmation last vacated the slot, or `null` when the
+   * slot was emptied by a reset rather than by a prompt settling.
+   *
+   * Needed because the revision alone cannot tell a submission whether the slot
+   * emptied *because of it*. The daemon broadcasts `interaction_resolved`
+   * before its POST response returns, so the matching resolution routinely
+   * lands first and retires the card while the submission is still awaiting;
+   * treating that as a foreign change would skip the very cleanup that
+   * resolution belongs to, stranding the attention key and the tool call's
+   * decision metadata.
+   */
+  lastSettledConfirmationRequestId: string | null;
   isSubmittingConfirmation: boolean;
 
   pendingContactRequest: PendingContactRequestState | null;
@@ -174,6 +187,7 @@ const INITIAL_STATE: InteractionState = {
 
   pendingConfirmation: null,
   confirmationRevision: 0,
+  lastSettledConfirmationRequestId: null,
   isSubmittingConfirmation: false,
 
   pendingContactRequest: null,
@@ -268,8 +282,17 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   dismissConfirmation: () =>
     set((state) => ({
       pendingConfirmation: null,
-      confirmationRevision: state.confirmationRevision + 1,
       isSubmittingConfirmation: false,
+      // Only an actual occupant leaving is a change of occupant. Clearing an
+      // already-empty slot moves nothing and must not advance the revision, or
+      // a submission running against an empty slot would disown itself.
+      ...(state.pendingConfirmation
+        ? {
+            confirmationRevision: state.confirmationRevision + 1,
+            lastSettledConfirmationRequestId:
+              state.pendingConfirmation.requestId,
+          }
+        : {}),
     })),
 
   dismissConfirmationIfMatches: (requestId) => {
@@ -280,6 +303,7 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set((state) => ({
       pendingConfirmation: null,
       confirmationRevision: state.confirmationRevision + 1,
+      lastSettledConfirmationRequestId: requestId,
       isSubmittingConfirmation: false,
     }));
   },
