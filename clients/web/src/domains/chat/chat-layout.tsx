@@ -54,13 +54,14 @@ import { useMobileDrawerStore } from "@/stores/mobile-drawer-store";
 
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking";
+import { isTranscriptOnScreen } from "@/domains/chat/utils/transcript-visibility";
 import { useChatLayoutDrawer } from "@/domains/chat/hooks/use-chat-layout-drawer";
 import { useChatLayoutDrawerGestures } from "@/domains/chat/hooks/use-chat-layout-drawer-gestures";
 import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-shortcuts";
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
 import { useGroupNameRequestStore } from "@/domains/chat/group-name-request-store";
-import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import {
   navigateToConversation,
   navigateToNewConversation,
@@ -226,6 +227,19 @@ export function ChatLayout({
     isAssistantActive,
   );
 
+  // Whether the transcript is on screen, resolved here because this is where
+  // the route, the viewer and the viewport are all in hand. One owner, so
+  // consumers cannot disagree about it.
+  const isMobile = useIsMobile();
+  const viewerMainView = useViewerStore.use.mainView();
+  const viewerAppMinimized = useViewerStore.use.isAppMinimized();
+  const transcriptOnScreen = isTranscriptOnScreen({
+    pathname: location.pathname,
+    mainView: viewerMainView,
+    isAppMinimized: viewerAppMinimized,
+    isNarrow: isMobile,
+  });
+
   // Track processing/attention indicators for every conversation in
   // the sidebar, on every chat-layout child route. Mounted at layout
   // scope so the bus-driven `interaction_resolved` subscriber and the
@@ -234,6 +248,7 @@ export function ChatLayout({
   useAttentionTracking({
     assistantId,
     assistantStateKind,
+    isTranscriptOnScreen: transcriptOnScreen,
   });
 
   // Group CRUD handlers live at the layout level since the sidebar's
@@ -278,7 +293,7 @@ export function ChatLayout({
   const topBarCenterSlot = useChatLayoutSlotsStore.use.topBarCenter();
   const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
-  const showLlmInspector = useCanUseLlmInspector();
+  const showInternalActions = useCanUseInternalThreadActions();
   const isNative = useIsNativePlatform();
   const electron = isElectron();
   // In-chat onboarding prototype: the tour's opening beats hide the sidebar
@@ -430,7 +445,9 @@ export function ChatLayout({
       // without the design library's own padding and border (the page draws
       // that chrome), and the collapsed rail sizes its tile as content, so
       // nothing is added around it.
-      const targetWidth = effectiveCollapsed ? SIDE_MENU_TILE_SIZE : sidebarWidth;
+      const targetWidth = effectiveCollapsed
+        ? SIDE_MENU_TILE_SIZE
+        : sidebarWidth;
       railFocusAnimationsRef.current = [
         aside.animate(
           [
@@ -447,7 +464,6 @@ export function ChatLayout({
     }
   }, [chatFocusActive, sideMenuAside, effectiveCollapsed, sidebarWidth]);
 
-  const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
 
   useEffect(() => {
@@ -701,17 +717,13 @@ export function ChatLayout({
         assistantId={assistantId}
         activeConversation={activeConversation}
         headerSupplements={headerSupplements}
-        showLlmInspector={showLlmInspector}
-        conversationGroups={conversationGroups}
+        showInternalActions={showInternalActions}
         onArchive={handleArchiveConversation}
         onUnarchive={handleUnarchiveConversation}
         onMarkUnread={handleMarkConversationUnread}
         onMarkRead={handleMarkConversationRead}
         onPinToggle={handleTogglePinConversation}
         onRename={handleRenameConversation}
-        onMoveToGroup={handleMoveToGroup}
-        onCreateGroupInto={handleRequestCreateGroup}
-        onRemoveFromGroup={handleRemoveFromGroup}
       />
     ) : null);
 
@@ -955,7 +967,8 @@ export function ChatLayout({
       onMarkAllReadInGroup={handleMarkAllReadInGroup}
       onArchiveAllInGroup={requestArchiveAll}
       onOpenInNewWindow={isNative ? undefined : handleOpenInNewWindow}
-      onInspect={showLlmInspector ? handleInspectConversation : undefined}
+      onInspect={showInternalActions ? handleInspectConversation : undefined}
+      showInternalActions={showInternalActions}
       onMoveToGroup={handleMoveToGroup}
       onCreateGroupInto={handleRequestCreateGroup}
       onRemoveFromGroup={handleRemoveFromGroup}

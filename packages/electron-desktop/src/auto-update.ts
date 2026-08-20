@@ -1,22 +1,50 @@
-import { autoUpdater } from "electron-updater";
 import { app, BrowserWindow } from "electron";
 import { z } from "zod";
 
 import type { UpdateState, UpdateStatus } from "@vellumai/ipc-contract";
 
-import { handle } from "./ipc";
-import log from "./logger";
-
-declare const __VELLUM_ENVIRONMENT__: string;
-
-const ENVIRONMENT: string =
-  typeof __VELLUM_ENVIRONMENT__ === "string"
-    ? __VELLUM_ENVIRONMENT__
-    : "production";
-
-const BUCKET_ENV = ENVIRONMENT === "production" ? "prod" : ENVIRONMENT;
+import type {
+  AutoUpdateConfig,
+  DesktopAutoUpdater,
+  UpdateFeedPlatform,
+  UpdaterLogger,
+} from "./auto-update-contract";
+import type { IpcHandle } from "./ipc";
 
 export type { UpdateState, UpdateStatus };
+export type {
+  AutoUpdateConfig,
+  DesktopAutoUpdater,
+  UpdateFeedPlatform,
+  UpdaterLogger,
+} from "./auto-update-contract";
+
+/** Environment-, platform-, and architecture-isolated generic feed URL. */
+export const resolveUpdateFeedUrl = (
+  environment: string,
+  platform: UpdateFeedPlatform,
+  arch: string,
+): string => {
+  const bucketEnv = environment === "production" ? "prod" : environment;
+  return `https://storage.googleapis.com/vellum-ai-${bucketEnv}-releases/${platform}/${arch}/`;
+};
+
+let autoUpdater: DesktopAutoUpdater;
+let handle: IpcHandle;
+let log: UpdaterLogger;
+let ENVIRONMENT: string;
+let feedUrl: string;
+
+/** Each desktop shell configures its updater, IPC, logger, and feed once. */
+export const configureAutoUpdate = (config: AutoUpdateConfig): void => {
+  ({
+    updater: autoUpdater,
+    logger: log,
+    environment: ENVIRONMENT,
+    feedUrl,
+  } = config);
+  ({ handle } = config.ipc);
+};
 
 let currentState: UpdateState = { status: "idle" };
 
@@ -60,7 +88,7 @@ export const installAutoUpdate = (): void => {
   autoUpdater.allowDowngrade = false;
   autoUpdater.setFeedURL({
     provider: "generic",
-    url: `https://storage.googleapis.com/vellum-ai-${BUCKET_ENV}-releases/mac-electron/${process.arch}/`,
+    url: feedUrl,
   });
 
   autoUpdater.on("checking-for-update", () => {

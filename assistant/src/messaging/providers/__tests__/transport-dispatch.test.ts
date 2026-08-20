@@ -60,7 +60,9 @@ mock.module("../../../util/logger.js", () => ({
 const {
   deliverDirect,
   sendChannelReaction,
+  sendChannelStreamOp,
   sendChannelTyping,
+  setChannelThreadStatus,
   supportsChannelTyping,
   isDirectDelivery,
   getTransportForCallback,
@@ -152,19 +154,26 @@ describe("Slack sub-operation selection", () => {
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
   });
 
-  test("assistantThreadStatus routes to sendSlackAssistantThreadStatus", async () => {
-    await deliverDirect(
-      `${BASE}/deliver/slack`,
-      payload({
-        assistantThreadStatus: {
-          channel: "C1",
-          threadTs: "1700.5",
-          status: "is thinking",
-        },
-      }),
-    );
+  test("setChannelThreadStatus reaches Slack without touching the text path", async () => {
+    await setChannelThreadStatus(`${BASE}/deliver/slack`, {
+      chatId: "C1",
+      threadTs: "1700.5",
+      status: "is thinking",
+    });
+
     expect(slack.sendSlackAssistantThreadStatus).toHaveBeenCalledTimes(1);
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
+  });
+
+  test("a channel with no status surface resolves quietly", async () => {
+    const result = await setChannelThreadStatus(`${BASE}/deliver/telegram`, {
+      chatId: "123",
+      threadTs: "1700.5",
+      status: "is thinking",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
   });
 
   test("sendChannelTyping resolves quietly for a channel with no typing capability", async () => {
@@ -174,18 +183,16 @@ describe("Slack sub-operation selection", () => {
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
   });
 
-  test("slackStream routes to sendSlackStreamOp ahead of the text path", async () => {
-    const result = await deliverDirect(
+  test("sendChannelStreamOp reaches Slack without touching the text path", async () => {
+    const result = await sendChannelStreamOp(
       `${BASE}/deliver/slack?threadTs=1700.5`,
-      payload({
-        text: "ignored while streaming",
-        slackStream: { action: "start", threadTs: "1700.5" },
-      }),
+      "C1",
+      { action: "start", threadTs: "1700.5", markdownText: "hi" },
     );
     expect(slack.sendSlackStreamOp).toHaveBeenCalledTimes(1);
     expect(slack.sendSlackStreamOp.mock.calls[0]).toEqual([
       "C1",
-      { action: "start", threadTs: "1700.5" },
+      { action: "start", threadTs: "1700.5", markdownText: "hi" },
     ]);
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: true, ts: "stream-ts" });
@@ -265,15 +272,15 @@ describe("capability gating across channels", () => {
     expect(discord.sendDiscordTypingIndicator).toHaveBeenCalledTimes(1);
   });
 
-  test("a Slack-only stream payload to Discord falls through to deliver", async () => {
-    await deliverDirect(
-      `${BASE}/deliver/discord`,
-      payload({
-        text: "hi",
-        slackStream: { action: "start", threadTs: "1700.5" },
-      }),
-    );
-    expect(discord.sendDiscordReply).toHaveBeenCalledTimes(1);
+  test("a channel that cannot stream resolves quietly, and posts nothing", async () => {
+    const result = await sendChannelStreamOp(`${BASE}/deliver/discord`, "999", {
+      action: "start",
+      threadTs: "1700.5",
+      markdownText: "hi",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(discord.sendDiscordReply).not.toHaveBeenCalled();
   });
 });
 

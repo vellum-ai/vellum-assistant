@@ -13,10 +13,12 @@
  *   - `revoke` with no flags (channel: undefined)
  *   - `revoke --channel phone` sends channel param
  *   - `create --channel fax` → invalid channel, exits with code 1, IPC not called
+ *   - the accepted `--channel` set is the canonical CHANNEL_IDS vocabulary
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CHANNEL_IDS } from "@vellumai/service-contracts/channels";
 import { Command } from "commander";
 
 // ---------------------------------------------------------------------------
@@ -240,6 +242,35 @@ describe("channel-verification-sessions create", () => {
 
     expect(exitCode).toBe(1);
     expect(lastIpcCall).toBeNull();
+  });
+
+  test("--channel discord reaches IPC (canonical vocabulary, not a local copy)", async () => {
+    const { exitCode } = await runCommand([
+      "channel-verification-sessions",
+      "create",
+      "--channel",
+      "discord",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall!.method).toBe("channel_verification_sessions_create");
+    expect(lastIpcCall!.params).toMatchObject({
+      body: { channel: "discord", purpose: "guardian" },
+    });
+  });
+
+  test("every canonical channel id is accepted", async () => {
+    for (const channel of CHANNEL_IDS) {
+      const { exitCode } = await runCommand([
+        "channel-verification-sessions",
+        "create",
+        "--channel",
+        channel,
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(lastIpcCall!.params).toMatchObject({ body: { channel } });
+    }
   });
 
   test("IPC error results in exit code 1", async () => {

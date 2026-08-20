@@ -22,6 +22,8 @@ export interface PlanTileProps {
   tag: ReactNode;
   /** Vertical spec-chip stack; omitted entirely when null or empty. */
   specs?: PlanSpec[] | null;
+  /** Lay the chips out as a wrapping row instead of a vertical stack. */
+  specsWrap?: boolean;
   /** Bottom slot (price row or CTA), pinned to the tile's bottom edge. */
   footer?: ReactNode;
   testId?: string;
@@ -41,6 +43,7 @@ export function PlanTile({
   nameTestId,
   tag,
   specs,
+  specsWrap = false,
   footer,
   testId,
   className,
@@ -69,7 +72,13 @@ export function PlanTile({
         </div>
       </div>
       {specs?.length ? (
-        <div className="flex flex-col items-start gap-2">
+        <div
+          className={
+            specsWrap
+              ? "flex flex-row flex-wrap items-start gap-1"
+              : "flex flex-col items-start gap-2"
+          }
+        >
           {specs.map((spec) => (
             <SpecChip
               key={spec.label}

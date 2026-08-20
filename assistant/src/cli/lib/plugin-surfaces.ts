@@ -217,6 +217,33 @@ function listSchedules(schedulesDir: string): PluginScheduleSurface[] {
 }
 
 /**
+ * Skill id a plugin ships for first-run setup, if any.
+ *
+ * Convention: `skills/setup/SKILL.md` or `skills/<plugin-name>-setup/SKILL.md`.
+ * The directory name is the id `skill_load` uses. `setup` wins when both exist
+ * so the generic name is the standard; `<plugin-name>-setup` covers plugins
+ * that already ship that form.
+ */
+export function findPluginSetupSkill(
+  pluginName: string,
+  skillIds: readonly string[],
+): string | undefined {
+  if (skillIds.includes("setup")) {
+    return "setup";
+  }
+  const named = `${pluginName}-setup`;
+  if (skillIds.includes(named)) {
+    return named;
+  }
+  return undefined;
+}
+
+/** Install-command copy pointing at a plugin's setup skill. */
+export function formatPluginSetupHint(skillId: string): string {
+  return `Load the ${skillId} skill to help set up this plugin`;
+}
+
+/**
  * Detect the {@link PluginSurfaces} an installed plugin contributes by walking
  * its install tree at `pluginDir`. Surface types with no contributions come
  * back as empty arrays; callers omit empty types from the rendered output.

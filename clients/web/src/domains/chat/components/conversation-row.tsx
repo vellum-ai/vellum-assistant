@@ -101,15 +101,16 @@ export function buildMenuProps(
         ? () => ctx.onRemoveFromGroup?.(conversation)
         : undefined,
     onOpenInNewWindow:
-      ctx.onOpenInNewWindow && hasId
+      ctx.showInternalActions && ctx.onOpenInNewWindow && hasId
         ? () => ctx.onOpenInNewWindow?.(conversation)
         : undefined,
     onShareFeedback: ctx.onShareFeedback,
     onInspect:
       ctx.onInspect && hasId ? () => ctx.onInspect?.(conversation) : undefined,
-    onCopyConversationId: hasId
-      ? () => copyIdToClipboard(conversation.conversationId!, "conversation")
-      : undefined,
+    onCopyConversationId:
+      ctx.showInternalActions && hasId
+        ? () => copyIdToClipboard(conversation.conversationId!, "conversation")
+        : undefined,
   };
 }
 

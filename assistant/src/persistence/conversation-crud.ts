@@ -259,6 +259,14 @@ const backgroundToolCompletionMetadataSchema = z.object({
 
 export const messageMetadataSchema = z
   .object({
+    /**
+     * Epoch ms the content actually happened, when that differs from when
+     * the row was written. Set wherever persistence lags the event: a queued
+     * turn draining, or channel history imported long after the fact.
+     * History serialization prefers it over `createdAt` for the display
+     * timestamp.
+     */
+    sentAt: z.number().optional(),
     userMessageChannel: channelIdSchema.optional(),
     assistantMessageChannel: channelIdSchema.optional(),
     userMessageInterface: interfaceIdSchema.optional(),
