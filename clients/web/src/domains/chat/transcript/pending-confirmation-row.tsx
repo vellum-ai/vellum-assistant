@@ -3,7 +3,10 @@
  * interaction-store state directly — no render-prop relay from the parent.
  */
 
-import { useInteractionStore } from "@/domains/chat/interaction-store";
+import {
+  useInteractionStore,
+  useSubmittingRequestId,
+} from "@/domains/chat/interaction-store";
 import {
   handleConfirmationSubmit,
   handleAllowAndCreateRule,
@@ -12,8 +15,7 @@ import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-p
 
 export function PendingConfirmationRow() {
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
-  const submittingRequestId =
-    useInteractionStore.use.submittingConfirmationRequestId();
+  const submittingRequestId = useSubmittingRequestId("confirmation");
 
   if (!pendingConfirmation) {
     return null;

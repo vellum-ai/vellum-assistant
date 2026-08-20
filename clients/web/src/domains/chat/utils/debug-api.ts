@@ -138,14 +138,11 @@ export interface ChatDebugThinkingDoneSignal {
  * snapshot never carries tool-call argument values.
  */
 export interface PendingInteractionsSnapshot {
+  submittingByKind: Record<string, string | null>;
   pendingSecret: PendingSecretState | null;
-  submittingSecretRequestId: string | null;
   pendingConfirmation: PendingConfirmationState | null;
-  submittingConfirmationRequestId: string | null;
   pendingContactRequest: PendingContactRequestState | null;
-  submittingContactRequestRequestId: string | null;
   pendingQuestion: PendingQuestionState | null;
-  submittingQuestionRequestId: string | null;
   /** True while the question card is hidden but `pendingQuestion` is set —
    *  the composer free-text intercept still routes to `submitQuestionResponse`. */
   isQuestionCardDismissed: boolean;

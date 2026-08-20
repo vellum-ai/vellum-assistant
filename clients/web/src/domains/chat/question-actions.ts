@@ -9,25 +9,13 @@
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { useInteractionStore } from "@/domains/chat/interaction-store";
+import {
+  stillOwnsSubmission,
+  useInteractionStore,
+} from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
-
-/**
- * Whether this submission still holds the question slot.
- *
- * The submitting flag and the session error are shared, so a submission that
- * has been superseded must leave them to whoever holds them now. It compares
- * against the id it set when it started; the prompt's own lifecycle never
- * touches that, which is what lets a submission finish its cleanup after the
- * matching `interaction_resolved` has already retired the card.
- */
-function stillOwnsQuestionState(requestId: string): boolean {
-  return (
-    useInteractionStore.getState().submittingQuestionRequestId === requestId
-  );
-}
 
 /**
  * Clear a question prompt the daemon has already discarded.
@@ -52,11 +40,11 @@ function stillOwnsQuestionState(requestId: string): boolean {
  * see. See {@link stillOwnsQuestionState}.
  */
 function clearStaleQuestion(requestId: string): void {
-  if (!stillOwnsQuestionState(requestId)) {
+  if (!stillOwnsSubmission("question", requestId)) {
     return;
   }
   useInteractionStore.getState().dismissQuestionIfMatches(requestId);
-  useInteractionStore.getState().submitQuestionEnd(requestId);
+  useInteractionStore.getState().releaseSubmission("question", requestId);
   useChatSessionStore.getState().setError(null);
 }
 
@@ -71,17 +59,19 @@ function clearStaleQuestion(requestId: string): void {
 export async function handleQuestionResponse(
   responses: QuestionResponseEntry[],
 ): Promise<void> {
-  const { pendingQuestion: snapshot, submittingQuestionRequestId } =
+  const { pendingQuestion: snapshot, submittingByKind } =
     useInteractionStore.getState();
   // Guards double-submitting *this* prompt, not any prompt. A newer prompt
   // supersedes an older one while its answer is still on the wire, and the user
   // must be able to answer what is now in front of them; starting that
   // submission is what moves ownership, and the older one stands down when it
   // returns.
-  if (!snapshot || submittingQuestionRequestId === snapshot.requestId) {
+  if (!snapshot || submittingByKind.question === snapshot.requestId) {
     return;
   }
-  useInteractionStore.getState().submitQuestionStart(snapshot.requestId);
+  useInteractionStore
+    .getState()
+    .claimSubmission("question", snapshot.requestId);
   useChatSessionStore.getState().setError(null);
 
   const ctx = useStreamStore.getState().streamContext;
@@ -91,7 +81,9 @@ export async function handleQuestionResponse(
     useChatSessionStore
       .getState()
       .setError({ message: "No active session. Please try again." });
-    useInteractionStore.getState().submitQuestionEnd(snapshot.requestId);
+    useInteractionStore
+      .getState()
+      .releaseSubmission("question", snapshot.requestId);
     return;
   }
 
@@ -108,9 +100,11 @@ export async function handleQuestionResponse(
       }
       // A retryable failure, so the card stays and the user is told. Both
       // writes belong to whoever owns the state now.
-      if (stillOwnsQuestionState(snapshot.requestId)) {
+      if (stillOwnsSubmission("question", snapshot.requestId)) {
         useChatSessionStore.getState().setError({ message: result.error });
-        useInteractionStore.getState().submitQuestionEnd(snapshot.requestId);
+        useInteractionStore
+          .getState()
+          .releaseSubmission("question", snapshot.requestId);
       }
       return;
     }
@@ -118,17 +112,21 @@ export async function handleQuestionResponse(
     // a submission that is not this one, and the card being gone already (its
     // `interaction_resolved` having arrived first) needs no special case.
     useInteractionStore.getState().dismissQuestionIfMatches(snapshot.requestId);
-    useInteractionStore.getState().submitQuestionEnd(snapshot.requestId);
+    useInteractionStore
+      .getState()
+      .releaseSubmission("question", snapshot.requestId);
   } catch (err) {
     // Transport failure (network drop, abort, malformed response). Always
     // report it, but only surface it to the user when this request still owns
     // the banner, so a dead request cannot mask a live one's failure.
     captureError(err, { context: "submit_question_response" });
-    if (stillOwnsQuestionState(snapshot.requestId)) {
+    if (stillOwnsSubmission("question", snapshot.requestId)) {
       useChatSessionStore
         .getState()
         .setError({ message: "Failed to submit response. Please try again." });
-      useInteractionStore.getState().submitQuestionEnd(snapshot.requestId);
+      useInteractionStore
+        .getState()
+        .releaseSubmission("question", snapshot.requestId);
     }
   }
 }

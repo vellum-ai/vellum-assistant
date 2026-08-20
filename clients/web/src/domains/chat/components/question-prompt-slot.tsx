@@ -3,7 +3,10 @@
  * is pending, reading state from interaction-store directly.
  */
 
-import { useInteractionStore } from "@/domains/chat/interaction-store";
+import {
+  useInteractionStore,
+  useSubmittingRequestId,
+} from "@/domains/chat/interaction-store";
 import {
   handleQuestionResponse,
   handleDismissPendingQuestion,
@@ -12,8 +15,7 @@ import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-ca
 
 export function QuestionPromptSlot() {
   const pendingQuestion = useInteractionStore.use.pendingQuestion();
-  const submittingRequestId =
-    useInteractionStore.use.submittingQuestionRequestId();
+  const submittingRequestId = useSubmittingRequestId("question");
 
   if (!pendingQuestion) {
     return null;

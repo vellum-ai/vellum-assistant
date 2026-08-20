@@ -9,7 +9,10 @@
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { useInteractionStore } from "@/domains/chat/interaction-store";
+import {
+  stillOwnsSubmission,
+  useInteractionStore,
+} from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -19,31 +22,22 @@ import { submitContactPrompt } from "@/domains/chat/api/interactions";
  * Submit the contact address/channel to the daemon.
  * Optimistically dismisses the prompt after a 1.5 s delay (matching macOS).
  */
-/** Whether this submission still holds the contact-request slot. See
- *  `stillOwnsConfirmationState` in `confirmation-actions.ts`. */
-function stillOwnsContactRequestState(requestId: string): boolean {
-  return (
-    useInteractionStore.getState().submittingContactRequestRequestId ===
-    requestId
-  );
-}
-
 export async function handleContactPromptSubmit(
   address: string,
   channelType: string,
 ): Promise<void> {
-  const { pendingContactRequest, submittingContactRequestRequestId } =
+  const { pendingContactRequest, submittingByKind } =
     useInteractionStore.getState();
   // Guards double-submitting this prompt, not any prompt.
   if (
     !pendingContactRequest ||
-    submittingContactRequestRequestId === pendingContactRequest.requestId
+    submittingByKind.contactRequest === pendingContactRequest.requestId
   ) {
     return;
   }
   useInteractionStore
     .getState()
-    .submitContactRequestStart(pendingContactRequest.requestId);
+    .claimSubmission("contactRequest", pendingContactRequest.requestId);
   useChatSessionStore.getState().setError(null);
 
   const ctx = useStreamStore.getState().streamContext;
@@ -53,7 +47,7 @@ export async function handleContactPromptSubmit(
       .setError({ message: "No active session. Please try again." });
     useInteractionStore
       .getState()
-      .submitContactRequestEnd(pendingContactRequest.requestId);
+      .releaseSubmission("contactRequest", pendingContactRequest.requestId);
     return;
   }
 
@@ -66,11 +60,13 @@ export async function handleContactPromptSubmit(
       pendingContactRequest.role,
     );
     if (!result.ok) {
-      if (stillOwnsContactRequestState(pendingContactRequest.requestId)) {
+      if (
+        stillOwnsSubmission("contactRequest", pendingContactRequest.requestId)
+      ) {
         useChatSessionStore.getState().setError({ message: result.error });
         useInteractionStore
           .getState()
-          .submitContactRequestEnd(pendingContactRequest.requestId);
+          .releaseSubmission("contactRequest", pendingContactRequest.requestId);
       }
       return;
     }
@@ -84,7 +80,9 @@ export async function handleContactPromptSubmit(
     }, 1500);
   } catch (err) {
     captureError(err, { context: "submit_contact_prompt" });
-    if (!stillOwnsContactRequestState(pendingContactRequest.requestId)) {
+    if (
+      !stillOwnsSubmission("contactRequest", pendingContactRequest.requestId)
+    ) {
       return;
     }
     useChatSessionStore
@@ -92,7 +90,7 @@ export async function handleContactPromptSubmit(
       .setError({ message: "Failed to save contact. Please try again." });
     useInteractionStore
       .getState()
-      .submitContactRequestEnd(pendingContactRequest.requestId);
+      .releaseSubmission("contactRequest", pendingContactRequest.requestId);
   }
 }
 

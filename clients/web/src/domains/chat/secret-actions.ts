@@ -9,7 +9,10 @@
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { useInteractionStore } from "@/domains/chat/interaction-store";
+import {
+  stillOwnsSubmission,
+  useInteractionStore,
+} from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -22,23 +25,18 @@ import {
  * Submit the user-provided secret value to the daemon.
  * Optimistically dismisses the prompt after a 1.5 s delay (matching macOS).
  */
-/** Whether this submission still holds the secret slot. See
- *  `stillOwnsConfirmationState` in `confirmation-actions.ts`. */
-function stillOwnsSecretState(requestId: string): boolean {
-  return useInteractionStore.getState().submittingSecretRequestId === requestId;
-}
-
 export async function handleSecretSubmit(
   value: string,
   delivery: string = "store",
 ): Promise<void> {
-  const { pendingSecret, submittingSecretRequestId } =
-    useInteractionStore.getState();
+  const { pendingSecret, submittingByKind } = useInteractionStore.getState();
   // Guards double-submitting this prompt, not any prompt.
-  if (!pendingSecret || submittingSecretRequestId === pendingSecret.requestId) {
+  if (!pendingSecret || submittingByKind.secret === pendingSecret.requestId) {
     return;
   }
-  useInteractionStore.getState().submitSecretStart(pendingSecret.requestId);
+  useInteractionStore
+    .getState()
+    .claimSubmission("secret", pendingSecret.requestId);
   useChatSessionStore.getState().setError(null);
 
   const ctx = useStreamStore.getState().streamContext;
@@ -46,7 +44,9 @@ export async function handleSecretSubmit(
     useChatSessionStore
       .getState()
       .setError({ message: "No active session. Please try again." });
-    useInteractionStore.getState().submitSecretEnd(pendingSecret.requestId);
+    useInteractionStore
+      .getState()
+      .releaseSubmission("secret", pendingSecret.requestId);
     return;
   }
 
@@ -58,16 +58,20 @@ export async function handleSecretSubmit(
       delivery,
     );
     if (!result.ok) {
-      if (stillOwnsSecretState(pendingSecret.requestId)) {
+      if (stillOwnsSubmission("secret", pendingSecret.requestId)) {
         useChatSessionStore.getState().setError({ message: result.error });
-        useInteractionStore.getState().submitSecretEnd(pendingSecret.requestId);
+        useInteractionStore
+          .getState()
+          .releaseSubmission("secret", pendingSecret.requestId);
       }
       return;
     }
 
+    // The saved tick is the card's own state, separate from who holds the slot.
+    useInteractionStore.getState().setSecretSaved(true);
     useInteractionStore
       .getState()
-      .submitSecretEnd(pendingSecret.requestId, true);
+      .releaseSubmission("secret", pendingSecret.requestId);
     const convKey = useConversationStore.getState().activeConversationId;
     if (convKey) {
       useConversationStore.getState().removeAttentionConversationId(convKey);
@@ -78,13 +82,15 @@ export async function handleSecretSubmit(
     }, 1500);
   } catch (err) {
     captureError(err, { context: "submit_secret" });
-    if (!stillOwnsSecretState(pendingSecret.requestId)) {
+    if (!stillOwnsSubmission("secret", pendingSecret.requestId)) {
       return;
     }
     useChatSessionStore
       .getState()
       .setError({ message: "Failed to submit secret. Please try again." });
-    useInteractionStore.getState().submitSecretEnd(pendingSecret.requestId);
+    useInteractionStore
+      .getState()
+      .releaseSubmission("secret", pendingSecret.requestId);
   }
 }
 

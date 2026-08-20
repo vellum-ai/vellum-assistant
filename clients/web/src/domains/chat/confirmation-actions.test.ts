@@ -78,7 +78,7 @@ describe("handleConfirmationSubmit — stale (404) interaction", () => {
     expect(submitConfirmationCalls).toHaveLength(1);
     expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
     expect(
-      useInteractionStore.getState().submittingConfirmationRequestId,
+      useInteractionStore.getState().submittingByKind.confirmation,
     ).toBeNull();
     // No error banner — the user is not stranded on an un-actionable card.
     expect(useChatSessionStore.getState().error).toBeNull();
@@ -132,7 +132,7 @@ describe("handleConfirmationSubmit: a resume that no longer owns the slot", () =
     } as Parameters<typeof handleConfirmationSubmit>[1]);
 
     // THEN the slot belongs to the newer submission
-    expect(useInteractionStore.getState().submittingConfirmationRequestId).toBe(
+    expect(useInteractionStore.getState().submittingByKind.confirmation).toBe(
       "cr-new",
     );
 
@@ -199,7 +199,7 @@ describe("handleConfirmationSubmit: a resume that no longer owns the slot", () =
     useInteractionStore.getState().dismissConfirmationIfMatches("cr-self");
     // The submission is untouched by that: the card's lifecycle and the
     // request's are separate.
-    expect(useInteractionStore.getState().submittingConfirmationRequestId).toBe(
+    expect(useInteractionStore.getState().submittingByKind.confirmation).toBe(
       "cr-self",
     );
 
@@ -208,7 +208,7 @@ describe("handleConfirmationSubmit: a resume that no longer owns the slot", () =
 
     // THEN it finishes its own cleanup and releases its own slot
     expect(
-      useInteractionStore.getState().submittingConfirmationRequestId,
+      useInteractionStore.getState().submittingByKind.confirmation,
     ).toBeNull();
   });
 
@@ -230,7 +230,7 @@ describe("handleConfirmationSubmit: a resume that no longer owns the slot", () =
 
     expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
     expect(
-      useInteractionStore.getState().submittingConfirmationRequestId,
+      useInteractionStore.getState().submittingByKind.confirmation,
     ).toBeNull();
   });
 

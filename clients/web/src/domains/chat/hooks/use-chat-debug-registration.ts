@@ -70,15 +70,11 @@ export function useChatDebugRegistration({
     getPendingInteractionsSnapshot: () => {
       const state = useInteractionStore.getState();
       return {
+        submittingByKind: state.submittingByKind,
         pendingSecret: state.pendingSecret,
-        submittingSecretRequestId: state.submittingSecretRequestId,
         pendingConfirmation: state.pendingConfirmation,
-        submittingConfirmationRequestId: state.submittingConfirmationRequestId,
         pendingContactRequest: state.pendingContactRequest,
-        submittingContactRequestRequestId:
-          state.submittingContactRequestRequestId,
         pendingQuestion: state.pendingQuestion,
-        submittingQuestionRequestId: state.submittingQuestionRequestId,
         isQuestionCardDismissed: state.isQuestionCardDismissed,
         inlineConfirmationToolCallId: state.inlineConfirmationToolCallId,
         pendingAcpConnect: state.pendingAcpConnect,

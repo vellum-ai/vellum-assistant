@@ -12,7 +12,10 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { offersRuleOption } from "@/domains/chat/confirmation-decisions";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
-import { useInteractionStore } from "@/domains/chat/interaction-store";
+import {
+  stillOwnsSubmission,
+  useInteractionStore,
+} from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
@@ -105,22 +108,9 @@ function cleanupAfterConfirmationDecision(
   }
 
   useChatSessionStore.getState().deleteConfirmationToolCall(snapshot.requestId);
-  useInteractionStore.getState().submitConfirmationEnd(snapshot.requestId);
-}
-
-/**
- * Whether this submission still holds the confirmation slot.
- *
- * The session error and the double-submit guard are shared, so a submission
- * that has been superseded must leave them to whoever holds them now. It can
- * ask directly, because the id it is comparing against is the one it set when
- * it started: nothing about the prompt's own lifecycle can answer for it, and
- * nothing else clears it.
- */
-function stillOwnsConfirmationState(requestId: string): boolean {
-  return (
-    useInteractionStore.getState().submittingConfirmationRequestId === requestId
-  );
+  useInteractionStore
+    .getState()
+    .releaseSubmission("confirmation", snapshot.requestId);
 }
 
 /**
@@ -153,7 +143,9 @@ function clearStaleConfirmation(snapshot: PendingConfirmationState): void {
   );
   useChatSessionStore.getState().deleteConfirmationToolCall(snapshot.requestId);
   useChatSessionStore.getState().setError(null);
-  useInteractionStore.getState().submitConfirmationEnd(snapshot.requestId);
+  useInteractionStore
+    .getState()
+    .releaseSubmission("confirmation", snapshot.requestId);
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +160,7 @@ export async function handleConfirmationSubmit(
   decision: ConfirmationDecision,
   toolCall?: ChatMessageToolCall,
 ): Promise<void> {
-  const { pendingConfirmation, submittingConfirmationRequestId } =
+  const { pendingConfirmation, submittingByKind } =
     useInteractionStore.getState();
   const snapshot = toolCall?.pendingConfirmation ?? pendingConfirmation;
   if (!snapshot) {
@@ -178,10 +170,12 @@ export async function handleConfirmationSubmit(
   // confirmation stays answerable while an older answer is still on the wire.
   // That also retires the inline exemption: an inline card carries its own
   // request, so it is no longer a special case.
-  if (submittingConfirmationRequestId === snapshot.requestId) {
+  if (submittingByKind.confirmation === snapshot.requestId) {
     return;
   }
-  useInteractionStore.getState().submitConfirmationStart(snapshot.requestId);
+  useInteractionStore
+    .getState()
+    .claimSubmission("confirmation", snapshot.requestId);
   useChatSessionStore.getState().setError(null);
 
   const ctx = useStreamStore.getState().streamContext;
@@ -189,7 +183,9 @@ export async function handleConfirmationSubmit(
     useChatSessionStore
       .getState()
       .setError({ message: "No active session. Please try again." });
-    useInteractionStore.getState().submitConfirmationEnd(snapshot.requestId);
+    useInteractionStore
+      .getState()
+      .releaseSubmission("confirmation", snapshot.requestId);
     return;
   }
 
@@ -221,7 +217,7 @@ export async function handleConfirmationSubmit(
       ruleHint,
     );
 
-    if (!stillOwnsConfirmationState(snapshot.requestId)) {
+    if (!stillOwnsSubmission("confirmation", snapshot.requestId)) {
       return;
     }
 
@@ -233,7 +229,9 @@ export async function handleConfirmationSubmit(
         return;
       }
       useChatSessionStore.getState().setError({ message: result.error });
-      useInteractionStore.getState().submitConfirmationEnd(snapshot.requestId);
+      useInteractionStore
+        .getState()
+        .releaseSubmission("confirmation", snapshot.requestId);
       return;
     }
     cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, decision);
@@ -241,13 +239,15 @@ export async function handleConfirmationSubmit(
     // Always reported; only surfaced when this submission still owns the
     // banner, so a dead request cannot mask a live one's failure.
     captureError(err, { context: "submit_confirmation" });
-    if (!stillOwnsConfirmationState(snapshot.requestId)) {
+    if (!stillOwnsSubmission("confirmation", snapshot.requestId)) {
       return;
     }
     useChatSessionStore.getState().setError({
       message: "Failed to submit confirmation. Please try again.",
     });
-    useInteractionStore.getState().submitConfirmationEnd(snapshot.requestId);
+    useInteractionStore
+      .getState()
+      .releaseSubmission("confirmation", snapshot.requestId);
   }
 }
 
@@ -259,7 +259,7 @@ export async function handleConfirmationSubmit(
 export async function handleAllowAndCreateRule(
   toolCall?: ChatMessageToolCall,
 ): Promise<void> {
-  const { pendingConfirmation, submittingConfirmationRequestId } =
+  const { pendingConfirmation, submittingByKind } =
     useInteractionStore.getState();
   const snapshot = toolCall?.pendingConfirmation ?? pendingConfirmation;
   if (!snapshot) {
@@ -269,7 +269,7 @@ export async function handleAllowAndCreateRule(
   // confirmation stays answerable while an older answer is still on the wire.
   // That also retires the inline exemption: an inline card carries its own
   // request, so it is no longer a special case.
-  if (submittingConfirmationRequestId === snapshot.requestId) {
+  if (submittingByKind.confirmation === snapshot.requestId) {
     return;
   }
   const ctx = useStreamStore.getState().streamContext;
@@ -280,7 +280,9 @@ export async function handleAllowAndCreateRule(
     return;
   }
 
-  useInteractionStore.getState().submitConfirmationStart(snapshot.requestId);
+  useInteractionStore
+    .getState()
+    .claimSubmission("confirmation", snapshot.requestId);
 
   const mappedToolCallId =
     toolCall?.id ??
@@ -316,7 +318,7 @@ export async function handleAllowAndCreateRule(
   // The rule editor is this user's own request and the transcript patch names
   // its own requestId, so both stay outside the ownership guard: neither can
   // touch a newer prompt, and withholding the editor would swallow the click.
-  const owns = () => stillOwnsConfirmationState(snapshot.requestId);
+  const owns = () => stillOwnsSubmission("confirmation", snapshot.requestId);
 
   try {
     const result = await submitConfirmation(
@@ -335,7 +337,7 @@ export async function handleAllowAndCreateRule(
           .setError(result.status === 404 ? null : { message: result.error });
         useInteractionStore
           .getState()
-          .submitConfirmationEnd(snapshot.requestId);
+          .releaseSubmission("confirmation", snapshot.requestId);
         useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       }
       patchTranscriptMessages((prev: DisplayMessage[]) =>
@@ -358,7 +360,9 @@ export async function handleAllowAndCreateRule(
         message:
           "Failed to submit confirmation, but you can still create a rule.",
       });
-      useInteractionStore.getState().submitConfirmationEnd(snapshot.requestId);
+      useInteractionStore
+        .getState()
+        .releaseSubmission("confirmation", snapshot.requestId);
     }
     patchTranscriptMessages((prev: DisplayMessage[]) =>
       clearConfirmationByRequestId(prev, snapshot.requestId),

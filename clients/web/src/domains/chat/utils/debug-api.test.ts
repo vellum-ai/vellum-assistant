@@ -65,14 +65,16 @@ const DEFAULT_UI_CONTEXT: UIContext = {
 };
 
 const DEFAULT_PENDING_INTERACTIONS: PendingInteractionsSnapshot = {
+  submittingByKind: {
+    confirmation: null,
+    question: null,
+    secret: null,
+    contactRequest: null,
+  },
   pendingSecret: null,
-  submittingSecretRequestId: null,
   pendingConfirmation: null,
-  submittingConfirmationRequestId: null,
   pendingContactRequest: null,
-  submittingContactRequestRequestId: null,
   pendingQuestion: null,
-  submittingQuestionRequestId: null,
   isQuestionCardDismissed: false,
   inlineConfirmationToolCallId: null,
   pendingAcpConnect: null,
@@ -716,7 +718,12 @@ describe("createChatDebugApi.listPendingInteractions", () => {
             label: "OpenAI API Key",
             description: "needed for inference",
           },
-          submittingSecretRequestId: "s1",
+          submittingByKind: {
+            confirmation: null,
+            question: null,
+            secret: "s1",
+            contactRequest: null,
+          },
         },
       }),
     );
@@ -726,7 +733,7 @@ describe("createChatDebugApi.listPendingInteractions", () => {
       label: "OpenAI API Key",
       description: "needed for inference",
     });
-    expect(snapshot.submittingSecretRequestId).toBe("s1");
+    expect(snapshot.submittingByKind.secret).toBe("s1");
     // Unrelated prompt slots remain null/false.
     expect(snapshot.pendingConfirmation).toBeNull();
     expect(snapshot.pendingContactRequest).toBeNull();
@@ -767,12 +774,17 @@ describe("createChatDebugApi.listPendingInteractions", () => {
         description: "irreversible",
         riskLevel: "high",
       },
-      submittingConfirmationRequestId: "req-confirm-1",
+      submittingByKind: {
+        confirmation: "req-confirm-1",
+        question: null,
+        secret: null,
+        contactRequest: null,
+      },
       inlineConfirmationToolCallId: "tc-42",
     };
     const second = api.listPendingInteractions();
     expect(second.pendingConfirmation?.requestId).toBe("req-confirm-1");
-    expect(second.submittingConfirmationRequestId).toBe("req-confirm-1");
+    expect(second.submittingByKind.confirmation).toBe("req-confirm-1");
     expect(second.inlineConfirmationToolCallId).toBe("tc-42");
   });
 
