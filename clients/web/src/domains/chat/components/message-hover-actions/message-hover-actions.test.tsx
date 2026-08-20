@@ -17,6 +17,17 @@ function renderedDay(epoch: number): string {
   });
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Epochs are taken relative to now because the component collapses today's
+ * date to "Today". A fixed calendar date would assert the dated form on every
+ * run except the one where it happens to be today.
+ */
+function daysAgo(days: number): number {
+  return Date.now() - days * DAY_MS;
+}
+
 describe("MessageHoverActions", () => {
   test("renders the timestamp even when no actions are available", () => {
     const message: DisplayMessage = {
@@ -34,11 +45,11 @@ describe("MessageHoverActions", () => {
   });
 
   test("dates a Slack row from its origin ts, not the row's write time", () => {
-    const sentAt = Date.UTC(2026, 6, 8, 9, 15);
+    const sentAt = daysAgo(60);
     const message: DisplayMessage = {
       id: "m-backfilled",
       role: "user",
-      timestamp: Date.UTC(2026, 7, 20, 12, 32),
+      timestamp: Date.now(),
       slackMessage: {
         channelId: "D0BFXBJE1QV",
         channelTs: String(sentAt / 1000),
@@ -54,7 +65,7 @@ describe("MessageHoverActions", () => {
   });
 
   test("falls back to the row's own timestamp when no Slack ts is present", () => {
-    const rowWrittenAt = Date.UTC(2026, 6, 8, 9, 15);
+    const rowWrittenAt = daysAgo(30);
     const message: DisplayMessage = {
       id: "m-plain",
       role: "user",
@@ -71,12 +82,13 @@ describe("MessageHoverActions", () => {
   test("dates a reaction from its arrival, not the message it reacts to", () => {
     // A reaction row carries the reacted message's ts in `channelTs`, not
     // its own arrival.
-    const reactedAt = Date.UTC(2026, 6, 8, 9, 15);
+    const reactedAt = daysAgo(60);
     const reactedTs = String(reactedAt / 1000);
+    const arrivedAt = daysAgo(30);
     const message: DisplayMessage = {
       id: "m-reaction",
       role: "user",
-      timestamp: Date.UTC(2026, 7, 20, 12, 32),
+      timestamp: arrivedAt,
       slackMessage: {
         channelId: "D0BFXBJE1QV",
         channelTs: reactedTs,
@@ -89,13 +101,14 @@ describe("MessageHoverActions", () => {
       <MessageHoverActions message={message} />,
     );
 
+    expect(html).toContain(renderedDay(arrivedAt));
     expect(html).not.toContain(renderedDay(reactedAt));
   });
 
   test("ignores a malformed Slack ts rather than inventing an origin time", () => {
     // `parseFloat` accepts a numeric prefix, so a partial parse would render
     // a fabricated date instead of falling back to the row's own timestamp.
-    const rowWrittenAt = Date.UTC(2026, 7, 20, 12, 32);
+    const rowWrittenAt = daysAgo(30);
     const message: DisplayMessage = {
       id: "m-malformed",
       role: "user",
