@@ -22,9 +22,9 @@ export interface WorkspacePanesProps {
 /**
  * Draws the workspace's two surfaces in the arrangement it is given.
  *
- * The secondary sits to the left of the primary, which is where the chat has
- * always been in the side-by-side layout: the app is the surface being worked
- * on and takes the sized pane on the right.
+ * The secondary sits to the left of the primary: the app is the surface being
+ * worked on, so it takes the sized pane on the right and the conversation
+ * fills what is left.
  *
  * `"full"` and `"single"` draw the same picture. A collapsed secondary is
  * still open and is what the primary expands over, so the difference is in
@@ -38,8 +38,8 @@ export function WorkspacePanes({
   if (presentation === "side" && secondary != null) {
     return (
       <ResizablePanel
-        // The key the side-by-side layout has always persisted under, so a
-        // width someone dragged survives.
+        // Widths persist under this key, so a pane keeps the size it was
+        // dragged to.
         storageKey="appEditPanelWidth"
         hideDivider
         defaultRightWidth={400}
