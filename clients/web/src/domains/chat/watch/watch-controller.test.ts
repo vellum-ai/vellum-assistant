@@ -73,6 +73,34 @@ const { MIN_VERSION } = await import("@/lib/backwards-compat/watch-sessions");
 const { buildWatchStreamWsUrl, stopWatch, toggleWatch, useWatchStore } =
   await import("./watch-controller");
 
+/**
+ * Live-voice subscriptions, counted.
+ *
+ * A leaked one is invisible against the real store: teardown is idempotent, so
+ * a stale listener fires harmlessly and accumulates one listener per session
+ * for the life of the page. Spying on the real `subscribe` rather than mocking
+ * the module keeps the real `isLiveVoiceSessionActive` and the real state
+ * machine, which are the things these cases are actually driving.
+ */
+let liveVoiceListeners = 0;
+const realLiveVoiceSubscribe = useLiveVoiceStore.subscribe.bind(
+  useLiveVoiceStore,
+) as typeof useLiveVoiceStore.subscribe;
+useLiveVoiceStore.subscribe = ((listener: Parameters<
+  typeof realLiveVoiceSubscribe
+>[0]) => {
+  liveVoiceListeners += 1;
+  const unsubscribe = realLiveVoiceSubscribe(listener);
+  let released = false;
+  return () => {
+    if (!released) {
+      released = true;
+      liveVoiceListeners -= 1;
+    }
+    unsubscribe();
+  };
+}) as typeof useLiveVoiceStore.subscribe;
+
 /** The assistant every session in this file is started against. */
 const ASSISTANT_ID = "asst-owner";
 
@@ -236,6 +264,7 @@ beforeEach(() => {
   sockets = [];
   capture = createCaptureFake();
   useLiveVoiceStore.setState({ state: "idle" });
+  liveVoiceListeners = 0;
   activate(ASSISTANT_ID);
 });
 
@@ -646,6 +675,109 @@ describe("a watch session between the socket and the runtime", () => {
 
     expect(sockets).toHaveLength(2);
     expect(useWatchStore.getState().watching).toBe(true);
+  });
+});
+
+/**
+ * A call takes the microphone from a watch session.
+ *
+ * The refusal in `toggleWatch` only covers Watch pressed during a call. Live
+ * voice has its own doors, and they do not consult this module, so the session
+ * has to give the microphone up rather than every one of those doors having to
+ * learn to refuse.
+ */
+describe("a watch session when a call starts", () => {
+  const startCall = () => {
+    useLiveVoiceStore.setState({ state: "listening" });
+  };
+
+  test("ends a running session", async () => {
+    await startRunning();
+
+    startCall();
+
+    expect(capture.calls.shutdown).toBe(1);
+    expect(socket().closeCalls).toEqual([1000]);
+    expect(useWatchStore.getState().watching).toBe(false);
+  });
+
+  /**
+   * A session still waiting on `ready` has a socket the call knows nothing
+   * about, and a microphone about to open the moment the runtime answers.
+   */
+  test("ends a session still pending, before it can open the microphone", async () => {
+    const seen = await flagEmissions(async () => {
+      await startPending();
+      startCall();
+      await serverReady();
+    });
+
+    expect(capture.calls.started).toBe(0);
+    expect(capture.calls.shutdown).toBe(1);
+    expect(seen).toEqual([]);
+  });
+
+  test("leaves one owner of the microphone", async () => {
+    await startRunning();
+    expect(capture.calls.started).toBe(1);
+
+    startCall();
+
+    expect(capture.calls.shutdown).toBe(1);
+    expect(sockets).toHaveLength(1);
+  });
+
+  /**
+   * The other direction, which was already guarded and has to stay guarded:
+   * pressing Watch during a call opens nothing.
+   */
+  test("still refuses a press that lands during a call", async () => {
+    startCall();
+
+    await toggle();
+
+    expect(sockets).toHaveLength(0);
+    expect(useWatchStore.getState().watching).toBe(false);
+  });
+
+  /**
+   * A call starting while the version gate resolves. Guarded by the re-read
+   * after the await rather than by the subscription, since there is no session
+   * yet to subscribe on its behalf.
+   */
+  test("cancels a start that is still resolving the version gate", async () => {
+    activate(ASSISTANT_ID, null);
+    const pressed = toggle();
+
+    startCall();
+    activate(ASSISTANT_ID);
+    await pressed;
+
+    expect(sockets).toHaveLength(0);
+    expect(useWatchStore.getState().watching).toBe(false);
+  });
+
+  /**
+   * The subscription lives exactly as long as the session does. Left behind it
+   * fires harmlessly, because teardown is idempotent, and accumulates one
+   * listener per session for the life of the page.
+   */
+  test("stops listening for calls once the session is over", async () => {
+    await startRunning();
+    expect(liveVoiceListeners).toBe(1);
+
+    stopWatch();
+
+    expect(liveVoiceListeners).toBe(0);
+  });
+
+  test("leaves nothing behind across repeated sessions", async () => {
+    await startRunning();
+    stopWatch();
+    await startRunning();
+    stopWatch();
+
+    expect(liveVoiceListeners).toBe(0);
   });
 });
 

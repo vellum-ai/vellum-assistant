@@ -43,6 +43,7 @@ import {
   current as currentMainWindow,
   dispatchToMain,
   ensureVisible as ensureMainWindowVisible,
+  onMainWindowVisibilityChange,
 } from "./main-window";
 
 /**
@@ -792,6 +793,35 @@ export const installCompanionWindow = (): void => {
       }
     },
   );
+
+  /**
+   * The window that publishes `watching` is gone, so stop claiming a screen is
+   * being read.
+   *
+   * The session lives in the app's window: the socket and the microphone go
+   * down with the renderer when it is destroyed, which is exactly why nothing
+   * is left to report it. The renderer's own teardown cannot cover this, since
+   * a destroyed document does not reliably run React cleanup, and this surface
+   * outlives that window by design. Left alone the last context stands and the
+   * pill goes on drawing a capture indicator over a machine nothing is
+   * capturing, until some later window happens to publish over it.
+   *
+   * Fired on show, hide, and destroy alike, so the destroyed case is the one
+   * where `currentMainWindow()` has already been cleared. Hiding the window
+   * leaves the renderer alive and its session running, and must not clear
+   * anything.
+   *
+   * Only the watch flag. The name and the tail are a record of what was said
+   * and this surface is still where it is read, the same bargain `working` is
+   * given by `clearCompanionWorking`.
+   */
+  onMainWindowVisibilityChange(() => {
+    if (currentMainWindow() !== null || context.watching !== true) {
+      return;
+    }
+    context = { ...context, watching: false };
+    pushState();
+  });
 
   // One avatar feeds every surface, so a change to the Dock icon is a change
   // here too.

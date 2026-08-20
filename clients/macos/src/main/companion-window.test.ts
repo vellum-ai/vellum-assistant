@@ -78,9 +78,13 @@ mock.module("./ipc", () => ({
   handle: register(invocable),
 }));
 
+/** Main's show/hide/destroy listeners, so a case can fire one. */
+const visibilityListeners: (() => void)[] = [];
+
 mock.module("./main-window", () => ({
   // Only its existence is read: it is what decides whether a press is
-  // dispatched straight into a renderer or has to build one first.
+  // dispatched straight into a renderer or has to build one first, and
+  // whether a visibility change is the window being destroyed.
   current: () => (mainWindowOpen ? {} : null),
   dispatchToMain: (command: VellumCommand) => {
     dispatched.push(command);
@@ -88,6 +92,9 @@ mock.module("./main-window", () => ({
   ensureVisible: () => {
     windowsRaised += 1;
     return Promise.resolve();
+  },
+  onMainWindowVisibilityChange: (listener: () => void) => {
+    visibilityListeners.push(listener);
   },
 }));
 
@@ -128,6 +135,13 @@ const {
 } = await import("./companion-window");
 
 installCompanionWindow();
+
+/** Fire main's visibility listeners, as show, hide, and destroy all do. */
+const fireVisibilityChange = (): void => {
+  for (const listener of [...visibilityListeners]) {
+    listener();
+  }
+};
 
 /** Send on a channel exactly as a renderer would, schema and all. */
 const send = (channel: string, ...args: unknown[]): void => {
@@ -615,5 +629,80 @@ describe("the watch session main relays", () => {
     );
     expect(pushes.length).toBe(1);
     expect(pushes[0]).toMatchObject({ working: true, watching: true });
+  });
+});
+
+/**
+ * The app's window is destroyed while this surface stays open.
+ *
+ * The socket and the microphone go down with the renderer, and nothing is left
+ * to publish `watching: false`. A destroyed document does not reliably run
+ * React cleanup, so main has to give the claim up itself or the pill keeps
+ * drawing a capture indicator over a machine nothing is capturing.
+ */
+describe("the watch flag when the app's window goes away", () => {
+  test("is given up when the window is destroyed", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    expect(state().watching).toBe(true);
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(state().watching).toBe(false);
+  });
+
+  test("publishes the change, so the open surface redraws", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    const before = pushes.length;
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(pushes.length).toBeGreaterThan(before);
+    expect(pushes.at(-1)?.watching).toBe(false);
+  });
+
+  /**
+   * Hiding leaves the renderer alive and its session running. Clearing on any
+   * visibility change would put the indicator out under a session that is
+   * still reading the screen, which is the same failure inverted.
+   */
+  test("survives the window merely being hidden", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+
+    mainWindowOpen = true;
+    fireVisibilityChange();
+
+    expect(state().watching).toBe(true);
+  });
+
+  /**
+   * The tail and the name are a record of what was said and this surface is
+   * still where it is read, the same bargain `clearCompanionWorking` makes.
+   */
+  test("leaves the conversation and the name standing", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        turns: [{ role: "user", text: "hello" }],
+      }),
+    );
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(state().assistantName).toBe("Ziggy");
+    expect(state().turns).toEqual([{ role: "user", text: "hello" }]);
+  });
+
+  test("says nothing when no session was running", () => {
+    send("vellum:companion:setContext", context({ watching: false }));
+    const before = pushes.length;
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(pushes.length).toBe(before);
   });
 });

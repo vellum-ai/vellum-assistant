@@ -15,9 +15,12 @@
  * the way `watch-session-manager.ts` holds one: a second session would compete
  * for the same microphone and interleave two unrelated timelines.
  *
- * **The microphone has one owner.** A live-voice call is the other thing on
- * this client that opens it, so a toggle that lands while a call is running is
- * refused rather than queued: the call is the session the user is in.
+ * **The microphone has one owner, in both directions.** A live-voice call is
+ * the other thing on this client that opens it. A toggle that lands while a
+ * call is running is refused rather than queued, and a call that starts while
+ * a session is running or pending ends that session. The call wins because it
+ * is interactive where watching is ambient, which is the precedence the
+ * companion surface already draws: its `call` phase outranks `watching`.
  *
  * **An attempt is a session for the purpose of stopping it.** A start is
  * registered in the slot before it resolves the version gate, so the ordinary
@@ -201,6 +204,7 @@ function openSession(
   let closed = false;
   let handle: WatchSession | null = null;
   let unsubscribeAssistant: (() => void) | null = null;
+  let unsubscribeLiveVoice: (() => void) | null = null;
   // Null until the runtime answers `ready`, which is the moment the session
   // exists. Everything before that is a socket.
   let readyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -239,6 +243,8 @@ function openSession(
     closed = true;
     unsubscribeAssistant?.();
     unsubscribeAssistant = null;
+    unsubscribeLiveVoice?.();
+    unsubscribeLiveVoice = null;
     clearReadyTimer();
     capture.shutdown();
     if (
@@ -294,6 +300,32 @@ function openSession(
     );
     teardown();
   }, options.readyTimeoutMs ?? READY_TIMEOUT_MS);
+
+  /**
+   * A call takes the microphone, and this session gives it up.
+   *
+   * The refusal in `toggleWatch` covers one direction only: Watch pressed
+   * during a call. The other direction has its own doors, and they do not
+   * consult this module. The companion surface's Talk and the composer's voice
+   * button both start a session without asking whether one is watching, and
+   * two controllers holding the same microphone stream the same audio into two
+   * unrelated sessions.
+   *
+   * Ending here rather than teaching every live-voice entry point to refuse,
+   * for two reasons. A call is interactive and immediate where a watch session
+   * is ambient, so the call is the one that should win. And the surface already
+   * says so: its `call` phase outranks `watching`, so this is the controller
+   * agreeing with what the user is already being shown, rather than a rule
+   * that has to be repeated at each new door somebody adds.
+   */
+  unsubscribeLiveVoice = useLiveVoiceStore.subscribe((state) => {
+    if (isLiveVoiceSessionActive(state.state)) {
+      console.info(
+        "watch-controller: ending the session, a call has taken the microphone",
+      );
+      teardown();
+    }
+  });
 
   /**
    * The session belongs to the assistant it was started for, and ends when
