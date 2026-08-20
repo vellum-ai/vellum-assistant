@@ -110,25 +110,18 @@ function cleanupAfterConfirmationDecision(
  * Whether the shared confirmation state still belongs to the submission that is
  * resuming.
  *
- * `isSubmittingConfirmation`, the session error, and the card itself are single
- * slots, not per-request. Only one in-flight submission may write them, and it
- * is whichever request occupies the prompt slot now. A submission whose prompt
- * has since been replaced has to leave all three alone, or it clears a newer
- * prompt's submitting flag, overwrites its error, and can retire its card.
+ * `isSubmittingConfirmation`, the session error, and the card are single slots
+ * rather than per-request, so a submission whose prompt has since been replaced
+ * would otherwise clear a newer prompt's submitting flag, overwrite its error,
+ * and retire its card.
  *
- * Three questions, in order, because no one of them answers the others:
- *
- *  - **Someone is in the slot.** Ownership is theirs, so this resume proceeds
- *    only for its own request. A re-show of the same request (an SSE re-emit,
- *    a reseed) is still that request, so it stays owned.
- *  - **The slot is empty and nothing moved.** The submission never had a
- *    standalone card, which is the ordinary inline case.
- *  - **The slot is empty and something did move.** Whoever left last decides.
- *    The daemon broadcasts `interaction_resolved` before its POST response
- *    returns, so a submission's own resolution routinely retires the card while
- *    it is still awaiting; that is this request's cleanup to finish, not a
- *    foreign change. A prompt that came and went in between leaves a different
- *    id behind, and the resume stands down.
+ * An occupied slot belongs to whoever is in it, which keeps a re-show of the
+ * same request owned. An untouched empty slot belongs to a submission that
+ * never had a standalone card, the ordinary inline case. An emptied slot
+ * belongs to whoever left last: the daemon broadcasts `interaction_resolved`
+ * before its POST response returns, so a submission's own resolution routinely
+ * retires the card mid-flight, and that cleanup is still its to finish. A
+ * prompt that came and went in between leaves a different id behind.
  */
 function stillOwnsConfirmationState(
   requestId: string,

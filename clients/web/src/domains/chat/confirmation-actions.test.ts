@@ -221,6 +221,30 @@ describe("handleConfirmationSubmit: a resume that no longer owns the state", () 
     expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
   });
 
+  it("stands down after a reset emptied the slot", async () => {
+    // GIVEN a submission parked mid-request
+    submitConfirmationResult = {
+      ok: false,
+      status: 500,
+      error: "Internal error",
+    };
+    seedPendingConfirmation("cr-reset");
+    const { inFlight, release } = submitParked("allow");
+
+    // WHEN a reset clears the slot without any prompt settling, which is what
+    // a superseding user message does
+    useInteractionStore.getState().resetSecretAndConfirmation();
+
+    release();
+    await inFlight;
+
+    // THEN the resume claims nothing. The slot emptied with no request to
+    // credit, so a stale id left over from an earlier settle must not read as
+    // this submission's own resolution.
+    expect(submitConfirmationCalls).toHaveLength(1);
+    expect(useChatSessionStore.getState().error).toBeNull();
+  });
+
   it("still applies when the submission is the only one in play", async () => {
     submitConfirmationResult = { ok: true };
     seedPendingConfirmation("cr-solo");

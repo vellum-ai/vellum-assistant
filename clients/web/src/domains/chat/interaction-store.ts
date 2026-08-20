@@ -380,6 +380,10 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       secretSaved: false,
       pendingConfirmation: null,
       confirmationRevision: state.confirmationRevision + 1,
+      // Emptied without settling, so there is no request to credit. Leaving
+      // the previous one in place would let a submission consult an answer
+      // from a prompt two settles ago and claim a slot this reset cleared.
+      lastSettledConfirmationRequestId: null,
       isSubmittingConfirmation: false,
       inlineConfirmationToolCallId: null,
       // Question state is intentionally not cleared: the daemon blocks on
