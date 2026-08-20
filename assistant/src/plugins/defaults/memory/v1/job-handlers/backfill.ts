@@ -1,4 +1,4 @@
-import { parseMessageMetadata } from "@vellumai/plugin-api";
+import { messageOccurredAt, parseMessageMetadata } from "@vellumai/plugin-api";
 import { and, asc, eq, gt, or } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../../../../config/types.js";
@@ -7,7 +7,6 @@ import {
   resetMessageCursorCheckpoint,
   writeMessageCursorCheckpoint,
 } from "../../../../../persistence/checkpoints.js";
-import { messageOccurredAt } from "../../../../../persistence/conversation-crud.js";
 import { getDb } from "../../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
@@ -64,7 +63,7 @@ export async function backfillJob(
           conversationId: message.conversationId,
           role: message.role,
           content: message.content,
-          createdAt: messageOccurredAt(meta, message.createdAt),
+          createdAt: await messageOccurredAt(meta, message.createdAt),
           provenanceTrustClass: meta?.provenanceTrustClass,
           automated: meta?.automated,
         },

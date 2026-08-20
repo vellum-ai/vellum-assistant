@@ -81,6 +81,18 @@ export async function parseMessageMetadata(
   return fn(metadataJson);
 }
 
+/**
+ * When a message's content happened, as distinct from when its row was
+ * written. Falls back to the row's own time when no event time is recorded.
+ */
+export async function messageOccurredAt(
+  metadata: MessageMetadata | undefined,
+  createdAt: number,
+): Promise<number> {
+  const { messageOccurredAt: fn } = await import("./conversation-crud.js");
+  return fn(metadata, createdAt);
+}
+
 /** Merge the given keys into a message's metadata JSON. */
 export async function updateMessageMetadata(
   messageId: string,

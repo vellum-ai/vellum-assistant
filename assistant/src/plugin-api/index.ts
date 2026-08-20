@@ -355,6 +355,7 @@ export {
   hasLexicalTokens,
   isConversationProcessing,
   listConversations,
+  messageOccurredAt,
   parseMessageMetadata,
   searchMessageIdsLexical,
   syncMessageToDisk,
