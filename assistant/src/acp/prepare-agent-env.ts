@@ -53,34 +53,67 @@ const ACP_SPAWN_TOOL = "acp_spawn";
 export const ACP_CLAUDE_OAUTH_MISSING_CODE = "acp_claude_oauth_missing";
 
 /**
- * Ensure an `acp/<field>` credential has metadata that allows the
- * `acp_spawn` tool to read it, but only for legacy/unmanaged cases:
+ * The metadata an `acp/<field>` credential has once the `acp_spawn` read policy
+ * is ensured, given what is stored now. This is the single definition of that
+ * decision: {@link ensureAcpCredentialPolicy} persists the result and
+ * {@link acpSpawnCredentialDenialReason} evaluates it without writing.
  *
- * - No metadata at all: create with `allowedTools: ["acp_spawn"]`.
- * - Metadata exists with an empty `allowedTools`: default provisioning
- *   path (user ran `credentials set` without `--allowed-tools`), add it.
- * - Metadata exists with a non-empty `allowedTools`: explicit policy set
- *   by the user/admin. Respect it even if `acp_spawn` is absent; the
- *   broker will deny the read and the caller decides whether that's fatal.
+ * The policy is only repaired for legacy/unmanaged cases:
+ *
+ * - No metadata at all: a record with `allowedTools: ["acp_spawn"]` and the
+ *   caller's `usageDescription`.
+ * - Metadata with an empty `allowedTools`: default provisioning path (user ran
+ *   `credentials set` without `--allowed-tools`), so `acp_spawn` is added.
+ * - Metadata with a non-empty `allowedTools`: explicit policy set by the
+ *   user/admin, returned as the very same object so callers can tell by
+ *   identity that there is nothing to persist. It stands even when `acp_spawn`
+ *   is absent; the broker denies the read and the caller decides whether that's
+ *   fatal.
+ *
+ * Everything else on an existing record, `allowedDomains` included, is
+ * preserved.
+ */
+function projectEnsuredAcpPolicy(
+  meta: CredentialMetadata | undefined,
+  field: string,
+  usageDescription?: string,
+): CredentialMetadata {
+  if (!meta) {
+    return {
+      credentialId: "",
+      service: ACP_SERVICE,
+      field,
+      allowedTools: [ACP_SPAWN_TOOL],
+      allowedDomains: [],
+      usageDescription,
+      createdAt: 0,
+      updatedAt: 0,
+    };
+  }
+  if ((meta.allowedTools ?? []).length === 0) {
+    return { ...meta, allowedTools: [ACP_SPAWN_TOOL] };
+  }
+  return meta;
+}
+
+/**
+ * Bring the stored metadata for `acp/<field>` up to the policy
+ * {@link projectEnsuredAcpPolicy} describes, writing only the fields that
+ * projection decides and only when it differs from what is stored.
  */
 export function ensureAcpCredentialPolicy(
   field: string,
   usageDescription: string,
 ): void {
   const meta = getCredentialMetadata(ACP_SERVICE, field);
-  if (!meta) {
-    upsertCredentialMetadata(ACP_SERVICE, field, {
-      allowedTools: [ACP_SPAWN_TOOL],
-      usageDescription,
-    });
+  const ensured = projectEnsuredAcpPolicy(meta, field, usageDescription);
+  if (ensured === meta) {
     return;
   }
-  const tools = meta.allowedTools ?? [];
-  if (tools.length === 0) {
-    upsertCredentialMetadata(ACP_SERVICE, field, {
-      allowedTools: [ACP_SPAWN_TOOL],
-    });
-  }
+  upsertCredentialMetadata(ACP_SERVICE, field, {
+    allowedTools: ensured.allowedTools,
+    usageDescription: ensured.usageDescription,
+  });
 }
 
 /**
@@ -120,13 +153,11 @@ export function grantAcpSpawnPolicy(
  *
  * The verdict comes from `serverUseDenialReason`, the single policy source the
  * broker itself consults, so the status check and the spawn read can never
- * disagree. The stored metadata is first projected through the repair
- * {@link ensureAcpCredentialPolicy} performs at spawn time (missing metadata,
- * or metadata whose `allowedTools` is empty, is granted `acp_spawn`; everything
- * else on the record, `allowedDomains` included, is preserved). That projection
- * is computed in memory and never written: this runs on a side-effect-free GET
- * route, so it has to predict what the spawn's ensure-then-read sequence would
- * do rather than perform it.
+ * disagree. The stored metadata is first run through
+ * {@link projectEnsuredAcpPolicy}, the same repair the spawn persists, computed
+ * in memory and never written: this runs on a side-effect-free GET route, so it
+ * has to predict what the spawn's ensure-then-read sequence would do rather
+ * than perform it.
  */
 export function acpSpawnCredentialDenialReason(
   field: string,
@@ -138,28 +169,6 @@ export function acpSpawnCredentialDenialReason(
     ACP_SERVICE,
     field,
   );
-}
-
-/** The metadata {@link ensureAcpCredentialPolicy} would leave behind, unwritten. */
-function projectEnsuredAcpPolicy(
-  meta: CredentialMetadata | undefined,
-  field: string,
-): CredentialMetadata {
-  if (!meta) {
-    return {
-      credentialId: "",
-      service: ACP_SERVICE,
-      field,
-      allowedTools: [ACP_SPAWN_TOOL],
-      allowedDomains: [],
-      createdAt: 0,
-      updatedAt: 0,
-    };
-  }
-  if ((meta.allowedTools ?? []).length === 0) {
-    return { ...meta, allowedTools: [ACP_SPAWN_TOOL] };
-  }
-  return meta;
 }
 
 /**

@@ -455,9 +455,7 @@ describe("grantAcpSpawnPolicy — force-grant (union)", () => {
  * a side-effect-free GET. Every state below is run twice: once through the
  * predicate, and once through the real spawn sequence
  * (`ensureAcpCredentialPolicy` then `credentialBroker.serverUse`). The two must
- * agree down to the denial string, so this test fails the moment either side's
- * policy logic changes without the other, which is exactly how the status route
- * and the spawn path drifted apart before.
+ * agree down to the denial string; this suite fails whenever they diverge.
  *
  * The predicate reads only the persisted value via `getSecureKeyAsync` and
  * never calls `serverUse`, so it can never consume a one-time transient
