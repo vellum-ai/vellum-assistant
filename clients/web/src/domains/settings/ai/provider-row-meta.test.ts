@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { getModelsForProvider } from "@/assistant/llm-model-catalog";
 import { CODEX_SUBSCRIPTION_MODEL_IDS } from "@/domains/settings/ai/codex-subscription-models";
 import {
+  isDefaultConventionTarget,
   isDefaultProviderId,
   providerRowMeta,
 } from "@/domains/settings/ai/provider-row-meta";
@@ -19,6 +20,31 @@ function connection(auth: ProviderConnection["auth"]): ProviderConnection {
 describe("default-provider eligibility", () => {
   test("the chatgpt identity row can be set as default", () => {
     expect(isDefaultProviderId("chatgpt")).toBe(true);
+  });
+});
+
+describe("isDefaultConventionTarget", () => {
+  const row = (name: string, provider: string) =>
+    ({ name, provider }) as ProviderConnection;
+
+  test("mirrors the daemon's convention resolution per provider", () => {
+    expect(isDefaultConventionTarget(row("vellum", "vellum"))).toBe(true);
+    expect(
+      isDefaultConventionTarget(row("chatgpt-subscription", "chatgpt")),
+    ).toBe(true);
+    expect(
+      isDefaultConventionTarget(row("anthropic-personal", "anthropic")),
+    ).toBe(true);
+  });
+
+  test("suffix-named duplicates and noncanonical rows are not targets", () => {
+    expect(
+      isDefaultConventionTarget(row("anthropic-personal-2", "anthropic")),
+    ).toBe(false);
+    expect(isDefaultConventionTarget(row("my-vellum", "vellum"))).toBe(false);
+    expect(isDefaultConventionTarget(row("chatgpt-personal", "chatgpt"))).toBe(
+      false,
+    );
   });
 });
 

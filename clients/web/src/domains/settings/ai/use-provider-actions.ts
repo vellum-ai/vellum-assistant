@@ -4,7 +4,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { isDefaultProviderId } from "@/domains/settings/ai/provider-row-meta";
+import {
+  isDefaultConventionTarget,
+  isDefaultProviderId,
+} from "@/domains/settings/ai/provider-row-meta";
 import { t } from "@/i18n";
 import {
   configGetQueryKey,
@@ -62,7 +65,13 @@ export function useProviderActions(
   });
 
   function setDefault(conn: ProviderConnection) {
-    if (!isDefaultProviderId(conn.provider)) {
+    // Convention-target check mirrors the row's affordance gate: the PUT
+    // body carries only the provider, so on any other row the daemon would
+    // set the convention row, not this one.
+    if (
+      !isDefaultProviderId(conn.provider) ||
+      !isDefaultConventionTarget(conn)
+    ) {
       return;
     }
     pendingDefaultNameRef.current = conn.name;

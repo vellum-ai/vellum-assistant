@@ -81,12 +81,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { ProvidersSection } = await import(
-  "@/domains/settings/ai/providers-section"
-);
-const { useAssistantIdentityStore } = await import(
-  "@/stores/assistant-identity-store"
-);
+const { ProvidersSection } =
+  await import("@/domains/settings/ai/providers-section");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -275,6 +273,29 @@ describe("ProvidersSection - kebab actions", () => {
     await waitFor(() => {
       expect(putBodies).toEqual([{ provider: "anthropic" }]);
     });
+  });
+
+  test("a non-convention row offers no Set as default", async () => {
+    // The PUT body carries only the provider, so on a suffix-named
+    // duplicate the daemon would set the convention row instead of the
+    // clicked one — the affordance is hidden there.
+    connectionsState = [
+      ...connectionsState,
+      connection({
+        name: "anthropic-personal-2",
+        provider: "anthropic",
+        label: "Anthropic (work)",
+      }),
+    ];
+    renderSection();
+    await waitFor(() => {
+      expect(rows().length).toBe(4);
+    });
+    const menu = await openKebab("Anthropic (work)");
+    const items = menuItems(menu);
+    expect(items).not.toContain("Set as default");
+    expect(items).toContain("Edit");
+    expect(items).toContain("Delete");
   });
 
   test("an ineligible provider offers no Set as default", async () => {
