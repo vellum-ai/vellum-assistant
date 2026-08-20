@@ -457,10 +457,10 @@ export function ActiveChatView() {
   // "Summarize up to here" confirm dialog. The hover action only records the
   // target message; the POST fires from the dialog's confirm button — a
   // misfired summarize mutates the assistant's live context with no undo, so
-  // it always goes through an explicit confirmation. Version-gated at the
-  // callback source: assistants below the endpoint's release get no
-  // `onSummarizeUpToHere`, so the hover button never renders and the dialog
-  // is unreachable.
+  // it always goes through an explicit confirmation. Gated at the callback
+  // source on both the endpoint version and the internal-thread-actions
+  // audience: without either, no `onSummarizeUpToHere` is provided, so the
+  // hover button never renders and the dialog is unreachable.
   const supportsSummarizeUpToHere = useSupportsSummarizeUpToHere();
   const [pendingSummarizeMessageId, setPendingSummarizeMessageId] = useState<
     string | null
@@ -576,9 +576,10 @@ export function ActiveChatView() {
     handleForkConversation: canUseInternalActions
       ? handleForkConversation
       : undefined,
-    onSummarizeUpToHere: supportsSummarizeUpToHere
-      ? handleSummarizeUpToHere
-      : undefined,
+    onSummarizeUpToHere:
+      supportsSummarizeUpToHere && canUseInternalActions
+        ? handleSummarizeUpToHere
+        : undefined,
     onRetryLatestTurn: supportsRetryTurn
       ? handleRetryLatestTurnRequested
       : undefined,

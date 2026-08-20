@@ -5,11 +5,11 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 /**
  * Whether the viewer may use the internal-only thread affordances: fork ('Fork
- * from here' on a message, 'Fork Conversation' in the thread menu), 'Analyze
- * Conversation', 'Copy Full Conversation', 'Copy conversation ID', 'Open in
- * New Window', 'Refresh', message bookmarks, and the LLM inspector surfaces
- * behind them. They all read this one predicate, so widening or narrowing the
- * audience moves them together.
+ * from here' on a message, 'Fork Conversation' in the thread menu), 'Summarize
+ * up to here', 'Analyze Conversation', 'Copy Full Conversation', 'Copy
+ * conversation ID', 'Open in New Window', 'Refresh', message bookmarks, and
+ * the LLM inspector surfaces behind them. They all read this one predicate, so
+ * widening or narrowing the audience moves them together.
  *
  * Both halves have to agree: the `internal-thread-actions` client flag is the
  * kill switch, and the staff check keeps the affordances off for everyone else
