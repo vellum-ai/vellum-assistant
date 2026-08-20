@@ -190,6 +190,25 @@ export function sniffMimeType(bytes: Uint8Array): string | null {
   return sniffMarkup(bytes);
 }
 
+/**
+ * Bytes read to classify a blob by signature: enough for every signature
+ * {@link sniffMimeType} tests (the Matroska DocType scan is the deepest) while
+ * still being a single small read out of a multi-megabyte file.
+ */
+const SIGNATURE_SNIFF_BYTES = 256;
+
+/**
+ * Type of a blob's leading bytes, or null when they match no known signature.
+ *
+ * Asks the bytes rather than the blob's `type` or name, which a browser derives
+ * from the filename extension: a HEIC photo renamed `.png` reports `image/png`
+ * and passes a file input's `accept` filter untouched.
+ */
+export async function sniffBlobMimeType(blob: Blob): Promise<string | null> {
+  const head = await blob.slice(0, SIGNATURE_SNIFF_BYTES).arrayBuffer();
+  return sniffMimeType(new Uint8Array(head));
+}
+
 function normalizeMimeType(raw: string | null): string | null {
   if (!raw) {
     return null;
@@ -247,7 +266,9 @@ export function resolveLocalFileType(opts: {
   // say. Naming the real format keeps the document previews reachable while
   // still letting a genuine mismatch (a `.docx` holding png bytes) win.
   const ooxmlMime =
-    sniffed === "application/zip" ? (OOXML_MIME_TYPES[extension] ?? null) : null;
+    sniffed === "application/zip"
+      ? (OOXML_MIME_TYPES[extension] ?? null)
+      : null;
   const trustedSniff = svgShadowsDocument ? null : (ooxmlMime ?? sniffed);
   const server = normalizeMimeType(opts.serverMime);
   const namedServer = server && !GENERIC_MIME_TYPES.has(server) ? server : null;

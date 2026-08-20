@@ -12,13 +12,21 @@
  * can keep reading `block.source.data` exactly as before.
  *
  * Blocks that already carry base64 (a live, in-flight turn) pass through
- * untouched — no disk read — so only reloaded history pays the resolution cost,
+ * untouched (no disk read) so only reloaded history pays the resolution cost,
  * and only on its first send after reload. The walk is pure: it returns fresh
  * block/message objects and never mutates the caller's in-memory history.
+ *
+ * The walk is also the last place an image block can be checked before a
+ * provider serializes it, so it is where an image the provider cannot decode
+ * is replaced by a text note: see {@link UNSENDABLE_IMAGE_FORMAT_NOTE}.
  */
 
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import { getAttachmentContent } from "../persistence/attachments-store.js";
+import {
+  sniffBase64ImageMimeType,
+  sniffImageMimeType,
+} from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
 import type {
   Base64MediaSource,
@@ -41,6 +49,23 @@ export function mediaSourceBytes(source: MediaSource): Buffer | null {
     return Buffer.from(source.data, "base64");
   }
   return getAttachmentContent(source.attachmentId);
+}
+
+/**
+ * Whether an image source's bytes are not one of the formats providers accept,
+ * so {@link resolveMediaReferences} replaces the block with
+ * {@link UNSENDABLE_IMAGE_FORMAT_NOTE} instead of sending it. Applies the same
+ * rule as {@link resolveImageBlock}, including its treatment of a reference
+ * whose payload is gone: that is an unavailable attachment, not an unreadable
+ * format. Lets a caller holding a persisted block ask whether the model will
+ * see the image.
+ */
+export function isUnsendableImageSource(source: MediaSource): boolean {
+  if (source.type === "base64") {
+    return sniffBase64ImageMimeType(source.data) === null;
+  }
+  const bytes = getAttachmentContent(source.attachmentId);
+  return bytes != null && sniffImageMimeType(bytes) === null;
 }
 
 /**
@@ -96,9 +121,51 @@ export function resolveMediaSourceData(
   return { data: bytes.toString("base64"), media_type: source.media_type };
 }
 
+/**
+ * Note that replaces an image block whose bytes are not one of the formats
+ * providers accept (PNG, JPEG, GIF, WebP). Sending the block instead costs the
+ * user the whole turn: an OpenAI-compatible endpoint answers HTTP 400 ("The
+ * image data you provided does not represent a valid image") for the entire
+ * request, so one unreadable image in a batch of eight blocks the reply to all
+ * of them. The note keeps the turn alive and tells the model what it is
+ * missing, and the daemon posts a system card naming the file so the user
+ * knows too.
+ */
+export const UNSENDABLE_IMAGE_FORMAT_NOTE =
+  "[Image omitted: its format is not one the model can read (PNG, JPEG, GIF, and WebP are)]";
+
+/**
+ * Resolve an image block into one the provider can accept, keyed on the bytes
+ * rather than on the declared media type.
+ *
+ * The declaration is only a claim: web clients derive it from the filename
+ * extension, so a HEIC photo saved as `.png` arrives declared `image/png`. One
+ * sniff covers both failure modes that claim produces. Bytes that sniff as
+ * nothing are unsendable ({@link sniffImageMimeType} names exactly the accepted
+ * formats, so an unnamed head is corrupt or a format no provider reads: HEIF,
+ * AVIF, BMP, TIFF, SVG) and become {@link UNSENDABLE_IMAGE_FORMAT_NOTE}. Bytes
+ * that sniff as something other than the declaration are relabeled, since a
+ * mismatch is fatal on its own (Anthropic answers "image does not match the
+ * provided media type").
+ *
+ * The sniff runs ahead of the transport optimization so sendability cannot
+ * depend on an unrelated size threshold: optimization rewrites only the images
+ * it decides to rescale.
+ */
 async function resolveImageBlock(block: ImageContent): Promise<ContentBlock> {
   if (block.source.type === "base64") {
-    return block;
+    const sniffed = sniffBase64ImageMimeType(block.source.data);
+    if (!sniffed) {
+      log.warn(
+        { declaredMediaType: block.source.media_type },
+        "Inline image is not in a provider-readable format; substituting a text note",
+      );
+      return { type: "text", text: UNSENDABLE_IMAGE_FORMAT_NOTE };
+    }
+    return {
+      type: "image",
+      source: { type: "base64", media_type: sniffed, data: block.source.data },
+    };
   }
   const bytes = getAttachmentContent(block.source.attachmentId);
   if (!bytes) {
@@ -111,11 +178,22 @@ async function resolveImageBlock(block: ImageContent): Promise<ContentBlock> {
       text: "[Attachment unavailable: image could not be loaded]",
     };
   }
+  const sniffed = sniffImageMimeType(bytes);
+  if (!sniffed) {
+    log.warn(
+      {
+        attachmentId: block.source.attachmentId,
+        declaredMediaType: block.source.media_type,
+      },
+      "Referenced image is not in a provider-readable format; substituting a text note",
+    );
+    return { type: "text", text: UNSENDABLE_IMAGE_FORMAT_NOTE };
+  }
   // Apply the same transport optimization the inline-base64 path used, so a
   // reloaded (reference) turn sends the model the same bytes a live turn would.
   const { data, mediaType } = await optimizeImageForTransport(
     bytes.toString("base64"),
-    block.source.media_type,
+    sniffed,
   );
   return {
     type: "image",
@@ -182,13 +260,31 @@ async function resolveBlock(block: ContentBlock): Promise<ContentBlock> {
   }
 }
 
-function contentHasReference(content: ContentBlock[]): boolean {
+/**
+ * Whether an inline image needs rebuilding before it can be sent: its payload
+ * is unreadable, or its declared media type is not exactly what the bytes are.
+ * The comparison is exact so a non-canonical spelling of a real format is
+ * rewritten too (`image/jpg` is not in any provider's accepted set, and clients
+ * derive it from a `.jpg` extension). Sniffing here, rather than rebuilding
+ * every inline block unconditionally, keeps the clean live turn on the identity
+ * fast path below at the cost of decoding a 12-byte head per image.
+ */
+function base64ImageNeedsRewrite(source: Base64MediaSource): boolean {
+  return sniffBase64ImageMimeType(source.data) !== source.media_type;
+}
+
+function contentNeedsResolution(content: ContentBlock[]): boolean {
   return content.some((block) => {
-    if (block.type === "image" || block.type === "file") {
+    if (block.type === "image") {
+      return block.source.type === "workspace_ref"
+        ? true
+        : base64ImageNeedsRewrite(block.source);
+    }
+    if (block.type === "file") {
       return block.source.type === "workspace_ref";
     }
     if (block.type === "tool_result" && block.contentBlocks?.length) {
-      return contentHasReference(block.contentBlocks);
+      return contentNeedsResolution(block.contentBlocks);
     }
     return false;
   });
@@ -196,16 +292,16 @@ function contentHasReference(content: ContentBlock[]): boolean {
 
 /**
  * Return a copy of `messages` with every {@link WorkspaceRefMediaSource}
- * resolved to inline base64. Messages with no references are returned unchanged
- * (same object reference) so the common all-base64 live turn does no allocation
- * or disk I/O.
+ * resolved to inline base64 and every image block reconciled with its own
+ * bytes. Messages that need neither are returned unchanged (same object
+ * reference) so the common live turn does no allocation or disk I/O.
  */
 export function resolveMediaReferences(
   messages: Message[],
 ): Promise<Message[]> {
   return Promise.all(
     messages.map(async (message) => {
-      if (!contentHasReference(message.content)) {
+      if (!contentNeedsResolution(message.content)) {
         return message;
       }
       return {
