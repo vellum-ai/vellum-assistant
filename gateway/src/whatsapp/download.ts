@@ -1,4 +1,5 @@
 import { fileTypeFromBuffer } from "file-type";
+import type { DownloadedAttachment } from "../attachments/ingest.js";
 import type { GatewayConfig } from "../config.js";
 import { validateDownloadedContent } from "../download-validation.js";
 import {
@@ -7,12 +8,6 @@ import {
   WhatsAppNonRetryableError,
   type WhatsAppApiCaches,
 } from "./api.js";
-
-export interface DownloadedFile {
-  filename: string;
-  mimeType: string;
-  data: string; // base64-encoded
-}
 
 /** Common MIME-to-extension map for when Meta omits a filename. */
 const MIME_EXTENSIONS: Record<string, string> = {
@@ -55,7 +50,7 @@ export async function downloadWhatsAppFile(
   mediaId: string,
   hint?: { fileName?: string; mimeType?: string },
   caches?: WhatsAppApiCaches,
-): Promise<DownloadedFile> {
+): Promise<DownloadedAttachment> {
   const meta = await getWhatsAppMediaMetadata(mediaId, caches);
 
   if (

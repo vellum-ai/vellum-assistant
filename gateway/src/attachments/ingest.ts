@@ -1,3 +1,10 @@
+/**
+ * Downloads and uploads inbound attachments with channel-specific size,
+ * concurrency, and transient-error policies. Webhook channels rethrow
+ * transient failures so Telegram and WhatsApp can redeliver; push channels
+ * skip failures because Slack Socket Mode and Discord Gateway do not redeliver
+ * messages.
+ */
 import type { Logger } from "pino";
 
 import type { GatewayConfig } from "../config.js";

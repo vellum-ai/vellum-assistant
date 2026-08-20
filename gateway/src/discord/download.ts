@@ -1,20 +1,22 @@
+/**
+ * Downloads Discord CDN attachments from their signed payload URLs.
+ *
+ * Discord URLs carry their own `ex`, `is`, and `hm` signatures, so requests
+ * use the payload URL verbatim without the bot token or an Authorization
+ * header.
+ */
 import { fileTypeFromBuffer } from "file-type";
 
+import type { DownloadedAttachment } from "../attachments/ingest.js";
 import { validateDownloadedContent } from "../download-validation.js";
 import { fetchImpl } from "../fetch.js";
 import type { DiscordAttachmentReference } from "./attachments.js";
-
-export interface DownloadedFile {
-  filename: string;
-  mimeType: string;
-  data: string;
-}
 
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 
 export async function downloadDiscordFile(
   attachment: DiscordAttachmentReference,
-): Promise<DownloadedFile> {
+): Promise<DownloadedAttachment> {
   const response = await fetchImpl(attachment.url, {
     signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
   });

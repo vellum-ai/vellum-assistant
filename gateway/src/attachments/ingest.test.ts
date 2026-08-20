@@ -120,7 +120,7 @@ describe("ingestAttachments", () => {
 });
 
 describe("appendFailedAttachmentNotice", () => {
-  test("uses the notice as content for an empty message", () => {
+  test("uses the notice as content for Slack's empty message path", () => {
     expect(appendFailedAttachmentNotice("", ["file.txt"])).toBe(
       '[The user attached file(s) that could not be retrieved: "file.txt". Ask them to re-send if the content is important.]',
     );

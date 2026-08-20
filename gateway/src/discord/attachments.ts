@@ -1,3 +1,7 @@
+/**
+ * Normalizes Discord attachments and retains only entries with usable
+ * downloadable references.
+ */
 import type { DiscordMessageCreate } from "./message-schemas.js";
 
 type DiscordAttachment = NonNullable<
@@ -16,9 +20,9 @@ export type DiscordCanonicalAttachment = {
 
 function downloadableAttachments(
   attachments: DiscordAttachment[] | undefined,
-): Array<DiscordAttachment & { url: string }> {
+): DiscordAttachmentReference[] {
   return (attachments ?? []).filter(
-    (attachment): attachment is DiscordAttachment & { url: string } =>
+    (attachment): attachment is DiscordAttachmentReference =>
       attachment.id.length > 0 &&
       typeof attachment.url === "string" &&
       attachment.url.length > 0,

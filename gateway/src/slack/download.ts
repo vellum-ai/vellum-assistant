@@ -1,13 +1,8 @@
 import { fileTypeFromBuffer } from "file-type";
+import type { DownloadedAttachment } from "../attachments/ingest.js";
 import { validateDownloadedContent } from "../download-validation.js";
 import { fetchImpl } from "../fetch.js";
 import type { SlackFile } from "./message-schemas.js";
-
-export interface DownloadedFile {
-  filename: string;
-  mimeType: string;
-  data: string; // base64-encoded
-}
 
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 
@@ -18,7 +13,7 @@ const DOWNLOAD_TIMEOUT_MS = 30_000;
 export async function downloadSlackFile(
   file: SlackFile,
   botToken: string,
-): Promise<DownloadedFile> {
+): Promise<DownloadedAttachment> {
   const url = file.url_private_download || file.url_private;
   if (!url) {
     throw new Error(`Slack file ${file.id} has no download URL`);

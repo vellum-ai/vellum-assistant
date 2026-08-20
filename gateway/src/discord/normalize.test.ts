@@ -315,6 +315,46 @@ describe("normalizeDiscordMessage", () => {
     expect(event?.actor.actorExternalId).toBe("user-1");
   });
 
+  test("keeps a file-only DM routable with empty content", () => {
+    const raw = messagePayload({
+      guild_id: undefined,
+      channel_id: "dm-channel-1",
+      content: "",
+      mentions: [],
+      attachments: [
+        {
+          id: "file-only-1",
+          filename: "report.pdf",
+          size: 10,
+          content_type: "application/pdf",
+          url: "https://cdn.discord.test/report.pdf",
+        },
+      ],
+    });
+    const parsed = parse(raw);
+    const event = normalizeDiscordMessage(parsed, { raw });
+    const candidate = toAdmissionCandidate(parsed, undefined);
+
+    expect(event?.source.chatType).toBe("dm");
+    expect(event?.message.content).toBe("");
+    expect(event?.message.attachments).toEqual([
+      {
+        type: "document",
+        fileId: "file-only-1",
+        fileName: "report.pdf",
+        mimeType: "application/pdf",
+        fileSize: 10,
+      },
+    ]);
+    expect(candidate).not.toBeNull();
+    expect(
+      admitDiscordMessage(candidate!, {
+        botUserId: "bot-1",
+        allowedChannelIds: new Set(),
+      }),
+    ).toEqual({ admitted: true });
+  });
+
   test("a malformed guild id stays a guild message, not a DM", () => {
     // The DM lane reads an absent guild as private and skips both the
     // allow-list and the mention check, so a parse failure must not land
