@@ -225,6 +225,29 @@ describe("usePushToTalk", () => {
     expect(target.stop).not.toHaveBeenCalled();
   });
 
+  test("yields a key chord that another listener already claimed", () => {
+    localStorage.setItem(
+      LS_PTT_ACTIVATION_KEY,
+      serializeActivator({ kind: "key", label: "V", modifiers: ["control"] }),
+    );
+    // The Talk shortcut bound to the same chord runs first and claims it.
+    const claim = (event: KeyboardEvent) => {
+      if (event.key === "V") {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", claim);
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    renderPushToTalk(target);
+
+    fireEvent.keyDown(window, { key: "V", ctrlKey: true, cancelable: true });
+    expect(target.start).not.toHaveBeenCalled();
+
+    window.removeEventListener("keydown", claim);
+    fireEvent.keyDown(window, { key: "V", ctrlKey: true, cancelable: true });
+    expect(target.start).toHaveBeenCalledTimes(1);
+  });
+
   test("stops a shifted key binding when Shift is released first", () => {
     localStorage.setItem(
       LS_PTT_ACTIVATION_KEY,

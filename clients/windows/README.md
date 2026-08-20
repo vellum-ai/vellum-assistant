@@ -24,8 +24,10 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
   attention state appear on the Windows taskbar.
 - Persisted main-window geometry and maximized state, load/show readiness,
   dynamic assistant titles, and frameless title-bar overlay controls.
-- System-wide push-to-talk through the native Windows keyboard hook. Single-key
-  bindings use a 100 ms hold guard and multi-key chords activate immediately.
+- System-wide push-to-talk through the native Windows keyboard hook. Bindings
+  are modifier-only; every binding, single key or chord, waits out a 100 ms
+  hold guard so taps and shortcuts sharing the prefix (Ctrl+Shift+T over
+  Ctrl+Shift) cancel instead of recording.
 - Static serving of the renderer from `src/main/index.ts`, with
   path-traversal protection from `@vellumai/electron-utils/app-protocol`,
   platform API forwarding, single-instance lock, per-environment `userData`

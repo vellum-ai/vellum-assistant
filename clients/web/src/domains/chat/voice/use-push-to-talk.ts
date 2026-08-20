@@ -200,6 +200,12 @@ export function usePushToTalk(
       if (activator.kind === "key" && isEditableTarget(event.target)) {
         return;
       }
+      // A key chord another listener already claimed (the Talk shortcut in a
+      // browser, a composer binding) is theirs; starting dictation too would
+      // fire both. Modifier-only bindings keep the tap-vs-hold split instead.
+      if (activator.kind === "key" && event.defaultPrevented) {
+        return;
+      }
 
       if (!eventActivatesPTT(event, activator)) {
         return;
