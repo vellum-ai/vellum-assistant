@@ -11,10 +11,16 @@
  * visibility and focused conversation so the daemon can suppress a redundant
  * APNs push for a reply already visible in that conversation.
  *
- * The floor is the exact dev build containing the route, rather than a
- * predicted release number. The hook uses the assistant-scoped gate so a
- * version hydrated for a different assistant cannot authorize writes to this
- * one, and remains conservatively disabled while identity is unknown.
+ * The floor is a dev build rather than a predicted release number. The hook
+ * uses the assistant-scoped gate so a version hydrated for a different
+ * assistant cannot authorize writes to this one, and remains conservatively
+ * disabled while identity is unknown.
+ *
+ * The sha below is a branch commit, so it never appears on `main` under a
+ * squash merge, and dev builds cut from `main` between its timestamp and the
+ * merge pass the floor without carrying the route. Their reports 404 into
+ * `postWebPresence`'s catch until the next dev build. Re-pin this to the
+ * landing commit once this merges, per `docs/BACKWARDS_COMPAT.md`.
  */
 import { useAssistantScopedSupports } from "./utils";
 

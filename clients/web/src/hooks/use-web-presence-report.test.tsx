@@ -5,6 +5,9 @@
  * suppress a redundant APNs push while this tab is open on the reply's own
  * conversation. See `assistant/src/runtime/web-presence.ts`.
  *
+ * Presence also requires recent user input, so `Date.now` is stubbed to drive
+ * the idle threshold.
+ *
  * `window.setInterval`/`clearInterval` are stubbed with an armed-timer
  * capture (bun's test runner has no fake timers), matching the pattern in
  * `domains/settings/pair-device/pair-device-test-helpers.ts`; reconciliation
@@ -83,6 +86,23 @@ function tickReconciliation() {
   });
 }
 
+const IDLE_THRESHOLD_MS = 10 * 60_000;
+
+/** Bun has no fake timers, so idle is driven by stubbing the clock. */
+let nowMs = 1_700_000_000_000;
+const realDateNow = Date.now;
+
+function advanceClock(ms: number) {
+  nowMs += ms;
+}
+
+/** Deliver a user-input event the hook counts as presence. */
+function interact() {
+  act(() => {
+    window.dispatchEvent(new Event("pointerdown"));
+  });
+}
+
 let electron = false;
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => electron,
@@ -146,11 +166,14 @@ beforeEach(() => {
   postMock.mockClear();
   navigate = null;
   setVisibilityState("visible");
+  nowMs = 1_700_000_000_000;
+  Date.now = () => nowMs;
   installIntervalHarness();
 });
 
 afterEach(() => {
   cleanup();
+  Date.now = realDateNow;
   __resetForTesting();
   useAssistantIdentityStore.getState().clearIdentity();
   restoreIntervalHarness();
@@ -444,6 +467,100 @@ describe("useWebPresenceReport: reconciliation", () => {
     renderReportAt("assistant-1", routes.conversation("conv-1"));
 
     expect(reconciliationTimers()).toHaveLength(0);
+  });
+
+  describe("idle", () => {
+    function renderOnConversation() {
+      useConversationStore.getState().setActiveConversationId("conv-1");
+      return renderReportAt("assistant-1", routes.conversation("conv-1"));
+    }
+
+    test("stops reconciling once the tab goes untouched past the threshold", () => {
+      renderOnConversation();
+      postCalls.length = 0;
+
+      advanceClock(IDLE_THRESHOLD_MS + 1);
+      tickReconciliation();
+
+      // Nothing is posted, so the daemon's last report ages out of its TTL
+      // and the push it was suppressing comes back.
+      expect(postCalls).toHaveLength(0);
+    });
+
+    test("keeps reconciling while input keeps arriving", () => {
+      renderOnConversation();
+      postCalls.length = 0;
+
+      advanceClock(IDLE_THRESHOLD_MS - 1);
+      interact();
+      advanceClock(IDLE_THRESHOLD_MS - 1);
+      tickReconciliation();
+
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: true,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    test("input ending an idle stretch reports at once", () => {
+      renderOnConversation();
+      advanceClock(IDLE_THRESHOLD_MS + 1);
+      postCalls.length = 0;
+
+      interact();
+
+      expect(postCalls).toHaveLength(1);
+      expect(postCalls[0]?.body).toEqual({
+        visible: true,
+        focusedConversationId: "conv-1",
+      });
+
+      // Only the transition reports; later input rides the tick instead.
+      interact();
+      expect(postCalls).toHaveLength(1);
+    });
+
+    test("input while hidden does not report the tab as visible", () => {
+      renderOnConversation();
+      advanceClock(IDLE_THRESHOLD_MS + 1);
+      setVisibilityState("hidden");
+      postCalls.length = 0;
+
+      interact();
+
+      expect(postCalls).toHaveLength(0);
+    });
+
+    test("a foreground resume counts as the user reaching for this tab", () => {
+      renderOnConversation();
+      advanceClock(IDLE_THRESHOLD_MS + 1);
+      postCalls.length = 0;
+
+      act(() => {
+        publish("app.resume", { signal: "visibility" });
+      });
+
+      expect(postCalls[0]?.body).toEqual({
+        visible: true,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    test("an online resume does not clear idle", () => {
+      renderOnConversation();
+      advanceClock(IDLE_THRESHOLD_MS + 1);
+      postCalls.length = 0;
+
+      act(() => {
+        publish("app.resume", { signal: "online" });
+      });
+
+      expect(postCalls[0]?.body).toEqual({
+        visible: false,
+        focusedConversationId: "conv-1",
+      });
+    });
   });
 
   test("does not arm reconciliation until an assistant id resolves", () => {

@@ -357,6 +357,14 @@
       "defaultEnabled": true
     },
     {
+      "id": "web-presence-suppression",
+      "scope": "assistant",
+      "key": "web-presence-suppression",
+      "label": "Web Presence Suppression",
+      "description": "Gates whether a `chat.assistant_reply` push is suppressed while a browser tab reports itself visible on that conversation. On by default; turn it off to restore unconditional reply pushes for web-visible conversations.",
+      "defaultEnabled": true
+    },
+    {
       "id": "plugin-schedules",
       "scope": "assistant",
       "key": "plugin-schedules",

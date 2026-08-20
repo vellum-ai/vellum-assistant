@@ -26,6 +26,12 @@
  * conversation is actually on screen, since `activeConversationId` is never
  * cleared on navigation away.
  *
+ * Visibility is necessary but not sufficient: a tab left on a second monitor
+ * reports `visible` forever, so a tab with no user input for
+ * `IDLE_THRESHOLD_MS` stops counting and its report ages out of the daemon's
+ * TTL, restoring the push. This mirrors the desktop reporter, which derives
+ * attendance from system idle time for the same reason.
+ *
  * The reconciliation tick exists because the daemon's presence gate is
  * TTL-bound (`WEB_PRESENCE_STALE_AFTER_MS` in
  * `assistant/src/runtime/web-presence.ts`): without a re-report, a tab left
@@ -56,9 +62,39 @@ interface WebPresenceReportBody {
 /** See the module doc comment for the sizing rationale. */
 const RECONCILIATION_INTERVAL_MS = 60_000;
 
+/**
+ * How long without user input before a visible tab stops counting as
+ * presence. Matches `IDLE_THRESHOLD_MS` in `clients/macos/src/main/presence.ts`
+ * so both surfaces wait out the same amount of plain inactivity.
+ */
+const IDLE_THRESHOLD_MS = 10 * 60_000;
+
+/**
+ * Input events that count as the user still being at this tab. Passive and
+ * capture-phase, so a scroll inside the transcript counts too and nothing
+ * here can delay the event it observes.
+ */
+const INTERACTION_EVENTS = [
+  "pointerdown",
+  "pointermove",
+  "keydown",
+  "wheel",
+  "touchstart",
+] as const;
+
 function isDocumentVisible(): boolean {
   return (
     typeof document === "undefined" || document.visibilityState === "visible"
+  );
+}
+
+/**
+ * Whether this tab currently counts as presence: on screen, and touched by
+ * the user inside {@link IDLE_THRESHOLD_MS}.
+ */
+function isPresent(lastInteractionAt: number): boolean {
+  return (
+    isDocumentVisible() && Date.now() - lastInteractionAt <= IDLE_THRESHOLD_MS
   );
 }
 
@@ -97,10 +133,26 @@ export function useWebPresenceReport(assistantId: string | null): void {
     focusedConversationIdRef.current = focusedConversationId;
   }, [focusedConversationId]);
 
-  useBusSubscription("app.resume", () => {
+  // Presence is visibility AND recent input. `visibilityState` alone stays
+  // `visible` for a tab abandoned on a second monitor, which would suppress
+  // every reply push while nobody is reading it.
+  const lastInteractionAtRef = useRef(0);
+  // Stamped in an effect rather than at `useRef`, which `react-hooks/purity`
+  // forbids. Declared ahead of the reporting effects so mount, which is the
+  // user arriving, counts as input before the first report reads it.
+  useEffect(() => {
+    lastInteractionAtRef.current = Date.now();
+  }, []);
+
+  useBusSubscription("app.resume", ({ signal }) => {
     if (supportsWebPresence && !isElectron()) {
+      // A foreground edge is the user reaching for this tab. An `online`
+      // resume is only the network returning and says nothing about them.
+      if (signal !== "online") {
+        lastInteractionAtRef.current = Date.now();
+      }
       void postWebPresence(assistantId!, {
-        visible: isDocumentVisible(),
+        visible: isPresent(lastInteractionAtRef.current),
         focusedConversationId,
       });
     }
@@ -109,24 +161,49 @@ export function useWebPresenceReport(assistantId: string | null): void {
   useBusSubscription("app.hidden", () => {
     if (supportsWebPresence && !isElectron()) {
       void postWebPresence(assistantId!, {
-        visible: isDocumentVisible(),
+        visible: isPresent(lastInteractionAtRef.current),
         focusedConversationId,
       });
     }
   });
 
   useBusSubscription("sse.opened", ({ assistantId: openedFor }) => {
-    if (
-      supportsWebPresence &&
-      !isElectron() &&
-      assistantId === openedFor
-    ) {
+    if (supportsWebPresence && !isElectron() && assistantId === openedFor) {
       void postWebPresence(assistantId!, {
-        visible: isDocumentVisible(),
+        visible: isPresent(lastInteractionAtRef.current),
         focusedConversationId: focusedConversationIdRef.current,
       });
     }
   });
+
+  // Stamp user input, and when it ends an idle stretch report at once so
+  // suppression resumes without waiting for the next tick.
+  useEffect(() => {
+    if (!supportsWebPresence || isElectron()) {
+      return;
+    }
+    const onInteraction = () => {
+      const wasIdle = !isPresent(lastInteractionAtRef.current);
+      lastInteractionAtRef.current = Date.now();
+      if (wasIdle && isDocumentVisible()) {
+        void postWebPresence(assistantId!, {
+          visible: true,
+          focusedConversationId: focusedConversationIdRef.current,
+        });
+      }
+    };
+    for (const name of INTERACTION_EVENTS) {
+      window.addEventListener(name, onInteraction, {
+        passive: true,
+        capture: true,
+      });
+    }
+    return () => {
+      for (const name of INTERACTION_EVENTS) {
+        window.removeEventListener(name, onInteraction, { capture: true });
+      }
+    };
+  }, [assistantId, supportsWebPresence]);
 
   // Mount + focused-conversation-change reporter. Reads visibility fresh at
   // post time rather than depending on lifecycle state, so a visibility flip
@@ -136,19 +213,20 @@ export function useWebPresenceReport(assistantId: string | null): void {
       return;
     }
     void postWebPresence(assistantId!, {
-      visible: isDocumentVisible(),
+      visible: isPresent(lastInteractionAtRef.current),
       focusedConversationId,
     });
   }, [assistantId, focusedConversationId, supportsWebPresence]);
 
-  // Reconcile semantic presence slowly while visible. A hidden tab skips the
-  // tick; the next real visibility edge reports its fresh state.
+  // Reconcile semantic presence slowly while present. A hidden or idle tab
+  // skips the tick and its last report ages out of the daemon's TTL, which
+  // restores the push; the next visibility edge or input reports fresh state.
   useEffect(() => {
     if (!supportsWebPresence || isElectron()) {
       return;
     }
     const intervalId = window.setInterval(() => {
-      if (!isDocumentVisible()) {
+      if (!isPresent(lastInteractionAtRef.current)) {
         return;
       }
       void postWebPresence(assistantId!, {

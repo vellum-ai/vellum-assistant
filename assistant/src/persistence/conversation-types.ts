@@ -234,30 +234,6 @@ export function isMacOriginatedUserMessage(
 }
 
 /**
- * True when the row that opened the turn was sent from a plain web browser
- * tab, on that row's own evidence. Mirrors {@link isMacOriginatedUserMessage};
- * see its doc comment for why both markers are required.
- *
- * The Electron desktop renderer shares this same web bundle but reports its
- * host OS (`detectClientOs()` resolves the Electron bridge before falling
- * back to `"web"`), so it persists `os: "macos"`/`"windows"` and is never
- * matched here — an Electron-originated turn is already covered by
- * {@link isMacOriginatedUserMessage}.
- */
-export function isWebOriginatedUserMessage(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  if (metadata?.clientOsFromRequest !== true) {
-    return false;
-  }
-  const client = metadata.client;
-  if (typeof client !== "object" || client === null) {
-    return false;
-  }
-  return parseClientOs((client as Record<string, unknown>).os) === "web";
-}
-
-/**
  * True when the row that opened the turn arrived over an external messaging
  * surface (Slack, Telegram, WhatsApp, email, a phone call) rather than the
  * native app.

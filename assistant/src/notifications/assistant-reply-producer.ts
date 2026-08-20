@@ -46,6 +46,9 @@ const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
 /** Gates the desktop-attended suppression below, on by default. */
 const DESKTOP_PRESENCE_FLAG = "desktop-presence-suppression" as const;
 
+/** Gates the web-focused suppression below, on by default. */
+const WEB_PRESENCE_FLAG = "web-presence-suppression" as const;
+
 /**
  * Collapse whitespace runs ahead of the sanitizers' truncation: blank lines and
  * list indentation would otherwise eat into the copy's length budget.
@@ -255,7 +258,9 @@ export async function emitAssistantReplyNotification(params: {
     // initiated the turn: a visible matching tab proves where this reply is
     // currently being displayed, while the conversation id prevents an
     // unrelated tab from suppressing the push.
-    const webFocused = readWebConversationFocused(conversationId, rlog);
+    const webFocused =
+      isAssistantFeatureFlagEnabled(WEB_PRESENCE_FLAG) &&
+      readWebConversationFocused(conversationId, rlog);
 
     await emitNotificationSignal({
       sourceEventName: "chat.assistant_reply",

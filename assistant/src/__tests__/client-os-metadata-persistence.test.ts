@@ -65,10 +65,7 @@ import type {
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";
 import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
 import type { MessageQueue } from "../daemon/conversation-queue-manager.js";
-import {
-  isMacOriginatedUserMessage,
-  isWebOriginatedUserMessage,
-} from "../persistence/conversation-types.js";
+import { isMacOriginatedUserMessage } from "../persistence/conversation-types.js";
 
 function createWebTurnContext(
   clientOs: string | undefined,
@@ -202,13 +199,11 @@ describe("client OS per-row evidence marker", () => {
     expect(lastUserMetadata().client).toEqual({ os: "macos" });
     expect(lastUserMetadata().clientOsFromRequest).toBe(true);
     expect(isMacOriginatedUserMessage(lastUserMetadata())).toBe(true);
-    // Mutually exclusive: a row cannot be both Mac- and web-originated.
-    expect(isWebOriginatedUserMessage(lastUserMetadata())).toBe(false);
   });
 
   // Mirrors the Mac-originated case above: a plain browser tab reports
-  // `client.os: "web"` (the Electron desktop renderer resolves its own host
-  // OS first, so it never lands here — see `isWebOriginatedUserMessage`).
+  // `client.os: "web"`, while the Electron desktop renderer resolves its own
+  // host OS first and persists `macos`/`windows` instead.
   test("marks an OS this row's own transport reported (web)", async () => {
     const ctx = createWebTurnContext("web");
     await persistQueuedMessageBody(ctx, {
@@ -219,7 +214,6 @@ describe("client OS per-row evidence marker", () => {
 
     expect(lastUserMetadata().client).toEqual({ os: "web" });
     expect(lastUserMetadata().clientOsFromRequest).toBe(true);
-    expect(isWebOriginatedUserMessage(lastUserMetadata())).toBe(true);
     expect(isMacOriginatedUserMessage(lastUserMetadata())).toBe(false);
   });
 

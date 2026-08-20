@@ -496,6 +496,16 @@ describe("emitAssistantReplyNotification", () => {
       expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
     });
 
+    test("leaves the signal live when the web presence flag is off", async () => {
+      setOverridesForTesting({ "web-presence-suppression": false });
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+      expect(webPresenceArgs).toEqual([]);
+    });
+
     test("leaves the signal live when the web presence read throws", async () => {
       webPresenceShouldThrow = true;
 
