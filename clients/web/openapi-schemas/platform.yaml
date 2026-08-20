@@ -9667,6 +9667,10 @@ components:
           type: string
           format: date-time
           nullable: true
+        current_period_start:
+          type: string
+          format: date-time
+          nullable: true
         current_period_end:
           type: string
           format: date-time
