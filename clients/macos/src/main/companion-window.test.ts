@@ -26,7 +26,6 @@ const {
   geometryFor,
   placeCanvas,
   callOnUpdate,
-  shouldShowCompanionSurface,
 } = await import("./companion-window");
 
 /** A session as the mirror publishes one, which is what main then holds. */
@@ -280,31 +279,6 @@ describe("the session main holds", () => {
     expect(
       callOnUpdate(running, { approvalRequestId: "req-1" })?.approvalRequestId,
     ).toBe("req-1");
-  });
-});
-
-/**
- * The surface is the most conspicuous thing this app puts on screen, so what
- * decides whether it appears is worth stating as cases: the flag is a floor and
- * the tray preference is a veto.
- */
-describe("shouldShowCompanionSurface", () => {
-  test("shows for a targeted user who has not hidden it", () => {
-    expect(shouldShowCompanionSurface(true, false)).toBe(true);
-  });
-
-  test("stays away while the flag is off", () => {
-    expect(shouldShowCompanionSurface(false, false)).toBe(false);
-  });
-
-  test("honours the tray preference even while the flag is on", () => {
-    expect(shouldShowCompanionSurface(true, true)).toBe(false);
-  });
-
-  // The pre-flag state of every launch: main reads the flags the app's window
-  // wrote last time, and a fresh install has none.
-  test("stays away when nothing is known yet", () => {
-    expect(shouldShowCompanionSurface(false, false)).toBe(false);
   });
 });
 

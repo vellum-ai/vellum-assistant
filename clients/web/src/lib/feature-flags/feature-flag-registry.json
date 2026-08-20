@@ -93,14 +93,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "companion-surface",
-      "scope": "client",
-      "key": "companion-surface",
-      "label": "Companion Surface",
-      "description": "Show the macOS companion surface: the floating avatar that carries Talk, Type and the running call, and its tray item. Read in the Electron main process, which decides whether the window opens at all",
-      "defaultEnabled": false
-    },
-    {
       "id": "expand-completed-steps",
       "scope": "client",
       "key": "expand-completed-steps",

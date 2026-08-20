@@ -95,7 +95,7 @@ export const writeOnboardingActive = (active: boolean): void => {
 
 /**
  * Whether the user has hidden the companion surface from the tray's
- * "Show Floating Companion" item. Absent defaults to `false`: the surface
+ * "Show Companion" item. Absent defaults to `false`: the surface
  * is a standing presence, and this flag records only the opt-out.
  */
 export const readCompanionHidden = (): boolean =>

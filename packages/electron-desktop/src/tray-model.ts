@@ -43,7 +43,16 @@ export interface TrayModelRuntime {
   accelerator: (
     command: VellumCommand["kind"],
   ) => Pick<MenuItemConstructorOptions, "accelerator">;
-  companionEnabled: () => boolean;
+  /**
+   * Whether this platform has a companion surface at all.
+   *
+   * A statement about the build, not about the user: macOS has one and Windows
+   * does not. It replaced the `companion-surface` flag this menu used to be
+   * gated on, which is a distinction worth keeping straight — the flag was a
+   * rollout and this is a platform, so this one never becomes true on Windows
+   * and is never false on macOS.
+   */
+  companionSupported: () => boolean;
   companionHidden: () => boolean;
   /** Which named size the companion surface is drawn at. */
   companionSize: () => CompanionSize;
@@ -361,11 +370,11 @@ const buildTrayMenu = (
       label: "Show / Hide Main Window",
       click: handlers.toggleMainWindow,
     },
-    // The floating avatar pill (`companion-window.ts`), for whoever the flag
-    // is on for. Off, there is no surface to show or hide, and an item
-    // offering to bring one back would be the only place in the app that
-    // mentions it exists.
-    ...(trayRuntime.companionEnabled()
+    // The floating avatar pill (`companion-window.ts`), on the platforms that
+    // have one. Where there is no surface there is nothing to show or hide, and
+    // an item offering to bring one back would be the only place in the app
+    // that mentions it exists.
+    ...(trayRuntime.companionSupported()
       ? [
           {
             // A checkbox rather than a toggle-action item: once the surface is
@@ -373,7 +382,7 @@ const buildTrayMenu = (
             // so the item has to show which state it is in. Electron flips
             // `checked` before `click` runs, so the item carries the state
             // being asked for.
-            label: "Show Floating Companion",
+            label: "Show Companion",
             type: "checkbox" as const,
             checked: !trayRuntime.companionHidden(),
             click: (item: Electron.MenuItem) => {

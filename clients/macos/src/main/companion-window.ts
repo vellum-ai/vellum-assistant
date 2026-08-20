@@ -19,10 +19,6 @@ import {
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
 import {
-  onSettingChange,
-  readSetting,
-} from "@vellumai/electron-desktop/settings";
-import {
   readCompanionHidden,
   readCompanionSize,
   writeCompanionSize,
@@ -46,39 +42,11 @@ import {
 } from "./main-window";
 
 /**
- * The flag the whole surface is behind, evaluated for the signed-in user and
- * written into settings by the app's window (`useElectronFeatureFlagBridge`).
- *
- * Absent means off, which is the answer for every state that is not a positive
- * evaluation: a fresh install whose window has not synced yet, and an
- * environment where the flag was never provisioned. An avatar that appears
- * over everything the user is doing is the most conspicuous thing this app
- * ships, so the state of not knowing has to be the state of not showing it.
- */
-const SURFACE_FLAG = "companion-surface";
-
-export const isCompanionSurfaceEnabled = (): boolean =>
-  readSetting("featureFlags")?.[SURFACE_FLAG] === true;
-
-/**
- * Whether the surface belongs on screen, given the flag and the user's own
- * choice from the tray.
- *
- * The flag is a floor and the tray preference is a veto, so both have to say
- * yes. Exported for its tests, as `callOnUpdate` is: it is the rule that decides
- * whether the most conspicuous window this app has appears at all.
- */
-export const shouldShowCompanionSurface = (
-  enabled: boolean,
-  hidden: boolean,
-): boolean => enabled && !hidden;
-
-/**
  * The companion surface (LUM-3086): the assistant's avatar floating from app
  * launch, expanding on hover into a pill with the voice and type-chat options,
  * and holding that expansion for as long as a call runs. It stays on screen
  * for the app's whole run unless the user hides it via the tray's "Show
- * Floating Companion" item, a choice that persists across launches
+ * Companion" item, a choice that persists across launches
  * (`readCompanionHidden` in `window-state.ts`).
  *
  * **It is also the desktop's live-voice session surface**, the counterpart to
@@ -769,13 +737,6 @@ export const installCompanionWindow = (): void => {
   // here too.
   onAvatarChange(pushState);
 
-  // The flag arrives after launch, not before it: main reads it from settings
-  // and the app's window is what puts it there, once it has signed in and
-  // fetched an evaluation. So the surface cannot be decided once at startup.
-  // This is what opens it when the answer finally lands, and closes it if the
-  // answer changes.
-  onSettingChange("featureFlags", syncCompanionSurface);
-
   // The route loads lazily after the window is created, so a state pushed
   // before its subscription registers is dropped. It pulls this once mounted.
   handle("vellum:companion:getState", z.tuple([]), () => currentState());
@@ -909,23 +870,23 @@ export const setCompanionSurfaceSize = (size: CompanionSize): void => {
 };
 
 /**
- * Open or close the surface to match the two things that decide whether it
- * belongs on screen: the flag, and the user's own choice from the tray.
+ * Open or close the surface to match the one thing that decides whether it
+ * belongs on screen: the user's own choice from the tray.
  *
  * The single place that decision is made, called at launch and again whenever
- * the flags in settings change. Two call sites reading the same pair of
- * conditions is how they come to disagree, and disagreeing here means either a
- * floating avatar nobody was meant to have or a missing one the user turned on.
+ * the tray preference changes. Two call sites reading the same condition is how
+ * they come to disagree, and disagreeing here means either a floating avatar
+ * nobody asked for or a missing one the user turned on.
  *
- * **The flag never writes the tray preference.** Losing the flag has to leave
- * the user's choice exactly as they left it, so that being targeted again
- * restores the surface for someone who wanted it and leaves it hidden for
- * someone who did not.
+ * The surface used to sit behind the `companion-surface` flag as well, which is
+ * why this is a function rather than a call at startup. It stays one: the
+ * preference is written from the tray while the app runs, and this is what the
+ * writer calls to make the screen match it.
  */
 export const syncCompanionSurface = (): void => {
-  if (shouldShowCompanionSurface(isCompanionSurfaceEnabled(), readCompanionHidden())) {
-    openCompanionWindow();
+  if (readCompanionHidden()) {
+    closeCompanionWindow();
     return;
   }
-  closeCompanionWindow();
+  openCompanionWindow();
 };

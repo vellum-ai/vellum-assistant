@@ -95,6 +95,8 @@ let watchedLockfile: {
   activeAssistant: string | null;
 } = { assistants: [], activeAssistant: null };
 let featureFlags: Record<string, boolean> | null = null;
+/** Defaults to a macOS-shaped build, which is the one that has the surface. */
+let companionSupported = true;
 let companionHidden = false;
 const setCompanionSurfaceVisibleMock = mock((_visible: boolean) => undefined);
 let companionSize: CompanionSize = "large";
@@ -176,7 +178,7 @@ beforeEach(() => {
   __resetForTesting();
   configureTrayModel({
     accelerator: () => ({}),
-    companionEnabled: () => featureFlags?.["companion-surface"] === true,
+    companionSupported: () => companionSupported,
     companionHidden: () => companionHidden,
     dispatch: dispatchToMainMock,
     featureEnabled: (flag) => featureFlags?.[flag] === true,
@@ -195,6 +197,7 @@ beforeEach(() => {
   avatarListeners.clear();
   watchedLockfile = { assistants: [], activeAssistant: null };
   featureFlags = null;
+  companionSupported = true;
   companionHidden = false;
   companionSize = "large";
   setCompanionSurfaceVisibleMock.mockClear();
@@ -300,15 +303,23 @@ describe("installTray", () => {
     expect(labels).toContain("Re-pair Assistant");
   });
 
-  test("the floating companion item is absent while its flag is off", () => {
+  test("the companion item is absent on a platform with no companion surface", () => {
+    companionSupported = false;
     installTray(handlers);
     handlerFor(trays[0], "right-click")?.();
     const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
       label?: string;
     }>;
-    expect(template.map((item) => item.label)).not.toContain(
-      "Show Floating Companion",
-    );
+    expect(template.map((item) => item.label)).not.toContain("Show Companion");
+  });
+
+  test("the companion item is present on a platform that has one", () => {
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+    }>;
+    expect(template.map((item) => item.label)).toContain("Show Companion");
   });
 
   test("the Re-pair item is absent when status is not authFailed", () => {
@@ -533,7 +544,7 @@ describe("assistant switcher", () => {
   });
 });
 
-describe("floating companion toggle", () => {
+describe("companion toggle", () => {
   type MenuItem = {
     label?: string;
     type?: string;
@@ -544,22 +555,20 @@ describe("floating companion toggle", () => {
   };
 
   const popCompanionItem = (): MenuItem | undefined => {
-    // The item exists only for someone the surface is on for; these cases are
+    // The item exists only where the platform has a surface; these cases are
     // about what it then does, and the gate itself is covered above.
-    featureFlags = { "companion-surface": true };
     installTray(handlers);
     handlerFor(trays[0], "right-click")?.();
     const calls = buildFromTemplateMock.mock.calls;
     const template = calls[calls.length - 1]?.[0] as MenuItem[];
-    return template.find((i) => i.label === "Show Floating Companion");
+    return template.find((i) => i.label === "Show Companion");
   };
 
   /**
    * The size picker, which lives beside the toggle and is gated with it: with
-   * the surface off there is nothing to size.
+   * no surface there is nothing to size.
    */
   const popSizeItem = (): MenuItem | undefined => {
-    featureFlags = { "companion-surface": true };
     installTray(handlers);
     handlerFor(trays[0], "right-click")?.();
     const calls = buildFromTemplateMock.mock.calls;
@@ -631,8 +640,8 @@ describe("floating companion toggle", () => {
     expect(item?.enabled).toBe(false);
   });
 
-  test("is absent entirely for someone the surface is off for", () => {
-    featureFlags = {};
+  test("is absent entirely on a platform with no companion surface", () => {
+    companionSupported = false;
     installTray(handlers);
     handlerFor(trays[0], "right-click")?.();
     const calls = buildFromTemplateMock.mock.calls;

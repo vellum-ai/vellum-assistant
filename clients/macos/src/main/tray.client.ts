@@ -23,7 +23,6 @@ import {
 } from "./assets/menu-icons";
 import { acceleratorOption } from "./commands.client";
 import {
-  isCompanionSurfaceEnabled,
   readCompanionSurfaceSize,
   setCompanionSurfaceSize,
   setCompanionSurfaceVisible,
@@ -49,7 +48,11 @@ export { __resetForTesting };
 export const installTray = (handlers: TrayHandlers): void => {
   configureTrayModel({
     accelerator: acceleratorOption,
-    companionEnabled: isCompanionSurfaceEnabled,
+    // macOS is the platform that has the surface. Flat `true` rather than a
+    // read of anything: it shipped to everyone when the `companion-surface`
+    // flag was removed, and the tray preference below is now the only thing
+    // that turns it off.
+    companionSupported: () => true,
     companionHidden: readCompanionHidden,
     companionSize: readCompanionSurfaceSize,
     dispatch: dispatchToMain,
