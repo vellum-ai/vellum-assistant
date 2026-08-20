@@ -140,6 +140,9 @@ module.exports = {
         arch: [targetArch],
       },
     ],
+    // electron-builder signs only `.exe` by default; the CLI runtime, helper,
+    // and preview-handler DLL must carry the same signature.
+    signExts: [".exe", ".dll", ".node"],
     ...resolveSigning(),
   },
   nsis: {

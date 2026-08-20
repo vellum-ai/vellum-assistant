@@ -124,11 +124,16 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # Before build:runtime, which bakes the version into the CLI runtime.
+      # Before build:runtime: the app and every service compiled into the CLI
+      # runtime report the release version.
       - name: Stamp release version into package.json
+        shell: bash
         env:
           VERSION: ${{ inputs.version }}
-        run: bun -e "const fs = require('node:fs'); const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); pkg.version = process.env.VERSION; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');"
+        run: |
+          for pkg in package.json ../../assistant/package.json ../../gateway/package.json ../../cli/package.json ../../credential-executor/package.json; do
+            jq --arg v "$VERSION" '.version = $v' "$pkg" > "${pkg}.tmp" && mv "${pkg}.tmp" "$pkg"
+          done
 
       - name: Build native helper
         run: bun scripts/build-native-helper.ts --arch ${{ matrix.arch }}
