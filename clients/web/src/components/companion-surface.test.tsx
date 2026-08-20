@@ -259,8 +259,8 @@ describe("the companion surface's anchor in the canvas", () => {
  * avatar ends up against that edge.
  *
  * Anchoring without mirroring is the failure this covers. It draws the avatar
- * at the far end of the pill instead — up to a card's width from where main
- * believes it is — so the mascot teleports at the direction flip, the labels
+ * at the far end of the pill instead, up to a card's width from where main
+ * believes it is, so the mascot teleports at the direction flip, the labels
  * sweep under a held pointer, and the point main hands presses to lands on a
  * control that refuses them. The surface reads as dead (JARVIS-1582).
  */

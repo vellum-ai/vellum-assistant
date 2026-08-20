@@ -539,14 +539,14 @@ export function CompanionSurface({
       )}
       {typing && turns.length > 0 && <RecentTurns turns={turns} />}
       {/* The avatar's own row, and the half of the mirroring that orders it.
-          The reversal belongs here rather than on the surface, which is where
-          it used to live: this row wraps the avatar and the body, so the
-          surface has a single in-flow child and reversing *that* orders
-          nothing. Left alone, growing leftward anchors the surface by its right
-          edge and then draws the avatar at the far end of it, putting the
-          mascot up to a card's width from the point the host positioned the
-          window by. Applied whether or not the composer is open, because the
-          card is anchored the same way and has further to be wrong. */}
+          This row is the surface's only in-flow child, so it is the one place
+          the reversal has any ordering to do: reversing the surface around it
+          moves the row within the box and leaves the avatar wherever the row
+          put it. The avatar has to land against the edge `placement` anchored
+          by, since that edge is derived from the point the host positioned the
+          window by. True of the card as much as the pill, and the card is
+          anchored the same way with a card's width to be wrong by, so this
+          holds whether or not the composer is open. */}
       <div
         className={`relative flex h-11 shrink-0 items-center ${
           growth === "left" ? "flex-row-reverse" : ""
