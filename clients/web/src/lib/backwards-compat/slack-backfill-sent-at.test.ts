@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { cleanup, renderHook } from "@testing-library/react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import {
@@ -7,8 +8,10 @@ import {
 } from "@/lib/backwards-compat/slack-backfill-sent-at";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
-function setVersion(version: string | null) {
+/** Read the gate synchronously through the exported hook. */
+function readGate(version: string | null): boolean {
   useAssistantIdentityStore.getState().setIdentity("test-asst", version);
+  return renderHook(() => useSupportsBackfilledSentAt()).result.current;
 }
 
 beforeEach(() => {
@@ -16,6 +19,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
@@ -29,20 +33,16 @@ function slackMessage(
 // boundary on each side of 0.11.5 plus the conservative-on-unknown policy.
 describe("useSupportsBackfilledSentAt", () => {
   test("false when the version is unknown", () => {
-    setVersion(null);
-    expect(useSupportsBackfilledSentAt()).toBe(false);
+    expect(readGate(null)).toBe(false);
   });
 
-  test("false for assistants predating the daemon fix", () => {
-    setVersion("0.11.4");
-    expect(useSupportsBackfilledSentAt()).toBe(false);
+  test("false below the pinned version, where sentAt is not sent", () => {
+    expect(readGate("0.11.4")).toBe(false);
   });
 
   test("true from the pinned version on", () => {
-    setVersion("0.11.5");
-    expect(useSupportsBackfilledSentAt()).toBe(true);
-    setVersion("0.12.0");
-    expect(useSupportsBackfilledSentAt()).toBe(true);
+    expect(readGate("0.11.5")).toBe(true);
+    expect(readGate("0.12.0")).toBe(true);
   });
 });
 
