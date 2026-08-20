@@ -12,6 +12,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 // ── Real imports ──────────────────────────────────────────────────────────────
+import { eq } from "drizzle-orm";
+
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { providerConnections } from "../../../persistence/schema/inference.js";
@@ -51,6 +53,19 @@ function normalizeTimestamps<T extends object>(
   return rest as Omit<T, "createdAt" | "updatedAt">;
 }
 
+/** The raw stored auth column, which must be payload-only (no `type` key). */
+function rawStoredAuth(name: string): Record<string, unknown> {
+  const row = getDb()
+    .select({ auth: providerConnections.auth })
+    .from(providerConnections)
+    .where(eq(providerConnections.name, name))
+    .get();
+  if (!row) {
+    throw new Error(`No stored row named ${name}`);
+  }
+  return JSON.parse(row.auth) as Record<string, unknown>;
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -73,6 +88,9 @@ describe("CLI vs HTTP route parity", () => {
     }
     const cliRow = getConnection(getDb(), payload.name);
     expect(cliRow).not.toBeNull();
+    expect(rawStoredAuth(payload.name)).toEqual({
+      credential: payload.auth.credential,
+    });
 
     // Clean up CLI row before HTTP create so names don't collide.
     clearConnections();
@@ -91,6 +109,9 @@ describe("CLI vs HTTP route parity", () => {
     expect(httpResult.name).toBe(payload.name);
     const httpRow = getConnection(getDb(), payload.name);
     expect(httpRow).not.toBeNull();
+    expect(rawStoredAuth(payload.name)).toEqual({
+      credential: payload.auth.credential,
+    });
 
     // ── Compare ───────────────────────────────────────────────────────────────
     // Both rows should have identical non-timestamp fields.
@@ -110,6 +131,7 @@ describe("CLI vs HTTP route parity", () => {
       throw new Error("CLI create failed");
     }
     const cliRow = getConnection(getDb(), payload.name);
+    expect(rawStoredAuth(payload.name)).toEqual({});
 
     clearConnections();
 
@@ -121,6 +143,7 @@ describe("CLI vs HTTP route parity", () => {
       },
     });
     const httpRow = getConnection(getDb(), payload.name);
+    expect(rawStoredAuth(payload.name)).toEqual({});
 
     expect(normalizeTimestamps(httpRow!)).toEqual(normalizeTimestamps(cliRow!));
   });
@@ -138,6 +161,7 @@ describe("CLI vs HTTP route parity", () => {
       throw new Error("CLI create failed");
     }
     const cliRow = getConnection(getDb(), payload.name);
+    expect(rawStoredAuth(payload.name)).toEqual({});
 
     clearConnections();
 
@@ -149,6 +173,7 @@ describe("CLI vs HTTP route parity", () => {
       },
     });
     const httpRow = getConnection(getDb(), payload.name);
+    expect(rawStoredAuth(payload.name)).toEqual({});
 
     expect(normalizeTimestamps(httpRow!)).toEqual(normalizeTimestamps(cliRow!));
   });

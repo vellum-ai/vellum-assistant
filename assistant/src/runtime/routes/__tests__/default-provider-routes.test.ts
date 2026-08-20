@@ -179,7 +179,10 @@ describe("GET config/llm/default-provider", () => {
     expect(availability(result).status).toBe("ok");
   });
 
-  test("platform-auth connection for a non-managed provider → unsupported_auth even when signed in", async () => {
+  test("credential-less row on a keyed provider is invalid → missing_connection even when signed in", async () => {
+    // A stored platform payload on a non-managed provider carries no
+    // credential, so no auth type derives for the row and the loaders drop
+    // it as invalid (migration 361 rewrites such rows to provider vellum).
     seedConnection({
       name: "openrouter-personal",
       provider: "openrouter",
@@ -189,8 +192,7 @@ describe("GET config/llm/default-provider", () => {
     setConfig("llm", { defaultProvider: { provider: "openrouter" } });
 
     const result = await get();
-    expect(availability(result).status).toBe("unsupported_auth");
-    expect(availability(result).message).toContain("platform auth");
+    expect(availability(result).status).toBe("missing_connection");
   });
 
   test("BYOK with stored key → ok, convention-resolved connection", async () => {
@@ -282,7 +284,7 @@ describe("GET config/llm/default-provider", () => {
     expect(availability(result).message).toContain("unreachable");
   });
 
-  test("none-auth connection on a keyed provider → unsupported_auth", async () => {
+  test("none-auth row on a keyed provider is invalid → missing_connection", async () => {
     seedConnection({
       name: "openai-personal",
       provider: "openai",
@@ -291,11 +293,14 @@ describe("GET config/llm/default-provider", () => {
     setConfig("llm", { defaultProvider: { provider: "openai" } });
 
     const result = await get();
-    expect(availability(result).status).toBe("unsupported_auth");
-    expect(availability(result).message).toContain("API key");
+    expect(availability(result).status).toBe("missing_connection");
   });
 
-  test("service_account connection → unsupported_auth even with a stored credential", async () => {
+  test("a legacy service_account row reads as api_key on its stored credential", async () => {
+    // The auth type derives from the provider, so the stored
+    // `service_account` marker is inert: the row carries a credential and a
+    // keyed provider, which derives api_key. Availability then reports on
+    // that credential.
     seedConnection({
       name: "gemini-personal",
       provider: "gemini",
@@ -308,21 +313,7 @@ describe("GET config/llm/default-provider", () => {
     setConfig("llm", { defaultProvider: { provider: "gemini" } });
 
     const result = await get();
-    expect(availability(result).status).toBe("unsupported_auth");
-    expect(availability(result).message).toContain("service-account");
-  });
-
-  test("platform-auth connection follows managed-proxy state", async () => {
-    seedConnection({
-      name: "anthropic-personal",
-      provider: "anthropic",
-      auth: { type: "platform" },
-    });
-    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
-
-    expect(availability(await get()).status).toBe("vellum_unauthenticated");
-    managedProxyEnabled = true;
-    expect(availability(await get()).status).toBe("ok");
+    expect(availability(result).status).toBe("ok");
   });
 });
 

@@ -15,11 +15,11 @@ import {
 export { VELLUM_MANAGED_CONNECTION_NAME };
 import {
   type Auth,
-  AuthSchema,
   type ConnectionModel,
   ConnectionModelSchema,
   type ConnectionProvider,
   ConnectionProviderSchema,
+  deriveStoredAuth,
   type ProviderConnection,
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   VALID_CONNECTION_PROVIDERS,
@@ -49,20 +49,36 @@ function isManagedRow(row: {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse an auth value (stored JSON or caller input), normalizing any
- * credential reference to the vault-key form. Normalizing on read as well as
- * write heals rows that were stored with the secrets-API wire name (e.g.
- * `openrouter:api_key`) without a migration.
+ * Parse an auth value (stored JSON or caller input) into the typed Auth for
+ * a row of the given provider. Only the credential payload is read; the auth
+ * type is derived from the provider (`deriveStoredAuth`), so a legacy `type`
+ * key in stored JSON is inert. Credential references are normalized to the
+ * vault-key form on read as well as write, healing rows stored with the
+ * secrets-API wire name (e.g. `openrouter:api_key`) without a migration.
+ * Returns null for an underivable value; callers treat the row as invalid.
  */
-function parseAuth(raw: unknown): Auth | null {
-  const parsed = AuthSchema.safeParse(raw);
-  if (!parsed.success) {
+function parseAuth(raw: unknown, provider: string): Auth | null {
+  if (raw === null || typeof raw !== "object") {
     return null;
   }
-  const auth = parsed.data;
-  return "credential" in auth
-    ? { ...auth, credential: normalizeCredentialRef(auth.credential) }
-    : auth;
+  const credential = (raw as { credential?: unknown }).credential;
+  if (credential === undefined) {
+    return deriveStoredAuth(provider);
+  }
+  if (typeof credential !== "string" || credential.length === 0) {
+    return null;
+  }
+  return deriveStoredAuth(provider, normalizeCredentialRef(credential));
+}
+
+/**
+ * Payload-only JSON persisted in the auth column. The auth type is derived
+ * from the provider column on read, so it is never stored.
+ */
+function toStoredAuth(auth: Auth): string {
+  return JSON.stringify(
+    "credential" in auth ? { credential: auth.credential } : {},
+  );
 }
 
 function parseModelsColumn(raw: string | null): ConnectionModel[] | null {
@@ -94,7 +110,7 @@ export function listConnections(
     : db.select().from(providerConnections).all();
 
   return rows.flatMap((row) => {
-    const auth = parseAuth(JSON.parse(row.auth));
+    const auth = parseAuth(JSON.parse(row.auth), row.provider);
     if (!auth) {
       return [];
     }
@@ -129,7 +145,7 @@ export function getConnection(
   if (!row) {
     return null;
   }
-  const auth = parseAuth(JSON.parse(row.auth));
+  const auth = parseAuth(JSON.parse(row.auth), row.provider);
   if (!auth) {
     return null;
   }
@@ -209,7 +225,7 @@ export function createConnection(
   // Safe cast: VALID_CONNECTION_PROVIDERS.includes() guards above.
   const provider = input.provider as ConnectionProvider;
 
-  const auth = parseAuth(input.auth);
+  const auth = parseAuth(input.auth, provider);
   if (!auth) {
     return { ok: false, error: { code: "invalid_auth" } };
   }
@@ -241,7 +257,7 @@ export function createConnection(
     .values({
       name: input.name,
       provider,
-      auth: JSON.stringify(auth),
+      auth: toStoredAuth(auth),
       label,
       baseUrl,
       models: models === null ? null : JSON.stringify(models),
@@ -282,11 +298,6 @@ export function updateConnection(
     return { ok: false, error: { code: "not_found" } };
   }
 
-  const auth = parseAuth(input.auth);
-  if (!auth) {
-    return { ok: false, error: { code: "invalid_auth" } };
-  }
-
   if (
     input.provider !== undefined &&
     !VALID_CONNECTION_PROVIDERS.includes(input.provider as never)
@@ -297,6 +308,11 @@ export function updateConnection(
     };
   }
   const nextProvider = input.provider ?? existing.provider;
+
+  const auth = parseAuth(input.auth, nextProvider);
+  if (!auth) {
+    return { ok: false, error: { code: "invalid_auth" } };
+  }
 
   const nextBaseUrl =
     input.baseUrl !== undefined ? input.baseUrl : existing.baseUrl;
@@ -320,7 +336,7 @@ export function updateConnection(
     label?: string | null;
     baseUrl?: string | null;
     models?: string | null;
-  } = { auth: JSON.stringify(auth), updatedAt: now };
+  } = { auth: toStoredAuth(auth), updatedAt: now };
   if (input.provider !== undefined) {
     setClause.provider = input.provider;
   }
@@ -515,7 +531,7 @@ export function seedCanonicalConnections(db: DrizzleDb): void {
       .values({
         name,
         provider,
-        auth: JSON.stringify(auth),
+        auth: toStoredAuth(auth),
         label,
         createdAt: now,
         updatedAt: now,
@@ -524,7 +540,7 @@ export function seedCanonicalConnections(db: DrizzleDb): void {
         target: providerConnections.name,
         set: {
           provider,
-          auth: JSON.stringify(auth),
+          auth: toStoredAuth(auth),
           updatedAt: now,
         },
       })

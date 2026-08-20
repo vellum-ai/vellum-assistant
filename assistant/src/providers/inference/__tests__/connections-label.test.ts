@@ -40,7 +40,7 @@ describe("connection CRUD label defaults", () => {
     const result = createConnection(db, {
       name: "my-conn",
       provider: "anthropic",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -53,7 +53,7 @@ describe("connection CRUD label defaults", () => {
     const result = createConnection(db, {
       name: "labeled-conn",
       provider: "openai",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
       label: "My OpenAI",
     });
     expect(result.ok).toBe(true);
@@ -67,7 +67,7 @@ describe("connection CRUD label defaults", () => {
     createConnection(db, {
       name: "get-me",
       provider: "gemini",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/gemini/api_key" },
       label: "Gemini Pro",
     });
 
@@ -81,12 +81,12 @@ describe("connection CRUD label defaults", () => {
     createConnection(db, {
       name: "clear-label",
       provider: "openai",
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
       label: "Old Label",
     });
 
     const result = updateConnection(db, "clear-label", {
-      auth: { type: "platform" },
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
       label: null,
     });
     expect(result.ok).toBe(true);

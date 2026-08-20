@@ -206,6 +206,17 @@ function deriveConnectionAuth(provider: string, credential: unknown): Auth {
  * reverse.
  */
 function assertAuthMatchesProvider(provider: string, auth: Auth): void {
+  // The wire schema accepts service_account, but the store persists only the
+  // credential payload and derives the type from the provider on read, so a
+  // service_account write would come back as api_key auth and dispatch the
+  // service-account blob as a bearer key. Reject at the write boundary.
+  // Stored rows never echo service_account, so a resend of stored auth can
+  // never hit this.
+  if (auth.type === "service_account") {
+    throw new BadRequestError(
+      `Auth type "service_account" is not supported yet. Use "api_key" auth with a vault credential.`,
+    );
+  }
   const managedAuth = auth.type === "platform";
   const managedProvider = provider === VELLUM_MANAGED_PROVIDER;
   if (managedAuth !== managedProvider) {

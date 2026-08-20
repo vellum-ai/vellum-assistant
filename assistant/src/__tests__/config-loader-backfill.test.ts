@@ -66,6 +66,7 @@ import {
 } from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import type { DrizzleDb } from "../persistence/db-connection.js";
+import { getSqliteFrom } from "../persistence/db-connection.js";
 import { migrateCreateProviderConnections } from "../persistence/migrations/243-provider-connections.js";
 import { migrateProviderConnectionStatusLabel } from "../persistence/migrations/244-provider-connection-status-label.js";
 import { migrateProviderConnectionBaseUrlAndModels } from "../persistence/migrations/250-provider-connection-base-url-and-models.js";
@@ -1704,10 +1705,18 @@ describe("seedInferenceProfiles BYOK-mode default profiles", () => {
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
       "anthropic-personal",
     );
-    // Connections exist (status is no longer a connection-level concept).
-    expect(getConnection(db, "anthropic-managed")).not.toBeNull();
-    expect(getConnection(db, "openai-managed")).not.toBeNull();
-    expect(getConnection(db, "gemini-managed")).not.toBeNull();
+    // The seed leaves the legacy migration-243 rows in place. They sit in
+    // their pre-361 shape here (concrete provider, platform auth), which the
+    // loaders drop as underivable; on a real install migration 361 rewrites
+    // them to provider "vellum" before anything reads them. Assert on the raw
+    // rows, not the loader.
+    const rawRowExists = (name: string): boolean =>
+      getSqliteFrom(db)
+        .query(`SELECT 1 FROM provider_connections WHERE name = ?`)
+        .get(name) !== null;
+    expect(rawRowExists("anthropic-managed")).toBe(true);
+    expect(rawRowExists("openai-managed")).toBe(true);
+    expect(rawRowExists("gemini-managed")).toBe(true);
   });
 
   test("non-hatch off-platform boot writes no managed entries and never auto-disables the defaults", () => {
