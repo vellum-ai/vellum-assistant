@@ -91,6 +91,7 @@ import {
   MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT,
   MEMORY_RETROSPECTIVE_ORIGIN,
   MEMORY_RETROSPECTIVE_SOURCE,
+  RETROSPECTIVE_DEGRADE_AFTER_FAILURES,
   SKILL_MANAGEMENT_SKILL_ID,
 } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
@@ -424,7 +425,29 @@ export async function runForkBasedRetrospective(
   }
   const forkId = forkConversationRow.id;
 
-  const procToSkillsActive = isV3TierActive(config);
+  // Skill authoring is the pass's optional surface: it needs the v3 tier AND a
+  // window that recent passes have been able to complete. `consecutiveFailures`
+  // counts passes over this same window that produced nothing durable, so past
+  // the threshold the pass runs in its minimal remember-only form. Facts still
+  // land, which advances the cursor and releases the window; only the skill is
+  // lost. A succeeding pass clears the count, so the authoring surface returns
+  // on its own.
+  const consecutiveFailures = state?.consecutiveFailures ?? 0;
+  const skillAuthoringSuppressed =
+    isV3TierActive(config) &&
+    consecutiveFailures >= RETROSPECTIVE_DEGRADE_AFTER_FAILURES;
+  const procToSkillsActive =
+    isV3TierActive(config) && !skillAuthoringSuppressed;
+  if (skillAuthoringSuppressed) {
+    log.warn(
+      {
+        sourceConversationId,
+        consecutiveFailures,
+        newMessageCount: newMessages.length,
+      },
+      "memory-retrospective (fork): consecutive passes produced nothing durable; running this one remember-only",
+    );
+  }
   const instruction = buildForkInstruction({
     windowStartTimestamp,
     windowAnchorKind: turnContextTimestamp ? "turn_context" : "created_at",

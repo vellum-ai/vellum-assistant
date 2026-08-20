@@ -474,6 +474,7 @@ import { migrateBackfillScheduleInferenceProfile } from "./migrations/363-backfi
 import { migrateAddScheduleSourceKey } from "./migrations/364-add-schedule-source-key.js";
 import { migrateAddConversationForkStrategy } from "./migrations/365-add-conversation-fork-strategy.js";
 import { migrateChatgptSubscriptionRowIdentity } from "./migrations/366-chatgpt-subscription-row-identity.js";
+import { migrateRetrospectiveConsecutiveFailures } from "./migrations/367-retrospective-consecutive-failures.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1581,5 +1582,12 @@ export const migrationSteps: MigrationStep[] = [
     // creating migration must be checkpointed first or a repair flow could
     // permanently checkpoint the no-op.
     dependsOn: ["migrateCreateProviderConnections"],
+  },
+  {
+    name: "migrateRetrospectiveConsecutiveFailures",
+    run: migrateRetrospectiveConsecutiveFailures,
+    // The column is added on the memory connection, so the table must already
+    // have been relocated there.
+    dependsOn: ["migrateMoveMemoryRetrospectiveStateToMemoryDb"],
   },
 ];

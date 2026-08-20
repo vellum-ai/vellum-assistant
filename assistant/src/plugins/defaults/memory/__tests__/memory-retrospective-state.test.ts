@@ -152,6 +152,36 @@ describe("memory-retrospective-state remembered log persistence", () => {
     expect(seasonedState?.rememberedLog).toEqual(["survives failures"]);
   });
 
+  test("a failure bump counts up and a success clears the count", () => {
+    // A window whose passes keep producing nothing durable has to be
+    // distinguishable from a healthy one, and the count is what the job reads
+    // to decide when to degrade the pass. It must survive across passes
+    // (durable, not per-run) and drop to 0 the moment a pass succeeds, so a
+    // recovered conversation runs at full surface again.
+    bumpRetrospectiveLastRunAt("conv-counting", 1000);
+    expect(getRetrospectiveState("conv-counting")?.consecutiveFailures).toBe(1);
+
+    bumpRetrospectiveLastRunAt("conv-counting", 2000);
+    expect(getRetrospectiveState("conv-counting")?.consecutiveFailures).toBe(2);
+
+    upsertRetrospectiveState({
+      conversationId: "conv-counting",
+      lastProcessedMessageId: "m9",
+      lastRunAt: 3000,
+    });
+    expect(getRetrospectiveState("conv-counting")?.consecutiveFailures).toBe(0);
+  });
+
+  test("a fresh success-path row starts with no failures recorded", () => {
+    upsertRetrospectiveState({
+      conversationId: "conv-fresh",
+      lastProcessedMessageId: "m1",
+      lastRunAt: 1000,
+    });
+
+    expect(getRetrospectiveState("conv-fresh")?.consecutiveFailures).toBe(0);
+  });
+
   test("forkRetrospectiveState copies the log verbatim to the forked child", () => {
     upsertRetrospectiveState({
       conversationId: "conv-fork-source",
@@ -173,6 +203,29 @@ describe("memory-retrospective-state remembered log persistence", () => {
     expect(getRetrospectiveState("conv-fork-child")?.rememberedLog).toEqual([
       "parent baseline",
     ]);
+  });
+
+  test("a forked child starts with no inherited failure count", () => {
+    // The parent's count belongs to the window the parent still has to
+    // process. The child reviews its own post-fork slice, so it must get a
+    // full-surface first pass rather than inheriting a degraded one.
+    bumpRetrospectiveLastRunAt("conv-failing-parent", 1000);
+    bumpRetrospectiveLastRunAt("conv-failing-parent", 2000);
+    expect(
+      getRetrospectiveState("conv-failing-parent")?.consecutiveFailures,
+    ).toBe(2);
+
+    forkRetrospectiveState({
+      database: getDb(),
+      sourceConversationId: "conv-failing-parent",
+      forkedConversationId: "conv-fresh-child",
+      forkedMessageIds: new Map(),
+      lastCopiedSourceMessageId: null,
+    });
+
+    expect(getRetrospectiveState("conv-fresh-child")?.consecutiveFailures).toBe(
+      0,
+    );
   });
 });
 

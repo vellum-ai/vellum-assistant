@@ -13,7 +13,15 @@
 //     untouched so the turn-end trigger check can requeue immediately — see
 //     `memory-retrospective-job.ts`.
 //
-// A third column rides along with the success-path pointer write:
+// A third pointer counts passes that produced nothing durable:
+//   - `consecutiveFailures` increments on every failure path and resets to 0
+//     on the success path. Past `RETROSPECTIVE_DEGRADE_AFTER_FAILURES`
+//     (`memory-retrospective-constants.ts`) the job runs the pass in its
+//     minimal remember-only form, so a window whose richer form keeps failing
+//     still lands facts and releases the cursor instead of being retried in
+//     the same shape forever.
+//
+// A fourth column rides along with the success-path pointer write:
 //   - `rememberedLog` (JSON array of strings) — the cumulative `remember`
 //     contents saved across retrospective passes. The job's
 //     `<already_remembered>` dedup block reads from this log so dedup context
@@ -26,7 +34,7 @@
 // table, so there is no FK cascade — the `conversation-deleted` hook purges the
 // row explicitly instead.
 
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 
 import type { DrizzleDb } from "../../../persistence/db-connection.js";
 import { memoryRetrospectiveState } from "../../../persistence/schema/index.js";
@@ -47,6 +55,11 @@ export interface MemoryRetrospectiveState {
    * conversation in that case.
    */
   rememberedLog: string[];
+  /**
+   * Consecutive retrospective passes over this conversation that produced no
+   * durable memory. 0 once a pass succeeds.
+   */
+  consecutiveFailures: number;
 }
 
 /**
@@ -115,6 +128,7 @@ export function listRetrospectiveStates(
       lastProcessedMessageId: memoryRetrospectiveState.lastProcessedMessageId,
       lastRunAt: memoryRetrospectiveState.lastRunAt,
       rememberedLog: memoryRetrospectiveState.rememberedLog,
+      consecutiveFailures: memoryRetrospectiveState.consecutiveFailures,
     })
     .from(memoryRetrospectiveState)
     .orderBy(desc(memoryRetrospectiveState.lastRunAt))
@@ -125,6 +139,7 @@ export function listRetrospectiveStates(
     lastProcessedMessageId: row.lastProcessedMessageId,
     lastRunAt: row.lastRunAt,
     rememberedLog: parseRememberedLog(row.rememberedLog),
+    consecutiveFailures: row.consecutiveFailures,
   }));
 }
 
@@ -144,6 +159,7 @@ export function getRetrospectiveState(
       lastProcessedMessageId: memoryRetrospectiveState.lastProcessedMessageId,
       lastRunAt: memoryRetrospectiveState.lastRunAt,
       rememberedLog: memoryRetrospectiveState.rememberedLog,
+      consecutiveFailures: memoryRetrospectiveState.consecutiveFailures,
     })
     .from(memoryRetrospectiveState)
     .where(eq(memoryRetrospectiveState.conversationId, conversationId))
@@ -156,6 +172,7 @@ export function getRetrospectiveState(
     lastProcessedMessageId: row.lastProcessedMessageId,
     lastRunAt: row.lastRunAt,
     rememberedLog: parseRememberedLog(row.rememberedLog),
+    consecutiveFailures: row.consecutiveFailures,
   };
 }
 
@@ -166,9 +183,16 @@ export function getRetrospectiveState(
  * cumulative dedup log can never drift from the pointer it was computed
  * against. When omitted, the stored log is left untouched (and seeded NULL on
  * first insert).
+ *
+ * `consecutiveFailures` resets to 0: the pass produced durable evidence, so
+ * whatever made earlier passes over this window fail no longer holds and the
+ * next one starts from the full surface again.
  */
 export async function upsertRetrospectiveState(
-  args: Omit<MemoryRetrospectiveState, "rememberedLog"> & {
+  args: Omit<
+    MemoryRetrospectiveState,
+    "rememberedLog" | "consecutiveFailures"
+  > & {
     rememberedLog?: string[];
   },
 ): Promise<void> {
@@ -186,10 +210,12 @@ export async function upsertRetrospectiveState(
   const set: {
     lastProcessedMessageId: string;
     lastRunAt: number;
+    consecutiveFailures: number;
     rememberedLog?: string | null;
   } = {
     lastProcessedMessageId: args.lastProcessedMessageId,
     lastRunAt: args.lastRunAt,
+    consecutiveFailures: 0,
   };
   if (serializedLog !== undefined) {
     set.rememberedLog = serializedLog;
@@ -203,6 +229,7 @@ export async function upsertRetrospectiveState(
           lastProcessedMessageId: args.lastProcessedMessageId,
           lastRunAt: args.lastRunAt,
           rememberedLog: serializedLog ?? null,
+          consecutiveFailures: 0,
         })
         .onConflictDoUpdate({
           target: memoryRetrospectiveState.conversationId,
@@ -236,7 +263,9 @@ export async function upsertRetrospectiveState(
  *
  * `lastRunAt` is copied verbatim — the cooldown gate inherits from source.
  * `rememberedLog` is copied verbatim — the parent's saves remain the child's
- * dedup baseline.
+ * dedup baseline. `consecutiveFailures` starts at 0: the count belongs to the
+ * source's own unprocessed window, and the child's first pass reviews a
+ * different slice under its own state.
  *
  * The row lives on the memory connection, so this reads/writes there rather
  * than on the main fork transaction's handle — the `database` arg is unused
@@ -295,6 +324,7 @@ export function forkRetrospectiveState(args: {
         lastProcessedMessageId: forkedPointer,
         lastRunAt: sourceRow.lastRunAt,
         rememberedLog: sourceRow.rememberedLog,
+        consecutiveFailures: 0,
       })
       .onConflictDoUpdate({
         target: memoryRetrospectiveState.conversationId,
@@ -302,6 +332,7 @@ export function forkRetrospectiveState(args: {
           lastProcessedMessageId: forkedPointer,
           lastRunAt: sourceRow.lastRunAt,
           rememberedLog: sourceRow.rememberedLog,
+          consecutiveFailures: 0,
         },
       })
       .run();
@@ -318,6 +349,10 @@ export function forkRetrospectiveState(args: {
  * empty string — a sentinel meaning "nothing successfully processed yet"
  * that subsequent `getMessagesSince(...)` queries treat the same as a
  * missing row. An existing row's `rememberedLog` is left untouched.
+ *
+ * `consecutiveFailures` increments in the same statement: the pass attempted a
+ * run and produced nothing durable, which is exactly what the job's
+ * remember-only degradation counts.
  */
 export async function bumpRetrospectiveLastRunAt(
   conversationId: string,
@@ -335,10 +370,14 @@ export async function bumpRetrospectiveLastRunAt(
           conversationId,
           lastProcessedMessageId: "",
           lastRunAt,
+          consecutiveFailures: 1,
         })
         .onConflictDoUpdate({
           target: memoryRetrospectiveState.conversationId,
-          set: { lastRunAt },
+          set: {
+            lastRunAt,
+            consecutiveFailures: sql`${memoryRetrospectiveState.consecutiveFailures} + 1`,
+          },
         })
         .run(),
     { op: "bumpRetrospectiveLastRunAt", context: { conversationId } },

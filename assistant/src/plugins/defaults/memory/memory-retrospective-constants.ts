@@ -89,3 +89,12 @@ export const SKILL_MANAGEMENT_SKILL_ID = "skill-management";
  * phrase does not qualify.
  */
 export const MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT = "Nothing new to save.";
+
+/**
+ * Consecutive passes producing no durable evidence (`consecutiveFailures` in
+ * `memory-retrospective-state.ts`) after which a pass drops skill authoring and
+ * runs remember-only. Two is enough to separate a window the richer pass cannot
+ * complete from a one-off wake or provider hiccup, and the degraded pass has the
+ * same shape a pre-skills assistant runs, so nothing about it is special-cased.
+ */
+export const RETROSPECTIVE_DEGRADE_AFTER_FAILURES = 2;

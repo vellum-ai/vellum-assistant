@@ -13,6 +13,7 @@ type StateRow = {
   lastProcessedMessageId: string;
   lastRunAt: number;
   rememberedLog?: string[];
+  consecutiveFailures?: number;
 } | null;
 
 let mockState: StateRow = null;
@@ -344,6 +345,7 @@ mock.module("../../../../config/memory-v3-gate.js", () => ({
 }));
 
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
+import { RETROSPECTIVE_DEGRADE_AFTER_FAILURES } from "../memory-retrospective-constants.js";
 import {
   memoryRetrospectiveJob,
   runForkBasedRetrospective,
@@ -1248,6 +1250,44 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.allowedTools).toEqual(["remember"]);
     // And skill-management is not preactivated, so its tools never go active.
     expect(wakeCalls[0]!.opts.preactivateSkillIds).toBeUndefined();
+  });
+
+  test("wake degrades to remember-only once the window's passes keep producing nothing durable", async () => {
+    // Skill authoring is the pass's optional half. A window that has already
+    // failed the threshold number of passes has to get the minimal pass
+    // instead: memory then lands, the cursor advances, and the window stops
+    // being replayed. Losing the skill is the point of the trade.
+    mockV3TierActive = true;
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+      consecutiveFailures: RETROSPECTIVE_DEGRADE_AFTER_FAILURES,
+    };
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.allowedTools).toEqual(["remember"]);
+    expect(wakeCalls[0]!.opts.preactivateSkillIds).toBeUndefined();
+    // The instruction has to match the surface: naming authoring tools the
+    // pass cannot call is what produces the rejected calls in the first place.
+    expect(persistedInstructionText()).not.toContain("scaffold_managed_skill");
+  });
+
+  test("wake keeps skill authoring while the window is still under the failure threshold", async () => {
+    mockV3TierActive = true;
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+      consecutiveFailures: RETROSPECTIVE_DEGRADE_AFTER_FAILURES - 1,
+    };
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.allowedTools).toContain("scaffold_managed_skill");
   });
 
   test("wake pins the memory_retrospective origin on the tool-context pin so the checker's grant can fire", async () => {

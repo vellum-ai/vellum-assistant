@@ -108,5 +108,9 @@ export const memoryRetrospectiveState = sqliteTable(
     // retrospective passes (capped; see memory-retrospective-state.ts).
     // NULL for rows that predate migration 281 or have no saves yet.
     rememberedLog: text("remembered_log"),
+    // Retrospective passes over the current window that produced no durable
+    // memory, in a row. Cleared by the success path; drives the pass's
+    // remember-only degradation (see memory-retrospective-state.ts).
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
   },
 );
