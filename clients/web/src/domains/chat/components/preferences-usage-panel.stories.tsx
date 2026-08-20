@@ -14,13 +14,17 @@
  * summary until the platform gate, the assistant lifecycle, and the org store
  * all say the org has managed billing, so those three stores are seeded too.
  */
+import type { ReactNode } from "react";
 import { useLayoutEffect, useState } from "react";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { CreditsCard } from "@/domains/chat/components/credits-card";
+import { showsMenuCredits } from "@/domains/chat/components/preferences-menu";
 import { PreferencesUsagePanel } from "@/domains/chat/components/preferences-usage-panel";
+import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
@@ -32,6 +36,8 @@ import type {
   ProPackage,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
+import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
+import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import { flagKeyToStoreKey } from "@/lib/feature-flags/feature-flag-catalog";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -111,13 +117,50 @@ interface UsagePanelStoryArgs {
   balanceUsd: string;
 }
 
+/** The panel on its own, which is what the menu shows most of the time. */
+function PanelOnly() {
+  return (
+    <PreferencesUsagePanel onOpenBilling={() => {}} onAddCredits={() => {}} />
+  );
+}
+
+/**
+ * The panel with the compact credits row beneath it, composed the way
+ * `PreferencesMenuContent` composes them: `showsMenuCredits` decides whether
+ * the row belongs on screen, so the story exercises the real rule. The seeded
+ * balance is already in the two-decimal shape the menu formats it to.
+ */
+function PanelWithCredits() {
+  const obscureCredits = useObscureCredits();
+  const usage = usePreferencesUsage();
+  const { enabled: showBillingRows, balance } = useBillingBalanceStatus();
+  const showCredits = showsMenuCredits(obscureCredits, usage);
+
+  return (
+    <>
+      <PreferencesUsagePanel onOpenBilling={() => {}} onAddCredits={() => {}} />
+      {showBillingRows && balance !== null && showCredits ? (
+        <div className="my-2">
+          <CreditsCard balance={balance} onAddCredits={() => {}} />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 /**
  * Seeds the flag, the three gate stores, and the four billing reads, then
  * hands every one of them back on unmount so a story cannot leak its billing
  * state into the next one. Written in an effect rather than during render
  * because the stores are subscribed by the tree being rendered.
  */
-function SeededPanel({ args }: { args: UsagePanelStoryArgs }) {
+function SeededPanel({
+  args,
+  children,
+}: {
+  args: UsagePanelStoryArgs;
+  children: ReactNode;
+}) {
   const { spentUsd, balanceUsd } = args;
   const [client] = useState(
     () =>
@@ -180,10 +223,7 @@ function SeededPanel({ args }: { args: UsagePanelStoryArgs }) {
     <QueryClientProvider client={client}>
       {/* The menu is a `w-64` popover with `p-4`; the panel fills its width. */}
       <div className="w-64 rounded-lg bg-[var(--surface-lift)] p-4 shadow-[var(--shadow-popover)]">
-        <PreferencesUsagePanel
-          onOpenBilling={() => {}}
-          onAddCredits={() => {}}
-        />
+        {children}
       </div>
     </QueryClientProvider>
   );
@@ -204,7 +244,11 @@ const meta: Meta<UsagePanelStoryArgs> = {
     balanceUsd: { control: "text" },
   },
   args: { spentUsd: "17", balanceUsd: "18.00" },
-  render: (args) => <SeededPanel args={args} />,
+  render: (args) => (
+    <SeededPanel args={args}>
+      <PanelOnly />
+    </SeededPanel>
+  ),
 };
 
 export default meta;
@@ -233,4 +277,20 @@ export const FullBar: Story = {
 export const Exhausted: Story = {
   name: "Exhausted, 100% used",
   args: { spentUsd: "25", balanceUsd: "0.00" },
+};
+
+/**
+ * The same spent bundle as `FullBar`, now with the menu around it: the wallet
+ * still holds credits, so `showsMenuCredits` brings the compact credits row
+ * back below the bar. The red bar and "100% used" say the included allowance
+ * is gone, and the row says what the next turn draws on instead.
+ */
+export const FullWithCredits: Story = {
+  name: "Full bar with the credits row",
+  args: { spentUsd: "25", balanceUsd: "18.00" },
+  render: (args) => (
+    <SeededPanel args={args}>
+      <PanelWithCredits />
+    </SeededPanel>
+  ),
 };
