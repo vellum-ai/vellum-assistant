@@ -471,11 +471,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     : currentPackage
       ? priceLabelFromCents(currentPackage.total_price_cents)
       : null;
-  // The usage balance replaces the price outright: a surface that obscures
-  // credits must not restate the dollar figure right beside the bar.
-  const currentFooter: ReactNode = obscureCredits ? (
-    usage && <UsageBalancePanel ratio={usage.ratio} resetsAt={usage.resetsAt} />
-  ) : priceLabel ? (
+  const priceRow = priceLabel ? (
     <div className="flex h-10 items-center border-t border-[var(--border-base)]">
       <Typography
         as="span"
@@ -487,6 +483,15 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       </Typography>
     </div>
   ) : undefined;
+  // A paid tile trades its price for the usage balance, so the two never state
+  // the same allowance twice. The free tile has no bundle to measure and no
+  // dollar figure to obscure, so "Free Forever" stays either way.
+  const currentFooter: ReactNode =
+    obscureCredits && !isFreePlan
+      ? usage && (
+          <UsageBalancePanel ratio={usage.ratio} resetsAt={usage.resetsAt} />
+        )
+      : priceRow;
 
   return (
     <Card padding="md">

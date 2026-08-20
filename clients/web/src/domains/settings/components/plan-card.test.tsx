@@ -1064,8 +1064,8 @@ describe("PlanCard with obscure-credits on", () => {
     setObscureCredits(false);
   });
 
-  test("the current tile trades its price footer for the usage balance", async () => {
-    const { findByTestId, queryByTestId } = renderCardInteractive(
+  test("a Pro clean pin trades its price footer for the usage balance", async () => {
+    const { container, findByTestId, queryByTestId } = renderCardInteractive(
       proMightySubscription(),
       plansWithSuper(),
       () => {},
@@ -1078,7 +1078,10 @@ describe("PlanCard with obscure-credits on", () => {
     expect(panel.textContent).toContain(
       `Resets ${resetLabel("2026-08-10T00:00:00Z")}`,
     );
+    // The bar is the replacement, so the monthly price must not stand beside
+    // it on the current tile.
     expect(queryByTestId("plan-card-price")).toBeNull();
+    expect(within(currentTile(container)).queryByText("$30/month")).toBeNull();
   });
 
   test("both tiles name the package's usage instead of a dollar bundle", () => {
@@ -1138,10 +1141,10 @@ describe("PlanCard with obscure-credits on", () => {
     ).toBeNull();
   });
 
-  test("a free plan drops the price row and keeps its own chips", () => {
-    // Free has no package bundle to measure, so there is no bar to draw; the
-    // price row still goes, because the flag's whole point is that this
-    // surface stops quoting dollars.
+  test("a free plan keeps its Free Forever footer and its own chips", () => {
+    // Free has no bundle to measure, so there is no bar to put in the price
+    // row's place, and no dollar figure to obscure either. Suppressing the
+    // footer here would leave the tile with an empty bottom slot.
     const { container } = renderCardInteractive(
       baseSubscription(),
       basePlansResponse(),
@@ -1149,7 +1152,12 @@ describe("PlanCard with obscure-credits on", () => {
     );
 
     const current = within(currentTile(container));
-    expect(current.queryByTestId("plan-card-price")).toBeNull();
+    expect(current.getByTestId("plan-card-price").textContent).toBe(
+      "Free Forever",
+    );
+    expect(
+      container.querySelector('[data-testid="plan-usage-balance"]'),
+    ).toBeNull();
     expect(current.getByText("Pay as you go credits")).toBeTruthy();
     expect(usageTotalsCalls).toBe(0);
   });
