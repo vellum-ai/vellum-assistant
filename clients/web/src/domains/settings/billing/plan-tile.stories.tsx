@@ -186,6 +186,26 @@ export const CurrentObscuredCredits: Story = {
 };
 
 /**
+ * The same flag-on tile once the bundle is spent and the wallet behind it is
+ * empty. The footer panel turns its bar and reading negative and raises the
+ * add-credits strip, which is the tallest the current tile ever gets: compare
+ * it against `CurrentPaid` to see how much the footer grows.
+ */
+export const CurrentObscuredCreditsExhausted: Story = {
+  args: {
+    ...CurrentObscuredCredits.args,
+    footer: (
+      <UsageBalancePanel
+        ratio={1}
+        resetsAt="2026-09-01T00:00:00Z"
+        exhausted
+        onAddCredits={() => {}}
+      />
+    ),
+  },
+};
+
+/**
  * A Custom subscriber, whose tier configuration matches no catalog package.
  * `"custom"` is not in the creature trait table, so `PlanTierAvatar` falls back
  * to the Free creature. There is no package to enumerate and no catalog price
