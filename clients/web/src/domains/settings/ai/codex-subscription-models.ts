@@ -2,16 +2,13 @@ import {
   CODEX_SUBSCRIPTION_MODEL_IDS,
   getModelsForProvider,
 } from "@/assistant/llm-model-catalog";
-import type {
-  ConnectionProvider,
-  ProviderConnection,
-} from "@/generated/daemon/types.gen";
+import type { ProviderConnection } from "@/generated/daemon/types.gen";
 
 export { CODEX_SUBSCRIPTION_MODEL_IDS };
 
 /** The provider's catalog models a ChatGPT subscription can dispatch. */
 export function codexServableModels(
-  provider: ConnectionProvider,
+  provider: string,
 ): ReturnType<typeof getModelsForProvider> {
   return getModelsForProvider(provider).filter((m) =>
     CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id),
@@ -33,7 +30,7 @@ export function codexServableModels(
  * Codex-only model list itself.
  */
 export function restrictsToSubscriptionModels(
-  provider: ConnectionProvider | "",
+  provider: string,
   providerConnection: string,
   availableConnectionsForProvider: ProviderConnection[],
 ): boolean {

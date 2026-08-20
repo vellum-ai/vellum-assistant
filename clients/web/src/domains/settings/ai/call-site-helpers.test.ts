@@ -22,16 +22,22 @@ describe("isDraftActive", () => {
     expect(isDraftActive({})).toBe(false);
   });
 
-  test("returns true when any field is set", () => {
+  test("returns true when a picker field is set", () => {
     expect(isDraftActive({ profile: "fast" })).toBe(true);
-    expect(isDraftActive({ provider: "openai" })).toBe(true);
     expect(isDraftActive({ model: "gpt-4o" })).toBe(true);
   });
 
-  test("returns false when all fields are null", () => {
+  test("returns false when all picker fields are null", () => {
     expect(isDraftActive({ profile: null, provider: null, model: null })).toBe(
       false,
     );
+  });
+
+  test("a legacy provider-only entry reads as active", () => {
+    // Drafts can no longer set a provider, but old daemons still route on a
+    // persisted pin: the row must show as modified and stay clearable
+    // rather than hiding a live routing change.
+    expect(isDraftActive({ provider: "openai" })).toBe(true);
   });
 });
 
@@ -78,7 +84,7 @@ describe("effectiveCallSiteProfile", () => {
     ).toEqual({ profile: "balanced", via: "default" });
   });
 
-  test("a provider or model pin references no profile", () => {
+  test("a model or legacy provider pin references no profile", () => {
     expect(
       effectiveCallSiteProfile({ defaultProfile: "slow" }, { model: "gpt-4o" }),
     ).toBe(null);
@@ -121,7 +127,6 @@ describe("draftsEqual", () => {
   test("identical active drafts are equal", () => {
     const a: CallSiteOverrideDraft = {
       profile: "fast",
-      provider: "openai",
       model: "gpt-4o",
     };
     expect(draftsEqual(a, { ...a })).toBe(true);
@@ -130,13 +135,22 @@ describe("draftsEqual", () => {
   test("differing fields are detected", () => {
     const base: CallSiteOverrideDraft = {
       profile: "fast",
-      provider: "openai",
       model: "gpt-4o",
     };
     expect(draftsEqual(base, { ...base, profile: "slow" })).toBe(false);
-    expect(draftsEqual(base, { ...base, provider: "anthropic" })).toBe(false);
     expect(
       draftsEqual(base, { ...base, model: "claude-sonnet-4-20250514" }),
+    ).toBe(false);
+  });
+
+  test("clearing a legacy provider pin reads as a change", () => {
+    // Repairing a legacy pin can leave the model identical; the provider
+    // difference alone must make the row dirty so the clearing save fires.
+    expect(
+      draftsEqual(
+        { provider: "openai", model: "gpt-4o" },
+        { profile: null, model: "gpt-4o" },
+      ),
     ).toBe(false);
   });
 

@@ -14,8 +14,7 @@ interface MockProfileEntry {
 }
 
 let mockProfiles: Record<string, MockProfileEntry> = {};
-let mockDefaultProvider: { provider: string; connectionName?: string } | null =
-  null;
+let mockDefaultProvider: { provider: string } | null = null;
 
 // Real model catalog — don't mock it, the test exercises real catalog lookups.
 const { doesSupportVision } = await import("./vision-support.js");
@@ -52,7 +51,7 @@ function applyConfig(): void {
 
 function setMockConfig(
   profiles: Record<string, MockProfileEntry>,
-  defaultProvider?: { provider: string; connectionName?: string },
+  defaultProvider?: { provider: string },
 ) {
   mockProfiles = profiles;
   mockDefaultProvider = defaultProvider ?? null;

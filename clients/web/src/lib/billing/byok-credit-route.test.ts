@@ -456,7 +456,7 @@ describe("mix rungs (per-conversation seeded pick)", () => {
   });
 });
 
-describe("mainAgent call-site tweak composition", () => {
+describe("mainAgent call-site tweak composition (pre-migration-147 daemons)", () => {
   // Real catalog ids: the composition's serves-model check reads the client
   // model catalog, so fake ids would always look foreign.
   const ANTHROPIC_MODEL = MODELS_BY_PROVIDER.anthropic[0]?.id ?? "";
@@ -486,9 +486,12 @@ describe("mainAgent call-site tweak composition", () => {
   });
 
   test("a model tweak owned by another provider voids the BYOK proof", () => {
-    // The daemon stamps the model's catalog owner and drops the winner's
+    // Pre-147 daemons stamp the model's catalog owner and drop the winner's
     // binding, so the availability proof no longer attests the dispatch
-    // route and the verdict degrades to unknown (banners up).
+    // route and the verdict degrades to unknown (banners up). Post-147
+    // daemons cannot hold this shape (foreign pins 400 at write time and
+    // migration 147 strips persisted ones), so over-warning is confined to
+    // lagging daemons.
     expect(
       classify({
         llm: BYOK_WINNER_LLM({ mainAgent: { model: OPENAI_MODEL } }),
@@ -612,12 +615,10 @@ describe("stale managed default stubs", () => {
         llm: {
           activeProfile: "balanced",
           profiles: { balanced: STALE_BALANCED },
-          defaultProvider: {
-            provider: "anthropic",
-            connectionName: "my-anthropic",
-          },
+          defaultProvider: { provider: "anthropic" },
         },
         connections: [BYOK_ANTHROPIC],
+        defaultProviderResolvedConnection: "my-anthropic",
       }),
     ).toBe(false);
   });
@@ -666,13 +667,11 @@ describe("anchor fallbacks", () => {
       classify({
         llm: {
           default: { provider: "vellum", model: "claude" },
-          defaultProvider: {
-            provider: "anthropic",
-            connectionName: "my-anthropic",
-          },
+          defaultProvider: { provider: "anthropic" },
         },
         connections: [BYOK_ANTHROPIC],
         defaultProviderAvailability: "ok",
+        defaultProviderResolvedConnection: "my-anthropic",
       }),
     ).toBe(false);
     expect(
@@ -680,7 +679,7 @@ describe("anchor fallbacks", () => {
     ).toBeNull();
   });
 
-  test("an unset connectionName binds through the resolved conventional connection", () => {
+  test("the anchor binds through the resolved conventional connection", () => {
     // The daemon stamps `resolveDefaultConnectionName` onto default bodies;
     // without it the anchor would misread as unbound and a coexisting
     // platform-auth row for the provider would classify the route managed.
@@ -696,16 +695,14 @@ describe("anchor fallbacks", () => {
 
   test("defaultProvider proves BYOK only with an ok availability", () => {
     const llm: LlmConfig = {
-      defaultProvider: {
-        provider: "anthropic",
-        connectionName: "my-anthropic",
-      },
+      defaultProvider: { provider: "anthropic" },
     };
     expect(
       classify({
         llm,
         connections: [BYOK_ANTHROPIC],
         defaultProviderAvailability: "ok",
+        defaultProviderResolvedConnection: "my-anthropic",
       }),
     ).toBe(false);
     expect(
@@ -713,6 +710,7 @@ describe("anchor fallbacks", () => {
         llm,
         connections: [BYOK_ANTHROPIC],
         defaultProviderAvailability: "missing_credential",
+        defaultProviderResolvedConnection: "my-anthropic",
       }),
     ).toBeNull();
   });

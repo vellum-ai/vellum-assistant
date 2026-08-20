@@ -190,18 +190,11 @@ describe("ensureDefaultProvider", () => {
     expect(llm().defaultProvider).toEqual({ provider: "gemini" });
   });
 
-  test("repairs an empty connectionName via the resolution chain", async () => {
+  test("a legacy connectionName does not invalidate the value — no repair, no rewrite", async () => {
+    // The retired pin is an unknown key now: it strips at parse (so the
+    // value is schema-valid) and self-heals on the next strict write; the
+    // ensure pass leaves the raw file alone.
     process.env.IS_PLATFORM = "1";
-    writeConfig({
-      llm: { defaultProvider: { provider: "anthropic", connectionName: "" } },
-    });
-
-    await ensureDefaultProvider(workspaceDir);
-
-    expect(llm().defaultProvider).toEqual({ provider: "vellum" });
-  });
-
-  test("a valid object with a connectionName is left untouched", async () => {
     writeConfig({
       llm: {
         defaultProvider: {

@@ -4,20 +4,15 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { useTranslation } from "@/i18n";
 
 import {
+  ALL_CATALOG_MODELS,
   getDefaultModelForProvider,
   getModelsForProvider,
-  PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
 import type {
   CallSiteOverrideDraft,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 
-import {
-  CHATGPT_CONNECTION_PROVIDER,
-  INFERENCE_PROVIDERS,
-  isInferenceProvider,
-} from "@/domains/settings/ai/constants";
 import {
   CUSTOM_SENTINEL,
   isDraftActive,
@@ -26,10 +21,7 @@ import {
   codexServableModels,
   restrictsToSubscriptionModels,
 } from "@/domains/settings/ai/codex-subscription-models";
-import {
-  connectionServesProvider,
-  useSelectableInferenceProviders,
-} from "@/domains/settings/ai/provider-availability";
+import { connectionServesProvider } from "@/domains/settings/ai/provider-availability";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,9 +32,6 @@ interface ProfileOption {
   label: string;
 }
 
-type PickableProvider =
-  (typeof INFERENCE_PROVIDERS)[number] | typeof CHATGPT_CONNECTION_PROVIDER;
-
 export interface CallSiteOverrideRowProps {
   id: string;
   displayName: string;
@@ -51,10 +40,17 @@ export interface CallSiteOverrideRowProps {
   draft: CallSiteOverrideDraft | null;
   profileOptions: ProfileOption[];
   /**
+   * Provider kind of the site's winning route, scoping the custom-pin model
+   * picker to what that route can serve. Absent when the winner is
+   * indeterminate client-side; the picker then offers the full catalog union
+   * and the daemon validates servability on save.
+   */
+  winningProvider?: string;
+  /**
    * All provider connections, used to limit the model picker to what the
    * matching connections can dispatch (a ChatGPT subscription serves only
    * the Codex model set). Absent when the caller has no connection data;
-   * the picker then offers the full catalog.
+   * the picker then offers the winning provider's full catalog.
    */
   connections?: ProviderConnection[];
   onDraftChange: (id: string, draft: CallSiteOverrideDraft | null) => void;
@@ -72,6 +68,7 @@ export function CallSiteOverrideRow({
   defaultProfileLabel,
   draft,
   profileOptions,
+  winningProvider,
   connections,
   onDraftChange,
   onToggle,
@@ -83,128 +80,72 @@ export function CallSiteOverrideRow({
     if (!draft || !overrideOn) {
       return "";
     }
-    if (draft.provider || draft.model) {
+    // A legacy provider-only pin renders as Custom: picking a model is its
+    // repair path (the save clears the provider).
+    if (draft.model || draft.provider != null) {
       return CUSTOM_SENTINEL;
     }
     return draft.profile ?? "";
   })();
 
   const isCustom = profileVal === CUSTOM_SENTINEL;
-  const selectableInferenceProviders = useSelectableInferenceProviders();
-  // The chatgpt identity joins the picker when the workspace holds the
-  // subscription row (provider "chatgpt"; only daemons that understand the
-  // identity return that shape). Migration 144 also writes chatgpt drafts,
-  // so the row must represent the value even without the subscription: the
-  // unavailable-pin branch below covers that.
-  const hasSubscription = (connections ?? []).some(
-    (c) => c.provider === CHATGPT_CONNECTION_PROVIDER,
-  );
-  const pickableProviders: PickableProvider[] = [
-    ...selectableInferenceProviders,
-    ...(hasSubscription ? ([CHATGPT_CONNECTION_PROVIDER] as const) : []),
-  ];
-  const defaultProvider =
-    selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
-  // Show what is actually pinned, even when this assistant cannot select it
-  // (an `ollama` pin on a platform-hosted assistant, say). Substituting a
-  // selectable provider for display would show one thing while saving
-  // another, and picking the shown value could not repair it: it is already
-  // the value, so the change never fires.
-  //
-  // `LlmProvider` is wider than the picker's domain (it also carries the
-  // `openai-compatible` and `vellum` routing sentinels), so a pin outside
-  // the pickable set still falls back rather than being offered as a row
-  // the picker cannot represent. The `chatgpt` identity is pickable and
-  // renders as itself.
-  const draftProvider = draft?.provider;
-  const storedProvider: PickableProvider | undefined = isInferenceProvider(
-    draftProvider,
-  )
-    ? draftProvider
-    : draftProvider === CHATGPT_CONNECTION_PROVIDER
-      ? CHATGPT_CONNECTION_PROVIDER
-      : undefined;
-  const storedProviderIsSelectable =
-    storedProvider !== undefined &&
-    pickableProviders.some((p) => p === storedProvider);
-  const currentProvider = storedProvider ?? defaultProvider;
-  // A call-site override pins no connection, so dispatch auto-resolves one.
-  // When every connection that can serve the provider is a ChatGPT
-  // subscription (stored as provider "chatgpt" once daemon migration 366 has
-  // run), only Codex models can resolve; offering the rest would save a pin
-  // that fails on every request.
-  const connectionsForProvider = (connections ?? []).filter((c) =>
-    connectionServesProvider(c.provider, currentProvider),
-  );
-  const availableModels = restrictsToSubscriptionModels(
-    currentProvider,
-    "",
-    connectionsForProvider,
-  )
-    ? codexServableModels(currentProvider)
-    : getModelsForProvider(currentProvider);
+  // A call-site pin names no connection, so dispatch resolves one from the
+  // winning route. When every connection that can serve the winning provider
+  // is a ChatGPT subscription (the pre-migration-366 row shape), only Codex
+  // models can resolve; offering the rest would save a pin that fails on
+  // every request.
+  const connectionsForProvider = winningProvider
+    ? (connections ?? []).filter((c) =>
+        connectionServesProvider(c.provider, winningProvider),
+      )
+    : [];
+  const scopedModels = !winningProvider
+    ? ALL_CATALOG_MODELS
+    : restrictsToSubscriptionModels(winningProvider, "", connectionsForProvider)
+      ? codexServableModels(winningProvider)
+      : getModelsForProvider(winningProvider);
+  // A winner with an empty catalog (litellm, openai-compatible: models live
+  // on the connection) would leave nothing to pick; fall back to the full
+  // union and let the daemon validate on save.
+  const availableModels =
+    scopedModels.length > 0 ? scopedModels : ALL_CATALOG_MODELS;
   const modelOptions = availableModels.map((m) => ({
     value: m.id,
     label: m.displayName,
   }));
   // A stored pin outside the offered set stays visible as itself, marked
   // unavailable: hiding it would render a blank trigger while the pin is
-  // still saved (mirrors the provider picker's unavailable-pin handling).
+  // still saved.
   const storedModel = typeof draft?.model === "string" ? draft.model : "";
   if (storedModel && !availableModels.some((m) => m.id === storedModel)) {
-    const displayName =
-      getModelsForProvider(currentProvider).find((m) => m.id === storedModel)
-        ?.displayName ?? storedModel;
+    const modelDisplayName =
+      ALL_CATALOG_MODELS.find((m) => m.id === storedModel)?.displayName ??
+      storedModel;
     modelOptions.push({
       value: storedModel,
-      label: t("callSiteOverridesRow.unavailableOption", { name: displayName }),
+      label: t("callSiteOverridesRow.unavailableOption", {
+        name: modelDisplayName,
+      }),
     });
   }
-  const hasModelError = !!draft?.provider && !draft?.model;
-  const providerOptions: { value: PickableProvider; label: string }[] = [
-    ...pickableProviders.map((p) => ({
-      value: p,
-      label: PROVIDER_DISPLAY_NAMES[p] ?? p,
-    })),
-    // Keeps the trigger honest and gives the user a way out: the row
-    // renders its real pin, and choosing any other provider is a genuine
-    // change that fires.
-    ...(storedProvider && !storedProviderIsSelectable
-      ? [
-          {
-            value: storedProvider,
-            label: t("callSiteOverridesRow.unavailableOption", {
-              name:
-                PROVIDER_DISPLAY_NAMES[storedProvider] ?? storedProvider,
-            }),
-          },
-        ]
-      : []),
-  ];
 
   function handleProfilePickerChange(val: string) {
     if (val === CUSTOM_SENTINEL) {
-      const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
-      onDraftChange(id, {
-        profile: null,
-        provider: defaultProvider,
-        model: defaultModel,
-      });
+      // `||` chains so an empty-string catalog default (empty-catalog
+      // providers) falls through; a model-less seed would read as an
+      // inactive draft.
+      const defaultModel =
+        (winningProvider
+          ? getDefaultModelForProvider(winningProvider)
+          : undefined) ||
+        availableModels[0]?.id ||
+        "";
+      onDraftChange(id, { profile: null, model: defaultModel });
     } else if (val === "") {
       onDraftChange(id, null);
     } else {
-      onDraftChange(id, { profile: val, provider: null, model: null });
+      onDraftChange(id, { profile: val, model: null });
     }
-  }
-
-  function handleProviderChange(provider: PickableProvider) {
-    const defaultModel = getDefaultModelForProvider(provider) ?? "";
-    onDraftChange(id, {
-      ...(draft ?? {}),
-      profile: null,
-      provider,
-      model: defaultModel,
-    });
   }
 
   function handleModelChange(model: string) {
@@ -255,36 +196,17 @@ export function CallSiteOverrideRow({
         </div>
       )}
 
-      {/* Custom provider + model pickers */}
+      {/* Custom model picker: the route comes from the winning profile */}
       {overrideOn && isCustom && (
-        <div className="mt-3 space-y-2 border-t border-[var(--border-base)] pt-3">
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className="mb-1 block text-body-small-default text-[var(--content-tertiary)]">
-                {t("callSiteOverridesRow.providerLabel")}
-              </label>
-              <Select
-                value={currentProvider ?? ""}
-                onChange={handleProviderChange}
-                options={providerOptions}
-              />
-            </div>
-            <div className="flex-1">
-              <label className="mb-1 block text-body-small-default text-[var(--content-tertiary)]">
-                {t("callSiteOverridesRow.modelLabel")}
-              </label>
-              <Select
-                value={draft?.model ?? ""}
-                onChange={handleModelChange}
-                options={modelOptions}
-              />
-            </div>
-          </div>
-          {hasModelError && (
-            <p className="text-body-small-default text-[var(--system-negative-strong)]">
-              {t("callSiteOverridesRow.pickModelError")}
-            </p>
-          )}
+        <div className="mt-3 border-t border-[var(--border-base)] pt-3">
+          <label className="mb-1 block text-body-small-default text-[var(--content-tertiary)]">
+            {t("callSiteOverridesRow.modelLabel")}
+          </label>
+          <Select
+            value={draft?.model ?? ""}
+            onChange={handleModelChange}
+            options={modelOptions}
+          />
         </div>
       )}
     </div>

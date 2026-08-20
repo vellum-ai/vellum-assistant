@@ -19,7 +19,12 @@ export function isDraftActive(
   if (!d) {
     return false;
   }
-  return !!(d.profile || d.provider || d.model);
+  // The legacy `provider` field is read-tolerated but never set: older
+  // daemons still route on a persisted provider pin, so hiding such an
+  // entry would show an unmodified row while dispatch is still changed.
+  // The row stays visible and clearable; every write path sends
+  // `provider: null`.
+  return !!(d.profile || d.model) || d.provider != null;
 }
 
 /**
@@ -33,8 +38,9 @@ export function isDraftActive(
  * else entirely.
  *
  * `via` is therefore derived by asking whether the winner is the pin, rather
- * than assuming a pin wins. Returns null for provider/model ("Custom") pins,
- * which reference no profile at all.
+ * than assuming a pin wins. Returns null for model ("Custom") pins, which
+ * reference no profile at all; a legacy provider pin counts too, since old
+ * daemons still route on it.
  */
 export interface CallSiteEffectiveProfile {
   profile: string;
@@ -51,7 +57,7 @@ export function effectiveCallSiteProfile(
   callSite: CallSiteDefaults,
   override: CallSiteOverrideDraft | null | undefined,
 ): CallSiteEffectiveProfile | null {
-  if (override?.provider || override?.model) {
+  if (override?.model || override?.provider != null) {
     return null;
   }
   // `shippedDefaultProfile` covers the profileless case, where the winner is
@@ -81,6 +87,9 @@ export function draftsEqual(
   }
   return (
     (a?.profile ?? null) === (b?.profile ?? null) &&
+    // Legacy provider pins compare too, so replacing one with a model-only
+    // pin of the same model still reads as a change worth saving (the save
+    // is what clears the pin).
     (a?.provider ?? null) === (b?.provider ?? null) &&
     (a?.model ?? null) === (b?.model ?? null)
   );

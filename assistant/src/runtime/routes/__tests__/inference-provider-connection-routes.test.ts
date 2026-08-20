@@ -1114,21 +1114,28 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     });
   });
 
-  test("throws 409 deleting the default's explicit connectionName", async () => {
+  test("a legacy stored connectionName pin does not protect its row", async () => {
+    // The retired pin strips at parse; only the convention-resolved name and
+    // the last-connection fallback guard deletes.
     seedConnection({
       name: "my-conn",
       provider: "openai",
       auth: { type: "api_key", credential: "credential/openai/api_key" },
     });
+    seedConnection({
+      name: "openai-work",
+      provider: "openai",
+      auth: { type: "api_key", credential: "credential/openai/work_key" },
+    });
     setConfig("llm", {
       defaultProvider: { provider: "openai", connectionName: "my-conn" },
     });
 
-    await expect(
-      call(findHandler("inference_provider_connections_delete"), {
-        pathParams: { name: "my-conn" },
-      }),
-    ).rejects.toBeInstanceOf(ConflictError);
+    const result = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "my-conn" } },
+    );
+    expect(result).toEqual({ ok: true });
   });
 
   test("throws 409 deleting the last connection for the default provider when the convention name is dangling", async () => {
@@ -1151,28 +1158,6 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     expect((err as ConflictError).details).toEqual({
       referencedBy: ["llm.defaultProvider"],
     });
-  });
-
-  test("succeeds deleting an unrelated last same-provider connection when the default pins an explicit connectionName", async () => {
-    // The explicit pin is what the default references; "anthropic-work" is
-    // unrelated even though it is the only anthropic row.
-    seedConnection({
-      name: "anthropic-work",
-      provider: "anthropic",
-      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
-    });
-    setConfig("llm", {
-      defaultProvider: {
-        provider: "anthropic",
-        connectionName: "anthropic-personal",
-      },
-    });
-
-    const result = await call(
-      findHandler("inference_provider_connections_delete"),
-      { pathParams: { name: "anthropic-work" } },
-    );
-    expect(result).toEqual({ ok: true });
   });
 
   test("throws 409 deleting the last visible connection when a hidden legacy row shares the provider", async () => {

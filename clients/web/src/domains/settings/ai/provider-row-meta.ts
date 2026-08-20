@@ -36,6 +36,24 @@ export function isDefaultProviderId(
 }
 
 /**
+ * Whether this row is the one convention resolution would select as the
+ * default for its provider (mirrors the daemon's
+ * `resolveDefaultConnectionName`). The default-provider PUT carries only the
+ * provider, so offering "Set as default" on any other row (e.g. a
+ * suffix-named duplicate like `anthropic-personal-2`) would silently target
+ * the convention row instead of the clicked one.
+ */
+export function isDefaultConventionTarget(conn: ProviderConnection): boolean {
+  if (conn.provider === VELLUM_CONNECTION_PROVIDER) {
+    return conn.name === VELLUM_CONNECTION_PROVIDER;
+  }
+  if (conn.provider === CHATGPT_CONNECTION_PROVIDER) {
+    return conn.name === "chatgpt-subscription";
+  }
+  return conn.name === `${conn.provider}-personal`;
+}
+
+/**
  * Endpoint meta for a custom (openai-compatible) provider: the endpoint
  * host plus what it serves, e.g. "api.x.ai · 2 models" or
  * "127.0.0.1:1234 · keyless".

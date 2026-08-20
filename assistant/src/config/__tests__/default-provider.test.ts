@@ -54,14 +54,17 @@ describe("LLMSchema.defaultProvider", () => {
     ).not.toThrow();
   });
 
-  test("accepts a provider pinned to a connection", () => {
+  // No migration for the retired `connectionName` pin: the key strips at
+  // parse and `setDefaultProvider`'s strict parse rewrites the stripped
+  // shape on the next write.
+  test("a legacy connectionName pin strips at parse and resolves by convention", () => {
     const parsed = LLMSchema.parse({
       defaultProvider: { provider: "vellum", connectionName: "x" },
     });
-    expect(parsed.defaultProvider).toEqual({
-      provider: "vellum",
-      connectionName: "x",
-    });
+    expect(parsed.defaultProvider).toEqual({ provider: "vellum" });
+    expect(resolveDefaultConnectionName(parsed.defaultProvider!)).toBe(
+      VELLUM_MANAGED_CONNECTION_NAME,
+    );
   });
 
   // The strict write-side schema; the `.catch` only applies when reading
@@ -69,15 +72,6 @@ describe("LLMSchema.defaultProvider", () => {
   test("rejects an unknown provider", () => {
     expect(() =>
       DefaultProviderSchema.parse({ provider: "not-a-provider" }),
-    ).toThrow();
-  });
-
-  test("rejects an empty connectionName", () => {
-    expect(() =>
-      DefaultProviderSchema.parse({
-        provider: "anthropic",
-        connectionName: "",
-      }),
     ).toThrow();
   });
 
@@ -93,12 +87,12 @@ describe("LLMSchema.defaultProvider", () => {
   });
 
   // Guards the loader-recovery hazard described at `DefaultProviderField`:
-  // a nested failure must never strand a `{ connectionName }` fragment.
+  // a nested failure must never strand a partial fragment.
   test("an invalid defaultProvider is dropped atomically", () => {
     const result = LLMSchema.safeParse({
       profiles: { "my-profile": {} },
       activeProfile: "my-profile",
-      defaultProvider: { provider: "not-a-provider", connectionName: "x" },
+      defaultProvider: { provider: "not-a-provider" },
     });
     expect(result.success).toBe(true);
     if (!result.success) {
@@ -142,15 +136,6 @@ describe("LLMSchema.defaultProvider", () => {
 });
 
 describe("resolveDefaultConnectionName", () => {
-  test("an explicit pin wins", () => {
-    expect(
-      resolveDefaultConnectionName({
-        provider: "anthropic",
-        connectionName: "my-connection",
-      }),
-    ).toBe("my-connection");
-  });
-
   test("vellum resolves to the managed connection name", () => {
     expect(resolveDefaultConnectionName({ provider: "vellum" })).toBe(
       VELLUM_MANAGED_CONNECTION_NAME,
@@ -180,15 +165,6 @@ describe("resolveDefaultConnectionName", () => {
       "openrouter-personal",
     );
   });
-
-  test("an explicit pin wins even for vellum", () => {
-    expect(
-      resolveDefaultConnectionName({
-        provider: "vellum",
-        connectionName: "pinned",
-      }),
-    ).toBe("pinned");
-  });
 });
 
 describe("getDefaultProvider / setDefaultProvider", () => {
@@ -209,19 +185,13 @@ describe("getDefaultProvider / setDefaultProvider", () => {
   });
 
   test("set/get round-trip through the raw config", () => {
-    setDefaultProvider({ provider: "openai", connectionName: "openai-work" });
+    setDefaultProvider({ provider: "openai" });
 
-    expect(getDefaultProvider()).toEqual({
-      provider: "openai",
-      connectionName: "openai-work",
-    });
+    expect(getDefaultProvider()).toEqual({ provider: "openai" });
 
     const raw = loadRawConfig();
     const llm = raw.llm as Record<string, unknown>;
-    expect(llm.defaultProvider).toEqual({
-      provider: "openai",
-      connectionName: "openai-work",
-    });
+    expect(llm.defaultProvider).toEqual({ provider: "openai" });
   });
 
   test("setDefaultProvider validates the provider before writing", () => {

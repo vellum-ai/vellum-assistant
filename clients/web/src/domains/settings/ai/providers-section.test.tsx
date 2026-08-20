@@ -3,7 +3,8 @@
  * Model card.
  *
  * The Default chip tracks the resolved default connection and its kebab
- * hides Delete; Set as default PUTs the explicit provider + connectionName;
+ * hides Delete; Set as default PUTs the row's provider (the daemon resolves
+ * the connection by convention);
  * assistants without the default-provider routes get no marker UI and no
  * status query; the managed Vellum row pins first with a Managed chip and
  * no edit affordance; delete guards (409) surface as user-facing toasts.
@@ -31,7 +32,7 @@ let defaultProviderState: DefaultProviderStatus = {
   availability: { status: "missing_default" },
 };
 let defaultProviderGetCalls = 0;
-let putBodies: Array<{ provider: string; connectionName?: string }> = [];
+let putBodies: Array<{ provider: string }> = [];
 let deleteCalls: string[] = [];
 let deleteStatus = 200;
 let toastErrors: string[] = [];
@@ -63,7 +64,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     return { data: defaultProviderState };
   },
   configLlmDefaultproviderPut: async (options?: {
-    body?: { provider: string; connectionName?: string };
+    body?: { provider: string };
   }) => {
     if (options?.body) {
       putBodies.push(options.body);
@@ -80,12 +81,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { ProvidersSection } = await import(
-  "@/domains/settings/ai/providers-section"
-);
-const { useAssistantIdentityStore } = await import(
-  "@/stores/assistant-identity-store"
-);
+const { ProvidersSection } =
+  await import("@/domains/settings/ai/providers-section");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -259,7 +258,7 @@ describe("ProvidersSection - rows and chips", () => {
 });
 
 describe("ProvidersSection - kebab actions", () => {
-  test("Set as default PUTs the explicit provider + connectionName", async () => {
+  test("Set as default PUTs the row's provider only", async () => {
     defaultProviderState = {
       provider: "vellum",
       resolvedConnectionName: "vellum",
@@ -272,10 +271,31 @@ describe("ProvidersSection - kebab actions", () => {
     const menu = await openKebab("Anthropic");
     clickMenuItem(menu, "Set as default");
     await waitFor(() => {
-      expect(putBodies).toEqual([
-        { provider: "anthropic", connectionName: "anthropic-personal" },
-      ]);
+      expect(putBodies).toEqual([{ provider: "anthropic" }]);
     });
+  });
+
+  test("a non-convention row offers no Set as default", async () => {
+    // The PUT body carries only the provider, so on a suffix-named
+    // duplicate the daemon would set the convention row instead of the
+    // clicked one — the affordance is hidden there.
+    connectionsState = [
+      ...connectionsState,
+      connection({
+        name: "anthropic-personal-2",
+        provider: "anthropic",
+        label: "Anthropic (work)",
+      }),
+    ];
+    renderSection();
+    await waitFor(() => {
+      expect(rows().length).toBe(4);
+    });
+    const menu = await openKebab("Anthropic (work)");
+    const items = menuItems(menu);
+    expect(items).not.toContain("Set as default");
+    expect(items).toContain("Edit");
+    expect(items).toContain("Delete");
   });
 
   test("an ineligible provider offers no Set as default", async () => {

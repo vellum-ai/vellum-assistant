@@ -34,7 +34,6 @@ export interface OverrideDrafts {
   advisorDirty: boolean;
   callSiteDraftsDirty: boolean;
   hasUnsavedDrafts: boolean;
-  hasValidationError: boolean;
   setDraft: (id: string, draft: CallSiteOverrideDraft | null) => void;
   setAdvisor: (profile: string) => void;
   /**
@@ -64,22 +63,32 @@ export function buildCallSiteSavePatch(
   // config loader), so an omitted key keeps its persisted value and a
   // `null` deletes the whole entry. Three cases follow from that:
   //
-  //  - active draft: send the picker triple. Nulling provider/model
+  //  - active draft: send the picker pair. Nulling the unused field
   //    clears a stale pin; any tuning the entry carries is untouched
   //    because it isn't mentioned.
   //  - the user switched this row off: send `null` and delete it. That
   //    is what off means.
   //  - inactive and untouched: omit it. `isDraftActive` only reads the
-  //    picker triple, so an entry holding nothing but tuning reads as
+  //    picker fields, so an entry holding nothing but tuning reads as
   //    off; sending `null` for it would delete settings the user never
   //    asked to remove.
   const patch: CallSiteDraftMap = {};
   for (const id of Object.keys(drafts)) {
     const d = drafts[id] ?? null;
     if (isDraftActive(d)) {
+      // A row active only through a legacy provider pin is omitted unless
+      // the user edited it: the serialized entry carries no provider, so
+      // rewriting an untouched row would silently clear a pin an old
+      // daemon still routes on.
+      if (!(id in draftEdits) && !d?.profile && !d?.model) {
+        continue;
+      }
       patch[id] = {
         profile: d?.profile ?? null,
-        provider: d?.provider ?? null,
+        // Drafts carry no provider. The literal null is an explicit clear:
+        // it scrubs a stale provider pin persisted by an older daemon, and
+        // daemons without the field accept and ignore the key.
+        provider: null,
         model: d?.model ?? null,
       };
     } else if (id in draftEdits && draftEdits[id] === null) {
@@ -170,14 +179,6 @@ export function useOverrideDrafts({
 
   const hasUnsavedDrafts = advisorDirty || callSiteDraftsDirty;
 
-  const hasValidationError = useMemo(
-    () =>
-      Object.values(drafts).some(
-        (d) => isDraftActive(d) && !!d?.provider && !d?.model,
-      ),
-    [drafts],
-  );
-
   const setDraft = useCallback(
     (id: string, draft: CallSiteOverrideDraft | null) => {
       setDraftEdits((prev) => ({ ...prev, [id]: draft }));
@@ -210,7 +211,6 @@ export function useOverrideDrafts({
     advisorDirty,
     callSiteDraftsDirty,
     hasUnsavedDrafts,
-    hasValidationError,
     setDraft,
     setAdvisor,
     clearEdits,

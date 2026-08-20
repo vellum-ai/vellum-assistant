@@ -38,8 +38,7 @@ export interface ChatRouteEvidence {
   defaultProviderAvailability?: DefaultProviderAvailabilityStatus;
   /**
    * The connection the default-provider route conventionally resolves to
-   * when `connectionName` is unset (`resolvedConnectionName` from the same
-   * status response).
+   * (`resolvedConnectionName` from the same status response).
    */
   defaultProviderResolvedConnection?: string | null;
   /** The active conversation's `inferenceProfile` pin, when the caller has one. */
@@ -135,16 +134,16 @@ function catalogProviderForModel(model: string): string | undefined {
 }
 
 /**
- * The billing route after the daemon layers the workspace
- * `llm.callSites.mainAgent` tweak over the winning fragment
- * (`resolveOverrideOrDefault` in assistant/src/config/llm-resolver.ts): an
- * explicit tweak provider replaces the winner's while keeping its binding; a
- * tweak model the winner's provider does not serve stamps the model's
- * catalog owner and drops the binding (the provider-agnostic managed
- * connection survives); and a vellum winner re-gains the managed connection
- * under a concrete managed-routable provider. The shipped mainAgent
- * call-site default carries only a profile intent, so the workspace entry is
- * the only route-affecting tweak source.
+ * The billing route after the workspace `llm.callSites.mainAgent` tweak is
+ * layered over the winning fragment. Mirrors pre-migration-147 daemons,
+ * whose resolver still rewrites the route: an explicit tweak provider
+ * replaces the winner's while keeping its binding; a tweak model the
+ * winner's provider does not serve stamps the model's catalog owner and
+ * drops the binding (the provider-agnostic managed connection survives);
+ * and a vellum winner re-gains the managed connection under a concrete
+ * managed-routable provider. Post-147 daemons refuse foreign pins at write
+ * time and migration 147 strips persisted ones, so there this composition
+ * is a no-op; it is deleted together with the telemetry-gated legacy shims.
  *
  * Returns the composed route plus whether composition altered it (callers
  * void the winner's availability proof for altered routes, since the proof
@@ -156,7 +155,10 @@ function composedMainAgentRoute(
   llm: LlmConfig,
 ): { route: CreditRouteEntry; altered: boolean } | null {
   const tweak = llm?.callSites?.mainAgent;
-  const tweakProvider = tweak?.provider ?? undefined;
+  // typeof-narrowed so the read stays valid when the generated draft type
+  // no longer declares the legacy provider field.
+  const tweakProvider =
+    typeof tweak?.provider === "string" ? tweak.provider : undefined;
   const tweakModel = tweak?.model ?? undefined;
   let route = entry;
   let altered = false;
@@ -310,11 +312,13 @@ export function defaultChatRouteBurnsManagedCredits(
 }
 
 /**
- * The billing route of the `llm.defaultProvider` anchor: the explicit
- * `connectionName` when set, else the conventionally resolved connection the
- * daemon stamps onto default bodies (`resolvedConnectionName` from the
- * default-provider status), so an unset name doesn't misread as unbound
- * dispatch. Null when no default provider is configured.
+ * The billing route of the `llm.defaultProvider` anchor: the conventionally
+ * resolved connection the daemon stamps onto default bodies
+ * (`resolvedConnectionName` from the default-provider status), so an unset
+ * name doesn't misread as unbound dispatch. Old daemons may still emit an
+ * explicit `connectionName` pin in this evidence; it is ignored — their pins
+ * were canonical-or-conventional anyway. Null when no default provider is
+ * configured.
  */
 function defaultProviderRouteEntry(
   evidence: ChatRouteEvidence,
@@ -326,9 +330,7 @@ function defaultProviderRouteEntry(
   return {
     provider: defaultProvider.provider,
     provider_connection:
-      defaultProvider.connectionName ??
-      evidence.defaultProviderResolvedConnection ??
-      undefined,
+      evidence.defaultProviderResolvedConnection ?? undefined,
   };
 }
 
