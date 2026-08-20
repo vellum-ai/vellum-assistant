@@ -400,6 +400,23 @@ export interface CompanionSurfaceProps {
    */
   watching?: boolean;
   /**
+   * Whether Watch is offered at all, which is the feature flag rather than any
+   * fact about a session.
+   *
+   * Separate from {@link CompanionSurfaceProps.watching} because the two answer
+   * questions that can disagree in the one direction that matters: a session
+   * left running when the flag is turned off still has to draw its indicator
+   * and its stop control, since a capture the user cannot see or end is the
+   * failure this surface exists to prevent. So this hides the way in and
+   * nothing else.
+   *
+   * Absence is not permission. Defaulted off rather than on for the reason
+   * `CompanionSurfaceState.watchEnabled` is read that way: every caller with no
+   * evaluation in hand is a caller that does not know, and a control that reads
+   * the user's screen is not offered on a guess.
+   */
+  watchEnabled?: boolean;
+  /**
    * The running session, when `phase` is `call`.
    *
    * Absent renders the call state from fixed sample values, which is what the
@@ -444,6 +461,7 @@ export function CompanionSurface({
   onAvatarClick,
   working = false,
   watching = false,
+  watchEnabled = false,
   call,
   onControl,
 }: CompanionSurfaceProps) {
@@ -680,6 +698,7 @@ export function CompanionSurface({
               <IdleBody
                 spotlight={spotlight}
                 watching={watching}
+                watchEnabled={watchEnabled}
                 onTalk={onTalk}
                 onType={onType}
                 onWatch={onWatch}
@@ -964,11 +983,13 @@ function Avatar({
  * they are two halves of one choice about how to say something, and a verb pair
  * reads as that where a verb and a question word do not. "Watch" is the third,
  * and the one where the assistant does the looking rather than the user the
- * saying.
+ * saying. It is also the one that comes and goes: it is behind a flag of its
+ * own, so the row is Talk and Type alone for anyone who does not have it.
  */
 function IdleBody({
   spotlight,
   watching = false,
+  watchEnabled = false,
   onTalk,
   onType,
   onWatch,
@@ -976,6 +997,8 @@ function IdleBody({
   spotlight?: "talk" | "type";
   /** Whether the session Watch starts is already running. */
   watching?: boolean;
+  /** Whether Watch is offered at all. See `CompanionSurfaceProps`. */
+  watchEnabled?: boolean;
   onTalk?: () => void;
   onType?: () => void;
   onWatch?: () => void;
@@ -1000,14 +1023,30 @@ function IdleBody({
           control is holding the pill open and which press ends it. `pressed`
           rather than `active`, because this one is a state and not a look: a
           reader is told a session is running, where everything else this
-          surface does about it is a colour they never receive. */}
-      <PillButton
-        icon={<Eye className="size-4" />}
-        label="Watch"
-        showLabel
-        pressed={watching}
-        onClick={onWatch}
-      />
+          surface does about it is a colour they never receive.
+
+          Absent entirely when Watch is not offered, rather than disabled: a
+          user who cannot have the feature is not owed a control that explains
+          itself by refusing them. The pill measures its own contents, so the
+          row simply comes out narrower.
+
+          **The exit outlives the door.** A session running under a flag that
+          has since been turned off still reads the screen, so the row that
+          would have carried Watch carries the stop instead, the same control
+          the card and the call row draw. Hiding the way in is the whole of what
+          the flag does; leaving a capture with nothing that ends it is not
+          something a flag is allowed to cause. */}
+      {watchEnabled ? (
+        <PillButton
+          icon={<Eye className="size-4" />}
+          label="Watch"
+          showLabel
+          pressed={watching}
+          onClick={onWatch}
+        />
+      ) : (
+        watching && <StopWatchingButton onWatch={onWatch} />
+      )}
     </>
   );
 }

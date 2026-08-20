@@ -850,6 +850,25 @@ export interface CompanionSurfaceState {
    */
   watching?: boolean;
   /**
+   * Whether Watch is offered at all, as the flag was last evaluated for the
+   * signed-in user.
+   *
+   * Carried on the state rather than read where it is drawn, because the
+   * surface is a floating route: it has no session, no auth, and no flag store
+   * that ever hydrates, so a value it read for itself would be the registry
+   * default forever. Main reads the evaluation the app's window wrote into
+   * settings and pushes it here with everything else, which is the same path
+   * `companion-window.ts` already takes for the surface's own flag.
+   *
+   * Optional, and absence means not offered. Read it as `watchEnabled === true`
+   * for the reason {@link CompanionSurfaceState.watching} is read that way: a
+   * shell that predates the field, a window whose flags have not synced yet,
+   * and an environment where the flag was never provisioned are all states of
+   * not knowing, and a control that reads a user's screen is not something to
+   * offer while the answer is unknown.
+   */
+  watchEnabled?: boolean;
+  /**
    * The character to render live, or `undefined` when there is none to
    * compose. See {@link CompanionCharacter}; `avatarBase64` is the fallback.
    */

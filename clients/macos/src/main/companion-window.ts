@@ -62,6 +62,31 @@ export const isCompanionSurfaceEnabled = (): boolean =>
   readSetting("featureFlags")?.[SURFACE_FLAG] === true;
 
 /**
+ * The flag Watch is behind, read from the same place the surface's own flag is.
+ *
+ * Its own flag rather than a share of the surface's, because the surface is a
+ * place to talk to the assistant from and Watch is a session that reads the
+ * user's screen: they are ready to be offered to people at different moments,
+ * and folding one into the other would mean shipping the second the day the
+ * first goes out.
+ *
+ * Absent means off, for the surface flag's reason and one more of Watch's own.
+ * A fresh install and an unprovisioned environment both arrive here as nothing,
+ * and the thing on the other side of this answer is a control that starts
+ * reading the screen: an affordance offered on a guess is one a user can press
+ * before anyone has decided they should have it.
+ *
+ * Read here rather than in the window that draws the control. That window is a
+ * floating route with no auth and no flag store that ever settles, so main is
+ * the only side of the surface holding a real evaluation, and it travels down
+ * on the state push as {@link CompanionSurfaceState.watchEnabled}.
+ */
+const WATCH_FLAG = "watch";
+
+const isWatchEnabled = (): boolean =>
+  readSetting("featureFlags")?.[WATCH_FLAG] === true;
+
+/**
  * Whether the surface belongs on screen, given the flag and the user's own
  * choice from the tray.
  *
@@ -273,6 +298,10 @@ const currentState = (): CompanionSurfaceState => {
     // reporting no session of its own. Settled to a boolean here rather than
     // passed through, so the surface reads one shape whatever arrived.
     watching: context.watching === true,
+    // Read on every rebuild rather than captured once, because the evaluation
+    // lands after launch: the app's window has to sign in and fetch it first,
+    // and a targeting change can move it again while the app runs.
+    watchEnabled: isWatchEnabled(),
   };
 };
 
@@ -827,12 +856,19 @@ export const installCompanionWindow = (): void => {
   // here too.
   onAvatarChange(pushState);
 
-  // The flag arrives after launch, not before it: main reads it from settings
-  // and the app's window is what puts it there, once it has signed in and
-  // fetched an evaluation. So the surface cannot be decided once at startup.
-  // This is what opens it when the answer finally lands, and closes it if the
-  // answer changes.
-  onSettingChange("featureFlags", syncCompanionSurface);
+  // The flags arrive after launch, not before it: main reads them from settings
+  // and the app's window is what puts them there, once it has signed in and
+  // fetched an evaluation. So neither the surface nor what it draws can be
+  // decided once at startup. This is what opens the surface when the answer
+  // finally lands, and closes it if the answer changes.
+  //
+  // The push is the second half of the same event, for the Watch flag: a
+  // surface that is already open has to hear that Watch became available, or
+  // stopped being, without waiting for something else to move the state.
+  onSettingChange("featureFlags", () => {
+    syncCompanionSurface();
+    pushState();
+  });
 
   // The route loads lazily after the window is created, so a state pushed
   // before its subscription registers is dropped. It pulls this once mounted.

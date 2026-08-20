@@ -89,6 +89,11 @@ export function CompanionSurfacePage() {
   // Held by main and pushed here with everything else, so this window can
   // reload mid-session without the indicator that says so going dark.
   const [watching, setWatching] = useState(false);
+  // Whether Watch is offered at all, from the only side of this surface that
+  // can know. This window never hydrates a flag store: it has no auth and no
+  // `RootLayout`, so it would sit on registry defaults forever. Main reads the
+  // evaluation the app's window wrote into settings and pushes it here.
+  const [watchEnabled, setWatchEnabled] = useState(false);
   const [hovered, setHovered] = useState(false);
   // Whether the composer is open. Local to this page rather than pushed from
   // main, because nothing outside this window opens or closes it: main is told
@@ -134,6 +139,11 @@ export function CompanionSurfacePage() {
       // reads as nothing running, because the alternative is a capture
       // indicator over a machine nobody is reading.
       setWatching(state.watching === true);
+      // Off unless the answer is positively yes, which covers a shell that
+      // predates the field and a window whose flags have not synced yet. The
+      // control this decides starts reading the user's screen, so a state of
+      // not knowing has to read as not offering it.
+      setWatchEnabled(state.watchEnabled === true);
     };
     const unsubscribe = subscribeCompanionState(apply);
     // The route chunk loads lazily after the window is created, so a state
@@ -370,6 +380,10 @@ export function CompanionSurfacePage() {
           // indicator and the control that ends the session are not: they
           // belong to the session, not to whatever the pill is drawing over it.
           watching={watching}
+          // The flag, from main. It hides the way into a session and leaves
+          // everything a running one draws alone, so a session already going
+          // when the flag turns off can still be seen and still be stopped.
+          watchEnabled={watchEnabled}
           rootRef={pillRef}
           onSurfaceMouseDown={(event) => {
             dragRef.current = { x: event.screenX, y: event.screenY };

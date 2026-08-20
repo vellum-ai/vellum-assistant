@@ -44,6 +44,11 @@ const surface = {
       pushes.push(state);
     },
   },
+  // The surface's own flag going away closes the window, which a case moving
+  // the flags can reach. Nothing here has a window server behind it, so this
+  // only has to be callable.
+  close: () => {},
+  on: () => {},
 };
 
 type Invoker = (args: unknown[]) => unknown;
@@ -109,9 +114,23 @@ mock.module("@vellumai/electron-desktop/avatar", () => ({
   onAvatarChange: () => () => {},
 }));
 
+/**
+ * The evaluated flags the app's window writes into settings, which is where
+ * main reads both the surface's own flag and Watch's. Mutable, because the
+ * whole point of reading them from settings is that they land after launch and
+ * can move again while the app runs.
+ */
+let flags: Record<string, boolean> = { "companion-surface": true };
+
+/** Main's `featureFlags` listeners, so a case can fire a targeting change. */
+const flagListeners: (() => void)[] = [];
+
 mock.module("@vellumai/electron-desktop/settings", () => ({
-  readSetting: () => ({ "companion-surface": true }),
-  onSettingChange: () => () => {},
+  readSetting: () => flags,
+  onSettingChange: (_key: string, listener: () => void) => {
+    flagListeners.push(listener);
+    return () => {};
+  },
 }));
 
 mock.module("@vellumai/electron-desktop/window-state", () => ({
@@ -135,6 +154,14 @@ const {
 } = await import("./companion-window");
 
 installCompanionWindow();
+
+/** Put a set of evaluated flags in settings and tell main they changed. */
+const setFlags = (next: Record<string, boolean>): void => {
+  flags = next;
+  for (const listener of [...flagListeners]) {
+    listener();
+  }
+};
 
 /** Fire main's visibility listeners, as show, hide, and destroy all do. */
 const fireVisibilityChange = (): void => {
@@ -704,5 +731,65 @@ describe("the watch flag when the app's window goes away", () => {
     fireVisibilityChange();
 
     expect(pushes.length).toBe(before);
+  });
+});
+
+/**
+ * The Watch flag, from settings to the surface.
+ *
+ * The floating window has no auth and no flag store that ever settles, so main
+ * is the only side of this surface holding a real evaluation. What a case can
+ * hold is that the evaluation reaches the pushed state, that it keeps reaching
+ * it after a targeting change, and that every answer which is not a positive
+ * one arrives as off.
+ */
+describe("the Watch flag on the pushed state", () => {
+  test("is off when the flags have not arrived yet", () => {
+    setFlags({});
+
+    expect(state().watchEnabled).toBe(false);
+  });
+
+  test("is off when the flag was never provisioned", () => {
+    setFlags({ "companion-surface": true });
+
+    expect(state().watchEnabled).toBe(false);
+  });
+
+  test("is off when the evaluation says so", () => {
+    setFlags({ "companion-surface": true, watch: false });
+
+    expect(state().watchEnabled).toBe(false);
+  });
+
+  test("is on when the evaluation says so", () => {
+    setFlags({ "companion-surface": true, watch: true });
+
+    expect(state().watchEnabled).toBe(true);
+  });
+
+  /**
+   * The evaluation lands after launch: the app's window has to sign in and
+   * fetch it first. A surface already on screen has to hear the answer without
+   * waiting for something else to move the state.
+   */
+  test("is pushed to the open surface when it changes", () => {
+    setFlags({ "companion-surface": true });
+    const before = pushes.length;
+
+    setFlags({ "companion-surface": true, watch: true });
+
+    expect(pushes.length).toBeGreaterThan(before);
+    expect(pushes.at(-1)?.watchEnabled).toBe(true);
+  });
+
+  test("is pushed again when the answer is taken away", () => {
+    setFlags({ "companion-surface": true, watch: true });
+    const before = pushes.length;
+
+    setFlags({ "companion-surface": true, watch: false });
+
+    expect(pushes.length).toBeGreaterThan(before);
+    expect(pushes.at(-1)?.watchEnabled).toBe(false);
   });
 });
