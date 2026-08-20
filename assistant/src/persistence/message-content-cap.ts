@@ -169,6 +169,8 @@ function trimBlocksToCap(
 function dropRichToolResultBlocks(blocks: ContentBlock[]): number {
   let dropped = 0;
   for (const block of blocks) {
+    // guard:allow-tool-result-only: `contentBlocks` is a client tool_result
+    // field, and a server-side search result carries no such sibling media.
     if (block.type === "tool_result" && block.contentBlocks !== undefined) {
       delete block.contentBlocks;
       dropped++;
@@ -180,11 +182,12 @@ function dropRichToolResultBlocks(blocks: ContentBlock[]): number {
 /**
  * Stand-in content for a row with nothing safe to slice.
  *
- * Tool identity survives the collapse: a `tool_result` keeps its
- * `tool_use_id` and a `tool_use` keeps its id and name, because a message
- * that loses one half of a pairing is rejected by the providers on every
- * later turn, which is the failure this cap exists to prevent. Everything
- * else becomes a single marker naming the original size.
+ * Tool identity survives the collapse: a result keeps its `tool_use_id` and a
+ * use keeps its id and name, on both the client (`tool_use` / `tool_result`)
+ * and server (`server_tool_use` / `web_search_tool_result`) pairings, because
+ * a message that loses one half of a pairing is rejected by the providers on
+ * every later turn, which is the failure this cap exists to prevent.
+ * Everything else becomes a single marker naming the original size.
  */
 function collapsedBlocks(
   blocks: ContentBlock[],
@@ -193,20 +196,33 @@ function collapsedBlocks(
   const marker = collapsedMarker(originalBytes);
   const toolBlocks: ContentBlock[] = [];
   for (const block of blocks) {
-    if (block.type === "tool_result") {
-      toolBlocks.push({
-        type: "tool_result",
-        tool_use_id: block.tool_use_id,
-        content: marker,
-        ...(block.is_error === true ? { is_error: true } : {}),
-      });
-    } else if (block.type === "tool_use") {
-      toolBlocks.push({
-        type: "tool_use",
-        id: block.id,
-        name: block.name,
-        input: {},
-      });
+    switch (block.type) {
+      case "tool_result":
+        toolBlocks.push({
+          type: "tool_result",
+          tool_use_id: block.tool_use_id,
+          content: marker,
+          ...(block.is_error === true ? { is_error: true } : {}),
+        });
+        break;
+      case "web_search_tool_result":
+        toolBlocks.push({
+          type: "web_search_tool_result",
+          tool_use_id: block.tool_use_id,
+          content: marker,
+        });
+        break;
+      case "tool_use":
+      case "server_tool_use":
+        toolBlocks.push({
+          type: block.type,
+          id: block.id,
+          name: block.name,
+          input: {},
+        });
+        break;
+      default:
+        break;
     }
   }
   if (toolBlocks.length === 0) {
@@ -215,7 +231,8 @@ function collapsedBlocks(
   // A `tool_result` carries its own marker, and providers want the results at
   // the head of the message, so no sibling text block is added there. A
   // `tool_use` has no text field, so the marker precedes it.
-  if (toolBlocks[0].type === "tool_result") {
+  const head = toolBlocks[0];
+  if (head.type === "tool_result" || head.type === "web_search_tool_result") {
     return toolBlocks;
   }
   return [{ type: "text", text: marker }, ...toolBlocks];

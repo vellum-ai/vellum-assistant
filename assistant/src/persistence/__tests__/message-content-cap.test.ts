@@ -292,4 +292,52 @@ describe("capPersistedMessageContent", () => {
       },
     ]);
   });
+
+  test("keeps the server-side search pairing when a collapse is the only option", () => {
+    /**
+     * A `web_search_tool_result` pairs with a `server_tool_use` the same way a
+     * `tool_result` pairs with a `tool_use`, and its content is opaque
+     * provider data that cannot be sliced, so the collapse is the path it
+     * takes and it has to keep both halves.
+     */
+
+    // GIVEN a search result whose opaque payload is oversized on its own
+    const content = JSON.stringify([
+      { type: "server_tool_use", id: "srvtoolu_1", name: "web_search" },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_1",
+        content: [{ encrypted_content: "A".repeat(FIFTY_MB) }],
+      },
+    ]);
+
+    // WHEN it is capped
+    const capped = cap(content);
+
+    // THEN both halves of the pairing survive, under the cap, behind a marker
+    expect(messageContentBytes(capped)).toBeLessThanOrEqual(
+      MAX_PERSISTED_MESSAGE_BYTES,
+    );
+    expect(blocksOf(capped)).toEqual([
+      {
+        type: "text",
+        text: expect.stringContaining(
+          `this message body was ${messageContentBytes(content)} bytes`,
+        ) as unknown as string,
+      },
+      {
+        type: "server_tool_use",
+        id: "srvtoolu_1",
+        name: "web_search",
+        input: {},
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_1",
+        content: expect.stringContaining(
+          "over the 8000000-byte single-message cap",
+        ) as unknown as string,
+      },
+    ]);
+  });
 });
