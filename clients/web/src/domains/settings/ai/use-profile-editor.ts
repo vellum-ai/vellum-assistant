@@ -57,16 +57,9 @@ import { badRequestMessage } from "@/utils/api-errors";
 const MIN_INPUT_RESERVE_TOKENS = 4096;
 
 function maxTokensBudgetError(
-  provider: string,
-  model: string,
+  catalogModel: LlmCatalogModel,
   maxTokens: number,
 ): string | null {
-  const catalogModel = getModelsForProvider(provider).find(
-    (m) => m.id === model,
-  );
-  if (!catalogModel) {
-    return null;
-  }
   if (maxTokens > catalogModel.maxOutputTokens) {
     return `Max tokens (${maxTokens}) exceeds the model's maximum output of ${catalogModel.maxOutputTokens} tokens. Reduce it to ${catalogModel.maxOutputTokens} or less.`;
   }
@@ -669,8 +662,11 @@ export function useProfileEditor({
       }
       return;
     }
-    if (visibility.maxTokens && maxTokens !== null && provider && model) {
-      const budgetError = maxTokensBudgetError(provider, model, maxTokens);
+    // `selectedModel` already resolves the routed `<provider>/<model>` form
+    // to its native catalog entry, so the judgment sees the same model the
+    // save will dispatch.
+    if (visibility.maxTokens && maxTokens !== null && selectedModel) {
+      const budgetError = maxTokensBudgetError(selectedModel, maxTokens);
       if (budgetError) {
         setSaveError(budgetError);
         return;
