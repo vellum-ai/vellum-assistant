@@ -43,7 +43,7 @@ mock.module("./about.client", () => ({
   openAboutWindow: () => undefined,
 }));
 
-mock.module("./auto-update", () => ({
+mock.module("./auto-update.client", () => ({
   checkForUpdates: () => undefined,
 }));
 

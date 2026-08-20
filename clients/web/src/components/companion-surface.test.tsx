@@ -169,16 +169,16 @@ describe("the companion surface's custom avatar", () => {
  * main flip the direction near the top of a display without the renderer
  * learning the canvas's height (JARVIS-1548).
  */
-describe("the companion surface's anchor in the canvas", () => {
-  /** The pill itself, which is also the surface's drag handle. */
-  const surfaceOf = (container: HTMLElement): HTMLElement => {
-    const found = container.querySelector<HTMLElement>(".cursor-grab");
-    if (!found) {
-      throw new Error("Expected the surface to render");
-    }
-    return found;
-  };
+/** The pill itself, which is also the surface's drag handle. */
+const surfaceOf = (container: HTMLElement): HTMLElement => {
+  const found = container.querySelector<HTMLElement>(".cursor-grab");
+  if (!found) {
+    throw new Error("Expected the surface to render");
+  }
+  return found;
+};
 
+describe("the companion surface's anchor in the canvas", () => {
   test("hangs off the canvas's bottom edge while the card grows up", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
     expect(surfaceOf(container).style.top).toBe("calc(100% - 46px)");
@@ -246,5 +246,117 @@ describe("the companion surface's anchor in the canvas", () => {
       expect(surfaceOf(container).style.transform).toBe("translateY(-50%)");
       cleanup();
     }
+  });
+});
+/**
+ * Growing leftward is two halves, and the surface is only in the right place
+ * when both happen.
+ *
+ * Main positions the window by the *avatar's* centre and measures every later
+ * drag, clamp and direction check from it. The renderer's half of that bargain
+ * is to draw the avatar on the point the host aimed at: the surface anchors by
+ * the edge the avatar is on, and the row the avatar sits in mirrors so the
+ * avatar ends up against that edge.
+ *
+ * Anchoring without mirroring is the failure this covers. It draws the avatar
+ * at the far end of the pill instead, up to a card's width from where main
+ * believes it is, so the mascot teleports at the direction flip, the labels
+ * sweep under a held pointer, and the point main hands presses to lands on a
+ * control that refuses them. The surface reads as dead (JARVIS-1582).
+ */
+describe("the companion surface growing leftward", () => {
+  /**
+   * The row the avatar is on, found through the avatar rather than by its own
+   * classes: it is the row's job to order the avatar, so the avatar is what
+   * says which row it is.
+   */
+  const avatarRowOf = (container: HTMLElement): HTMLElement => {
+    const avatar = container.querySelector<HTMLElement>(".size-11");
+    if (!avatar?.parentElement) {
+      throw new Error("Expected the avatar to render inside a row");
+    }
+    return avatar.parentElement;
+  };
+
+  test("mirrors the row the avatar is on", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" growth="left" />,
+    );
+    expect(avatarRowOf(container).className).toContain("flex-row-reverse");
+  });
+
+  test("leaves that row alone growing the ordinary way", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" growth="right" />,
+    );
+    expect(avatarRowOf(container).className).not.toContain("flex-row-reverse");
+  });
+
+  /**
+   * The card is anchored by the same edge as the pill and is eight times the
+   * avatar's width, so an unmirrored card puts the mascot further from where
+   * main is measuring than any other state.
+   */
+  test("mirrors the card's row too", () => {
+    const { container } = render(
+      <CompanionSurface phase="typing" growth="left" />,
+    );
+    expect(avatarRowOf(container).className).toContain("flex-row-reverse");
+  });
+
+  /**
+   * The other half. The row is `INNER_GAP` narrower than the pill, because that
+   * gap is trailing space past the last control, so the row has to sit against
+   * the anchored end and leave the slack at the other.
+   */
+  test("holds the row against the edge the pill is anchored by", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" growth="left" />,
+    );
+    expect(surfaceOf(container).className).toContain("flex-row-reverse");
+  });
+
+  test("anchors the pill by its right edge", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" growth="left" />,
+    );
+    expect(surfaceOf(container).style.right).toBe("50%");
+  });
+});
+
+/**
+ * The whole surface is a drag handle that happens to have words on it, so a
+ * press and a sweep across it is a drag and never a text selection. Without
+ * this, a drag that crosses the direction flip highlights "Talk" and "Type" on
+ * the way past, and the selection it leaves behind arms the browser's own
+ * text-drag against the next press (JARVIS-1582).
+ */
+describe("the companion surface's text selection", () => {
+  test("is off across the surface", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(surfaceOf(container).className).toContain("select-none");
+  });
+
+  test("is back on for a reply, which is prose to copy", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="typing"
+        turns={[
+          { role: "assistant", text: "The 14:00 one moved to Thursday." },
+        ]}
+      />,
+    );
+    const turn = container.querySelector("p");
+    expect(turn?.textContent).toBe("The 14:00 one moved to Thursday.");
+    expect(turn?.closest(".select-text")).not.toBeNull();
+  });
+
+  test("is back on in the field, which needs a caret", () => {
+    const { container } = render(
+      <CompanionSurface phase="typing" growth="left" />,
+    );
+    expect(container.querySelector("input")?.className).toContain(
+      "select-text",
+    );
   });
 });

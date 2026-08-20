@@ -33,6 +33,7 @@ import {
 import { fetchConversationMessages as defaultFetchConversationMessages } from "@/domains/chat/api/messages";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import type {
+  PendingAcpConnectState,
   PendingConfirmationState,
   PendingContactRequestState,
   PendingQuestionState,
@@ -151,6 +152,16 @@ export interface PendingInteractionsSnapshot {
   /** Tool-call id paired with the currently-rendered inline confirmation,
    *  or `null` when no inline confirmation is active. */
   inlineConfirmationToolCallId: string | null;
+  /** The inline "Connect Claude Code" prompt currently raised by a failed
+   *  `acp_spawn`, or `null` when no Connect card is showing. */
+  pendingAcpConnect: PendingAcpConnectState | null;
+  /** Tool-call ids whose Connect card was dismissed in this session, sorted
+   *  so the dump is stable across captures. A dismissed id suppresses the
+   *  card even when the same failure is replayed by a resync. */
+  dismissedAcpConnectToolUseIds: string[];
+  /** True while a completed connect flow is waiting for the chat view to
+   *  fire its hidden continuation send. */
+  pendingAcpContinue: boolean;
 }
 
 /**
@@ -833,7 +844,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "  .serverMessages()          [experimental] fetch /v1/history and return the server snapshot response (messages + seq)",
       "                              (diff against getClientMessages() manually in the console)",
       "  .listPendingInteractions() frontend-tracked pending prompts (secret/confirmation/",
-      "                              contact-request/question) and submission flags",
+      "                              contact-request/question/acp-connect) and submission flags",
       "  .getScrollState()          scroll geometry + pagination — why can't I scroll up?",
       "                              .diagnosis gives a human-readable summary",
       "  .getDiagnostics(prefix?)   main diagnostics ring (per-delta SSE / drop gates / history applies),",

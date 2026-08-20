@@ -4,7 +4,8 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
-import { resolveResponseDocumentIds } from "@/domains/chat/transcript/resolve-response-documents";
+import { resolveResponseArtifacts } from "@/domains/chat/transcript/resolve-response-artifacts";
+import type { ResponseArtifact } from "@/domains/chat/transcript/response-artifacts";
 
 /** A settled `document_update` whose result carries the surface it wrote. */
 function updateCall(id: string, surfaceId: string): ChatMessageToolCall {
@@ -44,6 +45,44 @@ function previewBlock(surfaceId: string): ConversationContentBlock {
   } as ConversationContentBlock;
 }
 
+/** A settled `app_create` whose result spreads the app record (`id`). */
+function appCreateCall(id: string, appId: string): ChatMessageToolCall {
+  return {
+    id,
+    name: "app_create",
+    input: { name: "Tracker" },
+    result: JSON.stringify({ id: appId, name: "Tracker", auto_opened: true }),
+    completedAt: 1,
+  };
+}
+
+/** A settled `app_update`, which reports the app under `appId` instead. */
+function appUpdateCall(id: string, appId: string): ChatMessageToolCall {
+  return {
+    id,
+    name: "app_update",
+    input: { app_id: appId },
+    result: JSON.stringify({ updated: true, appId, name: "Tracker" }),
+    completedAt: 1,
+  };
+}
+
+/**
+ * The `dynamic_page` preview `app_create` auto-opens with. `data.preview` is
+ * what makes it a pointer: the surface renders an `AppCard` rather than the
+ * expanded app.
+ */
+function appPreviewBlock(appId: string): ConversationContentBlock {
+  return {
+    type: "surface",
+    surface: {
+      surfaceId: `page-${appId}`,
+      surfaceType: "dynamic_page",
+      data: { appId, preview: { title: "Tracker" }, html: "" },
+    },
+  } as ConversationContentBlock;
+}
+
 function assistant(
   key: string,
   toolCalls: ChatMessageToolCall[] = [],
@@ -79,7 +118,12 @@ function user(key: string): TranscriptItem {
   };
 }
 
-describe("resolveResponseDocumentIds", () => {
+/** The document artifact the resolver reports for `surfaceId`. */
+function doc(surfaceId: string): ResponseArtifact {
+  return { kind: "document", id: surfaceId };
+}
+
+describe("resolveResponseArtifacts", () => {
   test("collapses one document changed by several messages into one entry", () => {
     const items = [
       user("u1"),
@@ -88,9 +132,9 @@ describe("resolveResponseDocumentIds", () => {
       assistant("a3", [updateCall("tc-3", "surf-notes")]),
     ];
 
-    const byKey = resolveResponseDocumentIds(items);
+    const byKey = resolveResponseArtifacts(items);
 
-    expect([...byKey]).toEqual([["a3", ["surf-notes"]]]);
+    expect([...byKey]).toEqual([["a3", [doc("surf-notes")]]]);
   });
 
   test("keeps one entry per distinct document of a response", () => {
@@ -100,9 +144,9 @@ describe("resolveResponseDocumentIds", () => {
       assistant("a2", [updateCall("tc-2", "surf-plan")]),
     ];
 
-    const byKey = resolveResponseDocumentIds(items);
+    const byKey = resolveResponseArtifacts(items);
 
-    expect(byKey.get("a2")).toEqual(["surf-notes", "surf-plan"]);
+    expect(byKey.get("a2")).toEqual([doc("surf-notes"), doc("surf-plan")]);
     expect(byKey.has("a1")).toBe(false);
   });
 
@@ -116,10 +160,10 @@ describe("resolveResponseDocumentIds", () => {
       assistant("a4"),
     ];
 
-    const byKey = resolveResponseDocumentIds(items);
+    const byKey = resolveResponseArtifacts(items);
 
-    expect(byKey.get("a2")).toEqual(["surf-notes"]);
-    expect(byKey.get("a4")).toEqual(["surf-plan"]);
+    expect(byKey.get("a2")).toEqual([doc("surf-notes")]);
+    expect(byKey.get("a4")).toEqual([doc("surf-plan")]);
     expect(byKey.size).toBe(2);
   });
 
@@ -131,9 +175,9 @@ describe("resolveResponseDocumentIds", () => {
       assistant("a2", [updateCall("tc-2", "surf-plan")]),
     ];
 
-    const byKey = resolveResponseDocumentIds(items, { turnActive: true });
+    const byKey = resolveResponseArtifacts(items, { turnActive: true });
 
-    expect(byKey.get("a1")).toEqual(["surf-notes"]);
+    expect(byKey.get("a1")).toEqual([doc("surf-notes")]);
     expect(byKey.has("a2")).toBe(false);
   });
 
@@ -144,12 +188,15 @@ describe("resolveResponseDocumentIds", () => {
       user("u2"),
     ];
 
-    const byKey = resolveResponseDocumentIds(items, { turnActive: true });
+    const byKey = resolveResponseArtifacts(items, { turnActive: true });
 
-    expect(byKey.get("a1")).toEqual(["surf-notes"]);
+    expect(byKey.get("a1")).toEqual([doc("surf-notes")]);
   });
 
-  test("skips a document a preview card in the same response already opens", () => {
+  test("keeps a created document to one entry despite its preview card", () => {
+    // The preview card is not drawn where its tool ran, so it does not stand
+    // in for the end-of-response card. It names the same document the create
+    // does, and the response owes exactly one entry for it.
     const items = [
       user("u1"),
       assistant(
@@ -160,10 +207,14 @@ describe("resolveResponseDocumentIds", () => {
       assistant("a2"),
     ];
 
-    expect(resolveResponseDocumentIds(items).size).toBe(0);
+    expect(resolveResponseArtifacts(items).get("a2")).toEqual([
+      doc("surf-notes"),
+    ]);
   });
 
-  test("keeps a previewed document a later message of the response edits", () => {
+  test("keeps one entry for a document created then edited", () => {
+    // A create and an edit both name one document, and the union collapses
+    // them onto a single entry.
     const items = [
       user("u1"),
       assistant(
@@ -174,7 +225,22 @@ describe("resolveResponseDocumentIds", () => {
       assistant("a2", [updateCall("tc-2", "surf-notes")]),
     ];
 
-    expect(resolveResponseDocumentIds(items).get("a2")).toEqual(["surf-notes"]);
+    expect(resolveResponseArtifacts(items).get("a2")).toEqual([
+      doc("surf-notes"),
+    ]);
+  });
+
+  test("keeps a document a response only opened", () => {
+    // `document_open` mutates nothing, so the preview surface it emits is the
+    // response's only trace of the document, and it anchors the entry alone.
+    const items = [
+      user("u1"),
+      assistant("a1", [], [previewBlock("surf-notes")]),
+    ];
+
+    expect(resolveResponseArtifacts(items).get("a1")).toEqual([
+      doc("surf-notes"),
+    ]);
   });
 
   test("keeps a document previewed by a later response", () => {
@@ -185,7 +251,62 @@ describe("resolveResponseDocumentIds", () => {
       assistant("a2", [], [previewBlock("surf-notes")]),
     ];
 
-    expect(resolveResponseDocumentIds(items).get("a1")).toEqual(["surf-notes"]);
+    expect(resolveResponseArtifacts(items).get("a1")).toEqual([
+      doc("surf-notes"),
+    ]);
+  });
+
+  test("collects apps alongside documents, in first-touched order", () => {
+    // Both kinds run through one registry, so a response that builds an app
+    // and writes a doc closes with one card each, ordered by when it happened.
+    const items = [
+      user("u1"),
+      assistant(
+        "a1",
+        [appCreateCall("tc-app", "app-7")],
+        [appPreviewBlock("app-7")],
+      ),
+      assistant("a2", [updateCall("tc-doc", "surf-notes")]),
+    ];
+
+    expect(resolveResponseArtifacts(items).get("a2")).toEqual([
+      { kind: "app", id: "app-7" },
+      doc("surf-notes"),
+    ]);
+  });
+
+  test("keeps a created-then-updated app to one entry", () => {
+    // The app twin of the document case: `app_create` emits a preview naming
+    // the app, and a later `app_update` names it again.
+    const items = [
+      user("u1"),
+      assistant(
+        "a1",
+        [appCreateCall("tc-1", "app-7")],
+        [appPreviewBlock("app-7")],
+      ),
+      assistant("a2", [appUpdateCall("tc-2", "app-7")]),
+    ];
+
+    expect(resolveResponseArtifacts(items).get("a2")).toEqual([
+      { kind: "app", id: "app-7" },
+    ]);
+  });
+
+  test("ignores an expanded dynamic_page, which is the app itself", () => {
+    // Without `preview` the surface renders the live app inline: content, not
+    // a pointer, so it anchors nothing and keeps rendering where it landed.
+    const expanded = {
+      type: "surface",
+      surface: {
+        surfaceId: "page-1",
+        surfaceType: "dynamic_page",
+        data: { appId: "app-7", html: "<main/>" },
+      },
+    } as ConversationContentBlock;
+    const items = [user("u1"), assistant("a1", [], [expanded])];
+
+    expect(resolveResponseArtifacts(items).size).toBe(0);
   });
 
   test("keeps a document a non-preview surface names", () => {
@@ -202,7 +323,9 @@ describe("resolveResponseDocumentIds", () => {
       assistant("a1", [updateCall("tc-1", "surf-notes")], [card]),
     ];
 
-    expect(resolveResponseDocumentIds(items).get("a1")).toEqual(["surf-notes"]);
+    expect(resolveResponseArtifacts(items).get("a1")).toEqual([
+      doc("surf-notes"),
+    ]);
   });
 
   test("ignores a tool call that is not a document mutation", () => {
@@ -219,7 +342,7 @@ describe("resolveResponseDocumentIds", () => {
       ]),
     ];
 
-    expect(resolveResponseDocumentIds(items).size).toBe(0);
+    expect(resolveResponseArtifacts(items).size).toBe(0);
   });
 
   test("skips a failed document call", () => {
@@ -228,7 +351,7 @@ describe("resolveResponseDocumentIds", () => {
       assistant("a1", [{ ...updateCall("tc-1", "surf-notes"), isError: true }]),
     ];
 
-    expect(resolveResponseDocumentIds(items).size).toBe(0);
+    expect(resolveResponseArtifacts(items).size).toBe(0);
   });
 
   test("anchors on the last ordinary message when a system card ends the response", () => {
@@ -248,17 +371,17 @@ describe("resolveResponseDocumentIds", () => {
       card,
     ];
 
-    const byKey = resolveResponseDocumentIds(items);
+    const byKey = resolveResponseArtifacts(items);
 
-    expect(byKey.get("a1")).toEqual(["surf-notes"]);
+    expect(byKey.get("a1")).toEqual([doc("surf-notes")]);
     expect(byKey.has("a2")).toBe(false);
   });
 
   test("reuses the previous array when a response resolves the same ids", () => {
     const items = [user("u1"), assistant("a1", [updateCall("tc-1", "surf-a")])];
 
-    const first = resolveResponseDocumentIds(items).get("a1");
-    const second = resolveResponseDocumentIds(items).get("a1");
+    const first = resolveResponseArtifacts(items).get("a1");
+    const second = resolveResponseArtifacts(items).get("a1");
 
     expect(second).toBe(first!);
   });

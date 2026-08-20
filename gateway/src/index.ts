@@ -169,11 +169,12 @@ import {
 } from "./http/routes/channel-permission-overrides.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
+import { CircuitBreakerOpenError, uploadAttachment } from "./runtime/client.js";
 import {
-  AttachmentValidationError,
-  CircuitBreakerOpenError,
-  uploadAttachment,
-} from "./runtime/client.js";
+  appendFailedAttachmentNotice,
+  ingestAttachments,
+} from "./attachments/ingest.js";
+import { createConversationTaskQueue } from "./channels/conversation-queue.js";
 import { buildSchema } from "./schema.js";
 import {
   createSlackSocketModeClient,
@@ -182,6 +183,7 @@ import {
 import { downloadSlackFile } from "./slack/download.js";
 import { slackBotContactNote } from "./slack/actor.js";
 import { DiscordGatewayClient } from "./discord/gateway-socket.js";
+import { createDiscordInboundEventHandler } from "./discord/forward.js";
 import { readDiscordAllowedChannelIds } from "./discord/allowed-channels.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { upsertContactChannel } from "./verification/contact-helpers.js";
@@ -2264,6 +2266,7 @@ async function main() {
 
   // ── Slack Socket Mode lifecycle ──
   let slackSocketClient: SlackSocketModeClient | null = null;
+  const slackForwardQueue = createConversationTaskQueue();
   // Guards concurrent startSlackSocket calls: at boot both the credential
   // watcher's and the config-file watcher's initial polls fire it, and the
   // second call can pass the stop() guard while the first is still awaiting
@@ -2431,12 +2434,6 @@ async function main() {
               normalized.slackFiles &&
               !refersToAnotherMessage
             ) {
-              attachmentIds = [];
-              const failedAttachmentNames: string[] = [];
-              const maxBytes =
-                config.maxAttachmentBytes.slack ??
-                config.maxAttachmentBytes.default;
-
               // Guardian-actor bypass: when the Slack sender is the
               // assistant's owner, the upload is marked trustedSource so the
               // assistant accepts arbitrary MIME types and extensions
@@ -2462,87 +2459,38 @@ async function main() {
                 }
               }
 
-              // Filter oversized attachments
-              const eligible = eventAttachments.filter((att) => {
-                if (att.fileSize !== undefined && att.fileSize > maxBytes) {
-                  log.warn(
-                    {
-                      fileId: att.fileId,
-                      fileSize: att.fileSize,
-                      limit: maxBytes,
-                    },
-                    "Skipping oversized Slack attachment",
-                  );
-                  return false;
-                }
-                return true;
-              });
-
-              // Process with bounded concurrency. Socket Mode has no retry
-              // mechanism, so all errors (validation and transient) are logged
-              // and skipped — the message is still delivered without the
-              // failed attachment.
-              for (
-                let i = 0;
-                i < eligible.length;
-                i += config.maxAttachmentConcurrency
-              ) {
-                const batch = eligible.slice(
-                  i,
-                  i + config.maxAttachmentConcurrency,
-                );
-                const results = await Promise.allSettled(
-                  batch.map(async (att) => {
+              const result = await ingestAttachments(
+                config,
+                "slack",
+                eventAttachments,
+                log,
+                {
+                  download: (att, maxBytes) => {
                     const slackFile = normalized.slackFiles?.get(att.fileId);
                     if (!slackFile) {
                       throw new Error(
                         `No SlackFile found for attachment ${att.fileId}`,
                       );
                     }
-                    const downloaded = await downloadSlackFile(
-                      slackFile,
-                      botToken,
-                    );
-                    return uploadAttachment(
+                    return downloadSlackFile(slackFile, botToken, maxBytes);
+                  },
+                  upload: (downloaded) =>
+                    uploadAttachment(
                       config,
                       { ...downloaded, trustedSource: isGuardianActor },
                       { skipCircuitBreaker: true },
-                    );
-                  }),
-                );
-                for (let j = 0; j < results.length; j++) {
-                  const result = results[j];
-                  if (result.status === "fulfilled") {
-                    attachmentIds.push(result.value.id);
-                  } else if (
-                    result.reason instanceof AttachmentValidationError
-                  ) {
-                    const att = batch[j];
-                    failedAttachmentNames.push(att.fileName || att.fileId);
-                    log.warn(
-                      { err: result.reason },
-                      "Skipping Slack attachment with validation error",
-                    );
-                  } else {
-                    const att = batch[j];
-                    failedAttachmentNames.push(att.fileName || att.fileId);
-                    log.warn(
-                      { err: result.reason },
-                      "Skipping Slack attachment due to download/upload failure",
-                    );
-                  }
-                }
-              }
-
-              if (failedAttachmentNames.length > 0) {
-                const nameList = failedAttachmentNames
-                  .map((n) => `"${n}"`)
-                  .join(", ");
-                normalized.event.message.content += `\n\n[The user attached file(s) that could not be retrieved: ${nameList}. Ask them to re-send if the content is important.]`;
-              }
+                    ),
+                  failurePolicy: { mode: "skip" },
+                },
+              );
+              attachmentIds = result.attachmentIds;
+              normalized.event.message.content = appendFailedAttachmentNotice(
+                normalized.event.message.content,
+                result.failedAttachmentNames,
+              );
             }
 
-            handleInbound(config, normalized.event, {
+            await handleInbound(config, normalized.event, {
               replyCallbackUrl,
               routingOverride: normalized.routing,
               ...(Object.keys(slackSourceMetadata).length > 0
@@ -2562,7 +2510,7 @@ async function main() {
               { err, channel, threadTs },
               "Failed to process Slack event — delivering message without attachments",
             );
-            handleInbound(config, normalized.event, {
+            await handleInbound(config, normalized.event, {
               replyCallbackUrl,
               routingOverride: normalized.routing,
               ...(Object.keys(slackSourceMetadata).length > 0
@@ -2581,12 +2529,14 @@ async function main() {
         // persisted message rows (see `assembleSlackChronologicalMessages`
         // in the assistant), so the gateway no longer fetches per-turn
         // thread/DM context to inject as transport hints.
-        forward().catch((err) => {
-          log.error(
-            { err, channel, threadTs },
-            "Unhandled error in Slack forward",
-          );
-        });
+        void slackForwardQueue
+          .enqueue(normalized.event.message.conversationExternalId, forward)
+          .catch((err) => {
+            log.error(
+              { err, channel, threadTs },
+              "Unhandled error in Slack forward",
+            );
+          });
 
         // Approval message replacement is handled by the assistant's
         // direct Slack delivery path (messaging/providers/slack/send.ts).
@@ -2613,6 +2563,7 @@ async function main() {
   // only reads services listed there, and the registration is pinned by
   // credential-reader.test.ts.
   let discordGatewayClient: DiscordGatewayClient | null = null;
+  const discordForwardQueue = createConversationTaskQueue();
 
   async function startDiscordGateway(): Promise<void> {
     if (discordGatewayClient) {
@@ -2635,51 +2586,12 @@ async function main() {
         readAllowedChannelIds: () =>
           readDiscordAllowedChannelIds(configFileCache),
       },
-      (event) => {
-        // Reset the platform idle-sleep timer — inbound Discord activity
-        // keeps the assistant awake like any other channel's.
-        notifyRecordActivity();
-
-        // Seed a contact channel for the actor (dual-write, fire-and-forget)
-        // so later verification flows have a record to upgrade.
-        //
-        // `externalChatId` is recorded only for a DM, where the conversation
-        // address is a private one-to-one channel. A guild channel is a room
-        // the actor happens to be standing in, and storing it as their
-        // delivery address is how a private notice ends up posted in public.
-        void upsertContactChannel({
-          sourceChannel: "discord",
-          externalUserId: event.actor.actorExternalId,
-          ...(event.source.chatType === "dm"
-            ? { externalChatId: event.message.conversationExternalId }
-            : {}),
-          displayName: event.actor.displayName,
-          username: event.actor.username,
-        }).catch(() => {});
-
-        // Where the assistant posts its reply. The daemon owns Discord egress
-        // directly (`messaging/providers/discord`), so this callback is
-        // resolved to that transport rather than proxied back through here.
-        //
-        // `threadId` carries the thread's own snowflake when the message came
-        // from one: the event's conversation address is the *parent* channel
-        // for a threaded message, and a Discord thread is itself a channel, so
-        // without this param the reply would land outside the thread.
-        const threadId = event.source.threadId;
-        const replyCallbackUrl = threadId
-          ? `${config.gatewayInternalBaseUrl}/deliver/discord?${new URLSearchParams({ threadId })}`
-          : `${config.gatewayInternalBaseUrl}/deliver/discord`;
-
-        handleInbound(config, event, { replyCallbackUrl }).catch((err) => {
-          log.error(
-            {
-              err,
-              conversationExternalId: event.message.conversationExternalId,
-            },
-            "Failed to forward Discord event to runtime",
-          );
-        });
-      },
+      createDiscordInboundEventHandler({
+        config,
+        log,
+        notifyRecordActivity,
+        forwardQueue: discordForwardQueue,
+      }),
     );
 
     discordGatewayClient.start().catch((err) => {

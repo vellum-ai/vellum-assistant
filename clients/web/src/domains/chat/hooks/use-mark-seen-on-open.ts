@@ -16,26 +16,33 @@ import type { Conversation } from "@/types/conversation-types";
  * This is a conversation lifecycle action (changing seen-state), not
  * attention tracking — it lives here because its concern is state
  * mutation, not observation.
+ *
+ * Seen means the user saw it, so the caller says whether the transcript is on
+ * screen. The selected conversation is not the same as a visible one: it
+ * outlives the route it was selected on, and the viewer can cover it on that
+ * route. A message arriving in either case is unread until the user returns.
  */
 export function useMarkSeenOnOpen({
   assistantId,
   assistantStateKind,
   activeConversationId,
   activeConversation,
+  isTranscriptOnScreen,
 }: {
   assistantId: string | null;
   assistantStateKind: AssistantState["kind"];
   activeConversationId: string | null;
   activeConversation: Conversation | undefined;
+  isTranscriptOnScreen: boolean;
 }) {
   const { mutate: markSeen } = useMarkConversationSeenMutation();
   const lastSeenOnOpenConversationIdRef = useRef<string | null>(null);
-
   useEffect(() => {
     if (
       assistantStateKind !== "active" ||
       !assistantId ||
-      !activeConversationId
+      !activeConversationId ||
+      !isTranscriptOnScreen
     ) {
       return;
     }
@@ -69,6 +76,7 @@ export function useMarkSeenOnOpen({
     activeConversationId,
     assistantId,
     assistantStateKind,
+    isTranscriptOnScreen,
     markSeen,
   ]);
 }

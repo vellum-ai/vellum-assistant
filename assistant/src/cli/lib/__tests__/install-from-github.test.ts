@@ -303,6 +303,44 @@ describe("installPlugin — install lifecycle", () => {
     expect(existsSync(join(target, "README.md"))).toBe(true);
   });
 
+  test("--force keeps live config.json instead of a pin-shipped default", async () => {
+    // GIVEN an install with user config, and a clone that materializes a default
+    const target = join(pluginsDir, "caveman");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "package.json"), '{"name":"caveman"}');
+    writeFileSync(
+      join(target, "config.json"),
+      '{"provider":"photon","ingressMode":"live"}\n',
+    );
+    mkdirSync(join(target, "data"), { recursive: true });
+    writeFileSync(join(target, "data", "cursor.json"), '{"n":1}\n');
+
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": '{"name":"caveman"}',
+        "README.md": "# caveman",
+        "config.json": '{"provider":"comms","ingressMode":"webhook"}\n',
+      },
+      commit: CAVEMAN_SHA,
+    });
+
+    // WHEN we reinstall with --force
+    await installPlugin(
+      { name: "caveman", force: true, ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN user-owned state survives and the pin's default config does not win
+    expect(readFileSync(join(target, "config.json"), "utf-8")).toBe(
+      '{"provider":"photon","ingressMode":"live"}\n',
+    );
+    expect(readFileSync(join(target, "data", "cursor.json"), "utf-8")).toBe(
+      '{"n":1}\n',
+    );
+    expect(existsSync(join(target, "README.md"))).toBe(true);
+  });
+
   test("commitOverride materializes a specific commit, keeping repo from the manifest", async () => {
     // GIVEN a manifest pinning the current SHA, but an override to an older one
     const OLD_SHA = "1".repeat(40);

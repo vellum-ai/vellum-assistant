@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { DesktopAutoUpdater } from "./auto-update-contract";
+
+mock.module("electron", () => ({
+  app: { isPackaged: false },
+  BrowserWindow: { getAllWindows: () => [] },
+}));
+
 /**
  * Regression cover for the auto-updater's leaked download promise.
  *
@@ -11,25 +18,13 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
  * main process as an unhandled rejection.
  */
 
-interface FakeUpdater {
-  checkForUpdates: () => Promise<{ downloadPromise: Promise<unknown> | null }>;
-  logger: unknown;
-  autoDownload: boolean;
-  autoInstallOnAppQuit: boolean;
-  channel: string;
-  allowDowngrade: boolean;
-  setFeedURL: () => void;
-  on: () => void;
-  quitAndInstall: () => void;
-}
-
 let downloadResult: { downloadPromise: Promise<unknown> | null } = {
   downloadPromise: null,
 };
 
-const fakeUpdater: FakeUpdater = {
+const fakeUpdater: DesktopAutoUpdater = {
   checkForUpdates: () => Promise.resolve(downloadResult),
-  logger: undefined,
+  logger: null,
   autoDownload: false,
   autoInstallOnAppQuit: false,
   channel: "",
@@ -39,9 +34,19 @@ const fakeUpdater: FakeUpdater = {
   quitAndInstall: () => undefined,
 };
 
-mock.module("electron-updater", () => ({ autoUpdater: fakeUpdater }));
+const { checkForUpdates, configureAutoUpdate } = await import("./auto-update");
 
-const { checkForUpdates } = await import("./auto-update");
+configureAutoUpdate({
+  updater: fakeUpdater,
+  ipc: { handle: () => undefined },
+  logger: {
+    info: () => undefined,
+    warn: () => undefined,
+    error: () => undefined,
+  },
+  environment: "test",
+  feedUrl: "https://updates.example.com/win-electron/x64/",
+});
 
 /** Collect unhandled rejections raised while `run` settles. */
 const unhandledDuring = async (run: () => void): Promise<unknown[]> => {

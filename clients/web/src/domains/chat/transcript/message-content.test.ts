@@ -173,6 +173,52 @@ describe("groupContentBlocks", () => {
     ]);
   });
 
+  test("drops a document_preview surface and merges the run across it", () => {
+    /**
+     * The transcript draws a response's documents once each, at the end of the
+     * response, so the inline preview the daemon emits where the tool ran is
+     * not a group at all. Dropping it must not close the open activity run
+     * either: the create and the edit either side of it are one run, the way
+     * they would have been had the preview never been emitted.
+     */
+    const blocks: ConversationContentBlock[] = [
+      { type: "tool_use", toolCall: toolCall({ id: "call-create" }) },
+      {
+        type: "surface",
+        surface: {
+          surfaceId: "preview-doc-1",
+          surfaceType: "document_preview",
+          data: { surfaceId: "doc-1", title: "Notes" },
+        } as Surface,
+      },
+      { type: "tool_use", toolCall: toolCall({ id: "call-update" }) },
+    ];
+
+    expect(groupContentBlocks(blocks)).toEqual([
+      {
+        type: "activity",
+        items: [
+          { type: "tool_use", toolCall: toolCall({ id: "call-create" }) },
+          { type: "tool_use", toolCall: toolCall({ id: "call-update" }) },
+        ],
+      },
+    ]);
+  });
+
+  test("keeps a non-document surface as its own group", () => {
+    // Only `document_preview` is drawn elsewhere; every other surface is
+    // content that belongs where it landed.
+    const blocks: ConversationContentBlock[] = [
+      { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+      { type: "surface", surface: surface({}) },
+    ];
+
+    expect(groupContentBlocks(blocks).map((g) => g.type)).toEqual([
+      "activity",
+      "surface",
+    ]);
+  });
+
   test("inline thinking tags pass through verbatim without splitInlineThinking", () => {
     /**
      * User messages must render typed tags verbatim, so the split is opt-in

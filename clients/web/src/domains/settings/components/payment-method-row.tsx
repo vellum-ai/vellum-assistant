@@ -11,6 +11,7 @@ export interface PaymentMethodRowProps {
   onUpdateCard: () => void;
   onRemove: () => void;
   removing?: boolean;
+  showRemove?: boolean;
 }
 
 export function PaymentMethodRow({
@@ -19,6 +20,7 @@ export function PaymentMethodRow({
   onUpdateCard,
   onRemove,
   removing = false,
+  showRemove = true,
 }: PaymentMethodRowProps) {
   return (
     <div
@@ -59,14 +61,16 @@ export function PaymentMethodRow({
         >
           Update Card
         </Button>
-        <Button
-          variant="dangerOutline"
-          onClick={onRemove}
-          disabled={removing}
-          data-testid="payment-method-remove"
-        >
-          {removing ? "Removing…" : "Remove"}
-        </Button>
+        {showRemove && (
+          <Button
+            variant="dangerGhost"
+            onClick={onRemove}
+            disabled={removing}
+            data-testid="payment-method-remove"
+          >
+            {removing ? "Removing…" : "Remove"}
+          </Button>
+        )}
       </div>
     </div>
   );
