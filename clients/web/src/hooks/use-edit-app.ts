@@ -5,10 +5,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore, type OpenedAppState } from "@/stores/viewer-store";
-import {
-  getEditChatConversationId,
-  setEditChatConversationId,
-} from "@/utils/edit-chat-session";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { routes } from "@/utils/routes";
 
 /**
@@ -42,10 +39,15 @@ export function useEditApp(): (app: OpenedAppState) => void {
       if (!assistantId) {
         return;
       }
+      // The conversation already on screen, or a new one. A thread the user
+      // can see beats one resolved from somewhere they cannot: a remembered
+      // id is invisible, expires on its own, and puts them somewhere they did
+      // not ask for. A new one is registered as a draft like every other
+      // client-minted key, so the pane paints an empty thread rather than the
+      // skeleton it holds while real history loads.
       const convId =
-        getEditChatConversationId(assistantId, app.appId) ??
-        crypto.randomUUID();
-      setEditChatConversationId(assistantId, app.appId, convId);
+        useConversationStore.getState().activeConversationId ??
+        createDraftConversationId();
 
       const viewer = useViewerStore.getState();
       if (viewer.activeAppId !== app.appId || !viewer.openedAppState) {

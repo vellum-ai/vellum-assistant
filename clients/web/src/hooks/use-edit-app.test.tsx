@@ -16,7 +16,6 @@ mock.module("@/hooks/use-is-mobile", () => ({
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore, type OpenedAppState } from "@/stores/viewer-store";
-import { setEditChatConversationId } from "@/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 
 import { useEditApp } from "./use-edit-app";
@@ -80,10 +79,6 @@ beforeEach(() => {
   setEditingConversationIdMock.mockReset();
   window.sessionStorage.clear();
 
-  // Seed the per-app edit conversation so the resolved id is deterministic
-  // (otherwise the hook mints a random UUID).
-  setEditChatConversationId("asst-1", APP.appId, CONV_ID);
-
   useViewerStore.setState({
     activeAppId: null,
     openedAppState: null,
@@ -93,7 +88,9 @@ beforeEach(() => {
     minimizeApp: minimizeAppMock,
   });
   useConversationStore.setState({
-    activeConversationId: null,
+    // The conversation on screen, which is what Edit puts beside the app.
+    activeConversationId: CONV_ID,
+    draftConversationIds: new Set(),
     setEditingConversationId:
       setEditingConversationIdMock as unknown as typeof conversationSnapshot.setEditingConversationId,
   });
@@ -140,6 +137,24 @@ describe("useEditApp", () => {
     // Desktop uses the split view, not the mobile minimized strip.
     expect(minimizeAppMock).not.toHaveBeenCalled();
     expect(currentPath()).toBe(routes.conversation(CONV_ID));
+  });
+
+  test("starts a conversation, registered as a draft, when none is selected", () => {
+    // GIVEN nothing is on screen to put beside the app
+    useConversationStore.setState({ activeConversationId: null });
+    const { result } = renderHook(() => useEditApp(), { wrapper });
+
+    // WHEN the user clicks Edit
+    act(() => result.current(APP));
+
+    // THEN a fresh key is bound, and it is registered as a draft so the pane
+    // paints an empty thread rather than waiting on history that is not there
+    const mintedId = setEditingConversationIdMock.mock.calls[0]?.[0];
+    expect(typeof mintedId).toBe("string");
+    expect(mintedId).not.toBe(CONV_ID);
+    expect(
+      useConversationStore.getState().draftConversationIds.has(mintedId!),
+    ).toBe(true);
   });
 
   test("on a mobile viewport, binds the edit conversation, navigates, and minimizes the app to the chat strip (no split)", () => {
