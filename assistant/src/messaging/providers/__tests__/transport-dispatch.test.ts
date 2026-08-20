@@ -61,6 +61,7 @@ const {
   deliverDirect,
   sendChannelReaction,
   sendChannelTyping,
+  setChannelThreadStatus,
   supportsChannelTyping,
   isDirectDelivery,
   getTransportForCallback,
@@ -152,19 +153,26 @@ describe("Slack sub-operation selection", () => {
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
   });
 
-  test("assistantThreadStatus routes to sendSlackAssistantThreadStatus", async () => {
-    await deliverDirect(
-      `${BASE}/deliver/slack`,
-      payload({
-        assistantThreadStatus: {
-          channel: "C1",
-          threadTs: "1700.5",
-          status: "is thinking",
-        },
-      }),
-    );
+  test("setChannelThreadStatus reaches Slack without touching the text path", async () => {
+    await setChannelThreadStatus(`${BASE}/deliver/slack`, {
+      chatId: "C1",
+      threadTs: "1700.5",
+      status: "is thinking",
+    });
+
     expect(slack.sendSlackAssistantThreadStatus).toHaveBeenCalledTimes(1);
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
+  });
+
+  test("a channel with no status surface resolves quietly", async () => {
+    const result = await setChannelThreadStatus(`${BASE}/deliver/telegram`, {
+      chatId: "123",
+      threadTs: "1700.5",
+      status: "is thinking",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
   });
 
   test("sendChannelTyping resolves quietly for a channel with no typing capability", async () => {

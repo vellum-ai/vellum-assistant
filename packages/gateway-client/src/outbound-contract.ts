@@ -179,16 +179,6 @@ export const ChannelReplyPayloadSchema = z.object({
   messageTs: z.string().optional(),
   /** When true, the daemon generates Block Kit blocks from the text before delivery. */
   useBlocks: z.boolean().optional(),
-  /** When provided, set or clear the Slack Assistants API thread status. */
-  assistantThreadStatus: z
-    .object({
-      channel: z.string(),
-      threadTs: z.string(),
-      status: z.string(),
-      /** Serialized to Slack as `loading_messages`. */
-      loadingMessages: z.array(z.string()).optional(),
-    })
-    .optional(),
   /** When provided, perform one Slack streaming operation (start/append/stop). */
   slackStream: SlackStreamOpSchema.optional(),
 });

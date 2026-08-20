@@ -34,6 +34,19 @@ export interface ReactionTarget {
  * matching payload field is set and the method exists; otherwise it calls
  * `deliver`. A transport only implements the sub-operations it supports.
  */
+/**
+ * A status surface update, addressed the way every other method addresses:
+ * `chatId` is the room. The producers all passed the room twice, once as
+ * `chatId` and once as a `channel` field meaning the same thing.
+ */
+export interface ThreadStatus {
+  readonly chatId: string;
+  readonly threadTs: string;
+  readonly status: string;
+  /** Rotating hints shown under the status while it holds. */
+  readonly loadingMessages?: readonly string[];
+}
+
 export interface ChannelTransport {
   /** Canonical source channel id, e.g. `"slack"`. */
   readonly channel: ChannelId;
@@ -66,10 +79,16 @@ export interface ChannelTransport {
     target: ReactionTarget,
   ): Promise<ChannelDeliveryResult>;
 
-  /** Update an assistant-thread status surface. Routed when `payload.assistantThreadStatus` is set. */
+  /**
+   * Set or clear the channel's own "working on it" surface.
+   *
+   * Distinct from `typing`: an indicator a channel refreshes on a timer versus
+   * a status a channel holds until it is changed. Slack has both and uses this
+   * one; a channel with only the first implements only `typing`.
+   */
   setThreadStatus?(
     ctx: CallbackContext,
-    payload: ChannelReplyPayload,
+    status: ThreadStatus,
   ): Promise<ChannelDeliveryResult>;
 
   /** Perform one streaming operation. Routed when `payload.slackStream` is set. */
