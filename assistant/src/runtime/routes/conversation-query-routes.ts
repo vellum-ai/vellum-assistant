@@ -29,6 +29,7 @@ import {
   LatencyBreakdownSchema,
   LLMRequestLogEntrySchema,
 } from "../../api/responses/llm-request-log-entry.js";
+import { resolveCallSiteConfigWithProfile } from "../../config/llm-resolver.js";
 import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
@@ -49,8 +50,11 @@ import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
   DefaultProviderSchema,
+  type LLMCallSite,
+  LLMCallSiteEnum,
   LLMConfigBase,
   LLMConfigFragment,
+  LLMSchema,
   ProfileEntry,
   routingIdentityModelIssue,
   unknownLlmProviderIssue,
@@ -101,7 +105,10 @@ import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/me
 import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/v2/activation-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
 import { writableProfileProviderIssue } from "../../providers/connection-resolution.js";
-import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
+import {
+  ROUTING_IDENTITY_PROVIDERS,
+  VALID_CONNECTION_PROVIDERS,
+} from "../../providers/inference/auth.js";
 import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
 import {
   createConnection,
@@ -762,10 +769,16 @@ const ProfilePatchEntrySchema = nullablePartial(ProfileEntry)
   .meta({ id: "ProfilePatchEntry" });
 
 /**
- * A single call-site override within a PATCH body.
+ * A single call-site override within a PATCH body. Model-only: an override
+ * cannot express `provider`; the route always comes from the winning
+ * profile. `.passthrough()` keeps old clients that still send a stray
+ * `provider` (or `provider: null`) working: the key persists in raw JSON,
+ * is stripped at every `LLMSchema` parse, and carries no behavior.
  */
 const CallSiteOverrideDraftSchema = nullablePartial(
-  LLMConfigFragment.extend({ profile: z.string().optional() }),
+  LLMConfigFragment.omit({ provider: true }).extend({
+    profile: z.string().optional(),
+  }),
 )
   .passthrough()
   .meta({ id: "CallSiteOverrideDraft" });
@@ -1378,8 +1391,10 @@ function assertRoutableIdentityEntries(
     // the known set is readable and dispatchable by design, and
     // re-validating it on every write would make all later settings saves
     // fail with no in-product repair path. Profiles accept entry names;
-    // call-site fragments and the legacy default blob stay vendor-only
-    // (overrides become model-only with the entries demolition).
+    // the legacy default blob stays vendor-only. Call-site entries are
+    // model-only at the schema level; a `provider` key that still reaches
+    // raw JSON here (old clients, passthrough) is schema-dead, so this
+    // check merely keeps its historical rejection semantics.
     if (entry.provider !== priorProviders.get(label)) {
       const providerIssue = label.startsWith("llm.profiles.")
         ? writableProfileProviderIssue(entry.provider)
@@ -1398,6 +1413,168 @@ function assertRoutableIdentityEntries(
   }
 }
 
+/**
+ * Reject writes that introduce or change a call-site model the site's
+ * winning route cannot serve. Call-site overrides are model-only (the
+ * route always comes from the winning profile), so an unservable model is
+ * a config error that would fail every request on that call site; make it
+ * loud at write time instead.
+ *
+ * Scoped to what this write moves: a site's model is validated when the
+ * write changes the model itself OR relocates the site's winning route:
+ * a profile swap, an `activeProfile` change, a referenced profile's
+ * provider or `provider_connection` edit, a `defaultProvider` change. The
+ * route fingerprint carries the winner's raw provider string (an entry
+ * name stays untranslated) and its pinned connection alongside the
+ * resolved kind, so a connection-identity move with an unchanged kind
+ * (api-key to oauth_subscription, one entry row to another) still
+ * revalidates. A save touching neither the model nor anything that moves
+ * the site's route never re-validates: otherwise a stored entry gone
+ * stale would make all later settings saves fail with no in-product
+ * repair path (see the provider-membership scoping above). Fail-open on
+ * anything indeterminate (an unparseable `llm` section whose parse error
+ * surfaces elsewhere, a winner whose connection row cannot be read, or a
+ * route whose model set is not code-known: endpoint-supplied providers,
+ * keyless ollama), matching `preflightResolvedConfig`'s posture.
+ */
+function assertServableCallSiteModels(
+  preWrite: Record<string, unknown>,
+  raw: Record<string, unknown>,
+): void {
+  const rawSites = readPlainObject(readPlainObject(raw.llm)?.callSites);
+  if (!rawSites) {
+    return;
+  }
+  const modelBearing: { site: LLMCallSite; model: string }[] = [];
+  for (const [site, entry] of Object.entries(rawSites)) {
+    const model = readPlainObject(entry)?.model;
+    if (typeof model !== "string" || model.length === 0) {
+      continue;
+    }
+    const parsedSite = LLMCallSiteEnum.safeParse(site);
+    if (!parsedSite.success) {
+      continue;
+    }
+    modelBearing.push({ site: parsedSite.data, model });
+  }
+  if (modelBearing.length === 0) {
+    return;
+  }
+  const post = LLMSchema.safeParse(readPlainObject(raw.llm) ?? {});
+  if (!post.success) {
+    return;
+  }
+  const pre = LLMSchema.safeParse(readPlainObject(preWrite.llm) ?? {});
+  const priorSites =
+    readPlainObject(readPlainObject(preWrite.llm)?.callSites) ?? {};
+
+  interface RouteFingerprint {
+    /** The winner's raw provider value (entry names untranslated). */
+    provider: string;
+    /** The winner's pinned `provider_connection`, when it carries one. */
+    connection: string | null;
+    /**
+     * The kind the route is judged by: a pinned connection's (or an
+     * entry-name label's) row provider verbatim, so an identity row
+     * ("vellum"/"chatgpt") is judged by its identity's routing table
+     * rather than a dispatch-translated vendor. Null = indeterminate.
+     */
+    kind: string | null;
+  }
+  const routeFingerprint = (
+    llm: z.infer<typeof LLMSchema>,
+    site: LLMCallSite,
+  ): RouteFingerprint => {
+    const { config } = resolveCallSiteConfigWithProfile(site, llm);
+    const connection =
+      typeof config.provider_connection === "string" &&
+      config.provider_connection.length > 0
+        ? config.provider_connection
+        : null;
+    // A pinned connection's readable row wins (its provider column is the
+    // route's real identity); a missing or unreadable row falls back to the
+    // provider-derived kind rather than skipping, so a dangling pin (e.g. a
+    // BYOK `<provider>-personal` name with no row yet) keeps the vendor
+    // judgment instead of silencing validation.
+    let kind: string | null =
+      connection != null ? connectionRowKind(connection) : null;
+    if (kind == null) {
+      kind = (VALID_CONNECTION_PROVIDERS as readonly string[]).includes(
+        config.provider,
+      )
+        ? config.provider
+        : connectionRowKind(config.provider);
+    }
+    return { provider: config.provider, connection, kind };
+  };
+
+  for (const { site, model } of modelBearing) {
+    const route = routeFingerprint(post.data, site);
+    if (route.kind == null) {
+      continue;
+    }
+    const modelChanged = model !== readPlainObject(priorSites[site])?.model;
+    if (!modelChanged) {
+      // Model untouched: validate only when this write moved the site's
+      // route. An indeterminable pre-write config counts as unmoved, so a
+      // config that cannot be judged never blocks a repair save.
+      if (!pre.success) {
+        continue;
+      }
+      const prior = routeFingerprint(pre.data, site);
+      const moved =
+        prior.provider !== route.provider ||
+        prior.connection !== route.connection ||
+        (prior.kind != null && prior.kind !== route.kind);
+      if (!moved) {
+        continue;
+      }
+    }
+    const issue = ROUTING_IDENTITY_PROVIDERS.has(route.kind)
+      ? routingIdentityModelIssue(route.kind, model)
+      : catalogServabilityIssue(route.kind, model);
+    if (issue) {
+      throw new BadRequestError(`${issue} (llm.callSites.${site}.model)`);
+    }
+  }
+}
+
+/**
+ * A connection row's provider column verbatim, identities included, or
+ * null when the name matches no readable row. The raw column (not the
+ * dispatch-translated kind) is what servability must judge: a "chatgpt"
+ * row serves only Codex models and a "vellum" row only managed-routable
+ * ones, regardless of the vendor dispatch would translate them to.
+ */
+function connectionRowKind(name: string): string | null {
+  try {
+    return getConnection(getDb(), name)?.provider ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Catalog-membership servability for a vendor kind, or null when servable
+ * or not judgeable. Kinds whose model set is not code-known are never
+ * judged: endpoint-supplied providers (openai-compatible, litellm, ...)
+ * and keyless ollama, where the catalog lists illustrative local pulls.
+ */
+function catalogServabilityIssue(kind: string, model: string): string | null {
+  const entry = PROVIDER_CATALOG.find((p) => p.id === kind);
+  if (
+    entry == null ||
+    entry.models.length === 0 ||
+    PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(kind) ||
+    kind === "ollama"
+  ) {
+    return null;
+  }
+  return entry.models.some((m) => m.id === model)
+    ? null
+    : `Model "${model}" is not served by provider "${kind}".`;
+}
+
 export async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
@@ -1410,6 +1587,7 @@ export async function commitConfigWrite(
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
   assertRoutableIdentityEntries(preWrite, raw);
+  assertServableCallSiteModels(preWrite, raw);
 
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write

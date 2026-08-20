@@ -94,7 +94,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         memoryRetrieval: {
-          provider: "anthropic",
           model: "claude-haiku-4-5-20251001",
           maxTokens: 4096,
         },
@@ -124,7 +123,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         memoryRetrieval: {
-          provider: "anthropic",
           model: "claude-haiku-4-5-20251001",
         },
       },
@@ -154,16 +152,11 @@ describe("RetryProvider — callSite resolution", () => {
           source: "user",
         },
       },
-      callSites: {
-        memoryRetrieval: {
-          provider: "openai",
-        },
-      },
     });
 
     let seen: SendMessageOptions | undefined;
     const wrapped = new RetryProvider(
-      makeProvider("openai", (options) => {
+      makeProvider("anthropic", (options) => {
         seen = options;
       }),
       { forwardUsageAttributionHeaders: true },
@@ -177,11 +170,13 @@ describe("RetryProvider — callSite resolution", () => {
     });
 
     const config = seen?.config as Record<string, unknown>;
+    // The route always comes from the winning profile: the resolved
+    // provider is the override winner's, never a call-site pin's.
     expect(config.usageAttributionHeaders).toEqual({
       "X-Vellum-LLM-Call-Site": "memoryRetrieval",
       "X-Vellum-Inference-Profile": "conversation-profile",
       "X-Vellum-Inference-Profile-Source": "conversation",
-      "X-Vellum-Resolved-Provider": "openai",
+      "X-Vellum-Resolved-Provider": "anthropic",
       "X-Vellum-Resolved-Model": "claude-profile",
     });
     expect(
@@ -202,7 +197,7 @@ describe("RetryProvider — callSite resolution", () => {
        VALUES ('conv-retry-advisor', 'background', 1000, 1000, 'advisor', 'advisor_consult')`,
     );
     setLlmConfig({
-      callSites: { subagentSpawn: { provider: "openai", model: "gpt-sub" } },
+      callSites: { subagentSpawn: { model: "gpt-sub" } },
     });
 
     let seen: SendMessageOptions | undefined;
@@ -234,7 +229,7 @@ describe("RetryProvider — callSite resolution", () => {
        VALUES ('conv-retry-plain', 'standard', 1000, 1000)`,
     );
     setLlmConfig({
-      callSites: { subagentSpawn: { provider: "openai", model: "gpt-sub" } },
+      callSites: { subagentSpawn: { model: "gpt-sub" } },
     });
 
     let seen: SendMessageOptions | undefined;
@@ -259,7 +254,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         memoryRetrieval: {
-          provider: "openai",
           model: "gpt-default",
         },
       },
@@ -284,11 +278,12 @@ describe("RetryProvider — callSite resolution", () => {
   test("omits profile source attribution header when no profile is applied", async () => {
     // `vision` has no default profile intent, so with no override/site pin the
     // winner is the code-owned anchor — no named profile applies and the
-    // profile/source headers must be omitted.
+    // profile/source headers must be omitted. The route comes from the
+    // anchor (balanced intent through the openai default provider).
     setLlmConfig({
+      defaultProvider: { provider: "openai" },
       callSites: {
         vision: {
-          provider: "openai",
           model: "gpt-default",
         },
       },
@@ -394,7 +389,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         heartbeatAgent: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           effort: "high",
           speed: "fast",
@@ -434,7 +428,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           thinking: { enabled: true, streamThinking: true },
         },
@@ -464,7 +457,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           thinking: { enabled: false, streamThinking: false },
         },
@@ -490,7 +482,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           // `temperature` is unset — resolves to the schema default `null`,
           // meaning "let provider pick".
@@ -521,7 +512,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           // Thinking disabled so the thinking/temperature conflict guard
           // doesn't fire — that guard (Anthropic 400 backstop) has dedicated
@@ -554,7 +544,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "fireworks",
           model: "fireworks-model",
           topP: 0.95,
         },
@@ -580,7 +569,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "fireworks",
           model: "fireworks-model",
           // `topP` is unset — resolves to the schema default `null`, meaning
           // "let provider pick".
@@ -610,7 +598,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         memoryRetrieval: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           effort: "high",
           speed: "fast",
@@ -643,7 +630,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "fireworks",
           model: "accounts/fireworks/models/glm-5p2",
           effort: "high",
           thinking: { enabled: false, streamThinking: false },
@@ -671,7 +657,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "openrouter",
           model: "x-ai/grok-4",
           effort: "high",
           thinking: { enabled: false, streamThinking: false },
@@ -701,7 +686,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "vercel-ai-gateway",
           model: "xai/grok-4",
           effort: "max",
           thinking: { enabled: false, streamThinking: false },
@@ -729,7 +713,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "openrouter",
           model: "anthropic/claude-opus-4-8",
           effort: "high",
           thinking: { enabled: false, streamThinking: false },
@@ -760,7 +743,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "gemini",
           model: "gemini-3.5-flash",
           thinking: { enabled: true, streamThinking: true, level: "high" },
         },
@@ -790,7 +772,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "gemini",
           model: "gemini-3.5-flash",
           thinking: { enabled: false, streamThinking: false },
         },
@@ -816,7 +797,6 @@ describe("RetryProvider — callSite resolution", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           thinking: { enabled: true, streamThinking: true, level: "high" },
         },
@@ -843,7 +823,7 @@ describe("RetryProvider — callSite resolution", () => {
   test("explicit per-call config.model wins over resolved callSite model", async () => {
     setLlmConfig({
       callSites: {
-        mainAgent: { provider: "anthropic", model: "resolved-model" },
+        mainAgent: { model: "resolved-model" },
       },
     });
 
@@ -878,7 +858,6 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           thinking: { enabled: true, streamThinking: true },
         },
@@ -911,7 +890,6 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
     setLlmConfig({
       callSites: {
         recall: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           thinking: { enabled: true, streamThinking: true },
         },
@@ -938,7 +916,6 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           thinking: { enabled: true, streamThinking: true },
         },
@@ -968,7 +945,6 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           thinking: { enabled: false, streamThinking: false },
         },
@@ -995,7 +971,6 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "openrouter",
           model: "anthropic/claude-opus-4-7",
           thinking: { enabled: true, streamThinking: true },
         },
@@ -1026,7 +1001,6 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "openrouter",
           model: "x-ai/grok-4",
           thinking: { enabled: true, streamThinking: true },
         },
@@ -1053,7 +1027,6 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "vercel-ai-gateway",
           model: "anthropic/claude-opus-4.6",
           thinking: { enabled: true, streamThinking: true },
         },
@@ -1080,7 +1053,6 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "vercel-ai-gateway",
           model: "xai/grok-4.3",
           thinking: { enabled: true, streamThinking: true },
         },
@@ -1110,7 +1082,6 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
     setLlmConfig({
       callSites: {
         trustRuleSuggestion: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           thinking: { enabled: true, streamThinking: true },
         },
@@ -1150,7 +1121,6 @@ describe("RetryProvider — thinking/top_p conflict guard", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           thinking: { enabled: true, streamThinking: true },
           topP: 0.95,
@@ -1179,7 +1149,6 @@ describe("RetryProvider — thinking/top_p conflict guard", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "openrouter",
           model: "anthropic/claude-opus-4-7",
           thinking: { enabled: true, streamThinking: true },
           topP: 0.9,
@@ -1207,7 +1176,6 @@ describe("RetryProvider — thinking/top_p conflict guard", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "vercel-ai-gateway",
           model: "anthropic/claude-opus-4.6",
           thinking: { enabled: true, streamThinking: true },
           topP: 0.9,
@@ -1235,7 +1203,6 @@ describe("RetryProvider — thinking/top_p conflict guard", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "vercel-ai-gateway",
           model: "xai/grok-4.3",
           thinking: { enabled: true, streamThinking: true },
           topP: 0.9,
@@ -1266,7 +1233,6 @@ describe("RetryProvider — thinking/top_p conflict guard", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "fireworks",
           model: "fireworks-model",
           thinking: { enabled: true, streamThinking: true },
           topP: 0.95,
@@ -1293,7 +1259,6 @@ describe("RetryProvider — thinking/top_p conflict guard", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           thinking: { enabled: false, streamThinking: false },
           topP: 0.95,

@@ -1,14 +1,5 @@
 import { z } from "zod";
 
-import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
-import {
-  getCatalogProviderForModel,
-  isModelInCatalog,
-} from "../providers/model-catalog.js";
-import {
-  MANAGED_ROUTABLE_PROVIDERS,
-  VELLUM_MANAGED_CONNECTION_NAME,
-} from "../providers/vellum-model-routing.js";
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
 import {
   isDefaultProfileKey,
@@ -19,7 +10,6 @@ import {
   LLMConfigBase,
   type LLMSchema,
   type ProfileEntry,
-  routingIdentityModelIssue,
 } from "./schemas/llm.js";
 
 /**
@@ -47,6 +37,9 @@ import {
  * default identity never stands in for a selected profile. The anchor is
  * code-owned and resolved through `llm.defaultProvider`, never through
  * user-mutable state.
+ *
+ * A call-site tweak is model-only: it may pick a model and tuning, but the
+ * route (provider and connection) always comes from the winner.
  *
  * `temperature`/`top_p` come only from the winner (or an explicit call-site
  * tweak); `logitBias` only ever from the winner. These are provider-coupled, so
@@ -172,6 +165,8 @@ export function resolveCallSiteConfig(
 // code-owned schema defaults, then the single winning profile, then the call
 // site's own tuning fragment (its shipped `CALL_SITE_DEFAULTS` tuning with
 // the workspace `llm.callSites` entry layered over it, field by field).
+// A tweak is model-only: it may pick a model and tuning, never a route;
+// the winner's provider and connection always stand.
 // Selection is pure either/or: no profile ever contributes a field to
 // another profile, and `deepMerge` only makes nested tweaks
 // (`thinking.enabled`) combine leaf-wise instead of wiping siblings.
@@ -415,65 +410,9 @@ function resolveOverrideOrDefault(
     llm.callSites?.[callSite] as Mergeable | undefined,
   );
 
-  // Direct call-site model overrides are fragments by design: when the tweak
-  // pins a model the winner's provider does not serve, stamp the catalog
-  // owner and drop the winner's connection (it belongs to the replaced
-  // provider; dispatch auto-resolves an absent connection by provider).
-  const applicableProvider =
-    (winnerFragment.provider as string | undefined) ??
-    CODE_DEFAULT_BASE.provider;
-  // A routing-identity winner serves any model its route can dispatch —
-  // identity + model is the complete shape, so no provider implication.
-  const winnerServesModel = (model: string): boolean =>
-    ROUTING_IDENTITY_PROVIDERS.has(applicableProvider)
-      ? routingIdentityModelIssue(applicableProvider, model) === null
-      : isModelInCatalog(applicableProvider, model);
-  if (
-    typeof tweak.model === "string" &&
-    tweak.provider === undefined &&
-    !winnerServesModel(tweak.model)
-  ) {
-    const implied = getCatalogProviderForModel(tweak.model);
-    if (implied !== undefined) {
-      tweak.provider = implied;
-      // A provider-specific connection must not pin a mismatch onto the
-      // implied provider — but the provider-agnostic Vellum managed
-      // connection routes any managed-routable upstream and must survive,
-      // or platform installs lose their only connection.
-      if (
-        !(
-          winnerFragment.provider_connection ===
-            VELLUM_MANAGED_CONNECTION_NAME &&
-          MANAGED_ROUTABLE_PROVIDERS.has(implied)
-        )
-      ) {
-        delete winnerFragment.provider_connection;
-      }
-    }
-  }
-
-  const merged = deepMerge(
-    CODE_DEFAULT_BASE as unknown as Mergeable,
-    winnerFragment,
-    tweak,
+  return finalize(
+    deepMerge(CODE_DEFAULT_BASE as unknown as Mergeable, winnerFragment, tweak),
   );
-  // A vellum winner's managed routing survives a concrete-provider tweak:
-  // call-site fragments carry no connection, so a tweak pinning e.g.
-  // anthropic over a managed default would otherwise resolve to a
-  // connection-less concrete provider — stranded on platform installs with
-  // no BYOK row. The tweak keeps every field it sets; the winner contributes
-  // its routing via the provider-agnostic managed connection, which serves
-  // any managed-routable upstream.
-  if (
-    winnerFragment.provider === "vellum" &&
-    typeof merged.provider === "string" &&
-    merged.provider !== "vellum" &&
-    merged.provider_connection == null &&
-    MANAGED_ROUTABLE_PROVIDERS.has(merged.provider)
-  ) {
-    merged.provider_connection = VELLUM_MANAGED_CONNECTION_NAME;
-  }
-  return finalize(merged);
 }
 
 /** The winner's config fields: metadata stripped, sampling and logitBias
@@ -506,19 +445,15 @@ type Mergeable = Record<string, unknown>;
  * `profile` is the selection discriminator and `logitBias` is winner-owned,
  * so neither survives into the fragment. A workspace entry also owns the
  * selection for its own call site: when one exists the shipped layer
- * contributes tuning only, so a shipped `provider`/`model` pin can never
- * override the profile or the custom model the user chose there. With no
- * workspace entry the shipped fragment applies whole, pin included.
+ * contributes tuning only, so a shipped `model` pin can never override the
+ * profile or the custom model the user chose there. With no workspace entry
+ * the shipped fragment applies whole, pin included.
  */
 export function composeCallSiteTweak(
   shipped: Mergeable | undefined,
   workspace: Mergeable | undefined,
 ): Mergeable {
-  const {
-    provider: _shippedProvider,
-    model: _shippedModel,
-    ...shippedTuning
-  } = shipped ?? {};
+  const { model: _shippedModel, ...shippedTuning } = shipped ?? {};
   const shippedLayer = workspace == null ? (shipped ?? {}) : shippedTuning;
   const {
     profile: _siteProfile,

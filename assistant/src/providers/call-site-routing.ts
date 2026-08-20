@@ -1,15 +1,16 @@
 /**
  * Provider wrapper that routes each `sendMessage` call to a different
  * underlying provider transport when the per-call `options.config.callSite`
- * resolves to a profile that names a `provider_connection` distinct from
- * the default's.
+ * resolves to a winning profile whose route differs from the default's.
  *
  * Without this wrapper the conversation-level provider transport is fixed at
- * construction time, so a per-call-site `llm.callSites.<id>.provider`
- * override only affects the request *metadata* the downstream client sees —
- * the actual HTTP transport still belongs to the default provider. That
- * means routing decisions like "send `memoryRetrieval` calls to OpenAI even
- * though the main agent runs on Anthropic" silently fail.
+ * construction time, so a call site whose winning profile names a different
+ * provider (e.g. `llm.callSites.<id>.profile` pointing at an OpenAI profile
+ * under an Anthropic default) would only change the request *metadata* the
+ * downstream client sees; the actual HTTP transport would still belong to
+ * the default provider, and routing decisions like "send `memoryRetrieval`
+ * calls to OpenAI even though the main agent runs on Anthropic" would
+ * silently fail.
  *
  * `CallSiteRoutingProvider` consults `resolveCallSiteConfig` per call. When
  * the resolved profile names a `provider_connection`, the wrapper resolves

@@ -66,7 +66,6 @@ describe("retry normalization: adaptive-only thinking models", () => {
     setLlmConfig({
       callSites: {
         memoryExtraction: {
-          provider: "anthropic",
           model: "claude-fable-5",
           thinking: { enabled: false },
           effort: "high",
@@ -109,7 +108,6 @@ describe("retry normalization: adaptive-only thinking models", () => {
     setLlmConfig({
       callSites: {
         memoryExtraction: {
-          provider: "openrouter",
           model: "anthropic/claude-fable-5",
           thinking: { enabled: false },
         },
@@ -131,7 +129,6 @@ describe("retry normalization: adaptive-only thinking models", () => {
     setLlmConfig({
       callSites: {
         memoryExtraction: {
-          provider: "anthropic",
           model: "claude-fable-5",
           thinking: { enabled: true },
         },
@@ -153,7 +150,6 @@ describe("retry normalization: adaptive-only thinking models", () => {
     setLlmConfig({
       callSites: {
         memoryExtraction: {
-          provider: "anthropic",
           model: "claude-opus-4-7",
           thinking: { enabled: false },
         },
@@ -176,7 +172,6 @@ describe("retry normalization: adaptive-only thinking models", () => {
     setLlmConfig({
       callSites: {
         memoryExtraction: {
-          provider: "anthropic",
           model: "claude-fable-5",
           thinking: { enabled: false },
           temperature: 0.7,

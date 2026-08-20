@@ -39,15 +39,17 @@ beforeEach(() => {
 describe("resolveUsageAttribution", () => {
   test("resolves default-intent attribution with a call-site tweak", () => {
     setLlmConfig({
+      defaultProvider: { provider: "anthropic" },
       callSites: {
-        mainAgent: { provider: "anthropic", model: "claude-opus-4-7" },
+        mainAgent: { model: "claude-opus-4-7" },
       },
     });
 
     const snapshot = resolveUsageAttribution({ callSite: "mainAgent" });
 
     // No override/active/site profile is set, so the winner is mainAgent's
-    // default intent (balanced); the call-site tweak supplies provider/model.
+    // default intent (balanced) through the default provider; the model-only
+    // call-site tweak supplies the model while the route stays the winner's.
     expect(snapshot).toMatchObject({
       callSite: "mainAgent",
       activeProfile: null,
@@ -174,16 +176,16 @@ describe("resolveUsageAttribution", () => {
     expectResolvedProviderModelMatchesResolver("mainAgent", "pinned");
   });
 
-  test("uses explicit call-site provider and model overrides in resolved metadata", () => {
+  test("a model-only call-site tweak lands in resolved metadata with the winner's provider", () => {
     setLlmConfig({
+      defaultProvider: { provider: "openai" },
       profiles: {
         active: { provider: "openai", model: "gpt-5.4" },
       },
       activeProfile: "active",
       callSites: {
         memoryRetrieval: {
-          provider: "ollama",
-          model: "llama3.2",
+          model: "gpt-5.4-nano",
         },
       },
     });
@@ -193,15 +195,15 @@ describe("resolveUsageAttribution", () => {
     });
 
     // The winner is memoryRetrieval's default intent (activeProfile applies
-    // only to mainAgent); the call-site tweak still determines the resolved
-    // provider/model because it applies last.
+    // only to mainAgent); the model-only tweak determines the resolved model
+    // while the provider stays the winner's.
     expect(snapshot).toMatchObject({
       activeProfile: "active",
       callSiteProfile: null,
       appliedProfile: "cost-optimized",
       profileSource: "default",
-      resolvedProvider: "ollama",
-      resolvedModel: "llama3.2",
+      resolvedProvider: "openai",
+      resolvedModel: "gpt-5.4-nano",
     });
     expectResolvedProviderModelMatchesResolver("memoryRetrieval");
   });

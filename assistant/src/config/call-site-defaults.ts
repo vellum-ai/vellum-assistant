@@ -9,10 +9,9 @@ type CallSiteDefaultConfig = {
    */
   profile?: string;
   /**
-   * Direct model pin overriding the resolved profile's model. The resolver
-   * treats a bare model pin as catalog-implied: it stamps the model's
-   * catalog provider and keeps the provider-agnostic Vellum managed
-   * connection (see `resolveOverrideOrDefault`). Reserve for call sites
+   * Direct model pin overriding the resolved profile's model. The route
+   * (provider, connection) still comes from the winning profile, so a pinned
+   * model must be one the winner's route can serve. Reserve for call sites
    * whose latency envelope the profile's model cannot meet.
    */
   model?: string;

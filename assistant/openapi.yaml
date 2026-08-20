@@ -34457,10 +34457,6 @@ components:
     CallSiteOverrideDraft:
       type: object
       properties:
-        provider:
-          anyOf:
-            - $ref: "#/components/schemas/LLMProvider"
-            - type: "null"
         model:
           anyOf:
             - type: string

@@ -116,13 +116,19 @@ function resolveConfiguredMainAgentProvider(
   // that active profile wins over static mainAgent call-site defaults. Match
   // that startup behavior so hatch prompts for the provider the assistant will
   // actually use on first chat.
+  // Call-site entries are model-only fragments (no provider field), so the
+  // mainAgent entry can only hint at a provider through its model.
+  const mainAgentModel = readConfigValue(
+    configValues,
+    "llm.callSites.mainAgent.model",
+  );
   return (
     resolveProfileProvider(
       configValues,
       readConfigValue(configValues, "llm.activeProfile"),
     ) ??
     resolveFragmentProvider(configValues, "llm.default") ??
-    resolveFragmentProvider(configValues, "llm.callSites.mainAgent") ??
+    (mainAgentModel ? inferProviderFromModel(mainAgentModel) : undefined) ??
     resolveProfileProvider(
       configValues,
       readConfigValue(configValues, "llm.callSites.mainAgent.profile"),

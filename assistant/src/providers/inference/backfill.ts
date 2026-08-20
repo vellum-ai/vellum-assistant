@@ -2,19 +2,15 @@
  * Boot-time backfill: migrates existing config.json from the legacy
  * `provider` + `source` model to the new `provider_connection` model.
  *
- * Walks three locations in `llm.*` on every boot:
+ * Walks two locations in `llm.*` on every boot:
  *   - `llm.default`           — the legacy raw base blob still present in older configs
  *   - `llm.profiles.*`        — named alternate profiles (fast/balanced/...)
- *   - `llm.callSites.*`       — per-call-site overrides with bare `provider`
+ *
+ * Call sites are not walked: call-site entries are model-only fragments that
+ * carry no route of their own, so there is nothing to backfill there.
  *
  * Idempotent: any object that already has `provider_connection` is skipped.
  * Only modifies config.json when at least one location needs updating.
- *
- * The `default` and `callSites` walks were added alongside Phase 1.1 of the
- * post-v1 inference-providers cleanup: dispatch now throws on missing
- * `provider_connection` instead of silently falling back to legacy
- * `getProvider(name)`, so existing configs need an explicit field on the
- * default profile and on any legacy bare-`provider` callsite override.
  */
 
 import { MANAGED_PROFILE_NAMES } from "../../config/default-profile-catalog.js";
@@ -43,13 +39,13 @@ const log = getLogger("provider-connections-backfill");
  * that pre-date the connection field.
  *
  * Runs on every daemon boot — both halves are idempotent and cheap
- * (O(profiles + callSites), typically ≤20 entries total). Designed to:
+ * (O(profiles), typically ≤20 entries total). Designed to:
  *   - propagate new canonical connections as they're added in future versions
  *   - self-heal manual config.json edits that drop the connection field
  *
  * Steps:
  *   1. Upsert canonical connections.
- *   2. Walk `llm.default`, `llm.profiles.*`, `llm.callSites.*` in config.json.
+ *   2. Walk `llm.default` and `llm.profiles.*` in config.json.
  *   3. For each entry without `provider_connection`, derive one from the
  *      entry's `provider` field + the global inference mode and write it back.
  *   4. Save config.json if any entry was updated.
@@ -105,39 +101,6 @@ function backfillConfigProfiles(db: DrizzleDb): void {
     }
     if (changed) {
       llm.profiles = profiles;
-    }
-  }
-
-  // 3. Per-call-site overrides. Only legacy entries with a bare `provider`
-  //    field need backfill — entries that just point at a `profile` already
-  //    inherit `provider_connection` from there.
-  const callSites = llm.callSites as Record<string, unknown> | undefined;
-  if (callSites && typeof callSites === "object") {
-    for (const [callSiteName, callSiteVal] of Object.entries(callSites)) {
-      const callSite = callSiteVal as Record<string, unknown>;
-      if (!callSite || typeof callSite !== "object") {
-        continue;
-      }
-      // Only touch overrides that explicitly set `provider` — the typical
-      // case is `{profile: "fast"}`, which has no provider and inherits
-      // through `resolveCallSiteConfig` deep-merge.
-      if (callSite.provider == null) {
-        continue;
-      }
-      if (
-        ensureProviderConnection(
-          callSite,
-          `<llm.callSites.${callSiteName}>`,
-          db,
-          globalMode,
-        )
-      ) {
-        callSites[callSiteName] = callSite;
-        changed = true;
-      }
-    }
-    if (changed) {
-      llm.callSites = callSites;
     }
   }
 

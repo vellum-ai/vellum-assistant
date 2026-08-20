@@ -263,6 +263,10 @@ describe("066-seed-heartbeat-callsite-cost-default migration", () => {
           thinking: { enabled: true, streamThinking: true },
           contextWindow: { maxInputTokens: 200_000 },
         },
+        // The seeded call-site entry is model-only at resolve time; the
+        // route comes from the winning profile, here the cost intent
+        // through the install's default provider.
+        defaultProvider: { provider: "anthropic" },
       },
     });
 

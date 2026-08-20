@@ -180,36 +180,33 @@ describe("fallback and completeness", () => {
 });
 
 describe("composeCallSiteTweak", () => {
-  // `CallSiteDefaultConfig` supports a shipped `model` (and the provider it
-  // implies). No entry sets one today, so these pin the invariant the merge
-  // depends on rather than waiting for the first entry that would break it.
-  test("a workspace entry owns selection: a shipped model/provider is dropped", () => {
+  // `CallSiteDefaultConfig` supports a shipped `model`. No entry sets one
+  // today, so these pin the invariant the merge depends on rather than
+  // waiting for the first entry that would break it.
+  test("a workspace entry owns selection: a shipped model is dropped", () => {
     const tweak = composeCallSiteTweak(
-      { model: "shipped-model", provider: "openai", effort: "low" },
+      { model: "shipped-model", effort: "low" },
       { profile: "mine" },
     );
     expect("model" in tweak).toBe(false);
-    expect("provider" in tweak).toBe(false);
     // The shipped tuning still layers in.
     expect(tweak.effort).toBe("low");
   });
 
   test("with no workspace entry the shipped fragment applies whole", () => {
     const tweak = composeCallSiteTweak(
-      { model: "shipped-model", provider: "openai", effort: "low" },
+      { model: "shipped-model", effort: "low" },
       undefined,
     );
     expect(tweak.model).toBe("shipped-model");
-    expect(tweak.provider).toBe("openai");
   });
 
-  test("a workspace provider/model still applies", () => {
+  test("a workspace model still applies", () => {
     const tweak = composeCallSiteTweak(
       { model: "shipped-model", effort: "low" },
-      { provider: "anthropic", model: "chosen-model" },
+      { model: "chosen-model" },
     );
     expect(tweak.model).toBe("chosen-model");
-    expect(tweak.provider).toBe("anthropic");
     expect(tweak.effort).toBe("low");
   });
 
@@ -287,18 +284,18 @@ describe("shipped call-site tuning", () => {
     expect(resolved.thinking.enabled).toBe(false);
   });
 
-  test("a provider/model entry keeps the shipped tuning too", () => {
+  test("a model entry keeps the shipped tuning too", () => {
     const resolved = resolveCallSiteConfig(
       "recall",
       LLMSchema.parse({
         profiles: { mine: completeCustom },
         callSites: {
-          recall: { provider: "openai", model: "gpt-5.5" },
+          recall: { model: "claude-haiku-4-5-20251001" },
         },
         ...anthropicDp,
       }),
     );
-    expect(resolved.model).toBe("gpt-5.5");
+    expect(resolved.model).toBe("claude-haiku-4-5-20251001");
     expect(resolved.maxTokens).toBe(4096);
     expect(resolved.effort).toBe("low");
     expect(resolved.disableCache).toBe(true);
@@ -374,24 +371,26 @@ describe("composition", () => {
     expect(resolved.logitBias).toBeUndefined(); // tweak bias never applies
   });
 
-  test("a direct call-site model override implies its catalog provider and drops the winner's connection", () => {
+  test("a call-site model tweak keeps the winner's provider and connection", () => {
+    // Model-only contract: the tweak picks the model; the route (provider
+    // and connection) always comes from the winning profile.
     const llm = LLMSchema.parse({
       profiles: { mine: completeCustom },
       callSites: {
         conversationSummarization: {
           profile: "mine",
-          model: "claude-haiku-4-5-20251001",
+          model: "gpt-5.4",
         },
       },
       ...anthropicDp,
     });
     const resolved = resolveCallSiteConfig("conversationSummarization", llm);
-    expect(resolved.model).toBe("claude-haiku-4-5-20251001");
-    expect(resolved.provider).toBe("anthropic");
-    expect(resolved.provider_connection).toBeUndefined();
+    expect(resolved.model).toBe("gpt-5.4");
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.provider_connection).toBe("openai-personal");
   });
 
-  test("a provider-pinning tweak over the vellum default keeps the managed routing", () => {
+  test("a tweak cannot express a provider: a stray raw key is stripped and the winner's route stands", () => {
     const llm = LLMSchema.parse({
       callSites: {
         conversationSummarization: {
@@ -402,14 +401,14 @@ describe("composition", () => {
       defaultProvider: { provider: "vellum" },
     });
     const resolved = resolveCallSiteConfig("conversationSummarization", llm);
-    // The tweak wins the fields it sets; the identity winner contributes its
-    // routing through the provider-agnostic managed connection.
-    expect(resolved.provider).toBe("anthropic");
+    // The stray `provider` key was stripped at parse; the identity winner's
+    // route stands and the tweak contributes only its model.
+    expect(resolved.provider).toBe("vellum");
     expect(resolved.model).toBe("claude-opus-4-6");
-    expect(resolved.provider_connection).toBe("vellum");
+    expect(resolved.provider_connection).toBeUndefined();
   });
 
-  test("a model-only tweak on the vellum default keeps the identity provider", () => {
+  test("the route comes from the winner: a model-only tweak on the vellum default keeps the identity provider", () => {
     const llm = LLMSchema.parse({
       callSites: {
         conversationSummarization: { model: "claude-haiku-4-5-20251001" },

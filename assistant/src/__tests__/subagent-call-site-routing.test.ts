@@ -2,13 +2,13 @@
  * Regression test for the subagent provider routing fix.
  *
  * Before the fix, `SubagentManager.spawn()` constructed the Conversation with
- * a `getProvider()` lookup of the default provider directly, which meant
- * per-call `llm.callSites.subagentSpawn.provider` overrides only changed the
- * request *metadata* the downstream client saw — the actual HTTP transport
- * still belonged to the default provider. After the fix, the provider is
- * wrapped in `CallSiteRoutingProvider`, which consults the resolver per call
- * and routes to the resolved provider's transport when it differs from the
- * default.
+ * a `getProvider()` lookup of the default provider directly, which meant a
+ * `subagentSpawn` call site whose winning profile named another provider only
+ * changed the request *metadata* the downstream client saw; the actual HTTP
+ * transport still belonged to the default provider. After the fix, the
+ * provider is wrapped in `CallSiteRoutingProvider`, which consults the
+ * resolver per call and routes to the resolved provider's transport when it
+ * differs from the default.
  *
  * This test stubs the `Conversation` constructor and the provider registry
  * so we can capture the provider that `SubagentManager` passes into
@@ -480,7 +480,7 @@ describe("CallSiteRoutingProvider — selectProvider behavior", () => {
   test("routes to default when no callSite provided", async () => {
     setLlmConfig({
       callSites: {
-        subagentSpawn: { provider: "openai", model: "gpt-5.4" },
+        subagentSpawn: { model: "gpt-5.4" },
       },
     });
 
