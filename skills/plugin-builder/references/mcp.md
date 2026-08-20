@@ -18,7 +18,7 @@ Place `mcp.json` at the plugin root, next to `package.json`:
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
   "mcpServers": {
-    "unabyss": { "type": "streamable-http", "url": "https://mcp.unabyss.com" }
+    "example": { "type": "streamable-http", "url": "https://mcp.example.com" }
   }
 }
 ```
@@ -48,10 +48,10 @@ A missing file is skipped. An invalid file disables MCP for that plugin only. An
 
 Plugin servers share one namespace with workspace MCP servers. The assistant qualifies each id with the plugin name, then collapses the redundant case:
 
-| Plugin name | `mcp.json` key | Server id | Tool names |
-| ----------- | -------------- | --------- | ---------- |
-| `unabyss`   | `unabyss`      | `unabyss` | `mcp__unabyss__<tool>` |
-| `acme`      | `deploy`       | `acme__deploy` | `mcp__acme__deploy__<tool>` |
+| Plugin name     | `mcp.json` key | Server id               | Tool names                           |
+| --------------- | -------------- | ----------------------- | ------------------------------------ |
+| `example`       | `example`      | `example`               | `mcp__example__<tool>`               |
+| `example-tools` | `search`       | `example-tools__search` | `mcp__example-tools__search__<tool>` |
 
 Two plugins claiming the same id is a skip, not a shadow. The second declaration is logged and dropped so the first plugin's tools stay put.
 
@@ -80,7 +80,7 @@ A disabled plugin (`.disabled` sentinel) contributes no MCP servers, matching ho
 ## Anatomy
 
 ```
-my-plugin/
+example/
 ├── package.json
 ├── mcp.json
 └── ...
@@ -90,12 +90,12 @@ my-plugin/
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
   "mcpServers": {
-    "unabyss": {
+    "example": {
       "type": "streamable-http",
-      "url": "https://mcp.unabyss.com"
+      "url": "https://mcp.example.com"
     }
   }
 }
 ```
 
-The plugin above yields tools named `mcp__unabyss__<tool>` (the plugin name and server key match, so the id collapses).
+The plugin above yields tools named `mcp__example__<tool>` (the plugin name and server key match, so the id collapses).

@@ -36,16 +36,16 @@ type IdRow = {
 
 const ID_ROWS: IdRow[] = [
   {
-    plugin: "unabyss",
-    key: "unabyss",
-    id: "unabyss",
-    tools: "mcp__unabyss__<tool>",
+    plugin: "example",
+    key: "example",
+    id: "example",
+    tools: "mcp__example__<tool>",
   },
   {
-    plugin: "acme",
-    key: "deploy",
-    id: "acme__deploy",
-    tools: "mcp__acme__deploy__<tool>",
+    plugin: "example-tools",
+    key: "search",
+    id: "example-tools__search",
+    tools: "mcp__example-tools__search__<tool>",
   },
 ];
 
@@ -101,7 +101,7 @@ export function ExtensibilityMcpContent() {
             <code>{`{
   "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
   "mcpServers": {
-    "unabyss": { "type": "streamable-http", "url": "https://mcp.unabyss.com" }
+    "example": { "type": "streamable-http", "url": "https://mcp.example.com" }
   }
 }`}</code>
           </pre>
@@ -262,7 +262,7 @@ export function ExtensibilityMcpContent() {
             Anatomy of an MCP declaration
           </SectionHeading>
           <pre className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
-            <code>{`my-plugin/
+            <code>{`example/
 ├── package.json
 ├── mcp.json
 └── ...`}</code>
@@ -271,9 +271,9 @@ export function ExtensibilityMcpContent() {
             <code>{`{
   "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
   "mcpServers": {
-    "unabyss": {
+    "example": {
       "type": "streamable-http",
-      "url": "https://mcp.unabyss.com"
+      "url": "https://mcp.example.com"
     }
   }
 }`}</code>

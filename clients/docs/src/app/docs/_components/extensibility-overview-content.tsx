@@ -221,9 +221,7 @@ export function ExtensibilityOverviewContent() {
             a tool, <code>/workspace/skills/&lt;name&gt;/</code> for a skill,{" "}
             <code>/workspace/hooks/&lt;event&gt;.ts</code> for a lifecycle hook)
             and the assistant picks it up automatically. No manifest, no install
-            step, no peer dependency. Channels are the exception:{" "}
-            <code>channels/ingress.json</code> has no workspace equivalent, so
-            public ingress is plugin-only. MCP servers can also be added in
+            step, no peer dependency. MCP servers can also be added in
             settings without a plugin; <code>mcp.json</code> is the way to ship
             them with one.
           </p>

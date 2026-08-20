@@ -494,9 +494,8 @@ export function ExtensibilityPluginsContent() {
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
             Each surface can also be dropped straight into the workspace at{" "}
             <code>/workspace/&lt;surface&gt;/&lt;name&gt;/</code> without
-            wrapping it in a plugin, with two exceptions: channels (
-            <code>channels/ingress.json</code> is plugin-only) and MCP servers
-            (workspace MCP is configured in settings, not by dropping an{" "}
+            wrapping it in a plugin, except MCP servers (workspace MCP is
+            configured in settings, not by dropping an{" "}
             <code>mcp.json</code> into the workspace). A plugin is what lets you
             ship several surfaces together as one installable unit.
           </p>

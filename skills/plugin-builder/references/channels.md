@@ -1,21 +1,8 @@
 # Channels
 
-Make a plugin reachable from the public internet. A plugin is a channel because it declares ingress: `channels/ingress.json` is the list of routes the outside world may reach it on. There is no second file that claims the status, and nothing a plugin can set to become a channel without declaring that reach.
+Make a route reachable from the public internet. A plugin is a channel because it declares ingress: `channels/ingress.json` is the list of routes the outside world may reach it on.
 
-The gateway owns the public surface. It validates the declaration, signature-checks every request, and holds `plugin`-signed routes behind a guardian's approval. The assistant discovers the file's presence so the plugin appears in the channels list; a declaration the gateway rejects still shows there as a channel whose ingress is broken.
-
-## Ingress vs routes
-
-These are two surfaces that compose, not alternatives:
-
-| Surface | Lives in | Served at | Who calls it |
-| ------- | -------- | --------- | ------------ |
-| [HTTP routes](routes.md) | `routes/<path>.ts` | `/x/plugins/<name>/<path>` | The plugin's own apps, authenticated clients, and the gateway after it has already admitted a public request |
-| Channels (this page) | `channels/ingress.json` | `/webhooks/plugins/<name>/<path>` | Third parties on the public internet |
-
-A public delivery is signature-checked at the gateway, then forwarded verbatim to the matching plugin route at `/v1/x/plugins/<name>/<path>`. Declare the public path in `ingress.json` **and** implement the handler under `routes/` at the same relative path. An ingress route with no matching `routes/` file 404s after it is admitted. A `routes/` file with no ingress declaration is never a public webhook.
-
-Do not tell a vendor to POST at `/x/plugins/...`. That namespace is not the public ingress.
+The gateway owns the public surface: it validates the declaration, signature-checks every request, and holds `plugin`-signed routes behind a guardian's approval. Plugins that declare a channel ingress are considered themselves a channel in all contexts where channels are viewed.
 
 ## When to declare ingress
 
@@ -23,7 +10,7 @@ Use this surface when a third party must deliver to the assistant from outside: 
 
 ## The declaration
 
-`channels/ingress.json` is a JSON object with a non-empty `routes` array. The plugin's identity comes from its directory, not from the file, so a manifest cannot claim to belong to a different plugin.
+`channels/ingress.json` is a JSON object with a non-empty `routes` array. The plugin's identity comes from its directory, not from the file, so a manifest cannot claim to belong to a different plugin. Declare the public path in `ingress.json` **and** implement the matching handler under `routes/` at the same relative path.
 
 ```json
 {
@@ -37,19 +24,18 @@ Use this surface when a third party must deliver to the assistant from outside: 
 }
 ```
 
-That route is served at `/webhooks/plugins/<plugin-name>/events`. Resolve the URL to hand a vendor with `resolveWebhookUrl({ path: "events" })` from `@vellumai/plugin-api`. Do not hardcode a hostname.
+That route is served at `/webhooks/plugins/<plugin-name>/events` and handled by `routes/events.ts`. Resolve the URL to hand a vendor with `resolveWebhookUrl({ path: "events" })` from `@vellumai/plugin-api`. Do not hardcode a hostname. Do not tell a vendor to POST at `/x/plugins/...`.
 
 ### Route fields
 
-| Field | Required | Default | Notes |
-| ----- | -------- | ------- | ----- |
-| `path` | yes | | Relative to the plugin's own namespace (`"events"`, not `/webhooks/plugins/my-plugin/events`). No leading slash, no trailing slash, no query or fragment, no `.` or `..` segments, and canonical (unencoded, no empty or redundant segments). |
-| `kind` | yes | | `"http"` or `"websocket"`. The gateway bridges the two differently, so the kind has to be known before a connection arrives. |
-| `description` | yes | | Human-readable purpose, surfaced in gateway logs and the approval UI. |
-| `signer` | no | `"plugin"` | Whose `webhook_secret` must have signed the request. `"plugin"` verifies against the plugin's own secret. `"vellum"` verifies against the platform's secret, for routes only Vellum calls. |
-| `handshake` | no | `"signed-headers"` | Where the caller carries its signature. `"signed-headers"` puts it in `Vellum-Signature`. `"signed-query"` puts the same HMAC in the URL, WebSocket only, for a caller that is handed a URL and nothing else. |
-| `verification` | no | platform scheme | How a third-party caller's signature is checked when it is not ours. HTTP only. Cannot be combined with `signer: "vellum"`. |
-| `inbound` | no | webhook only | That this route's replies carry inbound messages, and how to read them. HTTP only. Cannot be combined with `signer: "vellum"`. |
+| Field          | Required | Default            | Notes                                                                                                                                                                                                                                         |
+| -------------- | -------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`         | yes      |                    | Relative to the plugin's own namespace (`"events"`, not `/webhooks/plugins/my-plugin/events`). No leading slash, no trailing slash, no query or fragment, no `.` or `..` segments, and canonical (unencoded, no empty or redundant segments). |
+| `kind`         | yes      |                    | `"http"` or `"websocket"`. The gateway bridges the two differently, so the kind has to be known before a connection arrives.                                                                                                                  |
+| `description`  | yes      |                    | Human-readable purpose, surfaced in gateway logs and the approval UI.                                                                                                                                                                         |
+| `handshake`    | no       | `"signed-headers"` | Where the caller carries its signature. `"signed-headers"` (default) puts it in request headers. `"signed-query"` puts the same HMAC in the URL, WebSocket only, for a caller that is handed a URL and nothing else.                          |
+| `verification` | no       | vendor HMAC        | How a third-party caller's signature is checked. HTTP only.                                                                                                                                                                                   |
+| `inbound`      | no       | webhook only       | That this route's replies carry inbound messages, and how to read them. HTTP only.                                                                                                                                                            |
 
 Duplicate paths in one file fail the whole declaration. A malformed file disables ingress for that plugin only; sibling plugins keep theirs.
 
@@ -57,17 +43,13 @@ Duplicate paths in one file fail the whole declaration. A malformed file disable
 
 Every public plugin route is signature-checked. An unsigned plugin route does not exist. A route whose signing secret is missing is refused rather than served unsigned, and an unauthenticated probe sees `404` whether the route is undeclared, pending, or missing a secret.
 
-**`signer: "plugin"` (the default)** needs a guardian approval before the gateway serves it. The approval covers a digest of the declaration: adding a route, changing transport, signer, handshake, verification, or inbound delivery drops the plugin back to pending. Rewording `description` does not. Editing the file and reinstalling is not enough; the guardian has to approve the new digest.
-
-**`signer: "vellum"`** is served without that approval. Such a route only opens to a caller holding the platform's webhook secret, which is trust the user already gave when they connected their account. It cannot declare `verification` or `inbound`: those would let a plugin grant itself reach the guardian did not review.
+A guardian has to approve the declaration before the gateway serves it. The approval covers a digest of the declaration: adding a route, changing transport, handshake, verification, or inbound delivery drops the plugin back to pending. Rewording `description` does not. Editing the file and reinstalling is not enough; the guardian has to approve the new digest.
 
 Ask the user to approve pending ingress from the channels settings once the plugin is installed. A plugin must not approve its own ingress.
 
 ## Third-party verification
 
-The default platform scheme (`Vellum-Signature` over the body) is right for a caller Vellum controls and wrong for every other one. A vendor that signs `X-Example-Signature` cannot be asked to sign ours.
-
-Declare `verification` so the gateway runs one HMAC engine and reads the vendor's specifics as data:
+A vendor that signs `X-Example-Signature` has its own scheme. Declare `verification` so the gateway runs one HMAC engine and reads the vendor's specifics as data:
 
 ```json
 {
@@ -99,7 +81,7 @@ Rules that stay gateway-side:
 - Store the secret via `assistant credentials prompt` (or `storeCredential` from a hook/tool/route). Never put it in the file.
 - `payload` is the exact bytes the vendor signs, in order: `"body"`, `{ "header": "..." }`, or `{ "literal": "..." }`. A header named in `payload` but absent from the request fails verification rather than contributing an empty string.
 - `freshness` is a replay window. Declare it when the vendor binds a timestamp. A signature over the body alone stays valid for as long as the secret does.
-- Unrecognized fields fail the declaration rather than falling back to the platform scheme.
+- Unrecognized fields fail the declaration rather than guessing a scheme.
 
 ## Delivering inbound messages
 
@@ -180,7 +162,7 @@ The channels list reads the plugin's `package.json`, not the ingress file:
 
 `displayName`, `description`, and `icon` (a Lucide name without the `lucide-` prefix) are optional and none gate anything. A plugin with ingress and a bare `package.json` still appears, titled from its directory (`example-courier` becomes "Example Courier"). A plugin whose directory name is already a built-in channel (`slack`, `telegram`, …) is skipped so it cannot impersonate one.
 
-Disabled plugins contribute no channel. There is no `/workspace/channels/` path: ingress is plugin-only.
+Disabled plugins contribute no channel.
 
 ## Anatomy
 

@@ -64,7 +64,7 @@ A plugin must be fully self-contained: every byte of durable state it keeps live
 
 The assistant's own database is internal — `@vellumai/plugin-api` exposes no handle to it, and a plugin must not persist state elsewhere in the workspace. Keeping everything in `data/` is also what makes uninstall clean: removing the plugin directory removes all of its state.
 
-Each surface can also be dropped straight into the workspace at `/workspace/<surface>/<name>/` without wrapping it in a plugin, with two exceptions: channels (`channels/ingress.json` is plugin-only) and MCP servers (workspace MCP is configured in settings, not by dropping an `mcp.json` into the workspace). A plugin is what lets you ship several surfaces together as one installable unit.
+Each surface can also be dropped straight into the workspace at `/workspace/<surface>/<name>/` without wrapping it in a plugin, except MCP servers (workspace MCP is configured in settings, not by dropping an `mcp.json` into the workspace). A plugin is what lets you ship several surfaces together as one installable unit.
 
 Each surface's contract lives in its own reference file next to this one, linked from the surfaces table in `SKILL.md`.
 

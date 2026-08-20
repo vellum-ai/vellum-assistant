@@ -7,7 +7,6 @@ import { SectionHeading } from "@/app/docs/_components/section-heading";
 import { TableOfContents } from "@/app/docs/_components/table-of-contents";
 
 const TOC_ITEMS = [
-  { id: "ingress-vs-routes", label: "Ingress vs routes", level: 2 },
   { id: "the-declaration", label: "The declaration", level: 2 },
   { id: "route-fields", label: "Route fields", level: 3 },
   { id: "approval-and-signatures", label: "Approval and signatures", level: 2 },
@@ -56,28 +55,22 @@ const ROUTE_FIELDS: FieldRow[] = [
     notes: "Human-readable purpose, surfaced in gateway logs and the approval UI.",
   },
   {
-    field: "signer",
-    required: "no",
-    fallback: '"plugin"',
-    notes: 'Whose webhook_secret must have signed the request. "plugin" verifies against the plugin\'s own secret. "vellum" verifies against the platform\'s secret, for routes only Vellum calls.',
-  },
-  {
     field: "handshake",
     required: "no",
     fallback: '"signed-headers"',
-    notes: 'Where the caller carries its signature. "signed-headers" puts it in Vellum-Signature. "signed-query" puts the same HMAC in the URL, WebSocket only, for a caller that is handed a URL and nothing else.',
+    notes: 'Where the caller carries its signature. "signed-headers" (default) puts it in request headers. "signed-query" puts the same HMAC in the URL, WebSocket only, for a caller that is handed a URL and nothing else.',
   },
   {
     field: "verification",
     required: "no",
-    fallback: "platform scheme",
-    notes: "How a third-party caller's signature is checked when it is not ours. HTTP only. Cannot be combined with signer: \"vellum\".",
+    fallback: "vendor HMAC",
+    notes: "How a third-party caller's signature is checked. HTTP only.",
   },
   {
     field: "inbound",
     required: "no",
     fallback: "webhook only",
-    notes: "That this route's replies carry inbound messages, and how to read them. HTTP only. Cannot be combined with signer: \"vellum\".",
+    notes: "That this route's replies carry inbound messages, and how to read them. HTTP only.",
   },
 ];
 
@@ -87,91 +80,17 @@ export function ExtensibilityChannelsContent() {
       <DocsContent
         title="Channels"
         breadcrumb="Docs / Extensibility / Channels"
-        subtitle="Make a plugin reachable from the public internet. A plugin is a channel because it declares ingress: channels/ingress.json is the list of routes the outside world may reach it on."
+        subtitle="Make a route reachable from the public internet. A plugin is a channel because it declares ingress: channels/ingress.json is the list of routes the outside world may reach it on."
       >
         <p className="mb-8 text-zinc-600 dark:text-zinc-400">
-          There is no second file that claims the status, and nothing a plugin
-          can set to become a channel without declaring that reach. The gateway
-          owns the public surface: it validates the declaration,
-          signature-checks every request, and holds <code>plugin</code>-signed
-          routes behind a guardian&apos;s approval. The assistant discovers the
-          file&apos;s presence so the plugin appears in the channels list; a
-          declaration the gateway rejects still shows there as a channel whose
-          ingress is broken.
+          The gateway owns the public surface: it validates the declaration,
+          signature-checks every request, and holds{" "}
+          <code>plugin</code>-signed routes behind a guardian&apos;s approval.
+          Plugins that declare a channel ingress are considered themselves a
+          channel in all contexts where channels are viewed.
         </p>
 
-        <section id="ingress-vs-routes">
-          <SectionHeading id="ingress-vs-routes" level={2}>
-            Ingress vs routes
-          </SectionHeading>
-          <p className="mb-4 text-zinc-600 dark:text-zinc-400">
-            These are two surfaces that compose, not alternatives:
-          </p>
-          <div className="mb-4 overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-zinc-200 text-left dark:border-zinc-700">
-                  <th className="py-2 pr-4 font-semibold text-zinc-900 dark:text-zinc-100">
-                    Surface
-                  </th>
-                  <th className="py-2 pr-4 font-semibold text-zinc-900 dark:text-zinc-100">
-                    Lives in
-                  </th>
-                  <th className="py-2 pr-4 font-semibold text-zinc-900 dark:text-zinc-100">
-                    Served at
-                  </th>
-                  <th className="py-2 font-semibold text-zinc-900 dark:text-zinc-100">
-                    Who calls it
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="text-zinc-600 dark:text-zinc-400">
-                <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                  <td className="py-2 pr-4">
-                    <Link href={ROUTES_PAGE_URL} className={linkClass}>
-                      HTTP routes
-                    </Link>
-                  </td>
-                  <td className="py-2 pr-4">
-                    <code>routes/&lt;path&gt;.ts</code>
-                  </td>
-                  <td className="py-2 pr-4">
-                    <code>/x/plugins/&lt;name&gt;/&lt;path&gt;</code>
-                  </td>
-                  <td className="py-2">
-                    The plugin&apos;s own apps, authenticated clients, and the
-                    gateway after it has already admitted a public request
-                  </td>
-                </tr>
-                <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                  <td className="py-2 pr-4">Channels</td>
-                  <td className="py-2 pr-4">
-                    <code>channels/ingress.json</code>
-                  </td>
-                  <td className="py-2 pr-4">
-                    <code>/webhooks/plugins/&lt;name&gt;/&lt;path&gt;</code>
-                  </td>
-                  <td className="py-2">
-                    Third parties on the public internet
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p className="mb-0 text-zinc-600 dark:text-zinc-400">
-            A public delivery is signature-checked at the gateway, then
-            forwarded verbatim to the matching plugin route at{" "}
-            <code>/v1/x/plugins/&lt;name&gt;/&lt;path&gt;</code>. Declare the
-            public path in <code>ingress.json</code> <strong>and</strong>{" "}
-            implement the handler under <code>routes/</code> at the same
-            relative path. An ingress route with no matching <code>routes/</code>{" "}
-            file 404s after it is admitted. A <code>routes/</code> file with no
-            ingress declaration is never a public webhook. Do not tell a vendor
-            to POST at <code>/x/plugins/...</code>.
-          </p>
-        </section>
-
-        <section id="the-declaration" className="mt-12">
+        <section id="the-declaration">
           <SectionHeading id="the-declaration" level={2}>
             The declaration
           </SectionHeading>
@@ -179,7 +98,13 @@ export function ExtensibilityChannelsContent() {
             <code>channels/ingress.json</code> is a JSON object with a
             non-empty <code>routes</code> array. The plugin&apos;s identity
             comes from its directory, not from the file, so a manifest cannot
-            claim to belong to a different plugin.
+            claim to belong to a different plugin. Declare the public path in{" "}
+            <code>ingress.json</code> <strong>and</strong> implement the
+            matching handler under{" "}
+            <Link href={ROUTES_PAGE_URL} className={linkClass}>
+              <code>routes/</code>
+            </Link>{" "}
+            at the same relative path.
           </p>
           <pre className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
             <code>{`{
@@ -194,13 +119,15 @@ export function ExtensibilityChannelsContent() {
           </pre>
           <p className="mb-4 text-zinc-600 dark:text-zinc-400">
             That route is served at{" "}
-            <code>/webhooks/plugins/&lt;plugin-name&gt;/events</code>. Resolve
-            the URL to hand a vendor with{" "}
+            <code>/webhooks/plugins/&lt;plugin-name&gt;/events</code> and
+            handled by <code>routes/events.ts</code>. Resolve the URL to
+            hand a vendor with{" "}
             <code>resolveWebhookUrl({"{ path: \"events\" }"})</code> from{" "}
             <Link href={PLUGIN_API_URL} className={linkClass}>
               <code>@vellumai/plugin-api</code>
             </Link>
-            . Do not hardcode a hostname.
+            . Do not hardcode a hostname. Do not tell a vendor to POST at{" "}
+            <code>/x/plugins/...</code>.
           </p>
 
           <div id="route-fields" className="mt-8">
@@ -263,29 +190,15 @@ export function ExtensibilityChannelsContent() {
             sees <code>404</code> whether the route is undeclared, pending, or
             missing a secret.
           </p>
-          <p className="mb-4 text-zinc-600 dark:text-zinc-400">
-            <strong>
-              <code>signer: &quot;plugin&quot;</code>
-            </strong>{" "}
-            (the default) needs a guardian approval before the gateway serves
-            it. The approval covers a digest of the declaration: adding a
-            route, changing transport, signer, handshake, verification, or
-            inbound delivery drops the plugin back to pending. Rewording{" "}
-            <code>description</code> does not. Editing the file and reinstalling
-            is not enough; the guardian has to approve the new digest.
-          </p>
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
-            <strong>
-              <code>signer: &quot;vellum&quot;</code>
-            </strong>{" "}
-            is served without that approval. Such a route only opens to a
-            caller holding the platform&apos;s webhook secret, which is trust
-            the user already gave when they connected their account. It cannot
-            declare <code>verification</code> or <code>inbound</code>: those
-            would let a plugin grant itself reach the guardian did not review.
-            Ask the user to approve pending ingress from the channels settings
-            once the plugin is installed. A plugin must not approve its own
-            ingress.
+            A guardian has to approve the declaration before the gateway serves
+            it. The approval covers a digest of the declaration: adding a
+            route, changing transport, handshake, verification, or inbound
+            delivery drops the plugin back to pending. Rewording{" "}
+            <code>description</code> does not. Editing the file and reinstalling
+            is not enough; the guardian has to approve the new digest. Ask the
+            user to approve pending ingress from the channels settings once the
+            plugin is installed. A plugin must not approve its own ingress.
           </p>
         </section>
 
@@ -294,12 +207,9 @@ export function ExtensibilityChannelsContent() {
             Third-party verification
           </SectionHeading>
           <p className="mb-4 text-zinc-600 dark:text-zinc-400">
-            The default platform scheme (<code>Vellum-Signature</code> over the
-            body) is right for a caller Vellum controls and wrong for every
-            other one. A vendor that signs <code>X-Example-Signature</code>{" "}
-            cannot be asked to sign ours. Declare <code>verification</code> so
-            the gateway runs one HMAC engine and reads the vendor&apos;s
-            specifics as data:
+            A vendor that signs <code>X-Example-Signature</code> has its own
+            scheme. Declare <code>verification</code> so the gateway runs one
+            HMAC engine and reads the vendor&apos;s specifics as data:
           </p>
           <pre className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
             <code>{`{
@@ -350,8 +260,8 @@ export function ExtensibilityChannelsContent() {
               valid for as long as the secret does.
             </li>
             <li>
-              Unrecognized fields fail the declaration rather than falling back
-              to the platform scheme.
+              Unrecognized fields fail the declaration rather than guessing a
+              scheme.
             </li>
           </ul>
         </section>
@@ -431,8 +341,7 @@ export function ExtensibilityChannelsContent() {
             skipped so it cannot impersonate one.
           </p>
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
-            Disabled plugins contribute no channel. There is no{" "}
-            <code>/workspace/channels/</code> path: ingress is plugin-only.
+            Disabled plugins contribute no channel.
           </p>
         </section>
 

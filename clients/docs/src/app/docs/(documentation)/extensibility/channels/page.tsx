@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Channels - Vellum Docs",
   description:
-    "A plugin becomes a channel by declaring public ingress in channels/ingress.json. The gateway signature-checks those routes and forwards them to matching plugin handlers.",
+    "Incoming webhooks can be accepted by declaring public ingress in channels/ingress.json. The gateway signature-checks those routes and forwards them to matching plugin handlers.",
   path: "/docs/extensibility/channels",
 });
 

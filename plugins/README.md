@@ -675,7 +675,7 @@ A plugin declares MCP servers in a root `mcp.json`, per the [Agent Plugins
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
   "mcpServers": {
-    "unabyss": { "type": "streamable-http", "url": "https://mcp.unabyss.com" }
+    "example": { "type": "streamable-http", "url": "https://mcp.example.com" }
   }
 }
 ```
@@ -690,8 +690,8 @@ runs in the assistant's working directory.
 The assistant connects these servers on start and registers their tools as
 `mcp__<serverId>__<tool>`, alongside workspace-configured ones. The server id
 is `<pluginName>__<serverKey>`, collapsed to just the name when the two match
-(the `unabyss` plugin above yields `mcp__unabyss__<tool>`, not
-`mcp__unabyss__unabyss__<tool>`). Installing, removing, upgrading, enabling, or
+(the `example` plugin above yields `mcp__example__<tool>`, not
+`mcp__example__example__<tool>`). Installing, removing, upgrading, enabling, or
 disabling a plugin reconnects the set as part of that operation — its servers
 come up and go down with the plugin, no restart involved — exactly like editing
 `config.json` does.
@@ -724,8 +724,8 @@ Three host behaviours worth knowing when authoring one:
 
 A plugin is a channel because it declares ingress. `channels/ingress.json` is
 the list of routes the outside world may reach it on, served by the gateway at
-`/webhooks/plugins/<plugin>/<path>`. Reaching the assistant from outside is
-what being a channel means: there is no second file that claims the status.
+`/webhooks/plugins/<plugin>/<path>`. Plugins that declare a channel ingress are
+considered themselves a channel in all contexts where channels are viewed.
 
 ```json
 {
@@ -739,28 +739,23 @@ what being a channel means: there is no second file that claims the status.
 }
 ```
 
-The gateway forwards a verified delivery to the matching plugin route at
-`/v1/x/plugins/<plugin>/<path>`, so a public webhook needs both this file and a
-`routes/<path>.ts` handler. A `routes/` file with no ingress declaration is not
+Declare the public path in this file **and** implement the matching handler
+under `routes/<path>.ts`. A `routes/` file with no ingress declaration is not
 a public webhook. Resolve the URL to hand a vendor with
 `resolveWebhookUrl({ path: "events" })` from `@vellumai/plugin-api`.
 
-Every public plugin route is signature-checked. `signer` defaults to `plugin`
-(the plugin's own `webhook_secret`) and those routes wait on a guardian
-approval of the declaration digest before they are served. `signer: "vellum"`
-verifies against the platform secret and is served without that approval, for
-routes only Vellum calls; it cannot declare `verification` or `inbound`.
-Editing the file changes the digest and drops the plugin back to pending.
+Every public plugin route is signature-checked. Routes wait on a guardian
+approval of the declaration digest before they are served. Editing the file
+changes the digest and drops the plugin back to pending.
 
 Optional fields on a route:
 
 - **`kind`**: `http` or `websocket`.
 - **`handshake`**: `signed-headers` (default) or `signed-query` (WebSocket
   only, for a caller handed a URL and nothing else).
-- **`verification`**: declared HMAC scheme for a third-party vendor that does
-  not sign `Vellum-Signature`. HTTP only. The descriptor names a credential
-  *field* under this plugin's own service; it cannot name another plugin's
-  secret.
+- **`verification`**: declared HMAC scheme for a third-party vendor's own
+  signature. HTTP only. The descriptor names a credential *field* under this
+  plugin's own service; it cannot name another plugin's secret.
 - **`inbound`**: that the plugin's reply carries a message for the gateway's
   inbound pipeline. HTTP only. `"inbound": {}` reads the default envelope
   (`message.content`, `message.conversationExternalId`,
