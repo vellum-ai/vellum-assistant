@@ -28,11 +28,12 @@ interface ToolInputRepairRules {
   /**
    * Parameter spellings the tool accepts as another parameter's name.
    *
-   * `scaffold_managed_skill` declares `body_markdown`, while the
-   * skill-authoring prose that drives the call talks throughout about writing
-   * "the body" (see `bundled-skills/skill-management/SKILL.md` and the memory
-   * retrospective's prompt). A model that follows the prose sends `body`, and
-   * the value it sends is the skill body the tool wants.
+   * Each entry is a name the prose around the tool uses for a parameter the
+   * schema declares under a different one, and models follow prose over
+   * schema. `scaffold_managed_skill` declares `body_markdown` while the
+   * skill-authoring prose talks throughout about writing "the body"; the
+   * retrospective prompt tells the model to call `find_similar_skills` with a
+   * short description, which the schema declares as `goal`.
    *
    * An alias applies only when the canonical parameter is absent, so a call
    * that spells the parameter correctly is never overwritten.
@@ -44,8 +45,16 @@ interface ToolInputRepairRules {
 
 const REPAIR_RULES: Readonly<Record<string, ToolInputRepairRules>> = {
   scaffold_managed_skill: {
-    aliases: { body: "body_markdown" },
+    aliases: {
+      body: "body_markdown",
+      content: "body_markdown",
+      title: "name",
+      summary: "description",
+    },
     filesMap: true,
+  },
+  find_similar_skills: {
+    aliases: { description: "goal", query: "goal" },
   },
 };
 

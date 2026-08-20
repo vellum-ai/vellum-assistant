@@ -813,6 +813,22 @@ describe("createSkillTool: bundled input repairs", () => {
     ]);
   });
 
+  test("accepts the injected activity field the model is shown", async () => {
+    const result = await makeScaffoldTool(true).execute(
+      {
+        skill_id: "deploy",
+        body_markdown: "# Deploy\n",
+        activity: "Writing the deploy skill",
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).input.activity).toBe(
+      "Writing the deploy skill",
+    );
+  });
+
   test("a non-bundled skill reusing the name keeps its own contract", async () => {
     const result = await makeScaffoldTool(false).execute(
       { skill_id: "deploy", body: "# Deploy\n" },

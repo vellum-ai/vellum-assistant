@@ -9,9 +9,10 @@ import {
 } from "../tools/shared/input-repairs.js";
 
 const TOOL = "scaffold_managed_skill";
+const FIND_TOOL = "find_similar_skills";
 
-/** The real manifest entry the repairs describe. */
-function scaffoldEntry(): SkillToolEntry {
+/** The real manifest entries the repairs describe. */
+function manifestEntry(name: string): SkillToolEntry {
   const manifest = JSON.parse(
     readFileSync(
       join(
@@ -21,15 +22,15 @@ function scaffoldEntry(): SkillToolEntry {
       "utf-8",
     ),
   ) as { tools: SkillToolEntry[] };
-  const entry = manifest.tools.find((t) => t.name === TOOL);
+  const entry = manifest.tools.find((t) => t.name === name);
   if (!entry) {
-    throw new Error(`${TOOL} is missing from the skill-management TOOLS.json`);
+    throw new Error(`${name} is missing from the skill-management TOOLS.json`);
   }
   return entry;
 }
 
-function scaffoldProperties(): Record<string, { type?: string }> {
-  const schema = scaffoldEntry().input_schema as {
+function declaredProperties(name: string): Record<string, { type?: string }> {
+  const schema = manifestEntry(name).input_schema as {
     properties: Record<string, { type?: string }>;
   };
   return schema.properties;
@@ -56,24 +57,49 @@ describe("bundledToolInputRepairs: parameter aliases", () => {
     expect(bundledToolInputRepairs("file_write", input)).toBe(input);
   });
 
-  test("no alias shadows a parameter the tool actually declares", () => {
-    const declared = scaffoldProperties();
-    const aliases = bundledToolInputAliases(TOOL);
-    expect(aliases.length).toBeGreaterThan(0);
-    for (const alias of aliases) {
-      expect(declared[alias]).toBeUndefined();
-    }
+  test.each([TOOL, FIND_TOOL])(
+    "%s: no alias shadows a parameter the tool declares",
+    (tool) => {
+      const declared = declaredProperties(tool);
+      const aliases = bundledToolInputAliases(tool);
+      expect(aliases.length).toBeGreaterThan(0);
+      for (const alias of aliases) {
+        expect(declared[alias]).toBeUndefined();
+      }
+    },
+  );
+
+  test.each([TOOL, FIND_TOOL])(
+    "%s: every alias targets a parameter the tool declares",
+    (tool) => {
+      const declared = declaredProperties(tool);
+      for (const alias of bundledToolInputAliases(tool)) {
+        const result = bundledToolInputRepairs(tool, { [alias]: "value" });
+        const target = Object.keys(result).find((key) => key !== alias);
+        expect(target).toBeDefined();
+        expect(declared[target!]).toBeDefined();
+      }
+    },
+  );
+
+  test.each([
+    ["title", "name"],
+    ["summary", "description"],
+    ["content", "body_markdown"],
+  ])("reads `%s` as `%s`", (alias, canonical) => {
+    const result = bundledToolInputRepairs(TOOL, { [alias]: "value" });
+    expect(result).toEqual({ [canonical]: "value" });
   });
 
-  test("every alias targets a parameter the tool declares", () => {
-    const declared = scaffoldProperties();
-    for (const alias of bundledToolInputAliases(TOOL)) {
-      const result = bundledToolInputRepairs(TOOL, { [alias]: "value" });
-      const target = Object.keys(result).find((key) => key !== alias);
-      expect(target).toBeDefined();
-      expect(declared[target!]).toBeDefined();
-    }
-  });
+  test.each(["description", "query"])(
+    "find_similar_skills reads `%s` as `goal`",
+    (alias) => {
+      const result = bundledToolInputRepairs(FIND_TOOL, {
+        [alias]: "deploy staging",
+      });
+      expect(result).toEqual({ goal: "deploy staging" });
+    },
+  );
 });
 
 describe("bundledToolInputRepairs: files written as a path-keyed map", () => {
@@ -132,7 +158,7 @@ describe("bundledToolInputRepairs: files written as a path-keyed map", () => {
   });
 
   test("an entry spelling out every declared file property is read as one file", () => {
-    const schema = scaffoldEntry().input_schema as {
+    const schema = manifestEntry(TOOL).input_schema as {
       properties: {
         files: { items: { properties: Record<string, unknown> } };
       };

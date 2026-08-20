@@ -6,6 +6,7 @@ import {
   coerceStringNumbers,
   validateInputAgainstSchema,
 } from "../../skills/validate-input.js";
+import { withActivityProperty } from "../schema-transforms.js";
 import { bundledToolInputMisuseMessage } from "../shared/input-misuse.js";
 import { bundledToolInputRepairs } from "../shared/input-repairs.js";
 import type { ExecutionTarget } from "../tool-types.js";
@@ -45,7 +46,12 @@ export function createSkillTool(
       input: Record<string, unknown>,
       context: ToolContext,
     ): Promise<ToolExecutionResult> {
-      const schema = entry.input_schema as Record<string, unknown> | undefined;
+      // Validate against the schema the model was actually shown: tool
+      // definitions carry an injected `activity` field the manifest does not
+      // declare, and a call that fills it must not be rejected as unknown.
+      const schema = withActivityProperty(
+        entry.input_schema as Record<string, unknown> | undefined,
+      );
       // Tool-specific repairs first: they rewrite keys and shapes the schema
       // does not describe, and the generic coercions below then see the
       // declared parameter names. Repairs describe first-party tools, so only
