@@ -11,7 +11,7 @@ import {
   type UseConnectClaudeResult,
 } from "@/hooks/use-connect-claude";
 import { useSupportsAcpConnect } from "@/lib/backwards-compat/use-supports-acp-connect";
-import { recordDiagnostic } from "@/lib/diagnostics";
+import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import { isElectron } from "@/runtime/is-electron";
 
 // ---------------------------------------------------------------------------
@@ -104,9 +104,11 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
     }
     // Leave a breadcrumb: the card flashing and vanishing is otherwise silent,
     // and a self-heal dismissal next to a fresh missing-token failure is the
-    // signature of a status/spawn predicate mismatch.
+    // signature of a status/spawn predicate mismatch. It goes in the durable
+    // lifecycle ring because streaming floods the high-volume ring, which held
+    // only minutes of history in the bundle that motivated this breadcrumb.
     const store = useInteractionStore.getState();
-    recordDiagnostic("acp_connect_self_heal_dismiss", {
+    recordLifecycleDiagnostic("acp_connect_self_heal_dismiss", {
       assistantId,
       toolUseId: store.pendingAcpConnect?.toolUseId ?? null,
       reason: store.pendingAcpConnect?.reason ?? "missing",

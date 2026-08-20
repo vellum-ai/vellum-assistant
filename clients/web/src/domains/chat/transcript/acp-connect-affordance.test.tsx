@@ -90,14 +90,17 @@ mock.module("@vellumai/design-library/components/typography", () => ({
 }));
 
 const actualDiagnostics = await import("@/lib/diagnostics");
-const recordedDiagnostics: Array<{
+const recordedLifecycleDiagnostics: Array<{
   kind: string;
   details: Record<string, unknown>;
 }> = [];
 mock.module("@/lib/diagnostics", () => ({
   ...actualDiagnostics,
-  recordDiagnostic: (kind: string, details: Record<string, unknown> = {}) => {
-    recordedDiagnostics.push({ kind, details });
+  recordLifecycleDiagnostic: (
+    kind: string,
+    details: Record<string, unknown> = {},
+  ) => {
+    recordedLifecycleDiagnostics.push({ kind, details });
   },
 }));
 
@@ -116,7 +119,7 @@ beforeEach(() => {
   popupBlocked = false;
   startMode = "loopback";
   exchangeShouldFail = false;
-  recordedDiagnostics.length = 0;
+  recordedLifecycleDiagnostics.length = 0;
   useInteractionStore.setState({
     pendingAcpConnect: null,
     dismissedAcpConnectToolUseIds: new Set<string>(),
@@ -168,7 +171,7 @@ describe("AcpConnectAffordance", () => {
     });
   });
 
-  test("records a diagnostic for every self-heal dismissal", async () => {
+  test("records a lifecycle diagnostic for every self-heal dismissal", async () => {
     alreadyConnected = true;
     useInteractionStore
       .getState()
@@ -180,8 +183,9 @@ describe("AcpConnectAffordance", () => {
       expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
     });
     // The card vanishing is invisible in a feedback bundle without this
-    // breadcrumb, so it must carry who/which-call/why.
-    expect(recordedDiagnostics).toEqual([
+    // breadcrumb, so it must carry who/which-call/why, and it lands in the
+    // durable ring that streaming volume cannot evict.
+    expect(recordedLifecycleDiagnostics).toEqual([
       {
         kind: "acp_connect_self_heal_dismiss",
         details: {
@@ -203,7 +207,7 @@ describe("AcpConnectAffordance", () => {
     await flushConnectedCheck();
 
     expect(screen.getByTestId("acp-connect-affordance")).not.toBeNull();
-    expect(recordedDiagnostics).toEqual([]);
+    expect(recordedLifecycleDiagnostics).toEqual([]);
   });
 
   test("records nothing when the connected check answers false", async () => {
@@ -216,7 +220,7 @@ describe("AcpConnectAffordance", () => {
     await flushConnectedCheck();
 
     expect(screen.getByTestId("acp-connect-affordance")).not.toBeNull();
-    expect(recordedDiagnostics).toEqual([]);
+    expect(recordedLifecycleDiagnostics).toEqual([]);
   });
 
   test("opens the sign-in tab and advances to awaiting-capture", async () => {
