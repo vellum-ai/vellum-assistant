@@ -11,10 +11,9 @@
  *
  * ## Plugin scoping
  *
- * A plugin may only write credentials it owns: `field` equals its manifest
- * name (`openai/acme` for plugin `acme`) or `service` equals its manifest
+ * A plugin may only write credentials whose `service` equals its manifest
  * name (`imessage/api_key` for plugin `imessage`). It cannot write another
- * service's generic fields (`openai/api_key`). The name comes from the
+ * service (`openai/api_key`, `openai/imessage`). The name comes from the
  * execution context
  * ({@link ../plugins/plugin-execution-context.getCurrentPluginName}), which the
  * host establishes around a plugin's hook, tool, and route invocations.
@@ -101,9 +100,9 @@ export async function storeCredential(
   }
 
   const target = resolveStoreTarget(ref);
-  if (!credentialInPluginScope(pluginName, target.service, target.field)) {
+  if (!credentialInPluginScope(pluginName, target.service)) {
     throw new CredentialStoreError(
-      `Plugin "${pluginName}" may only store credentials under its own service or field; ` +
+      `Plugin "${pluginName}" may only store credentials under its own service; ` +
         `"${target.service}/${target.field}" is out of scope.`,
     );
   }

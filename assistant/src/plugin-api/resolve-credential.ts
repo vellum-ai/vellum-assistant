@@ -12,12 +12,11 @@
  * When a plugin is in context (its hook, tool, or one of its own
  * `/x/plugins/<name>/` routes is executing, tracked by
  * {@link ../plugins/plugin-execution-context.getCurrentPluginName}), resolution
- * is restricted: the plugin may only resolve credentials it owns, either
- * because `field` equals its manifest name (`openai/acme` for plugin `acme`)
- * or because `service` equals its manifest name (`imessage/api_key` for
- * plugin `imessage`). It cannot read another service's generic fields
- * (`openai/api_key`). Outside any plugin context (host-internal callers, CLI,
- * tests) the resolver is unscoped and behaves like a direct reveal.
+ * is restricted: the plugin may only resolve credentials whose `service`
+ * equals its manifest name (`imessage/api_key` for plugin `imessage`). It
+ * cannot read another service (`openai/api_key`, `openai/imessage`). Outside
+ * any plugin context (host-internal callers, CLI, tests) the resolver is
+ * unscoped and behaves like a direct reveal.
  */
 
 import { getCurrentPluginName } from "../plugins/plugin-execution-context.js";
@@ -57,10 +56,10 @@ export async function resolveCredential(ref: string): Promise<string> {
   const pluginName = getCurrentPluginName();
   if (
     pluginName !== undefined &&
-    !credentialInPluginScope(pluginName, resolved.service, resolved.field)
+    !credentialInPluginScope(pluginName, resolved.service)
   ) {
     throw new CredentialResolutionError(
-      `Plugin "${pluginName}" may only resolve credentials under its own service or field; ` +
+      `Plugin "${pluginName}" may only resolve credentials under its own service; ` +
         `"${resolved.service}/${resolved.field}" is out of scope.`,
     );
   }
