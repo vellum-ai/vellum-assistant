@@ -5,7 +5,10 @@ import {
   VELAY_ALLOWED_PATHS_HEADER,
   VELAY_ALLOWED_PATHS_HEADER_VALUE,
 } from "./allowed-paths.js";
-import { isAllowedVelayWebSocketPath } from "./bridge-utils.js";
+import {
+  isAllowedVelayWebSocketPath,
+  VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS,
+} from "./bridge-utils.js";
 
 describe("VELAY_ALLOWED_PATHS", () => {
   it("matches the platform-side header name (must stay in sync with vellum-assistant-platform RegistrationAllowedPathsHeader)", () => {
@@ -102,6 +105,20 @@ describe("VELAY_ALLOWED_PATHS", () => {
  * been noticed was a test like this one.
  */
 describe("the registration allowlist and the bridge's WebSocket allowlist", () => {
+  const compiled = () => VELAY_ALLOWED_PATHS.map((p) => new RegExp(p));
+
+  /**
+   * Every tunnelled WebSocket route, curated rather than derived.
+   *
+   * There is no single source to derive it from: the registration list is
+   * RE2 regex strings velay compiles platform-side, and the bridge's is exact
+   * paths sharing a predicate with the HTTP prefixes. Nothing in either
+   * records which entries are WebSocket routes, so that fact lives here.
+   *
+   * Which leaves one hole this file cannot close by itself: a new WebSocket
+   * route added to both allowlists but not to this list is simply unchecked.
+   * If you are adding one, add it here too.
+   */
   const WEBSOCKET_ROUTES = [
     "/v1/live-voice",
     "/v1/stt/stream",
@@ -109,27 +126,35 @@ describe("the registration allowlist and the bridge's WebSocket allowlist", () =
   ];
 
   it("admits every tunnelled WebSocket route at both layers", () => {
-    const compiled = VELAY_ALLOWED_PATHS.map((p) => new RegExp(p));
     for (const path of WEBSOCKET_ROUTES) {
       expect({
         path,
-        registration: compiled.some((re) => re.test(path)),
+        registration: compiled().some((re) => re.test(path)),
         bridge: isAllowedVelayWebSocketPath(path),
       }).toEqual({ path, registration: true, bridge: true });
     }
   });
 
-  it("does not admit a WebSocket route at the bridge that velay would refuse", () => {
-    // The reverse omission is quieter still: the bridge would dial happily and
-    // velay would 404 the upgrade before the frame ever arrived.
-    const compiled = VELAY_ALLOWED_PATHS.map((p) => new RegExp(p));
+  it("admits nothing at the bridge that velay would refuse anyway", () => {
+    // Derived from the bridge's own list rather than curated, so this half
+    // needs no maintenance. The reverse omission is quieter than the one
+    // above: the bridge would dial happily and velay would 404 the upgrade
+    // before the frame ever reached it.
+    for (const path of VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS) {
+      expect({
+        path,
+        registration: compiled().some((re) => re.test(path)),
+      }).toEqual({ path, registration: true });
+    }
+  });
+
+  it("admits no near miss of a tunnelled route at either layer", () => {
     for (const path of ["/v1/watch", "/v1/watch/stream/extra", "/v1/speech"]) {
-      if (isAllowedVelayWebSocketPath(path)) {
-        expect({
-          path,
-          registration: compiled.some((re) => re.test(path)),
-        }).toEqual({ path, registration: true });
-      }
+      expect({
+        path,
+        registration: compiled().some((re) => re.test(path)),
+        bridge: isAllowedVelayWebSocketPath(path),
+      }).toEqual({ path, registration: false, bridge: false });
     }
   });
 });
