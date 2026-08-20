@@ -16,6 +16,7 @@ mock.module("../fetch.js", () => ({
 }));
 
 const { downloadDiscordFile } = await import("./download.js");
+const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
 function makeAttachment(
   overrides?: Partial<DiscordAttachmentReference>,
@@ -48,7 +49,7 @@ describe("downloadDiscordFile", () => {
     fetchMock = mock(async () => new Response(buffer));
 
     const attachment = makeAttachment();
-    const result = await downloadDiscordFile(attachment);
+    const result = await downloadDiscordFile(attachment, MAX_ATTACHMENT_BYTES);
 
     expect(result.filename).toBe("photo.png");
     expect(result.mimeType).toBe("image/png");
@@ -64,7 +65,9 @@ describe("downloadDiscordFile", () => {
       async () =>
         new Response("expired", { status: 403, statusText: "Forbidden" }),
     );
-    await expect(downloadDiscordFile(makeAttachment())).rejects.toThrow(
+    await expect(
+      downloadDiscordFile(makeAttachment(), MAX_ATTACHMENT_BYTES),
+    ).rejects.toThrow(
       "Failed to download Discord file attachment-1: 403 Forbidden",
     );
   });
@@ -77,8 +80,12 @@ describe("downloadDiscordFile", () => {
         }),
     );
     expect(
-      (await downloadDiscordFile(makeAttachment({ content_type: "text/csv" })))
-        .mimeType,
+      (
+        await downloadDiscordFile(
+          makeAttachment({ content_type: "text/csv" }),
+          MAX_ATTACHMENT_BYTES,
+        )
+      ).mimeType,
     ).toBe("text/csv");
 
     fetchMock = mock(
@@ -88,8 +95,12 @@ describe("downloadDiscordFile", () => {
         }),
     );
     expect(
-      (await downloadDiscordFile(makeAttachment({ content_type: undefined })))
-        .mimeType,
+      (
+        await downloadDiscordFile(
+          makeAttachment({ content_type: undefined }),
+          MAX_ATTACHMENT_BYTES,
+        )
+      ).mimeType,
     ).toBe("image/png");
 
     fetchMock = mock(
@@ -99,16 +110,24 @@ describe("downloadDiscordFile", () => {
         }),
     );
     expect(
-      (await downloadDiscordFile(makeAttachment({ content_type: undefined })))
-        .mimeType,
+      (
+        await downloadDiscordFile(
+          makeAttachment({ content_type: undefined }),
+          MAX_ATTACHMENT_BYTES,
+        )
+      ).mimeType,
     ).toBe("text/plain");
 
     fetchMock = mock(
       async () => new Response(new TextEncoder().encode("plain text")),
     );
     expect(
-      (await downloadDiscordFile(makeAttachment({ content_type: undefined })))
-        .mimeType,
+      (
+        await downloadDiscordFile(
+          makeAttachment({ content_type: undefined }),
+          MAX_ATTACHMENT_BYTES,
+        )
+      ).mimeType,
     ).toBe("application/octet-stream");
   });
 

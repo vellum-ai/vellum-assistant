@@ -15,7 +15,7 @@ const DOWNLOAD_TIMEOUT_MS = 30_000;
 export async function downloadSlackFile(
   file: SlackFile,
   botToken: string,
-  maxBytes = Number.MAX_SAFE_INTEGER,
+  maxBytes: number,
 ): Promise<DownloadedAttachment> {
   const url = file.url_private_download || file.url_private;
   if (!url) {

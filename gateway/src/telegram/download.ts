@@ -22,9 +22,9 @@ interface TelegramFile {
  */
 export async function downloadTelegramFile(
   fileId: string,
+  maxBytes: number,
   hint?: { fileName?: string; mimeType?: string },
   opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
-  maxBytes = Number.MAX_SAFE_INTEGER,
 ): Promise<DownloadedAttachment> {
   const file = await callTelegramApi<TelegramFile>(
     "getFile",

@@ -75,6 +75,7 @@ function makeCaches(opts?: { maxRetries?: number }) {
 }
 
 const MEDIA_ID = "1234567890";
+const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
 const MEDIA_URL =
   "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=1234567890";
 
@@ -192,6 +193,7 @@ describe("downloadWhatsAppFile", () => {
     const result = await downloadWhatsAppFile(
       config,
       MEDIA_ID,
+      MAX_ATTACHMENT_BYTES,
       undefined,
       makeCaches(),
     );
@@ -231,6 +233,7 @@ describe("downloadWhatsAppFile", () => {
     const result = await downloadWhatsAppFile(
       makeConfig(),
       MEDIA_ID,
+      MAX_ATTACHMENT_BYTES,
       undefined,
       makeCaches(),
     );
@@ -268,6 +271,7 @@ describe("downloadWhatsAppFile", () => {
     const result = await downloadWhatsAppFile(
       makeConfig(),
       MEDIA_ID,
+      MAX_ATTACHMENT_BYTES,
       undefined,
       makeCaches(),
     );
@@ -306,6 +310,7 @@ describe("downloadWhatsAppFile", () => {
     const result = await downloadWhatsAppFile(
       makeConfig(),
       MEDIA_ID,
+      MAX_ATTACHMENT_BYTES,
       { mimeType: "application/pdf" },
       makeCaches(),
     );
@@ -342,6 +347,7 @@ describe("downloadWhatsAppFile", () => {
     const result = await downloadWhatsAppFile(
       makeConfig(),
       MEDIA_ID,
+      MAX_ATTACHMENT_BYTES,
       undefined,
       makeCaches(),
     );
@@ -378,6 +384,7 @@ describe("downloadWhatsAppFile", () => {
     const promise = downloadWhatsAppFile(
       makeConfig(),
       MEDIA_ID,
+      MAX_ATTACHMENT_BYTES,
       undefined,
       makeCaches(),
     );
@@ -413,6 +420,7 @@ describe("downloadWhatsAppFile", () => {
     const promise = downloadWhatsAppFile(
       makeConfig(),
       MEDIA_ID,
+      MAX_ATTACHMENT_BYTES,
       undefined,
       makeCaches(),
     );
@@ -462,6 +470,7 @@ describe("downloadWhatsAppFile", () => {
     const result = await downloadWhatsAppFile(
       config,
       MEDIA_ID,
+      MAX_ATTACHMENT_BYTES,
       undefined,
       makeCaches(),
     );
@@ -484,6 +493,7 @@ describe("downloadWhatsAppFile", () => {
       downloadWhatsAppFile(
         config,
         MEDIA_ID,
+        MAX_ATTACHMENT_BYTES,
         undefined,
         makeCaches({ maxRetries: 1 }),
       ),
@@ -519,6 +529,7 @@ describe("downloadWhatsAppFile", () => {
     const result = await downloadWhatsAppFile(
       makeConfig(),
       MEDIA_ID,
+      MAX_ATTACHMENT_BYTES,
       { fileName: "invoice.pdf" },
       makeCaches(),
     );
@@ -555,6 +566,7 @@ describe("downloadWhatsAppFile", () => {
     const result = await downloadWhatsAppFile(
       makeConfig(),
       MEDIA_ID,
+      MAX_ATTACHMENT_BYTES,
       { mimeType: "application/pdf" },
       makeCaches(),
     );
@@ -592,6 +604,7 @@ describe("downloadWhatsAppFile", () => {
     const result = await downloadWhatsAppFile(
       makeConfig(),
       MEDIA_ID,
+      MAX_ATTACHMENT_BYTES,
       undefined,
       makeCaches(),
     );
@@ -603,9 +616,9 @@ describe("downloadWhatsAppFile", () => {
   test("throws when WhatsApp credentials are not configured", async () => {
     const config = makeConfig({});
 
-    await expect(downloadWhatsAppFile(config, MEDIA_ID)).rejects.toThrow(
-      "WhatsApp credentials not configured",
-    );
+    await expect(
+      downloadWhatsAppFile(config, MEDIA_ID, MAX_ATTACHMENT_BYTES),
+    ).rejects.toThrow("WhatsApp credentials not configured");
   });
 
   test("passes Authorization header to both metadata and download requests", async () => {
@@ -646,7 +659,13 @@ describe("downloadWhatsAppFile", () => {
       },
     );
 
-    await downloadWhatsAppFile(makeConfig(), MEDIA_ID, undefined, makeCaches());
+    await downloadWhatsAppFile(
+      makeConfig(),
+      MEDIA_ID,
+      MAX_ATTACHMENT_BYTES,
+      undefined,
+      makeCaches(),
+    );
 
     expect(headers).toHaveLength(2);
     expect(headers[0].auth).toBe("Bearer test-access-token");

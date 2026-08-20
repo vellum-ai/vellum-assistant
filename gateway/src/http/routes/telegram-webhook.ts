@@ -599,6 +599,7 @@ export function createTelegramWebhookHandler(
             download: (att, maxBytes) =>
               downloadTelegramFile(
                 att.fileId,
+                maxBytes,
                 {
                   fileName: att.fileName,
                   mimeType: att.mimeType,
@@ -607,7 +608,6 @@ export function createTelegramWebhookHandler(
                   credentials: caches?.credentials,
                   configFile: caches?.configFile,
                 },
-                maxBytes,
               ),
             upload: (downloaded) => uploadAttachment(config, downloaded),
             failurePolicy: {

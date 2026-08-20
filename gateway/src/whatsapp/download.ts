@@ -50,10 +50,9 @@ function inferFilename(mediaId: string, mimeType: string): string {
 export async function downloadWhatsAppFile(
   config: GatewayConfig,
   mediaId: string,
+  maxBytes: number,
   hint?: { fileName?: string; mimeType?: string },
   caches?: WhatsAppApiCaches,
-  maxBytes = config.maxAttachmentBytes.whatsapp ??
-    config.maxAttachmentBytes.default,
 ): Promise<DownloadedAttachment> {
   const meta = await getWhatsAppMediaMetadata(mediaId, caches);
 

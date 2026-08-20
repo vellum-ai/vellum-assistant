@@ -266,12 +266,12 @@ export function createWhatsAppWebhookHandler(
                 downloadWhatsAppFile(
                   config,
                   att.fileId,
+                  maxBytes,
                   {
                     fileName: att.fileName,
                     mimeType: att.mimeType,
                   },
                   apiCaches,
-                  maxBytes,
                 ),
               upload: (downloaded) => uploadAttachment(config, downloaded),
               failurePolicy: {

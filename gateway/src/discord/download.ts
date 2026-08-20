@@ -18,7 +18,7 @@ const DOWNLOAD_TIMEOUT_MS = 30_000;
 
 export async function downloadDiscordFile(
   attachment: DiscordAttachmentReference,
-  maxBytes = Number.MAX_SAFE_INTEGER,
+  maxBytes: number,
   log?: Logger,
 ): Promise<DownloadedAttachment> {
   const host = new URL(attachment.url).hostname;
