@@ -109,6 +109,18 @@ const OPTION_SIZE_CLASSES: Record<SelectSize, string> = {
   compact: "px-2.5 py-1.5 text-body-small-default",
 };
 
+/**
+ * Scroll padding held clear at the bottom of the menu, roughly one row tall,
+ * applied when an option is pinned there. Keyboard navigation scrolls a
+ * highlighted row to the nearest edge, and the pinned row floats over that
+ * edge, so without the reserve the highlight can land underneath it and Enter
+ * commits a choice nobody saw.
+ */
+const STICKY_SCROLL_PADDING_CLASSES: Record<SelectSize, string> = {
+  regular: "scroll-pb-10",
+  compact: "scroll-pb-8",
+};
+
 const CHEVRON_SIZE_CLASSES: Record<SelectSize, string> = {
   regular: "h-3.5 w-3.5",
   compact: "h-3 w-3",
@@ -227,6 +239,8 @@ export function Select<T extends string>({
   const selectedOption = selectableOptions.find(
     (option) => option.value === value,
   );
+
+  const hasStickyOption = selectableOptions.some((option) => option.sticky);
 
   const control = (
     <RadixSelect.Root
@@ -371,7 +385,12 @@ export function Select<T extends string>({
             maxHeight: `min(${menuMaxHeight}px, var(--radix-select-content-available-height))`,
           }}
         >
-          <RadixSelect.Viewport className="py-1">
+          <RadixSelect.Viewport
+            className={cn(
+              "py-1",
+              hasStickyOption && STICKY_SCROLL_PADDING_CLASSES[size],
+            )}
+          >
             {selectableOptions.map((option) => {
               const optionRow = (
                 <RadixSelect.Item
