@@ -60,7 +60,7 @@ function staged() {
   }));
 }
 
-describe("WatchRetroCard — what it draws", () => {
+describe("WatchRetroCard: what it draws", () => {
   test("renders both answerable sections under the model's own headings", () => {
     renderCard();
 
@@ -81,7 +81,7 @@ describe("WatchRetroCard — what it draws", () => {
   test("offers agreement on alignment points but not on gaps", () => {
     renderCard();
 
-    // One "Yes", on the alignment panel — a gap has no reading to agree with.
+    // One "Yes", on the alignment panel. A gap has no reading to agree with.
     const agree = screen.getAllByRole("button", { name: "Yes" });
     expect(agree).toHaveLength(1);
     expect(
@@ -92,7 +92,7 @@ describe("WatchRetroCard — what it draws", () => {
   });
 });
 
-describe("WatchRetroCard — answering in place", () => {
+describe("WatchRetroCard: answering in place", () => {
   test("agreeing stages the point with the answer attached to it", () => {
     renderCard();
 

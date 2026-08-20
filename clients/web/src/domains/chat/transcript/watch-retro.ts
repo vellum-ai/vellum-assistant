@@ -19,28 +19,61 @@
  * **The text is generated, so the shape is a guess and never a contract.** The
  * prompt asks for four things in an order; it does not dictate headings, and
  * the alignment pass is a step in a skill the model narrates in its own words.
- * Three rules follow, and they are the whole design:
+ * Four rules follow, and they are the whole design:
  *
- *   1. **Recognition is a conjunction, and failing it is silent.** A report is
+ *   1. **Whether is decided by the marker, where by the prose.** A message is
+ *      only ever examined when its conversation carries
+ *      {@link WATCH_CONVERSATION_SOURCE}, the value a watch session stamps on
+ *      the thread it mints for itself. Nothing an ordinary assistant reply
+ *      says about uncertainty can turn it into a card, however closely its
+ *      headings read like a report's. What the marker cannot say is where the
+ *      sections are, because the headings are the model's words, so the
+ *      parsing below still reads them out of the prose.
+ *
+ *   2. **Recognition is a conjunction, and failing it is silent.** A report is
  *      only recognized when a section of things-not-known *and* a section
- *      asking for confirmation are both present with points under them. One
- *      alone is an ordinary assistant message that happens to hedge, and
- *      `null` sends the caller back to plain markdown. The fallback is the
- *      rendering every other message gets, never a half-drawn card.
+ *      asking for confirmation are both present with points under them. The
+ *      marker does not retire this: the user's answers land as ordinary turns
+ *      in the same watch conversation, so every turn after the report is
+ *      prose the conjunction is what holds apart from it. `null` sends the
+ *      caller back to plain markdown, the rendering every other message gets,
+ *      never a half-drawn card.
  *
- *   2. **Nothing is dropped.** Every line of the message comes back, either
+ *   3. **Nothing is dropped.** Every line of the message comes back, either
  *      inside a recognized section or as a verbatim markdown segment in its
  *      original position. A model that adds a fifth section, moves the steps,
  *      or writes a closing paragraph loses none of it: the unrecognized parts
  *      render exactly as they render today, and only the parts that were
  *      understood are redrawn.
  *
- *   3. **Headings are the model's, not ours.** A recognized section carries
+ *   4. **Headings are the model's, not ours.** A recognized section carries
  *      the heading the model wrote. Nothing is renamed, so a section whose
  *      wording drifted still reads as the sentence it was written as.
  *
  * Pure: no React, no DOM, so the recognition is testable on strings alone.
  */
+
+/**
+ * The `conversations.source` a watch session stamps on the thread it mints for
+ * itself, set in `assistant/src/watch/watch-session-manager.ts` where it is
+ * marked FROZEN and never renamed. Restated here rather than imported because
+ * the daemon owns the persisted value and the web app only ever reads it, the
+ * same way `chat.ts` restates the background sources it groups on.
+ */
+export const WATCH_CONVERSATION_SOURCE = "watch";
+
+/**
+ * Whether `source` names a conversation a watch session reports into.
+ *
+ * This is the only deterministic thing a client knows about a retrospective.
+ * Everything else about the report is the model's prose, so this is what
+ * decides whether {@link parseWatchRetro} is asked anything at all.
+ */
+export function isWatchConversation(
+  source: string | null | undefined,
+): boolean {
+  return source === WATCH_CONVERSATION_SOURCE;
+}
 
 /** A run of the message that is rendered as ordinary markdown, verbatim. */
 export interface WatchRetroMarkdownSegment {
@@ -62,7 +95,7 @@ export type WatchRetroPointsKind = "gaps" | "alignment";
 /** A recognized section: the model's heading, its lead-in, and its points. */
 export interface WatchRetroPointsSegment {
   readonly kind: WatchRetroPointsKind;
-  /** The heading the model wrote, with any list numbering stripped. */
+  /** The heading the model wrote, minus its numbering and any emphasis. */
   readonly heading: string;
   /** Prose between the heading and the first point. Markdown, may be empty. */
   readonly lead: string;
@@ -84,6 +117,9 @@ const LIST_ITEM_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+(.*)$/;
 
 /** Leading list numbering on a heading ("4. What I'm unsure about"). */
 const HEADING_ORDINAL_RE = /^\d{1,9}[.)]\s*/;
+
+/** Inline emphasis and code delimiters, wherever they fall in a heading. */
+const HEADING_EMPHASIS_RE = /[*_`~]/g;
 
 /**
  * Headings that introduce what the recording did not settle.
@@ -162,17 +198,31 @@ function splitSections(markdown: string): Section[] {
   return sections;
 }
 
+/**
+ * A heading with its markdown taken off: emphasis first, then the numbering
+ * behind it.
+ *
+ * Order is load-bearing. A model that writes `## **4. What I'm unsure about**`
+ * puts the ordinal behind the emphasis run, where a regex anchored at the
+ * start of the string cannot see it, so stripping the delimiters has to come
+ * first. Delimiters go rather than survive because the panel draws this string
+ * as text and not as markdown, which would otherwise show them literally.
+ */
+function stripHeadingMarkdown(headingText: string): string {
+  return headingText
+    .replace(HEADING_EMPHASIS_RE, "")
+    .replace(HEADING_ORDINAL_RE, "")
+    .trim();
+}
+
 /** A heading reduced to the words it is classified on. */
 function normalizeHeading(headingText: string): string {
-  return headingText
-    .replace(HEADING_ORDINAL_RE, "")
-    .replace(/[*_`~]/g, "")
-    .toLowerCase();
+  return stripHeadingMarkdown(headingText).toLowerCase();
 }
 
 /** The heading a recognized section shows: the model's, minus its numbering. */
 function displayHeading(headingText: string): string {
-  return headingText.replace(HEADING_ORDINAL_RE, "").trim();
+  return stripHeadingMarkdown(headingText);
 }
 
 /** A section's body split into its lead prose, its points, and what follows. */
@@ -270,9 +320,16 @@ function pushMarkdown(out: WatchRetroSegment[], text: string): void {
 /**
  * Read `markdown` as a watch retrospective, or return `null`.
  *
- * `null` is the ordinary outcome for every message that is not one, and the
- * caller's answer to it is the plain markdown rendering. See the module
- * docstring for why recognition is a conjunction and why nothing is dropped.
+ * Ask this only of a message whose conversation passed
+ * {@link isWatchConversation}. What it reads are section headings, and a
+ * heading can say which part of a report it introduces but never that the
+ * message is a report, so calling it on arbitrary prose is asking a question
+ * it has no way to refuse.
+ *
+ * `null` is the ordinary outcome for every message in a watch conversation
+ * that is not the report itself, and the caller's answer to it is the plain
+ * markdown rendering. See the module docstring for why recognition is a
+ * conjunction and why nothing is dropped.
  */
 export function parseWatchRetro(
   markdown: string,

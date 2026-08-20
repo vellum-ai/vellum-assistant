@@ -2754,7 +2754,11 @@ describe("TranscriptMessageBody: watch retrospective", () => {
 
   function renderRetro(
     text: string,
-    props: { role?: DisplayMessage["role"]; isStreaming?: boolean } = {},
+    props: {
+      role?: DisplayMessage["role"];
+      isStreaming?: boolean;
+      conversationSource?: string | null;
+    } = {},
   ) {
     return render(
       <TranscriptMessageBody
@@ -2766,6 +2770,9 @@ describe("TranscriptMessageBody: watch retrospective", () => {
         }}
         onSurfaceAction={noop}
         isStreaming={props.isStreaming}
+        conversationSource={
+          "conversationSource" in props ? props.conversationSource : "watch"
+        }
       />,
     );
   }
@@ -2797,6 +2804,33 @@ describe("TranscriptMessageBody: watch retrospective", () => {
     const markdown = container.querySelectorAll("[data-testid='markdown']");
     expect(markdown).toHaveLength(1);
     expect(markdown[0]!.textContent).toContain("What I'm unsure about");
+  });
+
+  test("leaves the same report in an ordinary conversation as plain markdown", () => {
+    const { container } = renderRetro(RETRO, { conversationSource: "vellum" });
+
+    expect(
+      container.querySelector("[data-testid='watch-retro-panel']"),
+    ).toBeNull();
+  });
+
+  test("leaves a report whose conversation has no source as plain markdown", () => {
+    const { container } = renderRetro(RETRO, { conversationSource: null });
+
+    expect(
+      container.querySelector("[data-testid='watch-retro-panel']"),
+    ).toBeNull();
+  });
+
+  test("leaves a report carrying an inline surface on the surface path", () => {
+    const { container } = renderRetro(
+      `${RETRO}\n\n<ui_show surface_type="card">{"title":"Skill"}</ui_show>`,
+    );
+
+    expect(
+      container.querySelector("[data-testid='watch-retro-panel']"),
+    ).toBeNull();
+    expect(container.querySelector("[data-testid='surface']")).not.toBeNull();
   });
 
   test("leaves a user message that quotes a report as plain markdown", () => {

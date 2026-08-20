@@ -90,7 +90,7 @@ function renderedLines(markdown: string): string[] {
   return out.map(content).filter((line) => line.length > 0);
 }
 
-describe("parseWatchRetro — recognition", () => {
+describe("parseWatchRetro: recognition", () => {
   test("recognizes both answerable sections of a real retrospective", () => {
     const gaps = pointsOf(RETRO, "gaps");
     const alignment = pointsOf(RETRO, "alignment");
@@ -124,6 +124,16 @@ describe("parseWatchRetro — recognition", () => {
     );
   });
 
+  test("shows a bolded numbered heading without its markdown", () => {
+    const emphasised = RETRO.replace(
+      "## 4. What I'm unsure about",
+      "## **4. What I'm unsure about**",
+    ).replace("### Alignment pass", "### *Alignment pass*");
+
+    expect(pointsOf(emphasised, "gaps").heading).toBe("What I'm unsure about");
+    expect(pointsOf(emphasised, "alignment").heading).toBe("Alignment pass");
+  });
+
   test("folds a wrapped bullet's continuation line into one point", () => {
     const wrapped = RETRO.replace(
       "- Which specific DMG files are safe to remove.",
@@ -136,7 +146,7 @@ describe("parseWatchRetro — recognition", () => {
   });
 });
 
-describe("parseWatchRetro — falling back to plain markdown", () => {
+describe("parseWatchRetro: falling back to plain markdown", () => {
   test("returns null for an ordinary assistant message", () => {
     expect(parseWatchRetro("Sure, here is the file you asked for.")).toBeNull();
   });
@@ -187,7 +197,7 @@ describe("parseWatchRetro — falling back to plain markdown", () => {
   });
 });
 
-describe("parseWatchRetro — nothing is dropped", () => {
+describe("parseWatchRetro: nothing is dropped", () => {
   test("returns every non-blank line of the message", () => {
     const expected = RETRO.split("\n")
       .map(content)

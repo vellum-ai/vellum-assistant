@@ -36,6 +36,8 @@ export interface TranscriptRowProps {
   item: TranscriptItem;
   /** Conversation id, forwarded to message bodies for the bookmark toggle. */
   conversationId?: string | null;
+  /** Conversation `source`, forwarded to message bodies (see `watch-retro.ts`). */
+  conversationSource?: string | null;
   assistantDisplayName?: string | null;
   onSurfaceAction: (
     surfaceId: string,
@@ -164,6 +166,7 @@ function CreditsUpsellMessageRow({
 export const TranscriptRow = memo(function TranscriptRow({
   item,
   conversationId,
+  conversationSource,
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
@@ -200,6 +203,7 @@ export const TranscriptRow = memo(function TranscriptRow({
         <TranscriptMessageBody
           message={item.message}
           conversationId={conversationId}
+          conversationSource={conversationSource}
           assistantDisplayName={assistantDisplayName}
           onSurfaceAction={onSurfaceAction}
           onForkConversation={onForkConversation}

@@ -40,6 +40,12 @@ export interface TranscriptMessageBodyProps {
   /** Conversation the message belongs to. Forwarded to the hover actions so
    *  the bookmark toggle can key on (messageId, conversationId). */
   conversationId?: string | null;
+  /**
+   * The conversation's `source` as the daemon stamped it. Read by the watch
+   * retrospective's presentation, which is the one rendering that must know
+   * where a message came from rather than what it says (see `watch-retro.ts`).
+   */
+  conversationSource?: string | null;
   assistantDisplayName?: string | null;
 
   onSurfaceAction: (

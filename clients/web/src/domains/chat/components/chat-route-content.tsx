@@ -1246,6 +1246,7 @@ export function ChatMainPanel({
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
     conversationId: activeConversationId,
+    conversationSource: activeConversation?.source,
     assistantDisplayName: assistantName?.trim() || undefined,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
     onOpenApp: handleOpenApp,

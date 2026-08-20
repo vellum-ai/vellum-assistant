@@ -44,6 +44,12 @@ export type RefreshOutcome =
 export interface TranscriptProps {
   items: TranscriptItem[];
   conversationId: string | null;
+  /**
+   * The open conversation's `source`. Only the watch retrospective reads it
+   * (see `watch-retro.ts`): it is what tells a message body that a report is
+   * even possible, which nothing in the message's own text can say.
+   */
+  conversationSource?: string | null;
   assistantDisplayName?: string | null;
   onSurfaceAction: (surfaceId: string, action: string, input?: unknown) => void;
   /** Callback for "Fork from here" from a message's hover actions. */
@@ -292,6 +298,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
 
     const rowProps = {
       conversationId,
+      conversationSource: rest.conversationSource,
       onSurfaceAction: rest.onSurfaceAction,
       onForkConversation: rest.onForkConversation,
       onSummarizeUpToHere: rest.onSummarizeUpToHere,

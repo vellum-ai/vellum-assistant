@@ -48,7 +48,10 @@ import {
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
 import { WatchRetroCard } from "@/domains/chat/transcript/watch-retro-card";
-import { parseWatchRetro } from "@/domains/chat/transcript/watch-retro";
+import {
+  isWatchConversation,
+  parseWatchRetro,
+} from "@/domains/chat/transcript/watch-retro";
 import { ResponseArtifactCard } from "@/domains/chat/transcript/response-artifact-card";
 import { hasRenderableAnswer } from "@/domains/chat/answered-question";
 import { AnsweredQuestionCard } from "@/domains/chat/components/answered-question-card";
@@ -139,6 +142,7 @@ function safeDecodeURIComponent(value: string): string {
 export function TranscriptMessageBody({
   message,
   conversationId,
+  conversationSource,
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
@@ -579,14 +583,29 @@ export function TranscriptMessageBody({
       />
     );
 
+    const inlineSegments = parseInlineSurfaces(text);
+
     // A watch session's retrospective ends in two questions the user is meant
-    // to answer, which read worst as bullets. Only a settled assistant turn is
-    // examined: the recognition needs the whole report (see `watch-retro.ts`),
-    // and testing a half-streamed one would flip the row into a card partway
-    // through the sentence that completes it. `null` is the ordinary outcome
-    // for every other message and falls through to the rendering below.
+    // to answer, which read worst as bullets. The conversation's own `source`
+    // is what decides whether a message can be one at all, so no amount of
+    // hedging in an ordinary reply reaches this card; the parse then finds
+    // where the sections are, which only the model's prose knows (see
+    // `watch-retro.ts`). Three more things put a message back on the plain
+    // path: a user row, the collapsed variant, and a still-streaming turn,
+    // whose half-written report would flip into a card partway through the
+    // sentence that completes it. So does an embedded `<ui_show>`: those
+    // surfaces render through `SurfaceRouter` below, and a card drawn here
+    // would hand their markup to the markdown renderer instead. A report and
+    // a widget in one message is not a shape the retro prompt asks for, so
+    // the surface wins and the report reads as prose.
     const retroSegments =
-      !isUser && !collapsed && !isStreaming ? parseWatchRetro(text) : null;
+      !isUser &&
+      !collapsed &&
+      !isStreaming &&
+      !inlineSegments &&
+      isWatchConversation(conversationSource)
+        ? parseWatchRetro(text)
+        : null;
     if (retroSegments) {
       return (
         <div key={key} data-message-text="" className={textClass}>
@@ -599,7 +618,6 @@ export function TranscriptMessageBody({
       );
     }
 
-    const inlineSegments = parseInlineSurfaces(text);
     if (inlineSegments) {
       return (
         <div key={key} className="w-full">
