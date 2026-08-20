@@ -9,6 +9,7 @@ import { DedupCache } from "../../dedup-cache.js";
 import { ContentMismatchError } from "../../download-validation.js";
 import {
   appendFailedAttachmentNotice,
+  AttachmentTooLargeError,
   ingestAttachments,
 } from "../../attachments/ingest.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
@@ -595,7 +596,7 @@ export function createTelegramWebhookHandler(
           eventAttachments,
           tlog,
           {
-            download: (att) =>
+            download: (att, maxBytes) =>
               downloadTelegramFile(
                 att.fileId,
                 {
@@ -606,13 +607,15 @@ export function createTelegramWebhookHandler(
                   credentials: caches?.credentials,
                   configFile: caches?.configFile,
                 },
+                maxBytes,
               ),
             upload: (downloaded) => uploadAttachment(config, downloaded),
             failurePolicy: {
               mode: "rethrow-unless-skippable",
               isSkippableError: (error) =>
                 error instanceof AttachmentValidationError ||
-                error instanceof ContentMismatchError,
+                error instanceof ContentMismatchError ||
+                error instanceof AttachmentTooLargeError,
             },
           },
         );

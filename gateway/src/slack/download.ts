@@ -1,4 +1,7 @@
-import { finalizeDownloadedAttachment } from "../attachments/download.js";
+import {
+  finalizeDownloadedAttachment,
+  readLimitedAttachmentResponse,
+} from "../attachments/download.js";
 import type { DownloadedAttachment } from "../attachments/ingest.js";
 import { fetchImpl } from "../fetch.js";
 import type { SlackFile } from "./message-schemas.js";
@@ -12,6 +15,7 @@ const DOWNLOAD_TIMEOUT_MS = 30_000;
 export async function downloadSlackFile(
   file: SlackFile,
   botToken: string,
+  maxBytes = Number.MAX_SAFE_INTEGER,
 ): Promise<DownloadedAttachment> {
   const url = file.url_private_download || file.url_private;
   if (!url) {
@@ -48,11 +52,14 @@ export async function downloadSlackFile(
     );
   }
 
-  return finalizeDownloadedAttachment(await response.arrayBuffer(), {
-    attachmentId: file.id,
-    mimeTypeCandidatesBeforeDetection: [file.mimetype],
-    responseContentType: response.headers.get("Content-Type"),
-    filename: file.name,
-    fallbackFilename: () => `slack_file_${file.id}`,
-  });
+  return finalizeDownloadedAttachment(
+    await readLimitedAttachmentResponse(response, maxBytes, file.id),
+    {
+      attachmentId: file.id,
+      mimeTypeCandidatesBeforeDetection: [file.mimetype],
+      responseContentType: response.headers.get("Content-Type"),
+      filename: file.name,
+      fallbackFilename: () => `slack_file_${file.id}`,
+    },
+  );
 }

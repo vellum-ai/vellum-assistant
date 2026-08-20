@@ -15,6 +15,10 @@ export type IngestibleAttachment = Omit<GatewayInboundAttachment, "type">;
 
 export type DownloadedAttachment = Omit<UploadAttachmentInput, "trustedSource">;
 
+export class AttachmentTooLargeError extends Error {
+  override name = "AttachmentTooLargeError";
+}
+
 export type AttachmentIngestResult = {
   attachmentIds: string[];
   failedAttachmentNames: string[];
@@ -28,6 +32,7 @@ export async function ingestAttachments(
   options: {
     download: (
       attachment: IngestibleAttachment,
+      maxBytes: number,
     ) => Promise<DownloadedAttachment>;
     upload: (downloaded: DownloadedAttachment) => Promise<{ id: string }>;
     failurePolicy:
@@ -62,7 +67,7 @@ export async function ingestAttachments(
     const batch = eligible.slice(i, i + config.maxAttachmentConcurrency);
     const results = await Promise.allSettled(
       batch.map(async (attachment) => {
-        const downloaded = await options.download(attachment);
+        const downloaded = await options.download(attachment, maxBytes);
         return options.upload(downloaded);
       }),
     );

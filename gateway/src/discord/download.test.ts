@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import pino from "pino";
 import type { DiscordAttachmentReference } from "./attachments.js";
 
 type FetchFn = (
@@ -109,5 +110,28 @@ describe("downloadDiscordFile", () => {
       (await downloadDiscordFile(makeAttachment({ content_type: undefined })))
         .mimeType,
     ).toBe("application/octet-stream");
+  });
+
+  test("warns and continues for an undocumented CDN host", async () => {
+    const lines: string[] = [];
+    const log = pino(
+      { level: "warn" },
+      {
+        write(chunk: string) {
+          lines.push(chunk);
+        },
+      },
+    );
+    fetchMock = mock(async () => new Response(makePngBuffer()));
+
+    await downloadDiscordFile(
+      makeAttachment({ url: "https://cdn.discord.test/file" }),
+      1024,
+      log,
+    );
+
+    expect(lines.join("")).toContain(
+      "Discord attachment URL uses an undocumented CDN host",
+    );
   });
 });

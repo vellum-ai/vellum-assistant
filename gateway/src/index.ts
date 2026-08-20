@@ -2465,14 +2465,14 @@ async function main() {
                 eventAttachments,
                 log,
                 {
-                  download: (att) => {
+                  download: (att, maxBytes) => {
                     const slackFile = normalized.slackFiles?.get(att.fileId);
                     if (!slackFile) {
                       throw new Error(
                         `No SlackFile found for attachment ${att.fileId}`,
                       );
                     }
-                    return downloadSlackFile(slackFile, botToken);
+                    return downloadSlackFile(slackFile, botToken, maxBytes);
                   },
                   upload: (downloaded) =>
                     uploadAttachment(

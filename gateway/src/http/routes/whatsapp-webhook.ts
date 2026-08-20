@@ -11,6 +11,7 @@ import {
 import { StringDedupCache } from "../../dedup-cache.js";
 import {
   appendFailedAttachmentNotice,
+  AttachmentTooLargeError,
   ingestAttachments,
 } from "../../attachments/ingest.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
@@ -261,7 +262,7 @@ export function createWhatsAppWebhookHandler(
             eventAttachments,
             tlog,
             {
-              download: (att) =>
+              download: (att, maxBytes) =>
                 downloadWhatsAppFile(
                   config,
                   att.fileId,
@@ -270,6 +271,7 @@ export function createWhatsAppWebhookHandler(
                     mimeType: att.mimeType,
                   },
                   apiCaches,
+                  maxBytes,
                 ),
               upload: (downloaded) => uploadAttachment(config, downloaded),
               failurePolicy: {
@@ -277,6 +279,7 @@ export function createWhatsAppWebhookHandler(
                 isSkippableError: (error) =>
                   error instanceof AttachmentValidationError ||
                   error instanceof ContentMismatchError ||
+                  error instanceof AttachmentTooLargeError ||
                   error instanceof WhatsAppNonRetryableError,
               },
             },

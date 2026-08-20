@@ -1,10 +1,35 @@
 /**
- * Finalizes downloaded attachment bytes for runtime upload.
+ * Reads and finalizes downloaded attachment bytes for runtime upload.
+ *
+ * Attachment responses use the same streamed byte limit as webhook bodies.
+ * Content-Length is only an early rejection because providers can omit or
+ * misstate it, so the response stream remains the authoritative ceiling.
  */
 import { fileTypeFromBuffer } from "file-type";
 
-import type { DownloadedAttachment } from "./ingest.js";
+import {
+  AttachmentTooLargeError,
+  type DownloadedAttachment,
+} from "./ingest.js";
 import { validateDownloadedContent } from "../download-validation.js";
+import { readLimitedBodyBytes } from "../http/read-limited-body.js";
+
+export async function readLimitedAttachmentResponse(
+  response: Response,
+  maxBytes: number,
+  attachmentId: string,
+): Promise<ArrayBuffer> {
+  const result = await readLimitedBodyBytes(response, maxBytes);
+  if (result.status === "too_large") {
+    throw new AttachmentTooLargeError(
+      `Attachment ${attachmentId} exceeds the ${maxBytes}-byte limit`,
+    );
+  }
+  if (result.status === "unreadable") {
+    throw new Error(`Failed to read attachment ${attachmentId}`);
+  }
+  return result.bytes.buffer;
+}
 
 type DownloadFinalizationOptions = {
   attachmentId: string;

@@ -432,6 +432,7 @@ describe("whatsapp-webhook", () => {
       "media-id-123",
       expect.objectContaining({ mimeType: "image/jpeg" }),
       expect.objectContaining({ credentials: expect.anything() }),
+      16 * 1024 * 1024,
     );
     expect(uploadAttachmentMock).toHaveBeenCalledTimes(1);
 

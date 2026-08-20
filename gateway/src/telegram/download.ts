@@ -1,4 +1,7 @@
-import { finalizeDownloadedAttachment } from "../attachments/download.js";
+import {
+  finalizeDownloadedAttachment,
+  readLimitedAttachmentResponse,
+} from "../attachments/download.js";
 import type { DownloadedAttachment } from "../attachments/ingest.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
@@ -21,6 +24,7 @@ export async function downloadTelegramFile(
   fileId: string,
   hint?: { fileName?: string; mimeType?: string },
   opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
+  maxBytes = Number.MAX_SAFE_INTEGER,
 ): Promise<DownloadedAttachment> {
   const file = await callTelegramApi<TelegramFile>(
     "getFile",
@@ -55,11 +59,14 @@ export async function downloadTelegramFile(
     );
   }
 
-  return finalizeDownloadedAttachment(await response.arrayBuffer(), {
-    attachmentId: fileId,
-    mimeTypeCandidatesBeforeDetection: [hint?.mimeType],
-    responseContentType: response.headers.get("Content-Type"),
-    filename: hint?.fileName || file.file_path.split("/").pop(),
-    fallbackFilename: () => `file_${fileId}`,
-  });
+  return finalizeDownloadedAttachment(
+    await readLimitedAttachmentResponse(response, maxBytes, fileId),
+    {
+      attachmentId: fileId,
+      mimeTypeCandidatesBeforeDetection: [hint?.mimeType],
+      responseContentType: response.headers.get("Content-Type"),
+      filename: hint?.fileName || file.file_path.split("/").pop(),
+      fallbackFilename: () => `file_${fileId}`,
+    },
+  );
 }

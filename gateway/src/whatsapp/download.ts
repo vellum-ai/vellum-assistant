@@ -1,10 +1,13 @@
-import { finalizeDownloadedAttachment } from "../attachments/download.js";
+import {
+  finalizeDownloadedAttachment,
+  readLimitedAttachmentResponse,
+} from "../attachments/download.js";
+import { AttachmentTooLargeError } from "../attachments/ingest.js";
 import type { DownloadedAttachment } from "../attachments/ingest.js";
 import type { GatewayConfig } from "../config.js";
 import {
   getWhatsAppMediaMetadata,
   downloadWhatsAppMediaBytes,
-  WhatsAppNonRetryableError,
   type WhatsAppApiCaches,
 } from "./api.js";
 
@@ -49,27 +52,29 @@ export async function downloadWhatsAppFile(
   mediaId: string,
   hint?: { fileName?: string; mimeType?: string },
   caches?: WhatsAppApiCaches,
+  maxBytes = config.maxAttachmentBytes.whatsapp ??
+    config.maxAttachmentBytes.default,
 ): Promise<DownloadedAttachment> {
   const meta = await getWhatsAppMediaMetadata(mediaId, caches);
 
-  if (
-    meta.file_size >
-    (config.maxAttachmentBytes.whatsapp ?? config.maxAttachmentBytes.default)
-  ) {
-    throw new WhatsAppNonRetryableError(
-      `WhatsApp media ${mediaId} exceeds size limit (${meta.file_size} > ${config.maxAttachmentBytes.whatsapp ?? config.maxAttachmentBytes.default} bytes)`,
+  if (meta.file_size > maxBytes) {
+    throw new AttachmentTooLargeError(
+      `WhatsApp media ${mediaId} exceeds size limit (${meta.file_size} > ${maxBytes} bytes)`,
     );
   }
 
   const response = await downloadWhatsAppMediaBytes(meta.url, caches);
   // Meta metadata is authoritative; detected bytes are trusted; the caller
   // hint is untrusted and follows byte detection.
-  return finalizeDownloadedAttachment(await response.arrayBuffer(), {
-    attachmentId: mediaId,
-    mimeTypeCandidatesBeforeDetection: [meta.mime_type],
-    mimeTypeCandidatesAfterDetection: [hint?.mimeType],
-    responseContentType: response.headers.get("Content-Type"),
-    filename: hint?.fileName,
-    fallbackFilename: (mimeType) => inferFilename(mediaId, mimeType),
-  });
+  return finalizeDownloadedAttachment(
+    await readLimitedAttachmentResponse(response, maxBytes, mediaId),
+    {
+      attachmentId: mediaId,
+      mimeTypeCandidatesBeforeDetection: [meta.mime_type],
+      mimeTypeCandidatesAfterDetection: [hint?.mimeType],
+      responseContentType: response.headers.get("Content-Type"),
+      filename: hint?.fileName,
+      fallbackFilename: (mimeType) => inferFilename(mediaId, mimeType),
+    },
+  );
 }

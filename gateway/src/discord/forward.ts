@@ -60,14 +60,14 @@ export function createDiscordInboundEventHandler(options: {
             eventAttachments,
             log,
             {
-              download: (attachment) => {
+              download: (attachment, maxBytes) => {
                 const reference = attachmentRefs.get(attachment.fileId);
                 if (!reference) {
                   throw new Error(
                     `No Discord attachment found for ${attachment.fileId}`,
                   );
                 }
-                return downloadDiscordFile(reference);
+                return downloadDiscordFile(reference, maxBytes, log);
               },
               upload: (downloaded) =>
                 uploadAttachment(config, downloaded, {
