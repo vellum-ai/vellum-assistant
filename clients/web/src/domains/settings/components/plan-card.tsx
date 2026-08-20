@@ -519,20 +519,13 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       onAddCredits={() => setAddCreditsOpen(true)}
     />
   ) : null;
-  // A paid tile trades its price for the usage balance, so the two never state
-  // the same allowance twice. The free tile has no dollar figure to obscure,
-  // so "Free Forever" keeps its row and the bar over its usage grants stacks
-  // above it; an account that was never granted any has no bar to stack.
+  // A tile under the flag trades its price for the usage balance, so the two
+  // never state the same allowance twice. A free account that was never granted
+  // any usage has no bar to trade for, so "Free Forever" stays as its footer
+  // rather than leaving the tile with an empty bottom slot.
   let currentFooter: ReactNode = priceRow;
-  if (!isFreePlan && obscureCredits) {
+  if (obscureCredits && (!isFreePlan || usagePanel != null)) {
     currentFooter = usagePanel;
-  } else if (isFreePlan && usagePanel) {
-    currentFooter = (
-      <div className="flex w-full flex-col gap-2">
-        {usagePanel}
-        {priceRow}
-      </div>
-    );
   }
 
   return (

@@ -1,7 +1,11 @@
 name: Windows Package Smoke
 
+# Not wired into PR/main CI: the NSIS silent install intermittently exits 5
+# on the hosted runners. Run by hand, or re-add the package-smoke job to
+# pr-windows.yaml / ci-main-windows.yaml once that is resolved.
 on:
   workflow_call: {}
+  workflow_dispatch: {}
 
 jobs:
   package:

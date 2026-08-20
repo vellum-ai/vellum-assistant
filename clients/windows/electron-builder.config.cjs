@@ -53,13 +53,12 @@ module.exports = {
   // build output) to exist before packing.
   extraResources: [
     { from: "resources/web-dist", to: "web-dist" },
-    { from: `resources/native-helper/${targetArch}`, to: "native-helper" },
-    { from: "resources/tray.ico", to: "tray.ico" },
-    { from: "resources/cli-runtime", to: "cli-runtime" },
     {
       from: `resources/native-helper/${targetArch}`,
       to: `native-helper/${targetArch}`,
     },
+    { from: "resources/tray.ico", to: "tray.ico" },
+    { from: "resources/cli-runtime", to: "cli-runtime" },
     {
       from: `native/Vellum.PreviewHandler/build/${msbuildPlatform}/Release`,
       to: "preview-handler",

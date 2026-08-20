@@ -32,6 +32,13 @@ export interface PlanSpec {
   label: string;
   /** Render the chip as a wrap-capable pill for long summary labels. */
   multiline?: boolean;
+  /**
+   * Give the chip a full-width row of its own instead of letting it flow in the
+   * wrapping row beside the short chips. Read only by the wrapped layout
+   * (`PlanTile`'s `specsWrap`); the vertical stack gives every chip its own row
+   * already.
+   */
+  ownRow?: boolean;
 }
 
 /**
@@ -63,6 +70,10 @@ export interface PackageSpecsOptions {
  * then any static extras from the tier copy (today only the email/subdomain
  * row on Super and Ultra; a new extra inherits the Mail icon until it needs
  * its own mapping).
+ *
+ * The machine and storage chips are short enough to sit side by side; the
+ * credits chip and the extras are sentences, so they take a row each wherever
+ * the chips are laid out as a wrapping row.
  */
 export function packageSpecs(
   pkg: ProPackage,
@@ -80,8 +91,9 @@ export function packageSpecs(
       label:
         opts?.obscuredUsageLabel ??
         `${formatDollars(credits * 100)} in credits included`,
+      ownRow: true,
     },
-    ...extras.map((label) => ({ icon: Mail, label })),
+    ...extras.map((label) => ({ icon: Mail, label, ownRow: true })),
   ];
 }
 
@@ -93,7 +105,7 @@ export function freePlanSpecs(): PlanSpec[] {
   return [
     { icon: Computer, label: `${STANDARD_MACHINE_LABEL} Machine` },
     { icon: HardDrive, label: `${FREE_STORAGE_GIB} GB Storage` },
-    { icon: Coins, label: "Pay as you go credits" },
+    { icon: Coins, label: "Pay as you go credits", ownRow: true },
   ];
 }
 

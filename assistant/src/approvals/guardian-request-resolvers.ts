@@ -62,6 +62,7 @@ import {
   channelDeliversToUserId,
   resolveDeliverCallbackUrlForChannel,
   resolveRequesterDeliveryTarget,
+  stripTurnDestination,
 } from "./guardian-channel-delivery.js";
 
 const log = getLogger("guardian-request-resolvers");
@@ -87,22 +88,6 @@ function shouldUseEphemeral(sourceChannel: string, chatId: string): boolean {
 }
 
 /**
- * Strip the `threadTs` query param from a reply callback URL. The param
- * addresses the guardian's channel thread; reusing it for a DM delivery
- * raises `thread_not_found`. Relative or malformed URLs are returned as-is —
- * they carry no threadTs to strip.
- */
-function stripThreadTsParam(replyCallbackUrl: string): string {
-  try {
-    const url = new URL(replyCallbackUrl);
-    url.searchParams.delete("threadTs");
-    return url.toString();
-  } catch {
-    return replyCallbackUrl;
-  }
-}
-
-/**
  * Deliver the verification code straight to the requester's DM so the
  * guardian is never an out-of-band courier for the secret.
  *
@@ -125,7 +110,7 @@ async function deliverVerificationCodeToRequester(params: {
   verificationCode: string;
   assistantId: string;
 }): Promise<boolean> {
-  const callbackUrl = stripThreadTsParam(params.replyCallbackUrl);
+  const callbackUrl = stripTurnDestination(params.replyCallbackUrl);
 
   try {
     await deliverChannelReply(callbackUrl, {
@@ -1341,7 +1326,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         guardianUserId &&
         !guardianInBandContext.guardianChatId.startsWith("D")
       ) {
-        const dmCallbackUrl = stripThreadTsParam(
+        const dmCallbackUrl = stripTurnDestination(
           guardianInBandContext.replyCallbackUrl,
         );
 

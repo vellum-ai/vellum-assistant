@@ -1,8 +1,12 @@
 /**
  * Regression tests for the guardian-verify-setup skill.
  *
- * Ensures the voice verification flow includes proactive auto-check polling
- * so the user does not have to manually ask whether verification succeeded.
+ * The behaviour under guard is proactive auto-check polling: after a code is
+ * delivered, the skill must poll for completion rather than leaving the user
+ * to ask whether it worked. Originally that existed only for voice, and these
+ * tests pinned the voice section. The three per-channel polling sections were
+ * later merged into one parameterised section, so the assertions here pin the
+ * behaviour in its shared form and cover every channel that polls.
  */
 
 import { readFileSync } from "node:fs";
@@ -23,128 +27,170 @@ const SKILL_PATH = resolve(
 
 const skillContent = readFileSync(SKILL_PATH, "utf-8");
 
+/**
+ * The channels that poll. Telegram is deliberately absent: it confirms through
+ * its own bot-driven flow, so polling it reports nothing.
+ */
+const POLLED_CHANNELS = ["phone", "slack", "discord", "email"] as const;
+
+function section(from: string, to: string): string {
+  const body = skillContent.split(from)[1]?.split(to)[0];
+  // An empty slice would make every `toContain` below fail loudly rather than
+  // silently pass, which is the intent: a renamed heading must break this.
+  return body ?? "";
+}
+
+const pollingSection = () => section("## Auto-Check Polling", "## Step 6");
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("guardian-verify-setup skill — voice auto-followup", () => {
-  test("voice path in Step 3 references the auto-check polling loop", () => {
-    // The voice success instruction in Step 3 must direct the assistant to
-    // begin the polling loop rather than waiting for the user to report back.
-    expect(skillContent).toContain(
-      "immediately begin the voice auto-check polling loop",
+describe("guardian-verify-setup skill: proactive auto-check polling", () => {
+  test("the polling section exists", () => {
+    expect(skillContent).toContain("## Auto-Check Polling");
+  });
+
+  test("Step 3 sends every polled channel into the loop", () => {
+    const step3 = section("## Step 3", "## Step 4");
+    for (const channel of POLLED_CHANNELS) {
+      const bullet = step3
+        .split("\n")
+        .filter((line) =>
+          new RegExp(
+            `^\\s*-\\s+\\*\\*(Phone|Slack|Discord|Email)\\*\\*`,
+            "i",
+          ).test(line),
+        )
+        .find((line) => new RegExp(channel, "i").test(line));
+      expect(bullet, `Step 3 has no bullet for ${channel}`).toBeDefined();
+      expect(bullet).toContain("auto-check polling loop");
+    }
+  });
+
+  test("Step 4 resend sends every polled channel back into the loop", () => {
+    const resend = section("## Step 4", "## Step 5");
+    for (const channel of POLLED_CHANNELS) {
+      expect(
+        new RegExp(`\\*\\*${channel}\\*\\*`, "i").test(resend),
+        `Step 4 has no bullet for ${channel}`,
+      ).toBe(true);
+    }
+    expect(resend).toContain("auto-check polling loop");
+  });
+
+  test("the polling section names every polled channel and excludes Telegram", () => {
+    const body = pollingSection();
+    for (const channel of POLLED_CHANNELS) {
+      expect(body, `polling section omits ${channel}`).toContain(channel);
+    }
+    // Telegram may only appear as an exclusion, never as a channel to poll.
+    expect(body).toContain("Never Telegram");
+  });
+
+  test("the polling command is guarded against an unset channel", () => {
+    const body = pollingSection();
+    // The command is parameterised, so the channel has to be assigned in the
+    // same block. An unset CHANNEL would call the CLI with an empty value.
+    expect(body).toContain('CHANNEL=""');
+    expect(body).toContain('if [ -z "$CHANNEL" ]');
+    expect(body).toContain(
+      'channel-verification-sessions status --channel "$CHANNEL" --json',
     );
   });
 
-  test("voice path in Step 4 (resend) references the auto-check polling loop", () => {
-    // After a voice resend, the same auto-check behavior must kick in.
-    const resendSection =
-      skillContent.split("## Step 4")[1]?.split("## Step 5")[0] ?? "";
-    expect(resendSection).toContain("voice auto-check polling loop");
+  test("the polling section states an interval and a timeout per channel", () => {
+    const body = pollingSection();
+    expect(body).toContain("15s");
+    expect(body).toContain("20s");
+    expect(body).toContain("2 minutes");
+    expect(body).toContain("3 minutes");
   });
 
-  test("contains a Voice Auto-Check Polling section", () => {
-    expect(skillContent).toContain("## Voice Auto-Check Polling");
+  test("the polling section checks for bound: true", () => {
+    expect(pollingSection()).toContain("bound: true");
   });
 
-  test("polling section specifies the correct status command for voice", () => {
-    const pollingSection =
-      skillContent
-        .split("## Voice Auto-Check Polling")[1]
-        ?.split("## Step 6")[0] ?? "";
-    expect(pollingSection).toContain(
-      "assistant channel-verification-sessions status --channel phone --json",
-    );
+  test("success is reported proactively, not on request", () => {
+    const body = pollingSection();
+    expect(body).toContain("success message");
+    expect(body).toContain("Do NOT require the user to ask");
   });
 
-  test("polling section includes ~15 second interval", () => {
-    const pollingSection =
-      skillContent
-        .split("## Voice Auto-Check Polling")[1]
-        ?.split("## Step 6")[0] ?? "";
-    expect(pollingSection).toContain("~15 seconds");
+  test("timeout offers a resend rather than stopping silently", () => {
+    const body = pollingSection();
+    expect(body).toContain("timeout");
+    expect(body).toContain("resend");
   });
 
-  test("polling section includes 2-minute timeout", () => {
-    const pollingSection =
-      skillContent
-        .split("## Voice Auto-Check Polling")[1]
-        ?.split("## Step 6")[0] ?? "";
-    expect(pollingSection).toContain("2 minutes");
+  test("the rebind guard survives, with its false-success reasoning", () => {
+    const body = pollingSection();
+    expect(body).toContain("Rebind guard");
+    expect(body).toContain("verificationSessionId");
+    expect(body).toContain("Non-rebind flows");
   });
 
-  test("polling section checks for bound: true", () => {
-    const pollingSection =
-      skillContent
-        .split("## Voice Auto-Check Polling")[1]
-        ?.split("## Step 6")[0] ?? "";
-    expect(pollingSection).toContain("bound: true");
-  });
-
-  test("polling section includes proactive success confirmation", () => {
-    const pollingSection =
-      skillContent
-        .split("## Voice Auto-Check Polling")[1]
-        ?.split("## Step 6")[0] ?? "";
-    expect(pollingSection).toContain("proactive success message");
-  });
-
-  test("polling section includes timeout fallback with resend/restart offer", () => {
-    const pollingSection =
-      skillContent
-        .split("## Voice Auto-Check Polling")[1]
-        ?.split("## Step 6")[0] ?? "";
-    expect(pollingSection).toContain("timeout");
-    expect(pollingSection).toContain("resend");
-  });
-
-  test("polling section includes rebind guard against false-success from pre-existing binding", () => {
-    const pollingSection =
-      skillContent
-        .split("## Voice Auto-Check Polling")[1]
-        ?.split("## Step 6")[0] ?? "";
-    // Must mention rebind guard concept
-    expect(pollingSection).toContain("Rebind guard");
-    // Must instruct not to trust bound: true alone in a rebind flow
-    expect(pollingSection).toContain(
-      "do NOT treat `bound: true` alone as success",
-    );
-    // Must reference verificationSessionId as the mechanism to detect fresh binding
-    expect(pollingSection).toContain("verificationSessionId");
-    // Must clarify non-rebind flows are unaffected
-    expect(pollingSection).toContain("Non-rebind flows");
-  });
-
-  test("polling is voice-only — does not apply to Telegram", () => {
-    const pollingSection =
-      skillContent
-        .split("## Voice Auto-Check Polling")[1]
-        ?.split("## Step 6")[0] ?? "";
-    expect(pollingSection).toContain("voice-only");
-    expect(pollingSection).toContain("Do NOT poll for Telegram");
-  });
-
-  test('no instruction requires waiting for user to ask "did it work?"', () => {
-    // The skill should never instruct the assistant to wait for the user to
-    // confirm that voice verification worked. The auto-check polling loop
-    // makes this unnecessary.
-    const voiceAutoCheckSection =
-      skillContent
-        .split("## Voice Auto-Check Polling")[1]
-        ?.split("## Step 6")[0] ?? "";
-    expect(voiceAutoCheckSection).toContain("Do NOT require the user to ask");
-    // The voice bullet in Step 3 should not instruct the assistant to wait
-    // for the user to confirm or ask if it worked. Narrow to just the voice
-    // bullet line to avoid false positives from Telegram's "wait for the
-    // user to confirm they clicked the link" which is unrelated to voice.
-    const step3Section =
-      skillContent.split("## Step 3")[1]?.split("## Step 4")[0] ?? "";
-    const voiceBullet = step3Section
+  test("no polled channel's Step 3 bullet tells the assistant to wait", () => {
+    const step3 = section("## Step 3", "## Step 4");
+    // Narrowed to the polled bullets: Telegram's "wait for the user to confirm
+    // they clicked the link" is a real instruction for its own bootstrap flow.
+    const bullets = step3
       .split("\n")
-      .filter((line) => /^\s*-\s+\*\*Phone\*\*/.test(line))
-      .join("\n");
-    expect(voiceBullet).not.toHaveLength(0);
-    expect(voiceBullet).not.toContain("wait for the user to confirm");
-    expect(voiceBullet).not.toContain("ask the user if it worked");
+      .filter((line) =>
+        /^\s*-\s+\*\*(Phone|Slack|Discord|Email)\*\*/i.test(line),
+      );
+    expect(bullets.length).toBe(POLLED_CHANNELS.length);
+    for (const bullet of bullets) {
+      expect(bullet).not.toContain("wait for the user to confirm");
+      expect(bullet).not.toContain("ask the user if it worked");
+    }
+  });
+});
+
+describe("guardian-verify-setup skill: channel coverage", () => {
+  test("every channel the CLI accepts is offered in Step 1", () => {
+    const step1 = section("## Step 1", "## Step 2");
+    for (const channel of [...POLLED_CHANNELS, "telegram"]) {
+      expect(step1, `Step 1 does not offer ${channel}`).toContain(
+        `**${channel}**`,
+      );
+    }
+  });
+
+  test("Step 2 collects a destination for every channel", () => {
+    const step2 = section("## Step 2", "## Step 3");
+    for (const channel of ["Phone", "Telegram", "Slack", "Discord", "Email"]) {
+      expect(step2, `Step 2 has no destination for ${channel}`).toContain(
+        `**${channel}**`,
+      );
+    }
+  });
+
+  test("the missing-secret guardrail names only its exception", () => {
+    const guardrail = skillContent
+      .split("\n")
+      .find((line) => line.includes("Missing `secret` guardrail"));
+    expect(guardrail).toBeDefined();
+    // The rule covers every flow but one, so the line states that exception.
+    // Naming any other channel makes it an enumeration, and an enumeration
+    // drifts out of date the next time a channel is added.
+    expect(guardrail).toContain("except");
+    expect(guardrail).toContain("Telegram");
+    const lower = guardrail!.toLowerCase();
+    for (const channel of ["phone", "voice", "slack", "discord", "email"]) {
+      expect(lower, `guardrail enumerates ${channel}`).not.toContain(channel);
+    }
+  });
+
+  test("the status and revoke guards allow every supported channel", () => {
+    // These enumerate valid CHANNEL values. A channel missing here reads to
+    // the assistant as unsupported at exactly the point a user asks for it.
+    const guards = skillContent
+      .split("\n")
+      .filter((line) => line.includes("MUST set to one of"));
+    expect(guards.length).toBeGreaterThanOrEqual(2);
+    for (const guard of guards) {
+      expect(guard).toContain("discord");
+    }
   });
 });

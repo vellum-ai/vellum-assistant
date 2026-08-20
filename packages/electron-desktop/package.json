@@ -26,6 +26,7 @@
     "./devtools": "./src/devtools.ts",
     "./diagnostics": "./src/diagnostics.ts",
     "./dictation-overlay-window": "./src/dictation-overlay-window.ts",
+    "./dictation-routing": "./src/dictation-routing.ts",
     "./feature-flags": "./src/feature-flags.ts",
     "./feedback": "./src/feedback.ts",
     "./floating-window": "./src/floating-window.ts",
