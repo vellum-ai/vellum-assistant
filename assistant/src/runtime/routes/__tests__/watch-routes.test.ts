@@ -5,6 +5,7 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../../stt/types.js";
+import type { WatchSessionSummary } from "../../../watch/watch-session-manager.js";
 import { WatchSessionManager } from "../../../watch/watch-session-manager.js";
 import { renderWatchTimeline } from "../../../watch/watch-timeline.js";
 import type { HostObservation } from "../../host-observe.js";
@@ -108,17 +109,23 @@ function newSession(overrides: HarnessOverrides = {}) {
       ? new FakeTranscriber()
       : overrides.transcriber;
   const manager = overrides.manager ?? newManager().manager;
+  // The retrospective is a full agent turn, so every session in this file gets
+  // a stand-in for it and the tests read what it was handed.
+  const retros: WatchSessionSummary[] = [];
   const session = new WatchStreamSession(ws, {
     mimeType: "audio/webm",
     manager,
     resolveTranscriber: async () => transcriber,
     resolveActorPrincipalId: async () =>
       "principalId" in overrides ? overrides.principalId : PRINCIPAL_ID,
+    runRetro: async (summary) => {
+      retros.push(summary);
+    },
     ...(overrides.idleTimeoutMs !== undefined
       ? { idleTimeoutMs: overrides.idleTimeoutMs }
       : {}),
   });
-  return { ws, transcriber, manager, session };
+  return { ws, transcriber, manager, session, retros };
 }
 
 describe("watch stream session", () => {
@@ -271,6 +278,45 @@ describe("watch stream session", () => {
     expect(manager.isActive()).toBe(true);
 
     session.destroy();
+  });
+
+  test("teardown runs the retrospective once, on the session it just ended", async () => {
+    const { manager } = newManager();
+    const { ws, transcriber, session, retros } = newSession({ manager });
+    await session.start();
+    const ready = ws.firstOfType("ready")!;
+
+    transcriber!.emit({ type: "final", text: "renaming the export" });
+    await Bun.sleep(5);
+
+    expect(retros).toHaveLength(0);
+
+    session.handleMessage(JSON.stringify({ type: "stop" }));
+    transcriber!.emit({ type: "closed" });
+
+    expect(retros).toHaveLength(1);
+    expect(retros[0]!.sessionId).toBe(ready.sessionId);
+    expect(retros[0]!.conversationId).toBe(ready.conversationId);
+    expect(retros[0]!.entryCount).toBe(2);
+
+    // The close that follows the provider's own is a no-op, so a socket that
+    // reports both does not report the session twice.
+    session.handleClose(1000, "session complete");
+    expect(retros).toHaveLength(1);
+  });
+
+  test("a socket turned away as busy runs no retrospective", async () => {
+    const { manager } = newManager();
+    const first = newSession({ manager });
+    await first.session.start();
+
+    const second = newSession({ manager });
+    await second.session.start();
+
+    expect(second.retros).toHaveLength(0);
+
+    first.session.destroy();
+    expect(first.retros).toHaveLength(1);
   });
 
   test("a dropped socket releases the session slot", async () => {

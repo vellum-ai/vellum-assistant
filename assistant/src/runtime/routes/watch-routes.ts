@@ -33,7 +33,11 @@ import type {
   SttStreamServerEvent,
 } from "../../stt/types.js";
 import { getLogger } from "../../util/logger.js";
-import { WatchSessionManager } from "../../watch/watch-session-manager.js";
+import { runWatchRetro } from "../../watch/watch-retro.js";
+import {
+  WatchSessionManager,
+  type WatchSessionSummary,
+} from "../../watch/watch-session-manager.js";
 
 const log = getLogger("watch-stream");
 
@@ -138,6 +142,10 @@ export interface WatchStreamSessionOptions {
   readonly resolveTranscriber?: () => Promise<StreamingTranscriber | null>;
   /** Resolves the actor the session observes for. */
   readonly resolveActorPrincipalId?: () => Promise<string | undefined>;
+  /**
+   * Runs the end-of-session retrospective. Defaults to {@link runWatchRetro}.
+   */
+  readonly runRetro?: (summary: WatchSessionSummary) => Promise<unknown>;
 }
 
 /**
@@ -518,6 +526,16 @@ export class WatchStreamSession {
           },
           "Watch session ended",
         );
+        // The retrospective is a conversational turn and outlives the socket
+        // by minutes, so teardown starts it rather than waiting on it. It owns
+        // its own failures; nothing here is left to decide.
+        const runRetro = this.options.runRetro ?? runWatchRetro;
+        void runRetro(summary).catch((err: unknown) => {
+          log.warn(
+            { err, sessionId: summary.sessionId },
+            "Watch retrospective threw",
+          );
+        });
       }
     }
 
