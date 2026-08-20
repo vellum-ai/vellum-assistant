@@ -17,6 +17,7 @@
  */
 export type HttpErrorCode =
   | "BAD_REQUEST"
+  | "CREDENTIAL_IN_USE"
   | "UNAUTHORIZED"
   | "FORBIDDEN"
   | "NOT_FOUND"

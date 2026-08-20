@@ -146,6 +146,7 @@ mock.module("../tools/credentials/broker.js", () => ({
 }));
 
 import { persistPromptedCredential } from "../credential-execution/prompted-credential.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   forChatMintsSince,
   resetForChatMintRegistryForTest,
@@ -157,6 +158,12 @@ import {
   revealedValueSince,
 } from "../runtime/reveal-success-registry.js";
 import { ROUTES } from "../runtime/routes/credential-routes.js";
+
+// A delete looks up the provider connections that resolve their auth through
+// the credential, so the inference schema has to exist. No connection is
+// created here: the refusal is covered by
+// runtime/routes/__tests__/credential-delete-in-use.test.ts.
+await initializeDb();
 
 const setRoute = ROUTES.find((r) => r.operationId === "credentials_set");
 const listRoute = ROUTES.find((r) => r.operationId === "credentials_list");
@@ -173,7 +180,11 @@ type ListResponse = {
   }>;
   managedCredentials: unknown[];
 };
-type DeleteResponse = { service: string; field: string };
+type DeleteResponse = {
+  service: string;
+  field: string;
+  affectedConnections: string[];
+};
 
 const SECRET_VALUE = "super-secret-token-value";
 
@@ -786,7 +797,11 @@ describe("credentials routes", () => {
       })) as DeleteResponse;
 
       // THEN the response echoes the identifiers
-      expect(result).toEqual({ service: "vercel", field: "api_token" });
+      expect(result).toEqual({
+        service: "vercel",
+        field: "api_token",
+        affectedConnections: [],
+      });
 
       // AND the secret and metadata are gone
       expect(secureStore.has("vercel:api_token")).toBe(false);
@@ -811,7 +826,11 @@ describe("credentials routes", () => {
       })) as DeleteResponse;
 
       // THEN the response echoes the identifiers
-      expect(result).toEqual({ service: "slack_channel", field: "user_token" });
+      expect(result).toEqual({
+        service: "slack_channel",
+        field: "user_token",
+        affectedConnections: [],
+      });
 
       // AND only the user_token is removed; bot + app tokens remain
       expect(secureStore.has("slack_channel:user_token")).toBe(false);

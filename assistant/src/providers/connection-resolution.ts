@@ -706,7 +706,8 @@ export async function preflightResolvedConfig(
 
   switch (connection.auth.type) {
     case "api_key":
-    case "oauth_subscription": {
+    case "oauth_subscription":
+    case "service_account": {
       const presence = await checkCredentialPresence(
         connection.auth.credential,
       );
