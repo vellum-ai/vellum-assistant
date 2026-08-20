@@ -166,6 +166,17 @@ describe("guardian-verify-setup skill: channel coverage", () => {
     }
   });
 
+  test("the missing-secret guardrail is an exception, not a channel list", () => {
+    const guardrail = skillContent
+      .split("\n")
+      .find((line) => line.includes("Missing `secret` guardrail"));
+    expect(guardrail).toBeDefined();
+    // A list here goes stale every time a channel is added, and did: it named
+    // voice, Telegram and Slack while email and Discord also require a secret.
+    expect(guardrail).toContain("except");
+    expect(guardrail).not.toContain("Telegram chat-ID, and Slack");
+  });
+
   test("the status and revoke guards allow every supported channel", () => {
     // These enumerate valid CHANNEL values. A channel missing here reads to
     // the assistant as unsupported at exactly the point a user asks for it.
