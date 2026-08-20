@@ -47,10 +47,9 @@ export interface TrayModelRuntime {
    * Whether this platform has a companion surface at all.
    *
    * A statement about the build, not about the user: macOS has one and Windows
-   * does not. It replaced the `companion-surface` flag this menu used to be
-   * gated on, which is a distinction worth keeping straight — the flag was a
-   * rollout and this is a platform, so this one never becomes true on Windows
-   * and is never false on macOS.
+   * does not. It never becomes true on Windows and is never false on macOS, so
+   * it decides whether these items exist rather than tracking anything that
+   * changes while the app runs.
    */
   companionSupported: () => boolean;
   companionHidden: () => boolean;

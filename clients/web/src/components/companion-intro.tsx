@@ -15,13 +15,12 @@ import type {
  * The companion's one-time introduction, drawn on the companion itself.
  *
  * **It runs where the thing it describes is.** The surface is the only part of
- * this product that arrives on the user's desktop rather than inside the app's
- * window, and after the `companion-surface` flag was removed it arrives without
- * anyone having asked for it. Explaining it in the app window would put the
- * explanation in the one place the user is not looking when the surface
- * matters, and would leave them reading a description of a pill instead of
- * looking at the pill. So the beats are drawn beside the real surface, over
- * whatever the user actually has on screen.
+ * this product that lives on the user's desktop rather than inside the app's
+ * window, and it is there without the user having opened it. Explaining it in
+ * the app window would put the explanation in the one place the user is not
+ * looking when the surface matters, and would leave them reading a description
+ * of a pill instead of looking at the pill. So the beats are drawn beside the
+ * real surface, over whatever the user actually has on screen.
  *
  * **The avatar is the anchor, not the pill.** The pill changes width from beat
  * to beat as controls are spotlighted, and a card pinned to a box that is

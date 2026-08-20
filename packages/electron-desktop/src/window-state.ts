@@ -135,10 +135,10 @@ export const readCompanionSize = (): CompanionSize => {
 /**
  * Whether the companion's one-time introduction has already run.
  *
- * Absent defaults to `false`, so an install that predates the introduction gets
- * one. That is the right way round: the surface shipped to everyone when the
- * `companion-surface` flag was removed, and the users most owed an explanation
- * of it are the ones who had it appear on their desktop without asking.
+ * Absent defaults to `false`, so an install with nothing recorded gets a run.
+ * That is the right way round: the surface appears on the desktop without the
+ * user having opened it, and the people most owed an explanation of it are the
+ * ones who have not had one.
  */
 export const readCompanionIntroSeen = (): boolean =>
   store().get("companionIntroSeen", false);

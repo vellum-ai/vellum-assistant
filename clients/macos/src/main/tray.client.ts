@@ -49,9 +49,8 @@ export const installTray = (handlers: TrayHandlers): void => {
   configureTrayModel({
     accelerator: acceleratorOption,
     // macOS is the platform that has the surface. Flat `true` rather than a
-    // read of anything: it shipped to everyone when the `companion-surface`
-    // flag was removed, and the tray preference below is now the only thing
-    // that turns it off.
+    // read of anything: every macOS build has one, and the tray preference
+    // below is the only thing that turns it off.
     companionSupported: () => true,
     companionHidden: readCompanionHidden,
     companionSize: readCompanionSurfaceSize,

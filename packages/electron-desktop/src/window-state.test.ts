@@ -371,9 +371,8 @@ describe("companion surface visibility flag", () => {
 describe("companion introduction seen flag", () => {
   /**
    * Absent means the run is still owed. That is the right way round: the
-   * surface shipped to everyone when the `companion-surface` flag was removed,
-   * and the users most owed an explanation are the ones who had it appear on
-   * their desktop without asking for it.
+   * surface appears on the desktop without the user having opened it, and the
+   * people most owed an explanation are the ones who have not had one.
    */
   test("absent flag defaults to not yet seen", () => {
     expect(readCompanionIntroSeen()).toBe(false);

@@ -197,6 +197,34 @@ export function CompanionSurfacePage() {
    * click-through, which still forwards mouse-move, so a pointer genuinely left
    * on the pill re-expands it on the next pixel of movement.
    */
+  // Whether the introduction's card is actually on screen. The beat alone does
+  // not settle it: a call or the composer withdraws the card while main is
+  // still holding the run.
+  const introShown = intro !== null && !typing && call === null;
+
+  /**
+   * Give the desktop back when the introduction's card goes away.
+   *
+   * The card is hit-tested as part of the surface, so a pointer resting on it
+   * has left the window clickable. Skip and "Got it" both remove the card from
+   * under that pointer, and a call arriving does the same, and none of them are
+   * a mouse-move: the hand is holding still on a card that is gone.
+   * Left alone the window stays clickable across a canvas many times the size
+   * of the pill, swallowing presses meant for whatever the user was working in.
+   *
+   * The same correction `closeComposer` makes, and self-correcting the same
+   * way: a click-through window still receives forwarded mouse-move, so a
+   * pointer genuinely left on the pill re-arms on the next pixel of movement.
+   */
+  const introWasShown = useRef(introShown);
+  useEffect(() => {
+    if (introWasShown.current && !introShown) {
+      setHovered(false);
+      setInteractive(false);
+    }
+    introWasShown.current = introShown;
+  }, [introShown]);
+
   const closeComposer = () => {
     setTyping(false);
     setHovered(false);
@@ -395,11 +423,11 @@ export function CompanionSurfacePage() {
           //
           // **Withdrawn, not ended, by a call or the composer.** Those states
           // rebuild the pill out of different controls, so a beat captioning
-          // Talk would be labelling something that is no longer on screen. Main
+          // Talk would be labelling a control that is not on screen. Main
           // still holds the beat, so the run resumes where it was once the user
           // is done with whatever they were actually doing.
           intro={
-            intro === null || typing || call !== null ? null : (
+            !introShown || intro === null ? null : (
               <CompanionIntro
                 beat={intro}
                 growth={growth}

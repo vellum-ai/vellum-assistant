@@ -375,6 +375,31 @@ describe("the companion's introduction", () => {
   });
 
   /**
+   * The card is hit-tested as part of the surface, so a pointer resting on it
+   * has left the window clickable. Ending the run removes the card from under
+   * that pointer without a mouse-move, and left alone the window stays
+   * clickable across a canvas many times the size of the pill, swallowing
+   * presses meant for whatever the user was working in.
+   */
+  test("gives the desktop back when the run ends under the pointer", async () => {
+    STATE.intro = "type";
+    const { container } = render(<CompanionSurfacePage />);
+    await pinPill(container);
+    await pinCard(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 320, clientY: 320 });
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+
+    // "Got it": main records the run and pushes a state with no beat left.
+    STATE.intro = null;
+    pushState();
+
+    expect(container.querySelector('[role="group"]')).toBeNull();
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+  });
+
+  /**
    * A run still going when the user takes a call is a caption over something
    * they are in the middle of. The session outranks it, the way it outranks the
    * pointer.

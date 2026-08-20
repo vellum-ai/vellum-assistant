@@ -37,6 +37,10 @@ import {
   onAvatarChange,
 } from "@vellumai/electron-desktop/avatar";
 import {
+  getName as getAssistantName,
+  onNameChange,
+} from "@vellumai/electron-desktop/identity";
+import {
   createFloatingWindow,
   getFloatingWindow,
 } from "@vellumai/electron-desktop/floating-window";
@@ -811,13 +815,14 @@ export const installCompanionWindow = (): void => {
   );
 
   // One avatar feeds every surface, so a change to the Dock icon is a change
-  // here too. It is also what decides whether there is a surface at all, since
-  // an assistant arriving or going away is what {@link hasAssistant} reads, so
-  // the same publish that repaints the pill is the one that opens or closes it.
-  onAvatarChange(() => {
-    syncCompanionSurface();
-    pushState();
-  });
+  // here too. Repaint only: whether there is a surface to repaint is a question
+  // about the assistant, not about its picture.
+  onAvatarChange(pushState);
+
+  // The assistant arriving or going away, which is what decides whether the
+  // surface belongs on screen at all. The name is published after sign-in and
+  // blanked on sign-out, so this is both edges.
+  onNameChange(syncCompanionSurface);
 
   // The route loads lazily after the window is created, so a state pushed
   // before its subscription registers is dropped. It pulls this once mounted.
@@ -967,19 +972,21 @@ export const setCompanionSurfaceSize = (size: CompanionSize): void => {
 /**
  * Whether there is an assistant for the surface to be.
  *
- * The avatar cache is empty until the app's window publishes one, which it can
- * only do once someone is signed in with an assistant resolved. Before that
- * there is no creature, no name and no conversation, so a pill drawn then is a
- * blank disc floating over a login screen.
+ * The published identity, not the avatar. Main's avatar cache is empty for an
+ * assistant whose avatar is simply unconfigured (`resolveAvatarRender` answers
+ * `none` and the renderer publishes null for both the image and the traits), so
+ * reading it here would keep the surface shut for exactly the users who never
+ * picked one, and the surface has a fallback disc for that case. It is also
+ * empty in the wrong direction: signing out clears the name and leaves the
+ * cached avatar behind, which would leave a pill floating over the login
+ * screen.
  *
- * This is the condition the `companion-surface` flag used to supply by
- * accident. The flag was written into settings by the app's window after
- * sign-in, so "no flag yet" and "nobody signed in yet" were the same state and
- * the gate happened to cover both. Only one of them was ever about a rollout,
- * and it is this one that has to survive the flag being removed.
+ * The name is the identity signal, held in main by `identity.ts`, blank until
+ * the renderer has fetched one and blanked again on sign-out and on an
+ * assistant switch. An assistant the user is signed in to has one whatever its
+ * avatar looks like.
  */
-const hasAssistant = (): boolean =>
-  getCharacter() !== null || getAvatarPng() !== null;
+const hasAssistant = (): boolean => getAssistantName() !== null;
 
 /**
  * Whether the surface belongs on screen, given an assistant to draw and the
