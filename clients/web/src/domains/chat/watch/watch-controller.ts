@@ -203,8 +203,15 @@ function openSession(
 
   let closed = false;
   let handle: WatchSession | null = null;
-  let unsubscribeAssistant: (() => void) | null = null;
-  let unsubscribeLiveVoice: (() => void) | null = null;
+  /**
+   * Store subscriptions that live exactly as long as this session does.
+   *
+   * One list rather than a named handle each, because teardown treats them
+   * identically and the next one is then free. A leaked subscription is
+   * invisible in behavior, since teardown is idempotent, so nothing would
+   * point at a handle that got added here and not released below.
+   */
+  const subscriptions: (() => void)[] = [];
   // Null until the runtime answers `ready`, which is the moment the session
   // exists. Everything before that is a socket.
   let readyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -241,10 +248,9 @@ function openSession(
       return;
     }
     closed = true;
-    unsubscribeAssistant?.();
-    unsubscribeAssistant = null;
-    unsubscribeLiveVoice?.();
-    unsubscribeLiveVoice = null;
+    for (const unsubscribe of subscriptions.splice(0)) {
+      unsubscribe();
+    }
     clearReadyTimer();
     capture.shutdown();
     if (
@@ -318,14 +324,16 @@ function openSession(
    * agreeing with what the user is already being shown, rather than a rule
    * that has to be repeated at each new door somebody adds.
    */
-  unsubscribeLiveVoice = useLiveVoiceStore.subscribe((state) => {
-    if (isLiveVoiceSessionActive(state.state)) {
-      console.info(
-        "watch-controller: ending the session, a call has taken the microphone",
-      );
-      teardown();
-    }
-  });
+  subscriptions.push(
+    useLiveVoiceStore.subscribe((state) => {
+      if (isLiveVoiceSessionActive(state.state)) {
+        console.info(
+          "watch-controller: ending the session, a call has taken the microphone",
+        );
+        teardown();
+      }
+    }),
+  );
 
   /**
    * The session belongs to the assistant it was started for, and ends when
@@ -343,14 +351,16 @@ function openSession(
    * benign, and the safe reading of ambiguity here is to stop capturing; the
    * next press starts a session against whatever is active then.
    */
-  unsubscribeAssistant = useResolvedAssistantsStore.subscribe((state) => {
-    if (state.activeAssistantId !== ownerAssistantId) {
-      console.info(
-        "watch-controller: ending the session, its assistant is no longer active",
-      );
-      teardown();
-    }
-  });
+  subscriptions.push(
+    useResolvedAssistantsStore.subscribe((state) => {
+      if (state.activeAssistantId !== ownerAssistantId) {
+        console.info(
+          "watch-controller: ending the session, its assistant is no longer active",
+        );
+        teardown();
+      }
+    }),
+  );
 
   /**
    * The runtime accepted the session, which is the first news that one exists.
