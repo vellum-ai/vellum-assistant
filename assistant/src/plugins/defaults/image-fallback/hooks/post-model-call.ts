@@ -57,7 +57,7 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   markVisionRecoveryAttempted(ctx.conversationId);
 
   const visionProfileKey = findVisionProfile();
-  const captioned = await captionOutboundImagesInMessages(
+  const { replaced: captioned } = await captionOutboundImagesInMessages(
     ctx.messages,
     ctx.conversationId,
     visionProfileKey,

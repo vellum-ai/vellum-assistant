@@ -40,11 +40,16 @@ export function emitCannedMessageComplete(
 }
 
 /**
- * Persist a canned assistant "card" — a pre-composed reply that bypasses the
- * agent loop (the /compact, /clean, and summarize-up-to result cards). The
- * row is stamped `messageKind: "system_card"` so transcripts render it as a
- * standalone system notice instead of assistant-persona speech, and display
- * merging never folds it into an adjacent assistant turn.
+ * Persist a system card: a daemon-authored notice that bypasses the agent
+ * loop. The row is stamped `messageKind: "system_card"` so transcripts render
+ * it as a standalone system notice instead of assistant-persona speech, and
+ * display merging never folds it into an adjacent assistant turn.
+ *
+ * The card is persisted and announced to clients but not appended to the live
+ * conversation's working history, so a card written while a turn is in flight
+ * cannot leave a trailing assistant message for the next provider call to
+ * continue from. Callers whose card ends the turn use
+ * {@link persistCannedAssistantCard}, which also seats it in the live history.
  *
  * Cards are announced with `message_complete` (persisted assistant id), the
  * persisted-seq anchor advance (so a stale /messages reseed cannot erase the
@@ -57,6 +62,40 @@ export function emitCannedMessageComplete(
  * deliberately omitted; it would stream the card into the tail assistant
  * bubble as if the persona were speaking.
  *
+ * Returns the persisted card's id and the in-memory message it persisted.
+ */
+export async function persistSystemCard(opts: {
+  conversationId: string;
+  text: string;
+  metadata: Record<string, unknown>;
+}): Promise<{ id: string; message: Message }> {
+  const { conversationId, text, metadata } = opts;
+  const assistantMsg = createAssistantMessage(text);
+  const persistedAssistant = await addMessage(
+    conversationId,
+    "assistant",
+    JSON.stringify(assistantMsg.content),
+    { metadata: { ...metadata, messageKind: SYSTEM_CARD_MESSAGE_KIND } },
+  );
+  emitCannedMessageComplete(
+    broadcastMessage,
+    conversationId,
+    persistedAssistant.id,
+  );
+  recordConversationPersistedSeq(conversationId, getCurrentSeq());
+  publishConversationMessagesChanged(conversationId);
+  return { id: persistedAssistant.id, message: assistantMsg };
+}
+
+/**
+ * Persist a canned assistant "card" (a pre-composed reply that bypasses the
+ * agent loop: the /compact, /clean, and summarize-up-to result cards) and
+ * seat it in the live conversation's history so the turn that follows sees it.
+ * The row is stamped `messageKind: "system_card"` so transcripts render it as a
+ * standalone system notice instead of assistant-persona speech, and display
+ * merging never folds it into an adjacent assistant turn. Delivery is
+ * {@link persistSystemCard}'s.
+ *
  * Returns the persisted card's message id so callers can link related
  * records to it (e.g. the compaction `llm_request_logs` row).
  */
@@ -67,20 +106,7 @@ export async function persistCannedAssistantCard(opts: {
   metadata: Record<string, unknown>;
 }): Promise<string> {
   const { conversation, conversationId, text, metadata } = opts;
-  const assistantMsg = createAssistantMessage(text);
-  const persistedAssistant = await addMessage(
-    conversationId,
-    "assistant",
-    JSON.stringify(assistantMsg.content),
-    { metadata: { ...metadata, messageKind: SYSTEM_CARD_MESSAGE_KIND } },
-  );
-  conversation.getMessages().push(assistantMsg);
-  emitCannedMessageComplete(
-    broadcastMessage,
-    conversationId,
-    persistedAssistant.id,
-  );
-  recordConversationPersistedSeq(conversationId, getCurrentSeq());
-  publishConversationMessagesChanged(conversationId);
-  return persistedAssistant.id;
+  const card = await persistSystemCard({ conversationId, text, metadata });
+  conversation.getMessages().push(card.message);
+  return card.id;
 }
