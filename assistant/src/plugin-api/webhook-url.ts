@@ -16,6 +16,7 @@
 
 import { createHash } from "node:crypto";
 
+import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { resolveCallbackUrl } from "../inbound/platform-callback-registration.js";
 import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
@@ -153,10 +154,14 @@ export async function resolveWebhookUrl(
     sourceIdentifier,
   );
 
-  // An ingress URL reaches the gateway through the tunnel, which forwards the
-  // request path verbatim and admits it only when it matches a claimed path
-  // byte for byte. The claim above is made under the slashless spelling, so
-  // that is the spelling to hand out. Only a managed callback URL goes through
-  // Django, so only that one is given the trailing slash.
-  return resolved === ingressUrl ? resolved : withTrailingSlash(resolved);
+  // A pod's ingress URL reaches the gateway through the tunnel, which forwards
+  // the request path verbatim and admits it only when it matches a claimed
+  // path byte for byte. The claim above is made under the slashless spelling,
+  // so that is the spelling to hand out. On a pod the supplier URL is only
+  // returned once its path is claimed, so this condition holds exactly for
+  // tunnel URLs; every other branch keeps the trailing slash.
+  if (getIsPlatform() && resolved === ingressUrl) {
+    return resolved;
+  }
+  return withTrailingSlash(resolved);
 }
