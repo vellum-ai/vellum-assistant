@@ -29,6 +29,18 @@
  *     unauthenticated API calls; the single-use token travels in the POST
  *     body and is validated by the gateway handlers.
  *
+ * **`/v1/watch/stream` is deliberately absent, and adding it does not make
+ * Watch work in managed deployments.** Watch is self-hosted only in this
+ * version. The client refuses to open a session over a paired ingress at all
+ * (`isPairedGatewayIngress` in
+ * `clients/web/src/domains/chat/voice/live-voice/connection.ts`), and a
+ * session has nothing to observe without a locally connected `host_cu`
+ * desktop client on the other end. So a pattern added here changes nothing a
+ * user can see: it opens a public managed route that still cannot carry a
+ * session, and it does so silently, because no test fails and no client
+ * behavior changes. Making Watch managed is client and product work, and the
+ * routing entry is the last step of it rather than the first.
+ *
  * If you add a new public route to `gateway/src/index.ts` that must be
  * reachable through the Velay tunnel (i.e. anything an external provider
  * calls or any unauthenticated callback endpoint), add a matching pattern
@@ -40,6 +52,9 @@ export const VELAY_ALLOWED_PATHS: readonly string[] = Object.freeze([
   "^/v1/audio/",
   "^/v1/live-voice$",
   "^/v1/stt/stream$",
+  // No `^/v1/watch/stream$` here on purpose. See the note above: the client
+  // refuses a paired ingress and a session needs a local desktop client, so
+  // this line would open a managed route that still cannot carry a session.
   "^/assistant/credentials/enter$",
   "^/v1/credential-requests/(peek|submit)$",
 ]);
