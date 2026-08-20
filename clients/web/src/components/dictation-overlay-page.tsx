@@ -65,8 +65,9 @@ export function DictationOverlayPage() {
 
   // Tell main where the Stop control sits so it can hit-test the cursor
   // itself on platforms where forwarded mouse moves never reach this
-  // click-through window (Windows). The pill's top row is static for the
-  // whole recording state, so one measurement per session is enough.
+  // click-through window (Windows). View > Zoom relayouts the page
+  // mid-recording and moves the button, so watch the viewport and the
+  // button and re-report on every change.
   useEffect(() => {
     if (state?.kind !== "recording") {
       return;
@@ -75,14 +76,21 @@ export function DictationOverlayPage() {
     if (!button) {
       return;
     }
-    const rect = button.getBoundingClientRect();
-    setDictationOverlayHitRegion({
-      x: rect.left,
-      y: rect.top,
-      width: rect.width,
-      height: rect.height,
-    });
+    const report = () => {
+      const rect = button.getBoundingClientRect();
+      setDictationOverlayHitRegion({
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+      });
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(document.documentElement);
+    observer.observe(button);
     return () => {
+      observer.disconnect();
       setDictationOverlayHitRegion(null);
     };
   }, [state?.kind]);

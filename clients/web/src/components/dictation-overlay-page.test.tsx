@@ -114,6 +114,59 @@ describe("DictationOverlayPage", () => {
     expect(setHitRegionMock.mock.calls.at(-1)).toEqual([null]);
   });
 
+  test("re-measures the hit region when the layout changes mid-recording", async () => {
+    currentState = {
+      kind: "recording",
+      transcription: "",
+      audioLevel: 0.5,
+    };
+
+    const observerCallbacks: Array<() => void> = [];
+    const originalResizeObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) {
+        observerCallbacks.push(() =>
+          callback([], this as unknown as ResizeObserver),
+        );
+      }
+
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as typeof ResizeObserver;
+
+    try {
+      const { getByLabelText } = render(<DictationOverlayPage />);
+      const stopButton = await waitFor(() => getByLabelText("Stop recording"));
+      expect(observerCallbacks.length).toBeGreaterThan(0);
+
+      stopButton.getBoundingClientRect = () =>
+        ({
+          left: 44,
+          right: 64,
+          top: 8,
+          bottom: 28,
+          x: 44,
+          y: 8,
+          width: 20,
+          height: 20,
+          toJSON: () => ({}),
+        }) as DOMRect;
+      for (const fire of observerCallbacks) {
+        fire();
+      }
+
+      expect(setHitRegionMock.mock.calls.at(-1)?.[0]).toEqual({
+        x: 44,
+        y: 8,
+        width: 20,
+        height: 20,
+      });
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver;
+    }
+  });
+
   test("does not render the stop control after recording ends", async () => {
     currentState = { kind: "processing" };
 
