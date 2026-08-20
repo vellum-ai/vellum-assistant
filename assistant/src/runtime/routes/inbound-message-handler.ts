@@ -1692,11 +1692,10 @@ async function persistBackfilledSlackMessage(params: {
 }): Promise<boolean> {
   const { message } = params;
 
-  // Mirror the live ingress secret gate (`runSecretIngressCheck`). Backfill
-  // re-fetches message bodies straight from Slack history, so a body the live
-  // path would have refused is otherwise written verbatim the first time a
-  // channel binds, reproducing a credential the sender issued weeks earlier.
-  // Runs before any file hydration so a refused row costs no downloads.
+  // Backfill writes externally-authored bodies into a conversation, so it
+  // carries the same secret gate as live channel ingress
+  // (`runSecretIngressCheck`). Runs before file hydration, so a refused row
+  // costs no downloads.
   const secretScan = checkIngressForSecrets(message.text ?? "");
   if (secretScan.blocked) {
     log.warn(

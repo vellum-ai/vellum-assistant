@@ -589,9 +589,8 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
   });
 
   test("backfill refuses history rows carrying a secret, keeping the rest", async () => {
-    // A credential the sender posted weeks ago is still a credential when
-    // history is replayed. The live ingress path blocks this body outright,
-    // so the backfill path must not write it in through the side door.
+    // Live ingress refuses a body carrying a credential; replayed history
+    // carries the same bodies, so backfill refuses them on the same terms.
     const leakedKey = "AKIA3H7QWERTY9MNBVC2";
     backfillDmMock.mockImplementation(async () => [
       makeBackfilledMessage({
