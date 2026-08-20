@@ -506,6 +506,36 @@ describe("watch retrospective", () => {
     expect(prompt.match(/<external_content/g)).toHaveLength(1);
   });
 
+  test("a render at the cap survives the wrap with its newest entry intact", async () => {
+    // The worst case the budget is derived for: a render filling the
+    // renderer's whole byte budget, made of the shortest token the escapers
+    // match, so escaping expands it as far as it can go. The wrapper truncates
+    // from the end and the render is ordered oldest first, so what a too-tight
+    // cap eats is the newest entry.
+    const { sessionId, conversationId } = recordObservation(
+      "<watch-timeline".repeat(12_000),
+    );
+    appendNarration(sessionId, {
+      conversationId,
+      text: "and that is the very last thing I did",
+      atMs: 900_000,
+    });
+
+    const render = renderWatchTimeline(sessionId);
+    // The test is only meaningful while the render is actually near the cap.
+    expect(render.text.length).toBeGreaterThan(100_000);
+    expect(render.text).toContain("and that is the very last thing I did");
+
+    const prompt = buildWatchRetroPrompt(render);
+
+    // The assertion that matters: the tail is still there. A truncation notice
+    // can be absent while the end of the session is gone.
+    expect(prompt).toContain("and that is the very last thing I did");
+    expect(prompt).toContain("</watch-timeline>");
+    expect(prompt).toContain("</external_content>");
+    expect(prompt).not.toContain("[... truncated at");
+  });
+
   test("the wrapper keeps the renderer's byte budget rather than its own", async () => {
     // `tool_result` defaults to 20,000 characters. A render the timeline's own
     // budget allowed must survive intact rather than be cut to a sixth of it.
