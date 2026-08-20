@@ -93,6 +93,19 @@ export function saveComposerPillAccessPreset(
   storage.save(assistantId, { ...current, accessPresetId });
 }
 
+/**
+ * Drop the stored access preset while leaving the profile label alone. For
+ * when the server's answer invalidates the seed without supplying a
+ * replacement this build can name.
+ */
+export function clearComposerPillAccessPreset(assistantId: string): void {
+  const current = storage.load(assistantId);
+  if (current.accessPresetId === null) {
+    return;
+  }
+  storage.save(assistantId, { ...current, accessPresetId: null });
+}
+
 export function saveComposerPillProfileLabel(
   assistantId: string,
   profileLabel: string,

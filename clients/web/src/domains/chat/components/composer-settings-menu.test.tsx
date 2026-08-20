@@ -1090,6 +1090,25 @@ describe("pills seeded from the last launch", () => {
     expect(loadComposerPillSnapshot("assistant-1").accessPresetId).toBeNull();
   });
 
+  test("an unrecognized answer clears the seed it contradicts", async () => {
+    // The stored preset is from the old vocabulary, so this build would keep
+    // repainting it on every cold launch while the server holds something it
+    // cannot name. A non-null answer with no matching preset invalidates the
+    // seed rather than leaving it to reconcile again every boot.
+    seedPillSnapshot({ accessPresetId: "relaxed", profileLabel: "Balanced" });
+    getGlobalThresholdsMock.mockImplementation(async () => ({
+      interactive: "paranoid",
+    }));
+
+    renderMenu();
+
+    await waitFor(() => {
+      const stored = loadComposerPillSnapshot("assistant-1");
+      expect(stored.accessPresetId).toBeNull();
+      expect(stored.profileLabel).toBe("Smart");
+    });
+  });
+
   test("a conversation override is not what the next launch boots from", async () => {
     // The seed stands in for every conversation the assistant opens, so it
     // tracks the global default rather than one thread's override.

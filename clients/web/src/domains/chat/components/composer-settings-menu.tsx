@@ -35,6 +35,7 @@ import { conversationsByIdInferenceprofilePut } from "@/generated/daemon/sdk.gen
 import { useComposerCompact } from "@/domains/chat/components/chat-composer/composer-compact";
 import { preventPressFocusTransfer } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import {
+  clearComposerPillAccessPreset,
   saveComposerPillAccessPreset,
   saveComposerPillProfileLabel,
   useComposerPillSnapshot,
@@ -566,14 +567,21 @@ export function ComposerSettingsMenu({
   // values, not the per-conversation effective ones, so a conversation-scoped
   // override can't become the seed every other conversation opens with.
   useEffect(() => {
+    if (serverGlobalInteractive === null) {
+      return;
+    }
     // Only an exact match: `presetFromThreshold` answers with the conservative
     // preset for a threshold it doesn't recognize, and freezing that into the
     // seed would show a stricter level than the server holds for as long as the
-    // two sides disagree about the vocabulary.
+    // two sides disagree about the vocabulary. An answer this build cannot name
+    // also invalidates whatever the seed held: repainting the old preset on
+    // every launch is the same skew, one launch removed, so the field clears
+    // instead. A null answer proves nothing and leaves the seed alone.
     const preset = THRESHOLD_PRESETS.find(
       (p) => p.riskThreshold === serverGlobalInteractive,
     );
     if (!preset) {
+      clearComposerPillAccessPreset(assistantId);
       return;
     }
     saveComposerPillAccessPreset(assistantId, preset.id);
