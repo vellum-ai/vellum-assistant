@@ -752,6 +752,13 @@
     "topPLabel": "Top P",
     "verbosityLabel": "Verbosidad"
   },
+  "profileCheck": {
+    "profileError": "Guardado, pero una solicitud de prueba con este perfil falló: {detail} Revisa el modelo y los parámetros del perfil.",
+    "providerError": "Guardado, pero una solicitud de prueba con este perfil falló: {detail} Revisa la conexión de proveedor \"{connection}\".",
+    "providerErrorUnnamed": "Guardado, pero una solicitud de prueba con este perfil falló: {detail} Revisa la conexión de proveedor del perfil.",
+    "transient": "Guardado, pero una solicitud de prueba con este perfil no se pudo completar: {detail} Puede ser temporal.",
+    "unknown": "Guardado, pero una solicitud de prueba con este perfil falló: {detail}"
+  },
   "profileDetailPanel": {
     "createProfile": "Crear perfil",
     "defaultTitle": "Perfil",

@@ -752,6 +752,13 @@
     "topPLabel": "Top P",
     "verbosityLabel": "Verbosity"
   },
+  "profileCheck": {
+    "profileError": "Saved, but a test request through this profile failed: {detail} Check the profile's model and parameters.",
+    "providerError": "Saved, but a test request through this profile failed: {detail} Check the provider connection \"{connection}\".",
+    "providerErrorUnnamed": "Saved, but a test request through this profile failed: {detail} Check the profile's provider connection.",
+    "transient": "Saved, but a test request through this profile could not complete: {detail} This may be temporary.",
+    "unknown": "Saved, but a test request through this profile failed: {detail}"
+  },
   "profileDetailPanel": {
     "createProfile": "Create Profile",
     "defaultTitle": "Profile",
