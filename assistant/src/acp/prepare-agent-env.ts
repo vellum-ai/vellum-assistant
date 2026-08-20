@@ -25,9 +25,11 @@ import { basename } from "node:path";
 import { FailedDependencyError } from "../runtime/routes/errors.js";
 import { credentialBroker } from "../tools/credentials/broker.js";
 import {
+  type CredentialMetadata,
   getCredentialMetadata,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
+import { serverUseDenialReason } from "../tools/credentials/tool-policy.js";
 import { getLogger } from "../util/logger.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
@@ -110,21 +112,54 @@ export function grantAcpSpawnPolicy(
 }
 
 /**
- * Whether the `acp_spawn` broker read for `acp/<field>` would actually be
- * permitted, mirroring {@link ensureAcpCredentialPolicy}'s grant rules: a
- * missing or empty `allowedTools` is auto-granted `acp_spawn` at spawn time, so
- * it can read; a non-empty explicit policy is respected as-is, so it can read
- * only when it lists `acp_spawn`. Lets a connected-status check avoid reporting
- * "connected" for a token the spawn is policy-denied from reading (which would
- * otherwise hide the repair CTA and trap the user in a missing-token loop).
+ * Why the `acp_spawn` broker read for `acp/<field>` would be denied, or
+ * `undefined` when it would be permitted. Lets a connected-status check avoid
+ * reporting "connected" for a token the spawn is policy-denied from reading
+ * (which would otherwise hide the repair CTA and trap the user in a
+ * missing-token loop).
+ *
+ * The verdict comes from `serverUseDenialReason`, the single policy source the
+ * broker itself consults, so the status check and the spawn read can never
+ * disagree. The stored metadata is first projected through the repair
+ * {@link ensureAcpCredentialPolicy} performs at spawn time (missing metadata,
+ * or metadata whose `allowedTools` is empty, is granted `acp_spawn`; everything
+ * else on the record, `allowedDomains` included, is preserved). That projection
+ * is computed in memory and never written: this runs on a side-effect-free GET
+ * route, so it has to predict what the spawn's ensure-then-read sequence would
+ * do rather than perform it.
  */
-export function acpSpawnCanReadCredential(field: string): boolean {
+export function acpSpawnCredentialDenialReason(
+  field: string,
+): string | undefined {
   const meta = getCredentialMetadata(ACP_SERVICE, field);
+  return serverUseDenialReason(
+    projectEnsuredAcpPolicy(meta, field),
+    ACP_SPAWN_TOOL,
+    ACP_SERVICE,
+    field,
+  );
+}
+
+/** The metadata {@link ensureAcpCredentialPolicy} would leave behind, unwritten. */
+function projectEnsuredAcpPolicy(
+  meta: CredentialMetadata | undefined,
+  field: string,
+): CredentialMetadata {
   if (!meta) {
-    return true;
+    return {
+      credentialId: "",
+      service: ACP_SERVICE,
+      field,
+      allowedTools: [ACP_SPAWN_TOOL],
+      allowedDomains: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
   }
-  const tools = meta.allowedTools ?? [];
-  return tools.length === 0 || tools.includes(ACP_SPAWN_TOOL);
+  if ((meta.allowedTools ?? []).length === 0) {
+    return { ...meta, allowedTools: [ACP_SPAWN_TOOL] };
+  }
+  return meta;
 }
 
 /**

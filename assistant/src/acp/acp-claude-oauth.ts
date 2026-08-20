@@ -17,15 +17,18 @@ import {
   getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
+import { getLogger } from "../util/logger.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
   classifyAnthropicToken,
 } from "./acp-credentials.js";
 import {
-  acpSpawnCanReadCredential,
+  acpSpawnCredentialDenialReason,
   grantAcpSpawnPolicy,
 } from "./prepare-agent-env.js";
+
+const log = getLogger("acp:claude-oauth");
 
 /**
  * Verified Claude Code public OAuth client. PKCE-only (no client secret);
@@ -142,20 +145,32 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
  * spawn, so keeping Connect offered (rather than self-dismissing) lets the user
  * repair the bad entry by connecting a real OAuth token.
  *
- * Likewise, a token the `acp_spawn` policy can't read (an explicit
- * `allowedTools` that omits `acp_spawn`) is NOT connected: the vault holds a
- * value but the spawn's broker read is denied, so self-dismissing the card would
- * hide the only repair CTA while every spawn keeps failing. Keep the card up in
- * that denied-policy case too.
+ * Likewise, a token the spawn's broker read would be denied (an explicit
+ * `allowedTools` that omits `acp_spawn`, or a domain-restricted policy) is NOT
+ * connected: the vault holds a value but every spawn fails, so self-dismissing
+ * the card would hide the only repair CTA. That half of the answer is delegated
+ * to `acpSpawnCredentialDenialReason`, which evaluates the exact policy the
+ * spawn-time broker read applies, so "connected" means precisely "the spawn
+ * would get this token". The token-shape guard stays here instead: the broker
+ * knows nothing about Anthropic token formats.
  */
 export async function hasAcpClaudeToken(): Promise<boolean> {
   const token = await getSecureKeyAsync(
     credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD),
   );
-  return (
-    token != null &&
-    token.length > 0 &&
-    classifyAnthropicToken(token) !== "api_key" &&
-    acpSpawnCanReadCredential(ACP_OAUTH_TOKEN_FIELD)
-  );
+  if (token == null || token.length === 0) {
+    return false;
+  }
+  if (classifyAnthropicToken(token) === "api_key") {
+    return false;
+  }
+  const denialReason = acpSpawnCredentialDenialReason(ACP_OAUTH_TOKEN_FIELD);
+  if (denialReason !== undefined) {
+    log.debug(
+      { field: ACP_OAUTH_TOKEN_FIELD, reason: denialReason },
+      "Connect Claude status: token present but spawn read would be denied",
+    );
+    return false;
+  }
+  return true;
 }
