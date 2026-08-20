@@ -98,14 +98,35 @@ export function useConversationStarters(
     refetchInterval: (q) => shouldPoll(q.state.data?.status),
   });
 
-  const [awaitExpired, setAwaitExpired] = useState(false);
+  // Expiry is keyed to the enabled query's identity and read synchronously,
+  // so the first committed render after an assistant switch or a re-enable
+  // can never wear the previous query's expired answer. A post-commit reset
+  // would paint one frame with that stale answer, and for an assistant known
+  // to produce starters that frame collapses the reserved dock and re-expands
+  // it, moving the composer during the transition the reserve exists to hold
+  // still. Same render-phase adjustment as `useAssistantProducedStartersAtOpen`.
+  const awaitKey = enabled ? (assistantId ?? null) : null;
+  const [awaitState, setAwaitState] = useState<{
+    key: string | null;
+    expired: boolean;
+  }>(() => ({ key: awaitKey, expired: false }));
+  if (awaitState.key !== awaitKey) {
+    setAwaitState({ key: awaitKey, expired: false });
+  }
+  const awaitExpired = awaitState.key === awaitKey && awaitState.expired;
+
   useEffect(() => {
     if (!enabled) {
       return;
     }
-    setAwaitExpired(false);
+    const key = assistantId ?? null;
     const timer = setTimeout(() => {
-      setAwaitExpired(true);
+      setAwaitState((current) => {
+        if (current.key !== key || current.expired) {
+          return current;
+        }
+        return { key, expired: true };
+      });
     }, awaitDeadlineMs);
     return () => {
       clearTimeout(timer);

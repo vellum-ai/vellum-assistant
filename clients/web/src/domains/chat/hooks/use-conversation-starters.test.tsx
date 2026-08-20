@@ -15,8 +15,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { useEffect } from "react";
 import * as realRQ from "@tanstack/react-query";
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { cleanup, render, renderHook, waitFor } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type {
@@ -442,6 +443,61 @@ describe("useConversationStarters await deadline", () => {
     });
 
     rerender({ id: "asst-2" });
+    expect(result.current.isAwaitingStarters).toBe(true);
+  });
+
+  test("a switch away from an expired assistant never commits an expired frame", async () => {
+    // `rerender` flushes effects before returning, so asserting on the final
+    // value cannot see a stale frame. The probe records every COMMITTED frame
+    // instead: a post-commit reset paints one expired frame first, which
+    // collapses the reserved dock and re-expands it mid-transition.
+    useQueryStub = {
+      data: { starters: [], total: 0, status: "generating" },
+      isLoading: false,
+      refetch: async () => {},
+    };
+
+    const committed: boolean[] = [];
+    function Probe({ id }: { id: string }) {
+      const { isAwaitingStarters } = useConversationStarters(id, {
+        awaitDeadlineMs: 10,
+      });
+      useEffect(() => {
+        committed.push(isAwaitingStarters);
+      });
+      return null;
+    }
+
+    const { rerender } = render(<Probe id="asst-1" />);
+    await waitFor(() => {
+      expect(committed.at(-1)).toBe(false);
+    });
+
+    committed.length = 0;
+    rerender(<Probe id="asst-2" />);
+
+    expect(committed.length).toBeGreaterThan(0);
+    expect(committed.every((frame) => frame === true)).toBe(true);
+  });
+
+  test("re-enabling the same assistant restarts the deadline", async () => {
+    useQueryStub = {
+      data: { starters: [], total: 0, status: "generating" },
+      isLoading: false,
+      refetch: async () => {},
+    };
+
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string | null }) =>
+        useConversationStarters(id, { awaitDeadlineMs: 10 }),
+      { initialProps: { id: "asst-1" as string | null } },
+    );
+    await waitFor(() => {
+      expect(result.current.isAwaitingStarters).toBe(false);
+    });
+
+    rerender({ id: null });
+    rerender({ id: "asst-1" });
     expect(result.current.isAwaitingStarters).toBe(true);
   });
 });
