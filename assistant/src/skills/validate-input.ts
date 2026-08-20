@@ -84,7 +84,10 @@ function coercePropertiesOfType(
   input: Record<string, unknown>,
   schema: Record<string, unknown> | undefined,
   declaredType: string,
-  coerceValue: (value: unknown) => { value: unknown } | undefined,
+  coerceValue: (
+    value: unknown,
+    subSchema: Record<string, unknown>,
+  ) => { value: unknown } | undefined,
 ): Record<string, unknown> {
   if (!schema) {
     return input;
@@ -99,7 +102,7 @@ function coercePropertiesOfType(
     if (!isPlainObject(rawSubSchema) || rawSubSchema.type !== declaredType) {
       continue;
     }
-    const result = coerceValue(input[key]);
+    const result = coerceValue(input[key], rawSubSchema);
     if (!result) {
       continue;
     }
@@ -181,42 +184,99 @@ export function coerceStringNumbers(
 }
 
 /**
- * Decode JSON-string-encoded arrays for properties the schema declares as
- * `type: "array"`.
+ * Repair the shapes a model sends for a property the schema declares as
+ * `type: "array"`, when the intent is unambiguous.
  *
- * Some providers' models serialize an array argument as the JSON *text* of
- * that array (`"[\"a\",\"b\"]"`) instead of as a JSON array. The value is
- * exactly what the caller meant, and the model cannot see the difference, so
- * rejecting it is unrecoverable from its side: the observed recovery is to
- * drop the field and retry. That is how a skill gets scaffolded with no
- * `activation_hints` (losing the intent-routing signal that makes it findable
- * later) or with its companion `files` folded into the body instead.
+ * Two shapes dominate what models actually send, and neither is recoverable
+ * from the model's side: it cannot see the difference between what it meant
+ * and what arrived, so the observed recovery is to drop the field and retry.
+ * That is how a skill gets scaffolded with no `activation_hints` (losing the
+ * intent-routing signal that makes it findable later) or with its companion
+ * `files` folded into the body instead.
  *
- * Only text that parses as a JSON array is decoded, which is what keeps the
- * decode unambiguous rather than a guess at intent; anything else (a bare
- * phrase, a truncated fragment) is left for the validator to reject. The
- * per-element `items.type` check still runs on the decoded array, so a wrong
- * element type keeps its own self-correcting error.
+ * - **The JSON text of the array** (`"[\"a\",\"b\"]"`) rather than the array.
+ *   Decoded back into the array it spells.
+ * - **A single element where a list was expected**: a bare phrase for a
+ *   string-item array (`avoid_when: "when the repo is dirty"`), or one object
+ *   for an object-item array. Wrapped into a one-element array.
  *
- * Pure: returns a new object when a decode applies, otherwise returns `input`
+ * A string is wrapped only when the schema declares string items and the text
+ * does not open a JSON structure it failed to close, and an object only when
+ * every key it carries is a declared property of the item schema. A shape that
+ * means something else (a truncated array, a map keyed by something the item
+ * schema does not name) is left for the validator to reject rather than
+ * silently reinterpreted. Per-element `items.type` checks still run on the
+ * repaired array, so a genuinely wrong element keeps its own error.
+ *
+ * Pure: returns a new object when a repair applies, otherwise returns `input`
  * unchanged. Never mutates `input` or `schema`.
  */
-export function coerceStringArrays(
+export function coerceArrayShapes(
   input: Record<string, unknown>,
   schema: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  return coercePropertiesOfType(input, schema, "array", (value) => {
-    if (typeof value !== "string") {
-      return undefined;
+  return coercePropertiesOfType(input, schema, "array", (value, subSchema) => {
+    const items = isPlainObject(subSchema.items) ? subSchema.items : undefined;
+    const itemType = typeof items?.type === "string" ? items.type : undefined;
+
+    if (typeof value === "string") {
+      const decoded = parseJson(value);
+      if (Array.isArray(decoded)) {
+        return { value: decoded };
+      }
+      if (itemType !== "string") {
+        return undefined;
+      }
+      if (typeof decoded === "string" && decoded.trim()) {
+        return { value: [decoded] };
+      }
+      // Text that opens a JSON structure and then fails to parse is a
+      // truncated or malformed array, not a phrase. Wrapping it would store
+      // the broken JSON as if it were the element the caller wrote.
+      const trimmed = value.trim();
+      if (!trimmed || trimmed.startsWith("[") || trimmed.startsWith("{")) {
+        return undefined;
+      }
+      return { value: [value] };
     }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(value);
-    } catch {
-      return undefined;
+
+    if (
+      itemType === "object" &&
+      isPlainObject(value) &&
+      matchesItemProperties(value, items)
+    ) {
+      return { value: [value] };
     }
-    return Array.isArray(parsed) ? { value: parsed } : undefined;
+
+    return undefined;
   });
+}
+
+/** Parse `text` as JSON, or `undefined` when it does not parse. */
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether `value` reads as one element of `itemSchema`: every key it carries
+ * is a property that schema declares. An object that fails this is some other
+ * shape (most often a map keyed by data rather than by field name), which is
+ * not a single element and must not be wrapped as one.
+ */
+function matchesItemProperties(
+  value: Record<string, unknown>,
+  itemSchema: Record<string, unknown> | undefined,
+): boolean {
+  const properties = itemSchema?.properties;
+  if (!isPlainObject(properties)) {
+    return false;
+  }
+  const keys = Object.keys(value);
+  return keys.length > 0 && keys.every((key) => key in properties);
 }
 
 /**
@@ -287,8 +347,13 @@ export function validateInputAgainstSchema(
     }
     if (typeof declaredType === "string" && SUPPORTED_TYPES.has(declaredType)) {
       const type = declaredType as SupportedType;
-      if (type === "array" && typeof value === "string") {
-        errors.push(`${key} must be an array: pass a JSON array, not a string`);
+      if (
+        type === "array" &&
+        (typeof value === "string" || isPlainObject(value))
+      ) {
+        errors.push(
+          `${key} must be an array: pass a JSON array, not ${typeof value === "string" ? "a string" : "an object"}`,
+        );
         continue;
       }
       if (!matchesType(value, type)) {

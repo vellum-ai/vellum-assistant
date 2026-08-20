@@ -1,12 +1,13 @@
 import type { SkillToolEntry } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
 import {
-  coerceStringArrays,
+  coerceArrayShapes,
   coerceStringBooleans,
   coerceStringNumbers,
   validateInputAgainstSchema,
 } from "../../skills/validate-input.js";
 import { bundledToolInputMisuseMessage } from "../shared/input-misuse.js";
+import { bundledToolInputRepairs } from "../shared/input-repairs.js";
 import type { ExecutionTarget } from "../tool-types.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 import { runSkillToolScript } from "./skill-script-runner.js";
@@ -45,8 +46,18 @@ export function createSkillTool(
       context: ToolContext,
     ): Promise<ToolExecutionResult> {
       const schema = entry.input_schema as Record<string, unknown> | undefined;
-      const coercedInput = coerceStringArrays(
-        coerceStringNumbers(coerceStringBooleans(input, schema), schema),
+      // Tool-specific repairs first: they rewrite keys and shapes the schema
+      // does not describe, and the generic coercions below then see the
+      // declared parameter names. Repairs describe first-party tools, so only
+      // bundled skills consult them.
+      const repairedInput = bundled
+        ? bundledToolInputRepairs(entry.name, input)
+        : input;
+      const coercedInput = coerceArrayShapes(
+        coerceStringNumbers(
+          coerceStringBooleans(repairedInput, schema),
+          schema,
+        ),
         schema,
       );
       const validation = validateInputAgainstSchema(
