@@ -12,11 +12,6 @@ export interface PaymentMethodRowProps {
   onRemove: () => void;
   removing?: boolean;
   showRemove?: boolean;
-  /**
-   * Draw Remove as plain red text rather than an outlined button, which is how
-   * the row reads under `obscure-credits`.
-   */
-  borderlessRemove?: boolean;
 }
 
 export function PaymentMethodRow({
@@ -26,7 +21,6 @@ export function PaymentMethodRow({
   onRemove,
   removing = false,
   showRemove = true,
-  borderlessRemove = false,
 }: PaymentMethodRowProps) {
   return (
     <div
@@ -69,7 +63,7 @@ export function PaymentMethodRow({
         </Button>
         {showRemove && (
           <Button
-            variant={borderlessRemove ? "dangerGhost" : "dangerOutline"}
+            variant="dangerGhost"
             onClick={onRemove}
             disabled={removing}
             data-testid="payment-method-remove"

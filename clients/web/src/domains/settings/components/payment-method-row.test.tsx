@@ -90,29 +90,13 @@ describe("PaymentMethodRow", () => {
     expect(onRemove).toHaveBeenCalledTimes(1);
   });
 
-  test("outlines Remove by default, which is the flag-off row", () => {
+  test("draws Remove as plain red text", () => {
     const { getByTestId } = render(
       <PaymentMethodRow
         brand="Visa"
         last4="4242"
         onUpdateCard={() => {}}
         onRemove={() => {}}
-      />,
-    );
-    const remove = getByTestId("payment-method-remove");
-    expect(remove.className).toContain(
-      "border-[var(--system-negative-strong)]",
-    );
-  });
-
-  test("borderlessRemove draws Remove as plain red text", () => {
-    const { getByTestId } = render(
-      <PaymentMethodRow
-        brand="Visa"
-        last4="4242"
-        onUpdateCard={() => {}}
-        onRemove={() => {}}
-        borderlessRemove
       />,
     );
     const remove = getByTestId("payment-method-remove");
@@ -139,5 +123,6 @@ describe("PaymentMethodRow", () => {
     const remove = getByTestId("payment-method-remove") as HTMLButtonElement;
     expect(remove.disabled).toBe(true);
     expect(remove.textContent).toContain("Removing…");
+    expect(remove.className).toContain("border-transparent");
   });
 });
