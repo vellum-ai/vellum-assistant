@@ -386,16 +386,12 @@ const BARE_MODIFIER_PRESETS: ReadonlyArray<{
   activator: VoiceModeActivator;
 }> = [
   {
-    label: "Ctrl",
-    activator: { kind: "modifierOnly", modifiers: ["control"] },
+    label: "Ctrl+Shift",
+    activator: { kind: "modifierOnly", modifiers: ["control", "shift"] },
   },
   {
     label: "Alt",
     activator: { kind: "modifierOnly", modifiers: ["option"] },
-  },
-  {
-    label: "Ctrl+Shift",
-    activator: { kind: "modifierOnly", modifiers: ["control", "shift"] },
   },
 ];
 
