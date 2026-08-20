@@ -21,7 +21,10 @@ import {
 } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
 import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
-import { usePlanUsageBalance } from "@/domains/settings/hooks/use-plan-usage-balance";
+import {
+  includedMonthlyCreditsUsd,
+  usePlanUsageBalance,
+} from "@/domains/settings/hooks/use-plan-usage-balance";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
@@ -325,6 +328,12 @@ function RecommendedUpgrade({
   );
 }
 
+function findProPlan(
+  plans: PlanListResponse["plans"] | undefined,
+): ProPlan | null {
+  return plans?.find((p): p is ProPlan => p.id === "pro") ?? null;
+}
+
 /**
  * The catalog package a sub is cleanly pinned to, or null when its specs are
  * unknowable: a base plan, a customized or unpinned sub, or a pin the live
@@ -339,9 +348,8 @@ function resolveCurrentPackage(
   if (!subscription || subscription.plan_id === "base" || !isCleanPin(pin)) {
     return null;
   }
-  const proPlan = plans?.find((p): p is ProPlan => p.id === "pro");
   return (
-    proPlan?.packages?.find(
+    findProPlan(plans)?.packages?.find(
       (p) => p.key === pin.key && p.version === pin.version,
     ) ?? null
   );
@@ -363,7 +371,11 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   );
   const usage = usePlanUsageBalance({
     subscription: subscriptionQuery.data,
-    currentPackage,
+    includedCreditsUsd: includedMonthlyCreditsUsd(
+      subscriptionQuery.data,
+      currentPackage,
+      findProPlan(plansQuery.data?.plans),
+    ),
   });
 
   if (subscriptionQuery.isLoading || plansQuery.isLoading) {
@@ -408,7 +420,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     !isCancelling && !isCanceled && subscription.current_period_end;
   const showCancellation = isCancelling && !isCanceled && cancelDate;
 
-  const proPlan = plans.find((p): p is ProPlan => p.id === "pro");
+  const proPlan = findProPlan(plans);
   // Empty while the `pro-packages` flag is off, which hides the next tile.
   const packages = proPlan?.packages ?? [];
   const currentKey = subscription.package?.key ?? null;

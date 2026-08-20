@@ -1,14 +1,16 @@
 /**
  * The Plan section's Usage Balance reading, behind the `obscure-credits` flag:
- * managed usage spend so far this billing cycle measured against the package's
- * included credits.
+ * managed usage spend so far this billing cycle measured against the monthly
+ * credits the subscription includes.
  */
 
 import { useQuery } from "@tanstack/react-query";
 
 import type { ProPackage } from "@/domains/settings/billing/package-types";
+import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import { organizationsBillingUsageTotalsRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
-import type { SubscriptionResponse } from "@/generated/api/types.gen";
+import type { ProPlan, SubscriptionResponse } from "@/generated/api/types.gen";
+import { creditTierKeyUsd } from "@/lib/billing/credit-tiers";
 import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 
 export interface PlanUsageBalance {
@@ -20,7 +22,46 @@ export interface PlanUsageBalance {
 
 interface PlanUsageBalanceArgs {
   subscription: SubscriptionResponse | undefined;
-  currentPackage: ProPackage | null;
+  /** Monthly included credits in USD, or null when no bar should be drawn. */
+  includedCreditsUsd: number | null;
+}
+
+/**
+ * What a Pro sub's own credit tier is worth per month: the catalog's amount,
+ * or the amount encoded in the tier key when the catalog has dropped a
+ * grandfathered tier. Mirrors how `currentTierRows` prices the same tier.
+ */
+function creditTierUsd(
+  tier: string | null | undefined,
+  proPlan: ProPlan | null | undefined,
+): number | null {
+  return (
+    findCreditTier(proPlan ?? undefined, tier)?.credits_usd ??
+    creditTierKeyUsd(tier)
+  );
+}
+
+/**
+ * The monthly credits a Pro subscription includes, or null when no honest
+ * denominator exists and the bar must not render.
+ *
+ * A clean pin states its bundle on the stock package. A customized or unpinned
+ * (Custom) sub matches no package, so it is priced from the credit tier it
+ * actually holds. Anything that resolves to nothing, or to a non-positive
+ * amount, has no bar to draw rather than one divided by zero.
+ */
+export function includedMonthlyCreditsUsd(
+  subscription: SubscriptionResponse | undefined,
+  currentPackage: ProPackage | null,
+  proPlan: ProPlan | null | undefined,
+): number | null {
+  if (subscription?.plan_id !== "pro") {
+    return null;
+  }
+  const usd =
+    currentPackage?.credits_usd ??
+    creditTierUsd(subscription.selected_credit_tier, proPlan);
+  return typeof usd === "number" && usd > 0 ? usd : null;
 }
 
 /** UTC calendar date (YYYY-MM-DD), the form the usage endpoint's range takes. */
@@ -60,12 +101,9 @@ function clamp01(value: number): number {
 export function usePlanUsageBalance(
   args: PlanUsageBalanceArgs,
 ): PlanUsageBalance | null {
-  const { subscription, currentPackage } = args;
+  const { subscription, includedCreditsUsd: credits } = args;
   const obscureCredits = useObscureCredits();
 
-  const included = currentPackage?.credits_usd;
-  const credits =
-    typeof included === "number" && included > 0 ? included : null;
   const periodEnd = subscription?.current_period_end ?? null;
   // A platform that predates `current_period_start` simply omits it, so an
   // absent value derives the cycle start from the end instead of failing.
@@ -80,6 +118,7 @@ export function usePlanUsageBalance(
     obscureCredits &&
     subscription?.plan_id === "pro" &&
     credits != null &&
+    credits > 0 &&
     periodEnd != null &&
     from != null;
 

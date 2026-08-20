@@ -235,6 +235,37 @@ function proMightySubscription(): SubscriptionResponse {
   };
 }
 
+/**
+ * A customized (Custom) Pro sub: pinned but diverged, so it matches no stock
+ * package and its bundle can only be read off the credit tier it holds.
+ */
+function customProSubscription(tier: string | null): SubscriptionResponse {
+  return {
+    ...proMightySubscription(),
+    package: { key: "mighty", name: "Mighty", version: 1, customized: true },
+    selected_credit_tier: tier,
+  };
+}
+
+/** The Super-bearing catalog, plus the credit tiers a Custom sub is priced by. */
+function plansWithCreditTiers(): PlanListResponse {
+  const plans = plansWithSuper();
+  const pro = plans.plans.find((p) => p.id === "pro");
+  if (pro && "packages" in pro) {
+    (pro as { credit_tiers?: unknown }).credit_tiers = [
+      {
+        tier: "credits_45",
+        label: "45 credits",
+        credits_usd: 45,
+        price_cents: 4500,
+        lookup_key: "credits_45",
+        legacy: false,
+      },
+    ];
+  }
+  return plans;
+}
+
 /** Catalog with Mighty, Super, and Ultra — so Ultra is the top package. */
 function plansWithUltra(): PlanListResponse {
   const plans = plansWithSuper();
@@ -1139,6 +1170,48 @@ describe("PlanCard with obscure-credits on", () => {
     expect(
       container.querySelector('[data-testid="plan-card-price"]'),
     ).toBeNull();
+  });
+
+  test("a Custom sub with a credit tier gets the bar and still no chips", async () => {
+    // A customized pin matches no stock package, so the bar is measured
+    // against the credit tier the sub actually holds.
+    usageTotalUsd = "9";
+    const { container, findByTestId } = renderCardInteractive(
+      customProSubscription("credits_45"),
+      plansWithCreditTiers(),
+      () => {},
+    );
+
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("20% used");
+    expect(usageTotalsCalls).toBeGreaterThan(0);
+    // A Custom sub still enumerates nothing and still quotes no price.
+    const current = within(currentTile(container));
+    expect(current.queryByText("Mighty usage, reset monthly")).toBeNull();
+    expect(current.queryByText("$25 in credits included")).toBeNull();
+    expect(current.queryByText("10 GB Storage")).toBeNull();
+    expect(current.queryByTestId("plan-card-price")).toBeNull();
+  });
+
+  test("a Custom sub with no credit tier gets no bar and no read", async () => {
+    const { container } = renderCardInteractive(
+      customProSubscription(null),
+      plansWithCreditTiers(),
+      () => {},
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // Nothing states what this sub includes, so there is no denominator and
+    // the endpoint is never asked.
+    expect(
+      container.querySelector('[data-testid="plan-usage-balance"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="plan-card-price"]'),
+    ).toBeNull();
+    expect(usageTotalsCalls).toBe(0);
   });
 
   test("a free plan keeps its Free Forever footer and its own chips", () => {

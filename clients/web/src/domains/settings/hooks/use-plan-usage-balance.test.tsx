@@ -1,11 +1,13 @@
 /**
- * Tests for usePlanUsageBalance: the Plan section's usage-balance reading.
+ * Tests for the Plan section's usage-balance reading.
  *
  * The hook only speaks when every input is trustworthy: the `obscure-credits`
- * flag on, a Pro sub, a package with a positive credit bundle, and a settled
- * totals read. Most of these assert the null cases that keep a wrong number
- * off the card. The usage endpoint is driven from the SDK boundary, mirroring
- * the other billing hook tests.
+ * flag on, a Pro sub, a positive included-credit amount, and a settled totals
+ * read. Most of these assert the null cases that keep a wrong number off the
+ * card. `includedMonthlyCreditsUsd` is the pure half that resolves that
+ * amount, from a clean pin's stock package or from the credit tier a Custom
+ * sub holds. The usage endpoint is driven from the SDK boundary, mirroring the
+ * other billing hook tests.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -15,7 +17,7 @@ import type { ReactNode } from "react";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type { ProPackage } from "@/domains/settings/billing/package-types";
-import type { SubscriptionResponse } from "@/generated/api/types.gen";
+import type { ProPlan, SubscriptionResponse } from "@/generated/api/types.gen";
 
 let totalsQuery: Record<string, string> | undefined;
 let totalsCalls = 0;
@@ -41,9 +43,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
 
 const { useClientFeatureFlagStore } =
   await import("@/stores/client-feature-flag-store");
-const { usePlanUsageBalance, utcMonthBefore } = await import(
-  "./use-plan-usage-balance"
-);
+const { includedMonthlyCreditsUsd, usePlanUsageBalance, utcMonthBefore } =
+  await import("./use-plan-usage-balance");
 
 function setObscureCredits(value: boolean): void {
   act(() => {
@@ -91,7 +92,7 @@ function wrapper() {
 
 function renderBalance(args: {
   subscription: SubscriptionResponse | undefined;
-  currentPackage: ProPackage | null;
+  includedCreditsUsd: number | null;
 }) {
   return renderHook(() => usePlanUsageBalance(args), { wrapper: wrapper() });
 }
@@ -109,10 +110,10 @@ afterEach(() => {
 });
 
 describe("usePlanUsageBalance", () => {
-  test("reports spend against the package's included credits", async () => {
+  test("reports spend against the included credits", async () => {
     const { result } = renderBalance({
       subscription: proSubscription(),
-      currentPackage: mightyPackage(25),
+      includedCreditsUsd: 25,
     });
 
     await waitFor(() => {
@@ -126,7 +127,7 @@ describe("usePlanUsageBalance", () => {
     totalsUsd = "80";
     const { result } = renderBalance({
       subscription: proSubscription(),
-      currentPackage: mightyPackage(25),
+      includedCreditsUsd: 25,
     });
 
     await waitFor(() => {
@@ -138,7 +139,7 @@ describe("usePlanUsageBalance", () => {
   test("derives the cycle start by subtracting a month from the end", async () => {
     const { result } = renderBalance({
       subscription: proSubscription(),
-      currentPackage: mightyPackage(25),
+      includedCreditsUsd: 25,
     });
 
     await waitFor(() => {
@@ -155,7 +156,7 @@ describe("usePlanUsageBalance", () => {
       subscription: proSubscription({
         current_period_start: "2026-07-14T09:30:00Z",
       }),
-      currentPackage: mightyPackage(25),
+      includedCreditsUsd: 25,
     });
 
     await waitFor(() => {
@@ -168,7 +169,7 @@ describe("usePlanUsageBalance", () => {
     setObscureCredits(false);
     const { result } = renderBalance({
       subscription: proSubscription(),
-      currentPackage: mightyPackage(25),
+      includedCreditsUsd: 25,
     });
 
     await act(async () => {
@@ -181,7 +182,7 @@ describe("usePlanUsageBalance", () => {
   test("stays silent on a base plan", async () => {
     const { result } = renderBalance({
       subscription: proSubscription({ plan_id: "base", package: null }),
-      currentPackage: null,
+      includedCreditsUsd: null,
     });
 
     await act(async () => {
@@ -191,10 +192,10 @@ describe("usePlanUsageBalance", () => {
     expect(totalsCalls).toBe(0);
   });
 
-  test("stays silent when the package carries no credit bundle", async () => {
+  test("stays silent when no included-credit amount is resolvable", async () => {
     const { result } = renderBalance({
       subscription: proSubscription(),
-      currentPackage: mightyPackage(null),
+      includedCreditsUsd: null,
     });
 
     await act(async () => {
@@ -208,7 +209,7 @@ describe("usePlanUsageBalance", () => {
     totalsShouldFail = true;
     const { result } = renderBalance({
       subscription: proSubscription(),
-      currentPackage: mightyPackage(25),
+      includedCreditsUsd: 25,
     });
 
     await waitFor(() => {
@@ -218,6 +219,117 @@ describe("usePlanUsageBalance", () => {
       await Promise.resolve();
     });
     expect(result.current).toBeNull();
+  });
+});
+
+describe("includedMonthlyCreditsUsd", () => {
+  const proPlan = {
+    id: "pro",
+    credit_tiers: [
+      { tier: "credits_45", label: "45 credits", credits_usd: 45 },
+      { tier: "credits_50", label: "50 credits", credits_usd: 50 },
+    ],
+  } as unknown as ProPlan;
+
+  /** A customized (Custom) Pro sub, which matches no stock package. */
+  function customSub(tier: string | null): SubscriptionResponse {
+    return proSubscription({
+      package: { key: "mighty", name: "Mighty", version: 1, customized: true },
+      selected_credit_tier: tier,
+    });
+  }
+
+  test("a clean pin's stock bundle wins over the held tier", () => {
+    // The pin states the bundle outright, so the tier is never consulted, even
+    // when it would price differently.
+    expect(
+      includedMonthlyCreditsUsd(
+        proSubscription({ selected_credit_tier: "credits_50" }),
+        mightyPackage(25),
+        proPlan,
+      ),
+    ).toBe(25);
+  });
+
+  test("a Custom sub is priced from its credit tier in the catalog", () => {
+    expect(
+      includedMonthlyCreditsUsd(customSub("credits_45"), null, proPlan),
+    ).toBe(45);
+  });
+
+  test("a tier the catalog dropped falls back to the amount in its key", () => {
+    // A grandfathered tier is absent from the catalog, but the org still pays
+    // for it, so the `credits_<usd>` key carries the amount.
+    expect(
+      includedMonthlyCreditsUsd(customSub("credits_25"), null, proPlan),
+    ).toBe(25);
+  });
+
+  test("an unpinned sub is priced from its tier the same way", () => {
+    expect(
+      includedMonthlyCreditsUsd(
+        proSubscription({ package: null, selected_credit_tier: "credits_45" }),
+        null,
+        proPlan,
+      ),
+    ).toBe(45);
+  });
+
+  test("no credit tier means no denominator", () => {
+    expect(
+      includedMonthlyCreditsUsd(customSub(null), null, proPlan),
+    ).toBeNull();
+  });
+
+  test("an unparseable tier key means no denominator", () => {
+    expect(
+      includedMonthlyCreditsUsd(customSub("legacy_bundle"), null, proPlan),
+    ).toBeNull();
+  });
+
+  test("a zero-credit bundle means no denominator", () => {
+    const freeBundle = {
+      id: "pro",
+      credit_tiers: [{ tier: "credits_0", label: "None", credits_usd: 0 }],
+    } as unknown as ProPlan;
+    expect(
+      includedMonthlyCreditsUsd(customSub("credits_0"), null, freeBundle),
+    ).toBeNull();
+    expect(
+      includedMonthlyCreditsUsd(proSubscription(), mightyPackage(0), proPlan),
+    ).toBeNull();
+  });
+
+  test("a clean pin with no bundle falls through to the held tier", () => {
+    expect(
+      includedMonthlyCreditsUsd(
+        proSubscription({ selected_credit_tier: "credits_50" }),
+        mightyPackage(null),
+        proPlan,
+      ),
+    ).toBe(50);
+  });
+
+  test("prices a Custom sub even with no catalog in hand", () => {
+    // The plans query has not landed yet, or the catalog carries no credit
+    // tiers; the key still says what the sub holds.
+    expect(includedMonthlyCreditsUsd(customSub("credits_45"), null, null)).toBe(
+      45,
+    );
+  });
+
+  test("a base plan never has a bar", () => {
+    expect(
+      includedMonthlyCreditsUsd(
+        proSubscription({ plan_id: "base", package: null }),
+        null,
+        proPlan,
+      ),
+    ).toBeNull();
+  });
+
+  test("an absent subscription never has a bar", () => {
+    expect(includedMonthlyCreditsUsd(undefined, null, proPlan)).toBeNull();
   });
 });
 
