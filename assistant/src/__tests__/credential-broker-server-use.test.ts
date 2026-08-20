@@ -46,6 +46,7 @@ import {
   _setMetadataPath,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
+import { serverUseDenialReason } from "../tools/credentials/tool-policy.js";
 
 // ---------------------------------------------------------------------------
 // Tests — serverUse (publish_page / unpublish_page regression)
@@ -624,5 +625,60 @@ describe("CredentialBroker.serverUseById", () => {
       throw new Error("expected denial");
     }
     expect(result.reason).toContain("no stored value");
+  });
+
+  test("tool denial reason matches the shared server-use policy exactly", async () => {
+    const meta = upsertCredentialMetadata("fal", "api_key", {
+      allowedTools: ["media_proxy"],
+    });
+    await setSecureKeyAsync(credentialKey("fal", "api_key"), "fal-secret-key");
+
+    const result = await broker.serverUseById({
+      credentialId: meta.credentialId,
+      requestingTool: "unauthorized_tool",
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error("expected denial");
+    }
+    const expected = serverUseDenialReason(
+      meta,
+      "unauthorized_tool",
+      "fal",
+      "api_key",
+    );
+    if (!expected) {
+      throw new Error("expected a denial reason from the shared policy");
+    }
+    expect(result.reason).toBe(expected);
+  });
+
+  test("domain denial reason matches the shared server-use policy exactly", async () => {
+    const meta = upsertCredentialMetadata("github", "oauth_token", {
+      allowedTools: ["media_proxy"],
+      allowedDomains: ["github.com"],
+    });
+    await setSecureKeyAsync(credentialKey("github", "oauth_token"), "gho_test");
+
+    const result = await broker.serverUseById({
+      credentialId: meta.credentialId,
+      requestingTool: "media_proxy",
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error("expected denial");
+    }
+    const expected = serverUseDenialReason(
+      meta,
+      "media_proxy",
+      "github",
+      "oauth_token",
+    );
+    if (!expected) {
+      throw new Error("expected a denial reason from the shared policy");
+    }
+    expect(result.reason).toBe(expected);
   });
 });
