@@ -9,10 +9,14 @@
  * network, so this is the hop that makes the feature work from a browser at
  * all.
  *
- * The auth gate and the frame pump are `runtime-audio-stream.ts`'s, shared
- * with `/v1/stt/stream`. The two carry different audio to different ends of
- * the runtime and are the same proxy, so they are one implementation with two
- * queries rather than two implementations that agree today.
+ * The token gate and the frame pump are `runtime-audio-stream.ts`'s, shared
+ * with `/v1/stt/stream`: the two carry different audio to different ends of
+ * the runtime and are otherwise the same proxy, so they are one implementation
+ * with two queries rather than two implementations that agree today.
+ *
+ * What is this route's own is who may open it. Watch is guardian-only and
+ * dictation is not, so the pin below is layered here rather than added to the
+ * shared gate, where it would take dictation with it.
  */
 
 import {
@@ -73,6 +77,9 @@ export function createWatchStreamWebsocketHandler(config: GatewayConfig) {
     req: Request,
     server: import("bun").Server<unknown>,
   ): Promise<Response | undefined> {
+    // Checked here as well as in the shared gate, because the managed path
+    // below skips that gate entirely: without this, a managed caller sending a
+    // plain request would fall through to `server.upgrade` and get a 500.
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Upgrade Required", { status: 426 });
     }

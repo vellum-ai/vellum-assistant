@@ -11,13 +11,20 @@
  * upstream path and which query parameters travel with it, which is why those
  * are the arguments here.
  *
- * **The auth posture is the point, and it is deliberately not configurable.**
- * The downstream half requires an actor edge JWT and refuses service tokens,
- * so a service credential cannot be replayed into a client-facing socket. The
- * upstream half carries only {@link mintServiceToken}, never anything the
+ * **What the shared gate settles, and what it deliberately leaves open.** It
+ * settles that the caller is *an* actor on this assistant: a valid edge JWT,
+ * not revoked, carrying an actor principal, so a service credential cannot be
+ * replayed into a client-facing socket. It does not settle whether that actor
+ * is the one a particular surface belongs to, which is a question only the
+ * route can answer. `/v1/watch/stream` answers it with `guardian-pin.ts`;
+ * `/v1/stt/stream` answers that any actor will do. Adding the pin here would
+ * take dictation with it.
+ *
+ * The upstream half carries only {@link mintServiceToken}, never anything the
  * client supplied: the runtime is unreachable from the public internet and
  * resolves the acting principal from its own guardian rather than from a
- * header this proxy could be talked into forwarding.
+ * header this proxy could be talked into forwarding. That is also why the pin
+ * matters, since it leaves the daemon unable to tell one caller from another.
  */
 
 import type { Logger } from "pino";

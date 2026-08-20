@@ -2,10 +2,15 @@
  * `/v1/stt/stream`: the client's dictation audio, proxied to the runtime's
  * streaming transcriber.
  *
- * The auth gate and the frame pump are `runtime-audio-stream.ts`'s, shared
+ * The token gate and the frame pump are `runtime-audio-stream.ts`'s, shared
  * with the watch stream next door, so the two client-facing audio proxies
- * cannot drift into two ideas of who may open one. What is this route's own is
- * the query it accepts and carries upstream.
+ * cannot drift on what a valid caller looks like. Where they deliberately do
+ * differ is who may open one: watch is guardian-only and pins the upgrade to
+ * the binding, and dictation takes any valid actor, which is why that pin is a
+ * route opt-in rather than part of the shared gate.
+ *
+ * The rest of what is this route's own is the query it accepts and carries
+ * upstream.
  */
 
 import {
