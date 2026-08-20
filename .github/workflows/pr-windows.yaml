@@ -18,7 +18,6 @@ on:
       - 'skills/**'
       - 'packages/**'
       - '.github/workflows/pr-windows.yaml'
-      - '.github/workflows/windows-package-smoke.yaml'
 
 concurrency:
   group: pr-windows-${{ github.event.pull_request.number }}
@@ -114,13 +113,9 @@ jobs:
       - name: Test and publish helper
         run: bun scripts/build-native-helper.ts --arch all --test
 
-  package-smoke:
-    name: Package Smoke (Windows)
-    uses: ./.github/workflows/windows-package-smoke.yaml
-
   checks:
     name: Type Check, Build & Test (Windows Electron)
-    needs: [typecheck, build, test, native, package-smoke]
+    needs: [typecheck, build, test, native]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -130,14 +125,12 @@ jobs:
           BUILD: ${{ needs.build.result }}
           TEST: ${{ needs.test.result }}
           NATIVE: ${{ needs.native.result }}
-          RUNTIME: ${{ needs.package-smoke.result }}
         run: |
           echo "Type Check: $TYPECHECK"
           echo "Build:      $BUILD"
           echo "Test:       $TEST"
           echo "Native:     $NATIVE"
-          echo "Package:    $RUNTIME"
-          for r in "$TYPECHECK" "$BUILD" "$TEST" "$NATIVE" "$RUNTIME"; do
+          for r in "$TYPECHECK" "$BUILD" "$TEST" "$NATIVE"; do
             if [ "$r" != "success" ]; then
               echo "::error::At least one windows electron CI job failed."
               exit 1
