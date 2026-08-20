@@ -61,27 +61,76 @@ export function isCompleteJpeg(bytes: Uint8Array): boolean {
   );
 }
 
-const JPEG_EOI = Buffer.from([0xff, 0xd9]);
-
 /**
- * Lenient JPEG truncation check for payloads of arbitrary origin: the SOI
- * header plus an EOI marker anywhere in the buffer. Unlike
- * {@link isCompleteJpeg} (exact tail framing, for sips output and cache
- * entries, which always end on EOI), this tolerates encoders that append
- * padding or metadata after the EOI. A truncated JPEG contains no EOI at all:
- * entropy-coded data byte-stuffs FF as FF 00, so FF D9 cannot appear inside
- * it by accident.
+ * Structural JPEG truncation check for payloads of arbitrary origin: walk the
+ * marker segments from SOI and report whether a terminal EOI is reached.
+ * Unlike {@link isCompleteJpeg} (exact tail framing, for sips output and
+ * cache entries, which always end on EOI), this tolerates encoders that
+ * append padding or metadata after the EOI.
+ *
+ * A raw byte search for FF D9 is not enough: length-delimited APP/COM
+ * segments (an EXIF thumbnail is itself a complete embedded JPEG) may contain
+ * FF D9, so a truncated file with an intact metadata prefix would pass.
+ * Walking segment boundaries skips those payloads entirely; only an EOI at
+ * the top level of the marker stream counts. Entropy-coded scan data is
+ * traversed byte-wise, where FF is stuffed as FF 00 and restart markers
+ * (D0-D7) continue the scan, so a marker byte there is unambiguous.
  */
-export function hasJpegEoi(bytes: Uint8Array): boolean {
-  return (
-    bytes.length >= 4 &&
-    bytes[0] === 0xff &&
-    bytes[1] === 0xd8 &&
-    Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).includes(
-      JPEG_EOI,
-      2,
-    )
-  );
+export function hasValidJpegStructure(bytes: Uint8Array): boolean {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+    return false;
+  }
+  let i = 2;
+  while (i + 1 < bytes.length) {
+    if (bytes[i] !== 0xff) {
+      return false;
+    }
+    // FF fill bytes before a marker are legal padding.
+    let j = i + 1;
+    while (j < bytes.length && bytes[j] === 0xff) {
+      j++;
+    }
+    if (j >= bytes.length) {
+      return false;
+    }
+    const marker = bytes[j];
+    i = j + 1;
+    if (marker === 0xd9) {
+      return true;
+    }
+    // Standalone markers carry no length field: repeated SOI, TEM, RST0-7.
+    if (
+      marker === 0xd8 ||
+      marker === 0x01 ||
+      (marker >= 0xd0 && marker <= 0xd7)
+    ) {
+      continue;
+    }
+    if (i + 1 >= bytes.length) {
+      return false;
+    }
+    const segmentLength = (bytes[i] << 8) | bytes[i + 1];
+    if (segmentLength < 2) {
+      return false;
+    }
+    i += segmentLength;
+    if (marker === 0xda) {
+      // SOS: entropy-coded data follows the header. Scan to the next real
+      // marker; FF 00 (stuffed data byte) and FF D0-D7 (restart) stay inside
+      // the scan.
+      while (i + 1 < bytes.length) {
+        if (
+          bytes[i] === 0xff &&
+          bytes[i + 1] !== 0x00 &&
+          !(bytes[i + 1] >= 0xd0 && bytes[i + 1] <= 0xd7)
+        ) {
+          break;
+        }
+        i++;
+      }
+    }
+  }
+  return false;
 }
 
 function readFromCache(key: string): Buffer | null {

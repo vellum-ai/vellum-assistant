@@ -39,7 +39,10 @@ import type {
 } from "../providers/types.js";
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
-import { hasJpegEoi, sniffImageMimeType } from "../util/image-conversion.js";
+import {
+  hasValidJpegStructure,
+  sniffImageMimeType,
+} from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
 import { preModelCallSanitize } from "./outbound-sanitize.js";
 import { stripInjectionsForCompaction } from "./strip-injections.js";
@@ -903,12 +906,13 @@ export async function buildRetainedImageBlocks(
     // retained picture; shipping it loses the conversation. Format sniffing
     // alone is not enough for JPEG: a truncated JPEG (e.g. persisted from a
     // torn conversion-cache read) keeps its SOI header, so JPEG payloads must
-    // also carry an EOI marker.
+    // also walk to a terminal EOI marker.
     const optimizedBytes = Buffer.from(optimized.data, "base64");
     const optimizedFormat = sniffImageMimeType(optimizedBytes);
     const bytesAreValidImage =
       optimizedFormat != null &&
-      (optimizedFormat !== "image/jpeg" || hasJpegEoi(optimizedBytes));
+      (optimizedFormat !== "image/jpeg" ||
+        hasValidJpegStructure(optimizedBytes));
     if (!bytesAreValidImage) {
       log.warn(
         { filename: name, attachmentId: entry.attachmentId },

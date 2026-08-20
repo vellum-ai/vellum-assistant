@@ -14,7 +14,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 
 import {
   convertImageToJpeg,
-  hasJpegEoi,
+  hasValidJpegStructure,
   isCompleteJpeg,
   isHeifImage,
   jpegFilenameFor,
@@ -158,21 +158,74 @@ function cacheKeyFor(bytes: Uint8Array, quality: number): string {
   return `${hash}-full-q${quality}`;
 }
 
-describe("hasJpegEoi", () => {
+// Minimal structurally valid JPEG: SOI, APP0 (len 4, 2 payload bytes),
+// SOS (len 3, 1 payload byte), entropy data with a stuffed FF, then EOI.
+function minimalJpeg(extra: {
+  trailing?: Uint8Array;
+  dropEoi?: boolean;
+}): Buffer {
+  const parts: Uint8Array[] = [
+    Buffer.from([0xff, 0xd8]), // SOI
+    Buffer.from([0xff, 0xe0, 0x00, 0x04, 0x4a, 0x46]), // APP0
+    Buffer.from([0xff, 0xda, 0x00, 0x03, 0x01]), // SOS header
+    Buffer.from([0x12, 0xff, 0x00, 0x34]), // entropy data with stuffed FF
+  ];
+  if (!extra.dropEoi) {
+    parts.push(Buffer.from([0xff, 0xd9])); // EOI
+  }
+  if (extra.trailing) {
+    parts.push(extra.trailing);
+  }
+  return Buffer.concat(parts);
+}
+
+describe("hasValidJpegStructure", () => {
   test("accepts a JPEG with trailing bytes after the EOI marker", () => {
-    // Some encoders append padding or metadata past the EOI; the lenient
-    // check tolerates it where isCompleteJpeg's exact tail framing does not.
-    const padded = Buffer.from([
-      0xff, 0xd8, 0xff, 0xe0, 0xff, 0xd9, 0x00, 0x00,
-    ]);
-    expect(hasJpegEoi(padded)).toBe(true);
+    // Some encoders append padding or metadata past the EOI; the structural
+    // walk tolerates it where isCompleteJpeg's exact tail framing does not.
+    const padded = minimalJpeg({ trailing: Buffer.from([0x00, 0x00]) });
+    expect(hasValidJpegStructure(padded)).toBe(true);
     expect(isCompleteJpeg(padded)).toBe(false);
   });
 
+  test("accepts restart markers inside entropy-coded data", () => {
+    const withRst = Buffer.concat([
+      Buffer.from([0xff, 0xd8]),
+      Buffer.from([0xff, 0xda, 0x00, 0x03, 0x01]),
+      Buffer.from([0x12, 0xff, 0xd0, 0x34]), // RST0 continues the scan
+      Buffer.from([0xff, 0xd9]),
+    ]);
+    expect(hasValidJpegStructure(withRst)).toBe(true);
+  });
+
+  test("rejects a truncated JPEG whose metadata segment contains FF D9", () => {
+    // An EXIF-style APP1 payload can embed a complete thumbnail JPEG, so an
+    // FF D9 pair appears inside the segment while the main image is torn. A
+    // raw byte search would accept this; the marker walk skips the segment
+    // payload and reports the truncation.
+    const tornWithThumbnail = Buffer.concat([
+      Buffer.from([0xff, 0xd8]), // SOI
+      Buffer.from([0xff, 0xe1, 0x00, 0x08]), // APP1, length 8
+      Buffer.from([0x45, 0x78, 0xff, 0xd9, 0x00, 0x00]), // payload with FF D9
+      Buffer.from([0xff, 0xda, 0x00, 0x03, 0x01, 0x12, 0x34]), // torn scan
+    ]);
+    expect(hasValidJpegStructure(tornWithThumbnail)).toBe(false);
+  });
+
   test("rejects truncated JPEGs and non-JPEG payloads", () => {
-    expect(hasJpegEoi(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00]))).toBe(false);
-    expect(hasJpegEoi(Buffer.alloc(0))).toBe(false);
-    expect(hasJpegEoi(PNG_1PX_BYTES)).toBe(false);
+    expect(hasValidJpegStructure(minimalJpeg({ dropEoi: true }))).toBe(false);
+    expect(
+      hasValidJpegStructure(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00])),
+    ).toBe(false);
+    expect(hasValidJpegStructure(Buffer.alloc(0))).toBe(false);
+    expect(hasValidJpegStructure(PNG_1PX_BYTES)).toBe(false);
+  });
+
+  test("rejects a segment length that runs past the buffer", () => {
+    // A declared length larger than the remaining bytes is truncation, not a
+    // reason to scan beyond the buffer.
+    const overrun = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0xff, 0xff, 0x00]);
+    expect(hasValidJpegStructure(overrun)).toBe(false);
   });
 });
 
@@ -250,6 +303,9 @@ describe.skipIf(process.platform !== "darwin")(
       const converted = await convertImageToJpeg(heicBytes);
       expect(converted).not.toBeNull();
       expect(startsWithJpegMagic(converted!)).toBe(true);
+      // A real encoder's output must pass the structural walk, or the
+      // compactor gate would drop every legitimately converted image.
+      expect(hasValidJpegStructure(converted!)).toBe(true);
     });
 
     test("conversion options produce distinct outputs (cache key isolation)", async () => {
