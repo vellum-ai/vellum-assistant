@@ -225,10 +225,10 @@ describe("storeAcpClaudeToken", () => {
   });
 
   test("takes a domain-restricted credential from not-connected to connected", async () => {
-    // The loop this closes: the vault holds a usable token, but the domain
-    // policy makes the spawn read fail, so the status check keeps the Connect
-    // card offered. Clicking Connect has to repair the policy, otherwise the
-    // retry after a successful sign-in fails exactly the same way.
+    // Invariant: when the vault holds a usable token whose domain policy
+    // makes the spawn read fail, the status check keeps the Connect card
+    // offered, and completing Connect repairs the policy so the retry after
+    // a successful sign-in succeeds.
     upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
       allowedTools: [ACP_SPAWN_TOOL],
       allowedDomains: ["api.anthropic.com"],
