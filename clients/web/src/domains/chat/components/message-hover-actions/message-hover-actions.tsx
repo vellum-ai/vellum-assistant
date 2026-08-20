@@ -11,16 +11,16 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import {
-  slackOriginTimestamp,
-  useSupportsBackfilledSentAt,
-} from "@/lib/backwards-compat/slack-backfill-sent-at";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import {
   useBookmarkToggle,
   useCanBookmark,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
+import {
+  slackOriginTimestamp,
+  useSupportsBackfilledSentAt,
+} from "@/lib/backwards-compat/slack-backfill-sent-at";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 export type MessageHoverActionsProps = {
