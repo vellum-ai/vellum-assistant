@@ -355,7 +355,7 @@ export function createFrontDoorStreamGate(
  * just above it.
  */
 export const ESCALATION_CONTINUATION_CONTENT =
-  "(The caller heard you accept the task and say you would come back to them, and has heard nothing from you since. Give them your full, careful answer to their previous question now, or ask for the one detail you need to proceed, and do not repeat the acknowledgement.)";
+  "(The caller heard you accept the task and say you would come back to them, and has heard nothing from you since. Give them your full, careful answer to their previous question now, or ask for every detail you still need, in one go rather than one at a time, and do not repeat the acknowledgement.)";
 
 /**
  * Compact, registry-derived digest of the tools the ESCALATED leg can use.
