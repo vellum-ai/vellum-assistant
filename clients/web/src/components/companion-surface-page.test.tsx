@@ -7,6 +7,7 @@ const moveByMock = mock((_dx: number, _dy: number) => undefined);
 const setInteractiveMock = mock((_interactive: boolean) => undefined);
 const activateMock = mock(() => undefined);
 const toggleWatchMock = mock(() => undefined);
+const answerRetroMock = mock((_open: boolean) => undefined);
 
 const STATE: CompanionSurfaceState = {
   growth: "right",
@@ -33,6 +34,9 @@ mock.module("@/runtime/companion-surface", () => ({
   activateCompanionApp: activateMock,
   startCompanionVoice: () => undefined,
   toggleCompanionWatch: toggleWatchMock,
+  // Stubbed rather than omitted: the page statically imports it, and a
+  // missing export is a load-time failure for the whole file.
+  answerCompanionWatchRetro: answerRetroMock,
   submitCompanionMessage: () => undefined,
   setCompanionComposing: () => undefined,
   setCompanionContext: () => undefined,
