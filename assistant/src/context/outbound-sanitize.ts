@@ -26,27 +26,15 @@ const AX_TREE_PLACEHOLDER = "<ax_tree_omitted />";
  * prematurely when the user happens to be viewing XML/HTML source that
  * contains the closing tag.  The escaped content does not need to be
  * unescaped because compaction replaces the entire block with a placeholder.
+ *
+ * Deliberately narrower than `escapeTagBoundaries` in
+ * `security/untrusted-content.ts`, which is the general defense for fencing
+ * untrusted text: this one leaves the opening tag intact because
+ * {@link AX_TREE_PATTERN} needs it to find whole blocks. Do not fold the two
+ * together.
  */
 export function escapeAxTreeContent(content: string): string {
   return content.replace(/<\/ax-tree>/gi, "&lt;/ax-tree&gt;");
-}
-
-/**
- * Escapes literal `<tag>` and `</tag>` occurrences inside content that is
- * about to be fenced between those very tags, so material from inside the
- * fence cannot close it early and have whatever follows read as the prompt
- * around it rather than as fenced content.
- *
- * Stricter than {@link escapeAxTreeContent}, which escapes the closing form
- * only: `AX_TREE_PATTERN` swaps whole `<ax-tree>...</ax-tree>` blocks for a
- * placeholder and needs the opening tag intact to find them. A fence around
- * untrusted text has no such reader, so both forms go.
- */
-export function escapeFenceTags(content: string, tagName: string): string {
-  return content.replace(
-    new RegExp(`</?${tagName}>`, "gi"),
-    (match) => `&lt;${match.slice(1, -1)}&gt;`,
-  );
 }
 
 /**

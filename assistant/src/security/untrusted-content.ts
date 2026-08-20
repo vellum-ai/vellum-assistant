@@ -58,6 +58,9 @@ const DEFAULT_BUDGETS: Record<UntrustedContentSource, number> = {
 
 const UNTRUSTED_CONTENT_SOURCE_SET = new Set<string>(UNTRUSTED_CONTENT_SOURCES);
 
+/** Name of the wrapper element untrusted content is fenced in. */
+const EXTERNAL_CONTENT_TAG_NAME = "external_content";
+
 const EXTERNAL_CONTENT_ENVELOPE_PATTERN =
   /^<external_content\s+([^\r\n<>]*)>\n([\s\S]*)\n<\/external_content>$/;
 
@@ -113,22 +116,38 @@ export function unwrapExternalContentForDisplay(value: string): string {
 }
 
 /**
- * Escape sequences that could forge or break out of the
- * `<external_content>` wrapper. Case-insensitive to cover mixed-case
+ * Escape sequences that could forge or break out of a `<tagName>` fence
+ * placed around untrusted text. Case-insensitive to cover mixed-case
  * evasion attempts.
  *
  * Both tag forms are escaped. A closing tag would end the fence early.
- * An opening tag is subtler: it lets external content fabricate what
- * reads as a second envelope — one it gets to label with any `source` it
- * likes — and it defeats any structural reasoning over the result, since
- * a forged tag is indistinguishable from a real one. Nothing legitimate
- * arrives from the outside world carrying either.
+ * An opening tag is subtler: it lets untrusted text fabricate what reads
+ * as a second fence, one it gets to label with any attribute it likes, and
+ * it defeats any structural reasoning over the result, since a forged tag
+ * is indistinguishable from a real one. Nothing legitimate arrives from
+ * the outside world carrying either.
+ *
+ * Matching stops at the tag name rather than at a closing `>`, so the
+ * variants a model still reads as a boundary are all neutralized:
+ * `</tag >`, a newline before the `>`, an unclosed `</tag`, and anything
+ * with attributes. Requiring the full literal tag would let every one of
+ * those through.
+ *
+ * Not to be confused with `escapeAxTreeContent` in
+ * `context/outbound-sanitize.ts`, which escapes the closing `</ax-tree>`
+ * only and must keep doing so: AX-tree compaction finds whole blocks by
+ * their opening tag and replaces them with a placeholder.
  */
-export function escapeContentBoundaries(content: string): string {
+export function escapeTagBoundaries(content: string, tagName: string): string {
   return content.replace(
-    /<\/?external_content/gi,
+    new RegExp(`</?${tagName}`, "gi"),
     (match) => `&lt;${match.slice(1)}`,
   );
+}
+
+/** {@link escapeTagBoundaries} for the `<external_content>` wrapper. */
+export function escapeContentBoundaries(content: string): string {
+  return escapeTagBoundaries(content, EXTERNAL_CONTENT_TAG_NAME);
 }
 
 // ---------------------------------------------------------------------------

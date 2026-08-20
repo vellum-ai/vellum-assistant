@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   escapeContentBoundaries,
+  escapeTagBoundaries,
   parseExternalContentEnvelope,
   unwrapExternalContentForDisplay,
   wrapUntrustedContent,
@@ -76,6 +77,47 @@ describe("wrapUntrustedContent", () => {
     const result = wrapUntrustedContent(malicious, { source: "slack" });
     const closingTags = result.match(/<\/external_content>/gi);
     expect(closingTags).toHaveLength(1);
+  });
+});
+
+describe("escapeTagBoundaries", () => {
+  // A complete literal tag is the easiest boundary to forge and the least
+  // interesting. Matching stops at the tag name so the near-misses a model
+  // still reads as a fence go too.
+  const VARIANTS = [
+    "</watch-timeline>",
+    "</watch-timeline >",
+    "</watch-timeline\n>",
+    "</WATCH-TIMELINE>",
+    "</WaTcH-TiMeLiNe>",
+    "</watch-timeline",
+    '</watch-timeline id="x">',
+    "<watch-timeline>",
+    "<watch-timeline",
+  ];
+
+  for (const variant of VARIANTS) {
+    test(`neutralizes ${JSON.stringify(variant)}`, () => {
+      const escaped = escapeTagBoundaries(
+        `before ${variant} after`,
+        "watch-timeline",
+      );
+      expect(escaped).not.toMatch(/<\/?watch-timeline/i);
+      expect(escaped).toContain("&lt;");
+      // Neutralized in place: the surrounding text is untouched.
+      expect(escaped.startsWith("before ")).toBe(true);
+      expect(escaped.endsWith(" after")).toBe(true);
+    });
+  }
+
+  test("leaves a different tag alone", () => {
+    const axTree = "<ax-tree>Window: Editor</ax-tree>";
+    expect(escapeTagBoundaries(axTree, "watch-timeline")).toBe(axTree);
+  });
+
+  test("leaves ordinary markup alone", () => {
+    const safe = "Hello, this is a normal note about <html> tags.";
+    expect(escapeTagBoundaries(safe, "watch-timeline")).toBe(safe);
   });
 });
 
