@@ -12,7 +12,7 @@ beforeEach(() => {
 describe("useInteractionStore", () => {
   // ----- Secret flow -----
   describe("secret flow", () => {
-    it("showSecret sets pendingSecret and resets submit/saved flags", () => {
+    it("showSecret sets pendingSecret and resets the saved flag", () => {
       const payload = { requestId: "r1", label: "API Key" };
       useInteractionStore.getState().showSecret(payload);
       const s = useInteractionStore.getState();
@@ -53,41 +53,46 @@ describe("useInteractionStore", () => {
       expect(s.secretSaved).toBe(false);
     });
 
-    it("showSecret same-requestId merge preserves submit/saved flags", () => {
+    it("showSecret same-requestId merge preserves the in-flight submission", () => {
       useInteractionStore
         .getState()
         .showSecret({ requestId: "r1", label: "API Key" });
-      useInteractionStore.getState().submitSecretStart("s1");
+      useInteractionStore.getState().submitSecretStart("r1");
       useInteractionStore.getState().showSecret({ requestId: "r1" });
       const s = useInteractionStore.getState();
       expect(s.submittingSecretRequestId).not.toBeNull();
       expect(s.pendingSecret?.label).toBe("API Key");
     });
 
-    it("submitSecretStart sets isSubmittingSecret", () => {
+    it("submitSecretStart records the request being submitted", () => {
       useInteractionStore.getState().showSecret({ requestId: "r1" });
-      useInteractionStore.getState().submitSecretStart("s1");
+      useInteractionStore.getState().submitSecretStart("r1");
       expect(
         useInteractionStore.getState().submittingSecretRequestId,
       ).not.toBeNull();
     });
 
-    it("submitSecretEnd clears isSubmittingSecret and sets saved flag", () => {
+    it("submitSecretEnd releases the slot and sets the saved flag", () => {
       useInteractionStore.getState().showSecret({ requestId: "r1" });
-      useInteractionStore.getState().submitSecretStart("s1");
-      useInteractionStore.getState().submitSecretEnd("s1", true);
+      useInteractionStore.getState().submitSecretStart("r1");
+      useInteractionStore.getState().submitSecretEnd("r1", true);
       const s = useInteractionStore.getState();
       expect(s.submittingSecretRequestId).toBeNull();
       expect(s.secretSaved).toBe(true);
     });
 
-    it("dismissSecret clears pendingSecret and isSubmittingSecret", () => {
+    it("dismissSecretIfMatches retires the prompt it names", () => {
       useInteractionStore.getState().showSecret({ requestId: "r1" });
-      useInteractionStore.getState().submitSecretStart("s1");
-      useInteractionStore.getState().dismissSecretIfMatches("s1");
-      const s = useInteractionStore.getState();
-      expect(s.pendingSecret).toBeNull();
-      expect(s.submittingSecretRequestId).toBeNull();
+      useInteractionStore.getState().dismissSecretIfMatches("r1");
+      expect(useInteractionStore.getState().pendingSecret).toBeNull();
+    });
+
+    it("dismissSecretIfMatches leaves a prompt it does not name", () => {
+      useInteractionStore.getState().showSecret({ requestId: "r1" });
+      useInteractionStore.getState().dismissSecretIfMatches("r2");
+      expect(useInteractionStore.getState().pendingSecret?.requestId).toBe(
+        "r1",
+      );
     });
 
     it("updateSecret applies patch when requestId matches", () => {
@@ -225,22 +230,28 @@ describe("useInteractionStore", () => {
 
     it("submitContactRequestStart/End cycle", () => {
       useInteractionStore.getState().showContactRequest({ requestId: "cr1" });
-      useInteractionStore.getState().submitContactRequestStart("ct1");
+      useInteractionStore.getState().submitContactRequestStart("cr1");
       expect(
         useInteractionStore.getState().submittingContactRequestRequestId,
       ).not.toBeNull();
-      useInteractionStore.getState().submitContactRequestEnd("ct1");
+      useInteractionStore.getState().submitContactRequestEnd("cr1");
       expect(
         useInteractionStore.getState().submittingContactRequestRequestId,
       ).toBeNull();
     });
 
-    it("dismissContactRequest clears state", () => {
+    it("dismissContactRequestIfMatches retires the prompt it names", () => {
       useInteractionStore.getState().showContactRequest({ requestId: "cr1" });
-      useInteractionStore.getState().dismissContactRequestIfMatches("ct1");
-      const s = useInteractionStore.getState();
-      expect(s.pendingContactRequest).toBeNull();
-      expect(s.submittingContactRequestRequestId).toBeNull();
+      useInteractionStore.getState().dismissContactRequestIfMatches("cr1");
+      expect(useInteractionStore.getState().pendingContactRequest).toBeNull();
+    });
+
+    it("dismissContactRequestIfMatches leaves a prompt it does not name", () => {
+      useInteractionStore.getState().showContactRequest({ requestId: "cr1" });
+      useInteractionStore.getState().dismissContactRequestIfMatches("cr2");
+      expect(
+        useInteractionStore.getState().pendingContactRequest?.requestId,
+      ).toBe("cr1");
     });
 
     it("acceptContactRequest sets flag", () => {

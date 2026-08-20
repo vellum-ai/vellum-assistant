@@ -767,7 +767,7 @@ describe("createChatDebugApi.listPendingInteractions", () => {
         description: "irreversible",
         riskLevel: "high",
       },
-      submittingConfirmationRequestId: "c1",
+      submittingConfirmationRequestId: "req-confirm-1",
       inlineConfirmationToolCallId: "tc-42",
     };
     const second = api.listPendingInteractions();
