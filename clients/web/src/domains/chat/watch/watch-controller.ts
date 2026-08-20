@@ -27,6 +27,13 @@
  * stop edge reaches a press the user has changed their mind about. Everything
  * that ends a session ends an attempt the same way and just as synchronously.
  *
+ * **Stopping is two moments, not one.** `{"type":"stop"}` asks the runtime to
+ * flush rather than to end: the daemon holds the session in `stopping` so the
+ * provider's late finals still reach the timeline, and says `closed` when they
+ * have. So a deliberate stop ends everything the user can perceive at once and
+ * lets only the socket outlive it, briefly and boundedly. Every other ending
+ * closes both together, because none of them owes anyone a flush.
+ *
  * **A socket is not a session.** The gateway accepts the downstream upgrade
  * before it dials the runtime, so a local `open` proves only that a proxy
  * answered. The runtime's `ready` frame is the first word that a session
@@ -104,6 +111,37 @@ export const useWatchStore = create<WatchState>(() => ({ watching: false }));
  */
 const READY_TIMEOUT_MS = 10_000;
 
+/**
+ * How long the socket may stay open after the user stops, so the runtime can
+ * flush what they just said.
+ *
+ * `{"type":"stop"}` does not end a session on the daemon: it moves it to
+ * `stopping` and asks the transcriber to flush, and the provider's late `final`
+ * events land on the timeline for as long as that state holds
+ * (`assistant/src/runtime/routes/watch-routes.ts`). The session ends when the
+ * provider says `closed`, which the daemon relays as its own `closed` frame.
+ * Closing the socket the moment stop is sent runs the daemon's close handler
+ * instead, which tears the session down and takes the flush with it. A long
+ * session loses its last phrase that way and a short one can lose everything
+ * the user said.
+ *
+ * So the socket waits for that frame, and this bounds the wait. A provider
+ * flush is well under a second; a socket held open past this is one whose
+ * answer is not coming, and a session that will not end is worse than a lost
+ * tail.
+ */
+const STOP_DRAIN_TIMEOUT_MS = 3_000;
+
+type Timer = ReturnType<typeof setTimeout> | null;
+
+/** Cancel a timer if it is armed. Returns the null to assign back to it. */
+function cancel(timer: Timer): null {
+  if (timer !== null) {
+    clearTimeout(timer);
+  }
+  return null;
+}
+
 /** The capture surface this module uses, so tests can stand in for the mic. */
 interface WatchCapture {
   start(): Promise<LiveVoiceCaptureResult>;
@@ -117,11 +155,16 @@ export interface WatchControllerOptions {
   captureFactory?: (options: LiveVoiceAudioCaptureOptions) => WatchCapture;
   /** Overrides {@link READY_TIMEOUT_MS}, so a test need not wait it out. */
   readyTimeoutMs?: number;
+  /** Overrides {@link STOP_DRAIN_TIMEOUT_MS}, for the same reason. */
+  drainTimeoutMs?: number;
 }
 
 /**
- * The running session: the socket, the microphone feeding it, and the teardown
- * that closes both exactly once.
+ * The running session, from the outside: one way to end it.
+ *
+ * What that costs is not symmetric. Everything the user can perceive ends
+ * synchronously, and the socket may outlive the call briefly while the runtime
+ * flushes. See the stop edge in `openSession`.
  */
 interface WatchSession {
   stop(): void;
@@ -201,7 +244,15 @@ function openSession(
     return;
   }
 
-  let closed = false;
+  /**
+   * `live` while the session is the user's, `draining` while only the socket
+   * is still finishing, `done` when there is nothing left.
+   *
+   * Three states rather than a boolean because a deliberate stop splits into
+   * two moments. Everything the user can perceive ends at once, and the socket
+   * outlives it just long enough for the runtime to flush what they said.
+   */
+  let phase: "live" | "draining" | "done" = "live";
   let handle: WatchSession | null = null;
   /**
    * Store subscriptions that live exactly as long as this session does.
@@ -214,14 +265,9 @@ function openSession(
   const subscriptions: (() => void)[] = [];
   // Null until the runtime answers `ready`, which is the moment the session
   // exists. Everything before that is a socket.
-  let readyTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Stop waiting for `ready`, whether it arrived or the session is over. */
-  const clearReadyTimer = (): void => {
-    if (readyTimer !== null) {
-      clearTimeout(readyTimer);
-      readyTimer = null;
-    }
-  };
+  let readyTimer: Timer = null;
+  // Set only while the socket is draining after a deliberate stop.
+  let drainTimer: Timer = null;
 
   const capture = (
     options.captureFactory ??
@@ -229,40 +275,35 @@ function openSession(
       new LiveVoiceAudioCapture(captureOptions))
   )({
     onChunk: (buf) => {
-      if (!closed && ws.readyState === WebSocket.OPEN) {
+      if (phase === "live" && ws.readyState === WebSocket.OPEN) {
         ws.send(buf);
       }
     },
   });
 
   /**
-   * Close both halves, exactly once.
+   * Give up everything the user can perceive: the microphone, the flag the
+   * capture indicator is drawn from, and this module's claim on the session
+   * slot. Exactly once.
    *
-   * Reached from the toggle, from the socket ending on its own, and from the
-   * layout going away, so it has to be idempotent. The store is written here
-   * rather than by the callers, since this is the one place that knows the
-   * session is actually over.
+   * Split out from closing the socket because the two do not always happen
+   * together. On a deliberate stop this runs immediately and the socket stays
+   * open a moment longer to let the runtime flush; every other ending does
+   * both at once. Callers that stop a session inside one synchronous stretch,
+   * such as the hard-logout path, depend on this half taking effect before
+   * they return.
    */
-  const teardown = (): void => {
-    if (closed) {
+  let released = false;
+  const releaseLocally = (): void => {
+    if (released) {
       return;
     }
-    closed = true;
+    released = true;
     for (const unsubscribe of subscriptions.splice(0)) {
       unsubscribe();
     }
-    clearReadyTimer();
+    readyTimer = cancel(readyTimer);
     capture.shutdown();
-    if (
-      ws.readyState === WebSocket.OPEN ||
-      ws.readyState === WebSocket.CONNECTING
-    ) {
-      try {
-        ws.close(1000);
-      } catch {
-        // Already closing, so there is nothing left to close.
-      }
-    }
     if (session !== null && session === handle) {
       session = null;
       // Only when there is a claim to give up. A session torn down while still
@@ -275,22 +316,85 @@ function openSession(
     }
   };
 
+  /**
+   * End the session for good: release the local half if it is still held, and
+   * close the socket. Idempotent.
+   *
+   * Every ending that is not the user's own stop lands here directly, and the
+   * user's stop lands here once the runtime has answered or the drain has run
+   * out of patience. None of those endings owes anyone a flush: a socket that
+   * dropped, a call taking the microphone, a window being destroyed, and a
+   * runtime reporting an error are all already over.
+   */
+  const finish = (): void => {
+    if (phase === "done") {
+      return;
+    }
+    phase = "done";
+    drainTimer = cancel(drainTimer);
+    releaseLocally();
+    if (
+      ws.readyState === WebSocket.OPEN ||
+      ws.readyState === WebSocket.CONNECTING
+    ) {
+      try {
+        ws.close(1000);
+      } catch {
+        // Already closing, so there is nothing left to close.
+      }
+    }
+  };
+
   handle = {
+    /**
+     * The user is done narrating.
+     *
+     * **Two halves, and only one of them waits.** Everything the user can
+     * perceive ends now: the flag goes down, the microphone closes, the
+     * subscriptions go, and the slot is free for the next press. What waits is
+     * the socket, because `{"type":"stop"}` asks the runtime to flush rather
+     * than to end, and the last thing the user said is still inside the
+     * provider when the frame goes out. See {@link STOP_DRAIN_TIMEOUT_MS}.
+     */
     stop: () => {
-      if (!closed && ws.readyState === WebSocket.OPEN) {
+      if (phase !== "live") {
+        return;
+      }
+
+      let draining = false;
+      if (ws.readyState === WebSocket.OPEN) {
         // The last few milliseconds still sit in the capture's batch
-        // accumulator; drain them synchronously before asking the runtime to
-        // wrap the session up. Both calls are no-ops on a session still
-        // pending, where the microphone never opened and the runtime has no
-        // session to wrap up, and saying so costs less than branching on it.
+        // accumulator; drain them synchronously so they go out ahead of the
+        // stop frame. A no-op on a session still pending, where the
+        // microphone never opened.
         capture.flush?.();
         try {
           ws.send(JSON.stringify({ type: "stop" }));
+          draining = true;
         } catch {
-          // The socket raced shut, which teardown already covers.
+          // The socket raced shut, so there is nothing to flush and nothing to
+          // wait for.
         }
       }
-      teardown();
+
+      // Before the wait, never after it. Callers that stop inside one
+      // synchronous stretch, and the surface that must stop drawing a capture
+      // the moment it is asked to, both depend on this having happened by the
+      // time this call returns.
+      releaseLocally();
+
+      if (!draining) {
+        finish();
+        return;
+      }
+      phase = "draining";
+      drainTimer = setTimeout(() => {
+        drainTimer = null;
+        console.warn(
+          "watch-controller: no closed frame after stop, ending without the flush",
+        );
+        finish();
+      }, options.drainTimeoutMs ?? STOP_DRAIN_TIMEOUT_MS);
     },
   };
   // Registered while still pending, so the stop edge works before `ready`:
@@ -304,7 +408,7 @@ function openSession(
     console.warn(
       "watch-controller: no ready frame from the runtime, giving up on the session",
     );
-    teardown();
+    finish();
   }, options.readyTimeoutMs ?? READY_TIMEOUT_MS);
 
   /**
@@ -330,7 +434,7 @@ function openSession(
         console.info(
           "watch-controller: ending the session, a call has taken the microphone",
         );
-        teardown();
+        finish();
       }
     }),
   );
@@ -357,7 +461,7 @@ function openSession(
         console.info(
           "watch-controller: ending the session, its assistant is no longer active",
         );
-        teardown();
+        finish();
       }
     }),
   );
@@ -372,20 +476,22 @@ function openSession(
    * round: audio flowing with nothing on screen saying so.
    */
   const onReady = (): void => {
-    clearReadyTimer();
+    readyTimer = cancel(readyTimer);
     useWatchStore.setState({ watching: true });
     void capture.start().then((result) => {
       // Mic denied, or a device another app is holding. There is nothing to
       // narrate over, so the session ends rather than sitting open on silence.
       if (!result.ok) {
         console.warn("watch-controller: PCM capture failed", result.error);
-        teardown();
+        finish();
       }
     });
   };
 
   ws.addEventListener("message", (event) => {
-    if (closed || typeof event.data !== "string") {
+    // Frames still matter while draining: the `closed` one is exactly what the
+    // drain is waiting for.
+    if (phase === "done" || typeof event.data !== "string") {
       return;
     }
     let parsed: unknown;
@@ -399,7 +505,11 @@ function openSession(
     }
     const message = parsed as { type?: string; message?: string };
     if (message.type === "ready") {
-      onReady();
+      // Only ever meaningful on a live session. A `ready` arriving while the
+      // socket drains would be reopening a microphone the user just closed.
+      if (phase === "live") {
+        onReady();
+      }
       return;
     }
     if (message.type === "error") {
@@ -407,16 +517,17 @@ function openSession(
         "watch-controller: server error event",
         message.message ?? event.data,
       );
-      teardown();
+      finish();
       return;
     }
     if (message.type === "closed") {
-      teardown();
+      // The runtime is done, which on the drain path means the flush landed.
+      finish();
     }
   });
 
-  ws.addEventListener("close", teardown);
-  ws.addEventListener("error", teardown);
+  ws.addEventListener("close", finish);
+  ws.addEventListener("error", finish);
 }
 
 /**

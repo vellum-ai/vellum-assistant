@@ -86,9 +86,9 @@ let liveVoiceListeners = 0;
 const realLiveVoiceSubscribe = useLiveVoiceStore.subscribe.bind(
   useLiveVoiceStore,
 ) as typeof useLiveVoiceStore.subscribe;
-useLiveVoiceStore.subscribe = ((listener: Parameters<
-  typeof realLiveVoiceSubscribe
->[0]) => {
+useLiveVoiceStore.subscribe = ((
+  listener: Parameters<typeof realLiveVoiceSubscribe>[0],
+) => {
   liveVoiceListeners += 1;
   const unsubscribe = realLiveVoiceSubscribe(listener);
   let released = false;
@@ -199,7 +199,12 @@ let sockets: FakeWebSocket[] = [];
 let capture = createCaptureFake();
 
 /** Toggle through the fakes, so no test touches a real socket or the mic. */
-const toggle = (readyTimeoutMs = 50): Promise<void> => {
+type Timeouts = { readyTimeoutMs?: number; drainTimeoutMs?: number };
+
+const toggle = ({
+  readyTimeoutMs = 50,
+  drainTimeoutMs = 5_000,
+}: Timeouts = {}): Promise<void> => {
   return toggleWatch({
     webSocketFactory: (url) => {
       const ws = new FakeWebSocket(url);
@@ -208,6 +213,7 @@ const toggle = (readyTimeoutMs = 50): Promise<void> => {
     },
     captureFactory: capture.factory,
     readyTimeoutMs,
+    drainTimeoutMs,
   });
 };
 
@@ -221,10 +227,15 @@ const socket = (): FakeWebSocket => {
 };
 
 /** Open the socket and stop there, which is a session still pending. */
-const startPending = async (readyTimeoutMs?: number) => {
-  await toggle(readyTimeoutMs);
+const startPending = async (timeouts: Timeouts = {}) => {
+  await toggle(timeouts);
   socket().serverOpen();
   await Promise.resolve();
+};
+
+/** The runtime's terminal frame, which is what ends a drain after stop. */
+const serverClosed = (): void => {
+  socket().serverMessage({ type: "closed" });
 };
 
 /** Answer `ready` on the pending session, which starts the flag and the mic. */
@@ -238,8 +249,8 @@ const serverReady = async () => {
 };
 
 /** Take a session all the way to running: pending, then answered. */
-const startRunning = async (readyTimeoutMs?: number) => {
-  await startPending(readyTimeoutMs);
+const startRunning = async (timeouts: Timeouts = {}) => {
+  await startPending(timeouts);
   await serverReady();
 };
 
@@ -326,7 +337,6 @@ describe("toggling a watch session", () => {
     expect(sockets).toHaveLength(1);
     expect(capture.calls.started).toBe(1);
     expect(capture.calls.shutdown).toBe(1);
-    expect(socket().closeCalls).toEqual([1000]);
     expect(useWatchStore.getState().watching).toBe(false);
   });
 
@@ -546,6 +556,169 @@ describe("cancelling a start that has not opened a socket yet", () => {
 });
 
 /**
+ * The window after stop, where the runtime is still flushing.
+ *
+ * `{"type":"stop"}` does not end a session on the daemon: it moves it to
+ * `stopping` and asks the transcriber to flush, and late `final` events reach
+ * the timeline for as long as that holds. Closing the socket on the spot runs
+ * the daemon's close handler instead and takes the flush with it, which costs
+ * a long session its last phrase and can cost a short one everything.
+ */
+describe("the flush window after the user stops", () => {
+  test("asks the runtime to wrap up and leaves the socket open for it", async () => {
+    await startRunning();
+
+    stopWatch();
+
+    expect(socket().sent.at(-1)).toBe(JSON.stringify({ type: "stop" }));
+    expect(socket().closeCalls).toEqual([]);
+    expect(socket().readyState).toBe(1);
+  });
+
+  /**
+   * The point of the whole thing. A `final` the provider emits after stop has
+   * to still have a socket to arrive on, and this asserts the socket was open
+   * at the moment it landed rather than merely that nothing threw.
+   */
+  test("a final arriving after stop still reaches the runtime", async () => {
+    await startRunning();
+
+    stopWatch();
+    // Everything that has to be true at the instant a late final lands: the
+    // stop frame went out, so the runtime is flushing rather than idle; the
+    // socket is still open, so there is somewhere for the final to arrive; and
+    // nothing has closed it, so the runtime's close handler has not run and
+    // taken the flush with it. A test that only checked "nothing threw" would
+    // pass just as well if the stop frame were never sent at all.
+    const atTheMoment = {
+      askedToFlush: socket().sent.includes(JSON.stringify({ type: "stop" })),
+      socketOpen: socket().readyState === 1,
+      closesSoFar: socket().closeCalls.length,
+    };
+    socket().serverMessage({ type: "entry" });
+    serverClosed();
+
+    expect(atTheMoment).toEqual({
+      askedToFlush: true,
+      socketOpen: true,
+      closesSoFar: 0,
+    });
+    expect(socket().closeCalls).toEqual([1000]);
+  });
+
+  test("closes once the runtime says the session is closed", async () => {
+    await startRunning();
+
+    stopWatch();
+    expect(socket().closeCalls).toEqual([]);
+    serverClosed();
+
+    expect(socket().closeCalls).toEqual([1000]);
+  });
+
+  /** Losing the tail beats a session that will not end. */
+  test("gives up on a runtime that never answers", async () => {
+    await startRunning({ drainTimeoutMs: 5 });
+
+    stopWatch();
+    expect(socket().closeCalls).toEqual([]);
+    await wait(30);
+
+    expect(socket().closeCalls).toEqual([1000]);
+  });
+
+  test("stops waiting once the runtime has answered", async () => {
+    await startRunning({ drainTimeoutMs: 5 });
+
+    stopWatch();
+    serverClosed();
+    await wait(30);
+
+    expect(socket().closeCalls).toEqual([1000]);
+  });
+
+  /**
+   * Everything the user perceives ends on the press, whatever the socket is
+   * still doing. `stopWatch` runs inside one synchronous stretch on the
+   * hard-logout path, which navigates away immediately afterwards.
+   */
+  test("ends the session for the user before the socket has closed", async () => {
+    await startRunning();
+
+    stopWatch();
+
+    expect(useWatchStore.getState().watching).toBe(false);
+    expect(capture.calls.shutdown).toBe(1);
+    expect(liveVoiceListeners).toBe(0);
+    expect(assistantListeners.size).toBe(0);
+    expect(socket().closeCalls).toEqual([]);
+  });
+
+  test("publishes the flag going down in the same tick as the press", async () => {
+    await startRunning();
+
+    const seen: boolean[] = [];
+    const unsubscribe = useWatchStore.subscribe((state) => {
+      seen.push(state.watching);
+    });
+    stopWatch();
+    unsubscribe();
+
+    expect(seen).toEqual([false]);
+  });
+
+  /** The slot is free immediately, so the next press is not queued behind a drain. */
+  test("frees the slot before the drain finishes", async () => {
+    await startRunning();
+    stopWatch();
+
+    await startRunning();
+
+    expect(sockets).toHaveLength(2);
+    expect(useWatchStore.getState().watching).toBe(true);
+  });
+
+  /**
+   * Only a deliberate stop owes the runtime a flush. Every other ending is
+   * already over, so waiting would hold a socket open for nothing.
+   */
+  test("does not wait when a call takes the microphone", async () => {
+    await startRunning();
+
+    useLiveVoiceStore.setState({ state: "listening" });
+
+    expect(socket().closeCalls).toEqual([1000]);
+  });
+
+  test("does not wait when the assistant changes", async () => {
+    await startRunning();
+
+    activate("asst-other");
+
+    expect(socket().closeCalls).toEqual([1000]);
+  });
+
+  test("does not wait when the runtime reports an error", async () => {
+    await startRunning();
+
+    socket().serverMessage({ type: "error", message: "provider gone" });
+
+    expect(socket().closeCalls).toEqual([1000]);
+  });
+
+  /** Nothing to flush and nothing to wait for on a socket that is not open. */
+  test("does not wait when the socket is already gone", async () => {
+    await startRunning();
+    socket().readyState = 3;
+
+    stopWatch();
+
+    expect(useWatchStore.getState().watching).toBe(false);
+    expect(capture.calls.shutdown).toBe(1);
+  });
+});
+
+/**
  * A socket is not a session.
  *
  * The gateway accepts the downstream upgrade before it dials the runtime, so a
@@ -622,7 +795,7 @@ describe("a watch session between the socket and the runtime", () => {
    */
   test("gives up on a session the runtime never answers for", async () => {
     const seen = await flagEmissions(async () => {
-      await startPending(5);
+      await startPending({ readyTimeoutMs: 5 });
       await wait(30);
     });
 
@@ -632,7 +805,7 @@ describe("a watch session between the socket and the runtime", () => {
   });
 
   test("frees the slot on giving up, so the next press opens a new session", async () => {
-    await startPending(5);
+    await startPending({ readyTimeoutMs: 5 });
     await wait(30);
 
     await startRunning();
@@ -642,7 +815,7 @@ describe("a watch session between the socket and the runtime", () => {
   });
 
   test("does not give up on a session the runtime did answer for", async () => {
-    await startRunning(5);
+    await startRunning({ readyTimeoutMs: 5 });
 
     await wait(30);
 
@@ -663,7 +836,6 @@ describe("a watch session between the socket and the runtime", () => {
 
     expect(seen).toEqual([]);
     expect(sockets).toHaveLength(1);
-    expect(socket().closeCalls).toEqual([1000]);
     expect(capture.calls.shutdown).toBe(1);
   });
 
@@ -859,10 +1031,11 @@ describe("a watch session across an assistant switch", () => {
  * microphone open with nothing left able to close it.
  */
 describe("tearing a watch session down", () => {
-  test("closes the socket and releases the microphone", async () => {
+  test("releases the microphone and the flag, then closes the socket", async () => {
     await startRunning();
 
     stopWatch();
+    serverClosed();
 
     expect(capture.calls.shutdown).toBe(1);
     expect(socket().closeCalls).toEqual([1000]);
@@ -880,9 +1053,11 @@ describe("tearing a watch session down", () => {
 
     stopWatch();
     stopWatch();
+    serverClosed();
 
     expect(capture.calls.shutdown).toBe(1);
     expect(socket().closeCalls).toEqual([1000]);
+    expect(socket().sent).toEqual([JSON.stringify({ type: "stop" })]);
   });
 
   test("ends the session when the runtime reports an error", async () => {
