@@ -13,6 +13,7 @@
     "./avatar-image": "./src/avatar-image.ts",
     "./bundle-confirmation": "./src/bundle-confirmation.ts",
     "./bundle-flow": "./src/bundle-flow.ts",
+    "./bundle-host": "./src/bundle-host.ts",
     "./bundle-manager": "./src/bundle-manager.ts",
     "./bundle-platform": "./src/bundle-platform.ts",
     "./bundle-window": "./src/bundle-window.ts",

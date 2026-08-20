@@ -4,18 +4,19 @@ import path from "node:path";
 import {
   BUNDLES_DIR_NAME,
   bundleFileHandlerToken,
-  bundleHostProviderToken,
   configureBundlePlatform,
 } from "@vellumai/electron-desktop/bundle-platform";
 import {
   handleBundleFile,
   installBundleFlow,
 } from "@vellumai/electron-desktop/bundle-flow";
+import { createBundleHostProvider } from "@vellumai/electron-desktop/bundle-host";
 import type {
   CapabilityModule,
   DesktopCapabilityRegistry,
 } from "@vellumai/electron-desktop/capability-registry";
 import { onFileOpen } from "@vellumai/electron-desktop/file-open";
+import { LOCAL_MODE_CLI } from "@vellumai/electron-desktop/local-mode";
 
 import { RENDERER_BASE_PROD, getDevRendererBase } from "../app-config";
 import { handle, on } from "../ipc.client";
@@ -23,13 +24,12 @@ import { handle, on } from "../ipc.client";
 const bundles: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "windows.bundles",
   install(registry) {
-    const host = registry.get(bundleHostProviderToken);
-    if (!host) {
-      return;
-    }
-
     configureBundlePlatform({
-      ...host,
+      // The CLI provider installs after this module (modules install in path
+      // order), so it is looked up when a bundle is actually opened.
+      ...createBundleHostProvider(() =>
+        registry.require(LOCAL_MODE_CLI).resolveInvocation(),
+      ),
       bundlesRoot: () => path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
       rendererBase: () =>
         app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
