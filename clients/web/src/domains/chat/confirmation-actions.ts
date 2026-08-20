@@ -174,7 +174,11 @@ export async function handleConfirmationSubmit(
   if (!snapshot) {
     return;
   }
-  if (!toolCall && submittingConfirmationRequestId !== null) {
+  // Guards double-submitting this prompt, not any prompt, so a superseding
+  // confirmation stays answerable while an older answer is still on the wire.
+  // That also retires the inline exemption: an inline card carries its own
+  // request, so it is no longer a special case.
+  if (submittingConfirmationRequestId === snapshot.requestId) {
     return;
   }
   useInteractionStore.getState().submitConfirmationStart(snapshot.requestId);
@@ -261,7 +265,11 @@ export async function handleAllowAndCreateRule(
   if (!snapshot) {
     return;
   }
-  if (!toolCall && submittingConfirmationRequestId !== null) {
+  // Guards double-submitting this prompt, not any prompt, so a superseding
+  // confirmation stays answerable while an older answer is still on the wire.
+  // That also retires the inline exemption: an inline card carries its own
+  // request, so it is no longer a special case.
+  if (submittingConfirmationRequestId === snapshot.requestId) {
     return;
   }
   const ctx = useStreamStore.getState().streamContext;

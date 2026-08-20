@@ -147,6 +147,24 @@ describe("handleConfirmationSubmit: a resume that no longer owns the slot", () =
     });
   });
 
+  it("ignores a second click on the prompt it is already submitting", async () => {
+    // GIVEN a submission parked mid-request
+    submitConfirmationResult = { ok: true };
+    seedPendingConfirmation("cr-double");
+    const { inFlight, release } = submitParked("allow");
+
+    // WHEN the same prompt is submitted again
+    await handleConfirmationSubmit("allow");
+
+    // THEN the second click does nothing. This is the case the entry guard
+    // exists for, and it is about this prompt rather than about any prompt: a
+    // superseding confirmation stays answerable while this one is on the wire.
+    expect(submitConfirmationCalls).toHaveLength(1);
+
+    release();
+    await inFlight;
+  });
+
   it("stands down after a reset abandoned the interaction", async () => {
     submitConfirmationResult = {
       ok: false,
