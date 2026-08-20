@@ -70,16 +70,19 @@ const PREFERENCES_LABEL = "Preferences";
  * so the row that names it comes back, unless the wallet is empty too and the
  * panel's add-credits strip is already saying so.
  *
- * With the flag off the row is whatever it has always been.
+ * With no reading to hide behind, the row stays: the panel renders nothing
+ * without one, and hiding the row too would leave the menu with no balance and
+ * no way to buy more. With the flag off the row is whatever it has always
+ * been.
  */
 export function showsMenuCredits(
   obscureCredits: boolean,
   usage: PreferencesUsage | null,
 ): boolean {
-  if (!obscureCredits) {
+  if (!obscureCredits || usage == null) {
     return true;
   }
-  return usage != null && usage.spent && !usage.exhausted;
+  return usage.spent && !usage.exhausted;
 }
 
 export interface PreferencesMenuProps {

@@ -491,12 +491,14 @@ describe("PreferencesMenu credits row under obscure-credits", () => {
     expect(screen.queryByTestId("credits-card")).toBeNull();
   });
 
-  test("the flag on with nothing to measure hides the row", async () => {
+  test("the flag on with nothing to measure keeps the row", async () => {
     obscureCreditsRef.value = true;
     billingRef.data = { effective_balance: "60.4" };
     await openMenu();
 
-    expect(screen.queryByTestId("credits-card")).toBeNull();
+    // The real panel renders nothing without a reading, so the row is the only
+    // balance and the only way to buy more.
+    expect(screen.getByTestId("credits-card")).toBeTruthy();
   });
 });
 
@@ -508,9 +510,12 @@ describe("showsMenuCredits", () => {
   });
 
   test("the flag on shows it only for a spent bundle with credits left", () => {
-    expect(showsMenuCredits(true, null)).toBe(false);
     expect(showsMenuCredits(true, usage(0.99))).toBe(false);
     expect(showsMenuCredits(true, usage(1))).toBe(true);
     expect(showsMenuCredits(true, usage(1, true))).toBe(false);
+  });
+
+  test("an unmeasurable reading falls back to showing the row", () => {
+    expect(showsMenuCredits(true, null)).toBe(true);
   });
 });
