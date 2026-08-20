@@ -160,7 +160,7 @@ describe("useInteractionStore", () => {
         useInteractionStore.getState().submittingConfirmationRequestId,
       ).toBe("c1");
 
-      useInteractionStore.getState().dismissConfirmation();
+      useInteractionStore.getState().dismissConfirmationIfMatches("c2");
       expect(
         useInteractionStore.getState().submittingConfirmationRequestId,
       ).toBe("c1");
@@ -281,12 +281,12 @@ describe("useInteractionStore", () => {
       );
     });
 
-    it("dismissQuestion clears all question state", () => {
+    it("retiring a card also clears the hidden-card flag", () => {
       useInteractionStore
         .getState()
         .showQuestion({ requestId: "q1", entries: [] });
       useInteractionStore.getState().dismissQuestionCard();
-      useInteractionStore.getState().dismissQuestion();
+      useInteractionStore.getState().dismissQuestionIfMatches("q1");
       const s = useInteractionStore.getState();
       expect(s.pendingQuestion).toBeNull();
       expect(s.isQuestionCardDismissed).toBe(false);

@@ -127,7 +127,6 @@ export interface InteractionActions {
   showConfirmation: (payload: PendingConfirmationState) => void;
   submitConfirmationStart: (requestId: string) => void;
   submitConfirmationEnd: (requestId: string) => void;
-  dismissConfirmation: () => void;
   dismissConfirmationIfMatches: (requestId: string) => void;
   updateConfirmation: (
     requestId: string,
@@ -146,7 +145,6 @@ export interface InteractionActions {
   showQuestion: (payload: PendingQuestionState) => void;
   submitQuestionStart: (requestId: string) => void;
   submitQuestionEnd: (requestId: string) => void;
-  dismissQuestion: () => void;
   dismissQuestionIfMatches: (requestId: string) => void;
   dismissQuestionCard: () => void;
 
@@ -272,8 +270,9 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
         : {},
     ),
 
-  dismissConfirmation: () => set({ pendingConfirmation: null }),
-
+  // Retiring is by request only. There is deliberately no "dismiss whatever is
+  // on screen": a caller holding a stale request could use it to close a card
+  // it never decided, which is the shape of every bug this slot has had.
   dismissConfirmationIfMatches: (requestId) => {
     const { pendingConfirmation } = get();
     if (!pendingConfirmation || pendingConfirmation.requestId !== requestId) {
@@ -327,13 +326,6 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
         ? { submittingQuestionRequestId: null }
         : {},
     ),
-
-  dismissQuestion: () =>
-    set((state) => ({
-      pendingQuestion: null,
-      questionRevision: state.questionRevision + 1,
-      isQuestionCardDismissed: false,
-    })),
 
   dismissQuestionIfMatches: (requestId) => {
     const { pendingQuestion } = get();

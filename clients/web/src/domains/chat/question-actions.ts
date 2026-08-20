@@ -139,10 +139,10 @@ export async function handleQuestionResponse(
  */
 export function handleDismissPendingQuestion(): void {
   const snapshot = useInteractionStore.getState().pendingQuestion;
-  useInteractionStore.getState().dismissQuestion();
   if (!snapshot) {
     return;
   }
+  useInteractionStore.getState().dismissQuestionIfMatches(snapshot.requestId);
   const ctx = useStreamStore.getState().streamContext;
   if (!ctx) {
     return;
