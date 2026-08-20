@@ -17,6 +17,10 @@ import {
   getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
+import {
+  getCredentialMetadata,
+  upsertCredentialMetadata,
+} from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
@@ -112,8 +116,9 @@ export function parseManualClaudeCode(input: string): {
 
 /**
  * Store a captured Claude OAuth token in the `acp/claude_oauth_token` vault
- * field and provision the `acp_spawn` read policy so the broker can inject it
- * at spawn time. Throws when the backing store rejects the write.
+ * field and provision the policy the broker applies at spawn time: grant the
+ * `acp_spawn` read and lift any domain restriction. Throws when the backing
+ * store rejects the write.
  */
 export async function storeAcpClaudeToken(token: string): Promise<void> {
   const stored = await setSecureKeyAsync(
@@ -131,6 +136,16 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
     ACP_OAUTH_TOKEN_FIELD,
     "Claude OAuth token for ACP agent authentication",
   );
+  // Same deliberate opt-in, applied to the other half of the policy the broker
+  // checks. This field is OAuth-only and server-use-only, and the broker refuses
+  // a domain-restricted credential server-side, so a lingering restriction would
+  // keep every spawn failing even after a successful connect.
+  const meta = getCredentialMetadata(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD);
+  if ((meta?.allowedDomains ?? []).length > 0) {
+    upsertCredentialMetadata(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD, {
+      allowedDomains: [],
+    });
+  }
 }
 
 /**
