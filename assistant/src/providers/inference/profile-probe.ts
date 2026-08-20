@@ -71,6 +71,14 @@ const TRANSIENT_BLAME_REASONS: ReadonlySet<ProviderErrorReason> = new Set([
  * parameter and token-budget rejections) blame the profile; credential,
  * billing, and reachability reasons blame the provider connection.
  */
+/**
+ * Transport failures the SDKs surface without a semantic reason (e.g. the
+ * OpenAI client's APIConnectionError, message "Connection error."). Matched
+ * on the error text since no adapter wraps these into a ProviderError.
+ */
+const CONNECTION_FAILURE_PATTERN =
+  /connection (error|refused|timed out)|fetch failed|econnrefused|etimedout|enotfound|socket|network/i;
+
 export function classifyProbeFailure(err: unknown): {
   blame: ProfileCheckBlame;
   reason?: string;
@@ -78,6 +86,12 @@ export function classifyProbeFailure(err: unknown): {
 } {
   const detail = err instanceof Error ? err.message : String(err);
   if (!(err instanceof ProviderError) || err.reason === undefined) {
+    if (
+      CONNECTION_FAILURE_PATTERN.test(detail) ||
+      (err instanceof Error && err.name === "APIConnectionError")
+    ) {
+      return { blame: "provider", reason: "network_error", detail };
+    }
     return { blame: "unknown", detail };
   }
   if (PROVIDER_BLAME_REASONS.has(err.reason)) {

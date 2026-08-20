@@ -44,6 +44,17 @@ describe("classifyProbeFailure", () => {
     ).toBe("transient");
   });
 
+  test("blames the provider for unwrapped transport failures", () => {
+    // The OpenAI SDK's APIConnectionError reaches the probe without a
+    // ProviderError wrapper or semantic reason.
+    const result = classifyProbeFailure(new Error("Connection error."));
+    expect(result.blame).toBe("provider");
+    expect(result.reason).toBe("network_error");
+    expect(classifyProbeFailure(new Error("fetch failed")).blame).toBe(
+      "provider",
+    );
+  });
+
   test("falls back to unknown for unclassified errors", () => {
     expect(classifyProbeFailure(new Error("boom")).blame).toBe("unknown");
     expect(classifyProbeFailure(new Error("boom")).detail).toBe("boom");
