@@ -10,10 +10,10 @@
  * (`detectClientOs()` resolves the Electron bridge first), so the daemon
  * gate this hook feeds would never be consulted for an Electron-originated
  * turn. Reporting from Electron would be pure waste, so this hook no-ops
- * there — never reuse the macOS host-proxy presence path for this.
+ * there. Never reuse the macOS host-proxy presence path for this.
  *
  * Reports on mount, on every visibility edge (via the bus's `app.resume` /
- * `app.hidden`, not a raw `visibilitychange` listener — see
+ * `app.hidden`, not a raw `visibilitychange` listener, see
  * `docs/EVENT_BUS.md`), whenever the focused conversation changes (route or
  * active-conversation-id change), and on a periodic reconciliation tick while
  * the tab is visible. Each report reads `document.visibilityState` at post
@@ -42,7 +42,9 @@
  * Fire-and-forget and best-effort cleanup: the daemon's presence gate fails
  * open on a missing/stale report, so a dropped call (network blip, tab
  * killed before a final report lands) just forgoes suppression for the
- * remainder of the TTL — it never blocks the UI or breaks chat.
+ * remainder of the TTL. It never blocks the UI or breaks chat.
+ *
+ * Reports are serialized rather than raced. See {@link reportWebPresence}.
  */
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router";
@@ -113,8 +115,51 @@ async function postWebPresence(
   }
 }
 
+let flushing = false;
+let queued: { assistantId: string; body: WebPresenceReportBody } | null = null;
+
 /**
- * @param assistantId — current assistant; `null` disables reporting until an
+ * Report presence, keeping the daemon's view in generation order.
+ *
+ * `setClientWebPresence` stamps whatever arrives last and keeps it for the
+ * whole TTL, so two concurrent posts that landed out of order would leave the
+ * daemon believing this tab is on a conversation the user already left, and
+ * suppress that conversation's pushes. Holding one request in flight at a time
+ * makes the reorder unrepresentable without a sequence number on the wire.
+ *
+ * Only the newest report survives the wait: a superseded body describes a
+ * state that is already wrong by the time it could be sent.
+ */
+function reportWebPresence(
+  assistantId: string,
+  body: WebPresenceReportBody,
+): void {
+  queued = { assistantId, body };
+  if (flushing) {
+    return;
+  }
+  flushing = true;
+  void (async () => {
+    try {
+      while (queued) {
+        const next = queued;
+        queued = null;
+        await postWebPresence(next.assistantId, next.body);
+      }
+    } finally {
+      flushing = false;
+    }
+  })();
+}
+
+/** Drop queue state between tests so one test cannot strand another. */
+export function __resetWebPresenceQueueForTests(): void {
+  flushing = false;
+  queued = null;
+}
+
+/**
+ * @param assistantId current assistant; `null` disables reporting until an
  *   assistant resolves.
  */
 export function useWebPresenceReport(assistantId: string | null): void {
@@ -127,7 +172,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
     : null;
   // The reconciliation interval reads the focused conversation off a ref
   // rather than depending on it, so a focus change doesn't tear down and
-  // re-arm the timer — it's already covered by the effect below.
+  // re-arm the timer, which the effect below already covers.
   const focusedConversationIdRef = useRef(focusedConversationId);
   useEffect(() => {
     focusedConversationIdRef.current = focusedConversationId;
@@ -151,7 +196,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
       if (signal !== "online") {
         lastInteractionAtRef.current = Date.now();
       }
-      void postWebPresence(assistantId!, {
+      reportWebPresence(assistantId!, {
         visible: isPresent(lastInteractionAtRef.current),
         focusedConversationId,
       });
@@ -160,7 +205,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
 
   useBusSubscription("app.hidden", () => {
     if (supportsWebPresence && !isElectron()) {
-      void postWebPresence(assistantId!, {
+      reportWebPresence(assistantId!, {
         visible: isPresent(lastInteractionAtRef.current),
         focusedConversationId,
       });
@@ -169,7 +214,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
 
   useBusSubscription("sse.opened", ({ assistantId: openedFor }) => {
     if (supportsWebPresence && !isElectron() && assistantId === openedFor) {
-      void postWebPresence(assistantId!, {
+      reportWebPresence(assistantId!, {
         visible: isPresent(lastInteractionAtRef.current),
         focusedConversationId: focusedConversationIdRef.current,
       });
@@ -186,7 +231,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
       const wasIdle = !isPresent(lastInteractionAtRef.current);
       lastInteractionAtRef.current = Date.now();
       if (wasIdle && isDocumentVisible()) {
-        void postWebPresence(assistantId!, {
+        reportWebPresence(assistantId!, {
           visible: true,
           focusedConversationId: focusedConversationIdRef.current,
         });
@@ -212,7 +257,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
     if (!supportsWebPresence || isElectron()) {
       return;
     }
-    void postWebPresence(assistantId!, {
+    reportWebPresence(assistantId!, {
       visible: isPresent(lastInteractionAtRef.current),
       focusedConversationId,
     });
@@ -229,7 +274,7 @@ export function useWebPresenceReport(assistantId: string | null): void {
       if (!isPresent(lastInteractionAtRef.current)) {
         return;
       }
-      void postWebPresence(assistantId!, {
+      reportWebPresence(assistantId!, {
         visible: true,
         focusedConversationId: focusedConversationIdRef.current,
       });

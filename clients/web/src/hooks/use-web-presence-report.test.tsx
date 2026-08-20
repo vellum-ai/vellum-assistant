@@ -121,8 +121,16 @@ mock.module("@/generated/daemon/client.gen", () => ({
   client: { post: postMock },
 }));
 
-const { useWebPresenceReport } =
+const { useWebPresenceReport, __resetWebPresenceQueueForTests } =
   await import("@/hooks/use-web-presence-report");
+
+/**
+ * Reports are serialized, so a second one issued while the first is in flight
+ * lands a microtask later. Drain the queue before asserting on `postCalls`.
+ */
+async function flushPresence(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 /** Drives the router from a test, since `MemoryRouter` ignores entry changes. */
 let navigate: NavigateFunction | null = null;
@@ -149,6 +157,13 @@ function renderReportAt(
   });
 }
 
+/** Switch the focused conversation without leaving the chat route. */
+function focusConversation(conversationId: string) {
+  act(() => {
+    useConversationStore.getState().setActiveConversationId(conversationId);
+  });
+}
+
 function navigateTo(pathname: string) {
   act(() => {
     navigate?.(pathname);
@@ -166,6 +181,7 @@ beforeEach(() => {
   postMock.mockClear();
   navigate = null;
   setVisibilityState("visible");
+  __resetWebPresenceQueueForTests();
   nowMs = 1_700_000_000_000;
   Date.now = () => nowMs;
   installIntervalHarness();
@@ -183,11 +199,12 @@ afterEach(() => {
 });
 
 describe("useWebPresenceReport", () => {
-  test("reports visible + focused conversation on mount when on the chat route", () => {
+  test("reports visible + focused conversation on mount when on the chat route", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
 
     renderReportAt("assistant-1", routes.conversation("conv-1"));
 
+    await flushPresence();
     expect(postCalls).toHaveLength(1);
     expect(postCalls[0]).toEqual({
       url: "/v1/assistants/{assistant_id}/clients/web-presence",
@@ -196,11 +213,12 @@ describe("useWebPresenceReport", () => {
     });
   });
 
-  test("reads visibility fresh for mount and focused-conversation reports", () => {
+  test("reads visibility fresh for mount and focused-conversation reports", async () => {
     setVisibilityState("hidden");
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
 
+    await flushPresence();
     expect(postCalls[0]?.body).toEqual({
       visible: false,
       focusedConversationId: "conv-1",
@@ -209,17 +227,19 @@ describe("useWebPresenceReport", () => {
     setVisibilityState("visible");
     navigateTo(routes.about);
 
+    await flushPresence();
     expect(postCalls[1]?.body).toEqual({
       visible: true,
       focusedConversationId: null,
     });
   });
 
-  test("reports no focused conversation off the chat route even with an active id", () => {
+  test("reports no focused conversation off the chat route even with an active id", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
 
     renderReportAt("assistant-1", routes.about);
 
+    await flushPresence();
     expect(postCalls).toHaveLength(1);
     expect(postCalls[0]?.body).toEqual({
       visible: true,
@@ -227,39 +247,43 @@ describe("useWebPresenceReport", () => {
     });
   });
 
-  test("does not report until an assistant id resolves", () => {
+  test("does not report until an assistant id resolves", async () => {
     renderReportAt(null);
 
+    await flushPresence();
     expect(postCalls).toHaveLength(0);
   });
 
-  test("does not report or arm reconciliation before an assistant supports the route", () => {
+  test("does not report or arm reconciliation before an assistant supports the route", async () => {
     useAssistantIdentityStore
       .getState()
       .setIdentity("test-assistant", "0.11.4", "assistant-1");
 
     renderReportAt("assistant-1", routes.conversation("conv-1"));
 
+    await flushPresence();
     expect(postCalls).toHaveLength(0);
     expect(reconciliationTimers()).toHaveLength(0);
   });
 
-  test("does not report or subscribe while the assistant version is unknown", () => {
+  test("does not report or subscribe while the assistant version is unknown", async () => {
     useAssistantIdentityStore
       .getState()
       .setIdentity("test-assistant", null, "assistant-1");
 
     renderReportAt("assistant-1", routes.conversation("conv-1"));
 
+    await flushPresence();
     expect(postCalls).toHaveLength(0);
     expect(reconciliationTimers()).toHaveLength(0);
   });
 
-  test("starts reporting when identity hydration enables the route", () => {
+  test("starts reporting when identity hydration enables the route", async () => {
     useAssistantIdentityStore
       .getState()
       .setIdentity("test-assistant", "0.11.4", "assistant-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
     expect(postCalls).toHaveLength(0);
     expect(reconciliationTimers()).toHaveLength(0);
 
@@ -269,19 +293,22 @@ describe("useWebPresenceReport", () => {
         .setIdentity("test-assistant", "0.11.5", "assistant-1");
     });
 
+    await flushPresence();
     expect(postCalls).toHaveLength(1);
     expect(reconciliationTimers()).toHaveLength(1);
   });
 
-  test("re-reports after a fresh SSE open for the matching assistant", () => {
+  test("re-reports after a fresh SSE open for the matching assistant", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
     expect(postCalls).toHaveLength(1);
 
     act(() => {
       publish("sse.opened", { assistantId: "assistant-1", cause: "fresh" });
     });
 
+    await flushPresence();
     expect(postCalls).toHaveLength(2);
     expect(postCalls[1]?.body).toEqual({
       visible: true,
@@ -289,7 +316,7 @@ describe("useWebPresenceReport", () => {
     });
   });
 
-  test("re-reports after an SSE reconnect for the matching assistant", () => {
+  test("re-reports after an SSE reconnect for the matching assistant", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
     setVisibilityState("hidden");
@@ -298,6 +325,7 @@ describe("useWebPresenceReport", () => {
       publish("sse.opened", { assistantId: "assistant-1", cause: "error" });
     });
 
+    await flushPresence();
     expect(postCalls).toHaveLength(2);
     expect(postCalls[1]?.body).toEqual({
       visible: false,
@@ -305,32 +333,36 @@ describe("useWebPresenceReport", () => {
     });
   });
 
-  test("ignores SSE opens for another assistant", () => {
+  test("ignores SSE opens for another assistant", async () => {
     renderReportAt("assistant-1", routes.conversation("conv-1"));
 
     act(() => {
       publish("sse.opened", { assistantId: "assistant-2", cause: "fresh" });
     });
 
+    await flushPresence();
     expect(postCalls).toHaveLength(1);
   });
 
-  test("does not report from the Electron renderer", () => {
+  test("does not report from the Electron renderer", async () => {
     electron = true;
     useConversationStore.getState().setActiveConversationId("conv-1");
 
     renderReportAt("assistant-1", routes.conversation("conv-1"));
 
+    await flushPresence();
     expect(postCalls).toHaveLength(0);
   });
 
-  test("re-reports when the focused conversation changes via route navigation", () => {
+  test("re-reports when the focused conversation changes via route navigation", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
     expect(postCalls).toHaveLength(1);
 
     navigateTo(routes.about);
 
+    await flushPresence();
     expect(postCalls).toHaveLength(2);
     expect(postCalls[1]?.body).toEqual({
       visible: true,
@@ -338,15 +370,17 @@ describe("useWebPresenceReport", () => {
     });
   });
 
-  test("reports fresh visibility on app.hidden and app.resume", () => {
+  test("reports fresh visibility on app.hidden and app.resume", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
     expect(postCalls).toHaveLength(1);
 
     setVisibilityState("hidden");
     act(() => {
       publish("app.hidden", { signal: "visibility" });
     });
+    await flushPresence();
     expect(postCalls[1]?.body).toEqual({
       visible: false,
       focusedConversationId: "conv-1",
@@ -356,13 +390,14 @@ describe("useWebPresenceReport", () => {
     act(() => {
       publish("app.resume", { signal: "visibility" });
     });
+    await flushPresence();
     expect(postCalls[2]?.body).toEqual({
       visible: true,
       focusedConversationId: "conv-1",
     });
   });
 
-  test("online reconnect while hidden never reports visible", () => {
+  test("online reconnect while hidden never reports visible", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
     setVisibilityState("hidden");
@@ -371,6 +406,7 @@ describe("useWebPresenceReport", () => {
       publish("app.resume", { signal: "online" });
     });
 
+    await flushPresence();
     expect(postCalls[1]?.body).toEqual({
       visible: false,
       focusedConversationId: "conv-1",
@@ -390,7 +426,7 @@ describe("useWebPresenceReport", () => {
 });
 
 describe("useWebPresenceReport: reconciliation", () => {
-  test("arms a single 60s reconciliation interval on mount", () => {
+  test("arms a single 60s reconciliation interval on mount", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
 
     renderReportAt("assistant-1", routes.conversation("conv-1"));
@@ -398,13 +434,15 @@ describe("useWebPresenceReport: reconciliation", () => {
     expect(reconciliationTimers()).toHaveLength(1);
   });
 
-  test("a tick while visible re-reports the focused conversation", () => {
+  test("a tick while visible re-reports the focused conversation", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
     expect(postCalls).toHaveLength(1);
 
     tickReconciliation();
 
+    await flushPresence();
     expect(postCalls).toHaveLength(2);
     expect(postCalls[1]?.body).toEqual({
       visible: true,
@@ -412,31 +450,35 @@ describe("useWebPresenceReport: reconciliation", () => {
     });
   });
 
-  test("a tick while hidden reports nothing", () => {
+  test("a tick while hidden reports nothing", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
     setVisibilityState("hidden");
 
     tickReconciliation();
 
+    await flushPresence();
     expect(postCalls).toHaveLength(1);
   });
 
-  test("a tick after app.resume reports again", () => {
+  test("a tick after app.resume reports again", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
     setVisibilityState("hidden");
     act(() => {
       publish("app.hidden", { signal: "visibility" });
     });
+    await flushPresence();
     setVisibilityState("visible");
     act(() => {
       publish("app.resume", { signal: "visibility" });
     });
+    await flushPresence();
     expect(postCalls).toHaveLength(3);
 
     tickReconciliation();
 
+    await flushPresence();
     expect(postCalls).toHaveLength(4);
     expect(postCalls[3]?.body).toEqual({
       visible: true,
@@ -444,23 +486,26 @@ describe("useWebPresenceReport: reconciliation", () => {
     });
   });
 
-  test("a tick reports the conversation focused at tick time, not at mount", () => {
+  test("a tick reports the conversation focused at tick time, not at mount", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     renderReportAt("assistant-1", routes.conversation("conv-1"));
+    await flushPresence();
     expect(postCalls).toHaveLength(1);
 
     navigateTo(routes.about);
+    await flushPresence();
     expect(postCalls).toHaveLength(2);
 
     tickReconciliation();
 
+    await flushPresence();
     expect(postCalls[2]?.body).toEqual({
       visible: true,
       focusedConversationId: null,
     });
   });
 
-  test("does not arm reconciliation from the Electron renderer", () => {
+  test("does not arm reconciliation from the Electron renderer", async () => {
     electron = true;
     useConversationStore.getState().setActiveConversationId("conv-1");
 
@@ -475,8 +520,9 @@ describe("useWebPresenceReport: reconciliation", () => {
       return renderReportAt("assistant-1", routes.conversation("conv-1"));
     }
 
-    test("stops reconciling once the tab goes untouched past the threshold", () => {
+    test("stops reconciling once the tab goes untouched past the threshold", async () => {
       renderOnConversation();
+      await flushPresence();
       postCalls.length = 0;
 
       advanceClock(IDLE_THRESHOLD_MS + 1);
@@ -484,11 +530,13 @@ describe("useWebPresenceReport: reconciliation", () => {
 
       // Nothing is posted, so the daemon's last report ages out of its TTL
       // and the push it was suppressing comes back.
+      await flushPresence();
       expect(postCalls).toHaveLength(0);
     });
 
-    test("keeps reconciling while input keeps arriving", () => {
+    test("keeps reconciling while input keeps arriving", async () => {
       renderOnConversation();
+      await flushPresence();
       postCalls.length = 0;
 
       advanceClock(IDLE_THRESHOLD_MS - 1);
@@ -496,6 +544,7 @@ describe("useWebPresenceReport: reconciliation", () => {
       advanceClock(IDLE_THRESHOLD_MS - 1);
       tickReconciliation();
 
+      await flushPresence();
       expect(postCalls).toHaveLength(1);
       expect(postCalls[0]?.body).toEqual({
         visible: true,
@@ -503,13 +552,15 @@ describe("useWebPresenceReport: reconciliation", () => {
       });
     });
 
-    test("input ending an idle stretch reports at once", () => {
+    test("input ending an idle stretch reports at once", async () => {
       renderOnConversation();
       advanceClock(IDLE_THRESHOLD_MS + 1);
+      await flushPresence();
       postCalls.length = 0;
 
       interact();
 
+      await flushPresence();
       expect(postCalls).toHaveLength(1);
       expect(postCalls[0]?.body).toEqual({
         visible: true,
@@ -518,44 +569,51 @@ describe("useWebPresenceReport: reconciliation", () => {
 
       // Only the transition reports; later input rides the tick instead.
       interact();
+      await flushPresence();
       expect(postCalls).toHaveLength(1);
     });
 
-    test("input while hidden does not report the tab as visible", () => {
+    test("input while hidden does not report the tab as visible", async () => {
       renderOnConversation();
       advanceClock(IDLE_THRESHOLD_MS + 1);
       setVisibilityState("hidden");
+      await flushPresence();
       postCalls.length = 0;
 
       interact();
 
+      await flushPresence();
       expect(postCalls).toHaveLength(0);
     });
 
-    test("a foreground resume counts as the user reaching for this tab", () => {
+    test("a foreground resume counts as the user reaching for this tab", async () => {
       renderOnConversation();
       advanceClock(IDLE_THRESHOLD_MS + 1);
+      await flushPresence();
       postCalls.length = 0;
 
       act(() => {
         publish("app.resume", { signal: "visibility" });
       });
 
+      await flushPresence();
       expect(postCalls[0]?.body).toEqual({
         visible: true,
         focusedConversationId: "conv-1",
       });
     });
 
-    test("an online resume does not clear idle", () => {
+    test("an online resume does not clear idle", async () => {
       renderOnConversation();
       advanceClock(IDLE_THRESHOLD_MS + 1);
+      await flushPresence();
       postCalls.length = 0;
 
       act(() => {
         publish("app.resume", { signal: "online" });
       });
 
+      await flushPresence();
       expect(postCalls[0]?.body).toEqual({
         visible: false,
         focusedConversationId: "conv-1",
@@ -563,13 +621,50 @@ describe("useWebPresenceReport: reconciliation", () => {
     });
   });
 
-  test("does not arm reconciliation until an assistant id resolves", () => {
+  describe("report ordering", () => {
+    test("a report issued mid-flight is sent after the one in flight", async () => {
+      useConversationStore.getState().setActiveConversationId("conv-1");
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      focusConversation("conv-2");
+
+      // The switch lands behind the mount report rather than racing it,
+      // so the daemon can never be left holding the conversation just left.
+      expect(postCalls).toHaveLength(1);
+
+      await flushPresence();
+
+      expect(postCalls).toHaveLength(2);
+      expect(postCalls[1]?.body).toEqual({
+        visible: true,
+        focusedConversationId: "conv-2",
+      });
+    });
+
+    test("only the newest report survives the wait", async () => {
+      useConversationStore.getState().setActiveConversationId("conv-1");
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      focusConversation("conv-2");
+      focusConversation("conv-3");
+
+      await flushPresence();
+
+      // conv-2 is dropped: by the time it could be sent it already describes
+      // a conversation the user has left.
+      expect(postCalls).toHaveLength(2);
+      expect(postCalls[1]?.body).toEqual({
+        visible: true,
+        focusedConversationId: "conv-3",
+      });
+    });
+  });
+
+  test("does not arm reconciliation until an assistant id resolves", async () => {
     renderReportAt(null);
 
     expect(reconciliationTimers()).toHaveLength(0);
   });
 
-  test("unmount clears the reconciliation interval", () => {
+  test("unmount clears the reconciliation interval", async () => {
     useConversationStore.getState().setActiveConversationId("conv-1");
     const { unmount } = renderReportAt(
       "assistant-1",
