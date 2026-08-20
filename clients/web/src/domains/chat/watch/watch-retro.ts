@@ -29,11 +29,24 @@
  * is: it is started from the socket's teardown and drawn by a different
  * renderer, and it has to outlive every route the user walks through while the
  * turn runs.
+ *
+ * **But it belongs to one assistant, the way the session did.** The wait ends
+ * on an event from the assistant that ran the session, and the SSE service
+ * detaches from that assistant the moment the user switches away, so a pending
+ * wait carried across a switch can never be settled and would sit until the
+ * give-up timer. A ready one is worse than stuck: the question would be drawn
+ * under the new assistant's name, and answering yes would navigate to a
+ * conversation that belongs to the old one while every request the app makes is
+ * scoped to the new one. So the state is bound to its assistant on the same
+ * terms `watch-controller.ts` binds the session, and ends the same way when
+ * that assistant stops being the active one.
  */
 
 import { create } from "zustand";
 
 import type { WatchRetroCompletedEvent } from "@vellumai/assistant-api";
+
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /**
  * How long a summary may be pending before the wait is abandoned.
@@ -59,6 +72,11 @@ export interface WatchRetro {
   readonly sessionId: string;
   /** The conversation holding the report, and the one a yes opens. */
   readonly conversationId: string;
+  /**
+   * The assistant that ran the session, which is the only one that can settle
+   * this wait and the only one the report's conversation exists under.
+   */
+  readonly assistantId: string;
   /** `pending` while the turn runs, `ready` once there is a report. */
   readonly phase: "pending" | "ready";
 }
@@ -83,14 +101,51 @@ function clearTimeoutTimer(): void {
 }
 
 /**
+ * Watches for the owning assistant ceasing to be the active one, for exactly as
+ * long as there is something to own. Null when there is nothing outstanding.
+ */
+let ownerSubscription: (() => void) | null = null;
+
+function releaseOwnerSubscription(): void {
+  if (ownerSubscription !== null) {
+    ownerSubscription();
+    ownerSubscription = null;
+  }
+}
+
+/**
+ * Bind the outstanding summary to `assistantId` and drop it if the user moves
+ * to another assistant.
+ *
+ * The same subscription `watch-controller.ts` puts on a running session, for
+ * the same reason and with the same reading of ambiguity: a move to no active
+ * assistant counts, and the safe answer is to stop claiming anything. A pending
+ * wait cannot be settled once the event stream it was waiting on is detached,
+ * and a ready one would ask the wrong assistant's question.
+ */
+function bindToOwner(assistantId: string): void {
+  releaseOwnerSubscription();
+  ownerSubscription = useResolvedAssistantsStore.subscribe((state) => {
+    if (state.activeAssistantId !== assistantId) {
+      console.info(
+        "watch-retro: dropping the session summary, its assistant is no longer active",
+      );
+      clearWatchRetro();
+    }
+  });
+}
+
+/**
  * Put the store back to having nothing to say.
  *
  * The one way the state ends, whichever reason ended it: answered, dismissed,
- * timed out, or announced as having produced nothing. Idempotent, so a
- * dismissal that races the runtime's own answer costs nothing.
+ * timed out, the owning assistant being switched away from, or announced as
+ * having produced nothing. Idempotent, so a dismissal that races the runtime's
+ * own answer costs nothing.
  */
 export function clearWatchRetro(): void {
   clearTimeoutTimer();
+  releaseOwnerSubscription();
   if (useWatchRetroStore.getState().retro !== null) {
     useWatchRetroStore.setState({ retro: null });
   }
@@ -111,12 +166,15 @@ export function clearWatchRetro(): void {
 export function beginWatchRetro(session: {
   sessionId: string;
   conversationId: string;
+  assistantId: string;
 }): void {
   clearTimeoutTimer();
+  bindToOwner(session.assistantId);
   useWatchRetroStore.setState({
     retro: {
       sessionId: session.sessionId,
       conversationId: session.conversationId,
+      assistantId: session.assistantId,
       phase: "pending",
     },
   });
@@ -130,7 +188,7 @@ export function beginWatchRetro(session: {
       console.warn(
         "watch-retro: no completion for the session summary, giving up",
       );
-      useWatchRetroStore.setState({ retro: null });
+      clearWatchRetro();
     }
   }, RETRO_TIMEOUT_MS);
 }
@@ -154,7 +212,7 @@ export function settleWatchRetro(event: WatchRetroCompletedEvent): void {
   }
   clearTimeoutTimer();
   if (!event.reportReady) {
-    useWatchRetroStore.setState({ retro: null });
+    clearWatchRetro();
     return;
   }
   useWatchRetroStore.setState({
@@ -163,6 +221,11 @@ export function settleWatchRetro(event: WatchRetroCompletedEvent): void {
       // The runtime's own answer rather than the id the session opened with:
       // the report is wherever it says it wrote it.
       conversationId: event.conversationId,
+      // Unchanged: settling tells the wait where the report landed, not who it
+      // belongs to. The owner subscription bound at `beginWatchRetro` stays up
+      // through the ready phase, because a question waiting on the user is
+      // exactly as wrong to carry across a switch as a wait waiting on an event.
+      assistantId: retro.assistantId,
       phase: "ready",
     },
   });

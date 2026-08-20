@@ -8,8 +8,20 @@ import {
   settleWatchRetro,
   useWatchRetroStore,
 } from "@/domains/chat/watch/watch-retro";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
-const SESSION = { sessionId: "sess-1", conversationId: "conv-1" };
+const ASSISTANT_ID = "asst-owner";
+
+const SESSION = {
+  sessionId: "sess-1",
+  conversationId: "conv-1",
+  assistantId: ASSISTANT_ID,
+};
+
+/** Make `assistantId` the active one, which is what the state is bound to. */
+const activate = (assistantId: string | null) => {
+  useResolvedAssistantsStore.getState().setActiveAssistantId(assistantId);
+};
 
 /** The runtime's announcement, in the shape the event stream carries it. */
 const completed = (
@@ -26,12 +38,15 @@ const retro = () => useWatchRetroStore.getState().retro;
 
 beforeEach(() => {
   clearWatchRetro();
+  activate(ASSISTANT_ID);
 });
 
 afterEach(() => {
   // The give-up timer outlives the test that armed it, and an unhandled one
-  // firing later writes the store out from under whatever runs next.
+  // firing later writes the store out from under whatever runs next. So does
+  // the owner subscription, which `clearWatchRetro` releases.
   clearWatchRetro();
+  activate(null);
 });
 
 describe("watch session summary", () => {
@@ -41,6 +56,7 @@ describe("watch session summary", () => {
     expect(retro()).toEqual({
       sessionId: "sess-1",
       conversationId: "conv-1",
+      assistantId: ASSISTANT_ID,
       phase: "pending",
     });
   });
@@ -92,7 +108,11 @@ describe("watch session summary", () => {
   test("a second session replaces the summary the first was waiting on", () => {
     beginWatchRetro(SESSION);
 
-    beginWatchRetro({ sessionId: "sess-2", conversationId: "conv-2" });
+    beginWatchRetro({
+      sessionId: "sess-2",
+      conversationId: "conv-2",
+      assistantId: ASSISTANT_ID,
+    });
 
     expect(retro()?.sessionId).toBe("sess-2");
     // And the first session's answer no longer moves anything.
@@ -107,5 +127,79 @@ describe("watch session summary", () => {
     clearWatchRetro();
 
     expect(retro()).toBeNull();
+  });
+});
+
+/**
+ * A watch session belongs to one assistant, and so does the account of it. The
+ * SSE service detaches from the old assistant on a switch, so a wait carried
+ * across one can never be settled, and a question carried across one is asked
+ * under the wrong name about a conversation the new assistant does not have.
+ */
+describe("the assistant the summary belongs to", () => {
+  test("switching assistants drops a summary still being written", () => {
+    beginWatchRetro(SESSION);
+
+    activate("asst-other");
+
+    expect(retro()).toBeNull();
+  });
+
+  test("switching assistants drops a question already waiting on an answer", () => {
+    beginWatchRetro(SESSION);
+    settleWatchRetro(completed());
+    expect(retro()?.phase).toBe("ready");
+
+    activate("asst-other");
+
+    expect(retro()).toBeNull();
+  });
+
+  // Ambiguous rather than benign, and the safe reading is the controller's:
+  // stop claiming anything.
+  test("switching to no assistant at all drops it too", () => {
+    beginWatchRetro(SESSION);
+
+    activate(null);
+
+    expect(retro()).toBeNull();
+  });
+
+  test("a summary dropped that way stays dropped when its answer arrives", () => {
+    beginWatchRetro(SESSION);
+    activate("asst-other");
+
+    settleWatchRetro(completed());
+
+    expect(retro()).toBeNull();
+  });
+
+  /**
+   * The owner is the session's, not the store's current reading of it: the
+   * report lands in a conversation only that assistant has.
+   */
+  test("the report keeps its owner when the runtime names its conversation", () => {
+    beginWatchRetro(SESSION);
+
+    settleWatchRetro(completed({ conversationId: "conv-report" }));
+
+    expect(retro()?.assistantId).toBe(ASSISTANT_ID);
+  });
+
+  // A released subscription must not go on watching: the next switch would
+  // otherwise clear a summary belonging to a session started since.
+  test("a cleared summary stops listening for switches", () => {
+    beginWatchRetro(SESSION);
+    clearWatchRetro();
+
+    activate("asst-other");
+    beginWatchRetro({
+      sessionId: "sess-2",
+      conversationId: "conv-2",
+      assistantId: "asst-other",
+    });
+    activate("asst-other");
+
+    expect(retro()?.sessionId).toBe("sess-2");
   });
 });

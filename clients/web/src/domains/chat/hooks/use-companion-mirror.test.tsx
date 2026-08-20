@@ -275,7 +275,11 @@ describe("the middle of a turn, where the client looks idle", () => {
  * is waiting on.
  */
 describe("the watch summary the companion mirror publishes", () => {
-  const SESSION = { sessionId: "sess-1", conversationId: "conv-1" };
+  const SESSION = {
+    sessionId: "sess-1",
+    conversationId: "conv-1",
+    assistantId: "asst-owner",
+  };
 
   test("says nothing when no session has finished", () => {
     render(<Mirror />);

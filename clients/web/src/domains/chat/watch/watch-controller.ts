@@ -88,6 +88,7 @@ import {
 } from "@/domains/chat/voice/live-voice/pcm-capture";
 import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
 import { beginWatchRetro } from "@/domains/chat/watch/watch-retro";
+import { supportsWatchRetroCompletion } from "@/lib/backwards-compat/watch-retro-completion";
 import { resolveSupportsWatchSessions } from "@/lib/backwards-compat/watch-sessions";
 import {
   getSelfHostedActorToken,
@@ -544,8 +545,17 @@ function openSession(
       // an answer from that press onward, not from whenever the flush happens
       // to finish. Only a deliberate stop, because every other ending is
       // something going wrong rather than the user asking for a summary.
-      if (runtimeSession !== null) {
-        beginWatchRetro(runtimeSession);
+      //
+      // Gated separately from watching itself. An assistant can be new enough
+      // to serve the stream and still predate the announcement that ends the
+      // wait, and opening a wait against one of those leaves the surface
+      // expanded on "Summarizing" until the three-minute give-up timer, after
+      // every session. See `backwards-compat/watch-retro-completion.ts`.
+      if (
+        runtimeSession !== null &&
+        supportsWatchRetroCompletion(ownerAssistantId)
+      ) {
+        beginWatchRetro({ ...runtimeSession, assistantId: ownerAssistantId });
       }
 
       let draining = false;

@@ -104,6 +104,9 @@ const { useAssistantIdentityStore } = await import(
   "@/stores/assistant-identity-store"
 );
 const { MIN_VERSION } = await import("@/lib/backwards-compat/watch-sessions");
+const { MIN_VERSION: RETRO_MIN_VERSION } = await import(
+  "@/lib/backwards-compat/watch-retro-completion"
+);
 const { buildWatchStreamWsUrl, stopWatch, toggleWatch, useWatchStore } =
   await import("./watch-controller");
 const { clearWatchRetro, useWatchRetroStore } = await import("./watch-retro");
@@ -139,10 +142,17 @@ useLiveVoiceStore.subscribe = ((
 /** The assistant every session in this file is started against. */
 const ASSISTANT_ID = "asst-owner";
 
-/** Make `assistantId` the active one, on a version that serves the route. */
+/**
+ * Make `assistantId` the active one, on a version that serves the route.
+ *
+ * The default is the later of the two watch floors, so a case that says nothing
+ * about versions gets an assistant that both serves the stream and announces
+ * its retrospectives. The stream floor on its own is a real assistant too, and
+ * the band between them has its own case below.
+ */
 const activate = (
   assistantId: string | null,
-  version: string | null = MIN_VERSION,
+  version: string | null = RETRO_MIN_VERSION,
 ) => {
   activeAssistantId = assistantId;
   useAssistantIdentityStore
@@ -823,6 +833,9 @@ describe("the flush window after the user stops", () => {
     await startRunning();
 
     stopWatch();
+    // The summary the stop leaves behind holds its own subscription on the
+    // active-assistant store, which is not the session's to release.
+    clearWatchRetro();
 
     expect(useWatchStore.getState().watching).toBe(false);
     expect(capture.calls.shutdown).toBe(1);
@@ -1082,8 +1095,25 @@ describe("the summary a stopped session leaves behind", () => {
     expect(useWatchRetroStore.getState().retro).toEqual({
       sessionId: "sess-1",
       conversationId: "conv-1",
+      assistantId: ASSISTANT_ID,
       phase: "pending",
     });
+  });
+
+  /**
+   * The two halves of watching landed on different commits, so there is a band
+   * of assistants that serve `/v1/watch/stream` and never announce that the
+   * retrospective is done. Opening a wait against one of those leaves the
+   * companion expanded on "Summarizing" until the three-minute give-up timer,
+   * after every single session.
+   */
+  test("an assistant that cannot announce the summary leaves the surface resting", async () => {
+    activate(ASSISTANT_ID, MIN_VERSION);
+
+    await startRunning();
+    stopWatch();
+
+    expect(useWatchRetroStore.getState().retro).toBeNull();
   });
 
   // A start the runtime never accepted recorded nothing, so there is no
@@ -1383,6 +1413,10 @@ describe("a watch session across an assistant switch", () => {
     expect(assistantListeners.size).toBe(1);
 
     stopWatch();
+    // The summary the stop leaves behind binds to this same store on the same
+    // terms, and outlives the session on purpose. Released here so what is
+    // counted is the session's subscription and nothing else.
+    clearWatchRetro();
 
     expect(assistantListeners.size).toBe(0);
   });
@@ -1392,6 +1426,7 @@ describe("a watch session across an assistant switch", () => {
     await stopAndSettle();
     await startRunning();
     await stopAndSettle();
+    clearWatchRetro();
 
     expect(assistantListeners.size).toBe(0);
   });

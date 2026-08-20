@@ -372,6 +372,18 @@ export function RootLayout() {
       if (!command.open || retro?.phase !== "ready") {
         return;
       }
+      // **And only on the assistant that wrote it.** Switching away clears the
+      // question (`watch/watch-retro.ts` binds it to its owner), so this should
+      // never be false; it is checked anyway because the failure it prevents is
+      // silent. Every request this app makes is scoped to the active assistant,
+      // so opening another assistant's conversation id lands on a thread that
+      // does not exist rather than on the report.
+      if (
+        retro.assistantId !==
+        useResolvedAssistantsStore.getState().activeAssistantId
+      ) {
+        return;
+      }
       // The full navigation rather than a bare route push. The report is a
       // conversation like any other, and arriving at it with the previous
       // thread's subagent and workflow state still standing is what
