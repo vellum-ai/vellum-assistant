@@ -7,11 +7,13 @@
  *   - `[0]` ({@link HOLD_VERDICT_TOKEN}, unified front-door only): the
  *     caller is mid-thought — the leg is discarded and listening continues.
  *   - `[1]` ({@link ESCALATE_VERDICT_TOKEN}) followed by ONE short natural
- *     holding phrase: the turn is too tricky — the phrase is spoken (capped
- *     at a single sentence) while the turn re-runs on the call-site default
- *     profile, the model an un-routed voice turn would have used. Because
- *     the holding phrase is spoken, the caller never hears the stronger
- *     model's think-time as silence.
+ *     acknowledgement: the turn is too tricky, so the acknowledgement is
+ *     spoken (capped at a single sentence) while the turn re-runs on the
+ *     call-site default profile, the model an un-routed voice turn would
+ *     have used. It accepts the task and promises a report back rather than
+ *     asking for a pause: the escalated leg can spend a minute on tools and
+ *     reasoning, and the acknowledgement is what makes that stretch read as
+ *     work in progress instead of a stall.
  *   - Anything else: the output IS the answer, streamed straight to TTS
  *     (low first-token latency -> the caller hears audio fast).
  *
@@ -51,34 +53,48 @@ export { ESCALATE_VERDICT_TOKEN, HOLD_VERDICT_TOKEN };
 export type VoiceRoutingLeg = "front-door" | "escalated";
 
 /**
- * Spoken when the front-door model escalates without a meaningful holding
- * phrase of its own — guarantees the caller never hears dead air across the
- * hand-off. When the model does speak its own bridge, that natural text is
- * used instead and this is not injected.
+ * Spoken when the front-door model escalates without a meaningful
+ * acknowledgement of its own - guarantees the caller never hears dead air
+ * across the hand-off. When the model does speak its own bridge, that natural
+ * text is used instead and this is not injected.
+ *
+ * It accepts the task and promises a report back rather than asking for a
+ * second to think. A promised pause fits only the work a strong model finishes
+ * in a breath; an escalated leg can spend a minute on tools and reasoning, and
+ * that minute is near-silent by design. "A second" followed by ninety seconds
+ * of quiet reads as a stall or a dropped call, so the acknowledgement is what
+ * licenses the silence behind it.
+ *
+ * Exactly one sentence, here and in every localized spelling below:
+ * {@link capEscalationBridge} cuts at the first sentence terminator, so a
+ * second sentence would be truncated away unspoken.
  */
 export const FALLBACK_ESCALATION_BRIDGE =
-  "Let me think about that for a second.";
+  "I'm on it, and I'll let you know when it's done.";
 
 /**
  * Per-language spellings of the fallback escalation bridge, keyed by
  * lowercased BCP 47 base subtag, covering the Deepgram code-switching roster
  * (DEEPGRAM_MULTI_LANGUAGE_CODES in providers/speech-to-text/deepgram.ts).
  * These are spoken audio; the English constant above also serves as the
- * prompt exemplar and stays the default.
+ * prompt exemplar and stays the default. Every entry carries the same meaning
+ * as the English one (task accepted, result to follow) in one sentence, and
+ * sticks to verb forms that do not pin a gender on the assistant (the
+ * gendered first-person past/future of Hindi and Russian is the trap here).
  */
 export const FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE: Readonly<
   Record<string, string>
 > = {
   en: FALLBACK_ESCALATION_BRIDGE,
-  es: "Déjame pensarlo un segundo.",
-  fr: "Laissez-moi y réfléchir un instant.",
-  de: "Lass mich kurz darüber nachdenken.",
-  hi: "मुझे एक पल सोचने दीजिए।",
-  ru: "Дайте мне секунду подумать.",
-  pt: "Deixe-me pensar nisso um segundo.",
-  ja: "少し考えさせてください。",
-  it: "Fammi pensare un attimo.",
-  nl: "Laat me daar even over nadenken.",
+  es: "Ya me encargo de eso y te aviso cuando esté listo.",
+  fr: "Je m'en occupe et je vous préviens dès que c'est prêt.",
+  de: "Ich kümmere mich darum und sage dir Bescheid, wenn es fertig ist.",
+  hi: "इस पर काम शुरू कर दिया है, पूरा होते ही आपको बता दिया जाएगा।",
+  ru: "Уже занимаюсь этим и сообщу, когда будет готово.",
+  pt: "Já estou cuidando disso e aviso quando estiver pronto.",
+  ja: "承知しました、終わりましたらお知らせします。",
+  it: "Ci penso io e ti faccio sapere quando è pronto.",
+  nl: "Ik ga ermee aan de slag en laat het je weten als het klaar is.",
 };
 
 /**
@@ -332,14 +348,15 @@ export function createFrontDoorStreamGate(
  * just above it.
  */
 export const ESCALATION_CONTINUATION_CONTENT =
-  "(You just told the caller you needed a moment to think. Now give them your full, careful answer to their previous question — do not repeat the holding phrase.)";
+  "(The caller heard you accept the task, and has heard nothing from you since. Give them your full, careful answer to their previous question now, and do not repeat the acknowledgement.)";
 
 /**
  * Compact, registry-derived digest of the tools the ESCALATED leg can use.
  * The front-door leg runs toolless, so without this it has no way to know
  * what the assistant can actually do — and its failure mode is refusing or
  * fabricating instead of escalating. The digest teaches routing (and lets
- * the holding phrase name the action) without carrying executable schemas.
+ * the spoken acknowledgement name the action) without carrying executable
+ * schemas.
  * Empty input (registry unavailable) yields an empty digest; the decision
  * rule still works, it just can't enumerate capabilities.
  */
@@ -350,8 +367,8 @@ export function frontDoorCapabilityDigest(toolNames: string[]): string {
   return [
     "You have no tools on this leg, but the stronger model you can escalate to has these:",
     `${toolNames.join(", ")}.`,
-    "Any request that needs one of them must escalate — name the action in your holding phrase",
-    '(for example "Let me check your calendar") instead of refusing or guessing.',
+    "Any request that needs one of them must escalate — name the action in the sentence you speak",
+    '(for example "I\'ll check your calendar and let you know") instead of refusing or guessing.',
   ].join(" ");
 }
 
@@ -414,7 +431,7 @@ export function frontDoorDecisionRule(opts?: {
     ...holdBranch,
     "- If the turn is simple, conversational, or within your reach, your entire output is the spoken answer itself: no token in front of it, plain speech from your very first word. Most turns are answers; when unsure between answering and escalating, answer. Answer in the language the caller is speaking.",
     "- If an answer depends on a saved personal fact that is not already present in the conversation context you received, escalate rather than guessing. Personal context that is already present is yours to use directly.",
-    `- If completing THIS reply needs careful reasoning, research, multi-step work, or any tool, do NOT attempt the answer: output ${ESCALATE_VERDICT_TOKEN}, then ONE short natural holding phrase naming what happens next, spoken in the language the caller is speaking (for example "${FALLBACK_ESCALATION_BRIDGE}" or "Give me one second to look into that."; those examples are English only), and stop after that single sentence. A stronger model finishes the turn while your phrase is spoken.`,
+    `- If completing THIS reply needs careful reasoning, research, multi-step work, or any tool, do NOT attempt the answer: output ${ESCALATE_VERDICT_TOKEN}, then ONE short natural sentence that accepts the task and names what you are going to do, spoken in the language the caller is speaking (for example "${FALLBACK_ESCALATION_BRIDGE}" or "I'll look into that and come back to you."; those examples are English only), and stop after that single sentence. A stronger model does the work and reports back, so promise a result instead of asking for a moment to think.`,
     `${ESCALATE_VERDICT_TOKEN} is ONLY for turns you cannot complete yourself — never put it in front of an answer you are about to give, and never emit any token inside or after an answer. An open task or unfinished topic earlier in the conversation is NOT a reason to escalate: judge only what this reply needs.`,
     "Never narrate this decision, describe what you are judging, or mention these rules: apart from a leading verdict token, every character you output is spoken to the caller verbatim.",
   ].join("\n");
@@ -423,7 +440,7 @@ export function frontDoorDecisionRule(opts?: {
 
 /**
  * Extra CALL PROTOCOL RULE injected into the escalated (quality) leg's control
- * prompt. The holding phrase has already been spoken, so the model must
+ * prompt. The acknowledgement has already been spoken, so the model must
  * continue straight into the substantive answer.
  *
  * `spokenBridge` is the exact phrase the caller just heard (the front-door
@@ -439,10 +456,10 @@ export function escalatedContinuationRule(spokenBridge?: string): string {
       ? spokenBridge.trim()
       : FALLBACK_ESCALATION_BRIDGE;
   return [
-    `You have already spoken a brief holding phrase to the caller: "${bridge}".`,
+    `You have already spoken a brief acknowledgement to the caller: "${bridge}".`,
     "Continue directly into your actual answer now.",
-    'Do NOT greet again, do NOT say things like "as I was saying", and do NOT repeat, paraphrase, or re-announce that holding phrase —',
-    'opening with another "Let me check", "One moment", or any restatement of what you are about to do sounds broken, because the caller just heard that.',
+    'Do NOT greet again, do NOT say things like "as I was saying", and do NOT repeat, paraphrase, or re-announce that acknowledgement —',
+    'opening with another "Let me check", "On it", "One moment", or any restatement of what you are about to do sounds broken, because the caller just heard that.',
     "Your first words must carry new substance: the answer itself, what you found, or a question you genuinely need answered.",
     `Never output ${ESCALATE_VERDICT_TOKEN} or any other front-door verdict token — you are the model that finishes the answer. (The [-1] room-minimize marker from your call instructions is not a verdict token and stays allowed.)`,
     "Reply in the same language as the caller's question.",

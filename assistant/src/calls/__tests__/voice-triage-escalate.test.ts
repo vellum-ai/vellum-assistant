@@ -16,6 +16,7 @@ import {
   HOLD_VERDICT_TOKEN,
   isEscalationBridgeComplete,
   MAX_ESCALATION_BRIDGE_CHARS,
+  MIN_SPOKEN_BRIDGE_CHARS,
   needsFallbackBridge,
   spokenBridgeText,
 } from "../voice-triage-escalate.js";
@@ -25,9 +26,9 @@ describe("frontDoorCapabilityDigest", () => {
     const digest = frontDoorCapabilityDigest(["calendar_read", "web_search"]);
     expect(digest).toContain("calendar_read, web_search");
     expect(digest.toLowerCase()).toContain("escalate");
-    // The digest teaches routing, and the bridge phrase should name the
+    // The digest teaches routing, and the spoken sentence should name the
     // action rather than the model refusing or guessing.
-    expect(digest.toLowerCase()).toContain("holding phrase");
+    expect(digest.toLowerCase()).toContain("name the action");
   });
 
   test("is empty when no tool names are available (registry-less contexts)", () => {
@@ -170,9 +171,21 @@ describe("front-door decision rule", () => {
     );
   });
 
-  test("demands a single-sentence holding phrase on escalation", () => {
-    expect(rule.toLowerCase()).toContain("one short natural holding phrase");
+  test("demands a single-sentence acknowledgement on escalation", () => {
+    expect(rule.toLowerCase()).toContain("one short natural sentence");
     expect(rule.toLowerCase()).toContain("stop after that single sentence");
+  });
+
+  test("asks for an acknowledgement, not a request for thinking time", () => {
+    // The escalated leg can run for a minute of tools and reasoning, and it
+    // runs near-silent. A phrase promising "one second" sets an expectation
+    // that the silence then breaks, so the sentence has to accept the task,
+    // name the work, and imply a result is coming back.
+    expect(rule.toLowerCase()).toContain("accepts the task");
+    expect(rule.toLowerCase()).toContain("names what you are going to do");
+    expect(rule.toLowerCase()).toContain(
+      "promise a result instead of asking for a moment to think",
+    );
   });
 
   test("hold completeness is judged in the caller's language", () => {
@@ -193,9 +206,9 @@ describe("front-door decision rule", () => {
     expect(rule).toContain("Answer in the language the caller is speaking.");
   });
 
-  test("the escalation holding phrase demands the caller's language", () => {
+  test("the escalation acknowledgement demands the caller's language", () => {
     // The bridge examples are English; without an explicit requirement a
-    // Spanish turn that needs a tool gets an English holding phrase before
+    // Spanish turn that needs a tool gets an English acknowledgement before
     // the localized answer. The examples stay, labeled as English only.
     expect(rule).toContain("spoken in the language the caller is speaking");
     expect(rule).toContain("those examples are English only");
@@ -235,7 +248,7 @@ describe("escalated continuation rule", () => {
     );
   });
 
-  test("bans re-announcing the holding phrase (bridge-echo regression)", () => {
+  test("bans re-announcing the acknowledgement (bridge-echo regression)", () => {
     // Regression: after the bridge "Let me check your calendar", the quality
     // model opened with "Let me check what calendar connections…" — a
     // re-announcement echo. The rule must ban paraphrase/re-announce openers,
@@ -256,11 +269,14 @@ describe("fallbackEscalationBridgeFor", () => {
     }
   });
 
-  test("every bridge fits the session-side cap", () => {
+  test("every bridge fits between the spoken threshold and the cap", () => {
     for (const bridge of Object.values(
       FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
     )) {
       expect(bridge.length).toBeLessThanOrEqual(MAX_ESCALATION_BRIDGE_CHARS);
+      // Above the spoken threshold, so escalating with no bridge of the
+      // model's own still gives the caller real audio rather than nothing.
+      expect(bridge.trim().length).toBeGreaterThan(MIN_SPOKEN_BRIDGE_CHARS);
     }
   });
 
@@ -340,7 +356,10 @@ describe("isEscalationBridgeComplete", () => {
   test("every localized fallback bridge ends in a recognized terminator", () => {
     // A model-spoken bridge in any roster language must hand off at its
     // terminator, never by buffering to the char cap; the canned bridges are
-    // the canonical sample of each language's ender.
+    // the canonical sample of each language's ender. The cap-identity check
+    // is also what keeps each canned bridge to ONE sentence: capping cuts at
+    // the first terminator, so a second sentence (the "I'll let you know"
+    // half of the promise) would be truncated away before it was spoken.
     for (const bridge of Object.values(
       FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
     )) {
@@ -374,15 +393,15 @@ describe("spokenBridgeText", () => {
 });
 
 describe("needsFallbackBridge", () => {
-  test("false when the model spoke a real holding phrase after the verdict", () => {
+  test("false when the model spoke a real acknowledgement after the verdict", () => {
     expect(
       needsFallbackBridge(
-        `${ESCALATE_VERDICT_TOKEN} Let me think about that for a second.`,
+        `${ESCALATE_VERDICT_TOKEN} I'll check your calendar and let you know.`,
       ),
     ).toBe(false);
   });
 
-  test("true for a bare escalate verdict with no holding phrase", () => {
+  test("true for a bare escalate verdict with no acknowledgement", () => {
     expect(needsFallbackBridge(ESCALATE_VERDICT_TOKEN)).toBe(true);
   });
 });
@@ -426,6 +445,17 @@ describe("escalation continuation content", () => {
   test("is an echo-suppressed synthetic prompt (parenthesized, non-user-speech)", () => {
     expect(ESCALATION_CONTINUATION_CONTENT.startsWith("(")).toBe(true);
     expect(ESCALATION_CONTINUATION_CONTENT.endsWith(")")).toBe(true);
+  });
+
+  test("states the real premise: task accepted, silence since", () => {
+    // The escalated leg is not resuming from "give me a second to think":
+    // the caller was told the work was underway and has heard nothing since.
+    // Getting the premise wrong is what produces an answer that apologizes
+    // for the pause instead of delivering the result.
+    const content = ESCALATION_CONTINUATION_CONTENT.toLowerCase();
+    expect(content).toContain("accept the task");
+    expect(content).toContain("heard nothing");
+    expect(content).toContain("do not repeat");
   });
 });
 
