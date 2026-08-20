@@ -129,9 +129,9 @@ export function BookmarksPage() {
   const navigate = useNavigate();
   const { bookmarks, isLoading, isError, refetch } = useBookmarks();
   const toggleBookmark = useBookmarkToggle();
-  // Bookmarks are internal-only for now. The tab is already hidden for gated-out
-  // sessions, so this only catches a direct URL or a stale deep link. Held until
-  // the flag hydrates: it reads registry-default `false` on a cold load, and
+  // Bookmarks are internal-only. The tab is hidden for sessions outside the
+  // gate, so this catches a direct URL or a stale deep link. Held until the
+  // flag hydrates: it reads registry-default `false` on a cold load, and
   // bouncing on that would strand an internal user who deep-linked here.
   const canUseInternalActions = useCanUseInternalThreadActions();
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();

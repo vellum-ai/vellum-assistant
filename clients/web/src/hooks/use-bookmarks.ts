@@ -10,13 +10,12 @@
  * new enough to expose the bookmark routes (see `useSupportsBookmarks`), so
  * a current bundle connected to a pre-0.8.1 assistant never 404s the list.
  *
- * Bookmarks are also internal-only for now, behind the `internal-thread-actions`
- * flag (see `@/lib/auth/internal-thread-actions`) — the same gate the fork and
- * inspector affordances read. The gate covers the per-message toggle, the
- * Settings → Bookmarks tab, and the shared list query, so a gated-out session
- * has no way to reach a bookmark and issues no bookmark requests. Existing
- * rows are untouched: the routes and the table stay, so turning the flag on
- * restores every bookmark a user already made.
+ * Bookmarks are internal-only, behind the `internal-thread-actions` gate (see
+ * `@/lib/auth/internal-thread-actions`), the same gate the fork and inspector
+ * affordances read. It covers the per-message toggle, the Settings bookmarks
+ * tab, and the shared list query, so a session outside the gate has no way to
+ * reach a bookmark and issues no bookmark requests. Stored rows are unaffected:
+ * the gate is a client-side visibility check, not a delete.
  *
  * Cross-client invalidation (a bookmark made in another tab/window) is handled
  * by `use-bookmarks-sync.ts`, which listens for the daemon's
@@ -53,9 +52,9 @@ function useBookmarkQueryGate(): {
 } {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const supportsBookmarks = useSupportsBookmarks(assistantId);
-  // Internal-only for now: no bookmark affordance is reachable without the
-  // gate, so the shared list query stays idle rather than fetching a list
-  // nothing can display.
+  // No bookmark affordance is reachable outside the internal gate, so the
+  // shared list query stays idle rather than fetching a list nothing can
+  // display.
   const isInternal = useCanUseInternalThreadActions();
   const enabled = isInternal && supportsBookmarks && Boolean(assistantId);
   return { assistantId, enabled };

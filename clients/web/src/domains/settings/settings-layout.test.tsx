@@ -143,8 +143,8 @@ describe("SettingsLayout", () => {
   });
 
   test("hides Bookmarks for sessions outside the internal gate", () => {
-    // Bookmarks are internal-only for now: a supporting assistant is not
-    // enough on its own.
+    // Bookmarks are internal-only: a supporting assistant is not enough on
+    // its own.
     supportsBookmarks = true;
     canUseInternalActions = false;
     render(

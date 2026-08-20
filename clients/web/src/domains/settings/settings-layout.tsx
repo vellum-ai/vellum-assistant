@@ -44,9 +44,9 @@ export function SettingsLayout() {
   // so a stale cross-store version can't light a tab mid-switch.
   const supportsBookmarks = useSupportsBookmarks(activeAssistantId);
   const supportsCredentials = useSupportsCredentialsSettings(activeAssistantId);
-  // Bookmarks are internal-only for now, behind the same gate as the fork and
+  // Bookmarks are internal-only, behind the same gate as the fork and
   // inspector affordances. Hides the tab rather than leaving a route whose
-  // only content-producing affordance (the per-message toggle) is gone.
+  // only content-producing affordance (the per-message toggle) is hidden.
   const canUseInternalActions = useCanUseInternalThreadActions();
   // The Usage item is never hidden: the Usage tab reads from the local daemon
   // and works for every assistant. Its label only gains "Billing &" when the
