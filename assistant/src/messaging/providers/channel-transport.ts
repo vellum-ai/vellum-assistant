@@ -25,16 +25,6 @@ export interface ReactionTarget {
 }
 
 /**
- * Direct outbound delivery for one channel, wrapping the channel's provider-API
- * send functions behind a uniform surface. Transports are registered statically
- * (delivery runs in non-daemon contexts) and dispatched by channel, resolved
- * from the gateway callback URL via `callback-routing.ts`.
- *
- * The dispatcher routes a payload to the optional sub-operation methods when the
- * matching payload field is set and the method exists; otherwise it calls
- * `deliver`. A transport only implements the sub-operations it supports.
- */
-/**
  * A status surface update. `chatId` is the room, spelled the way every other
  * method on this interface spells it.
  */
@@ -46,6 +36,17 @@ export interface ThreadStatus {
   readonly loadingMessages?: readonly string[];
 }
 
+/**
+ * Direct outbound delivery for one channel, wrapping the channel's provider-API
+ * send functions behind a uniform surface. Transports are registered statically
+ * (delivery runs in non-daemon contexts) and dispatched by channel, resolved
+ * from the gateway callback URL via `callback-routing.ts`.
+ *
+ * Each operation takes its own parameters and is reached through its own entry
+ * point; a transport implements only the operations its channel supports, so
+ * an absent method is an absent capability. `streamReply` is the last one the
+ * dispatcher still selects by inspecting a payload field.
+ */
 export interface ChannelTransport {
   /** Canonical source channel id, e.g. `"slack"`. */
   readonly channel: ChannelId;

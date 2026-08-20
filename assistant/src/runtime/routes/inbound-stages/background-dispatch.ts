@@ -176,7 +176,6 @@ export function processChannelMessageInBackground(
       sourceChannel,
       replyCallbackUrl,
       chatId: externalChatId,
-      assistantId,
       startImmediately: shouldStartSlackThinkingStatusImmediately({
         sourceChannel,
         chatType,
@@ -474,16 +473,9 @@ function createSlackThinkingStatusController(params: {
   sourceChannel: ChannelId;
   replyCallbackUrl?: string;
   chatId: string;
-  assistantId?: string;
   startImmediately?: boolean;
 }): SlackThinkingStatusController | undefined {
-  const {
-    sourceChannel,
-    replyCallbackUrl,
-    chatId,
-    assistantId,
-    startImmediately,
-  } = params;
+  const { sourceChannel, replyCallbackUrl, chatId, startImmediately } = params;
   if (
     !replyCallbackUrl ||
     !shouldEmitSlackThinkingStatus(sourceChannel, replyCallbackUrl)
@@ -508,7 +500,6 @@ function createSlackThinkingStatusController(params: {
     slackThinkingStatus = setSlackThinkingStatus(
       callbackUrl,
       chatId,
-      assistantId,
       currentLoadingMessages,
     );
     lastSentLoadingMessageKey = getLoadingMessagesKey(currentLoadingMessages);
@@ -625,7 +616,6 @@ function getTaskProgressLoadingMessage(
 function setSlackThinkingStatus(
   callbackUrl: string,
   chatId: string,
-  assistantId?: string,
   loadingMessages?: string[],
 ): SlackThinkingStatusHandle {
   let cleared = false;
