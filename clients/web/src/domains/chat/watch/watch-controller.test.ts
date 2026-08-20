@@ -233,6 +233,13 @@ const startPending = async (timeouts: Timeouts = {}) => {
   await Promise.resolve();
 };
 
+/** Stop, and let the runtime answer, which is a session fully ended. */
+const stopAndSettle = async (): Promise<void> => {
+  stopWatch();
+  socket().serverMessage({ type: "closed" });
+  await Promise.resolve();
+};
+
 /** The runtime's terminal frame, which is what ends a drain after stop. */
 const serverClosed = (): void => {
   socket().serverMessage({ type: "closed" });
@@ -281,8 +288,13 @@ beforeEach(() => {
 
 afterEach(() => {
   // Whatever a case left running, so the module-level slot never leaks into
-  // the next one.
+  // the next one. The close is what settles a session left draining: the
+  // handoff a drain holds is module state too, and a case that inherited one
+  // would wait out the whole drain before it could start anything.
   stopWatch();
+  for (const ws of sockets) {
+    ws.emit("close", { code: 1000 });
+  }
   useAssistantIdentityStore.getState().clearIdentity();
   activeAssistantId = null;
   assistantListeners.clear();
@@ -351,7 +363,7 @@ describe("toggling a watch session", () => {
 
   test("starts again after a session has ended", async () => {
     await startRunning();
-    await toggle();
+    await stopAndSettle();
 
     await startRunning();
 
@@ -667,15 +679,79 @@ describe("the flush window after the user stops", () => {
     expect(seen).toEqual([false]);
   });
 
-  /** The slot is free immediately, so the next press is not queued behind a drain. */
-  test("frees the slot before the drain finishes", async () => {
+  /**
+   * A restart pressed inside the drain window.
+   *
+   * The runtime holds one session slot until the old provider says `closed`,
+   * so a second socket opened before that is refused as busy and the user gets
+   * nothing. The press waits for the handoff instead and then starts, which is
+   * the difference between a restart that is slow and one that silently fails.
+   */
+  test("starts a session pressed during the drain, once the drain ends", async () => {
     await startRunning();
     stopWatch();
+
+    const pressed = toggle();
+    // Long enough for the version gate to settle and the start to have opened
+    // a socket if nothing were holding it back. Asserting synchronously here
+    // would pass either way, since the gate resolves on a microtask.
+    await wait(5);
+    const openedBeforeTheHandoff = sockets.length;
+
+    serverClosed();
+    await pressed;
+    socket().serverOpen();
+    await serverReady();
+
+    // Waited for the handoff, then started: one socket while the runtime still
+    // held its slot, two once it let go.
+    expect(openedBeforeTheHandoff).toBe(1);
+    expect(sockets).toHaveLength(2);
+    expect(useWatchStore.getState().watching).toBe(true);
+  });
+
+  /** The wait is bounded by the drain's own timer, not by the runtime. */
+  test("starts a session pressed during a drain the runtime never ends", async () => {
+    await startRunning({ drainTimeoutMs: 20 });
+    stopWatch();
+
+    const pressed = toggle();
+    await wait(5);
+    const openedBeforeTheTimeout = sockets.length;
+
+    await wait(40);
+    await pressed;
+    socket().serverOpen();
+    await serverReady();
+
+    expect(openedBeforeTheTimeout).toBe(1);
+    expect(sockets).toHaveLength(2);
+    expect(useWatchStore.getState().watching).toBe(true);
+  });
+
+  test("starts normally once the drain is already over", async () => {
+    await startRunning();
+    await stopAndSettle();
 
     await startRunning();
 
     expect(sockets).toHaveLength(2);
     expect(useWatchStore.getState().watching).toBe(true);
+  });
+
+  /** A press waiting on the handoff is still the user's to take back. */
+  test("stays cancellable while it waits for the handoff", async () => {
+    await startRunning();
+    stopWatch();
+
+    const pressed = toggle();
+    await wait(5);
+    stopWatch();
+    serverClosed();
+    await pressed;
+
+    expect(sockets).toHaveLength(1);
+    expect(useWatchStore.getState().watching).toBe(false);
   });
 
   /**
@@ -704,6 +780,42 @@ describe("the flush window after the user stops", () => {
     socket().serverMessage({ type: "error", message: "provider gone" });
 
     expect(socket().closeCalls).toEqual([1000]);
+  });
+
+  /**
+   * A session the runtime never accepted has captured nothing and holds
+   * nothing, so it owes no flush. The runtime's `handleStop` ignores the stop
+   * frame outright while it is still `initializing`, so draining would hold
+   * the socket open until the timer gave up and leave the runtime session
+   * alive for that whole window.
+   */
+  test("closes at once when the runtime never accepted the session", async () => {
+    await startPending();
+
+    stopWatch();
+
+    expect(socket().closeCalls).toEqual([1000]);
+    expect(socket().sent).toEqual([]);
+  });
+
+  test("still drains a session the runtime did accept", async () => {
+    await startRunning();
+
+    stopWatch();
+
+    expect(socket().closeCalls).toEqual([]);
+    expect(socket().sent.at(-1)).toBe(JSON.stringify({ type: "stop" }));
+  });
+
+  /** No drain means no handoff, so the next press is not made to wait. */
+  test("lets the next press start at once after a pending stop", async () => {
+    await startPending();
+    stopWatch();
+
+    await startRunning();
+
+    expect(sockets).toHaveLength(2);
+    expect(useWatchStore.getState().watching).toBe(true);
   });
 
   /** Nothing to flush and nothing to wait for on a socket that is not open. */
@@ -945,9 +1057,9 @@ describe("a watch session when a call starts", () => {
 
   test("leaves nothing behind across repeated sessions", async () => {
     await startRunning();
-    stopWatch();
+    await stopAndSettle();
     await startRunning();
-    stopWatch();
+    await stopAndSettle();
 
     expect(liveVoiceListeners).toBe(0);
   });
@@ -1007,9 +1119,9 @@ describe("a watch session across an assistant switch", () => {
 
   test("leaves nothing behind across repeated sessions", async () => {
     await startRunning();
-    stopWatch();
+    await stopAndSettle();
     await startRunning();
-    stopWatch();
+    await stopAndSettle();
 
     expect(assistantListeners.size).toBe(0);
   });

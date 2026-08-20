@@ -27,6 +27,11 @@
  * stop edge reaches a press the user has changed their mind about. Everything
  * that ends a session ends an attempt the same way and just as synchronously.
  *
+ * **One session at a time, on both sides.** The runtime holds its slot until
+ * the provider says `closed`, which is the end of the drain below, so a press
+ * that lands during a drain waits for that handoff rather than racing it into
+ * a busy refusal the user would experience as nothing happening.
+ *
  * **Stopping is two moments, not one.** `{"type":"stop"}` asks the runtime to
  * flush rather than to end: the daemon holds the session in `stopping` so the
  * provider's late finals still reach the timeline, and says `closed` when they
@@ -173,6 +178,20 @@ interface WatchSession {
 let session: WatchSession | null = null;
 
 /**
+ * Resolves when a session that is still draining has let go of the runtime's
+ * slot, or `null` when none is.
+ *
+ * The runtime holds one watch session at a time and keeps its slot until the
+ * provider says `closed`, which is the same moment the drain here ends. A
+ * start that raced ahead of that would be refused as busy by
+ * `WatchSessionManager.start`, and the user would have pressed Watch and got
+ * nothing, with nothing to explain it. So a start waits for the handoff rather
+ * than being refused, which puts the wait somewhere the user can still cancel
+ * instead of putting the silence somewhere else.
+ */
+let drainRelease: Promise<void> | null = null;
+
+/**
  * Build the watch stream WebSocket URL:
  *
  *   ws(s)://<ingressHost>/v1/watch/stream?token=…&mimeType=audio/pcm&sampleRate=16000
@@ -253,6 +272,13 @@ function openSession(
    * outlives it just long enough for the runtime to flush what they said.
    */
   let phase: "live" | "draining" | "done" = "live";
+  // False until the runtime answers `ready`. A session that never got that far
+  // has captured nothing and holds nothing on the runtime, which is what
+  // decides whether stopping owes a flush.
+  let accepted = false;
+  // Set while this session is the one holding {@link drainRelease}, so finish
+  // can let the next start through.
+  let releaseDrain: (() => void) | null = null;
   let handle: WatchSession | null = null;
   /**
    * Store subscriptions that live exactly as long as this session does.
@@ -333,6 +359,14 @@ function openSession(
     phase = "done";
     drainTimer = cancel(drainTimer);
     releaseLocally();
+    // The runtime has let go of its slot, or has run out of time to. Either
+    // way a start waiting on this one may go ahead. Reached once, since the
+    // `phase` guard above admits one caller.
+    if (releaseDrain !== null) {
+      drainRelease = null;
+      releaseDrain();
+      releaseDrain = null;
+    }
     if (
       ws.readyState === WebSocket.OPEN ||
       ws.readyState === WebSocket.CONNECTING
@@ -361,12 +395,16 @@ function openSession(
         return;
       }
 
+      // Only a session the runtime accepted has anything to flush. Before
+      // `ready` the runtime is still in `initializing`, where its `handleStop`
+      // ignores the frame outright, so waiting would buy nothing and cost the
+      // full drain: the socket would sit open until the timer gave up, and the
+      // runtime session behind it would stay alive that whole time.
       let draining = false;
-      if (ws.readyState === WebSocket.OPEN) {
+      if (accepted && ws.readyState === WebSocket.OPEN) {
         // The last few milliseconds still sit in the capture's batch
         // accumulator; drain them synchronously so they go out ahead of the
-        // stop frame. A no-op on a session still pending, where the
-        // microphone never opened.
+        // stop frame.
         capture.flush?.();
         try {
           ws.send(JSON.stringify({ type: "stop" }));
@@ -388,8 +426,12 @@ function openSession(
         return;
       }
       phase = "draining";
+      // Claim the handoff before returning, so a press that lands in the next
+      // tick waits for this session's slot rather than racing it.
+      drainRelease = new Promise<void>((resolve) => {
+        releaseDrain = resolve;
+      });
       drainTimer = setTimeout(() => {
-        drainTimer = null;
         console.warn(
           "watch-controller: no closed frame after stop, ending without the flush",
         );
@@ -404,7 +446,6 @@ function openSession(
   // A gateway that accepts and then never hears from the runtime would
   // otherwise leave the session pending for as long as the page lives.
   readyTimer = setTimeout(() => {
-    readyTimer = null;
     console.warn(
       "watch-controller: no ready frame from the runtime, giving up on the session",
     );
@@ -476,6 +517,7 @@ function openSession(
    * round: audio flowing with nothing on screen saying so.
    */
   const onReady = (): void => {
+    accepted = true;
     readyTimer = cancel(readyTimer);
     useWatchStore.setState({ watching: true });
     void capture.start().then((result) => {
@@ -603,6 +645,20 @@ export async function toggleWatch(
   const supported = await resolveSupportsWatchSessions(assistantId);
   if (cancelled) {
     return;
+  }
+  // A previous session may still be draining, and the runtime holds its one
+  // slot until that finishes. Starting now would race it and be refused as
+  // busy, which the user would experience as pressing Watch and nothing
+  // happening. Waiting is bounded by the drain's own timer, and the attempt
+  // stays registered across it, so the press remains cancellable throughout.
+  if (drainRelease !== null) {
+    console.info(
+      "watch-controller: waiting for the previous session to release the runtime",
+    );
+    await drainRelease;
+    if (cancelled) {
+      return;
+    }
   }
   // Nothing else can have replaced the slot: every other entry point goes
   // through the registered `stop` above, which sets `cancelled`. Released here
