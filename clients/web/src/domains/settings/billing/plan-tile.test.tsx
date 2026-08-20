@@ -135,6 +135,41 @@ describe("PlanTile", () => {
     expect(getByTestId(TILE_TEST_ID).childElementCount).toBe(1);
   });
 
+  test("stacks the chips vertically by default", () => {
+    const { getByTestId } = render(
+      <PlanTile
+        testId={TILE_TEST_ID}
+        tierKey="mighty"
+        name="Mighty"
+        tag={<span>Current</span>}
+        specs={SPECS}
+      />,
+    );
+
+    // Child 0 is the header row; child 1 is the chip container.
+    const container = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
+    expect(container.className).toContain("flex-col");
+    expect(container.className).not.toContain("flex-wrap");
+  });
+
+  test("lays the chips out as a wrapping row when specsWrap is set", () => {
+    const { getByTestId } = render(
+      <PlanTile
+        testId={TILE_TEST_ID}
+        tierKey="mighty"
+        name="Mighty"
+        tag={<span>Current</span>}
+        specs={SPECS}
+        specsWrap
+      />,
+    );
+
+    const container = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
+    expect(container.className).toContain("flex-row");
+    expect(container.className).toContain("flex-wrap");
+    expect(container.className).not.toContain("flex-col");
+  });
+
   test("stamps a nested data-theme scope when theme is set", () => {
     const { getByTestId } = render(
       <PlanTile

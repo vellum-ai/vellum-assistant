@@ -33,6 +33,7 @@ function makeSubscription(planId: PlanIdEnum): SubscriptionResponse {
     plan_id: planId,
     status: "active",
     renewal_date: null,
+    current_period_start: null,
     current_period_end: null,
     cancel_at_period_end: false,
     cancel_at: null,

@@ -21,7 +21,9 @@ import {
 
 import { SideMenu } from "@vellumai/design-library";
 
+import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import type { AuthUser } from "@/stores/auth-store";
+import { routes } from "@/utils/routes";
 
 const isTouchMobileRef = { value: false };
 const nativeAndroidRef = { value: false };
@@ -84,10 +86,14 @@ mock.module("@/stores/auth-store", () => {
 });
 
 const flagsRef = {};
+const obscureCreditsRef = { value: false };
 
 mock.module("@/stores/client-feature-flag-store", () => {
   const store = () => null;
-  store.use = { velvet: () => false };
+  store.use = {
+    velvet: () => false,
+    obscureCredits: () => obscureCreditsRef.value,
+  };
   store.getState = () => flagsRef;
   return { useClientFeatureFlagStore: store };
 });
@@ -100,7 +106,8 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
 });
 
 const billingRef = {
-  data: undefined as { effective_balance: string } | undefined,
+  data: undefined as
+    { effective_balance: string; available_usage_balance?: string } | undefined,
 };
 
 mock.module("@tanstack/react-query", () => ({
@@ -116,30 +123,114 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   }),
 }));
 
+// Capture navigate() targets so the menu's destinations can be asserted
+// without a live Router.
+let navigateArgs: unknown[] = [];
 mock.module("react-router", () => ({
-  useNavigate: () => () => {},
+  useNavigate: () => (to: unknown) => {
+    navigateArgs.push(to);
+  },
 }));
 
 mock.module("@/components/share-feedback-modal", () => ({
   ShareFeedbackModal: () => null,
 }));
 
+// The panel owns its own reads (subscription, plan catalog, usage totals),
+// which this suite's partial `@tanstack/react-query` mock cannot host. Its
+// rendering is covered by `preferences-usage-panel.test.tsx`; what the menu
+// owns is where the panel sits and what its two actions do.
+const panelPropsRef: { conversationId?: string | null } = {};
+mock.module("@/domains/chat/components/preferences-usage-panel", () => ({
+  PreferencesUsagePanel: ({
+    onOpenBilling,
+    onAddCredits,
+    conversationId,
+  }: {
+    onOpenBilling: () => void;
+    onAddCredits?: () => void;
+    conversationId?: string | null;
+  }) => {
+    panelPropsRef.conversationId = conversationId;
+    return createElement(
+      "div",
+      { "data-testid": "preferences-usage" },
+      createElement("button", { onClick: onOpenBilling }, "Usage settings"),
+      // The real panel drops the strip's button with the handler, so the stub
+      // has to as well or the Android gate reads as covered when it is not.
+      onAddCredits
+        ? createElement("button", { onClick: onAddCredits }, "Add usage credits")
+        : null,
+    );
+  },
+}));
+
+mock.module("@/components/add-credits-modal", () => ({
+  AddCreditsModal: ({ open }: { open: boolean }) =>
+    open ? createElement("div", { "data-testid": "add-credits-modal" }) : null,
+}));
+
+// The reading itself is composed from three billing queries this suite's
+// partial `@tanstack/react-query` mock cannot host, and is covered by
+// `preferences-usage-panel.test.tsx`. What the menu owns is the rule it
+// applies to the reading, so only the data is stubbed here.
+const usageRef: { value: PreferencesUsage | null; opts: unknown } = {
+  value: null,
+  opts: undefined,
+};
+mock.module("@/domains/chat/hooks/use-preferences-usage", () => ({
+  usePreferencesUsage: (opts?: unknown) => {
+    usageRef.opts = opts;
+    return usageRef.value;
+  },
+}));
+
 mock.module("@/domains/chat/components/credits-card", () => ({
-  CreditsCard: ({ onAddCredits }: { onAddCredits?: () => void }) =>
+  CreditsCard: ({
+    balance,
+    onAddCredits,
+  }: {
+    balance: string;
+    onAddCredits?: () => void;
+  }) =>
     createElement(
       "div",
       { "data-testid": "credits-card" },
-      "Credits",
+      balance,
       onAddCredits
         ? createElement("button", { onClick: onAddCredits }, "Add credits")
         : null,
     ),
 }));
 
-const { PreferencesMenu } =
+const { PreferencesMenu, showsMenuCredits } =
   await import("@/domains/chat/components/preferences-menu");
 
+/** Opens the menu the way a touch user does, and returns the open surface. */
+async function openMenu(
+  props: { activeConversationId?: string | null } = {},
+): Promise<void> {
+  isTouchMobileRef.value = true;
+  render(<PreferencesMenu {...props} />);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /Preferences/i }));
+    await Promise.resolve();
+  });
+}
+
+/** A reading at `ratio`, with the wallet behind it empty or not. */
+function usage(ratio: number, walletEmpty = false): PreferencesUsage {
+  const spent = ratio >= 1;
+  return {
+    ratio,
+    resetsAt: "2026-09-01T00:00:00Z",
+    spent,
+    exhausted: spent && walletEmpty,
+  };
+}
+
 beforeEach(() => {
+  navigateArgs = [];
   isTouchMobileRef.value = false;
   nativeAndroidRef.value = false;
   authRef.isAuthenticated = true;
@@ -153,6 +244,10 @@ beforeEach(() => {
     lastName: "",
   };
   billingRef.data = undefined;
+  obscureCreditsRef.value = false;
+  usageRef.value = null;
+  usageRef.opts = undefined;
+  panelPropsRef.conversationId = undefined;
 });
 
 afterEach(() => {
@@ -278,6 +373,77 @@ describe("PreferencesMenu", () => {
     expect(html).not.toContain("size-[var(--side-menu-tile-size)]");
   });
 
+  test("the usage panel sits above the menu's destinations", async () => {
+    await openMenu();
+
+    const panel = screen.getByTestId("preferences-usage");
+    const settings = screen.getByText("Settings");
+    // The panel reads the plan; the rows below it go somewhere.
+    expect(
+      panel.compareDocumentPosition(settings) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  test("the open conversation reaches both readings of the usage", async () => {
+    await openMenu({ activeConversationId: "conv-7" });
+
+    // The row's rule and the panel's bar have to classify the wallet against
+    // the same chat, or one of them calls it exhausted while the other does
+    // not.
+    expect(usageRef.opts).toEqual({ conversationId: "conv-7" });
+    expect(panelPropsRef.conversationId).toBe("conv-7");
+  });
+
+  test("the panel's gear opens the Billing tab and closes the menu", async () => {
+    await openMenu();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Usage settings" }));
+      await Promise.resolve();
+    });
+
+    expect(navigateArgs).toEqual([routes.settings.usageBilling]);
+    expect(screen.queryByTestId("preferences-usage")).toBeNull();
+  });
+
+  test("the panel's add-credits action opens the checkout", async () => {
+    await openMenu();
+    expect(screen.queryByTestId("add-credits-modal")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Add usage credits" }),
+      );
+      await Promise.resolve();
+    });
+
+    // The menu closes as it goes, so the modal has to outlive the surface it
+    // was opened from.
+    expect(await screen.findByTestId("add-credits-modal")).toBeTruthy();
+    expect(screen.queryByTestId("preferences-usage")).toBeNull();
+  });
+
+  test("native Android leaves the panel with nothing to buy", async () => {
+    nativeAndroidRef.value = true;
+    await openMenu();
+
+    // Consumption-only: the panel is still the reading, but no surface in the
+    // menu may offer a purchase.
+    expect(screen.getByTestId("preferences-usage")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Add usage credits" }),
+    ).toBeNull();
+  });
+
+  test("off native Android the panel keeps its add-credits action", async () => {
+    await openMenu();
+
+    expect(
+      screen.getByRole("button", { name: "Add usage credits" }),
+    ).toBeTruthy();
+  });
+
   test("native Android shows the balance without an add-credits action", async () => {
     nativeAndroidRef.value = true;
     isTouchMobileRef.value = true;
@@ -291,5 +457,114 @@ describe("PreferencesMenu", () => {
 
     expect(screen.getByTestId("credits-card")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Add credits" })).toBeNull();
+  });
+});
+
+describe("PreferencesMenu credits row under obscure-credits", () => {
+  test("the flag off keeps the row exactly as it is today", async () => {
+    billingRef.data = { effective_balance: "60.4" };
+    // No reading at all, which is what an org with nothing to measure has.
+    await openMenu();
+
+    expect(screen.getByTestId("credits-card")).toBeTruthy();
+  });
+
+  test("the row is hidden while the bundle still has room", async () => {
+    obscureCreditsRef.value = true;
+    billingRef.data = { effective_balance: "60.4" };
+    usageRef.value = usage(0.68);
+    await openMenu();
+
+    expect(screen.queryByTestId("credits-card")).toBeNull();
+  });
+
+  test("a spent bundle with credits left surfaces the row", async () => {
+    obscureCreditsRef.value = true;
+    billingRef.data = { effective_balance: "60.4" };
+    usageRef.value = usage(1);
+    await openMenu();
+
+    // The usage panel is red at this point; the wallet is what the next turn
+    // spends, so the row that names it belongs on screen.
+    expect(screen.getByTestId("preferences-usage")).toBeTruthy();
+    expect(screen.getByTestId("credits-card")).toBeTruthy();
+  });
+
+  test("the row names only the credit held on top of the usage grants", async () => {
+    obscureCreditsRef.value = true;
+    billingRef.data = {
+      effective_balance: "34.65",
+      available_usage_balance: "9.10",
+    };
+    usageRef.value = usage(1);
+    await openMenu();
+
+    // The grants are what the bar above measures, so the row states the
+    // bought-and-earned credit alone.
+    expect(screen.getByTestId("credits-card").textContent).toContain("25.55");
+  });
+
+  test("the flag off names the whole balance", async () => {
+    billingRef.data = {
+      effective_balance: "34.65",
+      available_usage_balance: "9.10",
+    };
+    await openMenu();
+
+    expect(screen.getByTestId("credits-card").textContent).toContain("34.65");
+  });
+
+  test("a free plan's used-up grant with credits left surfaces the row", async () => {
+    obscureCreditsRef.value = true;
+    billingRef.data = { effective_balance: "12.00" };
+    // A wallet reading never resets. The whole usage grant is gone, so the
+    // bar is red, while purchased credits still cover the next turn.
+    usageRef.value = {
+      ratio: 1,
+      resetsAt: null,
+      spent: true,
+      exhausted: false,
+    };
+    await openMenu();
+
+    expect(screen.getByTestId("preferences-usage")).toBeTruthy();
+    expect(screen.getByTestId("credits-card")).toBeTruthy();
+  });
+
+  test("a spent bundle with an empty wallet leaves the strip to say it", async () => {
+    obscureCreditsRef.value = true;
+    billingRef.data = { effective_balance: "0" };
+    usageRef.value = usage(1, true);
+    await openMenu();
+
+    expect(screen.queryByTestId("credits-card")).toBeNull();
+  });
+
+  test("the flag on with nothing to measure keeps the row", async () => {
+    obscureCreditsRef.value = true;
+    billingRef.data = { effective_balance: "60.4" };
+    await openMenu();
+
+    // The real panel renders nothing without a reading, so the row is the only
+    // balance and the only way to buy more.
+    expect(screen.getByTestId("credits-card")).toBeTruthy();
+  });
+});
+
+describe("showsMenuCredits", () => {
+  test("the flag off always shows the row", () => {
+    expect(showsMenuCredits(false, null)).toBe(true);
+    expect(showsMenuCredits(false, usage(0.4))).toBe(true);
+    expect(showsMenuCredits(false, usage(1, true))).toBe(true);
+  });
+
+  test("the flag on shows it only for a spent bundle with credits left", () => {
+    expect(showsMenuCredits(true, usage(0.99))).toBe(false);
+    expect(showsMenuCredits(true, usage(1))).toBe(true);
+    expect(showsMenuCredits(true, usage(1, true))).toBe(false);
+  });
+
+  test("an unmeasurable reading falls back to showing the row", () => {
+    expect(showsMenuCredits(true, null)).toBe(true);
   });
 });

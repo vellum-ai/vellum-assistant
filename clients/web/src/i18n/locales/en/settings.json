@@ -622,6 +622,14 @@
     "requestedMetaHost": "Requested {when} from this computer",
     "title": "Pairing requests"
   },
+  "planCard": {
+    "usageBalanceAddCredits": "Add",
+    "usageBalanceExhausted": "Add credits to continue using your assistant",
+    "usageBalancePctUsed": "{pct}% used",
+    "usageBalanceResets": "Resets {date}",
+    "usageBalanceTitle": "Usage Balance",
+    "usageChip": "{name} usage, reset monthly"
+  },
   "planColumnCard": {
     "currentPlan": "Current Plan",
     "includes": "Includes:",

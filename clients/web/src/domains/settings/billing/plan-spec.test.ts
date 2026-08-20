@@ -88,6 +88,39 @@ describe("packageSpecs", () => {
     expect(specs[2].label).toBe("$0 in credits included");
   });
 
+  test("swaps the credits chip for an obscured usage label when given one", () => {
+    const specs = packageSpecs(
+      {
+        key: "mighty",
+        name: "Mighty",
+        machine_size: null,
+        credits_usd: 25,
+        storage_gib: 10,
+      } as ProPackage,
+      { obscuredUsageLabel: "Mighty usage, reset monthly" },
+    );
+    expect(specs.map((s) => s.label)).toEqual([
+      "Small Machine",
+      "10 GB Storage",
+      "Mighty usage, reset monthly",
+    ]);
+    // Only the credits chip's copy moves; its icon and the rest are untouched.
+    expect(specs.map((s) => s.icon)).toEqual([Computer, HardDrive, Coins]);
+  });
+
+  test("keeps the dollar label when the options carry no override", () => {
+    const specs = packageSpecs(
+      {
+        key: "mighty",
+        machine_size: null,
+        credits_usd: 25,
+        storage_gib: 10,
+      } as ProPackage,
+      {},
+    );
+    expect(specs[2].label).toBe("$25 in credits included");
+  });
+
   test("formats a sub-dollar credit amount cents-aware", () => {
     const specs = packageSpecs({
       key: "unknown",
