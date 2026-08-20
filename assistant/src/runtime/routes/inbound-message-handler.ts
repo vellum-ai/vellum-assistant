@@ -90,6 +90,7 @@ import {
 import { markProcessed } from "../../persistence/delivery-status.js";
 import { upsertBinding } from "../../persistence/external-conversation-store.js";
 import type { ContentBlock } from "../../providers/types.js";
+import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
@@ -1676,6 +1677,10 @@ function readStoredSlackThreadState(
  * content.
  * Caller is responsible for dedup checks before invoking; this helper
  * performs no idempotency check itself.
+ *
+ * Returns false when the row was refused rather than written. Callers mark
+ * the channel ts seen either way, so a refused body is not reconsidered on
+ * the next pass.
  */
 async function persistBackfilledSlackMessage(params: {
   conversationId: string;
@@ -1683,8 +1688,27 @@ async function persistBackfilledSlackMessage(params: {
   message: ProviderMessage;
   account?: string;
   guardianExternalUserId?: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const { message } = params;
+
+  // Backfill writes externally-authored bodies into a conversation, so it
+  // carries the same secret gate as live channel ingress
+  // (`runSecretIngressCheck`). Runs before file hydration, so a refused row
+  // costs no downloads.
+  const secretScan = checkIngressForSecrets(message.text ?? "");
+  if (secretScan.blocked) {
+    log.warn(
+      {
+        conversationId: params.conversationId,
+        channelId: params.channelId,
+        channelTs: message.id,
+        detectedTypes: secretScan.detectedTypes,
+      },
+      "Skipping backfilled Slack message: secret detected",
+    );
+    return false;
+  }
+
   const slackFilesWithUrls = readSlackFilesWithUrlsFromProviderMetadata(
     message.metadata,
   );
@@ -1761,7 +1785,7 @@ async function persistBackfilledSlackMessage(params: {
       f.mimetype.startsWith("image/"),
   );
   if (imageFiles.length === 0) {
-    return;
+    return true;
   }
 
   const hydratedAttachments = await withSlackBotToken(
@@ -1832,7 +1856,7 @@ async function persistBackfilledSlackMessage(params: {
       { conversationId: params.conversationId, channelTs: message.id },
       "No Slack token available for backfill image hydration; skipping",
     );
-    return;
+    return true;
   }
 
   if (hydratedAttachments.length > 0) {
@@ -1843,6 +1867,7 @@ async function persistBackfilledSlackMessage(params: {
       ),
     );
   }
+  return true;
 }
 
 async function buildBackfilledSlackContentBlocks(
@@ -2079,7 +2104,7 @@ async function runBackfillSlackDmIfCold(params: {
         continue;
       }
       try {
-        await persistBackfilledSlackMessage({
+        const stored = await persistBackfilledSlackMessage({
           conversationId: params.conversationId,
           channelId: params.channelId,
           message,
@@ -2089,7 +2114,9 @@ async function runBackfillSlackDmIfCold(params: {
             : {}),
         });
         seen.add(message.id);
-        written++;
+        if (stored) {
+          written++;
+        }
       } catch (perRowErr) {
         log.warn(
           {
@@ -2677,7 +2704,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
         continue;
       }
       try {
-        await persistBackfilledSlackMessage({
+        const stored = await persistBackfilledSlackMessage({
           conversationId,
           channelId,
           message,
@@ -2685,7 +2712,9 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
           ...(guardianExternalUserId ? { guardianExternalUserId } : {}),
         });
         threadState.storedChannelTs.add(message.id);
-        persisted++;
+        if (stored) {
+          persisted++;
+        }
       } catch (err) {
         log.warn(
           { err, conversationId, channelId, threadTs, channelTs: message.id },

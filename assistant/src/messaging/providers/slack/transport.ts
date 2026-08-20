@@ -64,13 +64,9 @@ export const slackTransport: ChannelTransport = {
     return { ok: true };
   },
 
-  async setThreadStatus(_ctx, payload) {
-    const status = payload.assistantThreadStatus;
-    if (!status) {
-      return { ok: true };
-    }
+  async setThreadStatus(_ctx, status) {
     await sendSlackAssistantThreadStatus(
-      status.channel,
+      status.chatId,
       status.threadTs,
       status.status,
       status.loadingMessages,

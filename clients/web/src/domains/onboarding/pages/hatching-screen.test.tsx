@@ -416,6 +416,7 @@ mock.module("@/utils/avatar-svg-compositor", () => ({
 
 mock.module("@/utils/routes", () => ({
   routes: {
+    assistant: "/assistant",
     onboarding: {
       research: "/onboarding/research",
       hosting: "/onboarding/hosting",
@@ -532,6 +533,28 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     });
     // Not a Pro subscription: the resize phase is never entered.
     expect(screen.queryByText(RESIZE_LABEL)).toBeNull();
+  });
+
+  test("skip_research hands off to chat instead of the research funnel", async () => {
+    const env = import.meta.env as Record<string, string | undefined>;
+    const previousEnv = env.VITE_SENTRY_ENVIRONMENT;
+    env.VITE_SENTRY_ENVIRONMENT = "staging";
+    searchParams = new URLSearchParams("skip_research=1");
+    subscriptionPlanId = "base";
+    onboardingData = { max_machine_tier: null, selected_storage_gib: null };
+
+    try {
+      render(<HatchingScreen />);
+
+      await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+        timeout: 5000,
+      });
+      expect(navigateMock).toHaveBeenCalledWith("/assistant?onboarding=1", {
+        replace: true,
+      });
+    } finally {
+      env.VITE_SENTRY_ENVIRONMENT = previousEnv;
+    }
   });
 
   test("a base plan whose targets fetch fails still completes, never trapping", async () => {

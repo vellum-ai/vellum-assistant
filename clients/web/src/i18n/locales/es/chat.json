@@ -193,6 +193,9 @@
     "heading": "Recursos",
     "label": "{count, plural, one {# recurso} other {# recursos}}"
   },
+  "conversationStarterDock": {
+    "caption": "Prueba algunas sugerencias:"
+  },
   "copyButton": {
     "copied": "Copiado",
     "copyFailed": "No se pudo copiar al portapapeles."

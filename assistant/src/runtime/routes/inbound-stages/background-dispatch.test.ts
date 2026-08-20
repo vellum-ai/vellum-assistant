@@ -92,9 +92,17 @@ const sentReactions: Array<{
   callbackUrl: string;
   target: Record<string, unknown>;
 }> = [];
+const sentThreadStatuses: Array<Record<string, unknown>> = [];
 mock.module("../../../messaging/providers/index.js", () => ({
   sendChannelTyping: async () => ({ ok: true }),
   supportsChannelTyping: () => false,
+  setChannelThreadStatus: async (
+    _callbackUrl: string,
+    status: Record<string, unknown>,
+  ) => {
+    sentThreadStatuses.push(status);
+    return { ok: true };
+  },
   sendChannelReaction: async (
     callbackUrl: string,
     target: Record<string, unknown>,
@@ -144,6 +152,7 @@ beforeEach(() => {
   clearConversations();
   deliveredChannelReplies.length = 0;
   sentReactions.length = 0;
+  sentThreadStatuses.length = 0;
   markedProcessedEvents.length = 0;
   processingFailureEvents.length = 0;
   retryableFailureEvents.length = 0;
@@ -985,17 +994,14 @@ describe("Slack thinking status timing", () => {
     const threadTs = "1700000000.000011";
 
     const processMessage: MessageProcessor = async () => {
-      expect(deliveredChannelReplies).toHaveLength(1);
-      expect(deliveredChannelReplies[0]!.payload.assistantThreadStatus).toEqual(
-        {
-          channel: channelId,
-          threadTs,
-          status: expect.any(String),
-          loadingMessages: ["Thinking\u2026"],
-        },
-      );
-      const threadStatus = deliveredChannelReplies[0]!.payload
-        .assistantThreadStatus as { status: string };
+      expect(sentThreadStatuses).toHaveLength(1);
+      expect(sentThreadStatuses[0]).toEqual({
+        chatId: channelId,
+        threadTs,
+        status: expect.any(String),
+        loadingMessages: ["Thinking\u2026"],
+      });
+      const threadStatus = sentThreadStatuses[0] as { status: string };
       expect(slackStatusLabels).toContain(threadStatus.status);
       return { messageId: "user-msg-mention-immediate" };
     };
@@ -1016,12 +1022,9 @@ describe("Slack thinking status timing", () => {
 
     await flush();
 
-    const statuses = deliveredChannelReplies.map((entry) => {
-      const status = entry.payload.assistantThreadStatus as
-        | { status?: string }
-        | undefined;
-      return status?.status;
-    });
+    const statuses = sentThreadStatuses.map(
+      (entry) => (entry as { status?: string }).status,
+    );
     expect(slackStatusLabels).toContain(statuses[0]!);
     expect(statuses[1]).toBe("");
   });
@@ -1102,12 +1105,9 @@ describe("Slack thinking status timing", () => {
 
     await flush();
 
-    const statuses = deliveredChannelReplies.map((entry) => {
-      const status = entry.payload.assistantThreadStatus as
-        | { status?: string }
-        | undefined;
-      return status?.status;
-    });
+    const statuses = sentThreadStatuses.map(
+      (entry) => (entry as { status?: string }).status,
+    );
     expect(slackStatusLabels).toContain(statuses[0]!);
     expect(statuses[1]).toBe("");
   });
@@ -1164,18 +1164,16 @@ describe("Slack thinking status timing", () => {
 
     await flush();
 
-    const statuses = deliveredChannelReplies.map(
-      (entry) => entry.payload.assistantThreadStatus,
-    );
+    const statuses = sentThreadStatuses;
     expect(statuses).toEqual([
       {
-        channel: channelId,
+        chatId: channelId,
         threadTs,
         status: expect.any(String),
         loadingMessages: ["In progress (1/2): Search docs"],
       },
       {
-        channel: channelId,
+        chatId: channelId,
         threadTs,
         status: "",
       },
@@ -1298,24 +1296,22 @@ describe("Slack thinking status timing", () => {
 
     await flush();
 
-    const statuses = deliveredChannelReplies.map(
-      (entry) => entry.payload.assistantThreadStatus,
-    );
+    const statuses = sentThreadStatuses;
     expect(statuses).toEqual([
       {
-        channel: channelId,
+        chatId: channelId,
         threadTs,
         status: expect.any(String),
         loadingMessages: ["In progress (1/2): Read request"],
       },
       {
-        channel: channelId,
+        chatId: channelId,
         threadTs,
         status: expect.any(String),
         loadingMessages: ["In progress (2/2): Write answer"],
       },
       {
-        channel: channelId,
+        chatId: channelId,
         threadTs,
         status: "",
       },

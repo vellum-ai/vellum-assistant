@@ -103,6 +103,7 @@ mock.module("../daemon/conversation-store.js", () => ({
   },
 }));
 
+import { initializeDb } from "../persistence/db-init.js";
 import {
   getProviderRoutingSource,
   initializeProviders,
@@ -112,6 +113,12 @@ import {
   notifyCesOfAssistantApiKeyUpdate,
   ROUTES,
 } from "../runtime/routes/secret-routes.js";
+
+// A delete looks up the provider connections that resolve their auth through
+// the credential, so the inference schema has to exist. No connection is
+// created here: the refusal is covered by
+// runtime/routes/__tests__/credential-delete-in-use.test.ts.
+await initializeDb();
 
 const addRoute = ROUTES.find(
   (r) => r.method === "POST" && r.endpoint === "secrets",

@@ -20,6 +20,7 @@ import type {
   CallbackContext,
   ChannelTransport,
   ReactionTarget,
+  ThreadStatus,
 } from "./channel-transport.js";
 import { discordTransport } from "./discord/transport.js";
 import { slackTransport } from "./slack/transport.js";
@@ -95,6 +96,23 @@ export async function sendChannelReaction(
   return transport.react(callbackContext(callbackUrl), target);
 }
 
+/**
+ * Set or clear the channel's status surface.
+ *
+ * Resolves to nothing when the channel holds none, so a caller does not have
+ * to know which channels do.
+ */
+export async function setChannelThreadStatus(
+  callbackUrl: string,
+  status: ThreadStatus,
+): Promise<ChannelDeliveryResult> {
+  const transport = getTransportForCallback(callbackUrl);
+  if (!transport?.setThreadStatus) {
+    return { ok: true };
+  }
+  return transport.setThreadStatus(callbackContext(callbackUrl), status);
+}
+
 function callbackContext(callbackUrl: string): CallbackContext {
   const params: Record<string, string> = {};
   try {
@@ -142,9 +160,6 @@ export async function deliverDirect(
   const ctx = callbackContext(callbackUrl);
   if (payload.slackStream && transport.streamReply) {
     return transport.streamReply(ctx, payload);
-  }
-  if (payload.assistantThreadStatus && transport.setThreadStatus) {
-    return transport.setThreadStatus(ctx, payload);
   }
   return transport.deliver(ctx, payload);
 }

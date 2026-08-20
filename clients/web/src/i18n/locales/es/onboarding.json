@@ -27,9 +27,10 @@
   "startScreen": {
     "createAssistant": "Crear tu asistente"
   },
-  "privacyScreen": {
+    "privacyScreen": {
     "title": "Antes de empezar",
-    "body": "Elige tus preferencias de privacidad. Puedes cambiarlas cuando quieras en los ajustes."
+    "body": "Elige tus preferencias de privacidad. Puedes cambiarlas cuando quieras en los ajustes.",
+    "skipToChat": "Ir al chat"
   },
   "hostingScreen": {
     "title": "Alojamiento",

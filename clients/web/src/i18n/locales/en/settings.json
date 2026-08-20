@@ -155,6 +155,16 @@
     "returnTo": "Return to {assistantName}",
     "title": "You're all set!"
   },
+  "credentialsPage": {
+    "deleteConfirmLabel": "Delete",
+    "deleteConfirmMessage": "Delete {name}? Tools and integrations using it will lose access.",
+    "deleteConfirmTitle": "Delete credential",
+    "deleteErrorToast": "Failed to delete credential",
+    "deleteSuccessToast": "Deleted {name}.",
+    "inUseConfirmLabel": "Delete anyway",
+    "inUseMessage": "{count, plural, one {{name} is the credential that the connection {connections} uses to send requests. Deleting it stops that connection from answering until you add a new credential.} other {{name} is the credential that the connections {connections} use to send requests. Deleting it stops those connections from answering until you add a new credential.}}",
+    "inUseTitle": "Credential is in use"
+  },
   "customPlanModal": {
     "cancel": "Cancel",
     "comparedToPrevious": "{delta} compared to previous ({previous})",

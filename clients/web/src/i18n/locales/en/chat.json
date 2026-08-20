@@ -193,6 +193,9 @@
     "heading": "Assets",
     "label": "{count, plural, one {# asset} other {# assets}}"
   },
+  "conversationStarterDock": {
+    "caption": "Try some suggestions:"
+  },
   "copyButton": {
     "copied": "Copied",
     "copyFailed": "Could not copy to the clipboard."

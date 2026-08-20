@@ -53,6 +53,7 @@ import { TextSelectionPopover } from "@/domains/chat/components/text-selection-p
 import { useNativeQuoteReply } from "@/domains/chat/hooks/use-native-quote-reply";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { resolveComposerPlaceholder } from "@/domains/chat/utils/composer-placeholder";
 import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -163,7 +164,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { shouldMintNewChatDraft } from "@/domains/chat/utils/conversation-selection";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
-import { viewerPanePresentation } from "@/stores/pane-presentation";
+import { paneState } from "@/stores/pane-state";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
@@ -194,7 +195,9 @@ export interface ChatMainPanelProps {
   handleEditQueueTail: () => void;
 
   // Conversation secondary actions (orchestration dependency)
-  handleForkConversation: (throughMessageId: string) => Promise<void>;
+  /** Forks through a message. Omitted unless the viewer passes the
+   *  staff + `fork-from-message` gate, which hides the hover action. */
+  handleForkConversation?: (throughMessageId: string) => Promise<void>;
   /** Opens the "Summarize up to here" confirm dialog for a message. */
   onSummarizeUpToHere?: (messageId: string) => void;
   /** Opens the "Retry" confirm dialog for the latest assistant turn. */
@@ -509,10 +512,13 @@ export function ChatMainPanel({
     [],
   );
 
-  const handleForkConversationCallback = useCallback(
-    (messageId: string) => {
-      void handleForkConversation(messageId);
-    },
+  const handleForkConversationCallback = useMemo(
+    () =>
+      handleForkConversation
+        ? (messageId: string) => {
+            void handleForkConversation(messageId);
+          }
+        : undefined,
     [handleForkConversation],
   );
 
@@ -1165,6 +1171,7 @@ export function ChatMainPanel({
     startersSlot,
     belowFoldSlot,
     dockStartersToBottom,
+    startersDockCollapsed,
     renderAvatar,
     emptyStatePlaceholder,
     composerPeekSlot,
@@ -1281,17 +1288,19 @@ export function ChatMainPanel({
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const settingsSheetOpen = accessSheetOpen || profileSheetOpen;
 
-  // The narrow composer is one slim row with no room for a sentence, so it
-  // names the assistant it is addressed to instead. An assistant whose name
-  // has not loaded keeps the wider copy.
   const { t } = useTranslation("chat");
   const composerAssistantName = assistantName?.trim();
-  const mobilePlaceholder =
-    isMobile && composerAssistantName
-      ? t("chatComposer.askAssistantPlaceholder", {
-          assistantName: composerAssistantName,
-        })
-      : null;
+  const composerPlaceholder = resolveComposerPlaceholder({
+    isEmptyConversation,
+    emptyStatePlaceholder,
+    assistantPlaceholder:
+      isMobile && composerAssistantName
+        ? t("chatComposer.askAssistantPlaceholder", {
+            assistantName: composerAssistantName,
+          })
+        : null,
+    defaultPlaceholder: "What would you like to do?",
+  });
 
   // Explicit props (no spread bundle): the contract is visible here, and the
   // composer self-sources its own store state, so nothing high-frequency is
@@ -1299,12 +1308,7 @@ export function ChatMainPanel({
   const composerNode = (
     <ChatComposer
       cmdEnterMode={cmdEnterMode}
-      placeholder={
-        mobilePlaceholder ??
-        (isEmptyConversation
-          ? emptyStatePlaceholder
-          : "What would you like to do?")
-      }
+      placeholder={composerPlaceholder}
       onSubmit={handleFormSubmit}
       inputRef={inputRef}
       typingDisabled={typingDisabled}
@@ -1446,12 +1450,13 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const editingConversationId =
     useConversationStore.use.editingConversationId();
-  const paneArrangement = viewerPanePresentation({
+  const paneArrangement = paneState({
     mainView,
-    hasApp: !!openedAppState,
-    hasBoundConversation: !!editingConversationId,
+    appId: openedAppState?.appId ?? null,
+    conversationId: activeConversationId,
+    boundConversationId: editingConversationId,
     isAppMinimized,
-  });
+  }).presentation;
   const isSidePanel = paneArrangement === "side";
   const variant = isSidePanel ? "side-panel" : "main";
 
@@ -1494,6 +1499,7 @@ export function ChatMainPanel({
       startersSlot={startersSlot}
       belowFoldSlot={belowFoldSlot}
       dockStartersToBottom={dockStartersToBottom}
+      startersDockCollapsed={startersDockCollapsed}
       activeProcessOverlaysSlot={
         hasActiveProcess ? activeProcessOverlays : undefined
       }
