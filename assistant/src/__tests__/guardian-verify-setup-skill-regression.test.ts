@@ -166,15 +166,20 @@ describe("guardian-verify-setup skill: channel coverage", () => {
     }
   });
 
-  test("the missing-secret guardrail is an exception, not a channel list", () => {
+  test("the missing-secret guardrail names only its exception", () => {
     const guardrail = skillContent
       .split("\n")
       .find((line) => line.includes("Missing `secret` guardrail"));
     expect(guardrail).toBeDefined();
-    // A list here goes stale every time a channel is added, and did: it named
-    // voice, Telegram and Slack while email and Discord also require a secret.
+    // The rule covers every flow but one, so the line states that exception.
+    // Naming any other channel makes it an enumeration, and an enumeration
+    // drifts out of date the next time a channel is added.
     expect(guardrail).toContain("except");
-    expect(guardrail).not.toContain("Telegram chat-ID, and Slack");
+    expect(guardrail).toContain("Telegram");
+    const lower = guardrail!.toLowerCase();
+    for (const channel of ["phone", "voice", "slack", "discord", "email"]) {
+      expect(lower, `guardrail enumerates ${channel}`).not.toContain(channel);
+    }
   });
 
   test("the status and revoke guards allow every supported channel", () => {
