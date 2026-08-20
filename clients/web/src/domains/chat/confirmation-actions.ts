@@ -13,6 +13,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { offersRuleOption } from "@/domains/chat/confirmation-decisions";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import {
+  mayReportFailure,
   stillOwnsSubmission,
   useInteractionStore,
 } from "@/domains/chat/interaction-store";
@@ -50,7 +51,15 @@ function cleanupAfterConfirmationDecision(
   useInteractionStore
     .getState()
     .dismissConfirmationIfMatches(snapshot.requestId);
-  useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+  // Named, like everything else here: a decision clears the inline anchor only
+  // when it is the one its own tool call put there.
+  if (
+    mappedToolCallId &&
+    useInteractionStore.getState().inlineConfirmationToolCallId ===
+      mappedToolCallId
+  ) {
+    useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+  }
   const convKey = useConversationStore.getState().activeConversationId;
   if (convKey) {
     useConversationStore.getState().removeAttentionConversationId(convKey);
@@ -217,10 +226,6 @@ export async function handleConfirmationSubmit(
       ruleHint,
     );
 
-    if (!stillOwnsSubmission("confirmation", snapshot.requestId)) {
-      return;
-    }
-
     if (!result.ok) {
       if (result.status === 404) {
         // Pending interaction already gone server-side — retire the stale
@@ -228,7 +233,9 @@ export async function handleConfirmationSubmit(
         clearStaleConfirmation(snapshot);
         return;
       }
-      useChatSessionStore.getState().setError({ message: result.error });
+      if (mayReportFailure("confirmation", snapshot.requestId)) {
+        useChatSessionStore.getState().setError({ message: result.error });
+      }
       useInteractionStore
         .getState()
         .releaseSubmission("confirmation", snapshot.requestId);
@@ -236,15 +243,13 @@ export async function handleConfirmationSubmit(
     }
     cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, decision);
   } catch (err) {
-    // Always reported; only surfaced when this submission still owns the
-    // banner, so a dead request cannot mask a live one's failure.
+    // Always recorded; only shown while its own prompt is the one on screen.
     captureError(err, { context: "submit_confirmation" });
-    if (!stillOwnsSubmission("confirmation", snapshot.requestId)) {
-      return;
+    if (mayReportFailure("confirmation", snapshot.requestId)) {
+      useChatSessionStore.getState().setError({
+        message: "Failed to submit confirmation. Please try again.",
+      });
     }
-    useChatSessionStore.getState().setError({
-      message: "Failed to submit confirmation. Please try again.",
-    });
     useInteractionStore
       .getState()
       .releaseSubmission("confirmation", snapshot.requestId);

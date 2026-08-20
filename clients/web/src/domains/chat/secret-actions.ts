@@ -10,6 +10,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import {
+  mayReportFailure,
   stillOwnsSubmission,
   useInteractionStore,
 } from "@/domains/chat/interaction-store";
@@ -59,13 +60,15 @@ export async function handleSecretSubmit(
       delivery,
     );
     if (!result.ok) {
-      if (stillOwnsSubmission("secret", pendingSecret.requestId)) {
+      if (mayReportFailure("secret", pendingSecret.requestId)) {
         useChatSessionStore.getState().setError({ message: result.error });
-        useInteractionStore
-          .getState()
-          .releaseSubmission("secret", pendingSecret.requestId);
-        useInteractionStore.getState().setSecretSaved(false);
       }
+      // Outside the gate: both describe this request's own outcome, and a
+      // superseded prompt still has to let go of the slot it holds.
+      useInteractionStore
+        .getState()
+        .releaseSubmission("secret", pendingSecret.requestId);
+      useInteractionStore.getState().setSecretSaved(false);
       return;
     }
 

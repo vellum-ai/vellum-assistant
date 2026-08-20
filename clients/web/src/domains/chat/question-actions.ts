@@ -10,6 +10,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import {
+  mayReportFailure,
   stillOwnsSubmission,
   useInteractionStore,
 } from "@/domains/chat/interaction-store";
@@ -98,14 +99,14 @@ export async function handleQuestionResponse(
         clearStaleQuestion(snapshot.requestId);
         return;
       }
-      // A retryable failure, so the card stays and the user is told. Both
-      // writes belong to whoever owns the state now.
-      if (stillOwnsSubmission("question", snapshot.requestId)) {
+      // A retryable failure, so the card stays and the user is told, provided
+      // the prompt they are looking at is still this one.
+      if (mayReportFailure("question", snapshot.requestId)) {
         useChatSessionStore.getState().setError({ message: result.error });
-        useInteractionStore
-          .getState()
-          .releaseSubmission("question", snapshot.requestId);
       }
+      useInteractionStore
+        .getState()
+        .releaseSubmission("question", snapshot.requestId);
       return;
     }
     // Success. Both writes name this request, so neither can reach a prompt or
@@ -117,17 +118,18 @@ export async function handleQuestionResponse(
       .releaseSubmission("question", snapshot.requestId);
   } catch (err) {
     // Transport failure (network drop, abort, malformed response). Always
-    // report it, but only surface it to the user when this request still owns
-    // the banner, so a dead request cannot mask a live one's failure.
+    // recorded; only shown while its own prompt is the one on screen, so a
+    // dead request cannot explain itself over a question it does not belong
+    // to.
     captureError(err, { context: "submit_question_response" });
-    if (stillOwnsSubmission("question", snapshot.requestId)) {
+    if (mayReportFailure("question", snapshot.requestId)) {
       useChatSessionStore
         .getState()
         .setError({ message: "Failed to submit response. Please try again." });
-      useInteractionStore
-        .getState()
-        .releaseSubmission("question", snapshot.requestId);
     }
+    useInteractionStore
+      .getState()
+      .releaseSubmission("question", snapshot.requestId);
   }
 }
 

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import type { PromptKind } from "@/domains/chat/interaction-store";
+import { mayReportFailure } from "@/domains/chat/interaction-store";
 import {
   useInteractionStore,
   hasActiveInteraction,
@@ -456,6 +457,21 @@ describe("prompt slots: the shared invariant", () => {
         expect(useInteractionStore.getState().submittingByKind[kind]).toBe(
           "r1",
         );
+      });
+
+      it("a failure is reported only while its own prompt is on screen", () => {
+        // The session error has no prompt of its own, so it reads as belonging
+        // to whatever card is up. A request whose prompt was replaced would be
+        // explaining itself over someone else's.
+        RAISE[kind]("r1");
+        expect(mayReportFailure(kind, "r1")).toBe(true);
+
+        RAISE[kind]("r2");
+        expect(mayReportFailure(kind, "r1")).toBe(false);
+
+        // Nothing on screen to be mistaken for, so the message may show.
+        RETIRE[kind]("r2");
+        expect(mayReportFailure(kind, "r1")).toBe(true);
       });
 
       it("only the holder can release the slot", () => {

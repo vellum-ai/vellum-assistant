@@ -10,7 +10,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import {
-  stillOwnsSubmission,
+  mayReportFailure,
   useInteractionStore,
 } from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -60,18 +60,19 @@ export async function handleContactPromptSubmit(
       pendingContactRequest.role,
     );
     if (!result.ok) {
-      if (
-        stillOwnsSubmission("contactRequest", pendingContactRequest.requestId)
-      ) {
+      if (mayReportFailure("contactRequest", pendingContactRequest.requestId)) {
         useChatSessionStore.getState().setError({ message: result.error });
-        useInteractionStore
-          .getState()
-          .releaseSubmission("contactRequest", pendingContactRequest.requestId);
       }
+      useInteractionStore
+        .getState()
+        .releaseSubmission("contactRequest", pendingContactRequest.requestId);
       return;
     }
 
     useInteractionStore.getState().acceptContactRequest();
+    useInteractionStore
+      .getState()
+      .releaseSubmission("contactRequest", pendingContactRequest.requestId);
     const savedRequestId = pendingContactRequest.requestId;
     setTimeout(() => {
       useInteractionStore
@@ -80,14 +81,11 @@ export async function handleContactPromptSubmit(
     }, 1500);
   } catch (err) {
     captureError(err, { context: "submit_contact_prompt" });
-    if (
-      !stillOwnsSubmission("contactRequest", pendingContactRequest.requestId)
-    ) {
-      return;
+    if (mayReportFailure("contactRequest", pendingContactRequest.requestId)) {
+      useChatSessionStore
+        .getState()
+        .setError({ message: "Failed to save contact. Please try again." });
     }
-    useChatSessionStore
-      .getState()
-      .setError({ message: "Failed to save contact. Please try again." });
     useInteractionStore
       .getState()
       .releaseSubmission("contactRequest", pendingContactRequest.requestId);

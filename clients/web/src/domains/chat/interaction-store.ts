@@ -446,6 +446,40 @@ export function stillOwnsSubmission(
   return useInteractionStore.getState().submittingByKind[kind] === requestId;
 }
 
+/** The prompt currently on screen for `kind`, if any. */
+function promptOnScreen(kind: PromptKind): { requestId: string } | null {
+  const state = useInteractionStore.getState();
+  switch (kind) {
+    case "confirmation":
+      return state.pendingConfirmation;
+    case "question":
+      return state.pendingQuestion;
+    case "secret":
+      return state.pendingSecret;
+    case "contactRequest":
+      return state.pendingContactRequest;
+  }
+}
+
+/**
+ * Whether `requestId` may put a failure in front of the user.
+ *
+ * Deliberately a different question from {@link stillOwnsSubmission}, which
+ * asks who holds the slot. The session error has no prompt of its own, so it
+ * reads as belonging to whatever card is on screen: a request whose prompt has
+ * been replaced would be explaining itself over someone else's question, and
+ * "Failed to submit response" against a prompt the user has not answered yet is
+ * worse than saying nothing. Releasing the slot still belongs to the request
+ * either way, which is why the two are asked separately.
+ *
+ * An empty slot reads as permitted: there is no other prompt for the message to
+ * be mistaken for.
+ */
+export function mayReportFailure(kind: PromptKind, requestId: string): boolean {
+  const onScreen = promptOnScreen(kind);
+  return !onScreen || onScreen.requestId === requestId;
+}
+
 /** Atomic per-kind subscription, so a card re-renders only for its own kind. */
 export function useSubmittingRequestId(kind: PromptKind): string | null {
   return useInteractionStore((state) => state.submittingByKind[kind]);
