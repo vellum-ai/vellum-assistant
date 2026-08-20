@@ -39,12 +39,10 @@ export function useEditApp(): (app: OpenedAppState) => void {
       if (!assistantId) {
         return;
       }
-      // The conversation already on screen, or a new one. A thread the user
-      // can see beats one resolved from somewhere they cannot: a remembered
-      // id is invisible, expires on its own, and puts them somewhere they did
-      // not ask for. A new one is registered as a draft like every other
-      // client-minted key, so the pane paints an empty thread rather than the
-      // skeleton it holds while real history loads.
+      // The conversation on screen, so the pane opens on something the user
+      // chose. A new one is registered as a draft like every client-minted
+      // key, which is what lets the pane paint an empty thread rather than
+      // wait on history it does not have.
       const convId =
         useConversationStore.getState().activeConversationId ??
         createDraftConversationId();

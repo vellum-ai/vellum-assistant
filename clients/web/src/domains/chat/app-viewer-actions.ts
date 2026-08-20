@@ -114,8 +114,7 @@ function setView(
         return;
       }
       // Split view is a chat beside the app, so it needs a conversation to
-      // put there. Starting one is what the request asks for; ignoring it
-      // leaves the app full-width with no way to talk about it.
+      // put there.
       goToConversation(ctx, createDraftConversationId());
       return;
     }
