@@ -470,6 +470,72 @@ describe("createSkillTool — required/type/enum validation", () => {
     );
   });
 
+  test("decodes JSON-string arrays before validation and passes the decoded value to the executor", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({
+        executor: "echo.ts",
+        input_schema: {
+          type: "object",
+          properties: {
+            activation_hints: { type: "array", items: { type: "string" } },
+            files: { type: "array", items: { type: "object" } },
+            name: { type: "string" },
+          },
+          required: ["activation_hints"],
+        },
+      }),
+      tempDir,
+      hash,
+      BUNDLED,
+    );
+
+    const result = await tool.execute(
+      {
+        activation_hints: '["user asks to deploy staging","needs a rollback"]',
+        files: '[{"path":"references/notes.md","content":"hi"}]',
+        name: "x",
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.input).toEqual({
+      activation_hints: ["user asks to deploy staging", "needs a rollback"],
+      files: [{ path: "references/notes.md", content: "hi" }],
+      name: "x",
+    });
+  });
+
+  test("rejects a string that is not a JSON array with a self-correcting message", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({
+        executor: "echo.ts",
+        input_schema: {
+          type: "object",
+          properties: {
+            activation_hints: { type: "array", items: { type: "string" } },
+          },
+        },
+      }),
+      tempDir,
+      hash,
+      BUNDLED,
+    );
+
+    const result = await tool.execute(
+      { activation_hints: "user asks to deploy staging" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      "activation_hints must be an array: pass a JSON array, not a string",
+    );
+  });
+
   test("passes valid input through to the executor unchanged", async () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(

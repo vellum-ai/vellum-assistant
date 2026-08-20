@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  coerceStringArrays,
   coerceStringBooleans,
   validateInputAgainstSchema,
 } from "../skills/validate-input.js";
@@ -447,6 +448,136 @@ describe("coerceStringBooleans", () => {
     expect(result).not.toBe(input);
     expect(input).toEqual(snapshot);
     expect(result.name).toBe("x");
+  });
+});
+
+describe("coerceStringArrays", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      activation_hints: { type: "array", items: { type: "string" } },
+      files: { type: "array", items: { type: "object" } },
+      name: { type: "string" },
+      tags: { type: ["array", "null"] },
+    },
+  };
+
+  test("decodes a JSON-string array of strings", () => {
+    const result = coerceStringArrays(
+      { activation_hints: '["deploy staging","roll back"]' },
+      schema,
+    );
+    expect(result.activation_hints).toEqual(["deploy staging", "roll back"]);
+  });
+
+  test("decodes a JSON-string array of objects", () => {
+    const result = coerceStringArrays(
+      { files: '[{"path":"references/notes.md","content":"hi"}]' },
+      schema,
+    );
+    expect(result.files).toEqual([
+      { path: "references/notes.md", content: "hi" },
+    ]);
+  });
+
+  test("decoded input passes validation and preserves intent", () => {
+    const coerced = coerceStringArrays(
+      { activation_hints: '["deploy staging"]', name: "x" },
+      schema,
+    );
+    expect(
+      validateInputAgainstSchema("scaffold_managed_skill", coerced, schema),
+    ).toEqual({ ok: true });
+    expect(coerced.activation_hints).toEqual(["deploy staging"]);
+  });
+
+  test("still reports a wrong element type after decoding", () => {
+    const coerced = coerceStringArrays(
+      { activation_hints: '["deploy staging",7]' },
+      schema,
+    );
+    const validation = validateInputAgainstSchema(
+      "scaffold_managed_skill",
+      coerced,
+      schema,
+    );
+    expect(validation.ok).toBe(false);
+    if (validation.ok) {
+      return;
+    }
+    expect(validation.errors).toContain("activation_hints[1] must be a string");
+  });
+
+  test.each([
+    "deploy staging",
+    "",
+    '["deploy staging"',
+    '{"path":"references/notes.md"}',
+    '"deploy staging"',
+    "7",
+  ])("leaves %p alone (validation still rejects)", (raw) => {
+    const input = { activation_hints: raw };
+    const result = coerceStringArrays(input, schema);
+    expect(result).toBe(input);
+    const validation = validateInputAgainstSchema(
+      "scaffold_managed_skill",
+      result,
+      schema,
+    );
+    expect(validation.ok).toBe(false);
+  });
+
+  test("does not touch non-array-typed or union-typed properties", () => {
+    const input = { name: '["x"]', tags: '["x"]' };
+    const result = coerceStringArrays(input, schema);
+    expect(result).toBe(input);
+    expect(result.name).toBe('["x"]');
+    expect(result.tags).toBe('["x"]');
+  });
+
+  test("does not touch real arrays or other types", () => {
+    const input = { activation_hints: ["deploy staging"] };
+    expect(coerceStringArrays(input, schema)).toBe(input);
+    const inputNum = { activation_hints: 7 };
+    expect(coerceStringArrays(inputNum, schema)).toBe(inputNum);
+  });
+
+  test("returns the same object when there is nothing to decode", () => {
+    const input = { name: "x" };
+    expect(coerceStringArrays(input, schema)).toBe(input);
+    expect(coerceStringArrays(input, undefined)).toBe(input);
+    expect(coerceStringArrays(input, { type: "object" })).toBe(input);
+  });
+
+  test("returns a new object and never mutates the original input", () => {
+    const input = { activation_hints: '["deploy staging"]', name: "x" };
+    const snapshot = JSON.parse(JSON.stringify(input));
+    const result = coerceStringArrays(input, schema);
+    expect(result).not.toBe(input);
+    expect(input).toEqual(snapshot);
+    expect(result.name).toBe("x");
+  });
+});
+
+describe("validateInputAgainstSchema: array string error message", () => {
+  test("points at the JSON array form when a string is passed", () => {
+    const result = validateInputAgainstSchema(
+      "scaffold_managed_skill",
+      { activation_hints: "deploy staging" },
+      {
+        type: "object",
+        properties: {
+          activation_hints: { type: "array", items: { type: "string" } },
+        },
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.errors).toEqual([
+      "activation_hints must be an array: pass a JSON array, not a string",
+    ]);
   });
 });
 

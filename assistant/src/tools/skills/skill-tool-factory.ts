@@ -1,6 +1,7 @@
 import type { SkillToolEntry } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
 import {
+  coerceStringArrays,
   coerceStringBooleans,
   coerceStringNumbers,
   validateInputAgainstSchema,
@@ -44,8 +45,8 @@ export function createSkillTool(
       context: ToolContext,
     ): Promise<ToolExecutionResult> {
       const schema = entry.input_schema as Record<string, unknown> | undefined;
-      const coercedInput = coerceStringNumbers(
-        coerceStringBooleans(input, schema),
+      const coercedInput = coerceStringArrays(
+        coerceStringNumbers(coerceStringBooleans(input, schema), schema),
         schema,
       );
       const validation = validateInputAgainstSchema(

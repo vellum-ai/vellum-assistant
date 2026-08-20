@@ -174,6 +174,66 @@ export function coerceStringNumbers(
 }
 
 /**
+ * Decode JSON-string-encoded arrays for properties the schema declares as
+ * `type: "array"`.
+ *
+ * Some providers' models serialize an array argument as the JSON *text* of
+ * that array (`"[\"a\",\"b\"]"`) instead of as a JSON array. The value is
+ * exactly what the caller meant, and the model cannot see the difference, so
+ * rejecting it is unrecoverable from its side: the observed recovery is to
+ * drop the field and retry. That is how a skill gets scaffolded with no
+ * `activation_hints` (losing the intent-routing signal that makes it findable
+ * later) or with its companion `files` folded into the body instead.
+ *
+ * Only text that parses as a JSON array is decoded, which is what keeps the
+ * decode unambiguous rather than a guess at intent; anything else (a bare
+ * phrase, a truncated fragment) is left for the validator to reject. The
+ * per-element `items.type` check still runs on the decoded array, so a wrong
+ * element type keeps its own self-correcting error.
+ *
+ * Pure: returns a new object when a decode applies, otherwise returns `input`
+ * unchanged. Never mutates `input` or `schema`.
+ */
+export function coerceStringArrays(
+  input: Record<string, unknown>,
+  schema: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!schema) {
+    return input;
+  }
+  const properties = schema.properties;
+  if (!isPlainObject(properties)) {
+    return input;
+  }
+
+  let coerced: Record<string, unknown> | undefined;
+  for (const [key, rawSubSchema] of Object.entries(properties)) {
+    if (!isPlainObject(rawSubSchema)) {
+      continue;
+    }
+    if (rawSubSchema.type !== "array") {
+      continue;
+    }
+    const value = input[key];
+    if (typeof value !== "string") {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(parsed)) {
+      continue;
+    }
+    coerced ??= { ...input };
+    coerced[key] = parsed;
+  }
+  return coerced ?? input;
+}
+
+/**
  * Validate a tool input object against the (optional) JSON-schema definition
  * declared on the tool entry. Returns `{ ok: true }` if the input is valid (or
  * if there is nothing actionable to validate); otherwise returns a list of
@@ -241,6 +301,10 @@ export function validateInputAgainstSchema(
     }
     if (typeof declaredType === "string" && SUPPORTED_TYPES.has(declaredType)) {
       const type = declaredType as SupportedType;
+      if (type === "array" && typeof value === "string") {
+        errors.push(`${key} must be an array: pass a JSON array, not a string`);
+        continue;
+      }
       if (!matchesType(value, type)) {
         errors.push(
           type === "boolean" && typeof value === "string"
