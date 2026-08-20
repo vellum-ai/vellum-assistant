@@ -1668,6 +1668,76 @@ describe("call-site model writes are validated against the winning route", () =>
     );
   });
 
+  test("a connection move with an unchanged provider kind still revalidates and returns 400", async () => {
+    // The winner's kind stays "openai" before and after, but the pinned
+    // connection moves onto the ChatGPT subscription, whose Codex endpoint
+    // cannot serve the call site's model.
+    getDb().delete(providerConnections).run();
+    createConnection(getDb(), {
+      name: "chatgpt-subscription",
+      provider: "chatgpt",
+      auth: { type: "oauth_subscription", credential: "chatgpt.oauth" },
+    });
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          op: { source: "user", provider: "openai", model: "gpt-5.5" },
+        },
+        callSites: {
+          memoryExtraction: { profile: "op", model: "gpt-5.4-nano" },
+        },
+      },
+    };
+    seedRawConfig();
+    await expect(
+      configPatchRoute.handler({
+        body: {
+          llm: {
+            profiles: { op: { provider_connection: "chatgpt-subscription" } },
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'Model "gpt-5.4-nano" is not served by the ChatGPT subscription (Codex models only). (llm.callSites.memoryExtraction.model)',
+    );
+  });
+
+  test("a route-preserving save with a pre-existing subscription-pinned model still succeeds", async () => {
+    getDb().delete(providerConnections).run();
+    createConnection(getDb(), {
+      name: "chatgpt-subscription",
+      provider: "chatgpt",
+      auth: { type: "oauth_subscription", credential: "chatgpt.oauth" },
+    });
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          op: {
+            source: "user",
+            provider: "openai",
+            model: "gpt-5.5",
+            provider_connection: "chatgpt-subscription",
+          },
+        },
+        callSites: {
+          memoryExtraction: { profile: "op", model: "gpt-5.4-nano" },
+          recall: { maxTokens: 128 },
+        },
+      },
+    };
+    seedRawConfig();
+    // Touches another call site only: the stranded combination pre-dates
+    // this write and its route does not move, so the save commits.
+    await configPatchRoute.handler({
+      body: { llm: { callSites: { recall: { maxTokens: 512 } } } },
+    });
+    const llm = loadRawConfig().llm as {
+      callSites?: Record<string, Record<string, unknown>>;
+    };
+    expect(llm.callSites?.recall?.maxTokens).toBe(512);
+    expect(llm.callSites?.memoryExtraction?.model).toBe("gpt-5.4-nano");
+  });
+
   test("a route-preserving save with a pre-existing stranded model still succeeds", async () => {
     rawConfigFixture = {
       llm: {

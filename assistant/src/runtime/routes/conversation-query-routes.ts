@@ -104,10 +104,7 @@ import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/v2/activation-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
-import {
-  resolveEntryProviderKind,
-  writableProfileProviderIssue,
-} from "../../providers/connection-resolution.js";
+import { writableProfileProviderIssue } from "../../providers/connection-resolution.js";
 import {
   ROUTING_IDENTITY_PROVIDERS,
   VALID_CONNECTION_PROVIDERS,
@@ -1424,17 +1421,21 @@ function assertRoutableIdentityEntries(
  * loud at write time instead.
  *
  * Scoped to what this write moves: a site's model is validated when the
- * write changes the model itself OR relocates the site's winning route
- * (a profile swap, an `activeProfile` change, a referenced profile's
- * provider edit, a `defaultProvider` change). A save touching neither the
- * model nor anything that moves the site's route never re-validates:
- * otherwise a stored entry gone stale would make all later settings saves
- * fail with no in-product repair path (see the provider-membership scoping
- * above). Fail-open on anything indeterminate (an unparseable `llm`
- * section whose parse error surfaces elsewhere, an entry-name winner whose
- * row cannot be read, or a route whose model set is not code-known:
- * endpoint-supplied providers, keyless ollama), matching
- * `preflightResolvedConfig`'s posture.
+ * write changes the model itself OR relocates the site's winning route:
+ * a profile swap, an `activeProfile` change, a referenced profile's
+ * provider or `provider_connection` edit, a `defaultProvider` change. The
+ * route fingerprint carries the winner's raw provider string (an entry
+ * name stays untranslated) and its pinned connection alongside the
+ * resolved kind, so a connection-identity move with an unchanged kind
+ * (api-key to oauth_subscription, one entry row to another) still
+ * revalidates. A save touching neither the model nor anything that moves
+ * the site's route never re-validates: otherwise a stored entry gone
+ * stale would make all later settings saves fail with no in-product
+ * repair path (see the provider-membership scoping above). Fail-open on
+ * anything indeterminate (an unparseable `llm` section whose parse error
+ * surfaces elsewhere, a winner whose connection row cannot be read, or a
+ * route whose model set is not code-known: endpoint-supplied providers,
+ * keyless ollama), matching `preflightResolvedConfig`'s posture.
  */
 function assertServableCallSiteModels(
   preWrite: Record<string, unknown>,
@@ -1467,43 +1468,89 @@ function assertServableCallSiteModels(
   const priorSites =
     readPlainObject(readPlainObject(preWrite.llm)?.callSites) ?? {};
 
-  // The winner's route, entry-translated: a vendor/identity provider is
-  // its own kind; an entry-name provider resolves to its row's
-  // dispatchable kind (null when the row is missing or unreadable).
-  const routeKind = (
+  interface RouteFingerprint {
+    /** The winner's raw provider value (entry names untranslated). */
+    provider: string;
+    /** The winner's pinned `provider_connection`, when it carries one. */
+    connection: string | null;
+    /**
+     * The kind the route is judged by: a pinned connection's (or an
+     * entry-name label's) row provider verbatim, so an identity row
+     * ("vellum"/"chatgpt") is judged by its identity's routing table
+     * rather than a dispatch-translated vendor. Null = indeterminate.
+     */
+    kind: string | null;
+  }
+  const routeFingerprint = (
     llm: z.infer<typeof LLMSchema>,
     site: LLMCallSite,
-    model: string,
-  ): string | null => {
+  ): RouteFingerprint => {
     const { config } = resolveCallSiteConfigWithProfile(site, llm);
-    return (VALID_CONNECTION_PROVIDERS as readonly string[]).includes(
-      config.provider,
-    )
-      ? config.provider
-      : resolveEntryProviderKind(config.provider, model);
+    const connection =
+      typeof config.provider_connection === "string" &&
+      config.provider_connection.length > 0
+        ? config.provider_connection
+        : null;
+    // A pinned connection's readable row wins (its provider column is the
+    // route's real identity); a missing or unreadable row falls back to the
+    // provider-derived kind rather than skipping, so a dangling pin (e.g. a
+    // BYOK `<provider>-personal` name with no row yet) keeps the vendor
+    // judgment instead of silencing validation.
+    let kind: string | null =
+      connection != null ? connectionRowKind(connection) : null;
+    if (kind == null) {
+      kind = (VALID_CONNECTION_PROVIDERS as readonly string[]).includes(
+        config.provider,
+      )
+        ? config.provider
+        : connectionRowKind(config.provider);
+    }
+    return { provider: config.provider, connection, kind };
   };
 
   for (const { site, model } of modelBearing) {
-    const kind = routeKind(post.data, site, model);
-    if (kind == null) {
+    const route = routeFingerprint(post.data, site);
+    if (route.kind == null) {
       continue;
     }
     const modelChanged = model !== readPlainObject(priorSites[site])?.model;
     if (!modelChanged) {
       // Model untouched: validate only when this write moved the site's
-      // route. An indeterminable prior route counts as unmoved, so a
-      // pre-write config that cannot be judged never blocks a repair save.
-      const priorKind = pre.success ? routeKind(pre.data, site, model) : null;
-      if (priorKind == null || priorKind === kind) {
+      // route. An indeterminable pre-write config counts as unmoved, so a
+      // config that cannot be judged never blocks a repair save.
+      if (!pre.success) {
+        continue;
+      }
+      const prior = routeFingerprint(pre.data, site);
+      const moved =
+        prior.provider !== route.provider ||
+        prior.connection !== route.connection ||
+        (prior.kind != null && prior.kind !== route.kind);
+      if (!moved) {
         continue;
       }
     }
-    const issue = ROUTING_IDENTITY_PROVIDERS.has(kind)
-      ? routingIdentityModelIssue(kind, model)
-      : catalogServabilityIssue(kind, model);
+    const issue = ROUTING_IDENTITY_PROVIDERS.has(route.kind)
+      ? routingIdentityModelIssue(route.kind, model)
+      : catalogServabilityIssue(route.kind, model);
     if (issue) {
       throw new BadRequestError(`${issue} (llm.callSites.${site}.model)`);
     }
+  }
+}
+
+/**
+ * A connection row's provider column verbatim, identities included, or
+ * null when the name matches no readable row. The raw column (not the
+ * dispatch-translated kind) is what servability must judge: a "chatgpt"
+ * row serves only Codex models and a "vellum" row only managed-routable
+ * ones, regardless of the vendor dispatch would translate them to.
+ */
+function connectionRowKind(name: string): string | null {
+  try {
+    return getConnection(getDb(), name)?.provider ?? null;
+  } catch {
+    return null;
   }
 }
 
