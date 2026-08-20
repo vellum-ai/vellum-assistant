@@ -468,10 +468,18 @@ export function ActiveChatView() {
   const [summarizePending, setSummarizePending] = useState(false);
   // A pending target only counts while the viewer still qualifies, so a flag
   // sync that revokes the gate mid-dialog closes it and takes its confirm
-  // button with it rather than leaving one summarize reachable.
+  // button with it rather than leaving one summarize reachable. The derived
+  // value closes the dialog in the same render the gate drops; the effect
+  // below discards the target itself, so restoring the flag cannot resurrect
+  // a confirmation the viewer never re-opened.
   const activeSummarizeMessageId = canUseInternalActions
     ? pendingSummarizeMessageId
     : null;
+  useEffect(() => {
+    if (!canUseInternalActions) {
+      setPendingSummarizeMessageId(null);
+    }
+  }, [canUseInternalActions]);
   const handleSummarizeUpToHere = useCallback((messageId: string) => {
     setPendingSummarizeMessageId(messageId);
   }, []);
