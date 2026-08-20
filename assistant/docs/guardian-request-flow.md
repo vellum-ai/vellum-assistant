@@ -142,6 +142,27 @@ at the wrong level.
 `routes/guardian-approval-interception.ts` + the approval prompt watcher in
 `background-dispatch.ts` predate this pipeline: they deliver a guardian's own
 tool-approval prompt in-channel mid-turn and resolve `apr:` taps against the
-in-memory confirmation directly. They remain load-bearing for that flow, and
-the reply router runs first for everything the pipeline owns. Converge new
-work on the pipeline; do not extend the legacy interception.
+in-memory confirmation directly. The reply router runs first for everything
+the pipeline owns. Converge new work on the pipeline; do not extend the legacy
+interception.
+
+**The watcher is a fallback, not the guardian's prompt surface.** A guardian
+clears the sensitive-tool gate (`sensitiveToolApproval: "self"`) but the
+risk/threshold policy still parks a prompt for them. That prompt rides the
+guardian card like every other gated call, so it reaches the guardian rather
+than the chat the turn is running in, which on a shared channel is a room.
+The watcher stands down wherever the card carries it.
+
+`guardianPromptDeliveredAsCard` (`runtime/confirmation-request-guardian-bridge.ts`)
+is the one rule deciding which surface a guardian prompt takes, read by both
+the bridge and the watcher. It is evaluated up front rather than by polling
+for a delivery row, because the two sides must not race to both deliver or
+both decline. Two turns still keep the watcher, because a card cannot reach
+them: `vellum`, where the client renders the confirmation itself, and any
+channel that is not notification-deliverable, which has no destination
+resolver and no guardian endpoint to address. Adding a destination resolver
+for such a channel therefore also retires the watcher for it, with no change
+here.
+
+This is separate from where the rail sends _other_ actors' cards, which is
+its own problem.
