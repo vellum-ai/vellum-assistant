@@ -6,6 +6,7 @@ import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
 const moveByMock = mock((_dx: number, _dy: number) => undefined);
 const setInteractiveMock = mock((_interactive: boolean) => undefined);
 const activateMock = mock(() => undefined);
+const toggleWatchMock = mock(() => undefined);
 
 const STATE: CompanionSurfaceState = {
   growth: "right",
@@ -21,6 +22,7 @@ const STATE: CompanionSurfaceState = {
 const resetState = () => {
   STATE.working = false;
   STATE.call = null;
+  delete STATE.watching;
 };
 
 mock.module("@/runtime/companion-surface", () => ({
@@ -30,6 +32,7 @@ mock.module("@/runtime/companion-surface", () => ({
   moveCompanionBy: moveByMock,
   activateCompanionApp: activateMock,
   startCompanionVoice: () => undefined,
+  toggleCompanionWatch: toggleWatchMock,
   submitCompanionMessage: () => undefined,
   setCompanionComposing: () => undefined,
   setCompanionContext: () => undefined,
@@ -47,6 +50,7 @@ afterEach(() => {
   moveByMock.mockClear();
   setInteractiveMock.mockClear();
   activateMock.mockClear();
+  toggleWatchMock.mockClear();
 });
 
 /** The canvas the page fills, which is where the pointer handlers live. */
@@ -238,5 +242,104 @@ describe("the working ring on the page", () => {
     await pinPill(container);
 
     expect(container.querySelector(".companion-working-ring")).toBeNull();
+  });
+});
+
+/**
+ * The session is not this window's: main holds it and pushes it down with the
+ * rest of the state, and the press goes back out the same way. What this page
+ * owns is passing both halves through, which are two props rather than one
+ * because the phase a running session opens is outranked by a half-typed
+ * sentence and by a call, and the indicator is not.
+ */
+describe("the watch session on the companion surface", () => {
+  const watchOf = (container: HTMLElement): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Watch"]',
+    );
+    if (!found) {
+      throw new Error("Expected Watch to render");
+    }
+    return found;
+  };
+
+  test("hands the press back to the window holding the session", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinPill(container);
+    const canvas = canvasOf(container);
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+
+    fireEvent.click(watchOf(container));
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("holds the pill open while a session runs, hand or no hand", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+
+    await waitFor(() => {
+      expect(container.querySelector("[inert]")).toBeNull();
+    });
+  });
+
+  test("draws the session as running", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+  });
+
+  /**
+   * Absence is not a session, so a state pushed by a main process that tracks
+   * none at all reads as nothing running. The alternative is a capture
+   * indicator over a machine nobody is reading.
+   */
+  test("reads a state that says nothing about it as no session", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinPill(container);
+    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
+
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("false");
+    });
+  });
+
+  /**
+   * The stop control has to reach as far as the indicator does, and the
+   * indicator outlives the phase: a session still running under a half-typed
+   * sentence that the user cannot end is worse than no indicator at all.
+   */
+  test("keeps a way out of the session while the composer is open", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinPill(container);
+    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
+    fireEvent.click(
+      await waitFor(() => {
+        const type = container.querySelector<HTMLButtonElement>(
+          'button[aria-label="Type"]',
+        );
+        if (!type) {
+          throw new Error("Expected Type to render");
+        }
+        return type;
+      }),
+    );
+
+    const stop = await waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Stop watching"]',
+      );
+      if (!found) {
+        throw new Error("Expected the stop control to render");
+      }
+      return found;
+    });
+    fireEvent.click(stop);
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
   });
 });

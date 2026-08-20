@@ -13,6 +13,7 @@ import {
   startCompanionVoice,
   submitCompanionMessage,
   subscribeCompanionState,
+  toggleCompanionWatch,
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
 import type {
@@ -84,6 +85,10 @@ export function CompanionSurfacePage() {
   // draws as its working ring, so the assistant being busy is legible without
   // opening the card or reading a word of it.
   const [working, setWorking] = useState(false);
+  // Whether a session is reading the screen, from the window that owns it.
+  // Held by main and pushed here with everything else, so this window can
+  // reload mid-session without the indicator that says so going dark.
+  const [watching, setWatching] = useState(false);
   const [hovered, setHovered] = useState(false);
   // Whether the composer is open. Local to this page rather than pushed from
   // main, because nothing outside this window opens or closes it: main is told
@@ -125,6 +130,10 @@ export function CompanionSurfacePage() {
       setTurns(state.turns);
       setAssistantName(state.assistantName);
       setWorking(state.working);
+      // Absence is not a session: every state that is not a positive answer
+      // reads as nothing running, because the alternative is a capture
+      // indicator over a machine nobody is reading.
+      setWatching(state.watching === true);
     };
     const unsubscribe = subscribeCompanionState(apply);
     // The route chunk loads lazily after the window is created, so a state
@@ -266,13 +275,21 @@ export function CompanionSurfacePage() {
   // The composer sits above even that, because it is the one state holding
   // something of the user's. A call starting from the app while a sentence is
   // half-typed must not collapse the card and take the sentence with it.
+  //
+  // A watch session holds the pill open for the same reason the call does, and
+  // ranks below both: they are things the user is in the middle of, where this
+  // one runs beside whatever they are doing. Being outranked costs the session
+  // nothing, since the phase is only what the pill is drawing and the indicator
+  // reads `watching` instead.
   const phase: CompanionSurfacePhase = typing
     ? "typing"
     : call !== null
       ? "call"
-      : hovered
-        ? "hover"
-        : "resting";
+      : watching
+        ? "watching"
+        : hovered
+          ? "hover"
+          : "resting";
 
   // The avatar's own colour, which arrives with the session. It is `""` until
   // the avatar resolves and the contract makes no promise it parses, so
@@ -348,6 +365,11 @@ export function CompanionSurfacePage() {
           // assistant is busy, and it is busy on someone else's conversation just
           // as much as on this one.
           working={working}
+          // Its own prop rather than something the surface derives from the
+          // phase. The phase above is outranked by `typing` and `call`, and the
+          // indicator and the control that ends the session are not: they
+          // belong to the session, not to whatever the pill is drawing over it.
+          watching={watching}
           rootRef={pillRef}
           onSurfaceMouseDown={(event) => {
             dragRef.current = { x: event.screenX, y: event.screenY };
@@ -367,6 +389,10 @@ export function CompanionSurfacePage() {
           // What comes back is `call`, once that renderer has a session to
           // report.
           onTalk={startCompanionVoice}
+          // One press for both edges, and it leaves this window the way Talk
+          // does: the session lives in the renderer holding the chat layout,
+          // and this page only asks for it. What comes back is `watching`.
+          onWatch={toggleCompanionWatch}
           // Type opens the composer here rather than leaving this window, since
           // the field it opens is on this surface. What leaves is the message.
           onType={() => {

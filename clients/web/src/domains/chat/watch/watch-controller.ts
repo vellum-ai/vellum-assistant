@@ -1,0 +1,753 @@
+/**
+ * The client half of a watch session: the microphone, the socket, and the one
+ * bit of state that says whether either is open.
+ *
+ * A watch session is the user narrating a task while they work, with the
+ * daemon reading their screen around what they say
+ * (`assistant/src/watch/watch-session-manager.ts`). The runtime owns the
+ * cadence, the observations, and the timeline; this module owns nothing but
+ * the audio and the transport that carries it.
+ *
+ * **One session, held in the module rather than in a component.** The command
+ * that starts a session arrives from the companion surface, which is a
+ * different renderer with no chat layout in it, and the session has to outlive
+ * every route the user walks through while it runs. A slot rather than a set,
+ * the way `watch-session-manager.ts` holds one: a second session would compete
+ * for the same microphone and interleave two unrelated timelines.
+ *
+ * **The microphone has one owner, in both directions.** A live-voice call is
+ * the other thing on this client that opens it. A toggle that lands while a
+ * call is running is refused rather than queued, and a call that starts while
+ * a session is running or pending ends that session. The call wins because it
+ * is interactive where watching is ambient, which is the precedence the
+ * companion surface already draws: its `call` phase outranks `watching`.
+ *
+ * **An attempt is a session for the purpose of stopping it.** A start is
+ * registered in the slot before it resolves the version gate, so the ordinary
+ * stop edge reaches a press the user has changed their mind about. Everything
+ * that ends a session ends an attempt the same way and just as synchronously.
+ *
+ * **One session at a time, on both sides.** The runtime holds its slot until
+ * the provider says `closed`, which is the end of the drain below, so a press
+ * that lands during a drain waits for that handoff rather than racing it into
+ * a busy refusal the user would experience as nothing happening.
+ *
+ * **Stopping is two moments, not one.** `{"type":"stop"}` asks the runtime to
+ * flush rather than to end: the daemon holds the session in `stopping` so the
+ * provider's late finals still reach the timeline, and says `closed` when they
+ * have. So a deliberate stop ends everything the user can perceive at once and
+ * lets only the socket outlive it, briefly and boundedly. Every other ending
+ * closes both together, because none of them owes anyone a flush.
+ *
+ * **A socket is not a session.** The gateway accepts the downstream upgrade
+ * before it dials the runtime, so a local `open` proves only that a proxy
+ * answered. The runtime's `ready` frame is the first word that a session
+ * exists, and it is what starts both the microphone and the `watching` flag
+ * the companion draws its capture indicator from. A start that never reaches
+ * `ready` is a failed start rather than a session that stopped: it tears down
+ * and the flag never moves.
+ *
+ * **The session belongs to one assistant.** It is started against the active
+ * assistant, gated on that assistant being new enough to serve the route, and
+ * ended the moment it stops being the active one. The alternative is narration
+ * still flowing to the previous assistant's socket while the surface draws the
+ * new one's name beside a flag that reads as the new one's.
+ *
+ * Transport is the dictation stream's, through `buildSelfHostedGatewayWsUrl`:
+ * straight to the user's gateway ingress with the actor edge JWT in `?token=`,
+ * since browser WebSockets cannot set an `Authorization` header. See
+ * `voice/dictation-stream.ts` for the whole rule set, including the local
+ * `/assistant/__gateway/<port>` bypass. Off a self-hosted ingress there is no
+ * socket to open and the toggle is a no-op.
+ */
+
+import { create } from "zustand";
+
+import {
+  buildSelfHostedGatewayWsUrl,
+  isPairedGatewayIngress,
+} from "@/domains/chat/voice/live-voice/connection";
+import {
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  LiveVoiceAudioCapture,
+  isSupported as isPcmCaptureSupported,
+  type LiveVoiceAudioCaptureOptions,
+  type LiveVoiceCaptureResult,
+} from "@/domains/chat/voice/live-voice/pcm-capture";
+import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
+import { resolveSupportsWatchSessions } from "@/lib/backwards-compat/watch-sessions";
+import {
+  getSelfHostedActorToken,
+  getSelfHostedIngressUrl,
+} from "@/lib/self-hosted/connection";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+
+/**
+ * Whether a watch session is running, for anything that draws it.
+ *
+ * A store rather than a plain flag because the companion mirror publishes this
+ * to the macOS surface and has to be told when it moves, and because the
+ * session is started from outside React entirely. Read it with `getState()`
+ * from non-React code, the way the mirror does.
+ */
+interface WatchState {
+  watching: boolean;
+}
+
+export const useWatchStore = create<WatchState>(() => ({ watching: false }));
+
+/**
+ * How long a session may sit pending before it is given up on.
+ *
+ * A pending session is one whose socket the gateway accepted without the
+ * runtime having answered `ready`. The gateway dials its upstream only after
+ * accepting downstream (`gateway/src/http/routes/runtime-audio-stream.ts`), so
+ * the local open proves a proxy is listening and nothing more; a runtime that
+ * is slow, wedged, or gone leaves the socket open and silent.
+ *
+ * Generous against a real handshake, which is a loopback or LAN round trip
+ * plus resolving a transcriber, and short enough that a user who pressed Watch
+ * is not left waiting on an answer that is not coming. The gateway's own
+ * pending-frame cap usually closes such a socket first; this is the backstop
+ * for a stall that never closes anything.
+ */
+const READY_TIMEOUT_MS = 10_000;
+
+/**
+ * How long the socket may stay open after the user stops, so the runtime can
+ * flush what they just said.
+ *
+ * `{"type":"stop"}` does not end a session on the daemon: it moves it to
+ * `stopping` and asks the transcriber to flush, and the provider's late `final`
+ * events land on the timeline for as long as that state holds
+ * (`assistant/src/runtime/routes/watch-routes.ts`). The session ends when the
+ * provider says `closed`, which the daemon relays as its own `closed` frame.
+ * Closing the socket the moment stop is sent runs the daemon's close handler
+ * instead, which tears the session down and takes the flush with it. A long
+ * session loses its last phrase that way and a short one can lose everything
+ * the user said.
+ *
+ * So the socket waits for that frame, and this bounds the wait. A provider
+ * flush is well under a second; a socket held open past this is one whose
+ * answer is not coming, and a session that will not end is worse than a lost
+ * tail.
+ */
+const STOP_DRAIN_TIMEOUT_MS = 3_000;
+
+type Timer = ReturnType<typeof setTimeout> | null;
+
+/** Cancel a timer if it is armed. Returns the null to assign back to it. */
+function cancel(timer: Timer): null {
+  if (timer !== null) {
+    clearTimeout(timer);
+  }
+  return null;
+}
+
+/** The capture surface this module uses, so tests can stand in for the mic. */
+interface WatchCapture {
+  start(): Promise<LiveVoiceCaptureResult>;
+  shutdown(): void;
+  flush?(): void;
+}
+
+/** Injection seams for tests. */
+export interface WatchControllerOptions {
+  webSocketFactory?: (url: string) => WebSocket;
+  captureFactory?: (options: LiveVoiceAudioCaptureOptions) => WatchCapture;
+  /** Overrides {@link READY_TIMEOUT_MS}, so a test need not wait it out. */
+  readyTimeoutMs?: number;
+  /** Overrides {@link STOP_DRAIN_TIMEOUT_MS}, for the same reason. */
+  drainTimeoutMs?: number;
+}
+
+/**
+ * The running session, from the outside: one way to end it.
+ *
+ * What that costs is not symmetric. Everything the user can perceive ends
+ * synchronously, and the socket may outlive the call briefly while the runtime
+ * flushes. See the stop edge in `openSession`.
+ */
+interface WatchSession {
+  stop(): void;
+}
+
+let session: WatchSession | null = null;
+
+/**
+ * Resolves when a session that is still draining has let go of the runtime's
+ * slot, or `null` when none is.
+ *
+ * The runtime holds one watch session at a time and keeps its slot until the
+ * provider says `closed`, which is the same moment the drain here ends. A
+ * start that raced ahead of that would be refused as busy by
+ * `WatchSessionManager.start`, and the user would have pressed Watch and got
+ * nothing, with nothing to explain it. So a start waits for the handoff rather
+ * than being refused, which puts the wait somewhere the user can still cancel
+ * instead of putting the silence somewhere else.
+ */
+let drainRelease: Promise<void> | null = null;
+
+/**
+ * Build the watch stream WebSocket URL:
+ *
+ *   ws(s)://<ingressHost>/v1/watch/stream?token=…&mimeType=audio/pcm&sampleRate=16000
+ *
+ * The same shape as `buildSttStreamWsUrl`, and through the same helper, so the
+ * two audio streams cannot drift into two ideas of how to reach the gateway.
+ * Exported for unit tests.
+ */
+export function buildWatchStreamWsUrl({
+  ingressUrl,
+  token,
+}: {
+  ingressUrl: string;
+  token: string;
+}): string {
+  return buildSelfHostedGatewayWsUrl({
+    ingressUrl,
+    routePath: "/v1/watch/stream",
+    token,
+    params: {
+      mimeType: LIVE_VOICE_AUDIO_FORMAT.mimeType,
+      sampleRate: String(LIVE_VOICE_AUDIO_FORMAT.sampleRate),
+    },
+  });
+}
+
+/**
+ * Open a session and register it as the running one: the socket first, then
+ * the flag and the microphone once the runtime says the session exists.
+ *
+ * Registers before wiring the socket's listeners so a transport that fails on
+ * the spot tears down a session this module already knows about, rather than
+ * one that is registered a moment later and can no longer be stopped. It is
+ * registered while still pending, which is what keeps the stop edge working
+ * before `ready`.
+ *
+ * Does nothing when this environment has nothing to open: no self-hosted
+ * ingress or actor token, no AudioWorklet, a paired gateway whose proxy is
+ * HTTP-only. Every one of those is a normal deployment rather than a failure,
+ * so the toggle leaves the surface where it was rather than reporting an error
+ * the user cannot act on.
+ */
+function openSession(
+  ownerAssistantId: string,
+  options: WatchControllerOptions,
+): void {
+  const ingressUrl = getSelfHostedIngressUrl();
+  const token = getSelfHostedActorToken();
+  if (!ingressUrl || !token || !isPcmCaptureSupported()) {
+    console.info(
+      "watch-controller: skipping (no self-hosted ingress/token or no AudioWorklet)",
+    );
+    return;
+  }
+  if (isPairedGatewayIngress(ingressUrl)) {
+    console.info(
+      "watch-controller: skipping (watch sessions aren't available for paired assistants yet)",
+    );
+    return;
+  }
+
+  const webSocketFactory =
+    options.webSocketFactory ?? ((url: string) => new WebSocket(url));
+
+  let ws: WebSocket;
+  try {
+    ws = webSocketFactory(buildWatchStreamWsUrl({ ingressUrl, token }));
+  } catch {
+    return;
+  }
+
+  /**
+   * `live` while the session is the user's, `draining` while only the socket
+   * is still finishing, `done` when there is nothing left.
+   *
+   * Three states rather than a boolean because a deliberate stop splits into
+   * two moments. Everything the user can perceive ends at once, and the socket
+   * outlives it just long enough for the runtime to flush what they said.
+   */
+  let phase: "live" | "draining" | "done" = "live";
+  // False until the runtime answers `ready`. A session that never got that far
+  // has captured nothing and holds nothing on the runtime, which is what
+  // decides whether stopping owes a flush.
+  let accepted = false;
+  // Set while this session is the one holding {@link drainRelease}, so the
+  // next start can be let through once the runtime has let go.
+  let releaseDrain: (() => void) | null = null;
+  let handoffTimer: Timer = null;
+  let handle: WatchSession | null = null;
+  /**
+   * Store subscriptions that live exactly as long as this session does.
+   *
+   * One list rather than a named handle each, because teardown treats them
+   * identically and the next one is then free. A leaked subscription is
+   * invisible in behavior, since teardown is idempotent, so nothing would
+   * point at a handle that got added here and not released below.
+   */
+  const subscriptions: (() => void)[] = [];
+  // Null until the runtime answers `ready`, which is the moment the session
+  // exists. Everything before that is a socket.
+  let readyTimer: Timer = null;
+  // Set only while the socket is draining after a deliberate stop.
+  let drainTimer: Timer = null;
+
+  const capture = (
+    options.captureFactory ??
+    ((captureOptions: LiveVoiceAudioCaptureOptions) =>
+      new LiveVoiceAudioCapture(captureOptions))
+  )({
+    onChunk: (buf) => {
+      if (phase === "live" && ws.readyState === WebSocket.OPEN) {
+        ws.send(buf);
+      }
+    },
+  });
+
+  /**
+   * Give up everything the user can perceive: the microphone, the flag the
+   * capture indicator is drawn from, and this module's claim on the session
+   * slot. Exactly once.
+   *
+   * Split out from closing the socket because the two do not always happen
+   * together. On a deliberate stop this runs immediately and the socket stays
+   * open a moment longer to let the runtime flush; every other ending does
+   * both at once. Callers that stop a session inside one synchronous stretch,
+   * such as the hard-logout path, depend on this half taking effect before
+   * they return.
+   */
+  let released = false;
+  const releaseLocally = (): void => {
+    if (released) {
+      return;
+    }
+    released = true;
+    for (const unsubscribe of subscriptions.splice(0)) {
+      unsubscribe();
+    }
+    readyTimer = cancel(readyTimer);
+    capture.shutdown();
+    if (session !== null && session === handle) {
+      session = null;
+      // Only when there is a claim to give up. A session torn down while still
+      // pending never made one, and writing the flag anyway would wake every
+      // subscriber with a change that did not happen, which on this bridge is
+      // an IPC message and a repaint of a floating window.
+      if (useWatchStore.getState().watching) {
+        useWatchStore.setState({ watching: false });
+      }
+    }
+  };
+
+  /**
+   * End the session for good: release the local half if it is still held, and
+   * close the socket. Idempotent.
+   *
+   * Every ending that is not the user's own stop lands here directly, and the
+   * user's stop lands here once the runtime has answered or the drain has run
+   * out of patience. None of those endings owes anyone a flush: a socket that
+   * dropped, a call taking the microphone, a window being destroyed, and a
+   * runtime reporting an error are all already over.
+   */
+  const finish = (): void => {
+    if (phase === "done") {
+      return;
+    }
+    phase = "done";
+    drainTimer = cancel(drainTimer);
+    releaseLocally();
+    if (
+      ws.readyState === WebSocket.OPEN ||
+      ws.readyState === WebSocket.CONNECTING
+    ) {
+      try {
+        ws.close(1000);
+      } catch {
+        // Already closing, so there is nothing left to close.
+      }
+    }
+  };
+
+  /**
+   * Hold the next start back until the runtime has let go of its session slot.
+   *
+   * Taken whenever the runtime *may* hold it, which starts earlier than
+   * `ready`: `WatchStreamSession.start()` claims the manager before it sends
+   * that frame, so a session stopped in between still has a runtime session
+   * behind it. Releasing the claim there let a restart open a socket the
+   * runtime then refused as busy, which the user experienced as pressing Watch
+   * and nothing happening.
+   */
+  const claimHandoff = (): void => {
+    if (releaseDrain !== null) {
+      return;
+    }
+    drainRelease = new Promise<void>((resolve) => {
+      releaseDrain = resolve;
+    });
+    // **Two honest signals, and this socket closing is not one of them.**
+    //
+    // The runtime's `closed` frame is one: it is sent after `manager.stop()`,
+    // so it is the runtime saying the slot is free. The timer below is the
+    // other, as a bound rather than as evidence.
+    //
+    // A downstream close is not, because there is a proxy in between. The
+    // gateway's close handler calls `upstream.close()` and returns
+    // (`runtime-audio-stream.ts`); it waits for neither the upstream handshake
+    // nor the runtime's `handleClose`. So this socket reporting closed says
+    // the browser and the gateway are done, and says nothing about whether the
+    // runtime has released anything.
+    //
+    // A session stopped before `ready` therefore has only the timer: it is
+    // closed without a stop frame, so no `closed` frame is coming. That makes
+    // a restart straight after such a stop wait out the bound. Deliberate, and
+    // the smaller cost: the alternative is a restart that reaches a runtime
+    // still holding its slot and is refused, which the user reads as the
+    // button not working.
+    handoffTimer = setTimeout(
+      releaseHandoff,
+      options.drainTimeoutMs ?? STOP_DRAIN_TIMEOUT_MS,
+    );
+  };
+
+  /** The runtime has let go, or has run out of time to. Idempotent. */
+  function releaseHandoff(): void {
+    handoffTimer = cancel(handoffTimer);
+    if (releaseDrain === null) {
+      return;
+    }
+    const release = releaseDrain;
+    releaseDrain = null;
+    drainRelease = null;
+    release();
+  }
+
+  handle = {
+    /**
+     * The user is done narrating.
+     *
+     * **Two halves, and only one of them waits.** Everything the user can
+     * perceive ends now: the flag goes down, the microphone closes, the
+     * subscriptions go, and the slot is free for the next press. What waits is
+     * the socket, because `{"type":"stop"}` asks the runtime to flush rather
+     * than to end, and the last thing the user said is still inside the
+     * provider when the frame goes out. See {@link STOP_DRAIN_TIMEOUT_MS}.
+     */
+    stop: () => {
+      if (phase !== "live") {
+        return;
+      }
+
+      // **Two different questions, and they have different answers here.**
+      //
+      // Whether the socket owes a flush is `accepted`: before `ready` the
+      // runtime is still `initializing`, where its `handleStop` ignores the
+      // frame outright, so draining would buy nothing and cost the full wait.
+      //
+      // Whether the runtime may still hold its session slot starts earlier
+      // than that. `WatchStreamSession.start()` claims the manager before it
+      // sends `ready`, so a session stopped in between has a runtime session
+      // behind it that a restart would collide with. The claim goes on the
+      // socket being open, and only the flush goes on `accepted`.
+      const socketOpen = ws.readyState === WebSocket.OPEN;
+      if (socketOpen) {
+        claimHandoff();
+      }
+
+      let draining = false;
+      if (accepted && socketOpen) {
+        // The last few milliseconds still sit in the capture's batch
+        // accumulator; drain them synchronously so they go out ahead of the
+        // stop frame.
+        capture.flush?.();
+        try {
+          ws.send(JSON.stringify({ type: "stop" }));
+          draining = true;
+        } catch {
+          // The socket raced shut, so there is nothing to flush and nothing to
+          // wait for.
+        }
+      }
+
+      // Before the wait, never after it. Callers that stop inside one
+      // synchronous stretch, and the surface that must stop drawing a capture
+      // the moment it is asked to, both depend on this having happened by the
+      // time this call returns.
+      releaseLocally();
+
+      if (!draining) {
+        finish();
+        return;
+      }
+      phase = "draining";
+      drainTimer = setTimeout(() => {
+        console.warn(
+          "watch-controller: no closed frame after stop, ending without the flush",
+        );
+        finish();
+      }, options.drainTimeoutMs ?? STOP_DRAIN_TIMEOUT_MS);
+    },
+  };
+  // Registered while still pending, so the stop edge works before `ready`:
+  // a second press cancels the attempt rather than stranding it. The flag is
+  // deliberately not set here.
+  session = handle;
+  // A gateway that accepts and then never hears from the runtime would
+  // otherwise leave the session pending for as long as the page lives.
+  readyTimer = setTimeout(() => {
+    console.warn(
+      "watch-controller: no ready frame from the runtime, giving up on the session",
+    );
+    finish();
+  }, options.readyTimeoutMs ?? READY_TIMEOUT_MS);
+
+  /**
+   * A call takes the microphone, and this session gives it up.
+   *
+   * The refusal in `toggleWatch` covers one direction only: Watch pressed
+   * during a call. The other direction has its own doors, and they do not
+   * consult this module. The companion surface's Talk and the composer's voice
+   * button both start a session without asking whether one is watching, and
+   * two controllers holding the same microphone stream the same audio into two
+   * unrelated sessions.
+   *
+   * Ending here rather than teaching every live-voice entry point to refuse,
+   * for two reasons. A call is interactive and immediate where a watch session
+   * is ambient, so the call is the one that should win. And the surface already
+   * says so: its `call` phase outranks `watching`, so this is the controller
+   * agreeing with what the user is already being shown, rather than a rule
+   * that has to be repeated at each new door somebody adds.
+   */
+  subscriptions.push(
+    useLiveVoiceStore.subscribe((state) => {
+      if (isLiveVoiceSessionActive(state.state)) {
+        console.info(
+          "watch-controller: ending the session, a call has taken the microphone",
+        );
+        finish();
+      }
+    }),
+  );
+
+  /**
+   * The session belongs to the assistant it was started for, and ends when
+   * that stops being the active one.
+   *
+   * Switching assistants in Settings leaves this layout mounted and rewrites
+   * the active identity and ingress in place, so nothing else would notice: the
+   * socket stays open to the previous assistant while the companion draws the
+   * new assistant's name beside a `watching` flag that now reads as the new
+   * assistant's. The user would believe they are recording for the assistant
+   * they just switched to while the narration goes somewhere else, which is
+   * worse than a stale indicator.
+   *
+   * A move to no active assistant counts. It is ambiguous rather than
+   * benign, and the safe reading of ambiguity here is to stop capturing; the
+   * next press starts a session against whatever is active then.
+   */
+  subscriptions.push(
+    useResolvedAssistantsStore.subscribe((state) => {
+      if (state.activeAssistantId !== ownerAssistantId) {
+        console.info(
+          "watch-controller: ending the session, its assistant is no longer active",
+        );
+        finish();
+      }
+    }),
+  );
+
+  /**
+   * The runtime accepted the session, which is the first news that one exists.
+   *
+   * Both the flag and the microphone wait for this rather than for the local
+   * open. The flag, because the companion draws a capture indicator from it and
+   * the local open proves only that a proxy answered. The microphone, because
+   * opening it before the session exists would put the pair the other way
+   * round: audio flowing with nothing on screen saying so.
+   */
+  const onReady = (): void => {
+    accepted = true;
+    readyTimer = cancel(readyTimer);
+    useWatchStore.setState({ watching: true });
+    void capture.start().then((result) => {
+      // Mic denied, or a device another app is holding. There is nothing to
+      // narrate over, so the session ends rather than sitting open on silence.
+      if (!result.ok) {
+        console.warn("watch-controller: PCM capture failed", result.error);
+        finish();
+      }
+    });
+  };
+
+  ws.addEventListener("message", (event) => {
+    // Frames still matter while draining: the `closed` one is exactly what the
+    // drain is waiting for.
+    if (phase === "done" || typeof event.data !== "string") {
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    if (!parsed || typeof parsed !== "object") {
+      return;
+    }
+    const message = parsed as { type?: string; message?: string };
+    if (message.type === "ready") {
+      // Only ever meaningful on a live session. A `ready` arriving while the
+      // socket drains would be reopening a microphone the user just closed.
+      if (phase === "live") {
+        onReady();
+      }
+      return;
+    }
+    if (message.type === "error") {
+      console.warn(
+        "watch-controller: server error event",
+        message.message ?? event.data,
+      );
+      finish();
+      return;
+    }
+    if (message.type === "closed") {
+      // The runtime is done, which on the drain path means the flush landed.
+      // It sends this frame after releasing its session slot, so it is also
+      // the earliest honest moment to let a waiting start through.
+      releaseHandoff();
+      finish();
+    }
+  });
+
+  // The socket is gone, so the session is over. Deliberately does not release
+  // the handoff: see `claimHandoff` for why a downstream close is not evidence
+  // that the runtime has let go of its session slot.
+  ws.addEventListener("close", finish);
+  ws.addEventListener("error", finish);
+}
+
+/**
+ * Turn a watch session on, or off if one is already running.
+ *
+ * One entry point for both edges, the way the `toggleWatch` command is: the
+ * surface draws a single control and this is the side that knows which edge a
+ * press is.
+ *
+ * **Stopping never awaits.** The stop edge is taken before anything
+ * asynchronous, so a caller that has to stop a session inside one synchronous
+ * stretch can, and so a press cannot be lost to a resolution that outlives the
+ * page. Only the start edge resolves anything.
+ *
+ * A live-voice call refuses the start outright. Both sessions are driven by
+ * the one microphone the machine has, and the call is the one the user is
+ * already in, so the press is spent rather than queued behind it.
+ *
+ * An assistant too old to serve `/v1/watch/stream` refuses it too, before any
+ * state moves. Without that the press would flip `watching` and then fail the
+ * handshake, lighting the surface's capture ring for a session that never
+ * existed.
+ *
+ * Returns a promise so tests can await the start edge. Callers press and walk
+ * away; nothing downstream reads the result.
+ */
+export async function toggleWatch(
+  options: WatchControllerOptions = {},
+): Promise<void> {
+  if (session !== null) {
+    session.stop();
+    return;
+  }
+  if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
+    console.info("watch-controller: refusing to start while a call is running");
+    return;
+  }
+  const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
+  // Nothing to start against, and nothing to bind the session to. The gate
+  // below answers `false` for a null owner anyway; taking it here is what lets
+  // everything after this line hold a real assistant id.
+  if (assistantId === null) {
+    console.info("watch-controller: skipping (no assistant is active)");
+    return;
+  }
+  /**
+   * The attempt itself, registered as the running session before anything is
+   * awaited.
+   *
+   * The version resolution below can wait seconds on a cold identity fetch,
+   * and a press that lands in that window is the user changing their mind. It
+   * has to reach something. Registering the attempt is what gives it a `stop`
+   * to reach: a second press, a logout, or an unmount all take the ordinary
+   * stop edge, synchronously, and the resolution then finds itself cancelled
+   * and opens nothing. Without it the press would find no session, do nothing,
+   * and the start would go on to open the session the user just cancelled.
+   */
+  let cancelled = false;
+  const attempt: WatchSession = {
+    stop: () => {
+      cancelled = true;
+      if (session === attempt) {
+        session = null;
+      }
+    },
+  };
+  session = attempt;
+
+  // Resolve the version rather than reading the gate's conservative
+  // unknown-is-false, which a press landing before the identity fetch would
+  // otherwise hit and refuse an assistant that does support watching. See
+  // `docs/BACKWARDS_COMPAT.md` on gated write paths.
+  const supported = await resolveSupportsWatchSessions(assistantId);
+  if (cancelled) {
+    return;
+  }
+  // A previous session may still be draining, and the runtime holds its one
+  // slot until that finishes. Starting now would race it and be refused as
+  // busy, which the user would experience as pressing Watch and nothing
+  // happening. Waiting is bounded by the drain's own timer, and the attempt
+  // stays registered across it, so the press remains cancellable throughout.
+  if (drainRelease !== null) {
+    console.info(
+      "watch-controller: waiting for the previous session to release the runtime",
+    );
+    await drainRelease;
+    if (cancelled) {
+      return;
+    }
+  }
+  // Nothing else can have replaced the slot: every other entry point goes
+  // through the registered `stop` above, which sets `cancelled`. Released here
+  // so `openSession` can register the real session in it.
+  session = null;
+  if (!supported) {
+    console.info(
+      "watch-controller: skipping (this assistant has no watch stream to open)",
+    );
+    return;
+  }
+  // Re-read across the await. A call can have started, and the active
+  // assistant can have moved out from under the gate that just passed.
+  if (
+    isLiveVoiceSessionActive(useLiveVoiceStore.getState().state) ||
+    useResolvedAssistantsStore.getState().activeAssistantId !== assistantId
+  ) {
+    return;
+  }
+  openSession(assistantId, options);
+}
+
+/**
+ * End the session, wherever it is in its life. Idempotent, and a no-op when
+ * none is running.
+ *
+ * Separate from {@link toggleWatch} because teardown is not a press: the
+ * layout going away has to end a session rather than start one, and a toggle
+ * called at teardown would open the microphone on the way out.
+ */
+export function stopWatch(): void {
+  session?.stop();
+}
