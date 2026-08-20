@@ -20,6 +20,7 @@ import type {
   BundleScanData,
   CompanionCharacter,
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -434,6 +435,14 @@ export interface VellumBridge {
      * it back down as part of `onState`.
      */
     setContext(context: CompanionContext): void;
+    /**
+     * Move the one-time introduction on, or end it early.
+     *
+     * `next` walks to the following beat and finishes past the last one;
+     * `dismiss` is the Skip affordance. Either way main is what records that it
+     * has been seen, so the run never comes back.
+     */
+    advanceIntro(action: CompanionIntroAction): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

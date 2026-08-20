@@ -26,6 +26,7 @@ const {
   geometryFor,
   placeCanvas,
   callOnUpdate,
+  introOnAdvance,
   shouldShowCompanionSurface,
 } = await import("./companion-window");
 
@@ -280,6 +281,38 @@ describe("the session main holds", () => {
     expect(
       callOnUpdate(running, { approvalRequestId: "req-1" })?.approvalRequestId,
     ).toBe("req-1");
+  });
+});
+
+/**
+ * The introduction runs once in an install's life, so the rule that walks it is
+ * worth stating as cases: there is no second chance to get it right for a user,
+ * and every wrong answer here is either a run that repeats or one that ends
+ * before it has said anything.
+ */
+describe("introOnAdvance", () => {
+  test("walks to the next beat", () => {
+    expect(introOnAdvance("meet", "next")).toBe("talk");
+    expect(introOnAdvance("talk", "next")).toBe("type");
+  });
+
+  // Past the last beat there is no next one, and `null` is what main reads as
+  // the run being over and worth recording.
+  test("falls off the end of the last beat", () => {
+    expect(introOnAdvance("type", "next")).toBe(null);
+  });
+
+  test("dismiss ends the run from any beat", () => {
+    expect(introOnAdvance("meet", "dismiss")).toBe(null);
+    expect(introOnAdvance("type", "dismiss")).toBe(null);
+  });
+
+  // A press that arrives after the run is already over. The renderer can be a
+  // beat behind main, so this is reachable by a real double-press on the last
+  // beat rather than only in theory.
+  test("stays over once it is over", () => {
+    expect(introOnAdvance(null, "next")).toBe(null);
+    expect(introOnAdvance(null, "dismiss")).toBe(null);
   });
 });
 

@@ -23,6 +23,7 @@ import type {
   CompanionCharacter,
   CompanionGrowth,
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -72,6 +73,7 @@ export type {
   BundleScanData,
   CompanionGrowth,
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -348,6 +350,7 @@ declare global {
         setComposing?(composing: boolean): void;
         submit?(message: string, startsConversation: boolean): void;
         setContext?(context: CompanionContext): void;
+        advanceIntro?(action: CompanionIntroAction): void;
       };
     };
   }

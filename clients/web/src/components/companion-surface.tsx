@@ -353,6 +353,16 @@ export interface CompanionSurfaceProps {
    * no-op the next push corrects.
    */
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
+  /**
+   * The introduction's card, drawn beside the surface while a run is on.
+   *
+   * Passed in as a node rather than built here, so this component keeps knowing
+   * nothing about the run: it is the surface, and the introduction is something
+   * placed next to the surface. The host owns the beat, the copy and the
+   * presses; all this owns is that the card is a sibling of the pill rather
+   * than a child of it, which is what keeps it out of the width that animates.
+   */
+  intro?: ReactNode;
 }
 
 export function CompanionSurface({
@@ -379,6 +389,7 @@ export function CompanionSurface({
   working = false,
   call,
   onControl,
+  intro,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
   const typing = phase === "typing";
@@ -479,66 +490,71 @@ export function CompanionSurface({
   };
 
   return (
-    // The whole surface is the drag handle. Controls opt out by stopping the
-    // press, so everything that is not a button can be grabbed, which at rest
-    // means the avatar and when expanded means the pill around the controls.
-    <div
-      className={`absolute cursor-grab transition-[width] duration-300 select-none will-change-[width] active:cursor-grabbing ${
-        typing
-          ? // The composer row is the column's last child, so a card growing
-            // downward reverses the column for the same reason a pill growing
-            // leftward reverses the row: the row that holds the avatar's line
-            // has to end up against the avatar, and the turns stack away from
-            // it.
-            `flex rounded-[22px] ${cardGrowth === "up" ? "flex-col" : "flex-col-reverse"}`
-          : "flex h-11 items-center rounded-full"
-      } ${
-        // Alignment, not ordering. The row is `INNER_GAP` narrower than the
-        // pill, because that gap is trailing space past the last control, so
-        // the row has to sit against the end the avatar is anchored to and
-        // leave the slack at the other. Reversing a one-item row is how a
-        // `flex-start` box puts its item at the far end. The card is a column
-        // whose row is stretched to its full width, so it needs no help.
-        growth === "left" && !typing ? "flex-row-reverse" : ""
-      }`}
-      style={style}
-      onMouseLeave={onHoverEnd}
-      onMouseDown={onSurfaceMouseDown}
-      ref={rootRef}
-    >
-      {/* The pill's body, which exists only once there is a pill. At rest the
+    // A fragment, so the introduction's card is a sibling of the pill rather
+    // than a child of it. Inside, it would sit in the box whose width animates
+    // from state to state and be clipped by the pill's own rounding; beside it,
+    // both hang off the same fixed avatar position in the canvas.
+    <>
+      {/* The whole surface is the drag handle. Controls opt out by stopping the
+        press, so everything that is not a button can be grabbed, which at rest
+        means the avatar and when expanded means the pill around the controls. */}
+      <div
+        className={`absolute cursor-grab transition-[width] duration-300 select-none will-change-[width] active:cursor-grabbing ${
+          typing
+            ? // The composer row is the column's last child, so a card growing
+              // downward reverses the column for the same reason a pill growing
+              // leftward reverses the row: the row that holds the avatar's line
+              // has to end up against the avatar, and the turns stack away from
+              // it.
+              `flex rounded-[22px] ${cardGrowth === "up" ? "flex-col" : "flex-col-reverse"}`
+            : "flex h-11 items-center rounded-full"
+        } ${
+          // Alignment, not ordering. The row is `INNER_GAP` narrower than the
+          // pill, because that gap is trailing space past the last control, so
+          // the row has to sit against the end the avatar is anchored to and
+          // leave the slack at the other. Reversing a one-item row is how a
+          // `flex-start` box puts its item at the far end. The card is a column
+          // whose row is stretched to its full width, so it needs no help.
+          growth === "left" && !typing ? "flex-row-reverse" : ""
+        }`}
+        style={style}
+        onMouseLeave={onHoverEnd}
+        onMouseDown={onSurfaceMouseDown}
+        ref={rootRef}
+      >
+        {/* The pill's body, which exists only once there is a pill. At rest the
           surface is the avatar and nothing else: a dark disc with a border
           drawn around a round avatar reads as a hard ring the avatar happens to
           sit inside, and stacked under the glow it is two rings. Fading the
           body in with the expansion also gives the avatar something to grow
           out of. */}
-      <span
-        className={`absolute inset-0 border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-opacity duration-200 ${
-          // Radius follows the same rule as the gap: the controls are 28pt so
-          // their radius is 14, and 8pt of clearance puts the outer radius at
-          // 22. A pill happens to reach that by being 44 tall; the card has to
-          // say it.
-          typing ? "rounded-[22px]" : "rounded-full"
-        }`}
-        style={{ opacity: expanded ? 1 : 0 }}
-        aria-hidden
-      />
-      {/* The turn itself, as a light travelling around the surface's edge.
+        <span
+          className={`absolute inset-0 border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-opacity duration-200 ${
+            // Radius follows the same rule as the gap: the controls are 28pt so
+            // their radius is 14, and 8pt of clearance puts the outer radius at
+            // 22. A pill happens to reach that by being 44 tall; the card has to
+            // say it.
+            typing ? "rounded-[22px]" : "rounded-full"
+          }`}
+          style={{ opacity: expanded ? 1 : 0 }}
+          aria-hidden
+        />
+        {/* The turn itself, as a light travelling around the surface's edge.
           Drawn over the body so it reads as the surface's own border in every
           state, and outside it by a hair so it never crowds the avatar at rest,
           which is the state it has to be legible in: the whole point is being
           readable from the corner of an eye while the user works elsewhere. */}
-      {assistantWorking && (
-        <span
-          className={`companion-working-ring pointer-events-none absolute -inset-0.5 ${
-            typing ? "rounded-[24px]" : "rounded-full"
-          }`}
-          style={{ ["--companion-ring-accent" as string]: accentHex }}
-          aria-hidden
-        />
-      )}
-      {typing && turns.length > 0 && <RecentTurns turns={turns} />}
-      {/* The avatar's own row, and the half of the mirroring that orders it.
+        {assistantWorking && (
+          <span
+            className={`companion-working-ring pointer-events-none absolute -inset-0.5 ${
+              typing ? "rounded-[24px]" : "rounded-full"
+            }`}
+            style={{ ["--companion-ring-accent" as string]: accentHex }}
+            aria-hidden
+          />
+        )}
+        {typing && turns.length > 0 && <RecentTurns turns={turns} />}
+        {/* The avatar's own row, and the half of the mirroring that orders it.
           This row is the surface's only in-flow child, so it is the one place
           the reversal has any ordering to do: reversing the surface around it
           moves the row within the box and leaves the avatar wherever the row
@@ -547,57 +563,63 @@ export function CompanionSurface({
           window by. True of the card as much as the pill, and the card is
           anchored the same way with a card's width to be wrong by, so this
           holds whether or not the composer is open. */}
-      <div
-        className={`relative flex h-11 shrink-0 items-center ${
-          growth === "left" ? "flex-row-reverse" : ""
-        }`}
-      >
-        <Avatar
-          glow={glow && !expanded}
-          accentHex={accentHex}
-          avatarSrc={avatarSrc}
-          character={character}
-          attentive={hovered}
-          // The assistant's own turn. The creature stops blinking and holds a
-          // focused, morphing pose, which is the same treatment the chat avatar
-          // uses while a reply is streaming: one vocabulary for "it is working"
-          // wherever the user meets it.
-          busy={assistantWorking}
-          onMouseEnter={onHoverStart}
-          onClick={onAvatarClick}
-        />
-        {typing ? (
-          <Composer
-            assistantName={assistantName}
-            onSubmit={onSubmit}
-            onCancel={onCancelTyping}
+        <div
+          className={`relative flex h-11 shrink-0 items-center ${
+            growth === "left" ? "flex-row-reverse" : ""
+          }`}
+        >
+          <Avatar
+            glow={glow && !expanded}
+            accentHex={accentHex}
+            avatarSrc={avatarSrc}
+            character={character}
+            attentive={hovered}
+            // The assistant's own turn. The creature stops blinking and holds a
+            // focused, morphing pose, which is the same treatment the chat avatar
+            // uses while a reply is streaming: one vocabulary for "it is working"
+            // wherever the user meets it.
+            busy={assistantWorking}
+            onMouseEnter={onHoverStart}
+            onClick={onAvatarClick}
           />
-        ) : (
-          <div
-            className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
-            ref={contentRef}
-            // Faded out is not gone: the body stays mounted while collapsed so
-            // it can be measured, which would otherwise leave its controls
-            // focusable and announced while nothing is drawn. `inert` takes
-            // them out of the tab order and the accessibility tree without
-            // taking them out of the DOM, so the measurement still works.
-            inert={!expanded}
-            style={{
-              opacity: expanded ? 1 : 0,
-              // Contents fade after the body has somewhere to put them, so
-              // nothing is ever drawn wider than the pill carrying it.
-              transitionDelay: expanded ? "120ms" : "0ms",
-            }}
-          >
-            {phase === "call" ? (
-              <CallBody call={call} onControl={onControl} />
-            ) : (
-              <IdleBody spotlight={spotlight} onTalk={onTalk} onType={onType} />
-            )}
-          </div>
-        )}
+          {typing ? (
+            <Composer
+              assistantName={assistantName}
+              onSubmit={onSubmit}
+              onCancel={onCancelTyping}
+            />
+          ) : (
+            <div
+              className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
+              ref={contentRef}
+              // Faded out is not gone: the body stays mounted while collapsed so
+              // it can be measured, which would otherwise leave its controls
+              // focusable and announced while nothing is drawn. `inert` takes
+              // them out of the tab order and the accessibility tree without
+              // taking them out of the DOM, so the measurement still works.
+              inert={!expanded}
+              style={{
+                opacity: expanded ? 1 : 0,
+                // Contents fade after the body has somewhere to put them, so
+                // nothing is ever drawn wider than the pill carrying it.
+                transitionDelay: expanded ? "120ms" : "0ms",
+              }}
+            >
+              {phase === "call" ? (
+                <CallBody call={call} onControl={onControl} />
+              ) : (
+                <IdleBody
+                  spotlight={spotlight}
+                  onTalk={onTalk}
+                  onType={onType}
+                />
+              )}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+      {intro}
+    </>
   );
 }
 

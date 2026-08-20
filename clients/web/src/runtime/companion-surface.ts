@@ -11,6 +11,7 @@
 import { isElectron } from "@/runtime/is-electron";
 import type {
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
 } from "@vellumai/ipc-contract";
 
@@ -147,10 +148,10 @@ let lastContext: CompanionContext | null = null;
  * `working: true` describes something that is happening, and a publisher going
  * away does not make it so.
  *
- * It has to be said rather than inferred. The surface is opened by a feature
- * flag and the user's tray preference, not by the window publishing to it, so
- * it stays on screen with nothing left to report the turn ending and the ring
- * would travel indefinitely.
+ * It has to be said rather than inferred. The surface is opened by main, from
+ * the assistant it has and the user's tray preference, not by the window
+ * publishing to it, so it stays on screen with nothing left to report the turn
+ * ending and the ring would travel indefinitely.
  *
  * Lives here rather than with the publisher because this is the module that
  * owns the channel, and the callers that need it at teardown are outside the
@@ -163,4 +164,15 @@ export function clearCompanionWorking(): void {
     return;
   }
   setCompanionContext({ ...lastContext, working: false });
+}
+
+/**
+ * Move the surface's one-time introduction on, or end it.
+ *
+ * Which beat that lands on is main's to work out: it holds the run, so the
+ * press names a direction rather than a destination and a press sent from a
+ * renderer a beat behind cannot walk it backwards.
+ */
+export function advanceCompanionIntro(action: CompanionIntroAction): void {
+  bridge()?.advanceIntro?.(action);
 }

@@ -761,6 +761,35 @@ export interface CompanionContext {
   working: boolean;
 }
 
+/**
+ * The beats of the surface's one-time introduction, in order.
+ *
+ * The companion is the only thing this app puts on a user's desktop rather than
+ * in its own window, and it arrives already there rather than being opened. So
+ * it says what it is once, on itself, where the thing being described actually
+ * is: the alternative was describing it in the app window, which is the one
+ * place the user is not looking when the surface matters.
+ *
+ * A list rather than a count, because each beat names the control it sits over
+ * and the renderer spotlights that control by name. `meet` has no control: it
+ * is the avatar itself.
+ */
+export const COMPANION_INTRO_BEATS = ["meet", "talk", "type"] as const;
+
+export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
+
+/**
+ * What a press on the introduction asks for.
+ *
+ * Two intents rather than a beat to jump to, because the renderer does not hold
+ * the running position: main does, so the renderer says which way to go and
+ * main resolves it against the beat it is actually on. A stale press from a
+ * renderer a beat behind then lands where the user could see it would.
+ */
+export const COMPANION_INTRO_ACTIONS = ["next", "dismiss"] as const;
+
+export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
+
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
   growth: CompanionGrowth;
@@ -828,6 +857,16 @@ export interface CompanionSurfaceState {
    * surface, so the companion cannot drift from the icon in the Dock beside it.
    */
   avatarBase64?: string;
+  /**
+   * Which beat of the introduction the surface is on, or `null` when it is not
+   * running, which is every launch after the first.
+   *
+   * Held by main rather than the renderer, for the reason the session is: this
+   * window reloads, and an introduction anchored in it would start again from
+   * the top each time it did. Main also owns the "already seen" record, so the
+   * renderer never has to decide whether a run is due.
+   */
+  intro: CompanionIntroBeat | null;
 }
 
 // ---------------------------------------------------------------------------

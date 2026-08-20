@@ -46,6 +46,11 @@ interface StoreSchema {
   // from this before any renderer loads. Optional: absent means the default
   // (see `readCompanionSize`).
   companionSize?: CompanionSize;
+  // Whether the companion's one-time introduction has run. Held here rather
+  // than in the surface's renderer because that renderer reloads, and a run
+  // recorded there would start again from the top every time it did. Optional:
+  // absent means it has not run (see `readCompanionIntroSeen`).
+  companionIntroSeen?: boolean;
   // How the Windows title-bar overlay's caption buttons are painted, as last
   // published by the renderer's active theme. A main-process concern for the
   // same reason the flags above are: the overlay's colors are constructor
@@ -125,6 +130,30 @@ export const readCompanionSize = (): CompanionSize => {
   return stored !== undefined && COMPANION_SIZES.includes(stored)
     ? stored
     : DEFAULT_COMPANION_SIZE;
+};
+
+/**
+ * Whether the companion's one-time introduction has already run.
+ *
+ * Absent defaults to `false`, so an install that predates the introduction gets
+ * one. That is the right way round: the surface shipped to everyone when the
+ * `companion-surface` flag was removed, and the users most owed an explanation
+ * of it are the ones who had it appear on their desktop without asking.
+ */
+export const readCompanionIntroSeen = (): boolean =>
+  store().get("companionIntroSeen", false);
+
+/**
+ * Record that the introduction has been seen. One way only, and no-op when
+ * already set: nothing in the app un-sees it, and a run that could be reset by
+ * a stray write is a floating panel that starts explaining itself again months
+ * later.
+ */
+export const writeCompanionIntroSeen = (): void => {
+  if (readCompanionIntroSeen()) {
+    return;
+  }
+  store().set("companionIntroSeen", true);
 };
 
 /** Persist the companion's size. No-op when unchanged, as the opt-out is. */

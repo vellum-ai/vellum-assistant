@@ -8,11 +8,15 @@ import {
   voiceActivityStartSchema,
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_CANVAS_PAD,
+  COMPANION_INTRO_ACTIONS,
+  COMPANION_INTRO_BEATS,
   COMPANION_NEAR_EDGE,
   COMPANION_SIZE_BOXES,
   type CompanionCardGrowth,
   type CompanionGrowth,
   type CompanionContext,
+  type CompanionIntroAction,
+  type CompanionIntroBeat,
   type CompanionSize,
   type CompanionSurfaceState,
   type VellumCommand,
@@ -20,7 +24,9 @@ import {
 } from "@vellumai/ipc-contract";
 import {
   readCompanionHidden,
+  readCompanionIntroSeen,
   readCompanionSize,
+  writeCompanionIntroSeen,
   writeCompanionSize,
   writeCompanionHidden,
 } from "@vellumai/electron-desktop/window-state";
@@ -192,6 +198,55 @@ let cardGrowth: CompanionCardGrowth = "up";
 let geometry: CompanionGeometry = geometryFor(readCompanionSize());
 
 /**
+ * The beat of the one-time introduction the surface is on, or `null` when it is
+ * not running.
+ *
+ * Held here rather than in the surface's renderer for the reason the session is:
+ * that renderer can reload, be recreated, or load its route late, and a run
+ * anchored in it would begin again from the first beat every time it did. Main
+ * is also the side holding the "already seen" record, so the two cannot
+ * disagree about whether a run is due.
+ */
+let intro: CompanionIntroBeat | null = null;
+
+/**
+ * The introduction after a press, which is `null` once it is over.
+ *
+ * `dismiss` ends it wherever it is; `next` walks to the following beat and
+ * falls off the end into `null`. Resolved against the beat main is actually on
+ * rather than one the renderer names, so a press from a renderer a beat behind
+ * lands where the user could see that it would.
+ *
+ * Exported for its tests, as `callOnUpdate` is.
+ */
+export const introOnAdvance = (
+  current: CompanionIntroBeat | null,
+  action: CompanionIntroAction,
+): CompanionIntroBeat | null => {
+  if (current === null || action === "dismiss") {
+    return null;
+  }
+  const next = COMPANION_INTRO_BEATS[COMPANION_INTRO_BEATS.indexOf(current) + 1];
+  return next ?? null;
+};
+
+/**
+ * End the introduction and record that it happened.
+ *
+ * One way only. Every path out of a run goes through here, including the ones
+ * that are not a press on it: hiding the surface from the tray is an answer to
+ * the introduction as much as skipping it is, and a user who has just put the
+ * thing away must not be introduced to it again when they bring it back.
+ */
+const finishIntro = (): void => {
+  if (intro === null) {
+    return;
+  }
+  intro = null;
+  writeCompanionIntroSeen();
+};
+
+/**
  * The running live-voice session, or `null` when none is.
  *
  * Held here rather than in the surface's renderer because that renderer can
@@ -232,6 +287,7 @@ const currentState = (): CompanionSurfaceState => {
     character: character === null ? undefined : character,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
+    intro,
     assistantName: context.assistantName,
     turns: context.turns,
     working: context.working,
@@ -656,6 +712,27 @@ export const installCompanionWindow = (): void => {
    * This *does* raise the app, unlike Talk. It is the one press on the surface
    * whose entire purpose is to go back to Vellum.
    */
+  // The introduction's two presses. Main resolves them rather than taking a
+  // beat from the renderer, so a press that arrives from a renderer showing a
+  // beat main has already left is the no-op the guard makes it, not a jump
+  // backwards.
+  on(
+    "vellum:companion:advanceIntro",
+    z.tuple([z.enum(COMPANION_INTRO_ACTIONS)]),
+    ([action]) => {
+      if (intro === null) {
+        return;
+      }
+      const next = introOnAdvance(intro, action);
+      if (next === null) {
+        finishIntro();
+      } else {
+        intro = next;
+      }
+      pushState();
+    },
+  );
+
   on("vellum:companion:activate", z.tuple([]), () => {
     void ensureMainWindowVisible().then(() => {
       dispatchToMain({ kind: "currentConversation" });
@@ -761,6 +838,15 @@ export const openCompanionWindow = (): void => {
     return;
   }
 
+  // A run is due the first time the surface actually reaches the screen, which
+  // is later than launch and later than sign-in: it is the moment the thing
+  // being introduced is there to be pointed at. Set before the window is
+  // created so the state its route pulls on mount already carries the beat,
+  // rather than the surface appearing plain and being annotated a frame later.
+  if (!readCompanionIntroSeen()) {
+    intro = COMPANION_INTRO_BEATS[0];
+  }
+
   const win = createFloatingWindow({
     kind: COMPANION_KIND,
     route: COMPANION_ROUTE,
@@ -822,9 +908,13 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
   writeCompanionHidden(!visible);
   if (visible) {
     openCompanionWindow();
-  } else {
-    closeCompanionWindow();
+    return;
   }
+  // Putting the surface away mid-introduction is an answer to it. Recorded, so
+  // bringing it back later does not start explaining it again to someone who
+  // has already decided what they think.
+  finishIntro();
+  closeCompanionWindow();
 };
 
 /** Which size the surface is currently drawn at, for the tray's radio items. */
