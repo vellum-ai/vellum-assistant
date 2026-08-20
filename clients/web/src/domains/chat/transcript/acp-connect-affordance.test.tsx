@@ -5,13 +5,15 @@
  * Covers the version gate and the live-status self-heal: the affordance renders
  * its Connect button when the daemon supports Connect, renders nothing (falling
  * back to the plain error rendering) against a daemon too old to serve the
- * routes, and retires itself when Claude is already connected. Which failed tool
+ * routes, and retires itself when Claude is already connected (leaving a
+ * diagnostic breadcrumb behind). Which failed tool
  * call raises the prompt — and its reseed survival — is covered in
  * `acp-connect-prompt.test.ts`.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -87,7 +89,26 @@ mock.module("@vellumai/design-library/components/typography", () => ({
   ),
 }));
 
+const actualDiagnostics = await import("@/lib/diagnostics");
+const recordedDiagnostics: Array<{
+  kind: string;
+  details: Record<string, unknown>;
+}> = [];
+mock.module("@/lib/diagnostics", () => ({
+  ...actualDiagnostics,
+  recordDiagnostic: (kind: string, details: Record<string, unknown> = {}) => {
+    recordedDiagnostics.push({ kind, details });
+  },
+}));
+
 const { AcpConnectAffordance } = await import("./acp-connect-affordance");
+
+/** Let the resolved `isClaudeConnected` promise settle inside React's act. */
+async function flushConnectedCheck() {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
 
 beforeEach(() => {
   supported = true;
@@ -95,7 +116,12 @@ beforeEach(() => {
   popupBlocked = false;
   startMode = "loopback";
   exchangeShouldFail = false;
-  useInteractionStore.getState().clearAcpContinue();
+  recordedDiagnostics.length = 0;
+  useInteractionStore.setState({
+    pendingAcpConnect: null,
+    dismissedAcpConnectToolUseIds: new Set<string>(),
+    pendingAcpContinue: false,
+  });
 });
 
 afterEach(() => {
@@ -140,6 +166,57 @@ describe("AcpConnectAffordance", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
     });
+  });
+
+  test("records a diagnostic for every self-heal dismissal", async () => {
+    alreadyConnected = true;
+    useInteractionStore
+      .getState()
+      .showAcpConnect({ toolUseId: "toolu-acp-1", reason: "missing" });
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
+    });
+    // The card vanishing is invisible in a feedback bundle without this
+    // breadcrumb, so it must carry who/which-call/why.
+    expect(recordedDiagnostics).toEqual([
+      {
+        kind: "acp_connect_self_heal_dismiss",
+        details: {
+          assistantId: "assistant-123",
+          toolUseId: "toolu-acp-1",
+          reason: "missing",
+        },
+      },
+    ]);
+  });
+
+  test("records nothing for an auth_required prompt, which skips the connected check", async () => {
+    alreadyConnected = true;
+    useInteractionStore
+      .getState()
+      .showAcpConnect({ toolUseId: "toolu-acp-1", reason: "auth_required" });
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+    await flushConnectedCheck();
+
+    expect(screen.getByTestId("acp-connect-affordance")).not.toBeNull();
+    expect(recordedDiagnostics).toEqual([]);
+  });
+
+  test("records nothing when the connected check answers false", async () => {
+    alreadyConnected = false;
+    useInteractionStore
+      .getState()
+      .showAcpConnect({ toolUseId: "toolu-acp-1", reason: "missing" });
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+    await flushConnectedCheck();
+
+    expect(screen.getByTestId("acp-connect-affordance")).not.toBeNull();
+    expect(recordedDiagnostics).toEqual([]);
   });
 
   test("opens the sign-in tab and advances to awaiting-capture", async () => {
