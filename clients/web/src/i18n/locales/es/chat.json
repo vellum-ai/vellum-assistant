@@ -622,5 +622,12 @@
   "useSendMessage": {
     "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",
     "doctorUnavailable": "El Doctor no está disponible en este asistente."
+  },
+  "watchRetro": {
+    "addToChat": "Añadir al chat",
+    "agree": "Sí",
+    "answer": "Responder",
+    "answerField": "Tu respuesta",
+    "undo": "Deshacer"
   }
 }

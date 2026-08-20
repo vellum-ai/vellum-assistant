@@ -2735,3 +2735,83 @@ describe("TranscriptMessageBody: response asset cards", () => {
     ).not.toBeNull();
   });
 });
+
+describe("TranscriptMessageBody: watch retrospective", () => {
+  /** A report in the shape a watch session's retrospective arrives in. */
+  const RETRO = [
+    "## 1. The task",
+    "",
+    "You were cleaning up your Downloads folder.",
+    "",
+    "## 4. What I'm unsure about",
+    "",
+    "- Which DMG files are safe to remove.",
+    "",
+    "### Alignment pass",
+    "",
+    "1. Should the skill move approved files to Trash?",
+  ].join("\n");
+
+  function renderRetro(
+    text: string,
+    props: { role?: DisplayMessage["role"]; isStreaming?: boolean } = {},
+  ) {
+    return render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-retro",
+          role: props.role ?? "assistant",
+          contentBlocks: [textBlock(text)],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+        isStreaming={props.isStreaming}
+      />,
+    );
+  }
+
+  test("draws the answerable sections of a recognized report", () => {
+    const { container } = renderRetro(RETRO);
+
+    const panels = container.querySelectorAll(
+      "[data-testid='watch-retro-panel']",
+    );
+    expect(panels).toHaveLength(2);
+    expect(panels[0]!.getAttribute("data-kind")).toBe("gaps");
+    expect(panels[1]!.getAttribute("data-kind")).toBe("alignment");
+  });
+
+  test("falls back to plain markdown when the report is off-structure", () => {
+    // The alignment pass arrives as prose rather than a list, so the
+    // conjunction the recognition needs is not there.
+    const { container } = renderRetro(
+      RETRO.replace(
+        "1. Should the skill move approved files to Trash?",
+        "Tell me whether that is right.",
+      ),
+    );
+
+    expect(
+      container.querySelector("[data-testid='watch-retro-panel']"),
+    ).toBeNull();
+    const markdown = container.querySelectorAll("[data-testid='markdown']");
+    expect(markdown).toHaveLength(1);
+    expect(markdown[0]!.textContent).toContain("What I'm unsure about");
+  });
+
+  test("leaves a user message that quotes a report as plain markdown", () => {
+    const { container } = renderRetro(RETRO, { role: "user" });
+
+    expect(
+      container.querySelector("[data-testid='watch-retro-panel']"),
+    ).toBeNull();
+  });
+
+  test("leaves a still-streaming turn as plain markdown", () => {
+    const { container } = renderRetro(RETRO, { isStreaming: true });
+
+    expect(
+      container.querySelector("[data-testid='watch-retro-panel']"),
+    ).toBeNull();
+  });
+});

@@ -47,6 +47,8 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
+import { WatchRetroCard } from "@/domains/chat/transcript/watch-retro-card";
+import { parseWatchRetro } from "@/domains/chat/transcript/watch-retro";
 import { ResponseArtifactCard } from "@/domains/chat/transcript/response-artifact-card";
 import { hasRenderableAnswer } from "@/domains/chat/answered-question";
 import { AnsweredQuestionCard } from "@/domains/chat/components/answered-question-card";
@@ -563,6 +565,40 @@ export function TranscriptMessageBody({
     // prose. The override rides the component's own `className` (merged via
     // `cn`, so it drops the base size and color).
     const markdownClass = collapsed ? COLLAPSED_MARKDOWN_CLASS : undefined;
+    const renderMarkdown = (markdown: string) => (
+      <ChatMarkdownMessage
+        content={markdown}
+        className={markdownClass}
+        hardLineBreaks
+        onVellumLinkClick={handleVellumLinkClick}
+        attachments={message.attachments}
+        assistantId={assistantId}
+        streamWordFade={streamWordFade}
+        redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
+        workspacePathLinks={!isUser}
+      />
+    );
+
+    // A watch session's retrospective ends in two questions the user is meant
+    // to answer, which read worst as bullets. Only a settled assistant turn is
+    // examined: the recognition needs the whole report (see `watch-retro.ts`),
+    // and testing a half-streamed one would flip the row into a card partway
+    // through the sentence that completes it. `null` is the ordinary outcome
+    // for every other message and falls through to the rendering below.
+    const retroSegments =
+      !isUser && !collapsed && !isStreaming ? parseWatchRetro(text) : null;
+    if (retroSegments) {
+      return (
+        <div key={key} data-message-text="" className={textClass}>
+          <WatchRetroCard
+            segments={retroSegments}
+            messageId={message.id}
+            renderMarkdown={renderMarkdown}
+          />
+        </div>
+      );
+    }
+
     const inlineSegments = parseInlineSurfaces(text);
     if (inlineSegments) {
       return (
@@ -590,19 +626,7 @@ export function TranscriptMessageBody({
                 data-message-text=""
                 className={textClass}
               >
-                <ChatMarkdownMessage
-                  content={seg.content}
-                  className={markdownClass}
-                  hardLineBreaks
-                  onVellumLinkClick={handleVellumLinkClick}
-                  attachments={message.attachments}
-                  assistantId={assistantId}
-                  streamWordFade={streamWordFade}
-                  redactedCredentialChips={
-                    !isUser && supportsRedactedCredentialChips
-                  }
-                  workspacePathLinks={!isUser}
-                />
+                {renderMarkdown(seg.content)}
               </div>
             );
           })}
@@ -611,17 +635,7 @@ export function TranscriptMessageBody({
     }
     return (
       <div key={key} data-message-text="" className={textClass}>
-        <ChatMarkdownMessage
-          content={text}
-          className={markdownClass}
-          hardLineBreaks
-          onVellumLinkClick={handleVellumLinkClick}
-          attachments={message.attachments}
-          assistantId={assistantId}
-          streamWordFade={streamWordFade}
-          redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
-          workspacePathLinks={!isUser}
-        />
+        {renderMarkdown(text)}
       </div>
     );
   };
