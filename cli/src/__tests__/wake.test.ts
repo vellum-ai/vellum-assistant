@@ -15,6 +15,7 @@ import { join } from "node:path";
 import * as assistantConfig from "../lib/assistant-config.js";
 import * as docker from "../lib/docker.js";
 import * as guardianToken from "../lib/guardian-token.js";
+import * as httpClient from "../lib/http-client.js";
 import * as ingressConfig from "../lib/ingress-config.js";
 import * as local from "../lib/local.js";
 import * as nginxIngress from "../lib/nginx-ingress.js";
@@ -167,12 +168,28 @@ mock.module("../lib/nginx-ingress.js", () => ({
   readIngressState: readIngressStateMock,
 }));
 
+const realHttpClient = { ...httpClient };
+
+const probeDaemonReadinessWithRetryMock = mock<
+  typeof httpClient.probeDaemonReadinessWithRetry
+>(async () => "ready");
+const waitForDaemonMigrationsReadyMock = mock<
+  typeof httpClient.waitForDaemonMigrationsReady
+>(async () => "ready");
+
+mock.module("../lib/http-client.js", () => ({
+  ...realHttpClient,
+  probeDaemonReadinessWithRetry: probeDaemonReadinessWithRetryMock,
+  waitForDaemonMigrationsReady: waitForDaemonMigrationsReadyMock,
+}));
+
 const { wake } = await import("../commands/wake.js");
 
 let tempDir: string;
 let originalArgv: string[];
 let logSpy: ReturnType<typeof spyOn>;
 let warnSpy: ReturnType<typeof spyOn>;
+let errorSpy: ReturnType<typeof spyOn>;
 let localEntry: AssistantEntry;
 
 function makeLocalEntry(): AssistantEntry {
@@ -199,6 +216,7 @@ beforeEach(() => {
   process.argv = ["bun", "vellum", "wake", "--watch", "local-assistant"];
   logSpy = spyOn(console, "log").mockImplementation(() => {});
   warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+  errorSpy = spyOn(console, "error").mockImplementation(() => {});
 
   localEntry = makeLocalEntry();
   resolveTargetAssistantMock.mockReset();
@@ -231,6 +249,10 @@ beforeEach(() => {
   startCesMock.mockResolvedValue(undefined);
   isProcessAliveMock.mockReset();
   isProcessAliveMock.mockReturnValue({ alive: false, pid: null });
+  probeDaemonReadinessWithRetryMock.mockReset();
+  probeDaemonReadinessWithRetryMock.mockResolvedValue("ready");
+  waitForDaemonMigrationsReadyMock.mockReset();
+  waitForDaemonMigrationsReadyMock.mockResolvedValue("ready");
   seedGuardianTokenFromSiblingEnvMock.mockReset();
   seedGuardianTokenFromSiblingEnvMock.mockReturnValue(false);
   loadGuardianTokenMock.mockReset();
@@ -263,6 +285,7 @@ afterEach(() => {
   process.argv = originalArgv;
   logSpy.mockRestore();
   warnSpy.mockRestore();
+  errorSpy.mockRestore();
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -277,6 +300,7 @@ afterAll(() => {
   mock.module("../lib/ngrok", () => realNgrok);
   mock.module("../lib/ingress-config.js", () => realIngressConfig);
   mock.module("../lib/nginx-ingress.js", () => realNginxIngress);
+  mock.module("../lib/http-client.js", () => realHttpClient);
 });
 
 describe("vellum wake", () => {
@@ -453,6 +477,102 @@ describe("vellum wake", () => {
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining("Gateway running"),
     );
+  });
+});
+
+describe("vellum wake: daemon startup failure", () => {
+  const daemonPidOf = (dir: string) => join(dir, ".vellum", "daemon.pid");
+
+  beforeEach(() => {
+    process.argv = ["bun", "vellum", "wake", "local-assistant"];
+    // The daemon needs starting; the gateway is already serving.
+    resolveProcessStateMock.mockImplementation(
+      async (_pidFile, _port, label) =>
+        label === "Gateway"
+          ? { status: "healthy", pid: 456 }
+          : { status: "needs_start", pid: null },
+    );
+  });
+
+  test("fails when the freshly spawned daemon is not running", async () => {
+    /**
+     * Tests that a daemon which aborts during startup (an occupied runtime
+     * HTTP port) fails the command instead of reporting a successful wake.
+     */
+
+    // GIVEN the spawned daemon left no live process behind
+    isProcessAliveMock.mockReturnValue({ alive: false, pid: null });
+
+    // AND a foreign listener on the runtime HTTP port answers readiness in
+    // the dead daemon's place
+    probeDaemonReadinessWithRetryMock.mockResolvedValue("ready");
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`process.exit:${code}`);
+    }) as never);
+
+    // WHEN wake runs
+    const result = wake();
+
+    // THEN it exits nonzero, names the port on stderr, and never claims
+    // the wake completed
+    await expect(result).rejects.toThrow("process.exit:1");
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("exited during startup"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("7821"));
+    expect(logSpy).not.toHaveBeenCalledWith("Wake complete.");
+    expect(startGatewayMock).not.toHaveBeenCalled();
+    exitSpy.mockRestore();
+  });
+
+  test("completes when the freshly spawned daemon is running", async () => {
+    /**
+     * Tests that a healthy fresh spawn still reports a completed wake.
+     */
+
+    // GIVEN the spawned daemon is alive and ready
+    isProcessAliveMock.mockImplementation((pidFile) =>
+      pidFile === daemonPidOf(tempDir)
+        ? { alive: true, pid: 123 }
+        : { alive: false, pid: null },
+    );
+    probeDaemonReadinessWithRetryMock.mockResolvedValue("ready");
+
+    // WHEN wake runs
+    await wake();
+
+    // THEN it reports success and starts the gateway
+    expect(logSpy).toHaveBeenCalledWith("Wake complete.");
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(startLocalDaemonMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("completes when the freshly spawned daemon is still migrating", async () => {
+    /**
+     * Tests that a live daemon running database migrations is reported as a
+     * degraded success, not a failure.
+     */
+
+    // GIVEN the spawned daemon is alive but still migrating past the
+    // gateway-coordination wait
+    isProcessAliveMock.mockImplementation((pidFile) =>
+      pidFile === daemonPidOf(tempDir)
+        ? { alive: true, pid: 123 }
+        : { alive: false, pid: null },
+    );
+    probeDaemonReadinessWithRetryMock.mockResolvedValue("migrating");
+    waitForDaemonMigrationsReadyMock.mockResolvedValue("migrating");
+
+    // WHEN wake runs
+    await wake();
+
+    // THEN it reports the migration state and completes
+    expect(logSpy).toHaveBeenCalledWith(
+      "Assistant is still running database migrations; DB-backed routes return 503 until they finish.",
+    );
+    expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });
 });
 
