@@ -330,7 +330,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       // The call-site tweak applies last in resolution, so it pins the model
       // base resolution lands on when the override name doesn't resolve.
       callSites: {
-        mainAgent: { provider: "anthropic", model: "claude-opus-4-7" },
+        mainAgent: { model: "claude-opus-4-7" },
       },
       profiles: {
         fast: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
@@ -362,7 +362,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
   test("absent overrideProfile leaves prior resolution behavior intact", async () => {
     setLlmConfig({
       callSites: {
-        mainAgent: { provider: "anthropic", model: "claude-opus-4-7" },
+        mainAgent: { model: "claude-opus-4-7" },
       },
       profiles: {
         fast: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },

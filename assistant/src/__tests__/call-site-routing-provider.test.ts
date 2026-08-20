@@ -2,10 +2,10 @@
  * Verifies that `CallSiteRoutingProvider` selects the right underlying
  * provider transport per call based on `options.config.callSite`.
  *
- * The wrapper exists so per-call-site `llm.callSites.<id>.provider`
- * overrides actually swap the HTTP transport, not just the request
+ * The wrapper exists so a call site whose winning profile names another
+ * provider actually swaps the HTTP transport, not just the request
  * metadata. The conversation's transport is fixed at construction time;
- * without this wrapper a memoryRetrieval call configured to run on OpenAI
+ * without this wrapper a memoryRetrieval call whose profile runs on OpenAI
  * but originating from an Anthropic-default conversation would still hit
  * the Anthropic transport.
  *

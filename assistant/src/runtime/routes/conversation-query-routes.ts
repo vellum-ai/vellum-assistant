@@ -29,6 +29,7 @@ import {
   LatencyBreakdownSchema,
   LLMRequestLogEntrySchema,
 } from "../../api/responses/llm-request-log-entry.js";
+import { resolveCallSiteConfigWithProfile } from "../../config/llm-resolver.js";
 import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
@@ -49,8 +50,10 @@ import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
   DefaultProviderSchema,
+  LLMCallSiteEnum,
   LLMConfigBase,
   LLMConfigFragment,
+  LLMSchema,
   ProfileEntry,
   routingIdentityModelIssue,
   unknownLlmProviderIssue,
@@ -100,8 +103,14 @@ import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/v2/activation-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
-import { writableProfileProviderIssue } from "../../providers/connection-resolution.js";
-import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
+import {
+  resolveEntryProviderKind,
+  writableProfileProviderIssue,
+} from "../../providers/connection-resolution.js";
+import {
+  ROUTING_IDENTITY_PROVIDERS,
+  VALID_CONNECTION_PROVIDERS,
+} from "../../providers/inference/auth.js";
 import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
 import {
   createConnection,
@@ -762,10 +771,16 @@ const ProfilePatchEntrySchema = nullablePartial(ProfileEntry)
   .meta({ id: "ProfilePatchEntry" });
 
 /**
- * A single call-site override within a PATCH body.
+ * A single call-site override within a PATCH body. Model-only: an override
+ * cannot express `provider`; the route always comes from the winning
+ * profile. `.passthrough()` keeps old clients that still send a stray
+ * `provider` (or `provider: null`) working: the key persists in raw JSON,
+ * is stripped at every `LLMSchema` parse, and carries no behavior.
  */
 const CallSiteOverrideDraftSchema = nullablePartial(
-  LLMConfigFragment.extend({ profile: z.string().optional() }),
+  LLMConfigFragment.omit({ provider: true }).extend({
+    profile: z.string().optional(),
+  }),
 )
   .passthrough()
   .meta({ id: "CallSiteOverrideDraft" });
@@ -1378,8 +1393,10 @@ function assertRoutableIdentityEntries(
     // the known set is readable and dispatchable by design, and
     // re-validating it on every write would make all later settings saves
     // fail with no in-product repair path. Profiles accept entry names;
-    // call-site fragments and the legacy default blob stay vendor-only
-    // (overrides become model-only with the entries demolition).
+    // the legacy default blob stays vendor-only. Call-site entries are
+    // model-only at the schema level; a `provider` key that still reaches
+    // raw JSON here (old clients, passthrough) is schema-dead, so this
+    // check merely keeps its historical rejection semantics.
     if (entry.provider !== priorProviders.get(label)) {
       const providerIssue = label.startsWith("llm.profiles.")
         ? writableProfileProviderIssue(entry.provider)
@@ -1398,6 +1415,100 @@ function assertRoutableIdentityEntries(
   }
 }
 
+/**
+ * Reject writes that introduce or change a call-site model the site's
+ * winning route cannot serve. Call-site overrides are model-only (the
+ * route always comes from the winning profile), so an unservable model is
+ * a config error that would fail every request on that call site; make it
+ * loud at write time instead.
+ *
+ * Scoped to models this write introduces or changes: re-validating every
+ * stored entry would make all later settings saves fail with no in-product
+ * repair path once any route drifts (see the provider-membership scoping
+ * above). Fail-open on anything indeterminate (an unparseable `llm`
+ * section whose parse error surfaces elsewhere, an entry-name winner whose
+ * row cannot be read, or a route whose model set is not code-known:
+ * endpoint-supplied providers, keyless ollama), matching
+ * `preflightResolvedConfig`'s posture.
+ */
+function assertServableCallSiteModels(
+  preWrite: Record<string, unknown>,
+  raw: Record<string, unknown>,
+): void {
+  const rawSites = readPlainObject(readPlainObject(raw.llm)?.callSites);
+  if (!rawSites) {
+    return;
+  }
+  const priorSites =
+    readPlainObject(readPlainObject(preWrite.llm)?.callSites) ?? {};
+  const changed: { site: string; model: string }[] = [];
+  for (const [site, entry] of Object.entries(rawSites)) {
+    const model = readPlainObject(entry)?.model;
+    if (typeof model !== "string" || model.length === 0) {
+      continue;
+    }
+    if (model === readPlainObject(priorSites[site])?.model) {
+      continue;
+    }
+    changed.push({ site, model });
+  }
+  if (changed.length === 0) {
+    return;
+  }
+  const parsed = LLMSchema.safeParse(readPlainObject(raw.llm) ?? {});
+  if (!parsed.success) {
+    return;
+  }
+  for (const { site, model } of changed) {
+    const parsedSite = LLMCallSiteEnum.safeParse(site);
+    if (!parsedSite.success) {
+      continue;
+    }
+    const { config: resolved } = resolveCallSiteConfigWithProfile(
+      parsedSite.data,
+      parsed.data,
+    );
+    // The winner's route, entry-translated: a vendor/identity provider is
+    // its own kind; an entry-name provider resolves to its row's
+    // dispatchable kind (null when the row is missing or unreadable).
+    const kind = (VALID_CONNECTION_PROVIDERS as readonly string[]).includes(
+      resolved.provider,
+    )
+      ? resolved.provider
+      : resolveEntryProviderKind(resolved.provider, model);
+    if (kind == null) {
+      continue;
+    }
+    const issue = ROUTING_IDENTITY_PROVIDERS.has(kind)
+      ? routingIdentityModelIssue(kind, model)
+      : catalogServabilityIssue(kind, model);
+    if (issue) {
+      throw new BadRequestError(`${issue} (llm.callSites.${site}.model)`);
+    }
+  }
+}
+
+/**
+ * Catalog-membership servability for a vendor kind, or null when servable
+ * or not judgeable. Kinds whose model set is not code-known are never
+ * judged: endpoint-supplied providers (openai-compatible, litellm, ...)
+ * and keyless ollama, where the catalog lists illustrative local pulls.
+ */
+function catalogServabilityIssue(kind: string, model: string): string | null {
+  const entry = PROVIDER_CATALOG.find((p) => p.id === kind);
+  if (
+    entry == null ||
+    entry.models.length === 0 ||
+    PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(kind) ||
+    kind === "ollama"
+  ) {
+    return null;
+  }
+  return entry.models.some((m) => m.id === model)
+    ? null
+    : `Model "${model}" is not served by provider "${kind}".`;
+}
+
 export async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
@@ -1410,6 +1521,7 @@ export async function commitConfigWrite(
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
   assertRoutableIdentityEntries(preWrite, raw);
+  assertServableCallSiteModels(preWrite, raw);
 
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write

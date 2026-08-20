@@ -52,18 +52,20 @@ mock.module("../providers/inference/connections.js", () => ({
   }),
 }));
 
-// Seed the workspace config for real. The main-agent call-site tweak applies
-// last over the winning profile, so it fully pins the provider/connection/
-// model these tests run under. Memory is disabled so no memory subsystem work
-// runs inside these turns.
+// Seed the workspace config for real. The active profile is the winner for
+// mainAgent turns, so it fully pins the provider/connection/model these
+// tests run under. Memory is disabled so no memory subsystem work runs
+// inside these turns.
 setConfig("llm", {
-  callSites: {
-    mainAgent: {
+  profiles: {
+    pinned: {
+      source: "user",
       provider: "anthropic",
       provider_connection: "anthropic-conn",
       model: "claude-opus-4-6",
     },
   },
+  activeProfile: "pinned",
 });
 setConfig("memory", { enabled: false, v2: { enabled: false } });
 

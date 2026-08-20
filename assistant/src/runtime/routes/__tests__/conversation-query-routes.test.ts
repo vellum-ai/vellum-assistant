@@ -1513,6 +1513,109 @@ describe("call-site override writes stay sparse", () => {
   });
 });
 
+describe("call-site model writes are validated against the winning route", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+
+  beforeEach(() => {
+    rawConfigFixture = { llm: { defaultProvider: { provider: "anthropic" } } };
+    seedRawConfig();
+  });
+
+  test("an unservable changed call-site model returns 400", async () => {
+    await expect(
+      configPatchRoute.handler({
+        body: {
+          llm: {
+            callSites: { conversationSummarization: { model: "gpt-5.4-mini" } },
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'Model "gpt-5.4-mini" is not served by provider "anthropic". (llm.callSites.conversationSummarization.model)',
+    );
+  });
+
+  test("a servable changed call-site model saves", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: {
+            conversationSummarization: { model: "claude-haiku-4-5-20251001" },
+          },
+        },
+      },
+    });
+    const llm = loadRawConfig().llm as {
+      callSites?: Record<string, Record<string, unknown>>;
+    };
+    expect(llm.callSites?.conversationSummarization?.model).toBe(
+      "claude-haiku-4-5-20251001",
+    );
+  });
+
+  test("an identity winner validates through its routing table", async () => {
+    rawConfigFixture = { llm: { defaultProvider: { provider: "vellum" } } };
+    seedRawConfig();
+    await expect(
+      configPatchRoute.handler({
+        body: {
+          llm: {
+            callSites: { conversationSummarization: { model: "not-a-model" } },
+          },
+        },
+      }),
+    ).rejects.toThrow(/not served by the Vellum managed route/);
+  });
+
+  test("an unchanged pre-existing unservable model does not block later saves", async () => {
+    rawConfigFixture = {
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        callSites: { conversationSummarization: { model: "gpt-5.4-mini" } },
+      },
+    };
+    seedRawConfig();
+    // A save that does not touch that call-site model commits cleanly.
+    await configPatchRoute.handler({
+      body: { llm: { callSites: { recall: { maxTokens: 512 } } } },
+    });
+    const llm = loadRawConfig().llm as {
+      callSites?: Record<string, Record<string, unknown>>;
+    };
+    expect(llm.callSites?.recall?.maxTokens).toBe(512);
+    expect(llm.callSites?.conversationSummarization?.model).toBe(
+      "gpt-5.4-mini",
+    );
+  });
+
+  test("an indeterminate winner (entry name with no readable row) skips validation", async () => {
+    getDb().delete(providerConnections).run();
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          entry: { source: "user", provider: "my-conn", model: "gpt-5.5" },
+        },
+      },
+    };
+    seedRawConfig();
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: {
+            memoryExtraction: { profile: "entry", model: "anything-goes" },
+          },
+        },
+      },
+    });
+    const llm = loadRawConfig().llm as {
+      callSites?: Record<string, Record<string, unknown>>;
+    };
+    expect(llm.callSites?.memoryExtraction?.model).toBe("anything-goes");
+  });
+});
+
 describe("sparse services.stt patch provider seeding", () => {
   const configPatchRoute = ROUTES.find(
     (r) => r.operationId === "config_patch",

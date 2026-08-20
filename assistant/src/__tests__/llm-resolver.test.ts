@@ -18,11 +18,11 @@ import { resolveModelIntent } from "../providers/model-intents.js";
 // also pinned by llm-resolver-override-or-default.test.ts; this suite covers
 // composition, fixtures with user profile shadows, mixes, and provenance.
 
-// Fully-specified call-site fragment. The call-site tweak is applied last in
-// the base + winner + tweak composition, so this fragment pins every knob of
-// the resolved config regardless of the winning profile.
+// Fully-specified call-site fragment (model-only: a tweak cannot express a
+// provider). The call-site tweak is applied last in the base + winner + tweak
+// composition, so this fragment pins every knob it sets regardless of the
+// winning profile, while the route stays the winner's.
 const fullTweak = {
-  provider: "anthropic" as const,
   model: "claude-opus-4-7",
   maxTokens: 64000,
   effort: "max" as const,
@@ -83,19 +83,21 @@ describe("resolveCallSiteConfig", () => {
     });
     const resolved = resolveCallSiteConfig("mainAgent", llm);
     expect(resolved.model).toBe("claude-sonnet-4-7");
-    // Sibling tweak fields are preserved.
-    expect(resolved.provider).toBe("anthropic");
+    // Sibling tweak fields are preserved; the route stays the winner's
+    // (balanced intent through the vellum catalog with no defaultProvider).
+    expect(resolved.provider).toBe("vellum");
     expect(resolved.maxTokens).toBe(64000);
   });
 
-  test("model-only call-site override infers provider from known model owner", () => {
-    // The winner resolves through the openai default provider; the tweak's
-    // model belongs to anthropic's catalog, so the catalog owner is implied.
+  test("a model-only call-site override keeps the winner's provider", () => {
+    // The winner resolves through the openai default provider; the tweak
+    // picks a model but never a route, so the winner's provider stands even
+    // for a model owned by another vendor's catalog.
     const llm = LLMSchema.parse({
       defaultProvider: { provider: "openai" },
       callSites: {
         conversationStarters: {
-          model: "claude-haiku-4-5-20251001",
+          model: "gpt-5.4-mini",
           effort: "low",
         },
       },
@@ -103,15 +105,14 @@ describe("resolveCallSiteConfig", () => {
 
     const resolved = resolveCallSiteConfig("conversationStarters", llm);
 
-    expect(resolved.provider).toBe("anthropic");
-    expect(resolved.model).toBe("claude-haiku-4-5-20251001");
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.model).toBe("gpt-5.4-mini");
     expect(resolved.effort).toBe("low");
   });
 
   test("model-only override of a shared gateway model keeps a vercel-ai-gateway winner", () => {
-    // `anthropic/claude-opus-4.8` is listed by both openrouter and
-    // vercel-ai-gateway; the winner's provider serves it, so no provider is
-    // implied and the winner's provider stands.
+    // The winner's provider always stands; a model listed by several
+    // gateways resolves on whichever gateway won.
     const llm = LLMSchema.parse({
       profiles: {
         gw: {
@@ -146,10 +147,11 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.model).toBe("anthropic/claude-opus-4.8");
   });
 
-  test("model-only override of a gateway model with a non-serving winner implies the catalog owner", () => {
-    // Anthropic's own catalog uses bare slugs, so it does not serve
-    // `anthropic/claude-sonnet-4.6` — the catalog owner (openrouter, the
-    // earliest entry listing it) is implied.
+  test("a gateway-shaped model override never repoints the route off the winner", () => {
+    // Even a model id another catalog owns rides the winner's route: the
+    // tweak is model-only, so no catalog owner is ever implied. (Write-time
+    // validation is what rejects an unservable pairing; the resolver stays
+    // pure.)
     const llm = LLMSchema.parse({
       defaultProvider: { provider: "anthropic" },
       callSites: {
@@ -159,11 +161,11 @@ describe("resolveCallSiteConfig", () => {
 
     const resolved = resolveCallSiteConfig("memoryExtraction", llm);
 
-    expect(resolved.provider).toBe("openrouter");
+    expect(resolved.provider).toBe("anthropic");
     expect(resolved.model).toBe("anthropic/claude-sonnet-4.6");
   });
 
-  test("model unique to vercel-ai-gateway implies vercel-ai-gateway", () => {
+  test("a model unique to another gateway still keeps the winner's provider", () => {
     const llm = LLMSchema.parse({
       defaultProvider: { provider: "anthropic" },
       callSites: {
@@ -173,7 +175,7 @@ describe("resolveCallSiteConfig", () => {
 
     const resolved = resolveCallSiteConfig("memoryExtraction", llm);
 
-    expect(resolved.provider).toBe("vercel-ai-gateway");
+    expect(resolved.provider).toBe("anthropic");
     expect(resolved.model).toBe("openai/gpt-5.5-pro");
   });
 

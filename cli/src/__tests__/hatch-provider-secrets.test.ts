@@ -98,10 +98,17 @@ describe("hatch provider secrets", () => {
     ).toBe("anthropic");
   });
 
-  test("uses main agent call-site provider when no hatch default exists", () => {
+  test("infers from the main agent call-site model when no hatch default exists", () => {
+    // Call-site entries are model-only: a stored `provider` key is
+    // schema-dead, so only the entry's model can hint at the provider.
     expect(
       resolveHatchProvider({
         "llm.callSites.mainAgent.provider": "gemini",
+      }),
+    ).toBe("anthropic");
+    expect(
+      resolveHatchProvider({
+        "llm.callSites.mainAgent.model": "gemini-2.5-flash",
       }),
     ).toBe("gemini");
   });

@@ -60,7 +60,6 @@ describe("retry normalization for openrouter.only", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "openrouter",
           model: "anthropic/claude-opus-4.7",
           openrouter: { only: ["Anthropic"] },
         },
@@ -77,7 +76,6 @@ describe("retry normalization for openrouter.only", () => {
     setLlmConfig({
       callSites: {
         mainAgent: {
-          provider: "openrouter",
           model: "anthropic/claude-opus-4.7",
         },
       },

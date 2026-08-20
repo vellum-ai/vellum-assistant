@@ -626,11 +626,13 @@ export const ProfileEntry = LLMConfigFragment.extend({
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 
 /**
- * Per-call-site config: a fragment plus an optional `profile` reference.
- * The resolver merges in the named profile (if any) before applying
- * call-site-level overrides.
+ * Per-call-site config: a model-only tuning fragment plus an optional
+ * `profile` reference. A call-site entry cannot carry `provider`: a tweak
+ * picks a model (and tuning); the route (provider, connection, billing)
+ * always comes from the winning profile. A stray `provider` key in stored
+ * config is stripped at parse time.
  */
-const LLMCallSiteConfig = LLMConfigFragment.extend({
+const LLMCallSiteConfig = LLMConfigFragment.omit({ provider: true }).extend({
   profile: z.string().min(1).optional(),
 });
 type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;
@@ -714,22 +716,6 @@ export const LLMSchema = z
         });
       }
     }
-    for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
-      const issue = siteConfig?.provider
-        ? routingIdentityModelIssue(
-            siteConfig.provider,
-            siteConfig.model ?? undefined,
-          )
-        : null;
-      if (issue) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["callSites", siteId, "model"],
-          message: issue,
-        });
-      }
-    }
-
     // The always-available default profiles are code-defined
     // (`default-profile-catalog.ts`) and resolve whether or not they are
     // materialized in `llm.profiles`, so their names are always valid

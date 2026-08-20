@@ -192,7 +192,11 @@ describe("AssistantConfigSchema", () => {
       auditLog: { retentionDays: 30 },
     };
     const result = AssistantConfigSchema.parse(input);
-    expect(result.llm.callSites?.mainAgent?.provider).toBe("openai");
+    // Call-site entries are model-only: a stray `provider` key parses (no
+    // rejection) and is stripped.
+    expect(
+      (result.llm.callSites?.mainAgent as Record<string, unknown>)?.provider,
+    ).toBeUndefined();
     expect(result.llm.callSites?.mainAgent?.model).toBe("gpt-4");
     expect(result.llm.callSites?.mainAgent?.maxTokens).toBe(4096);
     expect(result.secretDetection.enabled).toBe(false);
@@ -422,22 +426,25 @@ describe("AssistantConfigSchema", () => {
       },
     });
     expect(inProfile.success).toBe(true);
-    const inCallSite = AssistantConfigSchema.safeParse({
-      llm: {
-        callSites: { mainAgent: { provider: "chatgpt", model: "gpt-5.5" } },
-      },
-    });
-    expect(inCallSite.success).toBe(true);
   });
 
   test("rejects routing identities with a missing or unroutable model", () => {
-    // A call-site fragment naming an identity without a model would inherit
-    // the winning profile's model, which the identity may not serve.
-    expect(
-      AssistantConfigSchema.safeParse({
-        llm: { callSites: { mainAgent: { provider: "chatgpt" } } },
-      }).success,
-    ).toBe(false);
+    // Call-site fragments are exempt: they are model-only, so an identity
+    // `provider` key there is stripped at parse rather than validated.
+    const strayCallSiteIdentity = AssistantConfigSchema.safeParse({
+      llm: { callSites: { mainAgent: { provider: "chatgpt" } } },
+    });
+    expect(strayCallSiteIdentity.success).toBe(true);
+    if (strayCallSiteIdentity.success) {
+      expect(
+        (
+          strayCallSiteIdentity.data.llm.callSites?.mainAgent as Record<
+            string,
+            unknown
+          >
+        )?.provider,
+      ).toBeUndefined();
+    }
     expect(
       AssistantConfigSchema.safeParse({
         llm: { profiles: { custom: { provider: "vellum" } } },
@@ -2322,7 +2329,10 @@ describe("loadConfig with schema validation", () => {
       },
     });
     const config = loadConfig();
-    expect(config.llm.callSites?.mainAgent?.provider).toBe("openai");
+    // Model-only call-site contract: the stray `provider` key is stripped.
+    expect(
+      (config.llm.callSites?.mainAgent as Record<string, unknown>)?.provider,
+    ).toBeUndefined();
     expect(config.llm.callSites?.mainAgent?.model).toBe("gpt-4");
     expect(config.llm.callSites?.mainAgent?.maxTokens).toBe(4096);
   });
@@ -2401,7 +2411,6 @@ describe("loadConfig with schema validation", () => {
       },
     });
     const config = loadConfig();
-    expect(config.llm.callSites?.mainAgent?.provider).toBe("openai");
     expect(config.llm.callSites?.mainAgent?.model).toBe("gpt-4");
     expect(config.llm.callSites?.mainAgent?.thinking?.enabled).toBe(true);
     expect(config.llm.callSites?.mainAgent?.maxTokens).toBeUndefined();
