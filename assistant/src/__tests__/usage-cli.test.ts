@@ -62,9 +62,20 @@ async function runCommand(args: string[]): Promise<{
   return { exitCode, output: logLines.join("\n") };
 }
 
+let mockCliIpcCallFn: (method: string, params?: unknown) => Promise<unknown> = async () => ({ ok: true });
+
+mock.module("../ipc/cli-client.js", () => ({
+  cliIpcCall: (method: string, params?: unknown) => mockCliIpcCallFn(method, params),
+  exitFromIpcResult: (r: { statusCode?: number; error?: string }) => {
+    process.exitCode = r.statusCode === undefined ? 10 : r.statusCode >= 500 ? 3 : r.statusCode >= 400 ? 2 : 1;
+    throw new Error(r.error ?? "Unknown error");
+  },
+}));
+
 describe("assistant usage CLI", () => {
   beforeEach(() => {
     logLines.length = 0;
+    mockCliIpcCallFn = async () => ({ ok: true });
   });
 
   test("rejects invalid breakdown dimensions", async () => {
@@ -79,5 +90,17 @@ describe("assistant usage CLI", () => {
     expect(result.output).toContain("Invalid --group-by value");
     expect(result.output).toContain("call_site");
     expect(result.output).toContain("inference_profile");
+  });
+
+  test("executes breakdown via IPC and outputs result", async () => {
+    let capturedMethod = "";
+    mockCliIpcCallFn = async (method) => {
+      capturedMethod = method;
+      return { ok: true, rows: [] };
+    };
+
+    const result = await runCommand(["usage", "breakdown", "--group-by", "call_site"]);
+    expect(result.exitCode).toBe(0);
+    expect(capturedMethod).toBe("usage_breakdown");
   });
 });
