@@ -21,6 +21,9 @@ const VELAY_ALLOWED_HTTP_EXACT_PATHS = [
 const VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS = [
   "/v1/live-voice",
   "/v1/stt/stream",
+  // `/v1/watch/stream` is deliberately not here either. See the note in
+  // allowed-paths.ts before adding it: Watch is self-hosted only, and the
+  // entry alone does not make it work in managed deployments.
 ] as const;
 
 /**

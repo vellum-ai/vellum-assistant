@@ -58,6 +58,14 @@ describe("VELAY_ALLOWED_PATHS", () => {
       "/v1/credential-requests/peek": true,
       "/v1/credential-requests/submit": true,
       // Negative samples — paths that must NOT be tunnel-public.
+      //
+      // `/v1/watch/stream` is here because its absence is a decision rather
+      // than an oversight. Watch is self-hosted only: the client refuses a
+      // paired ingress and a session needs a local desktop client, so the
+      // allowlist entry would open a managed route that still cannot carry a
+      // session. This line is what turns adding it from a silent no-op into a
+      // failure that names the reason.
+      "/v1/watch/stream": false,
       "/v1/credential-requests": false,
       "/v1/credential-requests/other": false,
       "/assistant/credentials": false,
