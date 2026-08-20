@@ -9,7 +9,6 @@
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
-import { performConversationSearch } from "../../daemon/handlers/conversation-history.js";
 import { clearAllConversations as clearAllActive } from "../../daemon/handlers/conversations.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import { ipcCall as ipcCallGateway } from "../../ipc/gateway-client.js";
@@ -29,7 +28,6 @@ import { getLogger } from "../../util/logger.js";
 import { withSqliteRetry } from "../../util/sqlite-retry.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadGatewayError, BadRequestError, NotFoundError } from "./errors.js";
-import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("conversation-cli-routes");
@@ -61,43 +59,6 @@ function handleListCli({ body = {} }: RouteHandlerArgs) {
       isProcessing: isConversationProcessing(c.id),
     })),
   };
-}
-
-// ---------------------------------------------------------------------------
-// search (CLI)
-// ---------------------------------------------------------------------------
-
-const conversationSearchMessageSchema = z.object({
-  messageId: z.string(),
-  role: z.string(),
-  excerpt: z.string(),
-  createdAt: z.number(),
-});
-
-const conversationSearchResultSchema = z.object({
-  conversationId: z.string(),
-  conversationTitle: z.string().nullable(),
-  conversationUpdatedAt: z.number(),
-  matchingMessages: z.array(conversationSearchMessageSchema),
-});
-
-const conversationSearchCliRequestSchema = z.object({
-  query: z.string().trim().min(1),
-  limit: z.number().int().positive().optional(),
-});
-
-const conversationSearchCliResponseSchema = z.object({
-  query: z.string(),
-  results: z.array(conversationSearchResultSchema),
-});
-
-async function handleSearchCli({ body = {} }: RouteHandlerArgs) {
-  const parsed = parseBody(conversationSearchCliRequestSchema, body);
-  const results = await performConversationSearch({
-    query: parsed.query,
-    ...(parsed.limit !== undefined ? { limit: parsed.limit } : {}),
-  });
-  return { query: parsed.query, results };
 }
 
 // ---------------------------------------------------------------------------
@@ -401,22 +362,6 @@ export const ROUTES: RouteDefinition[] = [
       ),
     }),
     handler: handleListCli,
-  },
-  {
-    operationId: "conversation_search_cli",
-    endpoint: "conversations/cli/search",
-    method: "POST",
-    policy: {
-      requiredScopes: ["settings.read"],
-      allowedPrincipalTypes: LOCAL_PRINCIPALS,
-    },
-    summary: "Search conversations (CLI)",
-    description:
-      "Full-text search across conversation titles and message content for CLI output.",
-    tags: ["conversations"],
-    requestBody: conversationSearchCliRequestSchema,
-    responseBody: conversationSearchCliResponseSchema,
-    handler: handleSearchCli,
   },
   {
     operationId: "conversation_create_cli",

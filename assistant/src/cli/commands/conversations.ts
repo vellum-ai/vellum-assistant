@@ -284,16 +284,14 @@ export function registerConversationsCommand(program: Command): void {
             return;
           }
 
+          const queryParams: Record<string, string> = { q: trimmed };
+          if (parsedLimit.value !== undefined) {
+            queryParams.limit = String(parsedLimit.value);
+          }
+
           const result = await cliIpcCall<ConversationSearchResponse>(
-            "conversation_search_cli",
-            {
-              body: {
-                query: trimmed,
-                ...(parsedLimit.value !== undefined
-                  ? { limit: parsedLimit.value }
-                  : {}),
-              },
-            },
+            "conversations_search",
+            { queryParams },
           );
 
           if (!result.ok) {
