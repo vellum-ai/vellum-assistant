@@ -17,6 +17,10 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore, type OpenedAppState } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
+import {
+  getEditChatConversationId,
+  setEditChatConversationId,
+} from "@/utils/edit-chat-session";
 
 import { useEditApp } from "./use-edit-app";
 
@@ -42,6 +46,8 @@ const APP: OpenedAppState = {
   html: "<html></html>",
 };
 const CONV_ID = "conv-edit";
+const ASSISTANT_ID = "asst-1";
+const REMEMBERED_ID = "conv-remembered";
 const LIBRARY_PATH = "/assistant/library/app-42";
 const CONVERSATION_PATH = `/assistant/conversations/${CONV_ID}`;
 
@@ -94,7 +100,7 @@ beforeEach(() => {
     setEditingConversationId:
       setEditingConversationIdMock as unknown as typeof conversationSnapshot.setEditingConversationId,
   });
-  useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
+  useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
 });
 
 afterEach(() => {
@@ -155,6 +161,34 @@ describe("useEditApp", () => {
     expect(
       useConversationStore.getState().draftConversationIds.has(mintedId!),
     ).toBe(true);
+  });
+
+  test("with nothing on screen, returns to the thread this app was last edited in", () => {
+    // GIVEN this app has a remembered edit thread, and nothing is on screen
+    setEditChatConversationId(ASSISTANT_ID, APP.appId, REMEMBERED_ID);
+    useConversationStore.setState({ activeConversationId: null });
+    const { result } = renderHook(() => useEditApp(), { wrapper });
+
+    // WHEN the user clicks Edit
+    act(() => result.current(APP));
+
+    // THEN that thread is reused rather than a fresh one minted, so repeated
+    // Edit clicks on one app keep iterating in the same conversation
+    expect(setEditingConversationIdMock).toHaveBeenCalledWith(REMEMBERED_ID);
+  });
+
+  test("the conversation on screen wins over the remembered thread", () => {
+    // GIVEN a remembered thread for this app, and a different one on screen
+    setEditChatConversationId(ASSISTANT_ID, APP.appId, REMEMBERED_ID);
+    const { result } = renderHook(() => useEditApp(), { wrapper });
+
+    // WHEN the user clicks Edit
+    act(() => result.current(APP));
+
+    // THEN the visible conversation is bound, and becomes what the app
+    // remembers, so a later Edit with nothing on screen returns here
+    expect(setEditingConversationIdMock).toHaveBeenCalledWith(CONV_ID);
+    expect(getEditChatConversationId(ASSISTANT_ID, APP.appId)).toBe(CONV_ID);
   });
 
   test("on a mobile viewport, binds the edit conversation, navigates, and minimizes the app to the chat strip (no split)", () => {
