@@ -32,6 +32,24 @@ export function escapeAxTreeContent(content: string): string {
 }
 
 /**
+ * Escapes literal `<tag>` and `</tag>` occurrences inside content that is
+ * about to be fenced between those very tags, so material from inside the
+ * fence cannot close it early and have whatever follows read as the prompt
+ * around it rather than as fenced content.
+ *
+ * Stricter than {@link escapeAxTreeContent}, which escapes the closing form
+ * only: `AX_TREE_PATTERN` swaps whole `<ax-tree>...</ax-tree>` blocks for a
+ * placeholder and needs the opening tag intact to find them. A fence around
+ * untrusted text has no such reader, so both forms go.
+ */
+export function escapeFenceTags(content: string, tagName: string): string {
+  return content.replace(
+    new RegExp(`</?${tagName}>`, "gi"),
+    (match) => `&lt;${match.slice(1, -1)}&gt;`,
+  );
+}
+
+/**
  * Returns a shallow copy of `messages` where all but the most recent
  * `MAX_AX_TREES_IN_HISTORY` `<ax-tree>` blocks have been replaced with a
  * short placeholder.  This keeps the conversation context small so that

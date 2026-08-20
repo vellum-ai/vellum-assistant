@@ -94,6 +94,7 @@ import {
 } from "./routes/inference-profile-session-reaper.js";
 import {
   activeWatchStreamSessions,
+  drainWatchRetros,
   WatchStreamSession,
 } from "./routes/watch-routes.js";
 
@@ -629,6 +630,10 @@ export class RuntimeHttpServer {
       session.destroy();
       activeWatchStreamSessions.delete(sessionId);
     }
+    // A socket that closed just before shutdown may have left a retrospective
+    // turn running. Destroying the sessions above starts none, so this waits
+    // only on one that was already under way.
+    await drainWatchRetros();
 
     const liveVoiceManager = getLiveVoiceSessionManager();
     const liveVoiceSessionId = liveVoiceManager.activeSessionId;

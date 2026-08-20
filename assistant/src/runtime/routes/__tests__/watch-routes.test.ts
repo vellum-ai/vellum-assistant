@@ -10,6 +10,7 @@ import { WatchSessionManager } from "../../../watch/watch-session-manager.js";
 import { renderWatchTimeline } from "../../../watch/watch-timeline.js";
 import type { HostObservation } from "../../host-observe.js";
 import {
+  drainWatchRetros,
   type WatchStreamServerFrame,
   WatchStreamSession,
   type WatchStreamSocket,
@@ -100,6 +101,8 @@ interface HarnessOverrides {
   transcriber?: FakeTranscriber | null;
   principalId?: string | undefined;
   idleTimeoutMs?: number;
+  /** How long the stand-in retrospective takes before it settles. */
+  retroDelayMs?: number;
 }
 
 function newSession(overrides: HarnessOverrides = {}) {
@@ -110,8 +113,10 @@ function newSession(overrides: HarnessOverrides = {}) {
       : overrides.transcriber;
   const manager = overrides.manager ?? newManager().manager;
   // The retrospective is a full agent turn, so every session in this file gets
-  // a stand-in for it and the tests read what it was handed.
+  // a stand-in for it and the tests read what it was handed. `finished` flips
+  // once the stand-in returns, which is what a drain has to wait for.
   const retros: WatchSessionSummary[] = [];
+  const finished: WatchSessionSummary[] = [];
   const session = new WatchStreamSession(ws, {
     mimeType: "audio/webm",
     manager,
@@ -120,12 +125,16 @@ function newSession(overrides: HarnessOverrides = {}) {
       "principalId" in overrides ? overrides.principalId : PRINCIPAL_ID,
     runRetro: async (summary) => {
       retros.push(summary);
+      if (overrides.retroDelayMs !== undefined) {
+        await Bun.sleep(overrides.retroDelayMs);
+      }
+      finished.push(summary);
     },
     ...(overrides.idleTimeoutMs !== undefined
       ? { idleTimeoutMs: overrides.idleTimeoutMs }
       : {}),
   });
-  return { ws, transcriber, manager, session, retros };
+  return { ws, transcriber, manager, session, retros, finished };
 }
 
 describe("watch stream session", () => {
@@ -315,8 +324,78 @@ describe("watch stream session", () => {
 
     expect(second.retros).toHaveLength(0);
 
-    first.session.destroy();
+    first.session.handleClose(1000, "done");
     expect(first.retros).toHaveLength(1);
+  });
+
+  test("shutdown tears the session down without starting a retrospective", async () => {
+    const { manager } = newManager();
+    const { transcriber, session, retros } = newSession({ manager });
+    await session.start();
+    transcriber!.emit({ type: "final", text: "renaming the export" });
+    await Bun.sleep(5);
+
+    session.destroy();
+
+    // The process is going away, so a turn started here would be killed
+    // partway through. The timeline it would have read outlives the daemon.
+    expect(retros).toHaveLength(0);
+    expect(manager.isActive()).toBe(false);
+    expect(session.isClosed).toBe(true);
+  });
+
+  test("shutdown waits for a retrospective that was already running", async () => {
+    const { manager } = newManager();
+    const { session, retros, finished } = newSession({
+      manager,
+      retroDelayMs: 30,
+    });
+    await session.start();
+
+    session.handleClose(1000, "done");
+    expect(retros).toHaveLength(1);
+    // Teardown does not block on the turn, so it is still going here.
+    expect(finished).toHaveLength(0);
+
+    expect(await drainWatchRetros(2_000)).toBe(0);
+
+    expect(finished).toHaveLength(1);
+  });
+
+  test("a settled retrospective is forgotten, so the registry stays bounded", async () => {
+    const { manager } = newManager();
+    const first = newSession({ manager });
+    await first.session.start();
+    first.session.handleClose(1000, "done");
+    expect(await drainWatchRetros(2_000)).toBe(0);
+
+    const second = newSession({ manager });
+    await second.session.start();
+    second.session.handleClose(1000, "done");
+
+    // Only the second session's retro is outstanding. The first was dropped
+    // when it settled rather than accumulating for the life of the process.
+    expect(await drainWatchRetros(2_000)).toBe(0);
+    expect(first.finished).toHaveLength(1);
+    expect(second.finished).toHaveLength(1);
+  });
+
+  test("the drain gives up rather than holding shutdown open", async () => {
+    const { manager } = newManager();
+    const { session, finished } = newSession({ manager, retroDelayMs: 400 });
+    await session.start();
+
+    session.handleClose(1000, "done");
+    const startedAtMs = Date.now();
+    const unsettled = await drainWatchRetros(20);
+
+    // It returns on its own deadline, and the unfinished turn is cut off
+    // rather than allowed to fail the shutdown that is cutting it off.
+    expect(unsettled).toBe(1);
+    expect(Date.now() - startedAtMs).toBeLessThan(300);
+    expect(finished).toHaveLength(0);
+    // Let the straggler settle so it does not leak into the next test.
+    await Bun.sleep(450);
   });
 
   test("a dropped socket releases the session slot", async () => {

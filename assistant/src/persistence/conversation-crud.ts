@@ -2881,35 +2881,6 @@ export function updateConversationTitle(
   }
 }
 
-/**
- * Move a conversation between types, for a thread whose visibility changes
- * after it was created: a watch session runs as `background` so it stays out
- * of the sidebar while it records, and becomes `standard` when its
- * retrospective turns it into something the user reads and replies in.
- *
- * Returns true when the row's type actually changed, so a caller that has to
- * tell clients the list moved can do it on the edge rather than on every call.
- * The disk view carries the type too, so its meta is rewritten alongside the
- * column.
- */
-export function setConversationType(
-  id: string,
-  conversationType: ConversationCreateType,
-): boolean {
-  const existing = getConversation(id);
-  if (!existing || existing.conversationType === conversationType) {
-    return false;
-  }
-  const updatedAt = Date.now();
-  getDb()
-    .update(conversations)
-    .set({ conversationType, updatedAt })
-    .where(eq(conversations.id, id))
-    .run();
-  updateMetaFile({ ...existing, conversationType, updatedAt });
-  return true;
-}
-
 export function updateConversationUsage(
   id: string,
   totalInputTokens: number,

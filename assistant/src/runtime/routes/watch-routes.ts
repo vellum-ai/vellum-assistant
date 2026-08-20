@@ -356,13 +356,21 @@ export class WatchStreamSession {
     this.teardown();
   }
 
-  /** Forcible teardown, for runtime shutdown. */
+  /**
+   * Forcible teardown, for runtime shutdown.
+   *
+   * No retrospective. A retro is a full agent turn that runs for as long as the
+   * model takes, and the process behind it is on its way out: started here it
+   * would be killed partway through, leaving a half-written report in the
+   * thread. Skipping keeps the timeline, which is the whole of what the
+   * session recorded and outlives the daemon.
+   */
   destroy(): void {
     if (this.state === "closed") {
       return;
     }
     log.info("Watch stream session destroyed");
-    this.teardown();
+    this.teardown({ retrospective: false });
   }
 
   // ── Internals ──────────────────────────────────────────────────────
@@ -497,7 +505,9 @@ export class WatchStreamSession {
    * Idempotent: the close handler, the idle timer, and the provider's own
    * `closed` all land here, and only the first one does any work.
    */
-  private teardown(): void {
+  private teardown(
+    options: { retrospective: boolean } = { retrospective: true },
+  ): void {
     if (this.state === "closed") {
       return;
     }
@@ -526,20 +536,41 @@ export class WatchStreamSession {
           },
           "Watch session ended",
         );
-        // The retrospective is a conversational turn and outlives the socket
-        // by minutes, so teardown starts it rather than waiting on it. It owns
-        // its own failures; nothing here is left to decide.
-        const runRetro = this.options.runRetro ?? runWatchRetro;
-        void runRetro(summary).catch((err: unknown) => {
-          log.warn(
-            { err, sessionId: summary.sessionId },
-            "Watch retrospective threw",
+        if (options.retrospective) {
+          this.startRetrospective(summary);
+        } else {
+          log.info(
+            { sessionId: summary.sessionId },
+            "Watch session ended during shutdown; skipping the retrospective",
           );
-        });
+        }
       }
     }
 
     this.sendFrame({ type: "closed" });
+  }
+
+  /**
+   * Start the retrospective and register it so shutdown can wait on it.
+   *
+   * The turn is a conversation that outlives the socket by minutes, so
+   * teardown starts it rather than blocking on it, and it owns its own
+   * failures. Registration is what stops a stop-then-quit from killing a turn
+   * mid-generation: {@link drainWatchRetros} gives one already in flight a
+   * bounded chance to finish.
+   */
+  private startRetrospective(summary: WatchSessionSummary): void {
+    const runRetro = this.options.runRetro ?? runWatchRetro;
+    const pending = runRetro(summary).catch((err: unknown) => {
+      log.warn(
+        { err, sessionId: summary.sessionId },
+        "Watch retrospective threw",
+      );
+    });
+    inFlightWatchRetros.add(pending);
+    void pending.finally(() => {
+      inFlightWatchRetros.delete(pending);
+    });
   }
 
   private sendFrame(frame: WatchStreamServerFrame): void {
@@ -615,3 +646,63 @@ export async function resolveWatchActorPrincipalId(): Promise<
  * them all down deterministically. Mirrors `activeSttStreamSessions`.
  */
 export const activeWatchStreamSessions = new Map<string, WatchStreamSession>();
+
+/**
+ * Retrospectives that have started and not yet settled.
+ *
+ * A retro is dispatched from a teardown that cannot wait on it, so without a
+ * handle a socket closing seconds before shutdown leaves a turn running
+ * against a database that is about to be closed underneath it.
+ */
+const inFlightWatchRetros = new Set<Promise<unknown>>();
+
+/**
+ * Longest shutdown waits for retrospectives already under way.
+ *
+ * Shutdown's other awaited step is releasing the live-voice session, which is
+ * a handful of socket closes, so there is no established budget to borrow. A
+ * retro is a model call and can legitimately take longer than any shutdown
+ * should, which is why one is never started during shutdown; this bound is for
+ * the turn that was already running when the user quit, and it is short enough
+ * that quitting stays a quick action.
+ */
+const RETRO_DRAIN_TIMEOUT_MS = 5_000;
+
+/**
+ * Wait for in-flight retrospectives, up to {@link RETRO_DRAIN_TIMEOUT_MS}, and
+ * report how many were still running when the wait ended.
+ *
+ * Resolves rather than rejects on the timeout: a retro that is still going is
+ * a turn that will be cut off, which is worth a log line and never a reason to
+ * fail the shutdown that is cutting it off. A settled one is forgotten, so the
+ * registry tracks what is running rather than everything that ever ran.
+ */
+export async function drainWatchRetros(
+  timeoutMs: number = RETRO_DRAIN_TIMEOUT_MS,
+): Promise<number> {
+  if (inFlightWatchRetros.size === 0) {
+    return 0;
+  }
+  log.info(
+    { count: inFlightWatchRetros.size },
+    "Waiting for watch retrospectives to settle",
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, timeoutMs);
+    timer.unref?.();
+  });
+  await Promise.race([
+    Promise.allSettled([...inFlightWatchRetros]).then(() => undefined),
+    deadline,
+  ]);
+  clearTimeout(timer);
+  const unsettled = inFlightWatchRetros.size;
+  if (unsettled > 0) {
+    log.warn(
+      { count: unsettled },
+      "Shutting down with watch retrospectives still running",
+    );
+  }
+  return unsettled;
+}
