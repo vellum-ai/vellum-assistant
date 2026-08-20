@@ -84,6 +84,7 @@ public static class PushToTalkChordTrackerTests
         tracker.Configure([0x11, 0x10]);
         tracker.KeyDown(0x11);
         tracker.KeyDown(0x10);
+        Assert(tracker.ActivatePending() == PushToTalkTransition.Down);
         Assert(tracker.Configure([0x12]) == PushToTalkTransition.Up);
     }
 
