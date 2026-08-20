@@ -82,6 +82,19 @@ const SUBSCRIPTION: SubscriptionResponse = {
   entitlements: { managed_email: false, phone_number: false },
 };
 
+/** A free (base) sub: no package, no cycle, and nothing that resets. */
+const FREE_SUBSCRIPTION: SubscriptionResponse = {
+  plan_id: "base",
+  status: "active",
+  renewal_date: null,
+  current_period_start: null,
+  current_period_end: null,
+  cancel_at_period_end: false,
+  cancel_at: null,
+  package: null,
+  entitlements: { managed_email: false, phone_number: false },
+};
+
 const PLANS: PlanListResponse = {
   plans: [
     {
@@ -111,10 +124,19 @@ function usageWindow(): { from: string; to: string } {
 }
 
 interface UsagePanelStoryArgs {
-  /** Managed usage spent this cycle, in USD, against Mighty's $25 bundle. */
+  /**
+   * Which plan the seeded sub is on: `pro` measures the cycle against Mighty's
+   * $25 bundle, `free` measures the usage grants off the billing summary.
+   */
+  plan: "pro" | "free";
+  /** Managed usage spent this cycle, in USD. Ignored on a free plan. */
   spentUsd: string;
   /** Effective credit balance. At or below zero reads as an empty wallet. */
   balanceUsd: string;
+  /** What the account's usage grants were worth, in USD. */
+  totalUsageUsd: string;
+  /** How much of those grants is still unused, in USD. */
+  availableUsageUsd: string;
 }
 
 /** The panel on its own, which is what the menu shows most of the time. */
@@ -161,7 +183,8 @@ function SeededPanel({
   args: UsagePanelStoryArgs;
   children: ReactNode;
 }) {
-  const { spentUsd, balanceUsd } = args;
+  const { plan, spentUsd, balanceUsd, totalUsageUsd, availableUsageUsd } = args;
+  const free = plan === "free";
   const [client] = useState(
     () =>
       new QueryClient({
@@ -187,7 +210,7 @@ function SeededPanel({
 
     client.setQueryData(
       organizationsBillingSubscriptionRetrieveOptions().queryKey,
-      SUBSCRIPTION,
+      free ? FREE_SUBSCRIPTION : SUBSCRIPTION,
     );
     client.setQueryData(
       organizationsBillingPlansRetrieveOptions().queryKey,
@@ -207,6 +230,8 @@ function SeededPanel({
       daily_limit_snoozed: false,
       daily_credit_limit_usd: null,
       daily_spend_usd: "0.00",
+      total_usage_balance: totalUsageUsd,
+      available_usage_balance: availableUsageUsd,
     });
 
     return () => {
@@ -217,7 +242,7 @@ function SeededPanel({
       useOrganizationStore.setState({ persistedOrganizationId: previousOrgId });
       useClientFeatureFlagStore.getState().clearOverride(OBSCURE_CREDITS);
     };
-  }, [balanceUsd, client, spentUsd]);
+  }, [availableUsageUsd, balanceUsd, client, free, spentUsd, totalUsageUsd]);
 
   return (
     <QueryClientProvider client={client}>
@@ -240,10 +265,19 @@ const meta: Meta<UsagePanelStoryArgs> = {
   tags: ["!autodocs"],
   parameters: { layout: "centered" },
   argTypes: {
+    plan: { control: "inline-radio", options: ["pro", "free"] },
     spentUsd: { control: "text" },
     balanceUsd: { control: "text" },
+    totalUsageUsd: { control: "text" },
+    availableUsageUsd: { control: "text" },
   },
-  args: { spentUsd: "17", balanceUsd: "18.00" },
+  args: {
+    plan: "pro",
+    spentUsd: "17",
+    balanceUsd: "18.00",
+    totalUsageUsd: "5.00",
+    availableUsageUsd: "1.60",
+  },
   render: (args) => (
     <SeededPanel args={args}>
       <PanelOnly />
@@ -293,4 +327,31 @@ export const FullWithCredits: Story = {
       <PanelWithCredits />
     </SeededPanel>
   ),
+};
+
+/**
+ * A free plan, which has no cycle and no included bundle: $3.40 of the $5.00
+ * grant used, read straight off the billing summary. Nothing resets, so the
+ * line under the bar is gone. A further grant would grow the denominator and
+ * drop the bar back.
+ */
+export const FreePlan: Story = {
+  name: "Free plan, usage grant",
+  args: {
+    plan: "free",
+    balanceUsd: "1.60",
+    totalUsageUsd: "5.00",
+    availableUsageUsd: "1.60",
+  },
+};
+
+/** The same free plan with its grant and its wallet both spent to nothing. */
+export const FreePlanExhausted: Story = {
+  name: "Free plan, wallet empty",
+  args: {
+    plan: "free",
+    balanceUsd: "0.00",
+    totalUsageUsd: "5.00",
+    availableUsageUsd: "0.00",
+  },
 };

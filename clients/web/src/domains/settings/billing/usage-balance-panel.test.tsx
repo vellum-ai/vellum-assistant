@@ -98,4 +98,16 @@ describe("UsageBalancePanel", () => {
     ).toBeTruthy();
     expect(queryByTestId("plan-usage-add-credits")).toBeNull();
   });
+
+  test("a wallet reading quotes no reset date", () => {
+    // A free plan's usage grant is not a cycle, so there is nothing to say
+    // about when they come back.
+    const { getByTestId } = render(
+      <UsageBalancePanel ratio={0.68} resetsAt={null} />,
+    );
+
+    const panel = getByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("68% used");
+    expect(panel.textContent).not.toContain("Resets");
+  });
 });

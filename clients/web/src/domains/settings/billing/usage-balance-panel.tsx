@@ -9,8 +9,11 @@ import { useTranslation } from "@/i18n";
 export interface UsageBalancePanelProps {
   /** Spend against the included bundle, already clamped to 0..1. */
   ratio: number;
-  /** ISO timestamp the current billing cycle ends on. */
-  resetsAt: string;
+  /**
+   * ISO timestamp the current billing cycle ends on, or null when the reading
+   * measures granted usage credit rather than a cycle and so never resets.
+   */
+  resetsAt: string | null;
   /**
    * The wallet behind the spent bundle is empty too, so the next turn has
    * nothing to draw on. Raises the add-credits strip, and only that: the bar
@@ -22,8 +25,10 @@ export interface UsageBalancePanelProps {
 }
 
 /**
- * The current-plan tile's footer while `obscure-credits` is on: how much of the
- * package's included usage this cycle has spent, in place of the price row.
+ * The current-plan tile's footer while `obscure-credits` is on: how much of a
+ * Pro package's included usage this cycle has spent, in place of the price
+ * row, or how much of a free plan's granted usage credit it has used, above
+ * one.
  */
 export function UsageBalancePanel({
   ratio,
@@ -37,10 +42,12 @@ export function UsageBalancePanel({
   // Spending the whole bundle is the negative reading in its own right,
   // whatever the wallet behind it still holds.
   const spent = ratio >= 1;
-  const resetDate = new Intl.DateTimeFormat(i18n.language, {
-    month: "short",
-    day: "numeric",
-  }).format(new Date(resetsAt));
+  const resetDate = resetsAt
+    ? new Intl.DateTimeFormat(i18n.language, {
+        month: "short",
+        day: "numeric",
+      }).format(new Date(resetsAt))
+    : null;
 
   return (
     <div
@@ -56,13 +63,15 @@ export function UsageBalancePanel({
           >
             {title}
           </Typography>
-          <Typography
-            as="span"
-            variant="body-small-default"
-            className="text-[var(--content-tertiary)]"
-          >
-            {t("planCard.usageBalanceResets", { date: resetDate })}
-          </Typography>
+          {resetDate ? (
+            <Typography
+              as="span"
+              variant="body-small-default"
+              className="text-[var(--content-tertiary)]"
+            >
+              {t("planCard.usageBalanceResets", { date: resetDate })}
+            </Typography>
+          ) : null}
         </div>
         <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
           <ProgressBar

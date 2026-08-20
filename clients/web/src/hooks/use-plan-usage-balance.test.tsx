@@ -2,12 +2,15 @@
  * Tests for the Plan section's usage-balance reading.
  *
  * The hook only speaks when every input is trustworthy: the `obscure-credits`
- * flag on, a Pro sub, a positive included-credit amount, and a settled totals
- * read. Most of these assert the null cases that keep a wrong number off the
- * card. `includedMonthlyCreditsUsd` is the pure half that resolves that
- * amount, from a clean pin's stock package or from the credit tier a Custom
- * sub holds. The usage endpoint is driven from the SDK boundary, mirroring the
- * other billing hook tests.
+ * flag on, and either a Pro sub with a positive included-credit amount and a
+ * settled totals read, or a free plan whose platform reports both usage-grant
+ * figures. Most of these assert the null cases that keep a wrong number off
+ * the card.
+ * `includedMonthlyCreditsUsd` is the pure half that resolves the Pro
+ * denominator, from a clean pin's stock package or from the credit tier a
+ * Custom sub holds; `usageGrantRatio` is the pure half that resolves the free
+ * one, off the billing summary alone. The usage endpoint is driven from the
+ * SDK boundary, mirroring the other billing hook tests.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -52,6 +55,7 @@ const {
   includedMonthlyCreditsUsdFromPlans,
   usePlanUsageBalance,
   utcMonthBefore,
+  usageGrantRatio,
 } = await import("./use-plan-usage-balance");
 
 function setObscureCredits(value: boolean): void {
@@ -89,6 +93,18 @@ function proSubscription(
   };
 }
 
+/** A free (base) sub: no package, no bundle, and no cycle to measure. */
+function freeSubscription(
+  over: Partial<SubscriptionResponse> = {},
+): SubscriptionResponse {
+  return proSubscription({
+    plan_id: "base",
+    package: null,
+    current_period_end: null,
+    ...over,
+  });
+}
+
 function wrapper() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -101,6 +117,8 @@ function wrapper() {
 function renderBalance(args: {
   subscription: SubscriptionResponse | undefined;
   includedCreditsUsd: number | null;
+  availableUsageBalance?: string | null;
+  totalUsageBalance?: string | null;
 }) {
   return renderHook(() => usePlanUsageBalance(args), { wrapper: wrapper() });
 }
@@ -223,6 +241,162 @@ describe("usePlanUsageBalance", () => {
     await waitFor(() => {
       expect(totalsCalls).toBeGreaterThan(0);
     });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current).toBeNull();
+  });
+});
+
+describe("usageGrantRatio", () => {
+  test("the used share of what was granted", () => {
+    // $5.00 granted with $1.60 unused: $3.40 of it is gone.
+    expect(usageGrantRatio(5, 1.6)).toBeCloseTo(0.68, 6);
+  });
+
+  test("a further grant lowers the reading", () => {
+    // The same $3.40 used, now against a $10.00 total.
+    expect(usageGrantRatio(10, 6.6)).toBeCloseTo(0.34, 6);
+  });
+
+  test("a grant with nothing left is exactly a full bar", () => {
+    expect(usageGrantRatio(5, 0)).toBe(1);
+  });
+
+  test("an untouched grant reads empty", () => {
+    expect(usageGrantRatio(5, 5)).toBe(0);
+  });
+
+  test("more unused than granted clamps rather than going negative", () => {
+    expect(usageGrantRatio(5, 6)).toBe(0);
+  });
+
+  test("an account that was never granted credit has no reading", () => {
+    expect(usageGrantRatio(0, 0)).toBeNull();
+  });
+
+  test("a platform reporting neither figure has no reading", () => {
+    expect(usageGrantRatio(null, 1.6)).toBeNull();
+    expect(usageGrantRatio(5, null)).toBeNull();
+    expect(usageGrantRatio(null, null)).toBeNull();
+  });
+});
+
+describe("usePlanUsageBalance on a free plan", () => {
+  test("measures the used share of the usage grants", async () => {
+    const { result } = renderBalance({
+      subscription: freeSubscription(),
+      includedCreditsUsd: null,
+      totalUsageBalance: "5.00",
+      availableUsageBalance: "1.60",
+    });
+
+    await waitFor(() => {
+      expect(result.current).not.toBeNull();
+    });
+    expect(result.current?.kind).toBe("wallet");
+    expect(result.current?.ratio).toBeCloseTo(0.68, 6);
+    // Nothing resets on a free plan, so the panel has no date to quote.
+    expect(result.current?.resetsAt).toBeNull();
+  });
+
+  test("never asks the usage endpoint for a window", async () => {
+    const { result } = renderBalance({
+      subscription: freeSubscription(),
+      includedCreditsUsd: null,
+      totalUsageBalance: "5.00",
+      availableUsageBalance: "1.60",
+    });
+
+    await waitFor(() => {
+      expect(result.current).not.toBeNull();
+    });
+    // The whole reading comes off the billing summary the caller already
+    // holds, so there is no second read to pay for.
+    expect(totalsCalls).toBe(0);
+  });
+
+  test("a further grant lowers the reading", async () => {
+    const { result } = renderBalance({
+      subscription: freeSubscription(),
+      includedCreditsUsd: null,
+      totalUsageBalance: "10.00",
+      availableUsageBalance: "6.60",
+    });
+
+    await waitFor(() => {
+      expect(result.current).not.toBeNull();
+    });
+    expect(result.current?.ratio).toBeCloseTo(0.34, 6);
+  });
+
+  test("a fully used grant reads as a full bar", async () => {
+    const { result } = renderBalance({
+      subscription: freeSubscription(),
+      includedCreditsUsd: null,
+      totalUsageBalance: "5.00",
+      availableUsageBalance: "0.00",
+    });
+
+    await waitFor(() => {
+      expect(result.current).not.toBeNull();
+    });
+    expect(result.current?.ratio).toBe(1);
+  });
+
+  test("an account that was never granted credit has no bar", async () => {
+    const { result } = renderBalance({
+      subscription: freeSubscription(),
+      includedCreditsUsd: null,
+      totalUsageBalance: "0.00",
+      availableUsageBalance: "0.00",
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current).toBeNull();
+  });
+
+  test("stays silent while the flag is off", async () => {
+    setObscureCredits(false);
+    const { result } = renderBalance({
+      subscription: freeSubscription(),
+      includedCreditsUsd: null,
+      totalUsageBalance: "5.00",
+      availableUsageBalance: "1.60",
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current).toBeNull();
+    expect(totalsCalls).toBe(0);
+  });
+
+  test("stays silent before the summary lands", async () => {
+    const { result } = renderBalance({
+      subscription: freeSubscription(),
+      includedCreditsUsd: null,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current).toBeNull();
+    expect(totalsCalls).toBe(0);
+  });
+
+  test("stays silent when the platform reports only one figure", async () => {
+    // An older self-hosted platform omits both; a partial read is no more
+    // usable than none.
+    const { result } = renderBalance({
+      subscription: freeSubscription(),
+      includedCreditsUsd: null,
+      totalUsageBalance: "5.00",
+      availableUsageBalance: null,
+    });
+
     await act(async () => {
       await Promise.resolve();
     });

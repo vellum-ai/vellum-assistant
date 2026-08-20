@@ -365,7 +365,8 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   );
   const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
   const obscureCredits = useObscureCredits();
-  const { isExhausted } = useBillingBalanceStatus();
+  const { isExhausted, availableUsageBalance, totalUsageBalance } =
+    useBillingBalanceStatus();
   const [addCreditsOpen, setAddCreditsOpen] = useState(false);
   // Resolved before the early returns below so the usage hook is never
   // conditional; both tolerate data that has not landed yet.
@@ -380,6 +381,8 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       currentPackage,
       findProPlan(plansQuery.data?.plans),
     ),
+    availableUsageBalance,
+    totalUsageBalance,
   });
 
   if (subscriptionQuery.isLoading || plansQuery.isLoading) {
@@ -503,20 +506,29 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // is empty too: a sub at 100% whose purchased credits still cover the next
   // turn has nothing to buy. The bar goes red either way.
   const creditsExhausted = usage != null && usage.ratio >= 1 && isExhausted;
+  const usagePanel = usage ? (
+    <UsageBalancePanel
+      ratio={usage.ratio}
+      resetsAt={usage.resetsAt}
+      exhausted={creditsExhausted}
+      onAddCredits={() => setAddCreditsOpen(true)}
+    />
+  ) : null;
   // A paid tile trades its price for the usage balance, so the two never state
-  // the same allowance twice. The free tile has no bundle to measure and no
-  // dollar figure to obscure, so "Free Forever" stays either way.
-  const currentFooter: ReactNode =
-    obscureCredits && !isFreePlan
-      ? usage && (
-          <UsageBalancePanel
-            ratio={usage.ratio}
-            resetsAt={usage.resetsAt}
-            exhausted={creditsExhausted}
-            onAddCredits={() => setAddCreditsOpen(true)}
-          />
-        )
-      : priceRow;
+  // the same allowance twice. The free tile has no dollar figure to obscure,
+  // so "Free Forever" keeps its row and the bar over its usage grants stacks
+  // above it; an account that was never granted any has no bar to stack.
+  let currentFooter: ReactNode = priceRow;
+  if (!isFreePlan && obscureCredits) {
+    currentFooter = usagePanel;
+  } else if (isFreePlan && usagePanel) {
+    currentFooter = (
+      <div className="flex w-full flex-col gap-2">
+        {usagePanel}
+        {priceRow}
+      </div>
+    );
+  }
 
   return (
     <Card padding="md">

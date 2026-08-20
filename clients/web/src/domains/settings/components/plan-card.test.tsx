@@ -153,8 +153,11 @@ mock.module("@/lib/billing/takeover-avatar-stash", () => ({
 
 // The wallet behind the bundle. The real hook reads the billing summary
 // through the platform gate and the org store, neither of which these tests
-// drive; the card only asks it whether the credits are gone.
+// drive; a paid tile only asks it whether the credits are gone, while a free
+// tile reads its whole bar off the usage-grant figures.
 let creditsExhausted = false;
+let availableUsageBalance: string | null = null;
+let totalUsageBalance: string | null = null;
 mock.module("@/hooks/use-billing-balance-status", () => ({
   useBillingBalanceStatus: () => ({
     isExhausted: creditsExhausted,
@@ -164,6 +167,8 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
     dailyLimit: null,
     dailySpend: null,
     balance: null,
+    availableUsageBalance,
+    totalUsageBalance,
     enabled: true,
   }),
 }));
@@ -1113,12 +1118,16 @@ describe("PlanCard with obscure-credits on", () => {
     usageShouldFail = false;
     usageTotalsCalls = 0;
     creditsExhausted = false;
+    availableUsageBalance = null;
+    totalUsageBalance = null;
     setObscureCredits(true);
   });
 
   afterEach(() => {
     setObscureCredits(false);
     creditsExhausted = false;
+    availableUsageBalance = null;
+    totalUsageBalance = null;
   });
 
   test("a Pro clean pin trades its price footer for the usage balance", async () => {
@@ -1317,8 +1326,8 @@ describe("PlanCard with obscure-credits on", () => {
   });
 
   test("a free plan keeps its Free Forever footer and its own chips", () => {
-    // Free has no bundle to measure, so there is no bar to put in the price
-    // row's place, and no dollar figure to obscure either. Suppressing the
+    // Nothing has reported a usage grant, so there is no denominator for the
+    // free tile's bar and no dollar figure to obscure either. Suppressing the
     // footer here would leave the tile with an empty bottom slot.
     const { container } = renderCardInteractive(
       baseSubscription(),
@@ -1334,6 +1343,113 @@ describe("PlanCard with obscure-credits on", () => {
       container.querySelector('[data-testid="plan-usage-balance"]'),
     ).toBeNull();
     expect(current.getByText("Pay as you go credits")).toBeTruthy();
+    expect(usageTotalsCalls).toBe(0);
+  });
+
+  test("a free plan stacks its usage-grant bar above Free Forever", async () => {
+    // $3.40 of the $5.00 this account was granted, so the bar reads 68% and
+    // the price row it sits above is untouched.
+    totalUsageBalance = "5.00";
+    availableUsageBalance = "1.60";
+    const { container, findByTestId } = renderCardInteractive(
+      baseSubscription(),
+      basePlansResponse(),
+      () => {},
+    );
+
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("Usage Balance");
+    expect(panel.textContent).toContain("68% used");
+    // A grant is not a cycle, so nothing resets.
+    expect(panel.textContent).not.toContain("Resets");
+    const current = within(currentTile(container));
+    expect(current.getByTestId("plan-card-price").textContent).toBe(
+      "Free Forever",
+    );
+    // The whole reading comes off the summary, so no usage window is read.
+    expect(usageTotalsCalls).toBe(0);
+  });
+
+  test("a free plan that was never granted credit keeps only its price row", async () => {
+    totalUsageBalance = "0.00";
+    availableUsageBalance = "0.00";
+    const { container } = renderCardInteractive(
+      baseSubscription(),
+      basePlansResponse(),
+      () => {},
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // Nothing granted is not a reading, so the tile renders exactly what it
+    // always has.
+    expect(
+      container.querySelector('[data-testid="plan-usage-balance"]'),
+    ).toBeNull();
+    expect(
+      within(currentTile(container)).getByTestId("plan-card-price").textContent,
+    ).toBe("Free Forever");
+  });
+
+  test("a fully used grant alarms only once the wallet is empty too", async () => {
+    // The whole $5.00 grant used, and no purchased credits behind it.
+    totalUsageBalance = "5.00";
+    availableUsageBalance = "0.00";
+    creditsExhausted = true;
+    const { findByTestId, getByText } = renderCardInteractive(
+      baseSubscription(),
+      basePlansResponse(),
+      () => {},
+    );
+
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("100% used");
+    expect(
+      getByText("Add credits to continue using your assistant"),
+    ).toBeTruthy();
+  });
+
+  test("a fully used grant with purchased credits stays red without a strip", async () => {
+    totalUsageBalance = "5.00";
+    availableUsageBalance = "0.00";
+    const { findByTestId, queryByText } = renderCardInteractive(
+      baseSubscription(),
+      basePlansResponse(),
+      () => {},
+    );
+
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("100% used");
+    expect(
+      panel
+        .querySelector('[data-slot="progress-bar-fill"]')
+        ?.getAttribute("style"),
+    ).toContain("--system-negative-strong");
+    expect(
+      queryByText("Add credits to continue using your assistant"),
+    ).toBeNull();
+  });
+
+  test("the free tile is untouched while the flag is off", async () => {
+    setObscureCredits(false);
+    totalUsageBalance = "5.00";
+    availableUsageBalance = "1.60";
+    const { container } = renderCardInteractive(
+      baseSubscription(),
+      basePlansResponse(),
+      () => {},
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector('[data-testid="plan-usage-balance"]'),
+    ).toBeNull();
+    expect(
+      within(currentTile(container)).getByTestId("plan-card-price").textContent,
+    ).toBe("Free Forever");
     expect(usageTotalsCalls).toBe(0);
   });
 });

@@ -75,3 +75,13 @@ export const ExhaustedWithoutCta: Story = {
   name: "Exhausted, no CTA",
   args: { ratio: 1, exhausted: true },
 };
+
+/**
+ * A free plan's reading: lifetime spend measured against every credit the
+ * account was granted, rather than a monthly bundle. A grant is not a
+ * cycle, so the reset line under the title is gone.
+ */
+export const HeldCredits: Story = {
+  name: "Held credits, nothing resets",
+  args: { ratio: 0.68, resetsAt: null },
+};

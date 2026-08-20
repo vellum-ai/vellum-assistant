@@ -434,6 +434,23 @@ describe("PreferencesMenu credits row under obscure-credits", () => {
     expect(screen.getByTestId("credits-card")).toBeTruthy();
   });
 
+  test("a free plan's used-up grant with credits left surfaces the row", async () => {
+    obscureCreditsRef.value = true;
+    billingRef.data = { effective_balance: "12.00" };
+    // A wallet reading never resets. The whole usage grant is gone, so the
+    // bar is red, while purchased credits still cover the next turn.
+    usageRef.value = {
+      ratio: 1,
+      resetsAt: null,
+      spent: true,
+      exhausted: false,
+    };
+    await openMenu();
+
+    expect(screen.getByTestId("preferences-usage")).toBeTruthy();
+    expect(screen.getByTestId("credits-card")).toBeTruthy();
+  });
+
   test("a spent bundle with an empty wallet leaves the strip to say it", async () => {
     obscureCreditsRef.value = true;
     billingRef.data = { effective_balance: "0" };

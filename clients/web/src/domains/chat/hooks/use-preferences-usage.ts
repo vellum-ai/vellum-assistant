@@ -1,7 +1,8 @@
 /**
  * The preferences menu's usage reading behind the `obscure-credits` flag: the
- * share of the subscription's included bundle this cycle has spent, and
- * whether the wallet behind it still has anything to draw on.
+ * share of the subscription's included bundle this cycle has spent (or, on a
+ * free plan, the share of its usage grants it has used), and whether the
+ * wallet behind it still has anything to draw on.
  *
  * Read by the menu's usage panel and by the menu itself, which decides from
  * the same numbers whether its credits row belongs on screen. Composing it
@@ -25,8 +26,11 @@ import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 export interface PreferencesUsage {
   /** Spend against the included bundle, clamped to 0..1. */
   ratio: number;
-  /** The cycle end the reading resets on, as the subscription reports it. */
-  resetsAt: string;
+  /**
+   * The cycle end the reading resets on, as the subscription reports it, or
+   * null on a free plan, whose usage grants never reset.
+   */
+  resetsAt: string | null;
   /** The whole included bundle is spent, which is the negative reading. */
   spent: boolean;
   /** The bundle is spent and the wallet behind it is empty too. */
@@ -40,7 +44,12 @@ export interface PreferencesUsage {
  */
 export function usePreferencesUsage(): PreferencesUsage | null {
   const obscureCredits = useObscureCredits();
-  const { isExhausted, enabled: billingEnabled } = useBillingBalanceStatus();
+  const {
+    isExhausted,
+    availableUsageBalance,
+    totalUsageBalance,
+    enabled: billingEnabled,
+  } = useBillingBalanceStatus();
   // The plan catalog and the sub are only worth fetching when the flag is on
   // and the org actually has managed billing; the usage read behind them gates
   // itself the same way.
@@ -59,6 +68,8 @@ export function usePreferencesUsage(): PreferencesUsage | null {
       subscriptionQuery.data,
       plansQuery.data?.plans,
     ),
+    availableUsageBalance,
+    totalUsageBalance,
   });
 
   if (!enabled || !usage) {

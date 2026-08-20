@@ -43,6 +43,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
 
 let billingEnabled = true;
 let creditsExhausted = false;
+let availableUsageBalance: string | null = null;
+let totalUsageBalance: string | null = null;
 mock.module("@/hooks/use-billing-balance-status", () => ({
   useBillingBalanceStatus: () => ({
     isExhausted: creditsExhausted,
@@ -52,6 +54,8 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
     dailyLimit: null,
     dailySpend: null,
     balance: null,
+    availableUsageBalance,
+    totalUsageBalance,
     enabled: billingEnabled,
   }),
 }));
@@ -144,6 +148,8 @@ beforeEach(() => {
   plans = proPlans();
   billingEnabled = true;
   creditsExhausted = false;
+  availableUsageBalance = null;
+  totalUsageBalance = null;
   setObscureCredits(true);
 });
 
@@ -187,6 +193,45 @@ describe("PreferencesUsagePanel", () => {
 
     await settle();
     expect(queryByTestId("preferences-usage")).toBeNull();
+  });
+
+  test("a free plan reads its usage grant with nothing to reset", async () => {
+    // $3.40 of the $5.00 this account was granted.
+    subscription = { ...proSubscription(), plan_id: "base", package: null };
+    totalUsageBalance = "5.00";
+    availableUsageBalance = "1.60";
+    const { findByTestId } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("68% used");
+    expect(panel.textContent).not.toContain("Resets");
+  });
+
+  test("a free plan with an empty wallet raises the strip", async () => {
+    subscription = { ...proSubscription(), plan_id: "base", package: null };
+    totalUsageBalance = "5.00";
+    availableUsageBalance = "0.00";
+    creditsExhausted = true;
+    const { findByTestId, getByText } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("100% used");
+    expect(panel.textContent).not.toContain("Resets");
+    expect(getByText("Add credits to continue.")).toBeTruthy();
+  });
+
+  test("a used-up grant with purchased credits stays red without a strip", async () => {
+    // The grant is gone, but bought credits still cover the next turn, so the
+    // reading is negative and nothing is being offered.
+    subscription = { ...proSubscription(), plan_id: "base", package: null };
+    totalUsageBalance = "5.00";
+    availableUsageBalance = "0.00";
+    const { findByTestId, queryByText, queryByTestId } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("100% used");
+    expect(queryByText("Add credits to continue.")).toBeNull();
+    expect(queryByTestId("preferences-usage-add-credits")).toBeNull();
   });
 
   test("the gear hands the billing page to its caller", async () => {

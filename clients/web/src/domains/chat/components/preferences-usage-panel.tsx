@@ -35,10 +35,12 @@ export function PreferencesUsagePanel({
 
   const title = t("preferencesUsagePanel.title");
   const pct = Math.round(usage.ratio * 100);
-  const resetDate = new Intl.DateTimeFormat(i18n.language, {
-    month: "short",
-    day: "numeric",
-  }).format(new Date(usage.resetsAt));
+  const resetDate = usage.resetsAt
+    ? new Intl.DateTimeFormat(i18n.language, {
+        month: "short",
+        day: "numeric",
+      }).format(new Date(usage.resetsAt))
+    : null;
   // Spending the whole bundle is the negative reading in its own right; the
   // strip below it waits until the wallet behind the bundle is empty too.
   const { spent, exhausted } = usage;
@@ -84,13 +86,15 @@ export function PreferencesUsagePanel({
           fillColor={spent ? "var(--system-negative-strong)" : undefined}
           className="w-full rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
         />
-        <Typography
-          as="span"
-          variant="label-small-default"
-          className="text-[var(--content-tertiary)]"
-        >
-          {t("preferencesUsagePanel.resets", { date: resetDate })}
-        </Typography>
+        {resetDate ? (
+          <Typography
+            as="span"
+            variant="label-small-default"
+            className="text-[var(--content-tertiary)]"
+          >
+            {t("preferencesUsagePanel.resets", { date: resetDate })}
+          </Typography>
+        ) : null}
       </div>
       {exhausted ? (
         <div className="flex min-h-8 items-center justify-between gap-2 rounded-lg bg-[var(--system-negative-weak)] px-2 py-1">
