@@ -7,20 +7,13 @@
  */
 import type { Logger } from "pino";
 
-import type { GatewayConfig } from "../config.js";
+import type { GatewayInboundAttachment } from "../channels/inbound-event.js";
+import type { AttachmentByteChannel, GatewayConfig } from "../config.js";
+import type { UploadAttachmentInput } from "../runtime/client.js";
 
-export type IngestibleAttachment = {
-  fileId: string;
-  fileName?: string;
-  mimeType?: string;
-  fileSize?: number;
-};
+export type IngestibleAttachment = Omit<GatewayInboundAttachment, "type">;
 
-export type DownloadedAttachment = {
-  filename: string;
-  mimeType: string;
-  data: string;
-};
+export type DownloadedAttachment = Omit<UploadAttachmentInput, "trustedSource">;
 
 export type AttachmentIngestResult = {
   attachmentIds: string[];
@@ -29,7 +22,7 @@ export type AttachmentIngestResult = {
 
 export async function ingestAttachments(
   config: GatewayConfig,
-  channel: string,
+  channel: AttachmentByteChannel,
   attachments: readonly IngestibleAttachment[],
   log: Logger,
   options: {
@@ -37,9 +30,12 @@ export async function ingestAttachments(
       attachment: IngestibleAttachment,
     ) => Promise<DownloadedAttachment>;
     upload: (downloaded: DownloadedAttachment) => Promise<{ id: string }>;
-    rethrowTransientErrors: boolean;
-    isSkippableError?: (error: unknown) => boolean;
-    logLabel?: string;
+    failurePolicy:
+      | { mode: "skip" }
+      | {
+          mode: "rethrow-unless-skippable";
+          isSkippableError: (error: unknown) => boolean;
+        };
   },
 ): Promise<AttachmentIngestResult> {
   const attachmentIds: string[] = [];
@@ -55,7 +51,7 @@ export async function ingestAttachments(
           fileSize: attachment.fileSize,
           limit: maxBytes,
         },
-        `Skipping oversized ${options.logLabel ?? channel} attachment`,
+        `Skipping oversized ${channel} attachment`,
       );
       return false;
     }
@@ -79,14 +75,15 @@ export async function ingestAttachments(
       }
 
       const attachment = batch[j];
-      if (
-        !options.rethrowTransientErrors ||
-        options.isSkippableError?.(result.reason) === true
-      ) {
+      const shouldSkip =
+        options.failurePolicy.mode === "skip" ||
+        (options.failurePolicy.mode === "rethrow-unless-skippable" &&
+          options.failurePolicy.isSkippableError(result.reason));
+      if (shouldSkip) {
         failedAttachmentNames.push(attachment.fileName || attachment.fileId);
         log.warn(
           { err: result.reason, fileId: attachment.fileId },
-          `Skipping ${options.logLabel ?? channel} attachment`,
+          `Skipping ${channel} attachment`,
         );
         continue;
       }

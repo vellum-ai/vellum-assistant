@@ -1,7 +1,6 @@
-import { fileTypeFromBuffer } from "file-type";
+import { finalizeDownloadedAttachment } from "../attachments/download.js";
 import type { DownloadedAttachment } from "../attachments/ingest.js";
 import type { GatewayConfig } from "../config.js";
-import { validateDownloadedContent } from "../download-validation.js";
 import {
   getWhatsAppMediaMetadata,
   downloadWhatsAppMediaBytes,
@@ -63,22 +62,12 @@ export async function downloadWhatsAppFile(
   }
 
   const response = await downloadWhatsAppMediaBytes(meta.url, caches);
-  const buffer = await response.arrayBuffer();
-
-  const detected = await fileTypeFromBuffer(new Uint8Array(buffer));
-
   // Prefer the MIME type from Meta metadata, then detected (trusted), then hint (untrusted), then Content-Type header
-  const mimeType =
-    meta.mime_type ||
-    detected?.mime ||
-    hint?.mimeType ||
-    response.headers.get("Content-Type")?.split(";")[0].trim() ||
-    "application/octet-stream";
-
-  await validateDownloadedContent(new Uint8Array(buffer), mimeType, mediaId);
-
-  const filename = hint?.fileName || inferFilename(mediaId, mimeType);
-  const data = Buffer.from(buffer).toString("base64");
-
-  return { filename, mimeType, data };
+  return finalizeDownloadedAttachment(await response.arrayBuffer(), {
+    attachmentId: mediaId,
+    mimeTypeCandidates: [meta.mime_type, hint?.mimeType],
+    responseContentType: response.headers.get("Content-Type"),
+    filename: hint?.fileName,
+    fallbackFilename: (mimeType) => inferFilename(mediaId, mimeType),
+  });
 }

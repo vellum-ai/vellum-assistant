@@ -4,19 +4,22 @@ import { join } from "node:path";
 import { getLogger, type LogFileConfig } from "./logger.js";
 import { getWorkspaceDir } from "./credential-reader.js";
 import { getGatewaySecurityDir } from "./paths.js";
+import type { InboundChannelId } from "./channels/inbound-event.js";
 
 const log = getLogger("config");
+
+export type AttachmentByteChannel = InboundChannelId | "telegramOutbound";
+
+export type AttachmentByteLimits = {
+  default: number;
+} & Partial<Record<AttachmentByteChannel, number>>;
 
 export type GatewayConfig = {
   assistantRuntimeBaseUrl: string;
   gatewayInternalBaseUrl: string;
   velayBaseUrl?: string;
   logFile: LogFileConfig;
-  maxAttachmentBytes: Record<
-    "telegram" | "slack" | "whatsapp" | "default",
-    number
-  > &
-    Record<string, number>;
+  maxAttachmentBytes: AttachmentByteLimits;
   maxAttachmentConcurrency: number;
   maxWebhookPayloadBytes: number;
   /**

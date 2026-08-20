@@ -174,7 +174,7 @@ import {
   appendFailedAttachmentNotice,
   ingestAttachments,
 } from "./attachments/ingest.js";
-import { createConversationTaskQueue } from "./attachments/conversation-queue.js";
+import { createConversationTaskQueue } from "./channels/conversation-queue.js";
 import { buildSchema } from "./schema.js";
 import {
   createSlackSocketModeClient,
@@ -184,6 +184,7 @@ import { downloadSlackFile } from "./slack/download.js";
 import { slackBotContactNote } from "./slack/actor.js";
 import { DiscordGatewayClient } from "./discord/gateway-socket.js";
 import { downloadDiscordFile } from "./discord/download.js";
+import { createDiscordInboundEventHandler } from "./discord/forward.js";
 import { readDiscordAllowedChannelIds } from "./discord/allowed-channels.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { upsertContactChannel } from "./verification/contact-helpers.js";
@@ -2480,8 +2481,7 @@ async function main() {
                       { ...downloaded, trustedSource: isGuardianActor },
                       { skipCircuitBreaker: true },
                     ),
-                  rethrowTransientErrors: false,
-                  logLabel: "Slack",
+                  failurePolicy: { mode: "skip" },
                 },
               );
               attachmentIds = result.attachmentIds;
@@ -2587,129 +2587,16 @@ async function main() {
         readAllowedChannelIds: () =>
           readDiscordAllowedChannelIds(configFileCache),
       },
-      (event, attachmentRefs) => {
-        // Reset the platform idle-sleep timer — inbound Discord activity
-        // keeps the assistant awake like any other channel's.
-        notifyRecordActivity();
-
-        // Seed a contact channel for the actor (dual-write, fire-and-forget)
-        // so later verification flows have a record to upgrade.
-        //
-        // `externalChatId` is recorded only for a DM, where the conversation
-        // address is a private one-to-one channel. A guild channel is a room
-        // the actor happens to be standing in, and storing it as their
-        // delivery address is how a private notice ends up posted in public.
-        void upsertContactChannel({
-          sourceChannel: "discord",
-          externalUserId: event.actor.actorExternalId,
-          ...(event.source.chatType === "dm"
-            ? { externalChatId: event.message.conversationExternalId }
-            : {}),
-          displayName: event.actor.displayName,
-          username: event.actor.username,
-        }).catch(() => {});
-
-        // Where the assistant posts its reply. The daemon owns Discord egress
-        // directly (`messaging/providers/discord`), so this callback is
-        // resolved to that transport rather than proxied back through here.
-        //
-        // `threadId` carries the thread's own snowflake when the message came
-        // from one: the event's conversation address is the *parent* channel
-        // for a threaded message, and a Discord thread is itself a channel, so
-        // without this param the reply would land outside the thread.
-        const threadId = event.source.threadId;
-        const replyCallbackUrl = threadId
-          ? `${config.gatewayInternalBaseUrl}/deliver/discord?${new URLSearchParams({ threadId })}`
-          : `${config.gatewayInternalBaseUrl}/deliver/discord`;
-
-        const forward = async () => {
-          try {
-            let attachmentIds: string[] | undefined;
-            const eventAttachments = event.message.attachments;
-            if (
-              eventAttachments &&
-              eventAttachments.length > 0 &&
-              attachmentRefs
-            ) {
-              const result = await ingestAttachments(
-                config,
-                "discord",
-                eventAttachments,
-                log,
-                {
-                  download: (attachment) => {
-                    const reference = attachmentRefs.get(attachment.fileId);
-                    if (!reference) {
-                      throw new Error(
-                        `No Discord attachment found for ${attachment.fileId}`,
-                      );
-                    }
-                    return downloadDiscordFile(reference);
-                  },
-                  upload: (downloaded) =>
-                    uploadAttachment(config, downloaded, {
-                      skipCircuitBreaker: true,
-                    }),
-                  rethrowTransientErrors: false,
-                  logLabel: "Discord",
-                },
-              );
-              attachmentIds = result.attachmentIds;
-              event.message.content = appendFailedAttachmentNotice(
-                event.message.content,
-                result.failedAttachmentNames,
-              );
-            }
-
-            await handleInbound(config, event, {
-              replyCallbackUrl,
-              ...(attachmentIds && attachmentIds.length > 0
-                ? { attachmentIds }
-                : {}),
-            }).catch((err) => {
-              log.error(
-                {
-                  err,
-                  conversationExternalId: event.message.conversationExternalId,
-                },
-                "Failed to forward Discord event to runtime",
-              );
-            });
-          } catch (err) {
-            log.error(
-              {
-                err,
-                conversationExternalId: event.message.conversationExternalId,
-              },
-              "Failed to process Discord event, delivering without attachments",
-            );
-            await handleInbound(config, event, { replyCallbackUrl }).catch(
-              (fwdErr) => {
-                log.error(
-                  {
-                    err: fwdErr,
-                    conversationExternalId:
-                      event.message.conversationExternalId,
-                  },
-                  "Failed to forward Discord event to runtime (fallback)",
-                );
-              },
-            );
-          }
-        };
-
-        void discordForwardQueue
-          .enqueue(event.message.conversationExternalId, forward)
-          .catch((err) => {
-            log.error(
-              {
-                err,
-                conversationExternalId: event.message.conversationExternalId,
-              },
-              "Unhandled error in Discord forward",
-            );
-          });
-      },
+      createDiscordInboundEventHandler({
+        config,
+        log,
+        notifyRecordActivity,
+        forwardQueue: discordForwardQueue,
+        downloadDiscordFile,
+        uploadAttachment,
+        handleInbound,
+        upsertContactChannel,
+      }),
     );
 
     discordGatewayClient.start().catch((err) => {

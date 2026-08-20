@@ -3,6 +3,7 @@
  * downloadable references.
  */
 import type { DiscordMessageCreate } from "./message-schemas.js";
+import type { GatewayInboundAttachment } from "../channels/inbound-event.js";
 
 type DiscordAttachment = NonNullable<
   DiscordMessageCreate["attachments"]
@@ -10,12 +11,11 @@ type DiscordAttachment = NonNullable<
 
 export type DiscordAttachmentReference = DiscordAttachment & { url: string };
 
-export type DiscordCanonicalAttachment = {
-  type: "image" | "video" | "audio" | "document";
-  fileId: string;
-  fileName?: string;
-  mimeType?: string;
-  fileSize?: number;
+export type DiscordCanonicalAttachment = Omit<
+  GatewayInboundAttachment,
+  "type"
+> & {
+  type: Exclude<GatewayInboundAttachment["type"], "photo" | "sticker">;
 };
 
 function downloadableAttachments(

@@ -57,6 +57,11 @@ const log = getLogger("discord-gateway");
 
 const DISCORD_API_BASE_URL = "https://discord.com/api/v10";
 
+export type DiscordGatewayEventHandler = (
+  event: DiscordInboundEvent,
+  attachmentRefs?: Map<string, DiscordAttachmentReference>,
+) => void;
+
 /**
  * Floor for the `session_start_limit.remaining` warning. Steady state spends
  * a handful of identifies a day; dipping below this means something is
@@ -164,10 +169,7 @@ export class DiscordGatewayClient {
 
   constructor(
     options: DiscordGatewayClientOptions,
-    private readonly onEvent: (
-      event: DiscordInboundEvent,
-      attachmentRefs?: Map<string, DiscordAttachmentReference>,
-    ) => void,
+    private readonly onEvent: DiscordGatewayEventHandler,
   ) {
     this.botToken = options.botToken;
     this.readAllowedChannelIds = options.readAllowedChannelIds;

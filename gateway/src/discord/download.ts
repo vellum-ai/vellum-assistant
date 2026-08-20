@@ -5,10 +5,8 @@
  * use the payload URL verbatim without the bot token or an Authorization
  * header.
  */
-import { fileTypeFromBuffer } from "file-type";
-
+import { finalizeDownloadedAttachment } from "../attachments/download.js";
 import type { DownloadedAttachment } from "../attachments/ingest.js";
-import { validateDownloadedContent } from "../download-validation.js";
 import { fetchImpl } from "../fetch.js";
 import type { DiscordAttachmentReference } from "./attachments.js";
 
@@ -27,20 +25,11 @@ export async function downloadDiscordFile(
     );
   }
 
-  const buffer = await response.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  const detected = await fileTypeFromBuffer(bytes);
-  const mimeType =
-    attachment.content_type ||
-    detected?.mime ||
-    response.headers.get("Content-Type")?.split(";")[0].trim() ||
-    "application/octet-stream";
-
-  await validateDownloadedContent(bytes, mimeType, attachment.id);
-
-  return {
-    filename: attachment.filename || `discord_file_${attachment.id}`,
-    mimeType,
-    data: Buffer.from(buffer).toString("base64"),
-  };
+  return finalizeDownloadedAttachment(await response.arrayBuffer(), {
+    attachmentId: attachment.id,
+    mimeTypeCandidates: [attachment.content_type],
+    responseContentType: response.headers.get("Content-Type"),
+    filename: attachment.filename,
+    fallbackFilename: `discord_file_${attachment.id}`,
+  });
 }

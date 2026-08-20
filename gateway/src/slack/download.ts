@@ -1,6 +1,5 @@
-import { fileTypeFromBuffer } from "file-type";
+import { finalizeDownloadedAttachment } from "../attachments/download.js";
 import type { DownloadedAttachment } from "../attachments/ingest.js";
-import { validateDownloadedContent } from "../download-validation.js";
 import { fetchImpl } from "../fetch.js";
 import type { SlackFile } from "./message-schemas.js";
 
@@ -49,19 +48,11 @@ export async function downloadSlackFile(
     );
   }
 
-  const buffer = await response.arrayBuffer();
-  const detected = await fileTypeFromBuffer(new Uint8Array(buffer));
-
-  const mimeType =
-    file.mimetype ||
-    detected?.mime ||
-    response.headers.get("Content-Type")?.split(";")[0].trim() ||
-    "application/octet-stream";
-
-  await validateDownloadedContent(new Uint8Array(buffer), mimeType, file.id);
-
-  const filename = file.name || `slack_file_${file.id}`;
-  const data = Buffer.from(buffer).toString("base64");
-
-  return { filename, mimeType, data };
+  return finalizeDownloadedAttachment(await response.arrayBuffer(), {
+    attachmentId: file.id,
+    mimeTypeCandidates: [file.mimetype],
+    responseContentType: response.headers.get("Content-Type"),
+    filename: file.name,
+    fallbackFilename: `slack_file_${file.id}`,
+  });
 }

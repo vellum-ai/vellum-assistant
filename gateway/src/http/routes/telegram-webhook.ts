@@ -608,10 +608,12 @@ export function createTelegramWebhookHandler(
                 },
               ),
             upload: (downloaded) => uploadAttachment(config, downloaded),
-            rethrowTransientErrors: true,
-            isSkippableError: (error) =>
-              error instanceof AttachmentValidationError ||
-              error instanceof ContentMismatchError,
+            failurePolicy: {
+              mode: "rethrow-unless-skippable",
+              isSkippableError: (error) =>
+                error instanceof AttachmentValidationError ||
+                error instanceof ContentMismatchError,
+            },
           },
         );
         attachmentIds = result.attachmentIds;

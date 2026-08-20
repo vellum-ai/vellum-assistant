@@ -1,6 +1,7 @@
 export type {
   GatewayInboundEvent,
   GatewayInboundEvent as GatewayInboundEventV1,
+  GatewayInboundAttachment,
   InboundChannelId,
   TelegramInboundEvent,
   WhatsAppInboundEvent,

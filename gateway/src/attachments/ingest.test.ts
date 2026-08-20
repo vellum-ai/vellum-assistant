@@ -1,14 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import type { Logger } from "pino";
+import pino from "pino";
 import type { GatewayConfig } from "../config.js";
 import { appendFailedAttachmentNotice, ingestAttachments } from "./ingest.js";
 
-const log = {
-  warn: () => {},
-} as unknown as Logger;
+const log = pino({ level: "silent" });
 
 function config(overrides?: Partial<GatewayConfig>): GatewayConfig {
-  return {
+  const base: GatewayConfig = {
+    assistantRuntimeBaseUrl: "http://localhost:7821",
+    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
+    logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: {
       telegram: 20,
       slack: 100,
@@ -17,8 +18,17 @@ function config(overrides?: Partial<GatewayConfig>): GatewayConfig {
       default: 100,
     },
     maxAttachmentConcurrency: 2,
-    ...overrides,
-  } as GatewayConfig;
+    maxWebhookPayloadBytes: 1024 * 1024,
+    port: 7830,
+    routingEntries: [],
+    runtimeInitialBackoffMs: 1,
+    runtimeMaxRetries: 0,
+    runtimeProxyRequireAuth: false,
+    runtimeTimeoutMs: 1000,
+    shutdownDrainMs: 1000,
+    trustProxy: false,
+  };
+  return { ...base, ...overrides };
 }
 
 function attachment(fileId: string, fileSize?: number) {
@@ -49,7 +59,7 @@ describe("ingestAttachments", () => {
           return downloaded;
         },
         upload: async (att) => ({ id: att.filename }),
-        rethrowTransientErrors: true,
+        failurePolicy: { mode: "skip" },
       },
     );
 
@@ -74,7 +84,7 @@ describe("ingestAttachments", () => {
           return downloaded;
         },
         upload: async () => ({ id: "uploaded" }),
-        rethrowTransientErrors: true,
+        failurePolicy: { mode: "skip" },
       },
     );
 
@@ -96,9 +106,11 @@ describe("ingestAttachments", () => {
           return downloaded;
         },
         upload: async () => ({ id: "good-id" }),
-        rethrowTransientErrors: true,
-        isSkippableError: (error) =>
-          error instanceof Error && error.message === "validation",
+        failurePolicy: {
+          mode: "rethrow-unless-skippable",
+          isSkippableError: (error) =>
+            error instanceof Error && error.message === "validation",
+        },
       },
     );
     expect(skipped).toEqual({
@@ -112,8 +124,10 @@ describe("ingestAttachments", () => {
           throw new Error("transient");
         },
         upload: async () => ({ id: "unused" }),
-        rethrowTransientErrors: true,
-        isSkippableError: () => false,
+        failurePolicy: {
+          mode: "rethrow-unless-skippable",
+          isSkippableError: () => false,
+        },
       }),
     ).rejects.toThrow("transient");
   });

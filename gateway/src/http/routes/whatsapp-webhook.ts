@@ -272,11 +272,13 @@ export function createWhatsAppWebhookHandler(
                   apiCaches,
                 ),
               upload: (downloaded) => uploadAttachment(config, downloaded),
-              rethrowTransientErrors: true,
-              isSkippableError: (error) =>
-                error instanceof AttachmentValidationError ||
-                error instanceof ContentMismatchError ||
-                error instanceof WhatsAppNonRetryableError,
+              failurePolicy: {
+                mode: "rethrow-unless-skippable",
+                isSkippableError: (error) =>
+                  error instanceof AttachmentValidationError ||
+                  error instanceof ContentMismatchError ||
+                  error instanceof WhatsAppNonRetryableError,
+              },
             },
           );
           attachmentIds = result.attachmentIds;

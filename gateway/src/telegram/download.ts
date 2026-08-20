@@ -1,9 +1,8 @@
-import { fileTypeFromBuffer } from "file-type";
+import { finalizeDownloadedAttachment } from "../attachments/download.js";
 import type { DownloadedAttachment } from "../attachments/ingest.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
-import { validateDownloadedContent } from "../download-validation.js";
 import { fetchImpl } from "../fetch.js";
 import { callTelegramApi } from "./api.js";
 
@@ -56,21 +55,11 @@ export async function downloadTelegramFile(
     );
   }
 
-  const filename =
-    hint?.fileName || file.file_path.split("/").pop() || `file_${fileId}`;
-
-  const buffer = await response.arrayBuffer();
-  const detected = await fileTypeFromBuffer(new Uint8Array(buffer));
-
-  const mimeType =
-    hint?.mimeType ||
-    detected?.mime ||
-    response.headers.get("Content-Type")?.split(";")[0].trim() ||
-    "application/octet-stream";
-
-  await validateDownloadedContent(new Uint8Array(buffer), mimeType, fileId);
-
-  const data = Buffer.from(buffer).toString("base64");
-
-  return { filename, mimeType, data };
+  return finalizeDownloadedAttachment(await response.arrayBuffer(), {
+    attachmentId: fileId,
+    mimeTypeCandidates: [hint?.mimeType],
+    responseContentType: response.headers.get("Content-Type"),
+    filename: hint?.fileName || file.file_path.split("/").pop(),
+    fallbackFilename: `file_${fileId}`,
+  });
 }

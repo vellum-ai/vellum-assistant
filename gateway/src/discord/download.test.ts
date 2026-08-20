@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import type { DiscordAttachmentReference } from "./attachments.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -16,8 +17,8 @@ mock.module("../fetch.js", () => ({
 const { downloadDiscordFile } = await import("./download.js");
 
 function makeAttachment(
-  overrides?: Record<string, unknown>,
-): Parameters<typeof downloadDiscordFile>[0] {
+  overrides?: Partial<DiscordAttachmentReference>,
+): DiscordAttachmentReference {
   return {
     id: "attachment-1",
     filename: "photo.png",
@@ -25,7 +26,7 @@ function makeAttachment(
     content_type: "image/png",
     url: "https://cdn.discord.test/attachments/1/photo.png?ex=abc&is=def&hm=ghi",
     ...overrides,
-  } as Parameters<typeof downloadDiscordFile>[0];
+  };
 }
 
 function makePngBuffer(): ArrayBuffer {
@@ -54,7 +55,7 @@ describe("downloadDiscordFile", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(attachment.url);
-    expect((init as RequestInit).headers).toBeUndefined();
+    expect(init?.headers).toBeUndefined();
   });
 
   test("throws for a non-OK response", async () => {
