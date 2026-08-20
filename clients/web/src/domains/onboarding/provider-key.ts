@@ -240,7 +240,6 @@ function buildCustomProviderProfile(
   const profile: ProfileEntry = {
     provider,
     model,
-    provider_connection: provider,
     source: "user",
     label: providerEntry?.displayName ?? provider,
     maxTokens: modelEntry?.maxOutputTokens ?? 16_000,

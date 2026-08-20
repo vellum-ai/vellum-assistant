@@ -80,8 +80,6 @@
     "defaultProfileSuffix": "· Predeterminado: {label}",
     "modelLabel": "Modelo",
     "overrideAriaLabel": "Anular {displayName}",
-    "pickModelError": "Elige un modelo",
-    "providerLabel": "Proveedor",
     "unavailableOption": "{name} (no disponible)"
   },
   "chatgptOauthSection": {

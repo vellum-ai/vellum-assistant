@@ -1003,21 +1003,20 @@ export const VELLUM_SERVED_PROVIDERS = [
 ] as const;
 
 /**
- * The Vellum entry's model list: the union of the managed-routable providers'
- * catalogs, deduplicated by id in VELLUM_SERVED_PROVIDERS order. Users pick
- * "Vellum" + a model; which upstream serves it is an implementation detail.
+ * Union of the given providers' catalogs, deduplicated by display label as
+ * well as id: two upstreams can host the same model under different ids
+ * (e.g. MiniMax M3 on Fireworks and Together), and provider-agnostic pickers
+ * render labels only, so duplicate labels would be indistinguishable options.
+ * First provider in the given order wins.
  */
-const VELLUM_MODELS: readonly LlmCatalogModel[] = (() => {
+function dedupedModelUnion(
+  providers: readonly LlmProviderId[],
+): readonly LlmCatalogModel[] {
   const seenIds = new Set<string>();
   const seenLabels = new Set<string>();
   const union: LlmCatalogModel[] = [];
-  for (const provider of VELLUM_SERVED_PROVIDERS) {
+  for (const provider of providers) {
     for (const model of MODELS_BY_PROVIDER[provider]) {
-      // Dedupe by display label as well as id: two upstreams can host the
-      // same model under different ids (e.g. MiniMax M3 on Fireworks and
-      // Together), and the provider-agnostic picker renders labels only —
-      // duplicate labels would be indistinguishable options. First provider
-      // in VELLUM_SERVED_PROVIDERS order wins.
       if (seenIds.has(model.id) || seenLabels.has(model.displayName)) {
         continue;
       }
@@ -1027,7 +1026,19 @@ const VELLUM_MODELS: readonly LlmCatalogModel[] = (() => {
     }
   }
   return union;
-})();
+}
+
+/**
+ * The Vellum entry's model list: the union of the managed-routable providers'
+ * catalogs. Users pick "Vellum" + a model; which upstream serves it is an
+ * implementation detail.
+ */
+const VELLUM_MODELS = dedupedModelUnion(VELLUM_SERVED_PROVIDERS);
+
+/** Every catalog model across all providers. */
+export const ALL_CATALOG_MODELS = dedupedModelUnion(
+  Object.keys(MODELS_BY_PROVIDER) as LlmProviderId[],
+);
 
 /**
  * The managed upstream that serves a model picked under the Vellum entry —

@@ -19,7 +19,7 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("buildCallSiteSavePatch", () => {
-  test("an active profile draft sends the picker triple with explicit nulls", () => {
+  test("an active profile draft sends the picker fields with explicit nulls", () => {
     const drafts: CallSiteDraftMap = { workflowLeaf: { profile: "quality" } };
     const patch = buildCallSiteSavePatch(drafts, {});
     expect(patch.workflowLeaf).toEqual({
@@ -29,14 +29,37 @@ describe("buildCallSiteSavePatch", () => {
     });
   });
 
-  test("an active custom draft sends provider and model with a null profile", () => {
+  test("an active custom draft sends the model with a null profile and provider", () => {
+    // `provider: null` is an explicit clear: it scrubs a stale provider pin
+    // persisted by an older daemon.
     const drafts: CallSiteDraftMap = {
-      workflowLeaf: { provider: "openai", model: "gpt-4o" },
+      workflowLeaf: { model: "gpt-4o" },
     };
     const patch = buildCallSiteSavePatch(drafts, {});
     expect(patch.workflowLeaf).toEqual({
       profile: null,
-      provider: "openai",
+      provider: null,
+      model: "gpt-4o",
+    });
+  });
+
+  test("an untouched legacy provider-only row is omitted, not rewritten", () => {
+    // The row reads as active (old daemons still route on the pin), but the
+    // serialized entry carries no provider: rewriting it without a user
+    // edit would silently clear the pin.
+    const drafts: CallSiteDraftMap = { heartbeatAgent: { provider: "openai" } };
+    const patch = buildCallSiteSavePatch(drafts, {});
+    expect("heartbeatAgent" in patch).toBe(false);
+  });
+
+  test("an edited legacy row serializes with the explicit provider clear", () => {
+    const edited: CallSiteDraftMap = {
+      heartbeatAgent: { provider: "openai", model: "gpt-4o" },
+    };
+    const patch = buildCallSiteSavePatch(edited, edited);
+    expect(patch.heartbeatAgent).toEqual({
+      profile: null,
+      provider: null,
       model: "gpt-4o",
     });
   });

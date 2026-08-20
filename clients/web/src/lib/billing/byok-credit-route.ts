@@ -134,16 +134,16 @@ function catalogProviderForModel(model: string): string | undefined {
 }
 
 /**
- * The billing route after the daemon layers the workspace
- * `llm.callSites.mainAgent` tweak over the winning fragment
- * (`resolveOverrideOrDefault` in assistant/src/config/llm-resolver.ts): an
- * explicit tweak provider replaces the winner's while keeping its binding; a
- * tweak model the winner's provider does not serve stamps the model's
- * catalog owner and drops the binding (the provider-agnostic managed
- * connection survives); and a vellum winner re-gains the managed connection
- * under a concrete managed-routable provider. The shipped mainAgent
- * call-site default carries only a profile intent, so the workspace entry is
- * the only route-affecting tweak source.
+ * The billing route after the workspace `llm.callSites.mainAgent` tweak is
+ * layered over the winning fragment. Mirrors pre-migration-147 daemons,
+ * whose resolver still rewrites the route: an explicit tweak provider
+ * replaces the winner's while keeping its binding; a tweak model the
+ * winner's provider does not serve stamps the model's catalog owner and
+ * drops the binding (the provider-agnostic managed connection survives);
+ * and a vellum winner re-gains the managed connection under a concrete
+ * managed-routable provider. Post-147 daemons refuse foreign pins at write
+ * time and migration 147 strips persisted ones, so there this composition
+ * is a no-op; it is deleted together with the telemetry-gated legacy shims.
  *
  * Returns the composed route plus whether composition altered it (callers
  * void the winner's availability proof for altered routes, since the proof
@@ -155,7 +155,10 @@ function composedMainAgentRoute(
   llm: LlmConfig,
 ): { route: CreditRouteEntry; altered: boolean } | null {
   const tweak = llm?.callSites?.mainAgent;
-  const tweakProvider = tweak?.provider ?? undefined;
+  // typeof-narrowed so the read stays valid when the generated draft type
+  // no longer declares the legacy provider field.
+  const tweakProvider =
+    typeof tweak?.provider === "string" ? tweak.provider : undefined;
   const tweakModel = tweak?.model ?? undefined;
   let route = entry;
   let altered = false;
