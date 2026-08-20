@@ -153,24 +153,30 @@ mock.module("@/lib/billing/takeover-avatar-stash", () => ({
 
 // The wallet behind the bundle. The real hook reads the billing summary
 // through the platform gate and the org store, neither of which these tests
-// drive; a paid tile only asks it whether the credits are gone, while a free
-// tile reads its whole bar off the usage-grant figures.
-let creditsExhausted = false;
+// drive; a paid tile only asks it what the wallet holds, while a free tile
+// reads its whole bar off the usage-grant figures.
+let walletBalance: string | null = null;
+// The hook's BYOK suppression, which pins its flags down over a wallet that is
+// genuinely empty. Mirrored here so a test can hand the card that shape.
+let byokSuppressed = false;
 let availableUsageBalance: string | null = null;
 let totalUsageBalance: string | null = null;
 mock.module("@/hooks/use-billing-balance-status", () => ({
-  useBillingBalanceStatus: () => ({
-    isExhausted: creditsExhausted,
-    isLowBalance: false,
-    dailyLimitReached: false,
-    dailyLimitSnoozed: false,
-    dailyLimit: null,
-    dailySpend: null,
-    balance: null,
-    availableUsageBalance,
-    totalUsageBalance,
-    enabled: true,
-  }),
+  useBillingBalanceStatus: () => {
+    const exhausted = walletBalance != null && Number(walletBalance) <= 0;
+    return {
+      isExhausted: exhausted && !byokSuppressed,
+      isLowBalance: false,
+      dailyLimitReached: false,
+      dailyLimitSnoozed: false,
+      dailyLimit: null,
+      dailySpend: null,
+      balance: walletBalance,
+      availableUsageBalance,
+      totalUsageBalance,
+      enabled: true,
+    };
+  },
 }));
 
 // Stand in for the checkout modal: opening it is the assertion, and the real
@@ -1117,7 +1123,8 @@ describe("PlanCard with obscure-credits on", () => {
     usageTotalUsd = "10";
     usageShouldFail = false;
     usageTotalsCalls = 0;
-    creditsExhausted = false;
+    walletBalance = null;
+    byokSuppressed = false;
     availableUsageBalance = null;
     totalUsageBalance = null;
     setObscureCredits(true);
@@ -1125,7 +1132,8 @@ describe("PlanCard with obscure-credits on", () => {
 
   afterEach(() => {
     setObscureCredits(false);
-    creditsExhausted = false;
+    walletBalance = null;
+    byokSuppressed = false;
     availableUsageBalance = null;
     totalUsageBalance = null;
   });
@@ -1252,7 +1260,7 @@ describe("PlanCard with obscure-credits on", () => {
   test("a spent bundle with an empty wallet alarms and offers credits", async () => {
     // Mighty's whole $25 bundle spent, and no purchased credits behind it.
     usageTotalUsd = "25";
-    creditsExhausted = true;
+    walletBalance = "0";
     const { findByTestId, getByText, queryByTestId } = renderCardInteractive(
       proMightySubscription(),
       plansWithSuper(),
@@ -1275,10 +1283,31 @@ describe("PlanCard with obscure-credits on", () => {
     expect(await findByTestId("add-credits-modal")).toBeTruthy();
   });
 
+  test("a BYOK org with an empty wallet still gets the strip", async () => {
+    // The hook holds `isExhausted` down for a provably BYOK chat route, where
+    // a turn never spends the managed wallet. This surface reports the wallet
+    // itself, so an empty one alarms regardless of how chat dispatches.
+    usageTotalUsd = "25";
+    walletBalance = "0";
+    byokSuppressed = true;
+    const { findByTestId, getByText } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+    );
+
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("100% used");
+    expect(
+      getByText("Add credits to continue using your assistant"),
+    ).toBeTruthy();
+  });
+
   test("a spent bundle turns negative with credits still in hand", async () => {
     // 100% of the included usage, and the wallet still covers the next turn.
     // The reading goes red anyway; only the strip waits on the wallet.
     usageTotalUsd = "25";
+    walletBalance = "12.50";
     const { findByTestId, getByText, queryByText, queryByTestId } =
       renderCardInteractive(
         proMightySubscription(),
@@ -1306,7 +1335,7 @@ describe("PlanCard with obscure-credits on", () => {
     // The strip belongs to a spent bundle, and so does the negative reading.
     // Below 100% the tile reads the same as it always has, whatever the wallet
     // says.
-    creditsExhausted = true;
+    walletBalance = "0";
     const { findByTestId, queryByText } = renderCardInteractive(
       proMightySubscription(),
       plansWithSuper(),
@@ -1396,7 +1425,7 @@ describe("PlanCard with obscure-credits on", () => {
     // The whole $5.00 grant used, and no purchased credits behind it.
     totalUsageBalance = "5.00";
     availableUsageBalance = "0.00";
-    creditsExhausted = true;
+    walletBalance = "0";
     const { findByTestId, getByText } = renderCardInteractive(
       baseSubscription(),
       basePlansResponse(),
@@ -1413,6 +1442,7 @@ describe("PlanCard with obscure-credits on", () => {
   test("a fully used grant with purchased credits stays red without a strip", async () => {
     totalUsageBalance = "5.00";
     availableUsageBalance = "0.00";
+    walletBalance = "12.50";
     const { findByTestId, queryByText } = renderCardInteractive(
       baseSubscription(),
       basePlansResponse(),

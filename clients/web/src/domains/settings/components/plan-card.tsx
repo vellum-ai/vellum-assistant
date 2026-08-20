@@ -365,7 +365,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   );
   const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
   const obscureCredits = useObscureCredits();
-  const { isExhausted, availableUsageBalance, totalUsageBalance } =
+  const { balance, availableUsageBalance, totalUsageBalance } =
     useBillingBalanceStatus();
   const [addCreditsOpen, setAddCreditsOpen] = useState(false);
   // Resolved before the early returns below so the usage hook is never
@@ -505,7 +505,12 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // The add-credits strip is only warranted once the wallet behind the bundle
   // is empty too: a sub at 100% whose purchased credits still cover the next
   // turn has nothing to buy. The bar goes red either way.
-  const creditsExhausted = usage != null && usage.ratio >= 1 && isExhausted;
+  //
+  // The raw balance answers that, not the hook's `isExhausted`: this surface
+  // reports the wallet itself, while the suppression behind that flag exists
+  // for chat banners, where a BYOK route never spends the managed wallet.
+  const walletEmpty = balance != null && Number(balance) <= 0;
+  const creditsExhausted = usage != null && usage.ratio >= 1 && walletEmpty;
   const usagePanel = usage ? (
     <UsageBalancePanel
       ratio={usage.ratio}
