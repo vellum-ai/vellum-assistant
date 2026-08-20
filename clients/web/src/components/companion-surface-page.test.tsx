@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
@@ -26,9 +32,32 @@ const resetState = () => {
   delete STATE.captureCount;
 };
 
+/**
+ * The page's subscribers, so a case can push a second state the way main does.
+ *
+ * The state main hands back on mount is what this window inherits, and some of
+ * what the page draws is a difference between that and what arrives after, so
+ * a bridge that only ever answers once cannot express it.
+ */
+const listeners = new Set<(state: CompanionSurfaceState) => void>();
+
+/** Push a state to the mounted page, inside `act` so React settles. */
+const pushState = (state: CompanionSurfaceState) => {
+  act(() => {
+    for (const listener of listeners) {
+      listener(state);
+    }
+  });
+};
+
 mock.module("@/runtime/companion-surface", () => ({
   getCompanionState: async () => STATE,
-  subscribeCompanionState: () => () => undefined,
+  subscribeCompanionState: (
+    listener: (state: CompanionSurfaceState) => void,
+  ) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  },
   setCompanionInteractive: setInteractiveMock,
   moveCompanionBy: moveByMock,
   activateCompanionApp: activateMock,
@@ -232,9 +261,7 @@ describe("the working ring on the page", () => {
     const { container } = render(<CompanionSurfacePage />);
 
     await waitFor(() => {
-      expect(
-        container.querySelector(".companion-working-ring"),
-      ).not.toBeNull();
+      expect(container.querySelector(".companion-working-ring")).not.toBeNull();
     });
   });
 
@@ -300,14 +327,32 @@ describe("the watch session on the companion surface", () => {
    */
   test("draws a capture the session reported", async () => {
     STATE.watching = true;
-    STATE.captureCount = 1;
+    STATE.captureCount = 3;
     const { container } = render(<CompanionSurfacePage />);
-
     await waitFor(() => {
-      expect(
-        container.querySelector(".companion-capture-pulse"),
-      ).not.toBeNull();
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
     });
+
+    pushState({ ...STATE, captureCount: 4 });
+
+    expect(container.querySelector(".companion-capture-pulse")).not.toBeNull();
+  });
+
+  /**
+   * This window is recreated on every reload, and main answers the new one
+   * with the total it has been keeping. That number stands for reads taken
+   * before this window existed, so drawing it would present the last of them
+   * as one happening now.
+   */
+  test("does not draw a capture it only inherited from main", async () => {
+    STATE.watching = true;
+    STATE.captureCount = 3;
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    expect(container.querySelector(".companion-capture-pulse")).toBeNull();
   });
 
   /**

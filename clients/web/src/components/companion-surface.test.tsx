@@ -168,17 +168,21 @@ describe("the companion surface's working ring", () => {
  * The ring says a session is open, which holds for minutes; this says the
  * screen was read just now, which is the thing the user wants confirmed. What
  * the cases here pin is that it is drawn for exactly the reads that happened:
- * it needs a running session and a count that has moved, and each step of the
- * count gets its own flare rather than one element that lingers.
+ * it needs a running session and a count that stepped while the surface was
+ * watching, and each step gets its own flare rather than one element that
+ * lingers.
  */
 describe("the companion surface's capture pulse", () => {
   const pulseOf = (container: HTMLElement): HTMLElement | null =>
     container.querySelector<HTMLElement>(".companion-capture-pulse");
 
-  test("is drawn once a session has captured something", () => {
-    const { container } = render(
-      <CompanionSurface phase="watching" watching captureCount={1} />,
+  test("is drawn for a capture that landed while the surface was open", () => {
+    const { container, rerender } = render(
+      <CompanionSurface phase="watching" watching captureCount={0} />,
     );
+
+    rerender(<CompanionSurface phase="watching" watching captureCount={1} />);
+
     expect(pulseOf(container)).not.toBeNull();
   });
 
@@ -186,6 +190,36 @@ describe("the companion surface's capture pulse", () => {
     const { container } = render(
       <CompanionSurface phase="watching" watching captureCount={0} />,
     );
+    expect(pulseOf(container)).toBeNull();
+  });
+
+  /**
+   * The macOS renderer is recreated on a reload and the main process replays
+   * its retained state into the new one, so a first render lands mid-session
+   * with whatever the count had reached. Flaring on it would present a read
+   * from a minute ago as one happening now, which is the same lie the whole
+   * indicator was built to avoid: the first value is a baseline, not a step.
+   */
+  test("is absent on a mount that inherits a running session's count", () => {
+    const { container } = render(
+      <CompanionSurface phase="watching" watching captureCount={12} />,
+    );
+    expect(pulseOf(container)).toBeNull();
+  });
+
+  /**
+   * The same reload, arriving the way it does through the window that owns the
+   * state: this surface is drawn before the push lands, so the session and its
+   * accumulated count turn up together one render later. The count came with
+   * the session rather than moving under it, so there is no capture in it.
+   */
+  test("is absent when a session arrives already having captured", () => {
+    const { container, rerender } = render(
+      <CompanionSurface phase="hover" captureCount={0} />,
+    );
+
+    rerender(<CompanionSurface phase="watching" watching captureCount={12} />);
+
     expect(pulseOf(container)).toBeNull();
   });
 
@@ -208,8 +242,9 @@ describe("the companion surface's capture pulse", () => {
    */
   test("replays for each capture rather than lingering from the first", () => {
     const { container, rerender } = render(
-      <CompanionSurface phase="watching" watching captureCount={1} />,
+      <CompanionSurface phase="watching" watching captureCount={0} />,
     );
+    rerender(<CompanionSurface phase="watching" watching captureCount={1} />);
     const first = pulseOf(container);
 
     rerender(<CompanionSurface phase="watching" watching captureCount={2} />);
@@ -218,8 +253,34 @@ describe("the companion surface's capture pulse", () => {
     expect(pulseOf(container)).not.toBe(first);
   });
 
+  /**
+   * The next session starts from a baseline of its own. Carrying the last
+   * flare across the gap would replay it the moment the ring comes back on,
+   * marking a capture the new session has not taken.
+   */
+  test("does not replay the previous session's last capture on the next one", () => {
+    const { container, rerender } = render(
+      <CompanionSurface phase="watching" watching captureCount={0} />,
+    );
+    rerender(<CompanionSurface phase="watching" watching captureCount={1} />);
+    rerender(<CompanionSurface phase="hover" captureCount={1} />);
+
+    rerender(<CompanionSurface phase="watching" watching captureCount={0} />);
+
+    expect(pulseOf(container)).toBeNull();
+  });
+
   test("takes the capture colour, which is the session's and not the assistant's", () => {
-    const { container } = render(
+    const { container, rerender } = render(
+      <CompanionSurface
+        phase="watching"
+        watching
+        captureCount={0}
+        accentHex="#ff8800"
+      />,
+    );
+
+    rerender(
       <CompanionSurface
         phase="watching"
         watching
@@ -227,15 +288,19 @@ describe("the companion surface's capture pulse", () => {
         accentHex="#ff8800"
       />,
     );
+
     expect(
       pulseOf(container)?.style.getPropertyValue("--companion-ring-accent"),
     ).toBe("#ff9f45");
   });
 
   test("follows the card's corner radius while typing", () => {
-    const { container } = render(
-      <CompanionSurface phase="typing" watching captureCount={1} />,
+    const { container, rerender } = render(
+      <CompanionSurface phase="typing" watching captureCount={0} />,
     );
+
+    rerender(<CompanionSurface phase="typing" watching captureCount={1} />);
+
     expect(pulseOf(container)?.className).toContain("rounded-[24px]");
   });
 });
