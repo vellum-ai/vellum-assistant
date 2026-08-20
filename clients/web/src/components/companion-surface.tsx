@@ -7,6 +7,7 @@ import {
   Keyboard,
   Mic,
   MicOff,
+  ScrollText,
   Volume2,
   VolumeX,
   X,
@@ -23,6 +24,7 @@ import { COMPANION_NEAR_EDGE } from "@vellumai/ipc-contract";
 import type {
   CompanionCharacter,
   CompanionTurn,
+  CompanionWatchRetro,
   VoiceActivityControlAction,
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
@@ -92,6 +94,21 @@ export type CompanionSurfacePhase =
    * reads.
    */
   | "watching"
+  /**
+   * Summary: the pill held open by what a finished watch session left behind.
+   *
+   * A session ends twice, and this is the second ending. The socket closes when
+   * the user presses stop, and the account of what they narrated is written
+   * afterwards by a turn that runs for the better part of a minute. Collapsing
+   * to rest across that gap reads as the recording having been discarded, and
+   * the report would then land in a thread nobody was shown.
+   *
+   * So the pill stays open, first saying the summary is being written and then
+   * asking whether to open it. It ranks below `watching` because a session
+   * still recording outranks the leftovers of one that is not, and above
+   * `hover` because it is a question waiting on an answer rather than a hint.
+   */
+  | "summary"
   | "call"
   /**
    * Typing: the pill becomes a card carrying a condensed read of the
@@ -205,6 +222,9 @@ export const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
   // The same row of controls hover draws, since the session is run from it
   // rather than from a row of its own.
   watching: 272,
+  // Two labelled controls where the idle row draws three, so narrower than the
+  // row it replaces and never wider than it.
+  summary: 264,
   // The row with the stop control on it, which is the widest a call draws: a
   // watch session adds a fifth control to the four the call already has.
   call: 332,
@@ -400,6 +420,26 @@ export interface CompanionSurfaceProps {
    */
   watching?: boolean;
   /**
+   * Where the summary of the last finished session has got to, or absent when
+   * there is none to draw.
+   *
+   * `pending` while the turn that writes it runs, `ready` once there is a
+   * report to open. Its own input rather than something derived from `phase`
+   * for the reason {@link CompanionSurfaceProps.watching} is: the phase is
+   * outranked by a call and by a half-typed sentence, and a question the user
+   * has been asked must not silently lose its answer because they picked up the
+   * phone.
+   */
+  watchRetro?: CompanionWatchRetro;
+  /**
+   * Answer that question: open the summary now, or not.
+   *
+   * One handler for both, because they are one decision. The surface holds
+   * neither the conversation nor the router, so both answers leave it; what
+   * comes back is {@link CompanionSurfaceProps.watchRetro} going absent.
+   */
+  onWatchRetro?: (open: boolean) => void;
+  /**
    * The running session, when `phase` is `call`.
    *
    * Absent renders the call state from fixed sample values, which is what the
@@ -444,11 +484,23 @@ export function CompanionSurface({
   onAvatarClick,
   working = false,
   watching = false,
+  watchRetro,
+  onWatchRetro,
   call,
   onControl,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
   const typing = phase === "typing";
+  /**
+   * Whether the summary of a finished session is still being written.
+   *
+   * Drawn as the session's own ring rather than the assistant's, because it is
+   * the same session finishing rather than an unrelated turn: the user pressed
+   * stop and the light is still on for what they narrated. Reads off the input
+   * rather than the phase, since a call or an open composer outranks the phase
+   * and the work goes on regardless.
+   */
+  const summarizing = watchRetro === "pending";
 
   /**
    * Whether the assistant is working, from whichever side is in a position to
@@ -602,15 +654,14 @@ export function CompanionSurface({
           true: the creature already carries the turn in its own pose, and a
           capture running with nothing drawn over it is the worse of the two
           failures. */}
-      {(assistantWorking || watching) && (
+      {(assistantWorking || watching || summarizing) && (
         <span
           className={`companion-working-ring pointer-events-none absolute -inset-0.5 ${
             typing ? "rounded-[24px]" : "rounded-full"
           }`}
           style={{
-            ["--companion-ring-accent" as string]: watching
-              ? WATCHING_RING_ACCENT
-              : accentHex,
+            ["--companion-ring-accent" as string]:
+              watching || summarizing ? WATCHING_RING_ACCENT : accentHex,
           }}
           aria-hidden
         />
@@ -676,6 +727,8 @@ export function CompanionSurface({
                 onControl={onControl}
                 onWatch={onWatch}
               />
+            ) : phase === "summary" && watchRetro !== undefined ? (
+              <SummaryBody retro={watchRetro} onWatchRetro={onWatchRetro} />
             ) : (
               <IdleBody
                 spotlight={spotlight}
@@ -1007,6 +1060,64 @@ function IdleBody({
         showLabel
         pressed={watching}
         onClick={onWatch}
+      />
+    </>
+  );
+}
+
+/**
+ * Expanded, after a session: what became of what the user narrated.
+ *
+ * **Two states and no third.** While the turn runs there is nothing to press,
+ * so the row is a word and the ring beside it; once there is a report the row
+ * is the question and its two answers. There is no state for a session that
+ * produced nothing, because the surface stops drawing this at all when the
+ * runtime says so, and an empty result reported as one would be a notice about
+ * an absence.
+ *
+ * **The wait is stated, not implied.** The ring alone would be the same light
+ * the assistant burns for every other turn, and the one thing this has to say
+ * is which turn it is: the session the user just ended. One word, because the
+ * pill is read from the corner of an eye over another app's work.
+ *
+ * **Both answers are drawn.** The question is asked on a surface that floats
+ * over whatever the user does next, so the way out of it has to be as reachable
+ * as the way in; a prompt whose only dismissal is going elsewhere is one that
+ * follows them around. The summary stays in the assistant's own conversation
+ * list either way, which is what makes "not now" a deferral rather than a
+ * discard.
+ */
+function SummaryBody({
+  retro,
+  onWatchRetro,
+}: {
+  retro: CompanionWatchRetro;
+  onWatchRetro?: (open: boolean) => void;
+}) {
+  if (retro === "pending") {
+    return (
+      <span className="ml-1 shrink-0 text-[12px] text-white/85">
+        Summarizing
+      </span>
+    );
+  }
+  return (
+    <>
+      <PillButton
+        icon={<ScrollText className="size-4" />}
+        label="Show summary"
+        showLabel
+        onClick={() => {
+          onWatchRetro?.(true);
+        }}
+      />
+      <PillButton
+        icon={<X className="size-4" />}
+        label="Not now"
+        showLabel
+        onClick={() => {
+          onWatchRetro?.(false);
+        }}
       />
     </>
   );

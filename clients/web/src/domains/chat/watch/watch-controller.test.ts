@@ -106,6 +106,7 @@ const { useAssistantIdentityStore } = await import(
 const { MIN_VERSION } = await import("@/lib/backwards-compat/watch-sessions");
 const { buildWatchStreamWsUrl, stopWatch, toggleWatch, useWatchStore } =
   await import("./watch-controller");
+const { clearWatchRetro, useWatchRetroStore } = await import("./watch-retro");
 
 /**
  * Live-voice subscriptions, counted.
@@ -340,6 +341,9 @@ beforeEach(() => {
   useLiveVoiceStore.setState({ state: "idle" });
   liveVoiceListeners = 0;
   activate(ASSISTANT_ID);
+  // Module state like the session slot, and with a give-up timer behind it that
+  // would otherwise outlive the case that armed it.
+  clearWatchRetro();
 });
 
 afterEach(() => {
@@ -351,6 +355,7 @@ afterEach(() => {
   for (const ws of sockets) {
     ws.emit("close", { code: 1000 });
   }
+  clearWatchRetro();
   useAssistantIdentityStore.getState().clearIdentity();
   activeAssistantId = null;
   assistantListeners.clear();
@@ -1062,6 +1067,51 @@ describe("the flush window after the user stops", () => {
  * value: a flag that goes true and back is exactly the bug, and a final read
  * cannot see it.
  */
+describe("the summary a stopped session leaves behind", () => {
+  /**
+   * A stopped session is not a finished one: the runtime writes an account of
+   * what was narrated in a turn that starts after this socket is gone, and the
+   * surface has to say so from the press onward rather than from whenever the
+   * flush lands.
+   */
+  test("the wait starts on the stop press, named by the runtime's own ids", async () => {
+    await startRunning();
+
+    stopWatch();
+
+    expect(useWatchRetroStore.getState().retro).toEqual({
+      sessionId: "sess-1",
+      conversationId: "conv-1",
+      phase: "pending",
+    });
+  });
+
+  // A start the runtime never accepted recorded nothing, so there is no
+  // retrospective coming and nothing to tell the user about.
+  test("a session the runtime never accepted leaves nothing to wait on", async () => {
+    await startPending();
+
+    stopWatch();
+
+    expect(useWatchRetroStore.getState().retro).toBeNull();
+  });
+
+  /**
+   * Every ending that is not the user's own press is something going wrong: a
+   * socket that dropped, a call taking the microphone, the layout going away.
+   * None of them is a request for a summary, and a runtime that is gone is not
+   * going to write one.
+   */
+  test("a socket that drops leaves nothing to wait on", async () => {
+    await startRunning();
+
+    socket().emit("close", { code: 1006 });
+    await Promise.resolve();
+
+    expect(useWatchRetroStore.getState().retro).toBeNull();
+  });
+});
+
 describe("a watch session between the socket and the runtime", () => {
   test("shows nothing while the session is still pending", async () => {
     const seen = await flagEmissions(async () => {

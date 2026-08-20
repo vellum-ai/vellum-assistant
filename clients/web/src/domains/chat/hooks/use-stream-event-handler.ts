@@ -512,6 +512,10 @@ export function useStreamEventHandler(
         case "schedule_conversation_created":
         case "heartbeat_alert":
         case "heartbeat_conversation_created":
+        // A watch session's retrospective finishing is drawn by the companion
+        // surface rather than in the transcript, and reaches it through
+        // `useWatchRetroSync` off the bus.
+        case "watch_retro_completed":
           break;
         // Host-proxy instructions targeting the desktop client / chrome
         // extension. The web chat handler is a no-op — host-proxy frames are

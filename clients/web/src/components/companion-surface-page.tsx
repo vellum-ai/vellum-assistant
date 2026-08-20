@@ -6,6 +6,7 @@ import {
 } from "@/components/companion-surface";
 import {
   activateCompanionApp,
+  answerCompanionWatchRetro,
   getCompanionState,
   moveCompanionBy,
   setCompanionComposing,
@@ -22,6 +23,7 @@ import type {
   CompanionGrowth,
   CompanionSurfaceState,
   CompanionTurn,
+  CompanionWatchRetro,
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
@@ -89,6 +91,12 @@ export function CompanionSurfacePage() {
   // Held by main and pushed here with everything else, so this window can
   // reload mid-session without the indicator that says so going dark.
   const [watching, setWatching] = useState(false);
+  // Where the last session's summary has got to, from the window that ran it.
+  // Undefined is the resting answer and the only one that draws nothing: both
+  // of the others are claims that something is happening.
+  const [watchRetro, setWatchRetro] = useState<CompanionWatchRetro | undefined>(
+    undefined,
+  );
   const [hovered, setHovered] = useState(false);
   // Whether the composer is open. Local to this page rather than pushed from
   // main, because nothing outside this window opens or closes it: main is told
@@ -134,6 +142,7 @@ export function CompanionSurfacePage() {
       // reads as nothing running, because the alternative is a capture
       // indicator over a machine nobody is reading.
       setWatching(state.watching === true);
+      setWatchRetro(state.watchRetro);
     };
     const unsubscribe = subscribeCompanionState(apply);
     // The route chunk loads lazily after the window is created, so a state
@@ -281,15 +290,22 @@ export function CompanionSurfacePage() {
   // one runs beside whatever they are doing. Being outranked costs the session
   // nothing, since the phase is only what the pill is drawing and the indicator
   // reads `watching` instead.
+  //
+  // The summary of a finished session sits between the two: it outranks hover
+  // because it is a wait the user is owed an answer to and then a question
+  // waiting on one, and it is outranked by a session still recording, which is
+  // the one thing on this surface a user must always be able to see and stop.
   const phase: CompanionSurfacePhase = typing
     ? "typing"
     : call !== null
       ? "call"
       : watching
         ? "watching"
-        : hovered
-          ? "hover"
-          : "resting";
+        : watchRetro !== undefined
+          ? "summary"
+          : hovered
+            ? "hover"
+            : "resting";
 
   // The avatar's own colour, which arrives with the session. It is `""` until
   // the avatar resolves and the contract makes no promise it parses, so
@@ -370,6 +386,17 @@ export function CompanionSurfacePage() {
           // indicator and the control that ends the session are not: they
           // belong to the session, not to whatever the pill is drawing over it.
           watching={watching}
+          // Its own prop rather than something derived from the phase, for the
+          // reason `watching` is: a call or an open composer outranks the
+          // phase, and a question the user has been asked must not lose its
+          // answer because they picked up the phone.
+          watchRetro={watchRetro}
+          // Out through main and into the window that ran the retrospective. A
+          // yes raises the app on the report; a no leaves the window where it
+          // is. Neither is handled here: this page has no conversation and no
+          // router, and the answer has to reach the side holding the question
+          // or the prompt comes back on the next push.
+          onWatchRetro={answerCompanionWatchRetro}
           rootRef={pillRef}
           onSurfaceMouseDown={(event) => {
             dragRef.current = { x: event.screenX, y: event.screenY };

@@ -633,6 +633,62 @@ describe("the watch session main relays", () => {
 });
 
 /**
+ * The summary a finished session leaves behind: a fact main holds and an answer
+ * it forwards.
+ *
+ * The one press on this surface that may raise the app, and only on a yes.
+ * Watch is kept behind the user's work because that work is the session's
+ * subject; by the time this is pressed the session is over and the report is a
+ * thing to read.
+ */
+describe("the watch summary main relays", () => {
+  beforeEach(() => {
+    dispatched.length = 0;
+    windowsRaised = 0;
+    mainWindowOpen = true;
+    send("vellum:companion:setContext", context());
+    pushes.length = 0;
+  });
+
+  test("carries the summary phase from the published context into pushed state", () => {
+    send("vellum:companion:setContext", context({ watchRetro: "pending" }));
+    expect(state().watchRetro).toBe("pending");
+    send("vellum:companion:setContext", context({ watchRetro: "ready" }));
+    expect(state().watchRetro).toBe("ready");
+  });
+
+  // Every value it can hold is a claim that something is happening, so absence
+  // is the only way to say nothing is and has to survive the trip.
+  test("a context with no summary reports none", () => {
+    send("vellum:companion:setContext", context());
+    expect(state().watchRetro).toBeUndefined();
+  });
+
+  // The window comes forward first and the navigation follows it, so the press
+  // lands a microtask later: dispatching ahead of the show would navigate a
+  // page the user is not looking at yet.
+  test("raises the app on a yes, since the report is the thing to read", async () => {
+    send("vellum:companion:answerWatchRetro", true);
+    expect(windowsRaised).toBe(1);
+
+    await Promise.resolve();
+
+    expect(dispatched).toEqual([{ kind: "answerWatchRetro", open: true }]);
+  });
+
+  /**
+   * A dismissal still travels: the window that ran the retrospective is the one
+   * holding the question, and an answer kept on this surface would be a
+   * question that gets asked again on the next push.
+   */
+  test("forwards a no without dragging the app over the user's work", () => {
+    send("vellum:companion:answerWatchRetro", false);
+    expect(dispatched).toEqual([{ kind: "answerWatchRetro", open: false }]);
+    expect(windowsRaised).toBe(0);
+  });
+});
+
+/**
  * The app's window is destroyed while this surface stays open.
  *
  * The socket and the microphone go down with the renderer, and nothing is left

@@ -129,6 +129,7 @@ import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
 import { UsageProgressEventSchema } from "./events/usage-progress.js";
 import { UsageUpdateEventSchema } from "./events/usage-update.js";
 import { UserMessageEchoEventSchema } from "./events/user-message-echo.js";
+import { WatchRetroCompletedEventSchema } from "./events/watch-retro-completed.js";
 import { WorkflowCompletedEventSchema } from "./events/workflow-completed.js";
 import { WorkflowLeafFinishedEventSchema } from "./events/workflow-leaf-finished.js";
 import { WorkflowLeafStartedEventSchema } from "./events/workflow-leaf-started.js";
@@ -677,6 +678,10 @@ export {
   UserMessageEchoEventSchema,
 } from "./events/user-message-echo.js";
 export {
+  type WatchRetroCompletedEvent,
+  WatchRetroCompletedEventSchema,
+} from "./events/watch-retro-completed.js";
+export {
   type WorkflowCompletedEvent,
   WorkflowCompletedEventSchema,
   type WorkflowRunStatus,
@@ -1032,6 +1037,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   UsageProgressEventSchema,
   UsageUpdateEventSchema,
   UserMessageEchoEventSchema,
+  WatchRetroCompletedEventSchema,
   WorkflowCompletedEventSchema,
   WorkflowLeafFinishedEventSchema,
   WorkflowLeafStartedEventSchema,

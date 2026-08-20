@@ -60,6 +60,11 @@ const { useConversationStore } = await import("@/stores/conversation-store");
 const { useChatSessionStore } = await import(
   "@/domains/chat/chat-session-store"
 );
+// The summary store is the real one: it holds nothing but a value and a timer,
+// and what this hook owns is publishing the phase it reports.
+const { beginWatchRetro, clearWatchRetro, settleWatchRetro } = await import(
+  "@/domains/chat/watch/watch-retro"
+);
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -74,6 +79,7 @@ afterEach(() => {
   stopWatchMock.mockClear();
   watching = false;
   watchListeners.clear();
+  clearWatchRetro();
   isPopout = false;
   useTurnStore.getState().resetTurn();
   useConversationStore.setState({ processingConversationIds: new Set() });
@@ -257,6 +263,63 @@ describe("the middle of a turn, where the client looks idle", () => {
 
     await waitFor(() => {
       expect(latest().working).toBe(false);
+    });
+  });
+});
+
+/**
+ * The summary of a finished session crosses the same bridge as the flag, and
+ * has one more reason to: the runtime announces the retrospective on this
+ * window's event stream, and the surface's own renderer is not subscribed to
+ * it. Without this the surface would go quiet for the whole of a turn the user
+ * is waiting on.
+ */
+describe("the watch summary the companion mirror publishes", () => {
+  const SESSION = { sessionId: "sess-1", conversationId: "conv-1" };
+
+  test("says nothing when no session has finished", () => {
+    render(<Mirror />);
+    expect(latest().watchRetro).toBeUndefined();
+  });
+
+  test("is pending from the stop press", async () => {
+    render(<Mirror />);
+    beginWatchRetro(SESSION);
+    await waitFor(() => {
+      expect(latest().watchRetro).toBe("pending");
+    });
+  });
+
+  test("becomes the question once the runtime answers", async () => {
+    render(<Mirror />);
+    beginWatchRetro(SESSION);
+    await waitFor(() => {
+      expect(latest().watchRetro).toBe("pending");
+    });
+
+    settleWatchRetro({
+      type: "watch_retro_completed",
+      sessionId: SESSION.sessionId,
+      conversationId: SESSION.conversationId,
+      reportReady: true,
+    });
+
+    await waitFor(() => {
+      expect(latest().watchRetro).toBe("ready");
+    });
+  });
+
+  test("goes back to silence once the question is answered", async () => {
+    render(<Mirror />);
+    beginWatchRetro(SESSION);
+    await waitFor(() => {
+      expect(latest().watchRetro).toBe("pending");
+    });
+
+    clearWatchRetro();
+
+    await waitFor(() => {
+      expect(latest().watchRetro).toBeUndefined();
     });
   });
 });

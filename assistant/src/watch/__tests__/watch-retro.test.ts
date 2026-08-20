@@ -13,6 +13,7 @@ import {
   buildWatchRetroPrompt,
   runWatchRetro,
   type WatchRetroDispatchResult,
+  type WatchRetroResult,
 } from "../watch-retro.js";
 import type { WatchSessionSummary } from "../watch-session-manager.js";
 import {
@@ -351,6 +352,95 @@ describe("watch retrospective", () => {
     expect(result).toEqual({
       status: "failed",
       reason: "the conversation went away",
+    });
+  });
+
+  describe("announcing the outcome", () => {
+    /**
+     * A dispatcher that leaves a report, plus a recorder for what the retro
+     * announced. The announcement is what a surface waiting on the summary
+     * reads, so these assert the wire payload rather than the return value.
+     */
+    function recordingAnnounce(): {
+      announced: { summary: WatchSessionSummary; result: WatchRetroResult }[];
+      announce: (
+        summary: WatchSessionSummary,
+        result: WatchRetroResult,
+      ) => void;
+    } {
+      const announced: {
+        summary: WatchSessionSummary;
+        result: WatchRetroResult;
+      }[] = [];
+      return {
+        announced,
+        announce: (summary, result) => {
+          announced.push({ summary, result });
+        },
+      };
+    }
+
+    test("names the session and its conversation once there is a report", async () => {
+      const summary = recordSession(["filing the receipt"]);
+      const { dispatch } = recordingDispatch();
+      const { announced, announce } = recordingAnnounce();
+
+      await runWatchRetro(summary, { dispatch, announce });
+
+      expect(announced).toHaveLength(1);
+      expect(announced[0]!.summary.sessionId).toBe(summary.sessionId);
+      expect(announced[0]!.summary.conversationId).toBe(summary.conversationId);
+      expect(announced[0]!.result.status).toBe("dispatched");
+    });
+
+    // A surface that said a summary was being written has to be told when one
+    // is not coming, or it draws progress over nothing until it gives up on its
+    // own.
+    test("a session that recorded nothing is still announced", async () => {
+      const summary = recordSession([]);
+      const { dispatch } = recordingDispatch();
+      const { announced, announce } = recordingAnnounce();
+
+      await runWatchRetro(summary, { dispatch, announce });
+
+      expect(announced).toHaveLength(1);
+      expect(announced[0]!.summary.sessionId).toBe(summary.sessionId);
+      expect(announced[0]!.result.status).toBe("skipped");
+    });
+
+    test("a turn that produced no report is still announced", async () => {
+      const summary = recordSession(["renaming the file"]);
+      const { announced, announce } = recordingAnnounce();
+
+      await runWatchRetro(summary, {
+        dispatch: async () => ({ invoked: false, reason: "no_output" }),
+        announce,
+      });
+
+      expect(announced).toHaveLength(1);
+      expect(announced[0]!.result.status).toBe("failed");
+    });
+
+    // The retrospective is written and the conversation surfaced before this
+    // runs, so a broadcast that blows up costs the prompt and nothing else.
+    test("an announcement that throws does not lose the retro", async () => {
+      const summary = recordSession(["filing the receipt"]);
+      const { dispatch } = recordingDispatch();
+
+      const result = await runWatchRetro(summary, {
+        dispatch,
+        announce: () => {
+          throw new Error("no subscribers");
+        },
+      });
+
+      expect(result).toEqual({
+        status: "dispatched",
+        conversationId: summary.conversationId,
+      });
+      expect(
+        getConversation(summary.conversationId)!.surfacedAt,
+      ).not.toBeNull();
     });
   });
 

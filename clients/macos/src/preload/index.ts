@@ -512,6 +512,9 @@ const bridge: VellumBridge = {
     toggleWatch: (): void => {
       ipcRenderer.send("vellum:companion:toggleWatch");
     },
+    answerWatchRetro: (open: boolean): void => {
+      ipcRenderer.send("vellum:companion:answerWatchRetro", open);
+    },
     activate: (): void => {
       ipcRenderer.send("vellum:companion:activate");
     },
