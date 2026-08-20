@@ -93,6 +93,9 @@ const sentReactions: Array<{
   target: Record<string, unknown>;
 }> = [];
 const sentStreamOps: Array<Record<string, unknown>> = [];
+let sendChannelStreamOpImpl: (
+  op: Record<string, unknown>,
+) => Promise<{ ok: boolean; ts?: string }> = async () => ({ ok: true });
 const sentThreadStatuses: Array<Record<string, unknown>> = [];
 mock.module("../../../messaging/providers/index.js", () => ({
   sendChannelTyping: async () => ({ ok: true }),
@@ -103,7 +106,7 @@ mock.module("../../../messaging/providers/index.js", () => ({
     op: Record<string, unknown>,
   ) => {
     sentStreamOps.push(op);
-    return { ok: true };
+    return sendChannelStreamOpImpl(op);
   },
   setChannelThreadStatus: async (
     _callbackUrl: string,
@@ -162,6 +165,7 @@ beforeEach(() => {
   deliveredChannelReplies.length = 0;
   sentReactions.length = 0;
   sentStreamOps.length = 0;
+  sendChannelStreamOpImpl = async () => ({ ok: true });
   sentThreadStatuses.length = 0;
   markedProcessedEvents.length = 0;
   processingFailureEvents.length = 0;
@@ -525,7 +529,7 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     const channelId = "D-STREAMED";
     const threadTs = "1700000000.000044";
     const streamTs = "1700000000.000033";
-    deliverChannelReplyImpl = async () => ({ ok: true, ts: streamTs });
+    sendChannelStreamOpImpl = async () => ({ ok: true, ts: streamTs });
 
     const processMessage: MessageProcessor = async (
       _conversationId,
@@ -704,7 +708,7 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     const channelId = "D-STREAM-PROCESSING-FAILURE";
     const threadTs = "1700000000.000066";
     const streamTs = "1700000000.000077";
-    deliverChannelReplyImpl = async () => ({ ok: true, ts: streamTs });
+    sendChannelStreamOpImpl = async () => ({ ok: true, ts: streamTs });
 
     const processMessage: MessageProcessor = async (
       _conversationId,

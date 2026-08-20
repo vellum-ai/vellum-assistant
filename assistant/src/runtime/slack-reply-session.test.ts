@@ -329,7 +329,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("falls back when startStream returns no stream ts", async () => {
-    deliverImpl = async () => ({ ok: false });
+    streamOpImpl = async () => ({ ok: false });
     const session = createSlackReplySession({
       sourceChannel: "slack",
       chatType: "im",
@@ -346,7 +346,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("falls back when startStream throws", async () => {
-    deliverImpl = async () => {
+    streamOpImpl = async () => {
       throw new Error("rate limited");
     };
     const session = createSlackReplySession({

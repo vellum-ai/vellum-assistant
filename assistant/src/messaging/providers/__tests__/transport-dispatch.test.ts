@@ -192,7 +192,7 @@ describe("Slack sub-operation selection", () => {
     expect(slack.sendSlackStreamOp).toHaveBeenCalledTimes(1);
     expect(slack.sendSlackStreamOp.mock.calls[0]).toEqual([
       "C1",
-      { action: "start", threadTs: "1700.5" },
+      { action: "start", threadTs: "1700.5", markdownText: "hi" },
     ]);
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: true, ts: "stream-ts" });
