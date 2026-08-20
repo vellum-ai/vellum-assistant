@@ -19,7 +19,7 @@ import {
 } from "./vellum-model-routing.js";
 
 /**
- * Error raised when a `provider_connection` reference cannot be resolved
+ * Error raised when a connection reference cannot be resolved
  * because the configuration is broken (DB lookup throws, no such row, or
  * the connection's provider does not match the resolving profile's
  * declared provider). These are deterministic configuration bugs that

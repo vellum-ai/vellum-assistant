@@ -4,11 +4,11 @@ import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { VELLUM_MANAGED_PROVIDER } from "../vellum-model-routing.js";
 
 // ---------------------------------------------------------------------------
-// Auth discriminated union (stored in provider_connections.auth as JSON)
+// Auth discriminated union (stored in the connections table's auth column as JSON)
 // ---------------------------------------------------------------------------
 
 /**
- * Auth configuration stored in the `provider_connections` table.
+ * Auth configuration stored in the connections table.
  *
  * Runtime-supported variants:
  *   - api_key: look up `credential` in vault, inject as bearer/provider header.
@@ -73,7 +73,7 @@ export function deriveAuthForProvider(
 }
 
 /**
- * Derive the typed auth of a stored `provider_connections` row from its
+ * Derive the typed auth of a stored connection row from its
  * provider column and the credential payload. The stored auth JSON carries
  * only the payload (`{credential?}`); the type is implied by the provider:
  * `vellum` IS the managed route (platform), `chatgpt` IS the subscription
@@ -164,9 +164,7 @@ export const CHATGPT_SUBSCRIPTION_CONNECTION_NAME = "chatgpt-subscription";
  * Provider values that are routing identities rather than adapters: the
  * value names HOW a request routes (vellum = the platform-managed route,
  * chatgpt = the subscription route), and dispatch translates it to a real
- * upstream + connection row per-request (resolveRoutingIdentity). Identity
- * profiles carry no provider_connection; backfill and materialization must
- * not stamp one.
+ * upstream + connection row per-request (resolveRoutingIdentity).
  */
 export const ROUTING_IDENTITY_PROVIDERS: ReadonlySet<string> = new Set([
   "vellum",

@@ -190,15 +190,14 @@ describe("auto-resolution skips oauth_subscription connections for non-Codex mod
     expect(resolveProviderCalls.length).toBe(0);
   });
 
-  test("explicitly pinned oauth_subscription connection is used regardless of model", async () => {
+  test("an entry-name oauth_subscription connection is used regardless of model", async () => {
     registerConnections([OPENAI_CODEX, OPENAI_KEY]);
     setConfig("llm", {
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         "openai-pinned": {
-          provider: "openai",
+          provider: "openai-codex",
           model: "gpt-5",
-          provider_connection: "openai-codex",
         },
       },
     });
@@ -207,7 +206,7 @@ describe("auto-resolution skips oauth_subscription connections for non-Codex mod
       overrideProfile: "openai-pinned",
     });
 
-    // The pinned connection bypasses the auto-resolution gate entirely.
+    // The entry-name route bypasses the auto-resolution gate entirely.
     expect(result).not.toBeNull();
     expect(resolveProviderCalls.length).toBe(1);
     expect(resolveProviderCalls[0].name).toBe("openai-codex");
@@ -218,7 +217,7 @@ function setOpenAiProfile(model: string): void {
   setConfig("llm", {
     default: { provider: "anthropic", model: "claude-opus-4-7" },
     profiles: {
-      // "Any active OpenAI connection" — provider set, no provider_connection.
+      // A bare vendor provider: auto-resolution picks the row.
       "openai-any": { provider: "openai", model },
     },
   });

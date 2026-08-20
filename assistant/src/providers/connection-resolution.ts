@@ -2,26 +2,25 @@
  * Connection-aware provider resolution helpers.
  *
  * These wrap `resolveProviderFromConnection` (in `registry.ts`) with the
- * DB lookup and lifecycle of a `provider_connection` reference. The
- * canonical dispatch path (`provider-send-message.ts`) and each satellite
- * site (subagent manager, daemon conversation/approval/guardian generators,
- * rollup producer) use these helpers so that connection-awareness behaves
- * identically across the codebase.
+ * DB lookup and lifecycle of a connection reference derived from the
+ * winner's `provider` value (a routing identity, an entry name, or a bare
+ * vendor auto-resolved to a compatible row). The canonical dispatch path
+ * (`provider-send-message.ts`) and each satellite site (subagent manager,
+ * daemon conversation/approval/guardian generators, rollup producer) use
+ * these helpers so that connection-awareness behaves identically across
+ * the codebase.
  *
  * Resolution policy:
- *   1. The profile MUST name a `provider_connection`. The boot-time
- *      backfill ensures every profile has one; a missing connection name
- *      is a configuration bug.
- *   2. Hard config errors (DB lookup throws, row not found, provider
+ *   1. Hard config errors (DB lookup throws, row not found, provider
  *      mismatch with the resolving profile) throw so misconfigurations
  *      surface immediately rather than silently rerouting.
- *   3. Soft credential issues (`resolveProviderFromConnection` returns
+ *   2. Soft credential issues (`resolveProviderFromConnection` returns
  *      null because the credential isn't set in the vault, or the
  *      auth bundle yields no usable adapter) return null. Callers are
  *      free to treat null as "no provider available" and fall back to
  *      a graceful no-op (e.g. rollup producer skips, satellite throw
  *      with their own actionable message).
- *   4. Transient failures inside the resolver (managed-proxy context
+ *   3. Transient failures inside the resolver (managed-proxy context
  *      lookup, credential read I/O) are caught and treated like a soft
  *      credential issue (return null). A transient blip should not take
  *      a conversation offline.
@@ -135,9 +134,8 @@ export function dispatchProviderResolvable(provider: string): boolean {
 /**
  * The vendor a resolved provider value expects its connection row to serve:
  * catalog ids and routing identities pass through, and an entry-name label
- * resolves to its row's dispatchable kind, so a config carrying both an
- * entry label and a `provider_connection` is held to the label's kind by
- * the row-equality check (a conflicting row mismatches explainably or
+ * resolves to its row's dispatchable kind, so the row-equality check holds
+ * dispatch to the label's kind (a conflicting row mismatches explainably or
  * auto-recovers to a matching one). A label naming no row yields undefined.
  */
 export function expectedVendorProvider(
@@ -194,7 +192,7 @@ export function resolveEntryProviderKind(
 }
 
 /**
- * Resolve a Provider through a named `provider_connection`.
+ * Resolve a Provider through a named connection row.
  *
  * Throws `ConnectionResolutionError` on hard config errors:
  *   - DB lookup throws (`lookup_failed`)
@@ -240,7 +238,7 @@ export async function tryResolveProviderForConnectionName(
     throw new ConnectionResolutionError(
       connectionName,
       "lookup_failed",
-      `provider_connection lookup failed for "${connectionName}"`,
+      `connection lookup failed for "${connectionName}"`,
       { cause: err },
     );
   }
@@ -248,7 +246,7 @@ export async function tryResolveProviderForConnectionName(
     throw new ConnectionResolutionError(
       connectionName,
       "not_found",
-      `provider_connection "${connectionName}" not found in DB — check your config or run the boot-time backfill`,
+      `connection "${connectionName}" not found in DB: check your config or run the boot-time backfill`,
     );
   }
   // Any route through the canonical connection name is platform-billed, so it
@@ -291,7 +289,7 @@ export async function tryResolveProviderForConnectionName(
       throw new ConnectionResolutionError(
         connectionName,
         "provider_mismatch",
-        `provider_connection "${connectionName}" is the provider-agnostic Vellum-managed connection but the resolving profile declared no provider — set the profile's provider so the upstream can be selected`,
+        `connection "${connectionName}" is the provider-agnostic Vellum-managed connection but the resolving profile declared no provider: set the profile's provider so the upstream can be selected`,
       );
     }
   }
@@ -314,11 +312,10 @@ export async function tryResolveProviderForConnectionName(
     expectedProvider &&
     connection.provider !== expectedProvider
   ) {
-    // Mismatch usually means the config deep-merge inherited a stale
-    // provider_connection from a lower layer (e.g. profile sets a BYOK
-    // provider with "Any active" but the default layer's
-    // "anthropic-managed" leaked through). Try to find an active connection
-    // for the expected provider before giving up.
+    // Mismatch usually means the row behind the resolved name has been
+    // repointed at a different provider since the profile was written. Try
+    // to find an active connection for the expected provider before giving
+    // up.
     let resolved = false;
     let mismatchCandidates:
       | import("./inference/auth.js").ProviderConnection[]
@@ -336,7 +333,7 @@ export async function tryResolveProviderForConnectionName(
             resolvedConnection: active.name,
             expectedProvider,
           },
-          "Auto-resolved stale provider_connection to matching connection",
+          "Auto-resolved stale connection reference to matching connection",
         );
         connection = active;
         resolved = true;
@@ -359,7 +356,7 @@ export async function tryResolveProviderForConnectionName(
       throw new ConnectionResolutionError(
         connectionName,
         "provider_mismatch",
-        `provider_connection "${connectionName}" has provider="${connection.provider}" but resolving profile declared provider="${expectedProvider}" — set the profile's provider_connection to a row matching its provider`,
+        `connection "${connectionName}" has provider="${connection.provider}" but resolving profile declared provider="${expectedProvider}": point the profile's provider at a row matching its vendor`,
       );
     }
   }
@@ -382,7 +379,7 @@ export async function tryResolveProviderForConnectionName(
   } catch (err) {
     log.warn(
       { err, connectionName },
-      "provider_connection auth resolution failed transiently — returning null",
+      "connection auth resolution failed transiently - returning null",
     );
     return null;
   }
@@ -460,12 +457,11 @@ async function resolveThroughPlatform(
  * construction-time path (subagent manager, conversation store,
  * approval/guardian generators, rollup producer).
  *
- * Resolves the mainAgent call-site config and reads its
- * `{provider, provider_connection}`.
+ * Resolves the mainAgent call-site config and derives the connection row
+ * from its `provider` value.
  *
- *   - Throws `ConnectionResolutionError` if the default profile has no
- *     `provider_connection` (boot-time backfill should have set one;
- *     a missing connection name is a configuration bug).
+ *   - Throws `ConnectionResolutionError` when no connection can be
+ *     derived for the resolved provider (missing_connection).
  *   - Throws on hard connection errors (lookup_failed, not_found,
  *     provider_mismatch).
  *   - Returns null on soft credential issues so satellites can early-
@@ -478,16 +474,13 @@ export async function resolveDefaultProvider(
   const resolved = resolveCallSiteConfig("mainAgent", config.llm, {
     isResolvableProvider: dispatchProviderResolvable,
   });
-  let connectionName = resolved.provider_connection;
   // A routing-identity provider names its own connection row; the
   // provider-keyed auto-resolve scan below cannot find it ("chatgpt" rows
   // store provider "openai"), so short-circuit to the canonical name.
-  if (!connectionName) {
-    connectionName = resolveRoutingIdentity(
-      resolved.provider,
-      resolved.model,
-    )?.connectionName;
-  }
+  let connectionName = resolveRoutingIdentity(
+    resolved.provider,
+    resolved.model,
+  )?.connectionName;
   // An entry-name provider IS the connection name: the label points at a
   // row, and the row's own provider drives dispatch.
   const entryName = connectionName
@@ -502,10 +495,8 @@ export async function resolveDefaultProvider(
     );
   }
   if (!connectionName) {
-    // The merged config has no provider_connection — the profile likely set
-    // provider without a connection ("Any active" selection), and the merge
-    // cleared or failed to inherit one. Try to find an active connection
-    // for the provider before giving up.
+    // A bare vendor provider names no row of its own. Try to find an
+    // active connection for the provider before giving up.
     let autoResolveCandidates:
       | import("./inference/auth.js").ProviderConnection[]
       | undefined;
@@ -520,7 +511,7 @@ export async function resolveDefaultProvider(
         if (active) {
           log.info(
             { provider: resolved.provider, resolvedConnection: active.name },
-            "Auto-resolved missing provider_connection for default provider",
+            "Auto-resolved connection for default provider",
           );
           connectionName = active.name;
         }
@@ -546,7 +537,7 @@ export async function resolveDefaultProvider(
       throw new ConnectionResolutionError(
         "<default>",
         "missing_connection",
-        `The resolved default config carries no provider_connection and no active connection exists for provider "${resolved.provider}". Connect a provider or point llm.defaultProvider at one with credentials.`,
+        `No active connection exists for provider "${resolved.provider}". Connect a provider or point llm.defaultProvider at one with credentials.`,
       );
     }
   }
@@ -580,20 +571,16 @@ export async function resolveDefaultProvider(
 export async function preflightResolvedConfig(
   resolved: {
     provider: string;
-    provider_connection?: string;
     model: string;
   },
   attribution: { profileName?: string } = {},
 ): Promise<void> {
   // Routing identities preflight through their canonical row and derived
-  // upstream; an unroutable vellum model throws here — it is statically
+  // upstream; an unroutable vellum model throws here: it is statically
   // detectable, exactly what preflight exists to surface.
   const identity = resolveRoutingIdentity(resolved.provider, resolved.model);
   // An entry-name provider IS the connection name, and the row's kind is
   // what the checks below judge against (same translation dispatch uses).
-  // Precedence matches dispatch exactly: an explicit provider_connection
-  // wins over the entry name, so preflight judges the row the request
-  // actually uses rather than a healthy entry the request ignores.
   const entryName = identity
     ? null
     : resolveEntryConnectionName(resolved.provider);
@@ -602,8 +589,7 @@ export async function preflightResolvedConfig(
     : entryName
       ? (connectionProviderKind(entryName, resolved.model) ?? resolved.provider)
       : resolved.provider;
-  const connectionName =
-    identity?.connectionName ?? resolved.provider_connection ?? entryName;
+  const connectionName = identity?.connectionName ?? entryName;
   if (!connectionName) {
     return;
   }
@@ -625,7 +611,7 @@ export async function preflightResolvedConfig(
     throw new ConnectionResolutionError(
       connectionName,
       "not_found",
-      `provider_connection "${connectionName}" does not exist — add a connection for provider "${resolved.provider}" or pick a different default in Settings`,
+      `connection "${connectionName}" does not exist: add a connection for provider "${resolved.provider}" or pick a different default in Settings`,
       errorOptions,
     );
   }
@@ -643,7 +629,7 @@ export async function preflightResolvedConfig(
       throw new ConnectionResolutionError(
         connectionName,
         "provider_mismatch",
-        `provider_connection "${connectionName}" is the Vellum-managed connection, which cannot serve provider "${provider}"`,
+        `connection "${connectionName}" is the Vellum-managed connection, which cannot serve provider "${provider}"`,
         errorOptions,
       );
     }
@@ -684,7 +670,7 @@ export async function preflightResolvedConfig(
       throw new ConnectionResolutionError(
         connectionName,
         "platform_unauthenticated",
-        `provider_connection "${connectionName}" routes through the Vellum platform, but no platform login is available — log in or pick a different provider`,
+        `connection "${connectionName}" routes through the Vellum platform, but no platform login is available: log in or pick a different provider`,
         errorOptions,
       );
     }
@@ -699,7 +685,7 @@ export async function preflightResolvedConfig(
     throw new ConnectionResolutionError(
       connectionName,
       "provider_mismatch",
-      `provider_connection "${connectionName}" has provider="${connection.provider}" but the resolved config declares provider="${provider}"`,
+      `connection "${connectionName}" has provider="${connection.provider}" but the resolved config declares provider="${provider}"`,
       errorOptions,
     );
   }
@@ -718,7 +704,7 @@ export async function preflightResolvedConfig(
       throw new ConnectionResolutionError(
         connectionName,
         "missing_credential",
-        `provider_connection "${connectionName}" has no ${connection.auth.type === "api_key" ? "API key" : "credential"} stored — add one in Settings`,
+        `connection "${connectionName}" has no ${connection.auth.type === "api_key" ? "API key" : "credential"} stored: add one in Settings`,
         errorOptions,
       );
     }
@@ -727,7 +713,7 @@ export async function preflightResolvedConfig(
         throw new ConnectionResolutionError(
           connectionName,
           "platform_unauthenticated",
-          `provider_connection "${connectionName}" uses platform auth, but no platform login is available — log in to use it`,
+          `connection "${connectionName}" uses platform auth, but no platform login is available: log in to use it`,
           errorOptions,
         );
       }
@@ -784,7 +770,8 @@ export async function mainAgentResolutionError(
     resolved.provider,
     registeredProviders,
     {
-      connectionName: resolved.provider_connection,
+      connectionName:
+        resolveEntryConnectionName(resolved.provider) ?? undefined,
     },
   );
 }

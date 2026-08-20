@@ -74,8 +74,6 @@ describe("balanced-model experiment arms", () => {
     );
     expect(entry?.model).toBe("gpt-5.6-terra");
     expect(entry?.provider).toBe("vellum");
-    // Routing-identity providers derive their connection per request.
-    expect(entry?.provider_connection).toBeUndefined();
     expect(entry?.source).toBe("managed");
   });
 

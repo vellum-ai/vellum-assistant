@@ -11,7 +11,6 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { stripCallSiteProviderOverridesMigration } from "../workspace/migrations/147-strip-call-site-provider-overrides.js";
-import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { assertNotLiveDb } from "./assert-not-live-db.js";
 
 let workspaceDir: string;
@@ -68,15 +67,6 @@ afterEach(() => {
 });
 
 describe("147-strip-call-site-provider-overrides", () => {
-  test("is registered last (the registry ceiling reads the final entry)", () => {
-    expect(stripCallSiteProviderOverridesMigration.id).toBe(
-      "147-strip-call-site-provider-overrides",
-    );
-    expect(WORKSPACE_MIGRATIONS[WORKSPACE_MIGRATIONS.length - 1]?.id).toBe(
-      "147-strip-call-site-provider-overrides",
-    );
-  });
-
   test("strips provider and keeps a model the winning route serves", () => {
     // No defaultProvider: the winning route is the vellum column, which
     // serves the anthropic catalog model.

@@ -5061,9 +5061,6 @@ paths:
                     - type: "null"
                 description:
                   type: string
-                provider_connection:
-                  type: string
-                  minLength: 1
                 status:
                   anyOf:
                     - $ref: "#/components/schemas/ProfileStatus"
@@ -14735,10 +14732,10 @@ paths:
       operationId: inference_profiles_post
       summary: Create an inference profile
       description:
-        Create a validated custom profile. The provider must be a known LLM provider, the model must be in the
-        catalog (unless allowUnlisted), a referenced connection must exist, and the profile must be able to dispatch — a
-        valid provider id with no credentialed connection behind it is rejected unless allowUnavailable is set, in which
-        case it is created with a warning.
+        "Create a validated custom profile. The provider must be a known LLM provider, the model must be in the
+        catalog (unless allowUnlisted), and the profile must be able to dispatch: a valid provider id with no
+        credentialed connection behind it is rejected unless allowUnavailable is set, in which case it is created with a
+        warning."
       tags:
         - inference
       requestBody:
@@ -14755,9 +14752,6 @@ paths:
                   type: string
                   minLength: 1
                 model:
-                  type: string
-                  minLength: 1
-                connection:
                   type: string
                   minLength: 1
                 label:
@@ -14791,7 +14785,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InferenceProfileWriteResult"
         "400":
-          description: Invalid provider, uncataloged model, missing connection, or a profile that cannot serve requests
+          description: Invalid provider, uncataloged model, or a profile that cannot serve requests
         "409":
           description: A profile with this name already exists
   /v1/inference/profiles/{name}:
@@ -14858,8 +14852,8 @@ paths:
       summary: Update an inference profile
       description:
         Partial update of a custom profile with the same write-time validation as create. The dispatch-availability
-        guard (and its allowUnavailable escape hatch) applies when the update changes provider, model, or connection;
-        metadata-only edits skip it. Managed default profiles are read-only.
+        guard (and its allowUnavailable escape hatch) applies when the update changes provider or model; metadata-only
+        edits skip it. Managed default profiles are read-only.
       tags:
         - inference
       parameters:
@@ -14879,9 +14873,6 @@ paths:
                   type: string
                   minLength: 1
                 model:
-                  type: string
-                  minLength: 1
-                connection:
                   type: string
                   minLength: 1
                 label:
@@ -34168,10 +34159,6 @@ components:
                       anyOf:
                         - type: boolean
                         - type: "null"
-                    provider_connection:
-                      anyOf:
-                        - type: string
-                        - type: "null"
                   additionalProperties: {}
                 - type: "null"
             profiles:
@@ -34419,11 +34406,6 @@ components:
         description:
           anyOf:
             - type: string
-            - type: "null"
-        provider_connection:
-          anyOf:
-            - type: string
-              minLength: 1
             - type: "null"
         status:
           anyOf:
@@ -34717,130 +34699,7 @@ components:
           type: object
           properties:
             default:
-              type: object
-              properties:
-                provider:
-                  $ref: "#/components/schemas/LLMProvider"
-                model:
-                  type: string
-                  minLength: 1
-                maxTokens:
-                  type: integer
-                  exclusiveMinimum: 0
-                  maximum: 9007199254740991
-                effort:
-                  type: string
-                  enum:
-                    - none
-                    - low
-                    - medium
-                    - high
-                    - xhigh
-                    - max
-                speed:
-                  type: string
-                  enum:
-                    - standard
-                    - fast
-                verbosity:
-                  type: string
-                  enum:
-                    - low
-                    - medium
-                    - high
-                temperature:
-                  anyOf:
-                    - type: number
-                      minimum: 0
-                      maximum: 2
-                    - type: "null"
-                topP:
-                  anyOf:
-                    - type: number
-                      minimum: 0
-                      maximum: 1
-                    - type: "null"
-                thinking:
-                  type: object
-                  properties:
-                    enabled:
-                      type: boolean
-                    streamThinking:
-                      type: boolean
-                    level:
-                      type: string
-                      enum:
-                        - minimal
-                        - low
-                        - medium
-                        - high
-                  additionalProperties: false
-                contextWindow:
-                  type: object
-                  properties:
-                    enabled:
-                      type: boolean
-                    maxInputTokens:
-                      type: integer
-                      exclusiveMinimum: 0
-                      maximum: 9007199254740991
-                    targetBudgetRatio:
-                      type: number
-                      exclusiveMinimum: 0
-                      maximum: 1
-                    compactThreshold:
-                      type: number
-                      exclusiveMinimum: 0
-                      maximum: 1
-                    summaryBudgetRatio:
-                      type: number
-                      exclusiveMinimum: 0
-                      maximum: 1
-                    overflowRecovery:
-                      type: object
-                      properties:
-                        enabled:
-                          type: boolean
-                        safetyMarginRatio:
-                          type: number
-                          exclusiveMinimum: 0
-                          exclusiveMaximum: 1
-                        maxAttempts:
-                          type: integer
-                          exclusiveMinimum: 0
-                          maximum: 9007199254740991
-                        interactiveLatestTurnCompression:
-                          type: string
-                          enum:
-                            - truncate
-                            - summarize
-                            - drop
-                        nonInteractiveLatestTurnCompression:
-                          type: string
-                          enum:
-                            - truncate
-                            - summarize
-                            - drop
-                      additionalProperties: false
-                  additionalProperties: false
-                openrouter:
-                  type: object
-                  properties:
-                    only:
-                      type: array
-                      items:
-                        type: string
-                        minLength: 1
-                  additionalProperties: false
-                logitBias:
-                  type: string
-                  enum:
-                    - suppress-cjk
-                disableCache:
-                  type: boolean
-                provider_connection:
-                  type: string
-              additionalProperties: false
+              $ref: "#/components/schemas/LLMConfigFragment"
             defaultProvider:
               type: object
               properties:
@@ -35053,6 +34912,129 @@ components:
               additionalProperties: {}
           additionalProperties: {}
       additionalProperties: {}
+    LLMConfigFragment:
+      type: object
+      properties:
+        provider:
+          $ref: "#/components/schemas/LLMProvider"
+        model:
+          type: string
+          minLength: 1
+        maxTokens:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        effort:
+          type: string
+          enum:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+            - max
+        speed:
+          type: string
+          enum:
+            - standard
+            - fast
+        verbosity:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+        temperature:
+          anyOf:
+            - type: number
+              minimum: 0
+              maximum: 2
+            - type: "null"
+        topP:
+          anyOf:
+            - type: number
+              minimum: 0
+              maximum: 1
+            - type: "null"
+        thinking:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            streamThinking:
+              type: boolean
+            level:
+              type: string
+              enum:
+                - minimal
+                - low
+                - medium
+                - high
+          additionalProperties: false
+        contextWindow:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            maxInputTokens:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            targetBudgetRatio:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 1
+            compactThreshold:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 1
+            summaryBudgetRatio:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 1
+            overflowRecovery:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                safetyMarginRatio:
+                  type: number
+                  exclusiveMinimum: 0
+                  exclusiveMaximum: 1
+                maxAttempts:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                interactiveLatestTurnCompression:
+                  type: string
+                  enum:
+                    - truncate
+                    - summarize
+                    - drop
+                nonInteractiveLatestTurnCompression:
+                  type: string
+                  enum:
+                    - truncate
+                    - summarize
+                    - drop
+              additionalProperties: false
+          additionalProperties: false
+        openrouter:
+          type: object
+          properties:
+            only:
+              type: array
+              items:
+                type: string
+                minLength: 1
+          additionalProperties: false
+        logitBias:
+          type: string
+          enum:
+            - suppress-cjk
+        disableCache:
+          type: boolean
+      additionalProperties: false
     ProfileEntry:
       type: object
       properties:
@@ -35187,9 +35169,6 @@ components:
             - type: "null"
         description:
           type: string
-        provider_connection:
-          type: string
-          minLength: 1
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
@@ -35458,8 +35437,6 @@ components:
           enum:
             - managed
             - user
-        provider_connection:
-          type: string
         availability:
           anyOf:
             - $ref: "#/components/schemas/ProfileConnectionAvailability"

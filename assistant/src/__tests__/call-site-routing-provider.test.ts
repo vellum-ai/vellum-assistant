@@ -9,13 +9,44 @@
  * but originating from an Anthropic-default conversation would still hit
  * the Anthropic transport.
  *
- * Alternate-provider routing requires a `provider_connection`, and the
- * wrapper takes a single async hook
- * `(connectionName, expectedProvider) => Promise<Provider | null>`.
- * Call-site profiles without a connection throw `ConnectionResolutionError`.
+ * Alternate-provider routing requires a connection row (here derived from
+ * the profile's entry-name provider), and the wrapper takes a single async
+ * hook `(connectionName, expectedProvider) => Promise<Provider | null>`.
+ * Call-site profiles without a derivable connection throw
+ * `ConnectionResolutionError`.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// Entry-name providers resolve against the connection row store; the tests
+// control it directly.
+const fakeRows = new Map<
+  string,
+  { name: string; provider: string; auth: { type: string } }
+>([
+  [
+    "openai-conn",
+    { name: "openai-conn", provider: "openai", auth: { type: "api_key" } },
+  ],
+  [
+    "fireworks-conn",
+    {
+      name: "fireworks-conn",
+      provider: "fireworks",
+      auth: { type: "api_key" },
+    },
+  ],
+]);
+mock.module("../persistence/db-connection.js", () => ({
+  getDb: () => ({}),
+}));
+mock.module("../providers/inference/connections.js", () => ({
+  getConnection: (_db: unknown, name: string) => fakeRows.get(name) ?? null,
+  listConnections: (_db: unknown, filter?: { provider?: string }) =>
+    Array.from(fakeRows.values()).filter(
+      (c) => !filter?.provider || c.provider === filter.provider,
+    ),
+}));
 
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
@@ -83,8 +114,7 @@ describe("CallSiteRoutingProvider", () => {
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         altOpenai: {
-          provider: "openai",
-          provider_connection: "openai-conn",
+          provider: "openai-conn",
           model: "gpt-5.4",
         },
       },
@@ -148,13 +178,12 @@ describe("CallSiteRoutingProvider", () => {
     expect(calls.alt).toBe(0);
   });
 
-  test("routes to alternative provider when callSite resolves to a profile with provider_connection", async () => {
+  test("routes to alternative provider when callSite resolves to an entry-name profile", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         altOpenai: {
-          provider: "openai",
-          provider_connection: "openai-conn",
+          provider: "openai-conn",
           model: "gpt-5.4",
         },
       },
@@ -190,8 +219,7 @@ describe("CallSiteRoutingProvider", () => {
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         altOpenai: {
-          provider: "openai",
-          provider_connection: "openai-conn",
+          provider: "openai-conn",
           model: "gpt-5.4",
         },
       },
@@ -225,10 +253,10 @@ describe("CallSiteRoutingProvider", () => {
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         legacyOpenai: {
-          provider: "openai",
-          model: "gpt-5.5",
-          // No provider_connection — alternate-provider routing requires
-          // one, so this profile is expected to throw
+          provider: "openrouter",
+          model: "some-model",
+          // No openrouter row exists; alternate-provider routing requires
+          // a connection, so this profile is expected to throw
           // `ConnectionResolutionError(missing_connection)` below.
         },
       },
@@ -264,8 +292,7 @@ describe("CallSiteRoutingProvider", () => {
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         altOpenai: {
-          provider: "openai",
-          provider_connection: "openai-conn",
+          provider: "openai-conn",
           model: "gpt-5.5",
         },
       },
@@ -297,8 +324,7 @@ describe("CallSiteRoutingProvider", () => {
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         altOpenai: {
-          provider: "openai",
-          provider_connection: "openai-conn",
+          provider: "openai-conn",
           model: "gpt-5.5",
         },
       },
@@ -378,8 +404,7 @@ describe("CallSiteRoutingProvider", () => {
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         altOpenai: {
-          provider: "openai",
-          provider_connection: "openai-conn",
+          provider: "openai-conn",
           model: "gpt-5.5",
         },
       },
@@ -421,13 +446,11 @@ describe("CallSiteRoutingProvider", () => {
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         altOpenai: {
-          provider: "openai",
-          provider_connection: "openai-conn",
+          provider: "openai-conn",
           model: "gpt-5.5",
         },
         altFireworks: {
-          provider: "fireworks",
-          provider_connection: "fireworks-conn",
+          provider: "fireworks-conn",
           model: "qwen3-235b",
         },
       },

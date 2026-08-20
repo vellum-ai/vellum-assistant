@@ -110,17 +110,9 @@ import {
   VALID_CONNECTION_PROVIDERS,
 } from "../../providers/inference/auth.js";
 import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
-import {
-  createConnection,
-  getConnection,
-  LEGACY_MANAGED_CONNECTION_NAMES,
-  listConnections,
-  VELLUM_MANAGED_CONNECTION_NAME,
-} from "../../providers/inference/connections.js";
+import { getConnection } from "../../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
-import { MANAGED_ROUTABLE_PROVIDERS } from "../../providers/vellum-model-routing.js";
-import { credentialKey } from "../../security/credential-key.js";
 import { validateAllowlistFile } from "../../security/secret-allowlist.js";
 import {
   resolvePricingForUsage,
@@ -177,7 +169,6 @@ const RESERVED_PROFILE_NAMES = new Set([
 
 const INFERENCE_PROFILE_UI_KEYS = new Set([
   "provider",
-  "provider_connection",
   "model",
   "maxTokens",
   "effort",
@@ -522,8 +513,8 @@ export function applyContextDefaultsToRawConfig(raw: unknown): unknown {
 /**
  * Backwards-compat wire field for `GET /v1/config`. PR removed
  * `services.inference.mode` from the typed schema (routing is governed by
- * `provider_connections` rows + per-profile `provider_connection`), but
- * the macOS settings client (`SettingsStore.swift:loadServiceModes`) still
+ * each profile's `provider` entry name), but the macOS settings client
+ * (`SettingsStore.swift:loadServiceModes`) still
  * reads this field and falls back to its `@Published` default of "your-own"
  * when absent. On a platform-managed assistant served by a newer daemon and
  * an older macOS client, that fallback would show the wrong mode in the UI
@@ -685,9 +676,7 @@ const ConfigGetResponseSchema = z
   .object({
     llm: z
       .object({
-        default: LLMConfigFragment.extend({
-          provider_connection: z.string().optional(),
-        }).optional(),
+        default: LLMConfigFragment.optional(),
         defaultProvider: DefaultProviderSchema.optional(),
         profiles: z.record(z.string(), WireProfileEntry).optional(),
         profileOrder: z.array(z.string()).optional(),
@@ -796,11 +785,7 @@ const ConfigPatchRequestSchema = z
   .object({
     llm: z
       .object({
-        default: nullablePartial(
-          LLMConfigFragment.extend({
-            provider_connection: z.string().optional(),
-          }),
-        )
+        default: nullablePartial(LLMConfigFragment)
           .passthrough()
           .nullable()
           .optional(),
@@ -1423,12 +1408,11 @@ function assertRoutableIdentityEntries(
  * Scoped to what this write moves: a site's model is validated when the
  * write changes the model itself OR relocates the site's winning route:
  * a profile swap, an `activeProfile` change, a referenced profile's
- * provider or `provider_connection` edit, a `defaultProvider` change. The
- * route fingerprint carries the winner's raw provider string (an entry
- * name stays untranslated) and its pinned connection alongside the
- * resolved kind, so a connection-identity move with an unchanged kind
- * (api-key to oauth_subscription, one entry row to another) still
- * revalidates. A save touching neither the model nor anything that moves
+ * provider edit, a `defaultProvider` change. The route fingerprint
+ * carries the winner's raw provider string (an entry name stays
+ * untranslated) alongside the resolved kind, so an entry-name move with
+ * an unchanged kind (one entry row to another) still revalidates. A save
+ * touching neither the model nor anything that moves
  * the site's route never re-validates: otherwise a stored entry gone
  * stale would make all later settings saves fail with no in-product
  * repair path (see the provider-membership scoping above). Fail-open on
@@ -1471,11 +1455,9 @@ function assertServableCallSiteModels(
   interface RouteFingerprint {
     /** The winner's raw provider value (entry names untranslated). */
     provider: string;
-    /** The winner's pinned `provider_connection`, when it carries one. */
-    connection: string | null;
     /**
-     * The kind the route is judged by: a pinned connection's (or an
-     * entry-name label's) row provider verbatim, so an identity row
+     * The kind the route is judged by: a vendor provider value verbatim,
+     * otherwise the entry-name row's provider column, so an identity row
      * ("vellum"/"chatgpt") is judged by its identity's routing table
      * rather than a dispatch-translated vendor. Null = indeterminate.
      */
@@ -1486,26 +1468,12 @@ function assertServableCallSiteModels(
     site: LLMCallSite,
   ): RouteFingerprint => {
     const { config } = resolveCallSiteConfigWithProfile(site, llm);
-    const connection =
-      typeof config.provider_connection === "string" &&
-      config.provider_connection.length > 0
-        ? config.provider_connection
-        : null;
-    // A pinned connection's readable row wins (its provider column is the
-    // route's real identity); a missing or unreadable row falls back to the
-    // provider-derived kind rather than skipping, so a dangling pin (e.g. a
-    // BYOK `<provider>-personal` name with no row yet) keeps the vendor
-    // judgment instead of silencing validation.
-    let kind: string | null =
-      connection != null ? connectionRowKind(connection) : null;
-    if (kind == null) {
-      kind = (VALID_CONNECTION_PROVIDERS as readonly string[]).includes(
-        config.provider,
-      )
-        ? config.provider
-        : connectionRowKind(config.provider);
-    }
-    return { provider: config.provider, connection, kind };
+    const kind = (VALID_CONNECTION_PROVIDERS as readonly string[]).includes(
+      config.provider,
+    )
+      ? config.provider
+      : connectionRowKind(config.provider);
+    return { provider: config.provider, kind };
   };
 
   for (const { site, model } of modelBearing) {
@@ -1524,7 +1492,6 @@ function assertServableCallSiteModels(
       const prior = routeFingerprint(pre.data, site);
       const moved =
         prior.provider !== route.provider ||
-        prior.connection !== route.connection ||
         (prior.kind != null && prior.kind !== route.kind);
       if (!moved) {
         continue;
@@ -1978,60 +1945,7 @@ async function handleReplaceInferenceProfile({
     });
   }
 
-  // When the UI sends provider but no provider_connection, derive the connection
-  // now so the config deep-merge doesn't inherit a stale connection from the
-  // default layer. Managed entries are excluded: the managed gate above
-  // already rejected any provider-carrying fragment, so their only surviving
-  // body is a status re-enable, which derives no connection. A user-owned
-  // profile sharing a managed name is fully editable, so it takes the
-  // derivation like any other custom profile.
   const fragment = parsed.data as Record<string, unknown>;
-  // Routing identities resolve their connection per-request from the
-  // provider value; deriving one here would stamp the canonical vellum row
-  // ("vellum" is its stored provider) or create a junk "<identity>-personal"
-  // connection for chatgpt.
-  if (
-    !isManaged &&
-    fragment.provider &&
-    !fragment.provider_connection &&
-    !ROUTING_IDENTITY_PROVIDERS.has(fragment.provider as string)
-  ) {
-    const provider = fragment.provider as string;
-    const db = getDb();
-    // Exclude the orphaned legacy `*-managed` rows: they may still linger in
-    // provider_connections on upgraded workspaces (hidden from the list route
-    // until a follow-up migration deletes them). Auto-binding to one would keep
-    // the profile stale and break it once those rows are removed.
-    const [active] = listConnections(db, { provider }).filter(
-      (c) => !LEGACY_MANAGED_CONNECTION_NAMES.has(c.name),
-    );
-    if (active) {
-      fragment.provider_connection = active.name;
-    } else if (
-      MANAGED_ROUTABLE_PROVIDERS.has(provider) &&
-      getConnection(db, VELLUM_MANAGED_CONNECTION_NAME)
-    ) {
-      // Managed-routable providers are served by the single Vellum-managed
-      // connection; prefer it over lazily creating a personal connection.
-      fragment.provider_connection = VELLUM_MANAGED_CONNECTION_NAME;
-    } else if (!PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
-      const connectionName = `${provider}-personal`;
-      const isKeyless = provider === "ollama";
-      const result = createConnection(db, {
-        name: connectionName,
-        provider,
-        auth: isKeyless
-          ? { type: "none" }
-          : {
-              type: "api_key",
-              credential: credentialKey(provider, "api_key"),
-            },
-      });
-      if (result.ok) {
-        fragment.provider_connection = connectionName;
-      }
-    }
-  }
 
   const raw = loadRawConfig();
   if (isManaged) {
@@ -2050,9 +1964,8 @@ async function handleReplaceInferenceProfile({
   // doesn't race the explicit reinit, embedding backend cache clear,
   // in-process `getConfig` cache invalidation, and provider registry
   // reinitialization. `status: "disabled"` on a managed profile (and any
-  // `provider` / `model` / `provider_connection` change on a custom
-  // profile) must take effect immediately rather than waiting for the
-  // next watcher tick.
+  // `provider` / `model` change on a custom profile) must take effect
+  // immediately rather than waiting for the next watcher tick.
   await commitConfigWrite(raw, "replace inference profile");
   return { ok: true };
 }

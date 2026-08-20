@@ -1,15 +1,8 @@
-import { getDb } from "../persistence/db-connection.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
-import { getConnection } from "../providers/inference/connections.js";
 import {
   getCatalogProviderForModel,
   isModelInCatalog,
 } from "../providers/model-catalog.js";
-import {
-  getManagedUpstream,
-  MANAGED_ROUTABLE_PROVIDERS,
-  VELLUM_MANAGED_CONNECTION_NAME,
-} from "../providers/vellum-model-routing.js";
 import {
   type LLMConfigBase,
   type ProfileEntry,
@@ -100,43 +93,6 @@ export function completeCustomProfile(
     }
   }
 
-  // Completion never stamps a `provider_connection`; an inherited binding
-  // would only re-introduce the collapsed field on disk. The default's
-  // explicit binding is instead inherited IN the provider value, the
-  // entries-model representation: the vellum binding becomes the routing
-  // identity (only when it can serve the model, or the read-path schema
-  // would strip the profile), and a same-vendor binding becomes the entry
-  // name, so a completed profile keeps signing with the credential the
-  // workspace default names rather than whatever auto-resolution finds
-  // first.
-  if (
-    completed.provider !== undefined &&
-    !ROUTING_IDENTITY_PROVIDERS.has(completed.provider) &&
-    profile.provider_connection === undefined &&
-    dflt.provider_connection !== undefined
-  ) {
-    if (dflt.provider_connection === VELLUM_MANAGED_CONNECTION_NAME) {
-      // Only managed-servable pairs inherit the managed binding; anything
-      // else inherits nothing and lets dispatch auto-resolve by vendor,
-      // matching the pre-entries inheritance contract.
-      if (
-        MANAGED_ROUTABLE_PROVIDERS.has(completed.provider) &&
-        completed.model !== undefined &&
-        getManagedUpstream(completed.model) !== null
-      ) {
-        completed.provider = "vellum";
-      }
-    } else if (completed.provider === dflt.provider) {
-      // Folding to the entry name is only safe against a verified row; a
-      // dangling or kind-disagreeing binding stays in the legacy field,
-      // where the collapse migration's recovery can judge it.
-      if (bindingRowKind(dflt.provider_connection) === completed.provider) {
-        completed.provider = dflt.provider_connection;
-      } else {
-        completed.provider_connection = dflt.provider_connection;
-      }
-    }
-  }
   return structuredClone(completed);
 }
 
@@ -162,18 +118,6 @@ export function mergePreservingUnknownKeys(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-/**
- * The provider kind stored on a connection row, or null when the row is
- * missing or the DB is unavailable (both mean "unverifiable" to callers).
- */
-function bindingRowKind(name: string): string | null {
-  try {
-    return getConnection(getDb(), name)?.provider ?? null;
-  } catch {
-    return null;
-  }
 }
 
 type PlainObject = Record<string, unknown>;

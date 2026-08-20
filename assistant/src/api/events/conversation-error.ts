@@ -57,7 +57,7 @@ export const ConversationErrorEventSchema = z.object({
   debugDetails: z.string().optional(),
   errorCategory: z.string().optional(),
   /**
-   * Name of the `provider_connections` row in play when the error
+   * Name of the connection row in play when the error
    * occurred. Lets the chat banner point users at the connection to
    * fix (e.g. an invalid API key). Absent when the error fires before
    * a connection is resolved.

@@ -291,7 +291,7 @@ describe("POST inference/profiles (create) validation", () => {
     expect(result.entry.label).toBe("My Fast Model");
   });
 
-  test("accepts a model advertised by the named connection", async () => {
+  test("accepts a model advertised by the entry-name provider's row", async () => {
     getDb()
       .insert(providerConnections)
       .values({
@@ -308,9 +308,8 @@ describe("POST inference/profiles (create) validation", () => {
     const result = (await call("inference_profiles_create", {
       body: {
         name: "stub-fast",
-        provider: "openai-compatible",
+        provider: "stub-local",
         model: "stub-model",
-        connection: "stub-local",
       },
     })) as { ok: true; warnings: string[] };
     expect(result.ok).toBe(true);
@@ -327,19 +326,6 @@ describe("POST inference/profiles (create) validation", () => {
         },
       }),
     ).rejects.toThrow(/not in the catalog/);
-  });
-
-  test("rejects a missing provider connection", async () => {
-    await expect(
-      call("inference_profiles_create", {
-        body: {
-          name: "my-profile",
-          provider: "anthropic",
-          model: "claude-opus-4-8",
-          connection: "does-not-exist",
-        },
-      }),
-    ).rejects.toThrow(/does not exist/);
   });
 
   test("rejects creating a managed default name", async () => {

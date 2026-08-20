@@ -519,7 +519,7 @@ export async function runAgentLoopImpl(
       };
       const { config: resolved, profileName } =
         resolveCallSiteConfigWithProfile(turnCallSite, config.llm, resolveOpts);
-      let connectionName = resolved.provider_connection;
+      let connectionName: string | undefined;
       try {
         connectionName =
           resolveRoutingIdentity(resolved.provider, resolved.model)

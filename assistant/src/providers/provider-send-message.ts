@@ -156,22 +156,16 @@ export async function resolveConfiguredProvider(
     isResolvableProvider: dispatchProviderResolvable,
   });
   const inferenceProvider = resolved.provider;
-  let connectionName = resolved.provider_connection;
-
-  // Connection-aware path: every dispatch goes through `provider_connection`.
-  // The boot-time backfill ensures every profile has one in production.
-  // When unset (profile set provider without a connection, test envs that
-  // skip backfill, freshly-installed configs not yet backfilled, or users
-  // who manually cleared the field), try to auto-resolve from the provider
-  // before falling back to null.
-  if (!connectionName) {
-    // Routing identities name their own connection row; the provider-keyed
-    // scan below cannot find them ("chatgpt" rows store provider "openai").
-    connectionName = resolveRoutingIdentity(
-      inferenceProvider,
-      resolved.model,
-    )?.connectionName;
-  }
+  // Every dispatch resolves a connection row from the winner's provider
+  // value: a routing identity names its own row, an entry name points at a
+  // row directly, and a bare vendor auto-resolves to a compatible row.
+  //
+  // Routing identities first: the provider-keyed scan below cannot find
+  // them ("chatgpt" rows store provider "openai").
+  let connectionName = resolveRoutingIdentity(
+    inferenceProvider,
+    resolved.model,
+  )?.connectionName;
   // An entry-name provider IS the connection name: the label points at a
   // row, and the row's own provider drives dispatch.
   const entryRoute = connectionName
@@ -215,7 +209,7 @@ export async function resolveConfiguredProvider(
           model: resolved.model,
           reason: "no_connection",
         },
-        "resolveCallSiteConfig yielded no provider_connection — returning null so callsite can fall back",
+        "resolveCallSiteConfig yielded no connection row - returning null so callsite can fall back",
       );
       return null;
     }

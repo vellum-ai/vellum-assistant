@@ -19,10 +19,6 @@ const profileWriteOptions: CliOptionHelp[] = [
     flags: "--model <id>",
     description: "Model id (see 'assistant inference models list')",
   },
-  {
-    flags: "--connection <name>",
-    description: "Provider connection name to use",
-  },
   { flags: "--label <text>", description: "Human-readable label" },
   {
     flags: "--effort <tier>",
@@ -449,7 +445,7 @@ verify before you switch the chat model over.
 Examples:
   $ assistant inference profiles list
   $ assistant inference profiles create my-fast --provider anthropic \\
-      --model claude-haiku-4-5 --connection anthropic-personal --effort low
+      --model claude-haiku-4-5 --effort low
   $ assistant inference send --profile my-fast "Reply with OK"
   $ assistant inference profiles active my-fast
   $ assistant inference profiles delete my-fast`,

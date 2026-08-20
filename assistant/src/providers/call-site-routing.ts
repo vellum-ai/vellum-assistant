@@ -13,8 +13,9 @@
  * silently fail.
  *
  * `CallSiteRoutingProvider` consults `resolveCallSiteConfig` per call. When
- * the resolved profile names a `provider_connection`, the wrapper resolves
- * that connection and delegates the call to its bound Provider. Other
+ * the resolved profile's provider derives a connection row (routing
+ * identity, entry name, or vendor auto-resolve), the wrapper resolves that
+ * connection and delegates the call to its bound Provider. Other
  * Provider interface surface area (`name`, `tokenEstimationProvider`) is
  * delegated to the default so wrappers further out (e.g. `RateLimitProvider`)
  * still see a stable identity.
@@ -38,7 +39,6 @@ import {
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
 import {
-  connectionProviderKind,
   ConnectionResolutionError,
   dispatchProviderResolvable,
   expectedVendorProvider,
@@ -98,8 +98,8 @@ export class CallSiteRoutingProvider implements Provider {
   constructor(
     private readonly defaultProvider: Provider,
     /**
-     * Async hook invoked when the resolved profile names a
-     * `provider_connection`. Returning a Provider routes the call through
+     * Async hook invoked when the resolved profile derives a connection
+     * row. Returning a Provider routes the call through
      * that connection's auth; returning null signals a soft credential
      * failure (no usable adapter) and the wrapper falls back to the
      * default Provider for graceful per-call degradation. Hard config
@@ -209,14 +209,12 @@ export class CallSiteRoutingProvider implements Provider {
       forceOverrideProfile: options?.config?.forceOverrideProfile,
       selectionSeed: options?.config?.selectionSeed,
     });
-    // Capability follows the same row dispatch selects: an explicit
-    // provider_connection wins, then an entry-name label's row, then the
-    // resolved provider itself. Kept in this order so a label paired with a
-    // conflicting connection cannot enable a capability the dispatched
-    // transport lacks.
-    const routedKind = resolved.provider_connection
-      ? connectionProviderKind(resolved.provider_connection, resolved.model)
-      : resolveEntryProviderKind(resolved.provider, resolved.model);
+    // Capability follows the same row dispatch selects: an entry-name
+    // label's row first, then the resolved provider itself.
+    const routedKind = resolveEntryProviderKind(
+      resolved.provider,
+      resolved.model,
+    );
     return shouldUseNativeWebSearch(
       getConfig(),
       routedKind ?? resolved.provider,
@@ -230,17 +228,17 @@ export class CallSiteRoutingProvider implements Provider {
    * Resolution order:
    *   1. No callSite → default provider (legacy short-circuit; no
    *      resolution work needed).
-   *   2. Resolved profile names a `provider_connection` → resolve through
-   *      that connection's auth. Hard config errors propagate as throws.
-   *      Soft credential failures fall back to the default Provider so
-   *      a transient credential blip does not take a conversation
-   *      offline.
-   *   3. No `provider_connection` → auto-resolve a connection for the
-   *      resolved provider and route through it. This runs even when the
-   *      provider matches the default's name: the default transport may
-   *      ride the managed (platform-billed) connection while the profile's
-   *      intent is the user's own key, so a bare name match must not stand
-   *      in for connection resolution.
+   *   2. Resolved provider is a routing identity or an entry name →
+   *      resolve through that row's auth. Hard config errors propagate
+   *      as throws. Soft credential failures fall back to the default
+   *      Provider so a transient credential blip does not take a
+   *      conversation offline.
+   *   3. Bare vendor provider → auto-resolve a connection for it and
+   *      route through it. This runs even when the provider matches the
+   *      default's name: the default transport may ride the managed
+   *      (platform-billed) connection while the profile's intent is the
+   *      user's own key, so a bare name match must not stand in for
+   *      connection resolution.
    *   4. No connection exists for the provider and it matches the
    *      default's name → reuse the default provider instance.
    *   5. Resolved profile's `provider` differs from the default but no
@@ -274,19 +272,15 @@ export class CallSiteRoutingProvider implements Provider {
       },
     );
 
-    let connectionName = resolved.provider_connection;
-
     // A routing-identity provider ("vellum"/"chatgpt") names its own
     // connection row; the provider-keyed scan below cannot find it (the
     // chatgpt row stores provider "openai"), so short-circuit to the
-    // canonical name. Unroutable vellum models throw here — loudly —
+    // canonical name. Unroutable vellum models throw here, loudly,
     // instead of falling through to the default transport.
-    if (!connectionName) {
-      connectionName = resolveRoutingIdentity(
-        resolved.provider,
-        resolved.model,
-      )?.connectionName;
-    }
+    let connectionName = resolveRoutingIdentity(
+      resolved.provider,
+      resolved.model,
+    )?.connectionName;
 
     // An entry-name provider IS the connection name: the label points at a
     // row, and the row's own provider drives dispatch, so no expected
@@ -326,9 +320,8 @@ export class CallSiteRoutingProvider implements Provider {
     }
 
     if (connectionName) {
-      // The vendor guard covers both the entry route and a config carrying
-      // an entry label alongside an explicit provider_connection: a label
-      // that is not a vendor never threads into the row-equality check.
+      // The vendor guard covers the entry route too: a label that is not
+      // a vendor never threads into the row-equality check.
       const connectionProvider = await this.resolveByConnection(
         connectionName,
         expectedVendorProvider(resolved.provider, resolved.model),
@@ -396,7 +389,7 @@ export class CallSiteRoutingProvider implements Provider {
     throw new ConnectionResolutionError(
       "<resolved-callsite>",
       "missing_connection",
-      `call-site "${callSite}" resolves to provider "${resolved.provider}" but no provider_connection is set — alternate-provider routing requires a connection`,
+      `call-site "${callSite}" resolves to provider "${resolved.provider}" but no connection row exists for it: alternate-provider routing requires a connection`,
     );
   }
 
@@ -411,7 +404,7 @@ export class CallSiteRoutingProvider implements Provider {
 
 /**
  * Wrap a base Provider with `CallSiteRoutingProvider` configured to route
- * `provider_connection` references through the shared connection-resolution
+ * derived connection references through the shared connection-resolution
  * helper.
  *
  * `config` is threaded through to the connection lookup so the resolved

@@ -8,7 +8,7 @@
  *   profiles delete <name>        — delete a custom profile (managed protected)
  *   profiles active [name]        — read or set the active (chat) profile
  *
- * All subcommands delegate to the daemon via IPC. Provider/model/connection
+ * All subcommands delegate to the daemon via IPC. Provider/model
  * validation is enforced by the daemon (`inference_profiles_*` routes); the
  * CLI only shape-parses flags.
  */
@@ -26,7 +26,6 @@ interface ProfileSummary {
   model: string | null;
   status: "active" | "disabled";
   source: "managed" | "user";
-  provider_connection?: string;
   availability: { status: string; message?: string } | null;
 }
 
@@ -42,7 +41,6 @@ interface ProfileWriteResult {
 type WriteFlags = {
   provider?: string;
   model?: string;
-  connection?: string;
   label?: string;
   effort?: string;
   maxTokens?: string;
@@ -67,9 +65,6 @@ function buildWriteBody(
   }
   if (opts.model !== undefined) {
     body.model = opts.model;
-  }
-  if (opts.connection !== undefined) {
-    body.connection = opts.connection;
   }
   if (opts.label !== undefined) {
     body.label = opts.label;

@@ -546,8 +546,8 @@ export class SubagentManager {
     // ── Build conversation dependencies ─────────────────────────────
     const appConfig = getConfig();
     // Connection-aware default-provider resolution. Throws
-    // `ConnectionResolutionError` if the resolved default config carries no
-    // provider_connection or the connection row is missing/mismatched
+    // `ConnectionResolutionError` if no connection row can be derived for
+    // the resolved default config, or the row is missing/mismatched
     // (config bugs).
     // Returns null on soft credential failures (missing credential,
     // platform auth unavailable).

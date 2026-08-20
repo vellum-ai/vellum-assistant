@@ -699,7 +699,6 @@ describe("resolveCallSiteConfig", () => {
     });
     const resolved = resolveCallSiteConfig("memoryExtraction", llm);
     expect(resolved.provider).toBe("openai");
-    expect(resolved.provider_connection).toBe("openai-personal");
     expect(resolved.model).toBe(resolveModelIntent("openai", "cost-optimized"));
   });
 
@@ -713,7 +712,6 @@ describe("resolveCallSiteConfig", () => {
           source: "user",
           provider: "openai",
           model: "gpt-5.5",
-          provider_connection: "openai-personal",
         },
       },
       activeProfile: "custom-balanced",
@@ -746,7 +744,6 @@ describe("resolveCallSiteConfig", () => {
 
     for (const cs of callSites) {
       const resolved = resolveCallSiteConfig(cs, byokConfig);
-      expect(resolved.provider_connection).not.toBe("anthropic-managed");
       expect(resolved.provider).toBe("openai");
     }
 
@@ -799,10 +796,10 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.effort).toBe("max");
   });
 
-  test("a winning profile without provider_connection resolves without one (no stale connection inheritance)", () => {
-    // Single-winner selection means nothing outside the winner can supply a
-    // provider connection: a profile that omits it resolves without one, and
-    // dispatch auto-resolves the connection by provider (JARVIS-861).
+  test("the winner's own provider is the whole route (no stale inheritance)", () => {
+    // Single-winner selection means nothing outside the winner can supply
+    // routing state; dispatch derives the connection from the winner's
+    // provider value alone (JARVIS-861).
     const llm = LLMSchema.parse({
       profiles: {
         fireworks: {
@@ -816,7 +813,6 @@ describe("resolveCallSiteConfig", () => {
     const resolved = resolveCallSiteConfig("mainAgent", llm);
 
     expect(resolved.provider).toBe("fireworks");
-    expect(resolved.provider_connection).toBeUndefined();
   });
 });
 

@@ -488,16 +488,6 @@ const PricingOverrideSchema = z.object({
  */
 export const LLMConfigBase = z.object({
   provider: LLMProvider.default("anthropic"),
-  /**
-   * Name of a `provider_connections` row to use for this resolved config.
-   * Optional and additive: when set, the dispatcher resolves auth from the
-   * connection (mix-and-match managed/your-own per profile). When unset,
-   * the dispatcher falls back to the legacy `provider` lookup.
-   *
-   * Lives on the merged base type so it flows through `resolveCallSiteConfig`
-   * naturally — the underlying profile-level field is on `ProfileEntry`.
-   */
-  provider_connection: z.string().min(1).optional(),
   model: ModelSchema.default("claude-opus-4-8"),
   maxTokens: MaxTokensSchema.default(64000),
   effort: EffortEnum.default("max"),
@@ -598,13 +588,6 @@ export const ProfileEntry = LLMConfigFragment.extend({
   label: z.string().min(1).nullable().optional(),
   description: z.string().optional(),
   /**
-   * Name of a `provider_connections` row to use for this profile.
-   * The dispatcher resolves auth from this connection; the legacy `provider`
-   * and `source` fields remain as read-only deprecated fallbacks for profiles
-   * not yet backfilled by the boot-time migration.
-   */
-  provider_connection: z.string().min(1).optional(),
-  /**
    * Absent means active. `.nullable()` matches `label` so the PUT route's
    * "send `null` to clear" sentinel works for status too — a managed
    * re-enable body of `{status: null}` clears back to active-by-absence
@@ -647,7 +630,7 @@ type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;
  * (`resolveDefaultConnectionName` in `../default-provider.js`).
  *
  * No connection-existence validation on purpose: schema validation is
- * pure/sync and cannot see the sqlite `provider_connections` table, so the
+ * pure/sync and cannot see the sqlite connections table, so the
  * conventionally resolved connection may be dangling — that surfaces as an
  * explainable resolution error at read time.
  *
@@ -764,12 +747,10 @@ export const LLMSchema = z
 
     // --- Mix profile validation --------------------------------------------
     // Config keys a mix profile must NOT also set (a mix only references other
-    // profiles + metadata). Derived from the fragment shape plus the
-    // ProfileEntry-only `provider_connection` so it can't drift if a new config
-    // field is added to `LLMConfigFragment`.
+    // profiles + metadata). Derived from the fragment shape so it can't drift
+    // if a new config field is added to `LLMConfigFragment`.
     const MIX_DISALLOWED_CONFIG_KEYS = [
       ...Object.keys(LLMConfigFragment.shape),
-      "provider_connection",
     ];
     const mixProfileNames = new Set(
       Object.entries(config.profiles ?? {})

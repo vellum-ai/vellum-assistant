@@ -273,10 +273,10 @@ export function isUnavailable(
  *
  *   - routing identities (`vellum`, `chatgpt`) resolve to their canonical row
  *     and derived upstream;
- *   - a pinned `provider_connection` is judged directly;
- *   - a provider with no pinned connection is judged against the connection
+ *   - an entry-name provider is judged against its own row;
+ *   - a bare vendor provider is judged against the connection
  *     dispatch would auto-resolve (an active, model-compatible row for that
- *     provider) — with no such row, the profile cannot serve requests.
+ *     provider); with no such row, the profile cannot serve requests.
  *
  * Returns null when there is nothing to judge: a mix carries no provider or
  * model of its own, because the resolver expands it to a seeded arm and
@@ -311,9 +311,9 @@ export async function computeProfileAvailability(
     };
   }
 
-  // Routing-identity profiles carry no provider_connection. A model the
-  // identity cannot route reports as a mismatch rather than throwing —
-  // availability annotates, it must not fail the profiles read.
+  // A model a routing identity cannot route reports as a mismatch rather
+  // than throwing: availability annotates, it must not fail the profiles
+  // read.
   if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
     try {
       const identity = resolveRoutingIdentity(provider, model);
@@ -335,27 +335,18 @@ export async function computeProfileAvailability(
     }
   }
 
-  // Precedence matches dispatch: an explicit provider_connection wins over
-  // an entry-name provider, and the vendor judged is the entry's
-  // dispatchable kind either way (the same translation dispatch uses).
+  // An entry-name provider is judged against its own row, and the vendor
+  // judged is the entry's dispatchable kind (the same translation dispatch
+  // uses).
   const entryName = resolveEntryConnectionName(provider);
-  const entryKind =
-    entryName !== null
-      ? (connectionProviderKind(entryName, model) ?? provider)
-      : provider;
-
-  const pinned = entry.provider_connection;
-  if (typeof pinned === "string") {
-    return computeConnectionAvailability(entryKind, pinned);
-  }
-
   if (entryName !== null) {
+    const entryKind = connectionProviderKind(entryName, model) ?? provider;
     return computeConnectionAvailability(entryKind, entryName);
   }
 
-  // Mirror the dispatch-time auto-resolve (`resolveConfiguredProvider`): with
-  // no pinned connection, the first active model-compatible row for the
-  // provider serves the request, and none means dispatch returns no provider.
+  // Mirror the dispatch-time auto-resolve (`resolveConfiguredProvider`): the
+  // first active model-compatible row for the vendor serves the request, and
+  // none means dispatch returns no provider.
   let candidates;
   try {
     candidates = listConnections(getDb(), { provider });

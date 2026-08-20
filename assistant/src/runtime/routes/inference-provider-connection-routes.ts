@@ -567,8 +567,8 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
     throw new BadRequestError("name is required");
   }
 
-  // Existence check first so a stale profile `provider_connection`
-  // reference to a missing connection returns 404 (not 409).
+  // Existence check first so a stale profile reference to a missing
+  // connection returns 404 (not 409).
   const existing = getConnection(getDb(), name);
   if (!existing) {
     throw new NotFoundError(`Connection "${name}" not found.`);
@@ -626,28 +626,20 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
     }
   }
 
-  // llm.profiles.*: only ProfileEntry has provider_connection. Resolved
-  // provider-aware so the scan sees the same bodies the runtime resolver
-  // produces: on a BYO install the default profiles carry the
-  // `provider_connection` they actually dispatch through. Today every name
-  // the defaults can stamp is also caught by the `llm.defaultProvider` guard
-  // above; this keeps the scan a faithful backstop rather than one that
-  // silently skips the defaults.
+  // llm.profiles.*: resolved provider-aware so the scan sees the same
+  // bodies the runtime resolver produces.
   const profiles = getEffectiveProfilesForProvider(config.llm?.profiles, dp);
-  // A binding lives in `provider` (the entry name) under the entries model,
-  // or in the legacy `provider_connection` field; both count, or deleting a
-  // bound entry would dangle the profile behind selection's silent healing.
-  // Provider values count only for non-vendor names: a profile saying
-  // "vellum" references the routing identity, never a row that happens to
-  // claim that name, and the claiming-row delete is the recovery path.
+  // A binding lives in `provider` (the entry name) under the entries model;
+  // deleting a bound entry would dangle the profile behind selection's
+  // silent healing. Provider values count only for non-vendor names: a
+  // profile saying "vellum" references the routing identity, never a row
+  // that happens to claim that name, and the claiming-row delete is the
+  // recovery path.
   const nameIsEntryName = !VALID_CONNECTION_PROVIDERS.includes(name);
   const referencingProfiles = Object.entries(profiles)
     .filter(([, p]) => {
       const entry = p as Record<string, unknown>;
-      return (
-        entry.provider_connection === name ||
-        (nameIsEntryName && entry.provider === name)
-      );
+      return nameIsEntryName && entry.provider === name;
     })
     .map(([profileName]) => profileName);
 

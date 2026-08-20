@@ -3,7 +3,6 @@ import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../providers/inference/
 import {
   createConnection,
   getConnection,
-  MANAGED_CONNECTION_NAMES,
 } from "../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { credentialKey } from "../security/credential-key.js";
@@ -373,25 +372,13 @@ function didHatchSelectManagedConnection(
   }
 
   const activeProfileEntry = readObject(profiles[activeProfile]);
-  if (
-    activeProfileEntry &&
-    Object.prototype.hasOwnProperty.call(
-      activeProfileEntry,
-      "provider_connection",
-    )
-  ) {
-    const explicitConnection = readString(
-      activeProfileEntry.provider_connection,
-    );
-    return (
-      explicitConnection !== undefined &&
-      MANAGED_CONNECTION_NAMES.has(explicitConnection)
-    );
+  if (activeProfileEntry && readString(activeProfileEntry.provider)) {
+    return activeProfileEntry.provider === "vellum";
   }
 
-  // A default-profile name with no explicit connection selects the managed
-  // route: the vellum column IS the managed column, and its profiles route
-  // through the canonical vellum row.
+  // A default-profile name whose entry carries no provider of its own
+  // selects the managed route: the vellum column IS the managed column, and
+  // its profiles route through the canonical vellum row.
   return MANAGED_PROFILE_TEMPLATES[activeProfile] !== undefined;
 }
 

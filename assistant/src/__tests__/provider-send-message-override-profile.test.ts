@@ -11,7 +11,20 @@
  * makes per-conversation pinned profiles (PR 6+) work.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// Entry-name providers resolve against the connection row store; the tests
+// control it directly.
+mock.module("../persistence/db-connection.js", () => ({
+  getDb: () => ({}),
+}));
+mock.module("../providers/inference/connections.js", () => ({
+  getConnection: (_db: unknown, name: string) =>
+    name === "openai-conn"
+      ? { name, provider: "openai", auth: { type: "api_key" } }
+      : null,
+  listConnections: () => [],
+}));
 
 // These suites exercise override-profile PLUMBING through legacy-shaped
 // fixtures (llm.default-centric, no defaultProvider). Pinned to the
@@ -198,12 +211,11 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     expect(captured?.callSite).toBeUndefined();
   });
 
-  test("CallSiteRoutingProvider switches transport when overrideProfile changes the provider (via provider_connection)", async () => {
+  test("CallSiteRoutingProvider switches transport when overrideProfile changes the provider (via an entry name)", async () => {
     setLlmConfig({
       profiles: {
         fast: {
-          provider: "openai",
-          provider_connection: "openai-conn",
+          provider: "openai-conn",
           model: "gpt-5.4",
         },
       },
@@ -244,8 +256,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     setLlmConfig({
       profiles: {
         fast: {
-          provider: "openai",
-          provider_connection: "openai-conn",
+          provider: "openai-conn",
           model: "gpt-5.4",
         },
       },
@@ -289,8 +300,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     setLlmConfig({
       profiles: {
         fast: {
-          provider: "openai",
-          provider_connection: "openai-conn",
+          provider: "openai-conn",
           model: "gpt-5.4",
         },
       },

@@ -1,9 +1,8 @@
 /**
  * Model-compatibility gate for auto-resolved provider connections.
  *
- * When a profile uses "Any active <provider> connection" (no
- * `provider_connection` pinned), the daemon auto-picks an active connection
- * for the provider. `oauth_subscription` connections (ChatGPT Codex) hard-
+ * When a profile carries a bare vendor provider, the daemon auto-picks an
+ * active connection for it. `oauth_subscription` connections (ChatGPT Codex) hard-
  * route every request to the Codex endpoint, which rejects non-Codex models
  * with HTTP 400. This helper lets the auto-resolution sites skip such a
  * connection when the requested model is not Codex-compatible.
@@ -24,9 +23,9 @@ import { isCodexSubscriptionModel } from "./openai/codex-models.js";
  * case no model gating is applied (returns true) so resolution behaviour is
  * unchanged.
  *
- * This gate applies to auto-resolution only — an explicitly pinned
- * `provider_connection` bypasses connection selection entirely and is used
- * regardless of model.
+ * This gate applies to auto-resolution only: an entry-name provider names
+ * its row directly and bypasses connection selection entirely, regardless
+ * of model.
  */
 export function isConnectionCompatibleWithModel(
   connection: Pick<ProviderConnection, "auth">,

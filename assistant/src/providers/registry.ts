@@ -286,7 +286,7 @@ export async function initializeProviders(
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve a provider instance for a named `provider_connection`.
+ * Resolve a provider instance for a named connection row.
  *
  * Results are cached in `connectionProviders` to avoid redundant vault reads
  * for repeated calls to the same connection. A cached provider bakes in the

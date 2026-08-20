@@ -38,7 +38,7 @@ export interface ClassifiedConversationError {
   /** Machine-readable error category for log report metadata and triage. */
   errorCategory: string;
   /**
-   * Name of the `provider_connections` row in play when the error
+   * Name of the connection row in play when the error
    * occurred. Forwarded to the wire `ConversationErrorEvent` so chat
    * banners can point users at the specific slot to fix. Only set by
    * classifiers / callers that have the resolved connection in scope —
@@ -179,7 +179,7 @@ export interface ErrorContext {
   /** Whether the abort signal was active when the error occurred. */
   aborted?: boolean;
   /**
-   * Optional name of the `provider_connections` row in play. Plumbed by
+   * Optional name of the connection row in play. Plumbed by
    * dispatch sites that know the resolved connection (chat agent loop)
    * so credential-related classifications (`PROVIDER_INVALID_KEY`,
    * `PROVIDER_NOT_CONFIGURED`) can name the exact slot to fix.
