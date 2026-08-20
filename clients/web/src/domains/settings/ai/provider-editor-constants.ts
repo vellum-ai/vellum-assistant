@@ -1,3 +1,5 @@
+import { toast } from "@vellumai/design-library/components/toast";
+
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import type {
   Auth,
@@ -108,6 +110,20 @@ export function validationErrorMessage(
   return typeof message === "string" && message.length > 0
     ? message
     : undefined;
+}
+
+/**
+ * Surface a failed save-time endpoint probe as a warning toast. The daemon's
+ * `hint` is advisory server copy (like validation-envelope messages above) —
+ * the save itself succeeded, so this never blocks the flow.
+ */
+export function warnOnFailedEndpointCheck(connection: {
+  endpoint_check?: { ok: boolean; hint?: string };
+}): void {
+  const check = connection.endpoint_check;
+  if (check && !check.ok && check.hint) {
+    toast.warning(check.hint);
+  }
 }
 
 export function providerConnectionDisplayName(

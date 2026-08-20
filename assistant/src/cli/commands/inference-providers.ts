@@ -41,6 +41,22 @@ interface ProviderConnection {
   baseUrl?: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Save-time probe of a custom base URL; advisory, never blocks the save. */
+  endpoint_check?: {
+    ok: boolean;
+    status?: number;
+    resolved_url: string;
+    hint?: string;
+  };
+}
+
+/** Human-mode warning line for a failed save-time endpoint probe. */
+function formatEndpointCheckWarning(conn: ProviderConnection): string {
+  const check = conn.endpoint_check;
+  if (!check || check.ok) {
+    return "";
+  }
+  return `Warning: ${check.hint ?? `The endpoint returned HTTP ${check.status} for a test request.`} (probed ${check.resolved_url})\n`;
 }
 
 // ---------------------------------------------------------------------------
@@ -304,6 +320,7 @@ function attachCreateSubcommand(parent: Command): void {
         } else {
           process.stdout.write(
             `Added provider "${conn.name}" (provider=${conn.provider})\n` +
+              formatEndpointCheckWarning(conn) +
               `Verify it works: point a profile at "${conn.name}", then run: assistant inference send --profile <profile> "Reply with OK"\n`,
           );
         }
@@ -394,6 +411,7 @@ function attachUpdateSubcommand(parent: Command): void {
         } else {
           process.stdout.write(
             `Updated provider "${name}" (auth=${formatAuth(conn.auth)})\n` +
+              formatEndpointCheckWarning(conn) +
               `Verify it works: assistant inference send --profile <profile-using-this-provider> "Reply with OK"\n`,
           );
         }
