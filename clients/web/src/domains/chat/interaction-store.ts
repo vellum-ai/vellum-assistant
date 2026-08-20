@@ -464,18 +464,26 @@ function promptOnScreen(kind: PromptKind): { requestId: string } | null {
 /**
  * Whether `requestId` may put a failure in front of the user.
  *
- * Deliberately a different question from {@link stillOwnsSubmission}, which
- * asks who holds the slot. The session error has no prompt of its own, so it
- * reads as belonging to whatever card is on screen: a request whose prompt has
- * been replaced would be explaining itself over someone else's question, and
- * "Failed to submit response" against a prompt the user has not answered yet is
- * worse than saying nothing. Releasing the slot still belongs to the request
- * either way, which is why the two are asked separately.
+ * Stricter than {@link stillOwnsSubmission}, and both halves earn their place.
  *
- * An empty slot reads as permitted: there is no other prompt for the message to
- * be mistaken for.
+ * The request must still hold the slot, which rules out a submission a reset
+ * abandoned: the user sent something else and moved on, so an error about the
+ * interaction they walked away from is noise. And no other prompt may be on
+ * screen, because the session error has no prompt of its own and reads as
+ * belonging to whatever card is up, so a replaced request would be explaining
+ * itself over someone else's question.
+ *
+ * No prompt at all is fine as long as the slot is still held: that is the
+ * ordinary shape of a request whose own resolution retired its card while it
+ * was still awaiting, and nothing is left for the message to be mistaken for.
+ *
+ * Releasing the slot is not gated on any of this. It belongs to the request
+ * whatever else has happened, which is why the two are asked separately.
  */
 export function mayReportFailure(kind: PromptKind, requestId: string): boolean {
+  if (!stillOwnsSubmission(kind, requestId)) {
+    return false;
+  }
   const onScreen = promptOnScreen(kind);
   return !onScreen || onScreen.requestId === requestId;
 }

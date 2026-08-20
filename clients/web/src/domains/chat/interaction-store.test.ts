@@ -459,19 +459,25 @@ describe("prompt slots: the shared invariant", () => {
         );
       });
 
-      it("a failure is reported only while its own prompt is on screen", () => {
-        // The session error has no prompt of its own, so it reads as belonging
-        // to whatever card is up. A request whose prompt was replaced would be
-        // explaining itself over someone else's.
+      it("a failure is reported only by the holder, and only for its own prompt", () => {
         RAISE[kind]("r1");
+        useInteractionStore.getState().claimSubmission(kind, "r1");
         expect(mayReportFailure(kind, "r1")).toBe(true);
 
+        // Replaced on screen: the message would explain itself over a prompt
+        // the user has not answered.
         RAISE[kind]("r2");
         expect(mayReportFailure(kind, "r1")).toBe(false);
 
-        // Nothing on screen to be mistaken for, so the message may show.
+        // Its own resolution retired the card while it was still awaiting,
+        // which is the ordinary shape and leaves nothing to be mistaken for.
         RETIRE[kind]("r2");
         expect(mayReportFailure(kind, "r1")).toBe(true);
+
+        // The slot gone means the interaction was abandoned, and an error about
+        // something the user walked away from is noise.
+        useInteractionStore.getState().releaseSubmission(kind, "r1");
+        expect(mayReportFailure(kind, "r1")).toBe(false);
       });
 
       it("only the holder can release the slot", () => {
