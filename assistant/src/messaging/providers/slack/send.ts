@@ -9,6 +9,7 @@
 import type { Button, KnownBlock } from "@slack/types";
 import type {
   ApprovalUIMetadata,
+  MessageAudience,
   SlackStreamOp,
 } from "@vellumai/gateway-client";
 
@@ -133,8 +134,8 @@ export interface SlackSendOptions {
   blocks?: KnownBlock[];
   approval?: ApprovalUIMetadata;
   useBlocks?: boolean;
-  ephemeral?: boolean;
-  user?: string;
+  /** Absent means the whole room sees it. */
+  audience?: MessageAudience;
 }
 
 export interface SlackSendResult {
@@ -273,13 +274,12 @@ export async function sendSlackReply(
     fallbackText: approvalFallbackText,
   };
 
-  if (options?.ephemeral) {
-    if (!options.user) {
-      throw new Error("user is required for ephemeral messages");
-    }
+  // No guard for a missing reader: the audience carries the id with it, so
+  // "restricted to one reader, but which one" cannot be expressed.
+  if (options?.audience) {
     return sendWithBlockFallback(
       "chat.postEphemeral",
-      { ...postBase, user: options.user },
+      { ...postBase, user: options.audience.userId },
       blocks,
       fallbackOptions,
     );

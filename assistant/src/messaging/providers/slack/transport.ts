@@ -27,8 +27,7 @@ export const slackTransport: ChannelTransport = {
         blocks,
         approval: payload.approval,
         useBlocks: payload.useBlocks,
-        ephemeral: payload.ephemeral,
-        user: payload.user,
+        audience: payload.audience,
       });
       sentTs = result.ts;
     } else if (payload.approval) {

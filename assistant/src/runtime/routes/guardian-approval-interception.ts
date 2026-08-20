@@ -215,7 +215,12 @@ export async function handleApprovalInterception(
             chatId: conversationExternalId,
             text: "Sorry, I couldn't process that. Please try again.",
             assistantId,
-            ...(ephemeralUser ? { ephemeral: true, user: ephemeralUser } : {}),
+            // Stated rather than spread. A rejection that loses its
+            // audience becomes a public one, so the key is always present
+            // and the compiler checks it.
+            audience: ephemeralUser
+              ? { kind: "oneReader", userId: ephemeralUser }
+              : undefined,
           });
         } catch (err) {
           log.error(

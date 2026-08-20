@@ -910,8 +910,10 @@ export async function handleChannelInbound({
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
       if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.ephemeral = true;
-        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+        replyPayload.audience = {
+          kind: "oneReader",
+          userId: (canonicalSenderId ?? rawSenderId)!,
+        };
       }
       try {
         await deliverChannelReply(replyCallbackUrl, replyPayload);
@@ -972,8 +974,10 @@ export async function handleChannelInbound({
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
       if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.ephemeral = true;
-        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+        replyPayload.audience = {
+          kind: "oneReader",
+          userId: (canonicalSenderId ?? rawSenderId)!,
+        };
       }
       try {
         await deliverChannelReply(replyCallbackUrl, replyPayload);

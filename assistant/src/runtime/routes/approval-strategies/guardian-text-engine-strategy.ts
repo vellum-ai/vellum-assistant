@@ -98,8 +98,7 @@ export async function handleGuardianTextEngineDecision(
       };
       const ephemeral = slackEphemeralUserId(sourceChannel, actorExternalId);
       if (ephemeral) {
-        keepPendingPayload.ephemeral = true;
-        keepPendingPayload.user = ephemeral;
+        keepPendingPayload.audience = { kind: "oneReader", userId: ephemeral };
       }
       await deliverChannelReply(replyCallbackUrl, keepPendingPayload);
     } catch (err) {
@@ -133,8 +132,7 @@ export async function handleGuardianTextEngineDecision(
       };
       const ephemeral = slackEphemeralUserId(sourceChannel, actorExternalId);
       if (ephemeral) {
-        decisionPayload.ephemeral = true;
-        decisionPayload.user = ephemeral;
+        decisionPayload.audience = { kind: "oneReader", userId: ephemeral };
       }
       await deliverChannelReply(replyCallbackUrl, decisionPayload);
     } catch (err) {

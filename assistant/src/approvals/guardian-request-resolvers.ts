@@ -183,8 +183,10 @@ function buildRequesterChannelNotice(params: {
     shouldUseEphemeral(params.channel, params.requesterChatId) &&
     params.requesterExternalUserId
   ) {
-    payload.ephemeral = true;
-    payload.user = params.requesterExternalUserId;
+    payload.audience = {
+      kind: "oneReader",
+      userId: params.requesterExternalUserId,
+    };
   }
   return payload;
 }
@@ -1301,8 +1303,10 @@ const accessRequestResolver: GuardianRequestResolver = {
           ) &&
           ctx.actor.actorExternalUserId
         ) {
-          codePayload.ephemeral = true;
-          codePayload.user = ctx.actor.actorExternalUserId;
+          codePayload.audience = {
+            kind: "oneReader",
+            userId: ctx.actor.actorExternalUserId,
+          };
         }
         await deliverChannelReply(
           guardianInBandContext.replyCallbackUrl,
@@ -1532,8 +1536,10 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
             shouldUseEphemeral(request.sourceChannel ?? "", requesterChatId) &&
             request.requesterExternalUserId
           ) {
-            grantDenialPayload.ephemeral = true;
-            grantDenialPayload.user = request.requesterExternalUserId;
+            grantDenialPayload.audience = {
+              kind: "oneReader",
+              userId: request.requesterExternalUserId,
+            };
           }
           await deliverChannelReply(
             channelDeliveryContext.replyCallbackUrl,
@@ -1631,8 +1637,10 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
           shouldUseEphemeral(request.sourceChannel ?? "", requesterChatId) &&
           request.requesterExternalUserId
         ) {
-          grantApprovalPayload.ephemeral = true;
-          grantApprovalPayload.user = request.requesterExternalUserId;
+          grantApprovalPayload.audience = {
+            kind: "oneReader",
+            userId: request.requesterExternalUserId,
+          };
         }
         await deliverChannelReply(
           channelDeliveryContext.replyCallbackUrl,

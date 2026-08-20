@@ -157,6 +157,26 @@ export const SlackStreamOpSchema = z
 export type SlackStreamOp = z.infer<typeof SlackStreamOpSchema>;
 
 // ---------------------------------------------------------------------------
+// Audience
+// ---------------------------------------------------------------------------
+
+/**
+ * Restricts a message to a single reader in a room that has more.
+ *
+ * A single object rather than a flag beside an id, because the two are only
+ * meaningful together: a channel cannot address one reader without knowing
+ * which. Slack reads this as `chat.postEphemeral`; a channel whose rooms hold
+ * one reader already has nothing to do.
+ */
+export const MessageAudienceSchema = z.object({
+  kind: z.literal("oneReader"),
+  /** The reader, in the channel's own id space. */
+  userId: z.string(),
+});
+
+export type MessageAudience = z.infer<typeof MessageAudienceSchema>;
+
+// ---------------------------------------------------------------------------
 // Channel reply payload — the full outbound wire format
 // ---------------------------------------------------------------------------
 
@@ -169,12 +189,11 @@ export const ChannelReplyPayloadSchema = z.object({
   attachments: z.array(AttachmentMetadataSchema).optional(),
   approval: ApprovalUIMetadataSchema.optional(),
   /**
-   * When true, deliver via `chat.postEphemeral` so only the target `user`
-   * sees the message.
+   * Who may see this message. Absent means everyone in the room, which is the
+   * only safe reading of an absent value: a message meant for one reader that
+   * loses its audience must not become a public one.
    */
-  ephemeral: z.boolean().optional(),
-  /** Slack user ID — required when `ephemeral` is true. */
-  user: z.string().optional(),
+  audience: MessageAudienceSchema.optional(),
   /** When true, the daemon generates Block Kit blocks from the text before delivery. */
   useBlocks: z.boolean().optional(),
 });

@@ -75,8 +75,7 @@ async function composeAndDeliver(
     assistantId,
   };
   if (ephemeralUserId) {
-    payload.ephemeral = true;
-    payload.user = ephemeralUserId;
+    payload.audience = { kind: "oneReader", userId: ephemeralUserId };
   }
   await deliverChannelReply(replyCallbackUrl, payload);
 }

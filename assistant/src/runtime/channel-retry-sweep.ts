@@ -334,8 +334,10 @@ export async function sweepFailedEvents(
           assistantId,
         };
         if (sourceChannel === "slack" && requesterExternalUserId) {
-          replyPayload.ephemeral = true;
-          replyPayload.user = requesterExternalUserId;
+          replyPayload.audience = {
+            kind: "oneReader",
+            userId: requesterExternalUserId,
+          };
         }
         try {
           await deliverChannelReply(replyCallbackUrl, replyPayload);

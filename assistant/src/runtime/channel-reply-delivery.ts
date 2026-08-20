@@ -1,3 +1,5 @@
+import type { MessageAudience } from "@vellumai/gateway-client";
+
 import { stripVellumLinks } from "../daemon/assistant-attachments.js";
 import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
@@ -36,13 +38,11 @@ type DeliverRenderedReplyParams = {
    *  1-based count of segments delivered so far (including prior attempts). */
   onSegmentDelivered?: (deliveredCount: number) => void;
   /**
-   * When true, deliver via ephemeral messaging so only the target `user`
-   * sees the content. Ephemeral messages are fire-and-forget: they cannot
-   * be edited or deleted after posting.
+   * Restricts the reply to one reader. Absent means the whole room sees it.
+   * A restricted reply is fire-and-forget: it cannot be edited or deleted
+   * after posting.
    */
-  ephemeral?: boolean;
-  /** Channel-specific user ID — required when `ephemeral` is true. */
-  user?: string;
+  audience?: MessageAudience;
   /** When provided, the first segment will update the existing message
    *  identified by this ts instead of posting a new one (Slack-specific). */
   messageTs?: string;
@@ -141,8 +141,7 @@ export async function deliverRenderedReplyViaCallback(
     interSegmentDelayMs = INTER_SEGMENT_DELAY_MS,
     startFromSegment = 0,
     onSegmentDelivered,
-    ephemeral,
-    user,
+    audience,
     messageTs,
     onMessageTs,
   } = params;
@@ -168,8 +167,7 @@ export async function deliverRenderedReplyViaCallback(
           chatId,
           attachments: replyAttachments,
           assistantId,
-          ephemeral,
-          user,
+          audience,
         },
       );
       if (result.ts) {
@@ -187,8 +185,7 @@ export async function deliverRenderedReplyViaCallback(
           chatId,
           attachments: replyAttachments,
           assistantId,
-          ephemeral,
-          user,
+          audience,
         },
       );
       const deliveredTs = result.ts ?? messageTs;
@@ -235,8 +232,7 @@ export async function deliverRenderedReplyViaCallback(
             chatId,
             attachments: segmentAttachments,
             assistantId,
-            ephemeral,
-            user,
+            audience,
           });
         } catch (err) {
           log.warn(
@@ -252,8 +248,7 @@ export async function deliverRenderedReplyViaCallback(
         useBlocks: true,
         attachments: segmentAttachments,
         assistantId,
-        ephemeral,
-        user,
+        audience,
       });
     }
 
@@ -282,10 +277,8 @@ export type DeliverReplyOptions = {
   sinceMessageId?: string;
   startFromSegment?: number;
   onSegmentDelivered?: (deliveredCount: number) => void;
-  /** Deliver as ephemeral (visible only to `user`). Fire-and-forget. */
-  ephemeral?: boolean;
-  /** Channel-specific user ID — required when `ephemeral` is true. */
-  user?: string;
+  /** Restricts the reply to one reader. Absent means the whole room. */
+  audience?: MessageAudience;
   /** Update an existing message instead of posting a new one. */
   messageTs?: string;
   /** Called with the ts of the delivered/updated message. */
@@ -415,8 +408,7 @@ async function deliverPersistedAssistantMessageViaCallback(
     assistantId,
     startFromSegment: options?.startFromSegment,
     onSegmentDelivered: options?.onSegmentDelivered,
-    ephemeral: options?.ephemeral,
-    user: options?.user,
+    audience: options?.audience,
     messageTs: options?.messageTs,
     onMessageTs: composedOnMessageTs,
   });

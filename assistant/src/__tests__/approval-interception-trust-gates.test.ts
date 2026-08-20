@@ -188,6 +188,46 @@ describe("approval interception trust-class gates", () => {
     );
   });
 
+  test("the principal-gate rejection stays visible only to the actor on Slack", async () => {
+    // A rejection that loses its audience is posted to the whole channel,
+    // telling everyone present that someone failed a guardian check. The
+    // audience is one object rather than a flag beside an id so it cannot be
+    // half-dropped, and this pins that it is actually sent.
+    _anchorPrincipalId = "the-real-guardian-principal";
+    registerPendingInteraction(
+      "req-guardian-mismatch-slack",
+      CONVERSATION_ID,
+      TOOL_NAME,
+      TOOL_INPUT,
+    );
+
+    await handleApprovalInterception({
+      conversationId: CONVERSATION_ID,
+      callbackData: "apr:req-guardian-mismatch-slack:approve_once",
+      content: "",
+      conversationExternalId: "C0SLACKROOM",
+      sourceChannel: "slack",
+      actorExternalId: "U0STALEGUARDIAN",
+      replyCallbackUrl: "https://gateway.test/deliver",
+      trustCtx: {
+        sourceChannel: "slack",
+        trustClass: "guardian",
+        requesterExternalUserId: "U0STALEGUARDIAN",
+        guardianExternalUserId: "U0STALEGUARDIAN",
+        guardianPrincipalId: "some-other-principal",
+      },
+      assistantId: ASSISTANT_ID,
+    });
+
+    expect(deliverSpy).toHaveBeenCalledWith(
+      "https://gateway.test/deliver",
+      expect.objectContaining({
+        text: "Sorry, I couldn't process that. Please try again.",
+        audience: { kind: "oneReader", userId: "U0STALEGUARDIAN" },
+      }),
+    );
+  });
+
   test("guardian without a resolved acting principal is rejected before any decision", async () => {
     // Address-only guardian classification (e.g. a binding row with a null
     // principal) must not authorize decisions.
