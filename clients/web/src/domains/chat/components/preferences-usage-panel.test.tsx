@@ -216,15 +216,41 @@ describe("PreferencesUsagePanel", () => {
     expect(onAddCredits).toHaveBeenCalledTimes(1);
   });
 
-  test("a spent bundle with credits still in hand stays neutral", async () => {
+  test("a spent bundle turns negative with credits still in hand", async () => {
     usageTotalUsd = "25";
-    const { findByTestId, queryByTestId, queryByText } = renderPanel();
+    const { findByTestId, getByText, queryByTestId, queryByText } =
+      renderPanel();
 
     const panel = await findByTestId("preferences-usage");
     await waitFor(() => {
       expect(panel.textContent).toContain("100% used");
     });
+    // Red bar and red percentage, but nothing has gone wrong yet: the wallet
+    // behind the bundle still has something to draw on, so no strip.
+    expect(
+      panel
+        .querySelector('[data-slot="progress-bar-fill"]')
+        ?.getAttribute("style"),
+    ).toContain("--system-negative-strong");
+    expect(getByText("100% used").className).toContain(
+      "--system-negative-strong",
+    );
     expect(queryByText("Add credits to continue.")).toBeNull();
     expect(queryByTestId("preferences-usage-add-credits")).toBeNull();
+  });
+
+  test("a reading below 100% stays neutral", async () => {
+    const { findByTestId, getByText } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("40% used");
+    expect(
+      panel
+        .querySelector('[data-slot="progress-bar-fill"]')
+        ?.getAttribute("style"),
+    ).not.toContain("--system-negative-strong");
+    expect(getByText("40% used").className).not.toContain(
+      "--system-negative-strong",
+    );
   });
 });

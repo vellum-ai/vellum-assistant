@@ -12,9 +12,9 @@ export interface UsageBalancePanelProps {
   /** ISO timestamp the current billing cycle ends on. */
   resetsAt: string;
   /**
-   * The bundle is spent and the wallet behind it is empty, so the next turn
-   * has nothing to draw on. Turns the reading negative and raises the
-   * add-credits strip.
+   * The wallet behind the spent bundle is empty too, so the next turn has
+   * nothing to draw on. Raises the add-credits strip, and only that: the bar
+   * and the percentage read the negative state off `ratio` alone.
    */
   exhausted?: boolean;
   /** Opens the add-credits checkout. Omitted, the strip states its case only. */
@@ -34,6 +34,9 @@ export function UsageBalancePanel({
   const { t, i18n } = useTranslation("settings");
   const title = t("planCard.usageBalanceTitle");
   const pct = Math.round(ratio * 100);
+  // Spending the whole bundle is the negative reading in its own right,
+  // whatever the wallet behind it still holds.
+  const spent = ratio >= 1;
   const resetDate = new Intl.DateTimeFormat(i18n.language, {
     month: "short",
     day: "numeric",
@@ -66,14 +69,14 @@ export function UsageBalancePanel({
             value={ratio}
             height={8}
             aria-label={title}
-            fillColor={exhausted ? "var(--system-negative-strong)" : undefined}
+            fillColor={spent ? "var(--system-negative-strong)" : undefined}
             className="w-full min-w-0 max-w-[249px] rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
           />
           <Typography
             as="span"
             variant="body-small-default"
             className={
-              exhausted
+              spent
                 ? "whitespace-nowrap text-[var(--system-negative-strong)]"
                 : "whitespace-nowrap text-[var(--content-secondary)]"
             }

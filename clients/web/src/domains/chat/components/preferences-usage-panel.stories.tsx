@@ -216,8 +216,18 @@ export const MidCycle: Story = {
 };
 
 /**
- * The bundle spent and the wallet empty. The reading turns negative and the
- * add-credits strip drops in below the bar, which is the only state that
+ * The bundle spent with credits still in the wallet behind it. The bar and the
+ * percentage read negative the moment the allowance runs out, and no strip
+ * appears: the next turn still has something to draw on.
+ */
+export const FullBar: Story = {
+  name: "Full bar, credits remaining",
+  args: { spentUsd: "25", balanceUsd: "18.00" },
+};
+
+/**
+ * The bundle spent and the wallet empty. The same negative reading, now with
+ * the add-credits strip dropped in below the bar, which is the only state that
  * grows the menu.
  */
 export const Exhausted: Story = {

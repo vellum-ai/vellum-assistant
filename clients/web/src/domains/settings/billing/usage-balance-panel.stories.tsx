@@ -2,7 +2,8 @@
  * The Usage Balance reading that the `obscure-credits` flag puts where the
  * current plan's price row used to sit: how much of the package's included
  * usage this cycle has spent, when it resets, and, once the wallet behind it
- * is empty too, a strip offering to top it up.
+ * is empty too, a strip offering to top it up. The reading itself turns
+ * negative as soon as the bundle is spent, whatever the wallet holds.
  *
  * Pure props, so every reading below is a fixture rather than a live usage
  * read. `PlanTile` mounts it as a footer; `Settings/Billing/PlanTile` carries
@@ -48,17 +49,18 @@ type Story = StoryObj<typeof meta>;
 export const MidCycle: Story = {};
 
 /**
- * The bundle is fully spent but credits remain in the wallet, so the next turn
- * still has something to draw on. The reading stays neutral and no strip
- * appears: spending the allowance is not by itself a problem.
+ * The bundle fully spent, with credits remaining in the wallet behind it. The
+ * bar and the percentage read negative the moment the allowance runs out, but
+ * the next turn still has something to draw on, so no strip appears.
  */
 export const FullyUsed: Story = {
+  name: "Fully used, credits remaining",
   args: { ratio: 1 },
 };
 
 /**
- * A spent bundle with an empty wallet behind it. The bar and the percentage
- * turn negative and the add-credits strip drops in below them.
+ * A spent bundle with an empty wallet behind it. The same negative reading as
+ * above, now with the add-credits strip dropped in below it.
  */
 export const Exhausted: Story = {
   args: { ratio: 1, exhausted: true, onAddCredits: () => {} },

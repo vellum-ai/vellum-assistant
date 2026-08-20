@@ -1,9 +1,10 @@
 /**
  * Tests for the Plan tile's usage-balance footer.
  *
- * The panel is presentational: the caller decides whether the bundle counts as
- * exhausted (spent to 100% *and* the wallet behind it empty), and the panel
- * turns the reading negative and raises the add-credits strip when it does.
+ * The panel is presentational, and the two readings it draws are independent.
+ * The bar and the percentage turn negative off `ratio` alone, the moment the
+ * included bundle is spent. The add-credits strip waits on `exhausted`, which
+ * the caller sets only once the wallet behind that bundle is empty too.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -35,15 +36,23 @@ describe("UsageBalancePanel", () => {
     );
   });
 
-  test("a spent bundle with credits left still reads neutral", () => {
-    // `exhausted` is the wallet's state, not the bar's: at 100% with credits
-    // still in hand the caller leaves it off and nothing turns red.
-    const { getByTestId, queryByTestId } = render(
+  test("a spent bundle turns negative with credits still in hand", () => {
+    // The caller leaves `exhausted` off while the wallet has something left,
+    // so the reading goes red on its own and no strip appears.
+    const { getByTestId, queryByTestId, getByText, queryByText } = render(
       <UsageBalancePanel ratio={1} resetsAt={RESETS_AT} />,
     );
 
     const panel = getByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("100% used");
+    const fill = panel.querySelector('[data-slot="progress-bar-fill"]');
+    expect(fill?.getAttribute("style")).toContain("--system-negative-strong");
+    expect(getByText("100% used").className).toContain(
+      "--system-negative-strong",
+    );
+    expect(
+      queryByText("Add credits to continue using your assistant"),
+    ).toBeNull();
     expect(queryByTestId("plan-usage-add-credits")).toBeNull();
   });
 

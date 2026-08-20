@@ -1266,32 +1266,37 @@ describe("PlanCard with obscure-credits on", () => {
     expect(await findByTestId("add-credits-modal")).toBeTruthy();
   });
 
-  test("a spent bundle with credits still in hand stays neutral", async () => {
-    // 100% of the included usage, but the wallet still covers the next turn,
-    // so there is nothing to warn about.
+  test("a spent bundle turns negative with credits still in hand", async () => {
+    // 100% of the included usage, and the wallet still covers the next turn.
+    // The reading goes red anyway; only the strip waits on the wallet.
     usageTotalUsd = "25";
-    const { findByTestId, queryByText, queryByTestId } = renderCardInteractive(
-      proMightySubscription(),
-      plansWithSuper(),
-      () => {},
-    );
+    const { findByTestId, getByText, queryByText, queryByTestId } =
+      renderCardInteractive(
+        proMightySubscription(),
+        plansWithSuper(),
+        () => {},
+      );
 
     const panel = await findByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("100% used");
     expect(
-      queryByText("Add credits to continue using your assistant"),
-    ).toBeNull();
-    expect(queryByTestId("plan-usage-add-credits")).toBeNull();
-    expect(
       panel
         .querySelector('[data-slot="progress-bar-fill"]')
         ?.getAttribute("style"),
-    ).not.toContain("--system-negative-strong");
+    ).toContain("--system-negative-strong");
+    expect(getByText("100% used").className).toContain(
+      "--system-negative-strong",
+    );
+    expect(
+      queryByText("Add credits to continue using your assistant"),
+    ).toBeNull();
+    expect(queryByTestId("plan-usage-add-credits")).toBeNull();
   });
 
   test("an empty wallet mid-cycle leaves the bar alone", async () => {
-    // The strip belongs to a spent bundle. Below 100% the tile reads the same
-    // as it always has, whatever the wallet says.
+    // The strip belongs to a spent bundle, and so does the negative reading.
+    // Below 100% the tile reads the same as it always has, whatever the wallet
+    // says.
     creditsExhausted = true;
     const { findByTestId, queryByText } = renderCardInteractive(
       proMightySubscription(),
@@ -1301,6 +1306,11 @@ describe("PlanCard with obscure-credits on", () => {
 
     const panel = await findByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("40% used");
+    expect(
+      panel
+        .querySelector('[data-slot="progress-bar-fill"]')
+        ?.getAttribute("style"),
+    ).not.toContain("--system-negative-strong");
     expect(
       queryByText("Add credits to continue using your assistant"),
     ).toBeNull();

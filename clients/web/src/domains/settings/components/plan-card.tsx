@@ -499,9 +499,9 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       </Typography>
     </div>
   ) : undefined;
-  // Spending the bundle is only an alarm once the wallet behind it is empty
-  // too: a sub at 100% whose purchased credits still cover the next turn keeps
-  // the neutral reading.
+  // The add-credits strip is only warranted once the wallet behind the bundle
+  // is empty too: a sub at 100% whose purchased credits still cover the next
+  // turn has nothing to buy. The bar goes red either way.
   const creditsExhausted = usage != null && usage.ratio >= 1 && isExhausted;
   // A paid tile trades its price for the usage balance, so the two never state
   // the same allowance twice. The free tile has no bundle to measure and no

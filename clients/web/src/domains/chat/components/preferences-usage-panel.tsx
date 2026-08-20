@@ -69,8 +69,10 @@ export function PreferencesUsagePanel({
     month: "short",
     day: "numeric",
   }).format(new Date(usage.resetsAt));
-  // Spending the bundle only alarms once the wallet behind it is empty too.
-  const exhausted = usage.ratio >= 1 && isExhausted;
+  // Spending the whole bundle is the negative reading in its own right; the
+  // strip below it waits until the wallet behind the bundle is empty too.
+  const spent = usage.ratio >= 1;
+  const exhausted = spent && isExhausted;
 
   return (
     <div className="my-2 flex flex-col gap-1" data-testid="preferences-usage">
@@ -88,7 +90,7 @@ export function PreferencesUsagePanel({
               as="span"
               variant="body-small-default"
               className={
-                exhausted
+                spent
                   ? "whitespace-nowrap text-[var(--system-negative-strong)]"
                   : "whitespace-nowrap text-[var(--content-secondary)]"
               }
@@ -110,7 +112,7 @@ export function PreferencesUsagePanel({
           value={usage.ratio}
           height={10}
           aria-label={title}
-          fillColor={exhausted ? "var(--system-negative-strong)" : undefined}
+          fillColor={spent ? "var(--system-negative-strong)" : undefined}
           className="w-full rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
         />
         <Typography
