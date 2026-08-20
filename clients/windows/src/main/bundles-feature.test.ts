@@ -95,12 +95,13 @@ describe("Windows bundle workflow", () => {
       getBundlePlatform().acquireGatewayToken("assistant-1"),
     ).resolves.toBeNull();
 
+    // A cold launch from a `.vellum` file asks for the token in the same
+    // tick that installs the remaining modules, including the CLI provider.
+    const pending = getBundlePlatform().acquireGatewayToken("assistant-1");
     registry.provide(LOCAL_MODE_CLI, {
       resolveInvocation: resolveInvocationMock,
     });
-    await expect(
-      getBundlePlatform().acquireGatewayToken("assistant-1"),
-    ).resolves.toBe("guardian-token");
+    await expect(pending).resolves.toBe("guardian-token");
     expect(getGuardianAccessTokenMock).toHaveBeenCalledWith(
       "assistant-1",
       "C:\\Vellum\\config",
