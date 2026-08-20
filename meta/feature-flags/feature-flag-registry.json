@@ -144,8 +144,16 @@
       "id": "fork-from-message",
       "scope": "client",
       "key": "fork-from-message",
-      "label": "Fork from Message",
-      "description": "Show the fork affordance: 'Fork from here' on messages and 'Fork Conversation' in the thread menu. Staff-only: the client also requires the viewer to be Vellum staff, so enabling this for a non-staff account still shows nothing.",
+      "label": "Internal Thread Actions (legacy key)",
+      "description": "Legacy key for `internal-thread-actions`. The client grants the internal thread affordances when either key is enabled, so the platform may serve the gate under either name. Declared here so the flag mapper keeps the value instead of dropping it as undeclared.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "internal-thread-actions",
+      "scope": "client",
+      "key": "internal-thread-actions",
+      "label": "Internal Thread Actions",
+      "description": "Show the internal-only thread affordances: 'Fork from here' on messages, 'Fork Conversation', 'Analyze Conversation', and 'Copy conversation ID' in the thread menu, plus the LLM inspector surfaces. Staff-only: the client also requires the viewer to be Vellum staff, so enabling this for a non-staff account still shows nothing.",
       "defaultEnabled": false
     },
     {
