@@ -210,6 +210,25 @@ describe("Windows auxiliary windows", () => {
     ]);
   });
 
+  test("loads auxiliary windows from the app origin in local-renderer dev", () => {
+    // VELLUM_LOCAL_RENDERER serves the main window over app:// while
+    // VELLUM_DEV_URL names the remote platform; auxiliary windows must
+    // follow the main window or the IPC sender guard rejects them.
+    process.env.VELLUM_LOCAL_RENDERER = "true";
+    process.env.VELLUM_DEV_URL = "https://dev-assistant.example.com/assistant";
+    try {
+      onListeners.get("vellum:dictationOverlay:setState")?.([
+        { kind: "recording", transcription: "" },
+      ]);
+      expect(created[0]!.window.loadURL).toHaveBeenCalledWith(
+        "app://vellum.ai/assistant/floating/dictation-overlay",
+      );
+    } finally {
+      delete process.env.VELLUM_LOCAL_RENDERER;
+      delete process.env.VELLUM_DEV_URL;
+    }
+  });
+
   test("repositions transient windows after a display change", () => {
     handleListeners.get("vellum:commandPalette:open")?.([]);
     shortcutListeners.get("Control+Shift+/")?.();

@@ -29,14 +29,14 @@ import {
   toggleQuickInput,
 } from "@vellumai/electron-desktop/quick-input-window";
 
-import { RENDERER_BASE_PROD, getDevRendererBase } from "../app-config";
+import { getRendererBase } from "../app-config";
 import { handle, on } from "../ipc.client";
 import log from "../logger";
 import { current, dispatchToMain, ensureVisible } from "../main-window";
 import { createWindow } from "../windows.client";
 
 const resolveRoute = createWindowRouteResolver(() =>
-  app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
+  getRendererBase(app.isPackaged),
 );
 
 const module: CapabilityModule<DesktopCapabilityRegistry> = {
