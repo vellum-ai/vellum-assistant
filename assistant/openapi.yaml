@@ -8174,6 +8174,81 @@ paths:
                 required:
                   - conversations
                 additionalProperties: false
+  /v1/conversations/cli/search:
+    post:
+      operationId: conversations_cli_search_post
+      summary: Search conversations (CLI)
+      description: Full-text search across conversation titles and message content for CLI output.
+      tags:
+        - conversations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  minLength: 1
+                limit:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+              required:
+                - query
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        conversationId:
+                          type: string
+                        conversationTitle:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        conversationUpdatedAt:
+                          type: number
+                        matchingMessages:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              messageId:
+                                type: string
+                              role:
+                                type: string
+                              excerpt:
+                                type: string
+                              createdAt:
+                                type: number
+                            required:
+                              - messageId
+                              - role
+                              - excerpt
+                              - createdAt
+                            additionalProperties: false
+                      required:
+                        - conversationId
+                        - conversationTitle
+                        - conversationUpdatedAt
+                        - matchingMessages
+                      additionalProperties: false
+                required:
+                  - query
+                  - results
+                additionalProperties: false
   /v1/conversations/cli/slack/detach:
     post:
       operationId: conversations_cli_slack_detach_post

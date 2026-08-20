@@ -1,7 +1,7 @@
 /**
  * Tests for `assistant conversations search`.
  *
- * Validates IPC plumbing onto `conversations_search`, human vs `--json`
+ * Validates IPC plumbing onto `conversation_search_cli`, human vs `--json`
  * output, empty-result copy, and validation of the search term / --limit.
  */
 
@@ -58,7 +58,39 @@ mock.module("../../../util/logger.js", () => ({
 const realFs = { ...nodeFs };
 mock.module("node:fs", () => ({ ...realFs }));
 
+const searchCalls: Array<{
+  query: string;
+  limit?: number;
+  maxMessagesPerConversation?: number;
+}> = [];
+let searchResults: unknown[] = [];
+
+mock.module("../../../daemon/handlers/conversation-history.js", () => ({
+  performConversationSearch: async (params: {
+    query: string;
+    limit?: number;
+    maxMessagesPerConversation?: number;
+  }) => {
+    searchCalls.push(params);
+    return searchResults;
+  },
+  getMessageContent: () => null,
+}));
+
 const { registerConversationsCommand } = await import("../conversations.js");
+const { ROUTES: CONVERSATION_CLI_ROUTES } = await import(
+  "../../../runtime/routes/conversation-cli-routes.js"
+);
+const { BadRequestError } = await import(
+  "../../../runtime/routes/errors.js"
+);
+
+const searchCliRoute = CONVERSATION_CLI_ROUTES.find(
+  (route) => route.operationId === "conversation_search_cli",
+);
+if (!searchCliRoute) {
+  throw new Error("conversation_search_cli route not registered");
+}
 
 const THREE_HOURS_AGO = Date.now() - 3 * 60 * 60 * 1000;
 
@@ -144,6 +176,8 @@ beforeEach(() => {
   lastIpcCall = null;
   process.exitCode = 0;
   mockIpcResult = { ok: true, result: { query: "flux", results: [] } };
+  searchCalls.length = 0;
+  searchResults = [];
 });
 
 afterEach(() => {
@@ -151,20 +185,20 @@ afterEach(() => {
 });
 
 describe("conversations search", () => {
-  test("forwards the term to conversations_search as queryParams.q", async () => {
+  test("forwards the term to conversation_search_cli as body.query", async () => {
     mockIpcResult = {
       ok: true,
       result: { query: "flux capacitor", results: [matchingResult] },
     };
     const { code } = await runSearch(["search", "flux capacitor"]);
     expect(code).toBe(0);
-    expect(lastIpcCall?.method).toBe("conversations_search");
+    expect(lastIpcCall?.method).toBe("conversation_search_cli");
     expect(lastIpcCall?.params).toEqual({
-      queryParams: { q: "flux capacitor" },
+      body: { query: "flux capacitor" },
     });
   });
 
-  test("passes --limit as a query param string", async () => {
+  test("passes --limit as a numeric body field", async () => {
     mockIpcResult = {
       ok: true,
       result: { query: "flux", results: [] },
@@ -172,7 +206,7 @@ describe("conversations search", () => {
     const { code } = await runSearch(["search", "flux", "--limit", "5"]);
     expect(code).toBe(0);
     expect(lastIpcCall?.params).toEqual({
-      queryParams: { q: "flux", limit: "5" },
+      body: { query: "flux", limit: 5 },
     });
   });
 
@@ -218,7 +252,7 @@ describe("conversations search", () => {
     };
     const { code, stdout } = await runSearch(["search", "no-such-term"]);
     expect(code).toBe(0);
-    expect(lastIpcCall?.method).toBe("conversations_search");
+    expect(lastIpcCall?.method).toBe("conversation_search_cli");
     expect(stdout).toBe('No conversations matched "no-such-term"\n');
   });
 
@@ -285,5 +319,38 @@ describe("conversations search", () => {
       'assistant conversations search "project planning"',
     );
     expect(stdout).toContain("--json");
+  });
+});
+
+describe("conversation_search_cli route", () => {
+  test("calls performConversationSearch with the query and optional limit", async () => {
+    searchResults = [matchingResult];
+    const payload = await searchCliRoute.handler({
+      body: { query: "flux capacitor", limit: 5 },
+    });
+    expect(searchCalls).toEqual([{ query: "flux capacitor", limit: 5 }]);
+    expect(payload).toEqual({
+      query: "flux capacitor",
+      results: [matchingResult],
+    });
+  });
+
+  test("omits limit when the body does not include one", async () => {
+    await searchCliRoute.handler({ body: { query: "flux" } });
+    expect(searchCalls).toEqual([{ query: "flux" }]);
+  });
+
+  test("rejects a missing query with BadRequestError", async () => {
+    await expect(
+      searchCliRoute.handler({ body: {} as Record<string, unknown> }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    expect(searchCalls).toEqual([]);
+  });
+
+  test("rejects a non-positive limit with BadRequestError", async () => {
+    await expect(
+      searchCliRoute.handler({ body: { query: "flux", limit: 0 } }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    expect(searchCalls).toEqual([]);
   });
 });
