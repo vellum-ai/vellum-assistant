@@ -9,6 +9,7 @@ import type { KnownBlock } from "@slack/types";
 
 import type { ChannelId } from "../../channels/types.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
+import { editChannelMessage } from "../../messaging/providers/index.js";
 import { getLogger } from "../../util/logger.js";
 import { resolveCapabilities } from "../capabilities.js";
 import type { ApprovalDecisionResult } from "../channel-approval-types.js";
@@ -273,11 +274,10 @@ export async function handleApprovalInterception(
             decisionOutcome === "approved" ? "\u2713" : "\u2717";
           const statusLabel =
             decisionOutcome === "approved" ? "Approved" : "Denied";
-          deliverChannelReply(replyCallbackUrl, {
+          editChannelMessage(replyCallbackUrl, {
             chatId: conversationExternalId,
+            messageId: approvalMessageTs,
             text: `${statusEmoji} ${statusLabel}`,
-            messageTs: approvalMessageTs,
-            assistantId,
           }).catch((err) => {
             log.error(
               { err, conversationId, messageTs: approvalMessageTs },
@@ -395,12 +395,11 @@ function editStaleSlackApprovalMessage(params: {
       elements: [{ type: "mrkdwn", text: statusText }],
     },
   ];
-  deliverChannelReply(params.replyCallbackUrl, {
+  editChannelMessage(params.replyCallbackUrl, {
     chatId: params.chatId,
+    messageId: params.messageTs,
     text: statusText,
     blocks,
-    messageTs: params.messageTs,
-    assistantId: params.assistantId,
   }).catch((err) => {
     log.error(
       {

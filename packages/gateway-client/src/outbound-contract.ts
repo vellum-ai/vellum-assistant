@@ -175,8 +175,6 @@ export const ChannelReplyPayloadSchema = z.object({
   ephemeral: z.boolean().optional(),
   /** Slack user ID — required when `ephemeral` is true. */
   user: z.string().optional(),
-  /** When provided, update an existing message instead of posting a new one. */
-  messageTs: z.string().optional(),
   /** When true, the daemon generates Block Kit blocks from the text before delivery. */
   useBlocks: z.boolean().optional(),
 });

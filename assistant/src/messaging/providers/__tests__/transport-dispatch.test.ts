@@ -18,6 +18,9 @@ const slack = {
   sendSlackStreamOp: mock((..._args: unknown[]) =>
     Promise.resolve({ ok: true, ts: "stream-ts" }),
   ),
+  updateSlackMessage: mock((..._args: unknown[]) =>
+    Promise.resolve({ ts: "slack-ts" }),
+  ),
 };
 const telegram = {
   sendTelegramReply: mock((..._args: unknown[]) => Promise.resolve()),
@@ -59,6 +62,7 @@ mock.module("../../../util/logger.js", () => ({
 
 const {
   deliverDirect,
+  editChannelMessage,
   sendChannelReaction,
   sendChannelStreamOp,
   sendChannelTyping,
@@ -154,6 +158,19 @@ describe("Slack sub-operation selection", () => {
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
   });
 
+  test("editChannelMessage updates in place instead of posting", async () => {
+    await editChannelMessage(`${BASE}/deliver/slack`, {
+      chatId: "C1",
+      messageId: "1700.5",
+      text: "revised",
+    });
+
+    expect(slack.updateSlackMessage).toHaveBeenCalledTimes(1);
+    // The distinction the split exists for: an edit never reaches the post
+    // path, so a failed edit cannot become a second visible message.
+    expect(slack.sendSlackReply).not.toHaveBeenCalled();
+  });
+
   test("setChannelThreadStatus reaches Slack without touching the text path", async () => {
     await setChannelThreadStatus(`${BASE}/deliver/slack`, {
       chatId: "C1",
@@ -212,6 +229,20 @@ describe("capability gating across channels", () => {
     } as const;
     expect(
       await sendChannelReaction(`${BASE}/deliver/telegram`, target),
+    ).toEqual({ ok: true });
+    expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
+  });
+
+  test("a channel that cannot revise a sent message resolves quietly", async () => {
+    // Only Slack implements `edit` today. A channel without the method is not
+    // a failed delivery: nothing is attempted, nothing throws, and no fresh
+    // message is posted in place of the revision.
+    expect(
+      await editChannelMessage(`${BASE}/deliver/telegram`, {
+        chatId: "C1",
+        messageId: "1",
+        text: "revised",
+      }),
     ).toEqual({ ok: true });
     expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
   });
