@@ -59,8 +59,8 @@ const {
   ACP_CLAUDE_OAUTH_MISSING_CODE,
   acpSpawnCredentialDenialReason,
   ensureAcpCredentialPolicy,
-  grantAcpSpawnPolicy,
   prepareAgentEnv,
+  repairAcpSpawnPolicy,
 } = await import("../prepare-agent-env.js");
 
 const ACP_SPAWN_TOOL = "acp_spawn";
@@ -526,37 +526,83 @@ describe("prepareAgentEnv — non-claude commands", () => {
   });
 });
 
-describe("grantAcpSpawnPolicy — force-grant (union)", () => {
-  test("creates metadata with acp_spawn when none exists", () => {
-    grantAcpSpawnPolicy(ACP_OAUTH_TOKEN_FIELD, "desc");
+/**
+ * The Connect flow's repair, which `storeAcpClaudeToken` performs after writing
+ * the token. Every metadata shape the broker can deny on is covered here, so
+ * `acp-claude-oauth.test.ts` only has to pin the end-to-end wiring.
+ */
+describe("repairAcpSpawnPolicy - the Connect repair", () => {
+  test("creates a record with acp_spawn, the usage description, and no domain restriction when none exists", () => {
+    repairAcpSpawnPolicy(ACP_OAUTH_TOKEN_FIELD, "desc");
+
+    expect(oauthMetadata()?.allowedTools).toEqual([ACP_SPAWN_TOOL]);
+    expect(oauthMetadata()?.allowedDomains).toEqual([]);
+    expect(oauthMetadata()?.usageDescription).toBe("desc");
+  });
+
+  test("adds acp_spawn to an empty allowedTools (default provisioning path)", () => {
+    upsertCredentialMetadata(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD, {
+      allowedTools: [],
+    });
+
+    repairAcpSpawnPolicy(ACP_OAUTH_TOKEN_FIELD, "desc");
+
     expect(oauthMetadata()?.allowedTools).toEqual([ACP_SPAWN_TOOL]);
   });
 
-  test("unions acp_spawn into an explicit policy that omitted it (repair)", () => {
+  test("unions acp_spawn into an explicit policy that omitted it", () => {
     upsertCredentialMetadata(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD, {
       allowedTools: ["other_tool"],
     });
 
-    grantAcpSpawnPolicy(ACP_OAUTH_TOKEN_FIELD, "desc");
+    repairAcpSpawnPolicy(ACP_OAUTH_TOKEN_FIELD, "desc");
 
-    // Unlike ensureAcpCredentialPolicy (which preserves), grant adds acp_spawn.
+    // Unlike ensureAcpCredentialPolicy (which preserves), the repair widens.
     expect(oauthMetadata()?.allowedTools).toEqual([
       "other_tool",
       ACP_SPAWN_TOOL,
     ]);
   });
 
-  test("leaves an allowedTools that already includes acp_spawn unchanged", () => {
+  test("clears a domain restriction the broker refuses server-side, keeping the tools", () => {
+    upsertCredentialMetadata(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD, {
+      allowedTools: [ACP_SPAWN_TOOL],
+      allowedDomains: ["api.anthropic.com"],
+    });
+
+    repairAcpSpawnPolicy(ACP_OAUTH_TOKEN_FIELD, "desc");
+
+    expect(oauthMetadata()?.allowedDomains).toEqual([]);
+    expect(oauthMetadata()?.allowedTools).toEqual([ACP_SPAWN_TOOL]);
+  });
+
+  test("repairs both halves of a denied policy in one pass", () => {
+    upsertCredentialMetadata(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD, {
+      allowedTools: ["other_tool"],
+      allowedDomains: ["api.anthropic.com"],
+    });
+
+    repairAcpSpawnPolicy(ACP_OAUTH_TOKEN_FIELD, "desc");
+
+    expect(oauthMetadata()?.allowedTools).toEqual([
+      "other_tool",
+      ACP_SPAWN_TOOL,
+    ]);
+    expect(oauthMetadata()?.allowedDomains).toEqual([]);
+  });
+
+  test("writes nothing when the stored policy already satisfies both halves", async () => {
     upsertCredentialMetadata(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD, {
       allowedTools: [ACP_SPAWN_TOOL, "other_tool"],
     });
+    const before = oauthMetadata();
+    // Every upsert stamps `updatedAt` with the current millisecond, so waiting
+    // here makes an unconditional write show up as a changed record.
+    await Bun.sleep(5);
 
-    grantAcpSpawnPolicy(ACP_OAUTH_TOKEN_FIELD, "desc");
+    repairAcpSpawnPolicy(ACP_OAUTH_TOKEN_FIELD, "desc");
 
-    expect(oauthMetadata()?.allowedTools).toEqual([
-      ACP_SPAWN_TOOL,
-      "other_tool",
-    ]);
+    expect(oauthMetadata()).toEqual(before);
   });
 });
 

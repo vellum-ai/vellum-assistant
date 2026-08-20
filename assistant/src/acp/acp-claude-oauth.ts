@@ -17,10 +17,6 @@ import {
   getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
-import {
-  getCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
@@ -28,8 +24,9 @@ import {
   classifyAnthropicToken,
 } from "./acp-credentials.js";
 import {
+  ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
   acpSpawnCredentialDenialReason,
-  grantAcpSpawnPolicy,
+  repairAcpSpawnPolicy,
 } from "./prepare-agent-env.js";
 
 const log = getLogger("acp:claude-oauth");
@@ -128,24 +125,14 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
   if (!stored) {
     throw new Error("Failed to store Claude OAuth token in secure storage.");
   }
-  // Force-grant acp_spawn (union) rather than merely ensure it: an explicit
-  // Connect is a deliberate opt-in to ACP, so this repairs a credential whose
-  // explicit allowedTools omitted acp_spawn — otherwise the broker keeps denying
-  // the spawn read and the Connect card dead-loops on every auto-continue.
-  grantAcpSpawnPolicy(
+  // Repair rather than merely ensure the policy: an explicit Connect is a
+  // deliberate opt-in to ACP, so this widens a credential the broker would
+  // otherwise keep denying the spawn read on, which would dead-loop the Connect
+  // card on every auto-continue.
+  repairAcpSpawnPolicy(
     ACP_OAUTH_TOKEN_FIELD,
-    "Claude OAuth token for ACP agent authentication",
+    ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
   );
-  // Same deliberate opt-in, applied to the other half of the policy the broker
-  // checks. This field is OAuth-only and server-use-only, and the broker refuses
-  // a domain-restricted credential server-side, so a lingering restriction would
-  // keep every spawn failing even after a successful connect.
-  const meta = getCredentialMetadata(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD);
-  if ((meta?.allowedDomains ?? []).length > 0) {
-    upsertCredentialMetadata(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD, {
-      allowedDomains: [],
-    });
-  }
 }
 
 /**

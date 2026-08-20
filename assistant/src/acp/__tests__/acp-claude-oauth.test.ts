@@ -171,11 +171,7 @@ describe("parseManualClaudeCode", () => {
 // ---------------------------------------------------------------------------
 
 describe("storeAcpClaudeToken", () => {
-  test("writes the token and force-grants the acp_spawn policy (repairs a denied policy)", async () => {
-    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
-      allowedTools: ["other_tool"],
-    });
-
+  test("writes the token to the acp/claude_oauth_token vault field", async () => {
     await storeAcpClaudeToken("sk-ant-oat-token");
 
     expect(setSecureKeyAsync).toHaveBeenCalledTimes(1);
@@ -183,52 +179,14 @@ describe("storeAcpClaudeToken", () => {
       "credential/acp/claude_oauth_token",
       "sk-ant-oat-token",
     );
-    // grant (union), not merely ensure (preserve) — so an explicit Connect
-    // repairs a credential whose allowedTools omitted acp_spawn.
-    expect(oauthMetadata()?.allowedTools).toEqual([
-      "other_tool",
-      ACP_SPAWN_TOOL,
-    ]);
-  });
-
-  test("clears a domain restriction the broker would refuse server-side", async () => {
-    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
-      allowedTools: [ACP_SPAWN_TOOL],
-      allowedDomains: ["api.anthropic.com"],
-    });
-
-    await storeAcpClaudeToken("sk-ant-oat-token");
-
-    expect(oauthMetadata()?.allowedDomains).toEqual([]);
-    expect(oauthMetadata()?.allowedTools).toEqual([ACP_SPAWN_TOOL]);
-  });
-
-  test("leaves an already-unrestricted credential's domains alone", async () => {
-    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
-      allowedTools: ["other_tool"],
-    });
-
-    await storeAcpClaudeToken("sk-ant-oat-token");
-
-    expect(oauthMetadata()?.allowedDomains).toEqual([]);
-    expect(oauthMetadata()?.allowedTools).toEqual([
-      "other_tool",
-      ACP_SPAWN_TOOL,
-    ]);
-  });
-
-  test("creates the standard record when there is no prior metadata", async () => {
-    await storeAcpClaudeToken("sk-ant-oat-token");
-
-    expect(oauthMetadata()?.allowedTools).toEqual([ACP_SPAWN_TOOL]);
-    expect(oauthMetadata()?.allowedDomains).toEqual([]);
   });
 
   test("takes a domain-restricted credential from not-connected to connected", async () => {
     // Invariant: when the vault holds a usable token whose domain policy
     // makes the spawn read fail, the status check keeps the Connect card
     // offered, and completing Connect repairs the policy so the retry after
-    // a successful sign-in succeeds.
+    // a successful sign-in succeeds. The per-shape repair details are covered
+    // by the repairAcpSpawnPolicy suite in prepare-agent-env.test.ts.
     upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
       allowedTools: [ACP_SPAWN_TOOL],
       allowedDomains: ["api.anthropic.com"],
@@ -281,29 +239,13 @@ describe("hasAcpClaudeToken", () => {
     expect(await hasAcpClaudeToken()).toBe(false);
   });
 
-  test("reports true with no metadata at all (the spawn would create it)", async () => {
-    getReturn = "sk-ant-oat-token";
-    expect(await hasAcpClaudeToken()).toBe(true);
-  });
-
   test("reports true for metadata with an empty allowedTools (the spawn would grant acp_spawn)", async () => {
+    // One allow-state case: the full policy matrix is guarded by the parity
+    // suite in prepare-agent-env.test.ts and the tool-policy unit tests.
     upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, { allowedTools: [] });
     getReturn = "sk-ant-oat-token";
 
     expect(await hasAcpClaudeToken()).toBe(true);
-  });
-
-  test("reports false when the spawn policy can't read the token (denied allowedTools)", async () => {
-    // A valid OAuth token is stored, but an explicit `allowedTools` that omits
-    // `acp_spawn` means the broker denies the spawn read. Reporting "connected"
-    // would self-dismiss the card and trap the user in a missing-token loop, so
-    // it stays not-connected to keep the repair CTA visible.
-    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
-      allowedTools: ["other_tool"],
-    });
-    getReturn = "sk-ant-oat-token";
-
-    expect(await hasAcpClaudeToken()).toBe(false);
   });
 
   test("reports false for a domain-restricted credential the broker refuses server-side", async () => {
