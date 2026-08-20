@@ -7,7 +7,7 @@
  * the module for every importer, so a static edge from plugin-api into that
  * graph makes some unrelated host module import a name the partial mock does not
  * define, and the entire suite fails to instantiate with
- * `SyntaxError: Export named '…' not found in module`. Facades over DB-graph
+ * `SyntaxError: Export named '...' not found in module`. Facades over DB-graph
  * writers therefore load them through a dynamic `import()` inside the wrapper.
  *
  * The probe runs in a subprocess: `mock.module` is process-wide and permanent,
