@@ -14,7 +14,9 @@ import { argValue } from "./cli-args";
 const windowsDir = path.resolve(import.meta.dir, "..");
 const SIGNABLE_EXTENSIONS = new Set([".exe", ".dll", ".node"]);
 
-export const REQUIRED_PACKAGE_BINARIES = [
+// The native helper is packed under native-helper/<arch> so the app can
+// resolve the binary matching its own architecture.
+export const requiredPackageBinaries = (arch: string): string[] => [
   "resources/cli-runtime/assistant.exe",
   "resources/cli-runtime/bun.exe",
   "resources/cli-runtime/cli-launcher.exe",
@@ -24,9 +26,9 @@ export const REQUIRED_PACKAGE_BINARIES = [
   "resources/cli-runtime/vellum-gateway.exe",
   "resources/cli-runtime/vellum-worker.exe",
   "resources/cli-runtime/vellum.exe",
-  "resources/native-helper/Vellum.WindowsHelper.exe",
+  `resources/native-helper/${arch}/Vellum.WindowsHelper.exe`,
   "resources/preview-handler/Vellum.PreviewHandler.dll",
-] as const;
+];
 
 interface ManifestEntry {
   path: string;
@@ -88,7 +90,7 @@ const main = (): void => {
     throw new Error("--app-out-dir or --installer is required");
   }
   const files = collectSignableFiles(appOutDir);
-  const missing = REQUIRED_PACKAGE_BINARIES.filter(
+  const missing = requiredPackageBinaries(arch).filter(
     (required) => !files.includes(required),
   );
   if (missing.length > 0) {
