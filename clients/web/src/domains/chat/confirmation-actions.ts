@@ -12,11 +12,11 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { offersRuleOption } from "@/domains/chat/confirmation-decisions";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import {
-  mayReportFailure,
+  reportSubmissionFailure,
   stillOwnsSubmission,
-  useInteractionStore,
-} from "@/domains/chat/interaction-store";
+} from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
@@ -233,9 +233,7 @@ export async function handleConfirmationSubmit(
         clearStaleConfirmation(snapshot);
         return;
       }
-      if (mayReportFailure("confirmation", snapshot.requestId)) {
-        useChatSessionStore.getState().setError({ message: result.error });
-      }
+      reportSubmissionFailure("confirmation", snapshot.requestId, result.error);
       useInteractionStore
         .getState()
         .releaseSubmission("confirmation", snapshot.requestId);
@@ -245,11 +243,11 @@ export async function handleConfirmationSubmit(
   } catch (err) {
     // Always recorded; only shown while its own prompt is the one on screen.
     captureError(err, { context: "submit_confirmation" });
-    if (mayReportFailure("confirmation", snapshot.requestId)) {
-      useChatSessionStore.getState().setError({
-        message: "Failed to submit confirmation. Please try again.",
-      });
-    }
+    reportSubmissionFailure(
+      "confirmation",
+      snapshot.requestId,
+      "Failed to submit confirmation. Please try again.",
+    );
     useInteractionStore
       .getState()
       .releaseSubmission("confirmation", snapshot.requestId);

@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import type { PromptKind } from "@/domains/chat/interaction-store";
-import { mayReportFailure } from "@/domains/chat/interaction-store";
+import {
+  reportSubmissionFailure,
+  type PromptKind,
+} from "@/domains/chat/prompt-submission";
 import {
   useInteractionStore,
   hasActiveInteraction,
 } from "@/domains/chat/interaction-store";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 // Reset store between tests to avoid cross-contamination
 beforeEach(() => {
@@ -460,24 +463,34 @@ describe("prompt slots: the shared invariant", () => {
       });
 
       it("a failure is reported only by the holder, and only for its own prompt", () => {
+        const banner = () => useChatSessionStore.getState().error?.message;
+        const report = (id: string) =>
+          reportSubmissionFailure(kind, id, `failed ${id}`);
+
         RAISE[kind]("r1");
         useInteractionStore.getState().claimSubmission(kind, "r1");
-        expect(mayReportFailure(kind, "r1")).toBe(true);
+        report("r1");
+        expect(banner()).toBe("failed r1");
 
         // Replaced on screen: the message would explain itself over a prompt
         // the user has not answered.
+        useChatSessionStore.getState().setError(null);
         RAISE[kind]("r2");
-        expect(mayReportFailure(kind, "r1")).toBe(false);
+        report("r1");
+        expect(banner()).toBeUndefined();
 
         // Its own resolution retired the card while it was still awaiting,
         // which is the ordinary shape and leaves nothing to be mistaken for.
         RETIRE[kind]("r2");
-        expect(mayReportFailure(kind, "r1")).toBe(true);
+        report("r1");
+        expect(banner()).toBe("failed r1");
 
         // The slot gone means the interaction was abandoned, and an error about
         // something the user walked away from is noise.
+        useChatSessionStore.getState().setError(null);
         useInteractionStore.getState().releaseSubmission(kind, "r1");
-        expect(mayReportFailure(kind, "r1")).toBe(false);
+        report("r1");
+        expect(banner()).toBeUndefined();
       });
 
       it("only the holder can release the slot", () => {

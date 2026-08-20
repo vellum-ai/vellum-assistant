@@ -14,6 +14,8 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 
+import type { PromptKind } from "@/domains/chat/prompt-submission";
+
 import type {
   PendingSecretState,
   PendingConfirmationState,
@@ -25,13 +27,6 @@ import type {
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-
-/** The prompt kinds that can have a submission in flight. */
-export type PromptKind =
-  | "confirmation"
-  | "question"
-  | "secret"
-  | "contactRequest";
 
 export interface InteractionState {
   /**
@@ -429,64 +424,6 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
 }));
 
 export const useInteractionStore = createSelectors(useInteractionStoreBase);
-
-/**
- * Whether `requestId` still holds `kind`'s submission slot.
- *
- * Every prompt kind's resume asks this after its await, and the answer decides
- * whether it may write the shared session error or release the slot. One
- * implementation rather than one per kind, because these drifted apart when
- * they were separate and that drift is what let a resume mistake its own
- * resolution for a stranger's.
- */
-export function stillOwnsSubmission(
-  kind: PromptKind,
-  requestId: string,
-): boolean {
-  return useInteractionStore.getState().submittingByKind[kind] === requestId;
-}
-
-/** The prompt currently on screen for `kind`, if any. */
-function promptOnScreen(kind: PromptKind): { requestId: string } | null {
-  const state = useInteractionStore.getState();
-  switch (kind) {
-    case "confirmation":
-      return state.pendingConfirmation;
-    case "question":
-      return state.pendingQuestion;
-    case "secret":
-      return state.pendingSecret;
-    case "contactRequest":
-      return state.pendingContactRequest;
-  }
-}
-
-/**
- * Whether `requestId` may put a failure in front of the user.
- *
- * Stricter than {@link stillOwnsSubmission}, and both halves earn their place.
- *
- * The request must still hold the slot, which rules out a submission a reset
- * abandoned: the user sent something else and moved on, so an error about the
- * interaction they walked away from is noise. And no other prompt may be on
- * screen, because the session error has no prompt of its own and reads as
- * belonging to whatever card is up, so a replaced request would be explaining
- * itself over someone else's question.
- *
- * No prompt at all is fine as long as the slot is still held: that is the
- * ordinary shape of a request whose own resolution retired its card while it
- * was still awaiting, and nothing is left for the message to be mistaken for.
- *
- * Releasing the slot is not gated on any of this. It belongs to the request
- * whatever else has happened, which is why the two are asked separately.
- */
-export function mayReportFailure(kind: PromptKind, requestId: string): boolean {
-  if (!stillOwnsSubmission(kind, requestId)) {
-    return false;
-  }
-  const onScreen = promptOnScreen(kind);
-  return !onScreen || onScreen.requestId === requestId;
-}
 
 /** Atomic per-kind subscription, so a card re-renders only for its own kind. */
 export function useSubmittingRequestId(kind: PromptKind): string | null {

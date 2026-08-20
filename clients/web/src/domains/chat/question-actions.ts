@@ -9,11 +9,11 @@
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import {
-  mayReportFailure,
+  reportSubmissionFailure,
   stillOwnsSubmission,
-  useInteractionStore,
-} from "@/domains/chat/interaction-store";
+} from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
@@ -101,9 +101,7 @@ export async function handleQuestionResponse(
       }
       // A retryable failure, so the card stays and the user is told, provided
       // the prompt they are looking at is still this one.
-      if (mayReportFailure("question", snapshot.requestId)) {
-        useChatSessionStore.getState().setError({ message: result.error });
-      }
+      reportSubmissionFailure("question", snapshot.requestId, result.error);
       useInteractionStore
         .getState()
         .releaseSubmission("question", snapshot.requestId);
@@ -122,11 +120,11 @@ export async function handleQuestionResponse(
     // dead request cannot explain itself over a question it does not belong
     // to.
     captureError(err, { context: "submit_question_response" });
-    if (mayReportFailure("question", snapshot.requestId)) {
-      useChatSessionStore
-        .getState()
-        .setError({ message: "Failed to submit response. Please try again." });
-    }
+    reportSubmissionFailure(
+      "question",
+      snapshot.requestId,
+      "Failed to submit response. Please try again.",
+    );
     useInteractionStore
       .getState()
       .releaseSubmission("question", snapshot.requestId);

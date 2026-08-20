@@ -9,10 +9,8 @@
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import {
-  mayReportFailure,
-  useInteractionStore,
-} from "@/domains/chat/interaction-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { reportSubmissionFailure } from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -60,9 +58,11 @@ export async function handleContactPromptSubmit(
       pendingContactRequest.role,
     );
     if (!result.ok) {
-      if (mayReportFailure("contactRequest", pendingContactRequest.requestId)) {
-        useChatSessionStore.getState().setError({ message: result.error });
-      }
+      reportSubmissionFailure(
+        "contactRequest",
+        pendingContactRequest.requestId,
+        result.error,
+      );
       useInteractionStore
         .getState()
         .releaseSubmission("contactRequest", pendingContactRequest.requestId);
@@ -81,11 +81,11 @@ export async function handleContactPromptSubmit(
     }, 1500);
   } catch (err) {
     captureError(err, { context: "submit_contact_prompt" });
-    if (mayReportFailure("contactRequest", pendingContactRequest.requestId)) {
-      useChatSessionStore
-        .getState()
-        .setError({ message: "Failed to save contact. Please try again." });
-    }
+    reportSubmissionFailure(
+      "contactRequest",
+      pendingContactRequest.requestId,
+      "Failed to save contact. Please try again.",
+    );
     useInteractionStore
       .getState()
       .releaseSubmission("contactRequest", pendingContactRequest.requestId);
