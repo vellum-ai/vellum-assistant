@@ -201,6 +201,22 @@ describe("client OS per-row evidence marker", () => {
     expect(isMacOriginatedUserMessage(lastUserMetadata())).toBe(true);
   });
 
+  // Mirrors the Mac-originated case above: a plain browser tab reports
+  // `client.os: "web"`, while the Electron desktop renderer resolves its own
+  // host OS first and persists `macos`/`windows` instead.
+  test("marks an OS this row's own transport reported (web)", async () => {
+    const ctx = createWebTurnContext("web");
+    await persistQueuedMessageBody(ctx, {
+      content: "hello",
+      requestId: "req-transport-os-web",
+      requestClientOs: "web",
+    });
+
+    expect(lastUserMetadata().client).toEqual({ os: "web" });
+    expect(lastUserMetadata().clientOsFromRequest).toBe(true);
+    expect(isMacOriginatedUserMessage(lastUserMetadata())).toBe(false);
+  });
+
   test("marks an OS this row's own request headers reported", async () => {
     const ctx = createWebTurnContext(undefined);
     await persistQueuedMessageBody(ctx, {

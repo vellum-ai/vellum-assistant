@@ -23,6 +23,13 @@
  * one side) is resolved here before any line merge, since `git merge-file`
  * operates on three existing blobs.
  *
+ * Runtime-owned user state (`config.json`, `data/`, `.disabled`) is never
+ * merged. Those paths are excluded from the fingerprints and copied from the
+ * live install (`ours`) into the destination after the source merge, so a
+ * pin that ships default config cannot reset user settings. The provenance
+ * sidecar is excluded on every side and rewritten by the caller after the swap.
+ *
+ *
  * Binary files cannot be line-merged, so a binary file that diverged on both
  * sides is resolved whole-file by the strategy (`ours`/`theirs`); under
  * `assistant` the local copy is kept and the path is reported as a binary
@@ -44,7 +51,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
-import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
+import {
+  copyPreservedUserState,
+  PRESERVED_ENTRIES,
+} from "../../plugins/plugin-tree-walk.js";
 import { computeFingerprint } from "./plugin-fingerprint.js";
 
 const execFileAsync = promisify(execFile);
@@ -230,9 +240,11 @@ async function threeWayMergeFile(
 
 /**
  * Three-way merge `oursDir`/`theirsDir` against `baseDir` into `destDir` per
- * `strategy`. The provenance sidecar is excluded on every side — it is
- * rewritten by the caller after the swap and must not be carried through the
- * merge.
+ * `strategy`. User-owned state (`config.json`, `data/`, `.disabled`) is
+ * excluded from the line merge and copied from `oursDir` afterward, so the
+ * pin cannot reset it. The provenance sidecar is excluded on every side — it
+ * is rewritten by the caller after the swap and must not be carried through
+ * the merge.
  *
  * Returns the file count plus, for the `assistant` strategy, the paths left for
  * the assistant to resolve (text files with conflict markers and modify/delete
@@ -331,6 +343,12 @@ export async function mergePluginTree({
 
     // Present only in the base: removed on both sides, so it stays removed.
   }
+
+  // User-owned state is not plugin source, so it is never a merge input.
+  // Copy it from the live install so `--strategy theirs` cannot take a
+  // pin-shipped `config.json` (or drop an untracked one the fingerprint
+  // walk never saw).
+  copyPreservedUserState(oursDir, destDir);
 
   return { fileCount, conflicts, binaryConflicts };
 }

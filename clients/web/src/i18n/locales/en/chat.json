@@ -193,6 +193,9 @@
     "heading": "Assets",
     "label": "{count, plural, one {# asset} other {# assets}}"
   },
+  "conversationStarterDock": {
+    "caption": "Try some suggestions:"
+  },
   "copyButton": {
     "copied": "Copied",
     "copyFailed": "Could not copy to the clipboard."
@@ -524,6 +527,14 @@
       "yellow": "Yellow"
     },
     "noColor": "No color"
+  },
+  "preferencesUsagePanel": {
+    "addCreditsAriaLabel": "Add credits",
+    "exhausted": "Add credits to continue.",
+    "pctUsed": "{pct}% used",
+    "resets": "Resets {date}",
+    "settingsAriaLabel": "Usage and billing settings",
+    "title": "Usage"
   },
   "promptTab": {
     "availableTools": "Available tools",

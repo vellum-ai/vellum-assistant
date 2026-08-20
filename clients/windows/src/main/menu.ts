@@ -1,4 +1,10 @@
-import { Menu, app, shell, type MenuItemConstructorOptions } from "electron";
+import {
+  BrowserWindow,
+  Menu,
+  app,
+  shell,
+  type MenuItemConstructorOptions,
+} from "electron";
 import { z } from "zod";
 
 import {
@@ -8,6 +14,11 @@ import {
   type VellumCommand,
 } from "@vellumai/electron-desktop/commands";
 import type { IpcHandle } from "@vellumai/electron-desktop/ipc";
+import {
+  MENU_POPUP,
+  MENU_SET_PLATFORM_SESSION,
+  MENU_TITLES,
+} from "@vellumai/ipc-contract";
 
 interface WindowsMenuOptions {
   handle: IpcHandle;
@@ -35,6 +46,7 @@ export const buildWindowsMenu = ({
   installCli,
 }: Omit<WindowsMenuOptions, "handle">): MenuItemConstructorOptions[] => [
   {
+    id: "file",
     label: "File",
     submenu: [
       commandItem("New Conversation", { kind: "newConversation" }),
@@ -63,6 +75,7 @@ export const buildWindowsMenu = ({
     ],
   },
   {
+    id: "edit",
     label: "Edit",
     submenu: [
       { role: "undo" },
@@ -77,6 +90,7 @@ export const buildWindowsMenu = ({
     ],
   },
   {
+    id: "view",
     label: "View",
     submenu: [
       commandItem("Toggle Sidebar", { kind: "sidebarToggle" }),
@@ -85,9 +99,7 @@ export const buildWindowsMenu = ({
       { type: "separator" },
       { role: "reload" },
       { role: "forceReload" },
-      ...(!app.isPackaged
-        ? [{ role: "toggleDevTools" as const }]
-        : []),
+      ...(!app.isPackaged ? [{ role: "toggleDevTools" as const }] : []),
       { type: "separator" },
       { role: "resetZoom" },
       { role: "zoomIn" },
@@ -97,6 +109,7 @@ export const buildWindowsMenu = ({
     ],
   },
   {
+    id: "window",
     label: "Window",
     submenu: [
       { role: "minimize" },
@@ -108,6 +121,7 @@ export const buildWindowsMenu = ({
   ...(!app.isPackaged
     ? [
         {
+          id: "developer",
           label: "Developer",
           submenu: [
             commandItem("Choose Assistant...", { kind: "chooseAssistant" }),
@@ -120,6 +134,7 @@ export const buildWindowsMenu = ({
       ]
     : []),
   {
+    id: "help",
     label: "Help",
     submenu: [
       ...(app.isPackaged
@@ -150,13 +165,48 @@ export const installWindowsMenu = (options: WindowsMenuOptions): void => {
   };
 
   options.handle(
-    "vellum:menu:setPlatformSession",
+    MENU_SET_PLATFORM_SESSION,
     z.tuple([z.boolean()]),
     ([has]) => {
       if (hasPlatformSession !== has) {
         hasPlatformSession = has;
         apply();
       }
+    },
+  );
+  // The main window hides the native frame (`titleBarStyle: "hidden"`), which
+  // hides the OS menu bar with it. The renderer draws the top-level titles in
+  // its title bar (localizing them by id) and pops the real native submenus
+  // here, so items, accelerators, and enabled states keep the one template
+  // above as owner.
+  options.handle(MENU_TITLES, z.tuple([]), () =>
+    buildWindowsMenu(options).map((item) => ({
+      id: String(item.id),
+      label: String(item.label),
+    })),
+  );
+  options.handle(
+    MENU_POPUP,
+    z.tuple([z.string(), z.number(), z.number()]),
+    ([id, x, y], event) => {
+      const submenu = buildWindowsMenu(options).find(
+        (item) => item.id === id,
+      )?.submenu;
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!Array.isArray(submenu) || !win || win.isDestroyed()) {
+        return;
+      }
+      // The renderer reports CSS pixels; popup() takes DIPs, which differ
+      // from CSS pixels by the page zoom.
+      const zoom = event.sender.getZoomFactor();
+      return new Promise<void>((resolve) => {
+        Menu.buildFromTemplate(submenu).popup({
+          window: win,
+          x: Math.round(x * zoom),
+          y: Math.round(y * zoom),
+          callback: resolve,
+        });
+      });
     },
   );
   onHotkeyOverridesChange(apply);

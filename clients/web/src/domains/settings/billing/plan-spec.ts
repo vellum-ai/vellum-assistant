@@ -1,4 +1,10 @@
-import { Coins, Computer, HardDrive, Mail, type LucideIcon } from "lucide-react";
+import {
+  Coins,
+  Computer,
+  HardDrive,
+  Mail,
+  type LucideIcon,
+} from "lucide-react";
 
 import {
   FREE_CREDITS_USD,
@@ -6,9 +12,8 @@ import {
 } from "@/domains/settings/billing/plan-tier-meta";
 import type { ProPackage } from "@/domains/settings/billing/package-types";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
-import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
-import { creditTierKeyUsd } from "@/lib/billing/credit-tiers";
+import { creditTierKeyUsd, findCreditTier } from "@/lib/billing/credit-tiers";
 import {
   creditRowLabel,
   formatDollars,
@@ -44,13 +49,25 @@ export function machineLabel(pkg: ProPackage | null): string {
   return SIZE_LABEL[size] ?? pkg.machine_size;
 }
 
+export interface PackageSpecsOptions {
+  /**
+   * Replaces the credits chip's dollar label, for the `obscure-credits`
+   * surfaces that describe the bundle as the package's own usage allowance
+   * instead of naming an amount.
+   */
+  obscuredUsageLabel?: string;
+}
+
 /**
  * The spec chips for a package, in mock order: machine, storage, credits,
  * then any static extras from the tier copy (today only the email/subdomain
  * row on Super and Ultra; a new extra inherits the Mail icon until it needs
  * its own mapping).
  */
-export function packageSpecs(pkg: ProPackage): PlanSpec[] {
+export function packageSpecs(
+  pkg: ProPackage,
+  opts?: PackageSpecsOptions,
+): PlanSpec[] {
   const credits = pkg.credits_usd ?? FREE_CREDITS_USD;
   const extras = getPlanTierCopy(pkg.key)?.extraFeatures ?? [];
   return [
@@ -58,7 +75,12 @@ export function packageSpecs(pkg: ProPackage): PlanSpec[] {
     { icon: HardDrive, label: `${pkg.storage_gib} GB Storage` },
     // Cents-aware like every other price on these surfaces, so a sub-dollar
     // bundle reads "$0.50 in credits included" rather than "$0.5".
-    { icon: Coins, label: `${formatDollars(credits * 100)} in credits included` },
+    {
+      icon: Coins,
+      label:
+        opts?.obscuredUsageLabel ??
+        `${formatDollars(credits * 100)} in credits included`,
+    },
     ...extras.map((label) => ({ icon: Mail, label })),
   ];
 }

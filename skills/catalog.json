@@ -759,7 +759,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-18T22:07:54.000Z"
+      "updatedAt": "2026-08-20T18:51:19.000Z"
     },
     {
       "id": "public-ingress",
@@ -1043,7 +1043,7 @@
     {
       "id": "vellum-conversation-management",
       "name": "vellum-conversation-management",
-      "description": "Manage conversation threads (rename, list, export)",
+      "description": "Manage conversation threads (rename, list, search, export)",
       "metadata": {
         "emoji": "💬",
         "vellum": {
@@ -1052,7 +1052,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-06T16:01:24.000Z"
+      "updatedAt": "2026-08-20T14:28:30.000Z"
     },
     {
       "id": "vellum-github-app-setup",

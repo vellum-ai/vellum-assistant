@@ -18,5 +18,11 @@
   },
   "sectionActionsButton": {
     "ariaLabel": "Acciones de {name}"
+  },
+  "windowsMenuBar": {
+    "file": "Archivo",
+    "view": "Ver",
+    "developer": "Desarrollador",
+    "help": "Ayuda"
   }
 }

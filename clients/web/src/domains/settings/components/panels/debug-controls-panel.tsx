@@ -8,6 +8,7 @@ import { AssistantBackups } from "@/domains/settings/components/assistant-backup
 import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
 import { RestartAssistant } from "@/domains/settings/components/restart-assistant";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { isVellumStaff } from "@/lib/auth/staff";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
 import { clearConsentForUser } from "@/lib/consent/consent-persistence";
@@ -15,21 +16,11 @@ import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
 
-function isInternalUser(email: string | null, isAdmin: boolean): boolean {
-  if (isAdmin) {
-    return true;
-  }
-  return !!email && email.toLowerCase().endsWith("@vellum.ai");
-}
-
 export function DebugControlsPanel() {
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
-  const showInternalControls = isInternalUser(
-    user?.email ?? null,
-    user?.isStaff ?? false,
-  );
+  const showInternalControls = isVellumStaff(user);
 
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [loading, setLoading] = useState(true);

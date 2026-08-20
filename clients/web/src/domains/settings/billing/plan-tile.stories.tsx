@@ -25,6 +25,7 @@ import {
   packageSpecs,
 } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
+import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
 import {
   makeProPackage,
   makeSuperPackage,
@@ -160,6 +161,47 @@ export const CurrentPaid: Story = {
     tag: CURRENT_TAG,
     specs: packageSpecs(MIGHTY),
     footer: priceFooter(priceLabelFromCents(MIGHTY.total_price_cents)),
+  },
+};
+
+/**
+ * The same tile with the `obscure-credits` flag on: the credits chip names the
+ * package's usage allowance instead of a dollar bundle, the chips wrap into a
+ * row, and the price footer gives way to the Usage Balance bar. Props only, so
+ * the ratio here is a fixture rather than a live usage read.
+ */
+export const CurrentObscuredCredits: Story = {
+  args: {
+    testId: "plan-tile-current",
+    tierKey: MIGHTY.key,
+    name: MIGHTY.name,
+    nameTestId: "plan-card-name",
+    tag: CURRENT_TAG,
+    specs: packageSpecs(MIGHTY, {
+      obscuredUsageLabel: `${MIGHTY.name} usage, reset monthly`,
+    }),
+    specsWrap: true,
+    footer: <UsageBalancePanel ratio={0.42} resetsAt="2026-09-01T00:00:00Z" />,
+  },
+};
+
+/**
+ * The same flag-on tile once the bundle is spent and the wallet behind it is
+ * empty. The footer panel turns its bar and reading negative and raises the
+ * add-credits strip, which is the tallest the current tile ever gets: compare
+ * it against `CurrentPaid` to see how much the footer grows.
+ */
+export const CurrentObscuredCreditsExhausted: Story = {
+  args: {
+    ...CurrentObscuredCredits.args,
+    footer: (
+      <UsageBalancePanel
+        ratio={1}
+        resetsAt="2026-09-01T00:00:00Z"
+        exhausted
+        onAddCredits={() => {}}
+      />
+    ),
   },
 };
 

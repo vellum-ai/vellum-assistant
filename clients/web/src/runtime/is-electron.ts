@@ -200,6 +200,8 @@ declare global {
       };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;
+        titles?(): Promise<Array<{ id: string; label: string }>>;
+        popup?(id: string, x: number, y: number): Promise<void>;
       };
       localMode: {
         hatch(
@@ -332,7 +334,9 @@ declare global {
         update(content: VoiceActivityContent): void;
         end(): void;
         control(control: VoiceActivityControl): void;
-        onControl(callback: (control: VoiceActivityControl) => void): () => void;
+        onControl(
+          callback: (control: VoiceActivityControl) => void,
+        ): () => void;
       };
       companion?: {
         getState(): Promise<CompanionSurfaceState | null>;

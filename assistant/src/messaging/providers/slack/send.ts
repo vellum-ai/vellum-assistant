@@ -372,7 +372,7 @@ export async function sendSlackAssistantThreadStatus(
   channel: string,
   threadTs: string,
   status: string,
-  loadingMessages?: string[],
+  loadingMessages?: readonly string[],
 ): Promise<void> {
   try {
     const body: Record<string, unknown> = {

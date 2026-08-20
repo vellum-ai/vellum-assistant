@@ -1,18 +1,17 @@
 import type { Surface } from "@/domains/chat/types/types";
 
-function normalizeAppId(rawAppId: unknown): string | null {
-  if (typeof rawAppId !== "string") {
-    return null;
-  }
+import { readDynamicPageAppId } from "@/domains/chat/transcript/response-artifacts";
 
-  const appId = rawAppId.trim();
-  return appId.length > 0 ? appId : null;
-}
-
+/**
+ * The app a `dynamic_page` surface names.
+ *
+ * Delegates to the artifact registry's reader, which is the single place that
+ * knows the daemon has emitted both `appId` and `app_id`: the registry has to
+ * resolve the same id to decide whether the surface is a pointer to an app, and
+ * two implementations would drift.
+ */
 export function getDynamicPageAppId(
   surface: Pick<Surface, "data">,
 ): string | null {
-  return (
-    normalizeAppId(surface.data.appId) ?? normalizeAppId(surface.data.app_id)
-  );
+  return readDynamicPageAppId(surface);
 }

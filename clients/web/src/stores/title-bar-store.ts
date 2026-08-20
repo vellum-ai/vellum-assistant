@@ -25,17 +25,25 @@ import { createSelectors } from "@/utils/create-selectors";
 
 interface TitleBarState {
   inlineTitleBarActive: boolean;
+  /** Set by full-screen shells (settings) that don't want the Windows
+   *  in-title-bar menu bar over their own chrome; `WindowsMenuBar` yields
+   *  while it's set. */
+  windowsMenuBarSuppressed: boolean;
 }
 
 interface TitleBarActions {
   setInlineTitleBarActive: (active: boolean) => void;
+  setWindowsMenuBarSuppressed: (suppressed: boolean) => void;
 }
 
 type TitleBarStore = TitleBarState & TitleBarActions;
 
 const useTitleBarStoreBase = create<TitleBarStore>((set) => ({
   inlineTitleBarActive: false,
+  windowsMenuBarSuppressed: false,
   setInlineTitleBarActive: (active) => set({ inlineTitleBarActive: active }),
+  setWindowsMenuBarSuppressed: (suppressed) =>
+    set({ windowsMenuBarSuppressed: suppressed }),
 }));
 
 export const useTitleBarStore = createSelectors(useTitleBarStoreBase);
