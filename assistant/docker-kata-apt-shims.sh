@@ -12,10 +12,9 @@ DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
 SHIM_DIR="${DATA_ROOT}/.host-shims"
 MARKER="# vellum-apt-shim:"
 # dpkg-managed dirs on the PATH overlay (Debian policy keeps packages out of
-# /usr/local; /bin and /sbin are usrmerge symlinks into these). Listed
-# lowest-priority first so a name present in two dirs gets its shim from the
-# higher-priority one.
-SCAN_DIRS="usr/games usr/sbin usr/bin"
+# /usr/local; /bin and /sbin are usrmerge symlinks into these), in overlay
+# PATH priority order.
+SCAN_DIRS="usr/bin usr/sbin usr/games"
 
 [ -d "${DATA_ROOT}/usr/bin" ] || exit 0
 mkdir -p "${SHIM_DIR}"
@@ -47,7 +46,7 @@ wrapper_target() {
 
 # Highest-priority scanned dir that holds an entry for this shim name.
 shim_source() {
-  for d in usr/bin usr/sbin usr/games; do
+  for d in ${SCAN_DIRS}; do
     if [ -e "${DATA_ROOT}/${d}/$1" ]; then
       printf '%s\n' "${DATA_ROOT}/${d}/$1"
       return 0
@@ -70,6 +69,10 @@ done
 
 for d in ${SCAN_DIRS}; do
   for bin in "${DATA_ROOT}/${d}/"*; do
+    # Shims outrank every chroot bin dir on PATH, so only the
+    # highest-priority entry for a name may produce one: a trampoline in a
+    # lower dir must not shadow a real command above it.
+    [ "$(shim_source "${bin##*/}")" = "${bin}" ] || continue
     target="$(wrapper_target "${bin}")"
     [ -n "${target}" ] || continue
     # Only shim when the hardcoded path is broken on the host but real in
