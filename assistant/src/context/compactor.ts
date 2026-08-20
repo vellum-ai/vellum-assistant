@@ -39,10 +39,7 @@ import type {
 } from "../providers/types.js";
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
-import {
-  sniffBase64ImageMimeType,
-  sniffImageMimeType,
-} from "../util/image-conversion.js";
+import { hasJpegEoi, sniffImageMimeType } from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
 import { preModelCallSanitize } from "./outbound-sanitize.js";
 import { stripInjectionsForCompaction } from "./strip-injections.js";
@@ -888,7 +885,7 @@ export async function buildRetainedImageBlocks(
       missing.push(name);
       continue;
     }
-    // Sniff the declared MIME from the stored bytes rather than the filename —
+    // Sniff the declared MIME from the stored bytes rather than the filename:
     // clients derive extensions from user input, and providers reject an image
     // whose bytes disagree with the declared media type.
     const sourceMime =
@@ -901,14 +898,21 @@ export async function buildRetainedImageBlocks(
       sourceMime,
     );
     // Last-line gate before the bytes are baked into the rebuilt history: a
-    // payload that no longer sniffs as a known image format (e.g. a corrupt
-    // conversion-cache entry) would be rejected by the provider with a 400 on
-    // EVERY subsequent turn, wedging the conversation. Dropping the image
-    // loses a retained picture; shipping it loses the conversation.
-    if (sniffBase64ImageMimeType(optimized.data) == null) {
+    // corrupt payload would be rejected by the provider with a 400 on EVERY
+    // subsequent turn, wedging the conversation. Dropping the image loses a
+    // retained picture; shipping it loses the conversation. Format sniffing
+    // alone is not enough for JPEG: a truncated JPEG (e.g. persisted from a
+    // torn conversion-cache read) keeps its SOI header, so JPEG payloads must
+    // also carry an EOI marker.
+    const optimizedBytes = Buffer.from(optimized.data, "base64");
+    const optimizedFormat = sniffImageMimeType(optimizedBytes);
+    const bytesAreValidImage =
+      optimizedFormat != null &&
+      (optimizedFormat !== "image/jpeg" || hasJpegEoi(optimizedBytes));
+    if (!bytesAreValidImage) {
       log.warn(
         { filename: name, attachmentId: entry.attachmentId },
-        "Retained image bytes are not a valid image after transport optimization — dropping",
+        "Retained image bytes are not a valid image after transport optimization; dropping",
       );
       continue;
     }

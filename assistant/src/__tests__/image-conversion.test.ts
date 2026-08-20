@@ -14,6 +14,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 
 import {
   convertImageToJpeg,
+  hasJpegEoi,
   isCompleteJpeg,
   isHeifImage,
   jpegFilenameFor,
@@ -142,7 +143,7 @@ describe("isCompleteJpeg", () => {
 
   test("rejects empty, truncated, and non-JPEG payloads", () => {
     expect(isCompleteJpeg(Buffer.alloc(0))).toBe(false);
-    // Valid head, torn tail — the poisoned-cache signature.
+    // Valid head, torn tail: the poisoned-cache signature.
     expect(isCompleteJpeg(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00]))).toBe(
       false,
     );
@@ -156,6 +157,24 @@ function cacheKeyFor(bytes: Uint8Array, quality: number): string {
   const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
   return `${hash}-full-q${quality}`;
 }
+
+describe("hasJpegEoi", () => {
+  test("accepts a JPEG with trailing bytes after the EOI marker", () => {
+    // Some encoders append padding or metadata past the EOI; the lenient
+    // check tolerates it where isCompleteJpeg's exact tail framing does not.
+    const padded = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0xff, 0xd9, 0x00, 0x00,
+    ]);
+    expect(hasJpegEoi(padded)).toBe(true);
+    expect(isCompleteJpeg(padded)).toBe(false);
+  });
+
+  test("rejects truncated JPEGs and non-JPEG payloads", () => {
+    expect(hasJpegEoi(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00]))).toBe(false);
+    expect(hasJpegEoi(Buffer.alloc(0))).toBe(false);
+    expect(hasJpegEoi(PNG_1PX_BYTES)).toBe(false);
+  });
+});
 
 describe("normalizeImageBytes passthrough", () => {
   test("non-HEIF bytes pass through untouched", async () => {
@@ -263,9 +282,8 @@ describe.skipIf(process.platform !== "darwin")(
         cacheDir,
         `${cacheKeyFor(heicBytes, quality)}.jpg`,
       );
-      // A torn write: valid JPEG head, no EOI tail. Pre-fix, this came back
-      // verbatim as the "converted" image and poisoned every provider call
-      // that embedded it.
+      // A torn write: valid JPEG head, no EOI tail. readFromCache must
+      // discard it rather than return it as the converted image.
       writeFileSync(poisonedPath, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00]));
 
       const converted = await convertImageToJpeg(heicBytes, { quality });

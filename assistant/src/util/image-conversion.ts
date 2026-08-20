@@ -46,8 +46,8 @@ function getCacheDir(): string {
 /**
  * Structural completeness check for a JPEG payload: SOI marker (FF D8) at the
  * head and EOI marker (FF D9) at the tail. Every cache entry and every sips
- * output is a JPEG, so a payload failing this is truncated or empty — the
- * signature of a torn cache write — and must never reach a provider, which
+ * output is a JPEG, so a payload failing this is truncated or empty (the
+ * signature of a torn cache write) and must never reach a provider, which
  * rejects it with a 400 that wedges the conversation (the corrupt block is
  * resent on every subsequent turn).
  */
@@ -61,6 +61,29 @@ export function isCompleteJpeg(bytes: Uint8Array): boolean {
   );
 }
 
+const JPEG_EOI = Buffer.from([0xff, 0xd9]);
+
+/**
+ * Lenient JPEG truncation check for payloads of arbitrary origin: the SOI
+ * header plus an EOI marker anywhere in the buffer. Unlike
+ * {@link isCompleteJpeg} (exact tail framing, for sips output and cache
+ * entries, which always end on EOI), this tolerates encoders that append
+ * padding or metadata after the EOI. A truncated JPEG contains no EOI at all:
+ * entropy-coded data byte-stuffs FF as FF 00, so FF D9 cannot appear inside
+ * it by accident.
+ */
+export function hasJpegEoi(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 4 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).includes(
+      JPEG_EOI,
+      2,
+    )
+  );
+}
+
 function readFromCache(key: string): Buffer | null {
   const cachePath = join(getCacheDir(), `${key}.jpg`);
   try {
@@ -69,8 +92,8 @@ function readFromCache(key: string): Buffer | null {
     }
     const bytes = readFileSync(cachePath) as Buffer;
     if (!isCompleteJpeg(bytes)) {
-      // Poisoned entry (torn write from a pre-atomic-rename version, disk
-      // full, etc.) — drop it so the caller re-converts and re-caches.
+      // Poisoned entry (torn write, disk full, etc.): drop it so the caller
+      // re-converts and re-caches.
       unlinkSync(cachePath);
       return null;
     }
@@ -181,7 +204,7 @@ async function runSips(
     const out = readFileSync(outPath) as Buffer;
     // A zero-exit sips can still leave a truncated file (disk full, timeout
     // kill racing the write). Returning it would poison the cache and every
-    // downstream provider call — treat it as a failed conversion instead.
+    // downstream provider call. Treat it as a failed conversion instead.
     if (!isCompleteJpeg(out)) {
       return null;
     }
