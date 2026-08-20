@@ -106,6 +106,15 @@ export function clearComposerPillAccessPreset(assistantId: string): void {
   storage.save(assistantId, { ...current, accessPresetId: null });
 }
 
+/** {@link clearComposerPillAccessPreset}'s counterpart for the profile pill. */
+export function clearComposerPillProfileLabel(assistantId: string): void {
+  const current = storage.load(assistantId);
+  if (current.profileLabel === null) {
+    return;
+  }
+  storage.save(assistantId, { ...current, profileLabel: null });
+}
+
 export function saveComposerPillProfileLabel(
   assistantId: string,
   profileLabel: string,

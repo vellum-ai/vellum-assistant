@@ -1109,6 +1109,35 @@ describe("pills seeded from the last launch", () => {
     });
   });
 
+  test("a successful config with no nameable profile clears that seed", async () => {
+    // The server answered: there is no active profile this build can label.
+    // Leaving the old label stored would repaint it on every cold launch, the
+    // profile-side twin of the unnameable-threshold case above.
+    seedPillSnapshot({ accessPresetId: "relaxed", profileLabel: "Balanced" });
+    configGetMock.mockImplementation(async () => ({
+      data: {
+        llm: {
+          profileOrder: ["smart"],
+          profiles: {
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+          },
+        },
+      },
+    }));
+
+    renderMenu();
+
+    await waitFor(() => {
+      const stored = loadComposerPillSnapshot("assistant-1");
+      expect(stored.profileLabel).toBeNull();
+      expect(stored.accessPresetId).toBe("conservative");
+    });
+  });
+
   test("a conversation override is not what the next launch boots from", async () => {
     // The seed stands in for every conversation the assistant opens, so it
     // tracks the global default rather than one thread's override.

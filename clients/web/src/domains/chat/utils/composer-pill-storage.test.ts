@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   clearComposerPillAccessPreset,
+  clearComposerPillProfileLabel,
   loadComposerPillSnapshot,
   saveComposerPillAccessPreset,
   saveComposerPillProfileLabel,
@@ -79,6 +80,18 @@ describe("composer pill snapshot storage", () => {
     clearComposerPillAccessPreset("asst-1");
 
     expect(localStorage.getItem(KEY("asst-1"))).toBeNull();
+  });
+
+  test("clearing the profile label keeps the access preset", () => {
+    saveComposerPillAccessPreset("asst-1", "relaxed");
+    saveComposerPillProfileLabel("asst-1", "Balanced");
+
+    clearComposerPillProfileLabel("asst-1");
+
+    expect(loadComposerPillSnapshot("asst-1")).toEqual({
+      accessPresetId: "relaxed",
+      profileLabel: null,
+    });
   });
 
   test("non-string fields are dropped, keeping the usable half", () => {

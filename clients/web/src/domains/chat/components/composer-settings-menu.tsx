@@ -36,6 +36,7 @@ import { useComposerCompact } from "@/domains/chat/components/chat-composer/comp
 import { preventPressFocusTransfer } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import {
   clearComposerPillAccessPreset,
+  clearComposerPillProfileLabel,
   saveComposerPillAccessPreset,
   saveComposerPillProfileLabel,
   useComposerPillSnapshot,
@@ -602,11 +603,19 @@ export function ComposerSettingsMenu({
   }, [globalActiveProfile, orderedProfileEntries]);
 
   useEffect(() => {
+    // Before the config settles, a null label proves nothing and the seed
+    // stays. After a successful response it is the server's answer: no active
+    // profile, or one this map cannot name, invalidates whatever the seed
+    // held, the same way an unnameable threshold clears the access field.
+    if (!profilesLoaded) {
+      return;
+    }
     if (globalProfileLabel === null) {
+      clearComposerPillProfileLabel(assistantId);
       return;
     }
     saveComposerPillProfileLabel(assistantId, globalProfileLabel);
-  }, [assistantId, globalProfileLabel]);
+  }, [assistantId, profilesLoaded, globalProfileLabel]);
 
   // Quick-add is owned by the top-level ProfileQuickAddProvider (chat must not
   // import settings directly — see local/no-cross-domain-imports). The provider
