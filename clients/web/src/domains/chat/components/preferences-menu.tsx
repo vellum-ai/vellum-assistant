@@ -26,6 +26,7 @@ import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { openUrl } from "@/runtime/browser";
@@ -256,8 +257,11 @@ function PreferencesMenuContent({
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
-  const { enabled: showBillingRows, balance: effectiveBalance } =
-    useBillingBalanceStatus();
+  const {
+    enabled: showBillingRows,
+    balance: effectiveBalance,
+    availableUsageBalance,
+  } = useBillingBalanceStatus();
   const isNativeAndroid = useIsNativeAndroid();
   /* The same reading the usage panel below draws, composed once so the row and
      the bar can never disagree about how much of the bundle is left. */
@@ -285,7 +289,13 @@ function PreferencesMenuContent({
       {showBillingRows && effectiveBalance !== null && showCredits ? (
         <div className="my-2">
           <CreditsCard
-            balance={formatWholeCredits(effectiveBalance)}
+            balance={formatWholeCredits(
+              displayedCreditsUsd(
+                obscureCredits,
+                effectiveBalance,
+                availableUsageBalance,
+              ),
+            )}
             onAddCredits={
               isNativeAndroid
                 ? undefined

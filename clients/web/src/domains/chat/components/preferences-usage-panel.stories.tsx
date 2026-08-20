@@ -38,6 +38,7 @@ import type {
 } from "@/generated/api/types.gen";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
+import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
 import { flagKeyToStoreKey } from "@/lib/feature-flags/feature-flag-catalog";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -149,13 +150,18 @@ function PanelOnly() {
 /**
  * The panel with the compact credits row beneath it, composed the way
  * `PreferencesMenuContent` composes them: `showsMenuCredits` decides whether
- * the row belongs on screen, so the story exercises the real rule. The seeded
- * balance is already in the two-decimal shape the menu formats it to.
+ * the row belongs on screen, and `displayedCreditsUsd` decides what it names,
+ * so the story exercises both real rules. The seeded balance is already in the
+ * two-decimal shape the menu formats it to.
  */
 function PanelWithCredits() {
   const obscureCredits = useObscureCredits();
   const usage = usePreferencesUsage();
-  const { enabled: showBillingRows, balance } = useBillingBalanceStatus();
+  const {
+    enabled: showBillingRows,
+    balance,
+    availableUsageBalance,
+  } = useBillingBalanceStatus();
   const showCredits = showsMenuCredits(obscureCredits, usage);
 
   return (
@@ -163,7 +169,14 @@ function PanelWithCredits() {
       <PreferencesUsagePanel onOpenBilling={() => {}} onAddCredits={() => {}} />
       {showBillingRows && balance !== null && showCredits ? (
         <div className="my-2">
-          <CreditsCard balance={balance} onAddCredits={() => {}} />
+          <CreditsCard
+            balance={displayedCreditsUsd(
+              obscureCredits,
+              balance,
+              availableUsageBalance,
+            )}
+            onAddCredits={() => {}}
+          />
         </div>
       ) : null}
     </>

@@ -106,7 +106,8 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
 });
 
 const billingRef = {
-  data: undefined as { effective_balance: string } | undefined,
+  data: undefined as
+    { effective_balance: string; available_usage_balance?: string } | undefined,
 };
 
 mock.module("@tanstack/react-query", () => ({
@@ -170,11 +171,17 @@ mock.module("@/domains/chat/hooks/use-preferences-usage", () => ({
 }));
 
 mock.module("@/domains/chat/components/credits-card", () => ({
-  CreditsCard: ({ onAddCredits }: { onAddCredits?: () => void }) =>
+  CreditsCard: ({
+    balance,
+    onAddCredits,
+  }: {
+    balance: string;
+    onAddCredits?: () => void;
+  }) =>
     createElement(
       "div",
       { "data-testid": "credits-card" },
-      "Credits",
+      balance,
       onAddCredits
         ? createElement("button", { onClick: onAddCredits }, "Add credits")
         : null,
@@ -432,6 +439,30 @@ describe("PreferencesMenu credits row under obscure-credits", () => {
     // spends, so the row that names it belongs on screen.
     expect(screen.getByTestId("preferences-usage")).toBeTruthy();
     expect(screen.getByTestId("credits-card")).toBeTruthy();
+  });
+
+  test("the row names only the credit held on top of the usage grants", async () => {
+    obscureCreditsRef.value = true;
+    billingRef.data = {
+      effective_balance: "34.65",
+      available_usage_balance: "9.10",
+    };
+    usageRef.value = usage(1);
+    await openMenu();
+
+    // The grants are what the bar above measures, so the row states the
+    // bought-and-earned credit alone.
+    expect(screen.getByTestId("credits-card").textContent).toContain("25.55");
+  });
+
+  test("the flag off names the whole balance", async () => {
+    billingRef.data = {
+      effective_balance: "34.65",
+      available_usage_balance: "9.10",
+    };
+    await openMenu();
+
+    expect(screen.getByTestId("credits-card").textContent).toContain("34.65");
   });
 
   test("a free plan's used-up grant with credits left surfaces the row", async () => {
