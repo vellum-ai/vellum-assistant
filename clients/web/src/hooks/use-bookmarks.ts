@@ -10,6 +10,14 @@
  * new enough to expose the bookmark routes (see `useSupportsBookmarks`), so
  * a current bundle connected to a pre-0.8.1 assistant never 404s the list.
  *
+ * Bookmarks are also internal-only for now, behind the `internal-thread-actions`
+ * flag (see `@/lib/auth/internal-thread-actions`) — the same gate the fork and
+ * inspector affordances read. The gate covers the per-message toggle, the
+ * Settings → Bookmarks tab, and the shared list query, so a gated-out session
+ * has no way to reach a bookmark and issues no bookmark requests. Existing
+ * rows are untouched: the routes and the table stay, so turning the flag on
+ * restores every bookmark a user already made.
+ *
  * Cross-client invalidation (a bookmark made in another tab/window) is handled
  * by `use-bookmarks-sync.ts`, which listens for the daemon's
  * `bookmark.created` / `bookmark.deleted` SSE events.
@@ -27,6 +35,7 @@ import {
   bookmarksPost,
 } from "@/generated/daemon/sdk.gen";
 import type { BookmarksGetResponse } from "@/generated/daemon/types.gen";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import { useSupportsBookmarks } from "@/lib/backwards-compat/use-supports-bookmarks";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -44,7 +53,11 @@ function useBookmarkQueryGate(): {
 } {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const supportsBookmarks = useSupportsBookmarks(assistantId);
-  const enabled = supportsBookmarks && Boolean(assistantId);
+  // Internal-only for now: no bookmark affordance is reachable without the
+  // gate, so the shared list query stays idle rather than fetching a list
+  // nothing can display.
+  const isInternal = useCanUseInternalThreadActions();
+  const enabled = isInternal && supportsBookmarks && Boolean(assistantId);
   return { assistantId, enabled };
 }
 
@@ -99,7 +112,9 @@ export function useCanBookmark(
 ): boolean {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const supportsBookmarks = useSupportsBookmarks(assistantId);
+  const isInternal = useCanUseInternalThreadActions();
   return (
+    isInternal &&
     supportsBookmarks &&
     Boolean(conversationId) &&
     Boolean(message.id) &&

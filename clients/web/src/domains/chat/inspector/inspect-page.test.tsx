@@ -66,7 +66,7 @@ let authUserStub: AuthUserStub | null = {
   isStaff: false,
 };
 let sessionInitializingStub = false;
-let developerNavFlagStub = false;
+let internalActionsFlagStub = true;
 let flagsHydratedStub = true;
 
 let contextStub: ContextStub = {
@@ -142,11 +142,11 @@ mock.module("@/stores/auth-store", () => ({
 // Mocked rather than driven via `setState`: zustand v5 serves
 // `getInitialState()` to server renders (`renderToStaticMarkup`), so
 // runtime state changes would never reach the component under test.
-mock.module("@/stores/assistant-feature-flag-store", () => ({
-  useAssistantFeatureFlagStore: {
+mock.module("@/stores/client-feature-flag-store", () => ({
+  useClientFeatureFlagStore: {
     use: {
-      settingsDeveloperNav: () => developerNavFlagStub,
-      hasHydrated: () => flagsHydratedStub,
+      internalThreadActions: () => internalActionsFlagStub,
+      hydrated: () => flagsHydratedStub,
     },
   },
 }));
@@ -209,7 +209,7 @@ beforeEach(() => {
   sessionInitializingStub = false;
   // Hydrated, flag-off baseline: gating tests exercise the denial branch
   // by default; flag tests opt in explicitly.
-  developerNavFlagStub = false;
+  internalActionsFlagStub = true;
   flagsHydratedStub = true;
   contextStub = {
     data: undefined,
@@ -254,11 +254,11 @@ describe("InspectPage — gating", () => {
     expect(html).not.toContain("LLM Context Inspector");
   });
 
-  test("allows flag-gated sessions without a staff identity", () => {
-    // Local-gateway sessions have no email/staff bit; the
-    // settings-developer-nav assistant flag is their path in.
+  test("blocks identity-less sessions even with the flag on", () => {
+    // Local-gateway sessions have no email/staff bit, and the
+    // internal-thread-actions gate has no flag-only escape hatch.
     authUserStub = { email: null, isStaff: false };
-    developerNavFlagStub = true;
+    internalActionsFlagStub = true;
     paramsStub = { conversationId: "conv-abc" };
     contextStub = {
       data: {
@@ -278,8 +278,19 @@ describe("InspectPage — gating", () => {
 
     const html = renderInspector();
 
-    expect(html).not.toContain("Inspector is available to Vellum staff");
-    expect(html).toContain("LLM Context Inspector");
+    expect(html).toContain("Inspector is available to Vellum staff");
+    expect(html).not.toContain("LLM Context Inspector");
+  });
+
+  test("the flag is a kill switch that outranks staff", () => {
+    authUserStub = { email: "dev@vellum.ai", isStaff: true };
+    internalActionsFlagStub = false;
+    paramsStub = { conversationId: "conv-abc" };
+
+    const html = renderInspector();
+
+    expect(html).toContain("Inspector is available to Vellum staff");
+    expect(html).not.toContain("LLM Context Inspector");
   });
 
   test("treats the pre-hydration window as loading, not denial", () => {
