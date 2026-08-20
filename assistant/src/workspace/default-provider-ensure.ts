@@ -30,9 +30,9 @@ import { getProviderKeyAsync } from "../security/secure-keys.js";
 //
 // Idempotent: never overwrites an existing *valid* `llm.defaultProvider`
 // value (an invalid persisted object is dropped by LLMSchema's catch at
-// parse, so replacing it is repair, not overwrite), and never writes
-// `connectionName` — convention resolution
-// (`resolveDefaultConnectionName`) owns the name.
+// parse, so replacing it is repair, not overwrite). The value is
+// provider-only; convention resolution (`resolveDefaultConnectionName`)
+// owns the backing connection name.
 //
 // The legacy `llm.default.provider` field is only honored as BYOK intent
 // when it is unambiguous: `LLMConfigBase.provider` defaults to "anthropic"

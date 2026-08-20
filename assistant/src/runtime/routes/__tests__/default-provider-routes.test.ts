@@ -211,9 +211,9 @@ describe("GET config/llm/default-provider", () => {
     expect(availability(result)).toEqual({ status: "ok" });
   });
 
-  test("explicit connectionName wins over convention", async () => {
+  test("a legacy stored connectionName pin strips at parse — convention wins", async () => {
     seedConnection({
-      name: "work-openai",
+      name: "openai-personal",
       provider: "openai",
       auth: { type: "api_key", credential: "credential/openai/api_key" },
     });
@@ -226,8 +226,8 @@ describe("GET config/llm/default-provider", () => {
     });
 
     const result = await get();
-    expect(result.connectionName).toBe("work-openai");
-    expect(result.resolvedConnectionName).toBe("work-openai");
+    expect(result.connectionName).toBeUndefined();
+    expect(result.resolvedConnectionName).toBe("openai-personal");
     expect(availability(result)).toEqual({ status: "ok" });
   });
 
@@ -282,34 +282,6 @@ describe("GET config/llm/default-provider", () => {
     expect(availability(result).message).toContain("unreachable");
   });
 
-  test("vellum with a dangling explicit connectionName → missing_connection", async () => {
-    setConfig("llm", {
-      defaultProvider: { provider: "vellum", connectionName: "ghost" },
-    });
-    const result = await get();
-    expect(availability(result).status).toBe("missing_connection");
-  });
-
-  test("vellum pinned to another provider's connection → provider_mismatch", async () => {
-    seedConnection({
-      name: "anthropic-personal",
-      provider: "anthropic",
-      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
-    });
-    secureKeyResults["credential/anthropic/api_key"] = {
-      value: "sk-ant",
-      unreachable: false,
-    };
-    setConfig("llm", {
-      defaultProvider: {
-        provider: "vellum",
-        connectionName: "anthropic-personal",
-      },
-    });
-    const result = await get();
-    expect(availability(result).status).toBe("provider_mismatch");
-  });
-
   test("none-auth connection on a keyed provider → unsupported_auth", async () => {
     seedConnection({
       name: "openai-personal",
@@ -321,60 +293,6 @@ describe("GET config/llm/default-provider", () => {
     const result = await get();
     expect(availability(result).status).toBe("unsupported_auth");
     expect(availability(result).message).toContain("API key");
-  });
-
-  test("explicit connectionName for a different provider → provider_mismatch even with credentials", async () => {
-    seedConnection({
-      name: "anthropic-personal",
-      provider: "anthropic",
-      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
-    });
-    secureKeyResults["credential/anthropic/api_key"] = {
-      value: "sk-ant",
-      unreachable: false,
-    };
-    setConfig("llm", {
-      defaultProvider: {
-        provider: "openai",
-        connectionName: "anthropic-personal",
-      },
-    });
-
-    const result = await get();
-    expect(availability(result).status).toBe("provider_mismatch");
-    expect(availability(result).message).toContain('"anthropic"');
-    expect(availability(result).message).toContain('"openai"');
-  });
-
-  test("vellum-managed connection pinned for a managed-routable provider follows platform auth", async () => {
-    seedConnection({
-      name: "vellum",
-      provider: "vellum",
-      auth: { type: "platform" },
-    });
-    setConfig("llm", {
-      defaultProvider: { provider: "anthropic", connectionName: "vellum" },
-    });
-
-    expect(availability(await get()).status).toBe("vellum_unauthenticated");
-    managedProxyEnabled = true;
-    expect(availability(await get()).status).toBe("ok");
-  });
-
-  test("vellum-managed connection pinned for a non-managed provider → provider_mismatch", async () => {
-    seedConnection({
-      name: "vellum",
-      provider: "vellum",
-      auth: { type: "platform" },
-    });
-    managedProxyEnabled = true;
-    setConfig("llm", {
-      defaultProvider: { provider: "openrouter", connectionName: "vellum" },
-    });
-
-    const result = await get();
-    expect(availability(result).status).toBe("provider_mismatch");
-    expect(availability(result).message).toContain("Vellum-managed");
   });
 
   test("service_account connection → unsupported_auth even with a stored credential", async () => {
@@ -457,12 +375,9 @@ describe("PUT config/llm/default-provider", () => {
     expect(availability(result)).toEqual({ status: "ok" });
   });
 
-  test("persists an explicit connectionName", async () => {
+  test("a legacy connectionName in the body is stripped, not rejected", async () => {
     await put({ provider: "openai", connectionName: "work-openai" });
-    expect(persistedDefaultProvider()).toEqual({
-      provider: "openai",
-      connectionName: "work-openai",
-    });
+    expect(persistedDefaultProvider()).toEqual({ provider: "openai" });
   });
 
   test("dangling connection is accepted and reported via availability", async () => {
@@ -472,42 +387,6 @@ describe("PUT config/llm/default-provider", () => {
     >;
     expect(persistedDefaultProvider()).toEqual({ provider: "gemini" });
     expect(availability(result).status).toBe("missing_connection");
-  });
-
-  test("a noncanonical pin on a routing identity → 400 naming the canonical row", async () => {
-    for (const [provider, canonical] of [
-      ["chatgpt", "chatgpt-subscription"],
-      ["vellum", "vellum"],
-    ] as const) {
-      const err = await put({
-        provider,
-        connectionName: "some-other-row",
-      }).catch((e: unknown) => e);
-      expect(String(err)).toContain(canonical);
-    }
-  });
-
-  test("the canonical pin on a routing identity is accepted", async () => {
-    seedConnection({
-      name: "chatgpt-subscription",
-      provider: "chatgpt",
-      auth: {
-        type: "oauth_subscription",
-        credential: "credential/chatgpt/access_token",
-      },
-    });
-    secureKeyResults["credential/chatgpt/access_token"] = {
-      value: "token",
-      unreachable: false,
-    };
-
-    const result = (await put({
-      provider: "chatgpt",
-      connectionName: "chatgpt-subscription",
-    })) as Record<string, unknown>;
-
-    expect(result.resolvedConnectionName).toBe("chatgpt-subscription");
-    expect(availability(result)).toEqual({ status: "ok" });
   });
 
   test("invalid provider → 400 naming the allowed providers", async () => {

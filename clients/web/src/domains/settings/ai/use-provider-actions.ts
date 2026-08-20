@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { toast } from "@vellumai/design-library/components/toast";
@@ -35,6 +37,10 @@ export function useProviderActions(
 ): ProviderActions {
   const queryClient = useQueryClient();
   const pathOpts = { path: { assistant_id: assistantId } };
+  // The PUT body carries only the provider (the daemon resolves the backing
+  // connection by convention), so the row the pending mutation targets is
+  // tracked here for `isSettingDefault`.
+  const pendingDefaultNameRef = useRef<string | null>(null);
 
   const setDefaultMutation = useMutation({
     ...configLlmDefaultproviderPutMutation(),
@@ -59,16 +65,16 @@ export function useProviderActions(
     if (!isDefaultProviderId(conn.provider)) {
       return;
     }
+    pendingDefaultNameRef.current = conn.name;
     setDefaultMutation.mutate({
       path: { assistant_id: assistantId },
-      body: { provider: conn.provider, connectionName: conn.name },
+      body: { provider: conn.provider },
     });
   }
 
   function isSettingDefault(name: string): boolean {
     return (
-      setDefaultMutation.isPending &&
-      setDefaultMutation.variables?.body?.connectionName === name
+      setDefaultMutation.isPending && pendingDefaultNameRef.current === name
     );
   }
 

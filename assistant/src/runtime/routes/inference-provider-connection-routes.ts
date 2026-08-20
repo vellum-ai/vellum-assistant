@@ -583,16 +583,13 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
 
   const config = getConfigReadOnly();
 
-  // llm.defaultProvider: guards both the resolved connection name (explicit
-  // `connectionName` or the `<provider>-personal` convention) and the case
-  // where the convention name is dangling but this is the last remaining
-  // connection for the default's provider — resolution treats a dangling
-  // default as an explainable error; this guard keeps UI deletes from
-  // orphaning it silently. The last-connection fallback only applies to
-  // convention resolution: an explicit `connectionName` pins exactly one row
-  // (protected above), so unrelated same-provider rows stay deletable. Legacy
-  // managed rows are excluded from the count for the same reason the list
-  // route hides them — they aren't user-manageable connections.
+  // llm.defaultProvider: guards both the convention-resolved connection name
+  // and the case where the convention name is dangling but this is the last
+  // remaining connection for the default's provider — resolution treats a
+  // dangling default as an explainable error; this guard keeps UI deletes
+  // from orphaning it silently. Legacy managed rows are excluded from the
+  // count for the same reason the list route hides them — they aren't
+  // user-manageable connections.
   const dp = getDefaultProviderFromConfig(config);
   // A `vellum` default resolves to the canonical name, so this guard would
   // otherwise block deleting a row that merely claims that name. Deleting it
@@ -606,7 +603,6 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
       );
     }
     if (
-      !dp.connectionName &&
       existing.provider === dp.provider &&
       listConnections(getDb(), { provider: dp.provider }).filter(
         (c) => !LEGACY_MANAGED_CONNECTION_NAMES.has(c.name),

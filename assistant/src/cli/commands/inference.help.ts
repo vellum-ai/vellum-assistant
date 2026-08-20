@@ -294,8 +294,7 @@ a profile that uses it:
             },
             {
               flags: "--base-url <url>",
-              description:
-                "Endpoint base URL (openai-compatible or ollama)",
+              description: "Endpoint base URL (openai-compatible or ollama)",
             },
           ],
         },
@@ -395,22 +394,17 @@ matching \`assistant inference providers <verb>\` command.`,
           description: "Read or set the default provider (prints availability)",
           options: [
             {
-              flags: "--connection <name>",
-              description: "Pin a specific provider entry when setting",
-            },
-            {
               flags: "--json",
               description: "Output as machine-readable JSON",
             },
           ],
           helpText: `
 With no argument, prints the default provider and whether it is usable.
-With a provider name, sets it (optionally pinning a connection).
+With a provider name, sets it.
 
 Examples:
   $ assistant inference providers default
-  $ assistant inference providers default anthropic
-  $ assistant inference providers default anthropic --connection anthropic-personal`,
+  $ assistant inference providers default anthropic`,
         },
       ],
     },
