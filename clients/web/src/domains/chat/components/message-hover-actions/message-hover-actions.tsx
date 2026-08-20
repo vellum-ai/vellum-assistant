@@ -11,6 +11,10 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import {
+  slackOriginTimestamp,
+  useSupportsBackfilledSentAt,
+} from "@/lib/backwards-compat/slack-backfill-sent-at";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import {
   useBookmarkToggle,
@@ -120,9 +124,14 @@ export function MessageHoverActions({
   // Flat plain-text body derived from the message's text blocks; this is the
   // copy payload and mirrors the daemon's `joinWithSpacing`.
   const content = useMemo(() => messagePlainText(message), [message]);
+  // Older assistants report the import time on backfilled Slack rows; the
+  // send time is recovered from the row's own Slack ts until they upgrade.
+  const supportsBackfilledSentAt = useSupportsBackfilledSentAt();
   const timestamp = useMemo(
-    () => latestMessageActivityTimestamp(message),
-    [message],
+    () =>
+      (supportsBackfilledSentAt ? undefined : slackOriginTimestamp(message)) ??
+      latestMessageActivityTimestamp(message),
+    [message, supportsBackfilledSentAt],
   );
 
   const [showCopied, setShowCopied] = useState(false);
