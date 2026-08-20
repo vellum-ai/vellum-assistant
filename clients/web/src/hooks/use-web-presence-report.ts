@@ -100,16 +100,34 @@ function isPresent(lastInteractionAt: number): boolean {
   );
 }
 
+/**
+ * Set once an assistant answers 404, which is what a daemon without the route
+ * says. {@link useSupportsWebPresence} normally keeps reports off those
+ * builds, but its floor orders dev builds by timestamp alone, so a build cut
+ * from `main` before the route landed clears it. One 404 settles the question
+ * for this daemon, and reporting stops rather than repeating on every edge,
+ * SSE open, and tick. Cleared on SSE reopen, which is what a daemon upgrade
+ * under a live tab looks like.
+ */
+let routeMissing = false;
+
 async function postWebPresence(
   assistantId: string,
   body: WebPresenceReportBody,
 ): Promise<void> {
+  if (routeMissing) {
+    return;
+  }
   try {
-    await daemonClient.post({
+    const { response } = await daemonClient.post({
       url: "/v1/assistants/{assistant_id}/clients/web-presence",
       path: { assistant_id: assistantId },
       body,
+      throwOnError: false,
     });
+    if (response?.status === 404) {
+      routeMissing = true;
+    }
   } catch {
     // Fire-and-forget: see the module doc comment. Nothing to recover here.
   }
@@ -156,6 +174,7 @@ function reportWebPresence(
 export function __resetWebPresenceQueueForTests(): void {
   flushing = false;
   queued = null;
+  routeMissing = false;
 }
 
 /**
@@ -190,23 +209,35 @@ export function useWebPresenceReport(assistantId: string | null): void {
   }, []);
 
   useBusSubscription("app.resume", ({ signal }) => {
-    if (supportsWebPresence && !isElectron()) {
-      // A foreground edge is the user reaching for this tab. An `online`
-      // resume is only the network returning and says nothing about them.
-      if (signal !== "online") {
-        lastInteractionAtRef.current = Date.now();
-      }
+    if (!supportsWebPresence || isElectron()) {
+      return;
+    }
+    if (signal === "online") {
+      // Reachability, not a foreground edge. It says nothing about where the
+      // user is, so the DOM and the idle clock still decide.
       reportWebPresence(assistantId!, {
         visible: isPresent(lastInteractionAtRef.current),
         focusedConversationId,
       });
+      return;
     }
+    // The edge is the evidence, not `visibilityState`. On iOS the Capacitor
+    // app-state source and the DOM event describe one physical edge and
+    // `lifecycle-edge.ts` publishes only the first to arrive, so the DOM can
+    // still read stale here and the losing source never fires to correct it.
+    lastInteractionAtRef.current = Date.now();
+    reportWebPresence(assistantId!, {
+      visible: true,
+      focusedConversationId,
+    });
   });
 
   useBusSubscription("app.hidden", () => {
     if (supportsWebPresence && !isElectron()) {
+      // Authoritative for the same reason the resume edge is: backgrounded is
+      // what the edge means, whatever the DOM has caught up to.
       reportWebPresence(assistantId!, {
-        visible: isPresent(lastInteractionAtRef.current),
+        visible: false,
         focusedConversationId,
       });
     }
@@ -214,6 +245,9 @@ export function useWebPresenceReport(assistantId: string | null): void {
 
   useBusSubscription("sse.opened", ({ assistantId: openedFor }) => {
     if (supportsWebPresence && !isElectron() && assistantId === openedFor) {
+      // A reopen is the one signal that the daemon on the other end may have
+      // changed, so give a previously route-less assistant another chance.
+      routeMissing = false;
       reportWebPresence(assistantId!, {
         visible: isPresent(lastInteractionAtRef.current),
         focusedConversationId: focusedConversationIdRef.current,

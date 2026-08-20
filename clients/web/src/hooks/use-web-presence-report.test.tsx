@@ -112,10 +112,13 @@ const postCalls: Array<{
   url: string;
   path: unknown;
   body: unknown;
+  throwOnError?: unknown;
 }> = [];
+/** Status the stubbed daemon answers reports with. */
+let postStatus = 200;
 const postMock = mock(async (options: unknown) => {
-  postCalls.push(options as { url: string; path: unknown; body: unknown });
-  return { data: { recorded: true } };
+  postCalls.push(options as (typeof postCalls)[number]);
+  return { data: { recorded: true }, response: { status: postStatus } };
 });
 mock.module("@/generated/daemon/client.gen", () => ({
   client: { post: postMock },
@@ -181,6 +184,7 @@ beforeEach(() => {
   postMock.mockClear();
   navigate = null;
   setVisibilityState("visible");
+  postStatus = 200;
   __resetWebPresenceQueueForTests();
   nowMs = 1_700_000_000_000;
   Date.now = () => nowMs;
@@ -210,6 +214,7 @@ describe("useWebPresenceReport", () => {
       url: "/v1/assistants/{assistant_id}/clients/web-presence",
       path: { assistant_id: "assistant-1" },
       body: { visible: true, focusedConversationId: "conv-1" },
+      throwOnError: false,
     });
   });
 
@@ -618,6 +623,88 @@ describe("useWebPresenceReport: reconciliation", () => {
         visible: false,
         focusedConversationId: "conv-1",
       });
+    });
+  });
+
+  describe("lifecycle edges are authoritative", () => {
+    // On iOS the Capacitor app-state source and `visibilitychange` describe
+    // one physical edge and only the first to arrive is published, so the DOM
+    // can still read stale when the handler runs and never fires to correct
+    // it. Reading `visibilityState` here would report a backgrounded app as
+    // visible and suppress its pushes for the rest of the TTL.
+    test("app.hidden reports invisible even while the DOM still reads visible", async () => {
+      useConversationStore.getState().setActiveConversationId("conv-1");
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      postCalls.length = 0;
+
+      setVisibilityState("visible");
+      act(() => {
+        publish("app.hidden", { signal: "app_state" });
+      });
+
+      await flushPresence();
+      expect(postCalls[0]?.body).toEqual({
+        visible: false,
+        focusedConversationId: "conv-1",
+      });
+    });
+
+    test("a foreground resume reports visible even while the DOM still reads hidden", async () => {
+      useConversationStore.getState().setActiveConversationId("conv-1");
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      postCalls.length = 0;
+
+      setVisibilityState("hidden");
+      act(() => {
+        publish("app.resume", { signal: "app_state" });
+      });
+
+      await flushPresence();
+      expect(postCalls[0]?.body).toEqual({
+        visible: true,
+        focusedConversationId: "conv-1",
+      });
+    });
+  });
+
+  describe("assistants without the route", () => {
+    test("a 404 stops reporting instead of repeating on every edge", async () => {
+      postStatus = 404;
+      useConversationStore.getState().setActiveConversationId("conv-1");
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+
+      act(() => {
+        publish("app.hidden", { signal: "visibility" });
+      });
+      tickReconciliation();
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+    });
+
+    test("an SSE reopen gives an upgraded assistant another chance", async () => {
+      postStatus = 404;
+      useConversationStore.getState().setActiveConversationId("conv-1");
+      renderReportAt("assistant-1", routes.conversation("conv-1"));
+      await flushPresence();
+      postCalls.length = 0;
+      postStatus = 200;
+
+      act(() => {
+        publish("sse.opened", { assistantId: "assistant-1", cause: "fresh" });
+      });
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(1);
+
+      tickReconciliation();
+
+      await flushPresence();
+      expect(postCalls).toHaveLength(2);
     });
   });
 

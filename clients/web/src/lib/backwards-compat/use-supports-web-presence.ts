@@ -17,10 +17,14 @@
  * disabled while identity is unknown.
  *
  * The sha below is a branch commit, so it never appears on `main` under a
- * squash merge, and dev builds cut from `main` between its timestamp and the
- * merge pass the floor without carrying the route. Their reports 404 into
- * `postWebPresence`'s catch until the next dev build. Re-pin this to the
- * landing commit once this merges, per `docs/BACKWARDS_COMPAT.md`.
+ * squash merge, and because dev builds are ordered by timestamp alone, builds
+ * cut from `main` between its timestamp and the merge clear this floor without
+ * carrying the route. A predicted release number would trade that for the
+ * error `docs/BACKWARDS_COMPAT.md` calls the more common one, leaving every
+ * dev build dark until the cut lands. So the floor stays a dev floor and
+ * `postWebPresence` stops on the first 404 instead, which bounds a route-less
+ * assistant to one wasted request rather than one per edge and tick. Re-pin
+ * this to the landing commit once this merges.
  */
 import { useAssistantScopedSupports } from "./utils";
 
