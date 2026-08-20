@@ -19,6 +19,14 @@
  * this client that opens it, so a toggle that lands while a call is running is
  * refused rather than queued: the call is the session the user is in.
  *
+ * **A socket is not a session.** The gateway accepts the downstream upgrade
+ * before it dials the runtime, so a local `open` proves only that a proxy
+ * answered. The runtime's `ready` frame is the first word that a session
+ * exists, and it is what starts both the microphone and the `watching` flag
+ * the companion draws its capture indicator from. A start that never reaches
+ * `ready` is a failed start rather than a session that stopped: it tears down
+ * and the flag never moves.
+ *
  * **The session belongs to one assistant.** It is started against the active
  * assistant, gated on that assistant being new enough to serve the route, and
  * ended the moment it stops being the active one. The alternative is narration
@@ -71,6 +79,23 @@ interface WatchState {
 
 export const useWatchStore = create<WatchState>(() => ({ watching: false }));
 
+/**
+ * How long a session may sit pending before it is given up on.
+ *
+ * A pending session is one whose socket the gateway accepted without the
+ * runtime having answered `ready`. The gateway dials its upstream only after
+ * accepting downstream (`gateway/src/http/routes/runtime-audio-stream.ts`), so
+ * the local open proves a proxy is listening and nothing more; a runtime that
+ * is slow, wedged, or gone leaves the socket open and silent.
+ *
+ * Generous against a real handshake, which is a loopback or LAN round trip
+ * plus resolving a transcriber, and short enough that a user who pressed Watch
+ * is not left waiting on an answer that is not coming. The gateway's own
+ * pending-frame cap usually closes such a socket first; this is the backstop
+ * for a stall that never closes anything.
+ */
+const READY_TIMEOUT_MS = 10_000;
+
 /** The capture surface this module uses, so tests can stand in for the mic. */
 interface WatchCapture {
   start(): Promise<LiveVoiceCaptureResult>;
@@ -82,6 +107,8 @@ interface WatchCapture {
 export interface WatchControllerOptions {
   webSocketFactory?: (url: string) => WebSocket;
   captureFactory?: (options: LiveVoiceAudioCaptureOptions) => WatchCapture;
+  /** Overrides {@link READY_TIMEOUT_MS}, so a test need not wait it out. */
+  readyTimeoutMs?: number;
 }
 
 /**
@@ -133,11 +160,13 @@ export function buildWatchStreamWsUrl({
 
 /**
  * Open a session and register it as the running one: the socket first, then
- * the microphone once it is up.
+ * the flag and the microphone once the runtime says the session exists.
  *
  * Registers before wiring the socket's listeners so a transport that fails on
  * the spot tears down a session this module already knows about, rather than
- * one that is registered a moment later and can no longer be stopped.
+ * one that is registered a moment later and can no longer be stopped. It is
+ * registered while still pending, which is what keeps the stop edge working
+ * before `ready`.
  *
  * Does nothing when this environment has nothing to open: no self-hosted
  * ingress or actor token, no AudioWorklet, a paired gateway whose proxy is
@@ -177,6 +206,9 @@ function openSession(
   let closed = false;
   let handle: WatchSession | null = null;
   let unsubscribeAssistant: (() => void) | null = null;
+  // Null until the runtime answers `ready`, which is the moment the session
+  // exists. Everything before that is a socket.
+  let readyTimer: ReturnType<typeof setTimeout> | null = null;
 
   const capture = (
     options.captureFactory ??
@@ -205,6 +237,10 @@ function openSession(
     closed = true;
     unsubscribeAssistant?.();
     unsubscribeAssistant = null;
+    if (readyTimer !== null) {
+      clearTimeout(readyTimer);
+      readyTimer = null;
+    }
     capture.shutdown();
     if (
       ws.readyState === WebSocket.OPEN ||
@@ -218,7 +254,13 @@ function openSession(
     }
     if (session !== null && session === handle) {
       session = null;
-      useWatchStore.setState({ watching: false });
+      // Only when there is a claim to give up. A session torn down while still
+      // pending never made one, and writing the flag anyway would wake every
+      // subscriber with a change that did not happen, which on this bridge is
+      // an IPC message and a repaint of a floating window.
+      if (useWatchStore.getState().watching) {
+        useWatchStore.setState({ watching: false });
+      }
     }
   };
 
@@ -238,8 +280,19 @@ function openSession(
       teardown();
     },
   };
+  // Registered while still pending, so the stop edge works before `ready`:
+  // a second press cancels the attempt rather than stranding it. The flag is
+  // deliberately not set here.
   session = handle;
-  useWatchStore.setState({ watching: true });
+  // A gateway that accepts and then never hears from the runtime would
+  // otherwise leave the session pending for as long as the page lives.
+  readyTimer = setTimeout(() => {
+    readyTimer = null;
+    console.warn(
+      "watch-controller: no ready frame from the runtime, giving up on the session",
+    );
+    teardown();
+  }, options.readyTimeoutMs ?? READY_TIMEOUT_MS);
 
   /**
    * The session belongs to the assistant it was started for, and ends when
@@ -266,10 +319,24 @@ function openSession(
     }
   });
 
-  ws.addEventListener("open", () => {
+  /**
+   * The runtime accepted the session, which is the first news that one exists.
+   *
+   * Both the flag and the microphone wait for this rather than for the local
+   * open. The flag, because the companion draws a capture indicator from it and
+   * the local open proves only that a proxy answered. The microphone, because
+   * opening it before the session exists would put the pair the other way
+   * round: audio flowing with nothing on screen saying so.
+   */
+  const onReady = (): void => {
     if (closed) {
       return;
     }
+    if (readyTimer !== null) {
+      clearTimeout(readyTimer);
+      readyTimer = null;
+    }
+    useWatchStore.setState({ watching: true });
     void capture.start().then((result) => {
       // Mic denied, or a device another app is holding. There is nothing to
       // narrate over, so the session ends rather than sitting open on silence.
@@ -278,7 +345,7 @@ function openSession(
         teardown();
       }
     });
-  });
+  };
 
   ws.addEventListener("message", (event) => {
     if (closed || typeof event.data !== "string") {
@@ -294,6 +361,10 @@ function openSession(
       return;
     }
     const message = parsed as { type?: string; message?: string };
+    if (message.type === "ready") {
+      onReady();
+      return;
+    }
     if (message.type === "error") {
       console.warn(
         "watch-controller: server error event",

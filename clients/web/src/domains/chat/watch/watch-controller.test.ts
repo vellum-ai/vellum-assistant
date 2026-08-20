@@ -171,7 +171,7 @@ let sockets: FakeWebSocket[] = [];
 let capture = createCaptureFake();
 
 /** Toggle through the fakes, so no test touches a real socket or the mic. */
-const toggle = (): Promise<void> => {
+const toggle = (readyTimeoutMs = 50): Promise<void> => {
   return toggleWatch({
     webSocketFactory: (url) => {
       const ws = new FakeWebSocket(url);
@@ -179,6 +179,7 @@ const toggle = (): Promise<void> => {
       return ws as unknown as WebSocket;
     },
     captureFactory: capture.factory,
+    readyTimeoutMs,
   });
 };
 
@@ -191,12 +192,41 @@ const socket = (): FakeWebSocket => {
   return last;
 };
 
-/** Start a session and let the gateway accept it, which is what starts the mic. */
+/**
+ * Take a session all the way to running: the gateway accepts the socket and
+ * the runtime answers `ready`, which is what starts the flag and the mic.
+ */
 const startRunning = async () => {
   await toggle();
   socket().serverOpen();
+  socket().serverMessage({
+    type: "ready",
+    sessionId: "sess-1",
+    conversationId: "conv-1",
+  });
   await Promise.resolve();
 };
+
+/** Open the socket and stop there, which is a session still pending. */
+const startPending = async (readyTimeoutMs?: number) => {
+  await toggle(readyTimeoutMs);
+  socket().serverOpen();
+  await Promise.resolve();
+};
+
+/** Record every write to the watch flag for the duration of `run`. */
+const flagEmissions = async (run: () => Promise<void>): Promise<boolean[]> => {
+  const seen: boolean[] = [];
+  const unsubscribe = useWatchStore.subscribe((state) => {
+    seen.push(state.watching);
+  });
+  await run();
+  unsubscribe();
+  return seen;
+};
+
+/** Let a bounded timer that is shorter than this fire. */
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 beforeEach(() => {
   ingressUrl = "http://localhost:8500";
@@ -365,14 +395,11 @@ describe("starting against an assistant that cannot serve the stream", () => {
    */
   test("never flips the watching flag on the way to refusing", async () => {
     activate(ASSISTANT_ID, "0.11.3");
-    const seen: boolean[] = [];
-    const unsubscribe = useWatchStore.subscribe((state) => {
-      seen.push(state.watching);
+
+    const seen = await flagEmissions(async () => {
+      await toggle();
     });
 
-    await toggle();
-
-    unsubscribe();
     expect(seen).toEqual([]);
     expect(useWatchStore.getState().watching).toBe(false);
   });
@@ -409,6 +436,146 @@ describe("starting against an assistant that cannot serve the stream", () => {
     await startRunning();
 
     expect(sockets).toHaveLength(1);
+    expect(useWatchStore.getState().watching).toBe(true);
+  });
+});
+
+/**
+ * A socket is not a session.
+ *
+ * The gateway accepts the downstream upgrade before it dials the runtime, so a
+ * local open proves only that a proxy answered. The runtime's `ready` frame is
+ * the first word that a session exists, and until it arrives the companion
+ * must show nothing.
+ *
+ * Every case here asserts on the writes to the flag rather than on its final
+ * value: a flag that goes true and back is exactly the bug, and a final read
+ * cannot see it.
+ */
+describe("a watch session between the socket and the runtime", () => {
+  test("shows nothing while the session is still pending", async () => {
+    const seen = await flagEmissions(async () => {
+      await startPending();
+    });
+
+    expect(seen).toEqual([]);
+    expect(useWatchStore.getState().watching).toBe(false);
+  });
+
+  /**
+   * The microphone waits for `ready` alongside the flag. Opening it first
+   * would put the pair the other way round: audio flowing with nothing on
+   * screen saying so, which is the same failure with the signs swapped.
+   */
+  test("leaves the microphone closed while the session is pending", async () => {
+    await startPending();
+
+    expect(capture.calls.started).toBe(0);
+  });
+
+  test("flips the flag when the runtime says the session exists", async () => {
+    const seen = await flagEmissions(async () => {
+      await startRunning();
+    });
+
+    expect(seen).toEqual([true]);
+    expect(useWatchStore.getState().watching).toBe(true);
+    expect(capture.calls.started).toBe(1);
+  });
+
+  /**
+   * A close before `ready` is a failed start, not a session that stopped, so
+   * there is no claim to give up and nothing to publish.
+   */
+  test("never flips the flag when the socket closes before ready", async () => {
+    const seen = await flagEmissions(async () => {
+      await startPending();
+      socket().emit("close", { code: 1006 });
+    });
+
+    expect(seen).toEqual([]);
+    expect(capture.calls.shutdown).toBe(1);
+  });
+
+  test("never flips the flag when the runtime errors before ready", async () => {
+    const seen = await flagEmissions(async () => {
+      await startPending();
+      socket().serverMessage({
+        type: "error",
+        category: "session-error",
+        message: "A watch session is already running.",
+      });
+    });
+
+    expect(seen).toEqual([]);
+    expect(capture.calls.shutdown).toBe(1);
+  });
+
+  /**
+   * A gateway that accepts and then never hears from the runtime would
+   * otherwise leave the session pending for as long as the page lives.
+   */
+  test("gives up on a session the runtime never answers for", async () => {
+    const seen = await flagEmissions(async () => {
+      await startPending(5);
+      await wait(30);
+    });
+
+    expect(seen).toEqual([]);
+    expect(capture.calls.shutdown).toBe(1);
+    expect(socket().closeCalls).toEqual([1000]);
+  });
+
+  test("frees the slot on giving up, so the next press opens a new session", async () => {
+    await startPending(5);
+    await wait(30);
+
+    await startRunning();
+
+    expect(sockets).toHaveLength(2);
+    expect(useWatchStore.getState().watching).toBe(true);
+  });
+
+  test("does not give up on a session the runtime did answer for", async () => {
+    await toggle(5);
+    socket().serverOpen();
+    socket().serverMessage({
+      type: "ready",
+      sessionId: "sess-1",
+      conversationId: "conv-1",
+    });
+    await Promise.resolve();
+
+    await wait(30);
+
+    expect(useWatchStore.getState().watching).toBe(true);
+    expect(capture.calls.shutdown).toBe(0);
+  });
+
+  /**
+   * The stop edge has to reach a pending session too. A second press is the
+   * user cancelling an attempt that is going nowhere, and stranding it would
+   * leave a socket open that nothing can reach.
+   */
+  test("cancels a pending session on the second press", async () => {
+    const seen = await flagEmissions(async () => {
+      await startPending();
+      await toggle();
+    });
+
+    expect(seen).toEqual([]);
+    expect(sockets).toHaveLength(1);
+    expect(socket().closeCalls).toEqual([1000]);
+    expect(capture.calls.shutdown).toBe(1);
+  });
+
+  test("starts a fresh session after a cancelled one", async () => {
+    await startPending();
+    await toggle();
+
+    await startRunning();
+
+    expect(sockets).toHaveLength(2);
     expect(useWatchStore.getState().watching).toBe(true);
   });
 });

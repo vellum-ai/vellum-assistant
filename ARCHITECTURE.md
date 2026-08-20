@@ -714,6 +714,8 @@ One session at a time, on both sides. The client holds a single module-level slo
 
 **Transport.** The browser opens `wss://<ingress>/v1/watch/stream?token=<edge JWT>&mimeType=audio/pcm&sampleRate=16000` and streams 16 kHz mono PCM16LE as binary frames, the same capture pipeline live voice and streaming dictation use. The token rides the query string because browser WebSockets cannot set an `Authorization` header. Self-hosted ingress only: the paired-gateway proxy is HTTP-only, so no upgrade exists there.
 
+**A socket is not a session.** The gateway accepts the downstream upgrade before it dials the runtime, so a local `open` proves only that a proxy answered. The runtime's `ready` frame (carrying `sessionId` and `conversationId`) is the first word that a session exists, and it is what starts both the microphone and the `watching` flag the companion draws its capture indicator from. Until then the session is pending and the surface shows nothing. A bounded wait covers a gateway that accepts and then never hears from the runtime; a close, an `error`, or that timeout before `ready` is a failed start rather than a stopped session, so it tears down and the flag never moves.
+
 **Auth posture.** The gateway (`gateway/src/http/routes/watch-stream-websocket.ts`) validates the edge JWT, rejects a revoked actor token, and requires an actor principal, refusing service tokens on this client-facing path. It then dials a *fresh* upstream socket to the daemon bearing only a short-lived gateway service token, never anything the client supplied, and pumps frames between the two. The daemon resolves the acting principal from its own guardian binding, restricts the upgrade to private-network peers and origins, and picks the host client to observe from that actor's own `host_cu` clients. The gate and the frame pump are shared with `/v1/stt/stream` (`gateway/src/http/routes/runtime-audio-stream.ts`) so the two client-facing audio proxies cannot drift apart on who may open one.
 
 ```mermaid
@@ -739,7 +741,7 @@ graph LR
     MGR -->|"speech finals"| TL
     MGR --> OBS
     OBS -->|"AX tree + screenshot"| TL
-    RT -->|"ready / entry / error / closed"| CTRL
+    RT -->|"ready (starts mic + flag)<br/>entry / error / closed"| CTRL
     CTRL --> MIRROR
     MIRROR -->|"watching flag"| MAIN
     MAIN --> SURFACE
