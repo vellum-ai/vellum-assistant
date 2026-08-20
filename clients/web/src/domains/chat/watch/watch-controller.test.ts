@@ -441,6 +441,86 @@ describe("starting against an assistant that cannot serve the stream", () => {
 });
 
 /**
+ * A start that is still resolving the version gate.
+ *
+ * The gate waits for the identity fetch, which on a cold app can be seconds.
+ * A press in that window is the user changing their mind, and it has to reach
+ * something: without a registered attempt it finds no session, does nothing,
+ * and the resolution goes on to start the session that was just cancelled.
+ */
+describe("cancelling a start that has not opened a socket yet", () => {
+  /** Press once with the version unknown, leaving the gate mid-resolution. */
+  const pressWithVersionPending = () => {
+    activate(ASSISTANT_ID, null);
+    return toggle();
+  };
+
+  /**
+   * The second press is deliberately not awaited before the version lands.
+   * Awaiting it would let an unregistered attempt queue behind the same gate
+   * and time out alongside the first, which looks like a cancellation from the
+   * outside and would pass whether or not anything was actually cancelled.
+   * Left unawaited, an attempt nothing can reach starts a second session here.
+   */
+  test("cancels on a second press before the version lands", async () => {
+    const seen = await flagEmissions(async () => {
+      const pressed = pressWithVersionPending();
+      const second = toggle();
+
+      activate(ASSISTANT_ID);
+      await pressed;
+      await second;
+    });
+
+    expect(sockets).toHaveLength(0);
+    expect(capture.calls.started).toBe(0);
+    expect(seen).toEqual([]);
+  });
+
+  test("is reachable by stopWatch, which is what teardown uses", async () => {
+    const pressed = pressWithVersionPending();
+
+    stopWatch();
+    activate(ASSISTANT_ID);
+    await pressed;
+
+    expect(sockets).toHaveLength(0);
+    expect(useWatchStore.getState().watching).toBe(false);
+  });
+
+  /** The attempt occupies the slot, which is what the stop edge reaches. */
+  test("frees the slot on cancelling, so a later press starts cleanly", async () => {
+    const pressed = pressWithVersionPending();
+    const second = toggle();
+    activate(ASSISTANT_ID);
+    await pressed;
+    await second;
+
+    await startRunning();
+
+    expect(sockets).toHaveLength(1);
+    expect(useWatchStore.getState().watching).toBe(true);
+  });
+
+  /** Nothing was cancelled, so the press it was waiting on still lands. */
+  test("starts normally when nobody cancels it", async () => {
+    const pressed = pressWithVersionPending();
+    activate(ASSISTANT_ID);
+    await pressed;
+    socket().serverOpen();
+    socket().serverMessage({
+      type: "ready",
+      sessionId: "sess-1",
+      conversationId: "conv-1",
+    });
+    await Promise.resolve();
+
+    expect(sockets).toHaveLength(1);
+    expect(useWatchStore.getState().watching).toBe(true);
+  });
+});
+
+/**
  * A socket is not a session.
  *
  * The gateway accepts the downstream upgrade before it dials the runtime, so a

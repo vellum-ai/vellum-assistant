@@ -1,12 +1,38 @@
-import { describe, test, expect, mock } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect, mock } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
-import {
-  createWatchStreamWebsocketHandler,
-  getWatchStreamWebsocketHandlers,
-  type WatchStreamSocketData,
-} from "../http/routes/watch-stream-websocket.js";
+import { setVelayBridgeAuthHeader } from "../velay/bridge-auth.js";
+import type { WatchStreamSocketData } from "../http/routes/watch-stream-websocket.js";
+
+/** The bound guardian's actor principal, which `mintEdgeToken` defaults to. */
+const GUARDIAN_PRINCIPAL = "test-user";
+
+/** The bound guardian's platform user id, for the velay-attested path. */
+const VELAY_USER_ID = "11111111-1111-1111-1111-111111111111";
+
+// Watch is a guardian-only surface, so the upgrade pins the caller to the
+// binding. Both lookups are mocked BEFORE the module under test is imported,
+// the way `live-voice-websocket.test.ts` does it, so the pin is testable
+// without gateway DB state.
+let mockFindVellumGuardian = mock(
+  async (): Promise<{ principalId: string } | null> => ({
+    principalId: GUARDIAN_PRINCIPAL,
+  }),
+);
+mock.module("../auth/guardian-bootstrap.js", () => ({
+  findVellumGuardian: () => mockFindVellumGuardian(),
+}));
+
+let mockReadCredential = mock(
+  async (_key: string): Promise<string | undefined> => VELAY_USER_ID,
+);
+mock.module("../credential-reader.js", () => ({
+  readCredential: (key: string) => mockReadCredential(key),
+}));
+
+const { createWatchStreamWebsocketHandler, getWatchStreamWebsocketHandlers } =
+  await import("../http/routes/watch-stream-websocket.js");
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -82,17 +108,28 @@ function upgradedData(
 // createWatchStreamWebsocketHandler: upgrade handler tests
 // ---------------------------------------------------------------------------
 
+beforeEach(() => {
+  mockFindVellumGuardian = mock(async () => ({
+    principalId: GUARDIAN_PRINCIPAL,
+  }));
+  mockReadCredential = mock(async (_key: string) => VELAY_USER_ID);
+});
+
+afterEach(() => {
+  delete process.env.IS_PLATFORM;
+});
+
 describe("createWatchStreamWebsocketHandler", () => {
   const TEST_TOKEN = mintEdgeToken();
 
-  test("upgrades when the token query parameter is valid", () => {
+  test("upgrades when the token query parameter is valid", async () => {
     const handler = createWatchStreamWebsocketHandler(makeConfig());
     const req = new Request(
       `http://localhost:7830/v1/watch/stream?token=${TEST_TOKEN}&mimeType=audio/pcm&sampleRate=16000`,
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
@@ -103,7 +140,7 @@ describe("createWatchStreamWebsocketHandler", () => {
     });
   });
 
-  test("upgrades when the Authorization header is valid", () => {
+  test("upgrades when the Authorization header is valid", async () => {
     const handler = createWatchStreamWebsocketHandler(makeConfig());
     const req = new Request(
       "http://localhost:7830/v1/watch/stream?mimeType=audio/pcm",
@@ -116,18 +153,18 @@ describe("createWatchStreamWebsocketHandler", () => {
     );
     const server = makeFakeServer();
 
-    expect(handler(req, server)).toBeUndefined();
+    expect(await handler(req, server)).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
   });
 
-  test("carries an explicit conversation and host client through", () => {
+  test("carries an explicit conversation and host client through", async () => {
     const handler = createWatchStreamWebsocketHandler(makeConfig());
     const req = new Request(
       `http://localhost:7830/v1/watch/stream?token=${TEST_TOKEN}&mimeType=audio/pcm&conversationId=conv-1&clientId=host-1`,
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer();
-    handler(req, server);
+    await handler(req, server);
 
     expect(upgradedData(server)).toMatchObject({
       conversationId: "conv-1",
@@ -140,41 +177,41 @@ describe("createWatchStreamWebsocketHandler", () => {
    * which starts a session rather than joining a thread. Blank has to read the
    * same as absent, or the runtime would be handed an empty id to file against.
    */
-  test("reads blank optional parameters as absent", () => {
+  test("reads blank optional parameters as absent", async () => {
     const handler = createWatchStreamWebsocketHandler(makeConfig());
     const req = new Request(
       `http://localhost:7830/v1/watch/stream?token=${TEST_TOKEN}&mimeType=audio/pcm&conversationId=%20&clientId=`,
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer();
-    handler(req, server);
+    await handler(req, server);
 
     const data = upgradedData(server);
     expect(data.conversationId).toBeUndefined();
     expect(data.clientId).toBeUndefined();
   });
 
-  test("returns 401 when no token is provided", () => {
+  test("returns 401 when no token is provided", async () => {
     const handler = createWatchStreamWebsocketHandler(makeConfig());
     const req = new Request(
       "http://localhost:7830/v1/watch/stream?mimeType=audio/pcm",
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res!.status).toBe(401);
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("returns 401 when the token is invalid", () => {
+  test("returns 401 when the token is invalid", async () => {
     const handler = createWatchStreamWebsocketHandler(makeConfig());
     const req = new Request(
       "http://localhost:7830/v1/watch/stream?token=bad-token&mimeType=audio/pcm",
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res!.status).toBe(401);
     expect(server.upgrade).not.toHaveBeenCalled();
@@ -185,56 +222,56 @@ describe("createWatchStreamWebsocketHandler", () => {
    * service credential reaching it would open a user's microphone stream on a
    * token minted for machine to machine traffic.
    */
-  test("returns 401 for a service token, which has no actor principal", () => {
+  test("returns 401 for a service token, which has no actor principal", async () => {
     const handler = createWatchStreamWebsocketHandler(makeConfig());
     const req = new Request(
       `http://localhost:7830/v1/watch/stream?token=${mintServiceEdgeToken()}&mimeType=audio/pcm`,
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res!.status).toBe(401);
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("returns 400 when mimeType is missing", () => {
+  test("returns 400 when mimeType is missing", async () => {
     const handler = createWatchStreamWebsocketHandler(makeConfig());
     const req = new Request(
       `http://localhost:7830/v1/watch/stream?token=${TEST_TOKEN}`,
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res!.status).toBe(400);
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("returns 426 when the request is not a WebSocket upgrade", () => {
+  test("returns 426 when the request is not a WebSocket upgrade", async () => {
     const handler = createWatchStreamWebsocketHandler(makeConfig());
     const req = new Request(
       `http://localhost:7830/v1/watch/stream?token=${TEST_TOKEN}&mimeType=audio/pcm`,
     );
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res!.status).toBe(426);
   });
 
-  test("returns 500 when the Bun upgrade fails", () => {
+  test("returns 500 when the Bun upgrade fails", async () => {
     const handler = createWatchStreamWebsocketHandler(makeConfig());
     const req = new Request(
       `http://localhost:7830/v1/watch/stream?token=${TEST_TOKEN}&mimeType=audio/pcm`,
       { headers: { upgrade: "websocket" } },
     );
     const server = makeFakeServer(false);
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res!.status).toBe(500);
   });
 
-  test("allows an unauthenticated upgrade when auth is disabled (dev bypass)", () => {
+  test("allows an unauthenticated upgrade when auth is disabled (dev bypass)", async () => {
     const handler = createWatchStreamWebsocketHandler(
       makeConfig({ runtimeProxyRequireAuth: false }),
     );
@@ -244,11 +281,11 @@ describe("createWatchStreamWebsocketHandler", () => {
     );
     const server = makeFakeServer();
 
-    expect(handler(req, server)).toBeUndefined();
+    expect(await handler(req, server)).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
   });
 
-  test("still requires mimeType when auth is disabled", () => {
+  test("still requires mimeType when auth is disabled", async () => {
     const handler = createWatchStreamWebsocketHandler(
       makeConfig({ runtimeProxyRequireAuth: false }),
     );
@@ -256,9 +293,198 @@ describe("createWatchStreamWebsocketHandler", () => {
       headers: { upgrade: "websocket" },
     });
     const server = makeFakeServer();
-    const res = handler(req, server);
+    const res = await handler(req, server);
 
     expect(res!.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The guardian pin
+// ---------------------------------------------------------------------------
+
+/**
+ * Watch reads the owner's screen, and the daemon resolves whose screen from
+ * the guardian binding rather than from the request. A non-guardian actor who
+ * gets past this upgrade therefore does not observe their own screen: they
+ * observe the guardian's. The proxy also replaces the caller's identity with a
+ * service token upstream, so the daemon cannot tell the difference. This
+ * upgrade is the only place that actor can be refused.
+ */
+describe("createWatchStreamWebsocketHandler: the guardian pin", () => {
+  const upgrade = async (token: string) => {
+    const handler = createWatchStreamWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/watch/stream?token=${token}&mimeType=audio/pcm`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const server = makeFakeServer();
+    return { res: await handler(req, server), server };
+  };
+
+  test("admits the bound guardian", async () => {
+    const { res, server } = await upgrade(mintEdgeToken(GUARDIAN_PRINCIPAL));
+
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  /** The finding: a valid token that belongs to somebody else. */
+  test("refuses a valid actor token that is not the bound guardian", async () => {
+    const { res, server } = await upgrade(mintEdgeToken("someone-else"));
+
+    expect(res!.status).toBe(403);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("refuses when no guardian binding exists", async () => {
+    mockFindVellumGuardian = mock(async () => null);
+
+    const { res, server } = await upgrade(mintEdgeToken(GUARDIAN_PRINCIPAL));
+
+    expect(res!.status).toBe(403);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A lookup that throws leaves the answer unknown. Reporting that as
+   * "forbidden" would misread a database problem as a permission one.
+   */
+  test("answers 503 when the binding lookup fails", async () => {
+    mockFindVellumGuardian = mock(async () => {
+      throw new Error("db down");
+    });
+
+    const { res, server } = await upgrade(mintEdgeToken(GUARDIAN_PRINCIPAL));
+
+    expect(res!.status).toBe(503);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The managed path, where velay validated the browser's token and injected the
+ * caller. The attestation proves the caller is *a* platform user who traversed
+ * velay, not that they are this assistant's guardian, so it is cross-checked
+ * against the stored `platform_user_id`.
+ */
+describe("createWatchStreamWebsocketHandler: velay-attested managed auth", () => {
+  const VELAY_ORG_ID = "22222222-2222-2222-2222-222222222222";
+
+  const managedUpgrade = async ({
+    userId = VELAY_USER_ID,
+    actor = "user",
+    orgId = VELAY_ORG_ID as string | null,
+    bridgeProof = true,
+    token,
+    managed = true,
+  }: {
+    userId?: string;
+    actor?: string;
+    orgId?: string | null;
+    bridgeProof?: boolean;
+    token?: string;
+    managed?: boolean;
+  }) => {
+    if (managed) {
+      process.env.IS_PLATFORM = "true";
+    } else {
+      delete process.env.IS_PLATFORM;
+    }
+    const headers = new Headers({
+      upgrade: "websocket",
+      "x-velay-user-id": userId,
+      "x-velay-actor": actor,
+    });
+    if (orgId !== null) {
+      headers.set("x-velay-org-id", orgId);
+    }
+    if (bridgeProof) {
+      setVelayBridgeAuthHeader(headers);
+    }
+    const handler = createWatchStreamWebsocketHandler(makeConfig());
+    const query = token ? `&token=${token}` : "";
+    const req = new Request(
+      `http://localhost:7830/v1/watch/stream?mimeType=audio/pcm${query}`,
+      { headers },
+    );
+    const server = makeFakeServer();
+    return { res: await handler(req, server), server };
+  };
+
+  test("admits an attested caller who is the bound guardian", async () => {
+    const { res, server } = await managedUpgrade({});
+
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  test("refuses an attested caller who is not the bound guardian", async () => {
+    mockReadCredential = mock(
+      async () => "99999999-9999-9999-9999-999999999999",
+    );
+
+    const { res, server } = await managedUpgrade({});
+
+    expect(res!.status).toBe(403);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("refuses when this assistant has no platform user stored", async () => {
+    mockReadCredential = mock(async () => undefined);
+
+    const { res } = await managedUpgrade({});
+
+    expect(res!.status).toBe(403);
+  });
+
+  test("answers 503 when the platform user lookup fails", async () => {
+    mockReadCredential = mock(async () => {
+      throw new Error("credential store down");
+    });
+
+    const { res } = await managedUpgrade({});
+
+    expect(res!.status).toBe(503);
+  });
+
+  /**
+   * A direct request to a reachable gateway can spoof the header names. It
+   * cannot know the process-local bridge proof, which is what says the request
+   * really arrived through this gateway's own loopback bridge.
+   */
+  test("ignores spoofed velay headers with no bridge proof", async () => {
+    const { res, server } = await managedUpgrade({ bridgeProof: false });
+
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("falls through to the token path on an incomplete attestation", async () => {
+    const { res, server } = await managedUpgrade({
+      orgId: null,
+      token: mintEdgeToken(GUARDIAN_PRINCIPAL),
+    });
+
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  /** Falling through must not fall past the pin. */
+  test("still pins the token path in managed mode", async () => {
+    const { res } = await managedUpgrade({
+      actor: "service",
+      token: mintEdgeToken("someone-else"),
+    });
+
+    expect(res!.status).toBe(403);
+  });
+
+  test("does not trust velay headers outside managed mode", async () => {
+    const { res, server } = await managedUpgrade({ managed: false });
+
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
   });
 });
 
@@ -290,7 +516,7 @@ describe("getWatchStreamWebsocketHandlers", () => {
     };
   }
 
-  test("open initializes the pending message buffer", () => {
+  test("open initializes the pending message buffer", async () => {
     const handlers = getWatchStreamWebsocketHandlers();
     const ws = createFakeDownstreamWs();
 
@@ -309,7 +535,7 @@ describe("getWatchStreamWebsocketHandlers", () => {
    * this proxy has an upstream to send to. The first fraction of a second of
    * narration is exactly the part a transcriber needs.
    */
-  test("message buffers frames that arrive before upstream connects", () => {
+  test("message buffers frames that arrive before upstream connects", async () => {
     const handlers = getWatchStreamWebsocketHandlers();
     const ws = createFakeDownstreamWs();
     ws.data.pendingMessages = [];
@@ -319,7 +545,7 @@ describe("getWatchStreamWebsocketHandlers", () => {
     expect(ws.data.pendingMessages).toContain("narration-frame");
   });
 
-  test("message closes the socket rather than buffering without bound", () => {
+  test("message closes the socket rather than buffering without bound", async () => {
     const handlers = getWatchStreamWebsocketHandlers();
     const ws = createFakeDownstreamWs();
     ws.data.pendingMessages = new Array(100).fill("x");
@@ -329,7 +555,7 @@ describe("getWatchStreamWebsocketHandlers", () => {
     expect(ws.close).toHaveBeenCalledWith(1008, "Buffer overflow");
   });
 
-  test("message forwards straight through once upstream is open", () => {
+  test("message forwards straight through once upstream is open", async () => {
     const handlers = getWatchStreamWebsocketHandlers();
     const ws = createFakeDownstreamWs();
     ws.data.pendingMessages = [];
@@ -345,7 +571,7 @@ describe("getWatchStreamWebsocketHandlers", () => {
     expect(ws.data.pendingMessages).toEqual([]);
   });
 
-  test("close releases the buffer and closes upstream with the same code", () => {
+  test("close releases the buffer and closes upstream with the same code", async () => {
     const handlers = getWatchStreamWebsocketHandlers();
     const ws = createFakeDownstreamWs();
     ws.data.pendingMessages = ["some-data"];
@@ -361,7 +587,7 @@ describe("getWatchStreamWebsocketHandlers", () => {
     expect(upstream.close).toHaveBeenCalledWith(1000, "normal");
   });
 
-  test("close is safe when upstream is already gone", () => {
+  test("close is safe when upstream is already gone", async () => {
     const handlers = getWatchStreamWebsocketHandlers();
     const ws = createFakeDownstreamWs();
     const upstream = {

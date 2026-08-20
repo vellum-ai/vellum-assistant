@@ -19,6 +19,11 @@
  * this client that opens it, so a toggle that lands while a call is running is
  * refused rather than queued: the call is the session the user is in.
  *
+ * **An attempt is a session for the purpose of stopping it.** A start is
+ * registered in the slot before it resolves the version gate, so the ordinary
+ * stop edge reaches a press the user has changed their mind about. Everything
+ * that ends a session ends an attempt the same way and just as synchronously.
+ *
  * **A socket is not a session.** The gateway accepts the downstream upgrade
  * before it dials the runtime, so a local `open` proves only that a proxy
  * answered. The runtime's `ready` frame is the first word that a session
@@ -120,16 +125,6 @@ interface WatchSession {
 }
 
 let session: WatchSession | null = null;
-
-/**
- * True while a start is between the version resolution and the socket.
- *
- * The start path awaits, so without this a second press arriving inside that
- * window would find no session yet and open a second one. A press that lands
- * there is dropped rather than queued: the window is a microtask on a warm
- * app, and dropping is the edge that cannot leave two microphones open.
- */
-let starting = false;
 
 /**
  * Build the watch stream WebSocket URL:
@@ -413,9 +408,6 @@ export async function toggleWatch(
     session.stop();
     return;
   }
-  if (starting) {
-    return;
-  }
   if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
     console.info("watch-controller: refusing to start while a call is running");
     return;
@@ -428,33 +420,56 @@ export async function toggleWatch(
     console.info("watch-controller: skipping (no assistant is active)");
     return;
   }
-  starting = true;
-  try {
-    // Resolve the version rather than reading the gate's conservative
-    // unknown-is-false, which a press landing before the identity fetch would
-    // otherwise hit and refuse an assistant that does support watching. See
-    // `docs/BACKWARDS_COMPAT.md` on gated write paths.
-    if (!(await resolveSupportsWatchSessions(assistantId))) {
-      console.info(
-        "watch-controller: skipping (this assistant has no watch stream to open)",
-      );
-      return;
-    }
-    // Re-read across the await. A call can have started and the session can
-    // have been opened and stopped by another press in the meantime, and the
-    // active assistant can have moved out from under the gate that just
-    // passed.
-    if (
-      session !== null ||
-      isLiveVoiceSessionActive(useLiveVoiceStore.getState().state) ||
-      useResolvedAssistantsStore.getState().activeAssistantId !== assistantId
-    ) {
-      return;
-    }
-    openSession(assistantId, options);
-  } finally {
-    starting = false;
+  /**
+   * The attempt itself, registered as the running session before anything is
+   * awaited.
+   *
+   * The version resolution below can wait seconds on a cold identity fetch,
+   * and a press that lands in that window is the user changing their mind. It
+   * has to reach something. Registering the attempt is what gives it a `stop`
+   * to reach: a second press, a logout, or an unmount all take the ordinary
+   * stop edge, synchronously, and the resolution then finds itself cancelled
+   * and opens nothing. Without it the press would find no session, do nothing,
+   * and the start would go on to open the session the user just cancelled.
+   */
+  let cancelled = false;
+  const attempt: WatchSession = {
+    stop: () => {
+      cancelled = true;
+      if (session === attempt) {
+        session = null;
+      }
+    },
+  };
+  session = attempt;
+
+  // Resolve the version rather than reading the gate's conservative
+  // unknown-is-false, which a press landing before the identity fetch would
+  // otherwise hit and refuse an assistant that does support watching. See
+  // `docs/BACKWARDS_COMPAT.md` on gated write paths.
+  const supported = await resolveSupportsWatchSessions(assistantId);
+  if (cancelled) {
+    return;
   }
+  // Nothing else can have replaced the slot: every other entry point goes
+  // through the registered `stop` above, which sets `cancelled`. Released here
+  // so `openSession` can register the real session in it.
+  session = null;
+  if (!supported) {
+    console.info(
+      "watch-controller: skipping (this assistant has no watch stream to open)",
+    );
+    return;
+  }
+  // Re-read across the await. A call can have started, and the active
+  // assistant can have moved out from under the gate that just passed.
+  if (
+    isLiveVoiceSessionActive(useLiveVoiceStore.getState().state) ||
+    useResolvedAssistantsStore.getState().activeAssistantId !== assistantId
+  ) {
+    return;
+  }
+  openSession(assistantId, options);
 }
 
 /**

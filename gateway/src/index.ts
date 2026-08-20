@@ -2153,7 +2153,7 @@ async function main() {
     }
 
     if (url.pathname === "/v1/watch/stream") {
-      const upgradeResult = handleWatchStreamWs(req, server);
+      const upgradeResult = await handleWatchStreamWs(req, server);
       if (upgradeResult !== undefined) return upgradeResult;
       return undefined as unknown as Response;
     }

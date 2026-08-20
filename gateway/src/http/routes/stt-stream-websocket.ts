@@ -50,9 +50,13 @@ export function createSttStreamWebsocketHandler(config: GatewayConfig) {
     req: Request,
     server: import("bun").Server<unknown>,
   ): Response | undefined {
-    const denied = authorizeRuntimeAudioStream(req, config, log);
-    if (denied) {
-      return denied;
+    // Any valid actor, deliberately. Dictation is the user's own words going
+    // to a transcriber and back; it is not a guardian-only surface, and the
+    // watch stream's `guardian-pin` check is exactly what this route does not
+    // want.
+    const auth = authorizeRuntimeAudioStream(req, config, log);
+    if (!auth.ok) {
+      return auth.response;
     }
 
     // ── Query parameters ──

@@ -46,25 +46,45 @@ export interface RuntimeAudioStreamState {
 }
 
 /**
- * Whether a client may open one of these sockets: `undefined` to proceed, or
- * the response to send back instead.
+ * The outcome of the shared authorization: proceed, carrying whatever identity
+ * it established, or send this response back instead.
  *
- * Returns a response rather than throwing so the caller stays a plain upgrade
+ * A response rather than a thrown error so the caller stays a plain upgrade
  * handler, which is the shape `Bun.serve` wants.
+ *
+ * `actorPrincipalId` is null only on the dev bypass, where no token was
+ * validated and there is no principal to report. A route that pins the upgrade
+ * to an identity has to decide what to do about that for itself; this module
+ * takes no position, because the bypass exists precisely to run without one.
+ */
+export type RuntimeAudioStreamAuth =
+  | { ok: true; actorPrincipalId: string | null }
+  | { ok: false; response: Response };
+
+/**
+ * Whether a client may open one of these sockets.
+ *
+ * Establishes that the caller is *an* actor on this assistant and nothing
+ * more. Whether they are the actor a particular surface belongs to is a
+ * separate question, deliberately left to the route: see `guardian-pin.ts`,
+ * which `/v1/watch/stream` opts into and `/v1/stt/stream` does not.
  */
 export function authorizeRuntimeAudioStream(
   req: Request,
   config: GatewayConfig,
   log: Logger,
-): Response | undefined {
+): RuntimeAudioStreamAuth {
   if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-    return new Response("Upgrade Required", { status: 426 });
+    return {
+      ok: false,
+      response: new Response("Upgrade Required", { status: 426 }),
+    };
   }
 
   // The dev bypass, which turns off runtime proxy auth globally. The upgrade
   // still has to be a well-formed one, so only token validation is skipped.
   if (!config.runtimeProxyRequireAuth) {
-    return undefined;
+    return { ok: true, actorPrincipalId: null };
   }
 
   const authHeader = req.headers.get("authorization");
@@ -77,18 +97,27 @@ export function authorizeRuntimeAudioStream(
 
   if (!rawToken) {
     log.warn("audio stream WS: no token provided");
-    return new Response("Unauthorized", { status: 401 });
+    return {
+      ok: false,
+      response: new Response("Unauthorized", { status: 401 }),
+    };
   }
 
   const result = validateEdgeToken(rawToken);
   if (!result.ok) {
     log.warn({ reason: result.reason }, "audio stream WS: auth failed");
-    return new Response("Unauthorized", { status: 401 });
+    return {
+      ok: false,
+      response: new Response("Unauthorized", { status: 401 }),
+    };
   }
 
   if (isActorTokenRevoked(rawToken, result.claims)) {
     log.warn("audio stream WS: rejected, actor token revoked");
-    return new Response("Unauthorized", { status: 401 });
+    return {
+      ok: false,
+      response: new Response("Unauthorized", { status: 401 }),
+    };
   }
 
   // An actor principal and nothing else. These are client-facing paths, and a
@@ -107,10 +136,13 @@ export function authorizeRuntimeAudioStream(
       },
       "audio stream WS: denied token without actor principal",
     );
-    return new Response("Unauthorized", { status: 401 });
+    return {
+      ok: false,
+      response: new Response("Unauthorized", { status: 401 }),
+    };
   }
 
-  return undefined;
+  return { ok: true, actorPrincipalId: parsed.actorPrincipalId };
 }
 
 export interface RuntimeAudioStreamHandlerOptions<
