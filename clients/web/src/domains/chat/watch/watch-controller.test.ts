@@ -38,6 +38,40 @@ mock.module("@/domains/chat/voice/live-voice/pcm-capture", () => ({
 }));
 
 /**
+ * The velay token mint, stood in for so the managed path can be exercised
+ * without an HTTP round trip.
+ *
+ * Only the mint is replaced. Everything else in the connection module — both
+ * URL builders, the paired-ingress predicate, the error types — stays real, so
+ * the URLs these tests assert on are the ones the app would actually dial
+ * rather than a fake's idea of them.
+ */
+const realConnection = await import(
+  "@/domains/chat/voice/live-voice/connection"
+);
+
+/** Assistant ids the mint was called for, in order. */
+let mintCalls: string[] = [];
+/** Set to null to make the platform refuse the mint. */
+let mintedToken: string | null = "velay-token";
+/** Held open by a test that needs a press to land mid-mint. */
+let mintGate: Promise<void> | null = null;
+
+mock.module("@/domains/chat/voice/live-voice/connection", () => ({
+  ...realConnection,
+  mintVelayWsToken: async (assistantId: string) => {
+    mintCalls.push(assistantId);
+    if (mintGate) {
+      await mintGate;
+    }
+    if (mintedToken === null) {
+      throw new realConnection.VelayWsTokenError(403, "mint refused");
+    }
+    return { token: mintedToken, expiresAt: "2026-01-01T00:00:00Z" };
+  },
+}));
+
+/**
  * The active-assistant store, stood in for so the test can see the session's
  * subscription come and go. A leaked listener is invisible against the real
  * store (teardown is idempotent, so a stale one fires harmlessly and
@@ -298,6 +332,9 @@ beforeEach(() => {
   ingressUrl = "http://localhost:8500";
   actorToken = "actor-jwt";
   pcmSupported = true;
+  mintCalls = [];
+  mintedToken = "velay-token";
+  mintGate = null;
   sockets = [];
   capture = createCaptureFake();
   useLiveVoiceStore.setState({ state: "idle" });
@@ -415,15 +452,6 @@ describe("toggling a watch session", () => {
     expect(useWatchStore.getState().watching).toBe(true);
   });
 
-  test("opens nothing without a self-hosted ingress to reach", async () => {
-    ingressUrl = null;
-
-    await toggle();
-
-    expect(sockets).toHaveLength(0);
-    expect(useWatchStore.getState().watching).toBe(false);
-  });
-
   test("opens nothing without an actor token to authenticate with", async () => {
     actorToken = null;
 
@@ -440,6 +468,119 @@ describe("toggling a watch session", () => {
 
     expect(sockets).toHaveLength(0);
     expect(useWatchStore.getState().watching).toBe(false);
+  });
+});
+
+/**
+ * The managed transport, which is the one most users are on.
+ *
+ * A managed assistant has no ingress of its own to dial, so the session goes
+ * through velay with a minted token instead — the same route, reached the
+ * other way. The gateway admits only the guardian on either path, so what
+ * these cases pin is that the press reaches a socket at all, and that a start
+ * which cannot get a token leaves nothing behind.
+ */
+describe("a watch session on a managed assistant", () => {
+  /**
+   * Resolve once the mint has actually been entered, so a case that means to
+   * interrupt it interrupts it rather than something earlier.
+   */
+  const whenMintInFlight = async (): Promise<void> => {
+    // Real timer turns, not microtasks: a start can be held behind the
+    // previous session's drain, which is a `setTimeout`, so a microtask-only
+    // spin would give up before the mint was ever reached.
+    for (let i = 0; i < 200 && mintCalls.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    if (mintCalls.length === 0) {
+      throw new Error("Expected the mint to have been entered");
+    }
+  };
+
+  /** No self-hosted ingress is what makes an assistant managed here. */
+  const managed = (): void => {
+    ingressUrl = null;
+    actorToken = null;
+  };
+
+  test("mints a velay token and dials velay with it", async () => {
+    managed();
+
+    await startRunning();
+
+    expect(mintCalls).toEqual([ASSISTANT_ID]);
+    const url = new URL(socket().url);
+    expect(url.protocol).toBe("wss:");
+    expect(url.host).toBe("velay.vellum.ai");
+    // The `/<assistantId>` prefix is what selects the tunnel; velay strips it
+    // to recover the upstream path it matches its allowlist against.
+    expect(url.pathname).toBe(`/${ASSISTANT_ID}/v1/watch/stream`);
+    expect(url.searchParams.get("token")).toBe("velay-token");
+    expect(url.searchParams.get("mimeType")).toBe("audio/pcm");
+    expect(url.searchParams.get("sampleRate")).toBe("16000");
+    expect(useWatchStore.getState().watching).toBe(true);
+  });
+
+  test("opens nothing when the platform refuses the mint", async () => {
+    managed();
+    mintedToken = null;
+
+    await toggle();
+
+    expect(sockets).toHaveLength(0);
+    expect(useWatchStore.getState().watching).toBe(false);
+  });
+
+  test("leaves the slot free for a later press when the mint is refused", async () => {
+    managed();
+    mintedToken = null;
+    await toggle();
+
+    // A refused start that kept the slot would swallow the next press as a
+    // stop, and the user would have to press twice to get anywhere.
+    mintedToken = "velay-token";
+    await startRunning();
+
+    expect(useWatchStore.getState().watching).toBe(true);
+  });
+
+  test("a stop pressed while the token is being minted opens nothing", async () => {
+    managed();
+    let releaseMint = (): void => {};
+    mintGate = new Promise<void>((resolve) => {
+      releaseMint = resolve;
+    });
+
+    const starting = toggle();
+    // The press lands while the mint is in flight, which is the window the
+    // registered attempt exists to cover. Waited for rather than assumed: a
+    // stop that arrived before the mint began would exercise the version-gate
+    // cancellation instead and pass for the wrong reason.
+    await whenMintInFlight();
+    stopWatch();
+    releaseMint();
+    await starting;
+
+    expect(sockets).toHaveLength(0);
+    expect(useWatchStore.getState().watching).toBe(false);
+  });
+
+  test("a stop mid-mint does not wedge the next press", async () => {
+    managed();
+    let releaseMint = (): void => {};
+    mintGate = new Promise<void>((resolve) => {
+      releaseMint = resolve;
+    });
+    const starting = toggle();
+    await whenMintInFlight();
+    stopWatch();
+    releaseMint();
+    await starting;
+
+    mintGate = null;
+    await startRunning();
+
+    expect(useWatchStore.getState().watching).toBe(true);
   });
 });
 

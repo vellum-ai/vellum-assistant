@@ -36,6 +36,19 @@
  * We call the generated platform SDK function `authLiveVoiceTokenCreate`, which
  * routes through the platform `client` — that interceptor attaches the session
  * cookie + CSRF + `Vellum-Organization-Id`.
+ *
+ * ---------------------------------------------------------------------------
+ * Shared with more than live voice
+ * ---------------------------------------------------------------------------
+ *
+ * The transport pieces here are route-agnostic and have a second caller:
+ * {@link buildSelfHostedGatewayWsUrl}, {@link buildVelayWsUrl}, and
+ * {@link mintVelayWsToken} are what a watch session dials through as well
+ * (`domains/chat/watch/watch-controller.ts`). Only the `…LiveVoiceWsUrl`
+ * wrappers and {@link resolveLiveVoiceWsUrl} are live voice's own. The file
+ * keeps its name and its home because live voice is where the rules were
+ * worked out and is still their principal user; the alternative is a second
+ * module that restates them and drifts.
  */
 
 import { velayHostForPlatformHost } from "@vellumai/service-contracts/ingress";
@@ -55,12 +68,12 @@ import { assertHasResponse } from "@/utils/api-errors";
  */
 const DEFAULT_VELAY_HOST = "velay.vellum.ai";
 
-export class LiveVoiceTokenError extends Error {
+export class VelayWsTokenError extends Error {
   readonly status: number;
 
   constructor(status: number, message: string) {
     super(message);
-    this.name = "LiveVoiceTokenError";
+    this.name = "VelayWsTokenError";
     this.status = status;
   }
 }
@@ -70,7 +83,7 @@ export class LiveVoiceTokenError extends Error {
  * the body is unverified on the wire — narrow defensively rather than trusting
  * the generic.
  */
-function isLiveVoiceToken(value: unknown): value is LiveVoiceTokenResponse {
+function isVelayWsToken(value: unknown): value is LiveVoiceTokenResponse {
   if (!value || typeof value !== "object") {
     return false;
   }
@@ -79,28 +92,38 @@ function isLiveVoiceToken(value: unknown): value is LiveVoiceTokenResponse {
 }
 
 /**
- * Mint a short-lived, org+assistant-scoped live-voice WS token.
+ * Mint a short-lived, user+org+assistant-scoped velay WS token.
  *
  * POSTs `/v1/auth/live-voice-token/` through the credentialed platform client
  * so the session cookie, CSRF token, and `Vellum-Organization-Id` ride along
  * automatically (see the module doc comment for the contract).
+ *
+ * Named for velay rather than for live voice because the token is not a
+ * live-voice token in substance: the platform stores it as an opaque random
+ * string against a scope of `{user_id, organization_id, assistant_id}` and
+ * nothing else (`django/app/auth/live_voice_token.py`). There is no route in
+ * the scope, so the same token authorizes any velay WebSocket route that
+ * requires per-user validation, and a second one now does
+ * (`/v1/watch/stream`). Only the endpoint's URL still carries the original
+ * name, which is a wire compatibility detail rather than a claim about what
+ * the token is good for.
  */
-export async function mintLiveVoiceToken(
+export async function mintVelayWsToken(
   assistantId: string,
 ): Promise<LiveVoiceTokenResponse> {
   const { data, error, response } = await authLiveVoiceTokenCreate({
     body: { assistantId },
     throwOnError: false,
   });
-  assertHasResponse(response, error, "Failed to mint live-voice token");
+  assertHasResponse(response, error, "Failed to mint velay WS token");
   if (!response.ok) {
-    throw new LiveVoiceTokenError(
+    throw new VelayWsTokenError(
       response.status,
-      `Live-voice token request failed (HTTP ${response.status})`,
+      `Velay WS token request failed (HTTP ${response.status})`,
     );
   }
-  if (!isLiveVoiceToken(data)) {
-    throw new LiveVoiceTokenError(0, "Live-voice token response was malformed");
+  if (!isVelayWsToken(data)) {
+    throw new VelayWsTokenError(0, "Velay WS token response was malformed");
   }
   return data;
 }
@@ -158,19 +181,63 @@ export interface BuildLiveVoiceWsUrlArgs {
   assistantId: string;
   /** Optional conversation to attach the live-voice session to. */
   conversationId?: string;
-  /** Short-lived token from {@link mintLiveVoiceToken}. */
+  /** Short-lived token from {@link mintVelayWsToken}. */
   token: string;
 }
 
+export interface BuildVelayWsUrlArgs {
+  assistantId: string;
+  /** Gateway route to open, e.g. `/v1/live-voice` or `/v1/watch/stream`. */
+  routePath: string;
+  /** Short-lived token from {@link mintVelayWsToken}. */
+  token: string;
+  /** Extra query params to append after `token` (e.g. `conversationId`). */
+  params?: Record<string, string>;
+}
+
 /**
- * Build the velay live-voice WebSocket URL for the cloud path:
+ * Build a velay WebSocket URL for the cloud path:
  *
- *   wss://<velayHost>/<assistantId>/v1/live-voice?token=<token>[&conversationId=<id>]
+ *   wss://<velayHost>/<assistantId><routePath>?token=<token>[&…]
  *
- * The scheme is `wss` for the real velay host and `ws` when `VITE_VELAY_HOST`
- * points at a loopback (local `vel up` velay) — see {@link getVelayWsScheme}.
- * The token is URL-encoded. `conversationId` is appended as an additional
- * query param only when provided.
+ * The cloud counterpart of {@link buildSelfHostedGatewayWsUrl}, and shared by
+ * every velay WS the browser opens for the same reason that one is shared: the
+ * transport rules belong in one place rather than once per route.
+ *
+ * - **The `/<assistantId>` prefix selects the tunnel.** velay strips it to
+ *   recover the upstream path, which is what it matches its allowlist and its
+ *   per-user token validation against.
+ * - **The scheme** is `wss` for the real velay host and `ws` when
+ *   `VITE_VELAY_HOST` points at a loopback (local `vel up` velay) — see
+ *   {@link getVelayWsScheme}.
+ * - **The token is a minted velay token**, not the actor edge JWT the
+ *   self-hosted builder uses. velay consumes it on the upgrade and injects the
+ *   authenticated user/org downstream; the gateway reads that attestation
+ *   rather than the query param.
+ * - **Extra params are forwarded upstream** by velay, which is how the gateway
+ *   sees `conversationId` on live voice and `mimeType`/`sampleRate` on watch.
+ *
+ * Values are URL-encoded by `URLSearchParams`.
+ */
+export function buildVelayWsUrl({
+  assistantId,
+  routePath,
+  token,
+  params,
+}: BuildVelayWsUrlArgs): string {
+  const host = getVelayHost();
+  const scheme = getVelayWsScheme(host);
+  const url = new URL(`${scheme}://${host}/${assistantId}${routePath}`);
+  url.searchParams.set("token", token);
+  for (const [key, value] of Object.entries(params ?? {})) {
+    url.searchParams.set(key, value);
+  }
+  return url.toString();
+}
+
+/**
+ * Build the velay live-voice WebSocket URL for the cloud path. Thin wrapper
+ * over {@link buildVelayWsUrl} for the `/v1/live-voice` route.
  *
  * This is the cloud builder. The self-hosted/local path uses
  * {@link buildSelfHostedLiveVoiceWsUrl}; {@link resolveLiveVoiceWsUrl} chooses
@@ -181,14 +248,12 @@ export function buildLiveVoiceWsUrl({
   conversationId,
   token,
 }: BuildLiveVoiceWsUrlArgs): string {
-  const host = getVelayHost();
-  const scheme = getVelayWsScheme(host);
-  const url = new URL(`${scheme}://${host}/${assistantId}/v1/live-voice`);
-  url.searchParams.set("token", token);
-  if (conversationId) {
-    url.searchParams.set("conversationId", conversationId);
-  }
-  return url.toString();
+  return buildVelayWsUrl({
+    assistantId,
+    routePath: "/v1/live-voice",
+    token,
+    params: conversationId ? { conversationId } : undefined,
+  });
 }
 
 export interface BuildSelfHostedLiveVoiceWsUrlArgs {
@@ -344,7 +409,7 @@ export interface ResolveLiveVoiceWsUrlArgs {
  *
  * - **Self-hosted / local** — when {@link getSelfHostedIngressUrl} is primed,
  *   connect straight to the user's gateway with the actor edge JWT. No velay
- *   token-exchange happens. Throws {@link LiveVoiceTokenError} if the ingress is
+ *   token-exchange happens. Throws {@link VelayWsTokenError} if the ingress is
  *   known but the actor token hasn't been provisioned yet (a brief post-hatch
  *   window), so the caller surfaces a connection failure rather than dialling an
  *   unauthenticated socket. A paired ingress throws
@@ -364,7 +429,7 @@ export async function resolveLiveVoiceWsUrl({
     }
     const token = getSelfHostedActorToken();
     if (!token) {
-      throw new LiveVoiceTokenError(
+      throw new VelayWsTokenError(
         0,
         "Self-hosted live voice has no actor token yet; the gateway isn't ready.",
       );
@@ -372,6 +437,6 @@ export async function resolveLiveVoiceWsUrl({
     return buildSelfHostedLiveVoiceWsUrl({ ingressUrl, conversationId, token });
   }
 
-  const { token } = await mintLiveVoiceToken(assistantId);
+  const { token } = await mintVelayWsToken(assistantId);
   return buildLiveVoiceWsUrl({ assistantId, conversationId, token });
 }
