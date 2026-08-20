@@ -47,6 +47,38 @@ import { assistantSupportsEntryProviderBinding } from "@/lib/backwards-compat/en
 import { assistantSupportsVellumProviderProfiles } from "@/lib/backwards-compat/vellum-profile-provider";
 import { badRequestMessage } from "@/utils/api-errors";
 
+/**
+ * Mirror of the daemon's `validateInferenceProfileConfig` judgment
+ * (`assistant/src/providers/inference/profile-config-validation.ts`). The
+ * settings surface persists through the generic config PATCH, which is the
+ * deliberately unvalidated escape hatch, so an impossible output budget must
+ * be rejected here before the write or it lands stored.
+ */
+const MIN_INPUT_RESERVE_TOKENS = 4096;
+
+function maxTokensBudgetError(
+  provider: string,
+  model: string,
+  maxTokens: number,
+): string | null {
+  const catalogModel = getModelsForProvider(provider).find(
+    (m) => m.id === model,
+  );
+  if (!catalogModel) {
+    return null;
+  }
+  if (maxTokens > catalogModel.maxOutputTokens) {
+    return `Max tokens (${maxTokens}) exceeds the model's maximum output of ${catalogModel.maxOutputTokens} tokens. Reduce it to ${catalogModel.maxOutputTokens} or less.`;
+  }
+  if (
+    maxTokens >=
+    catalogModel.contextWindowTokens - MIN_INPUT_RESERVE_TOKENS
+  ) {
+    return `Max tokens (${maxTokens}) reserves the entire ${catalogModel.contextWindowTokens}-token context window for output, leaving no room for your messages. Reduce it (e.g. 8000).`;
+  }
+  return null;
+}
+
 export type ProfileEditorMode = "create" | "edit" | "view";
 export type EffortSelection = "inherit" | NonNullable<ProfileEntry["effort"]>;
 
@@ -636,6 +668,13 @@ export function useProfileEditor({
         setSaving(false);
       }
       return;
+    }
+    if (visibility.maxTokens && maxTokens !== null && provider && model) {
+      const budgetError = maxTokensBudgetError(provider, model, maxTokens);
+      if (budgetError) {
+        setSaveError(budgetError);
+        return;
+      }
     }
     setSaving(true);
     setSaveError(null);

@@ -15,6 +15,7 @@
 import type { ResolutionFallbackReason } from "../../config/llm-resolver.js";
 import { selectWinningProfile } from "../../config/llm-resolver.js";
 import { getConfigReadOnly } from "../../config/loader.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -23,6 +24,7 @@ import {
   userMessage,
 } from "../provider-send-message.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "./auth.js";
+import { getConnection } from "./connections.js";
 
 const log = getLogger("inference-profile-probe");
 
@@ -133,6 +135,13 @@ export async function probeInferenceProfile(
     typeof entry.provider_connection === "string"
       ? entry.provider_connection
       : provider || undefined;
+  // A legacy profile can declare a concrete provider while staying bound to
+  // a platform-billed connection row (e.g. the canonical vellum connection);
+  // the row's auth is the billing fact, so it gates the probe too.
+  const boundRow = connection ? getConnection(getDb(), connection) : null;
+  if (boundRow?.auth.type === "platform") {
+    return null;
+  }
 
   const selectionSeed = crypto.randomUUID();
 
