@@ -75,6 +75,15 @@ type Backdrop = keyof typeof BACKDROPS;
 
 type StoryArgs = React.ComponentProps<typeof CompanionSurface> & {
   backdrop: Backdrop;
+  /**
+   * Which beat the introduction opens on, for the `Introduction` story.
+   *
+   * A control rather than only a starting point, because the beats are what a
+   * user meets the surface through once and each one has to be looked at on its
+   * own: clicking through to the third every time to check the third is how a
+   * beat goes unreviewed.
+   */
+  introBeat?: CompanionIntroBeat;
 };
 
 const meta: Meta<StoryArgs> = {
@@ -102,6 +111,10 @@ const meta: Meta<StoryArgs> = {
     },
     accentHex: { control: "color" },
     glow: { control: "boolean" },
+    introBeat: {
+      control: "inline-radio",
+      options: COMPANION_INTRO_BEATS,
+    },
   },
   args: {
     phase: "resting",
@@ -657,10 +670,16 @@ function DemoReelPlayer(args: StoryArgs) {
  * that it has been seen and there is no way back into it from the app; this is
  * a story, and a story that could only be watched once would be useless.
  */
-function IntroWalkthrough(args: StoryArgs) {
+function IntroWalkthrough({ introBeat, ...args }: StoryArgs) {
   const [beat, setBeat] = useState<CompanionIntroBeat | null>(
-    COMPANION_INTRO_BEATS[0],
+    introBeat ?? COMPANION_INTRO_BEATS[0],
   );
+
+  // Jumping straight to a beat from the controls panel, so each one can be
+  // reviewed without walking to it.
+  useEffect(() => {
+    setBeat(introBeat ?? COMPANION_INTRO_BEATS[0]);
+  }, [introBeat]);
 
   return (
     <CompanionSurface
@@ -693,6 +712,6 @@ function IntroWalkthrough(args: StoryArgs) {
 }
 
 export const Introduction: Story = {
-  args: { phase: "resting" },
+  args: { phase: "resting", introBeat: COMPANION_INTRO_BEATS[0] },
   render: (args) => <IntroWalkthrough {...args} />,
 };
