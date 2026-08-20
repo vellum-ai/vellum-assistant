@@ -5,9 +5,13 @@
  * notice rather than assistant-persona speech. Plugins use it to tell the user
  * about something the turn did to their input that the model's own reply
  * cannot explain (e.g. an attachment the turn could not send).
+ *
+ * The writer is loaded through a dynamic `import()` inside the wrapper, for the
+ * same reason `persistence/conversation-plugin-facade.ts` does: it carries the
+ * DB/drizzle import graph, whose named exports must not be forced to resolve
+ * merely because a plugin imported `@vellumai/plugin-api`. Suites that
+ * partial-mock a module in that graph would otherwise fail to instantiate.
  */
-
-import { persistSystemCard as persistHostSystemCard } from "../runtime/routes/canned-message-complete.js";
 
 /**
  * Persist a system card in a conversation's transcript and announce it to
@@ -25,6 +29,8 @@ export async function persistSystemCard(opts: {
   text: string;
   metadata: Record<string, unknown>;
 }): Promise<string> {
+  const { persistSystemCard: persistHostSystemCard } =
+    await import("../runtime/routes/canned-message-complete.js");
   const { id } = await persistHostSystemCard({ ...opts, endsTurn: false });
   return id;
 }
