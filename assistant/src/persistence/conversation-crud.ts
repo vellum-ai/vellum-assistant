@@ -259,6 +259,14 @@ const backgroundToolCompletionMetadataSchema = z.object({
 
 export const messageMetadataSchema = z
   .object({
+    /**
+     * Epoch ms the content actually happened, when that differs from when
+     * the row was written. Set wherever persistence lags the event: a queued
+     * turn draining, or channel history imported long after the fact.
+     * History serialization prefers it over `createdAt` for the display
+     * timestamp, and memory indexing dates segments by it.
+     */
+    sentAt: z.number().optional(),
     userMessageChannel: channelIdSchema.optional(),
     assistantMessageChannel: channelIdSchema.optional(),
     userMessageInterface: interfaceIdSchema.optional(),
@@ -2337,13 +2345,23 @@ export async function addMessage(
         ? parsed.data.provenanceTrustClass
         : undefined;
       const automated = parsed?.success ? parsed.data.automated : undefined;
+      // Index against when the content happened, not when the row was
+      // written. The two differ whenever persistence lags the event: by
+      // seconds on a queued turn, by weeks on imported channel history.
+      // The indexed timestamp reaches the embedding payload as `created_at`,
+      // which graph search date-range filters on, so a row carrying `sentAt`
+      // would otherwise be recalled as if it had happened at import time.
+      const occurredAt =
+        parsed?.success && typeof parsed.data.sentAt === "number"
+          ? parsed.data.sentAt
+          : message.createdAt;
       await indexMessageNow(
         {
           messageId: message.id,
           conversationId: message.conversationId,
           role: message.role,
           content: message.content,
-          createdAt: message.createdAt,
+          createdAt: occurredAt,
           provenanceTrustClass,
           automated,
         },
