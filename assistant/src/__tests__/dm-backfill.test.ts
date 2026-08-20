@@ -180,6 +180,8 @@ function readPersistedSlackRows(): Array<{
   provenanceSourceChannel: string | undefined;
   provenanceGuardianExternalUserId: string | undefined;
   provenanceRequesterIdentifier: string | undefined;
+  sentAt: number | undefined;
+  createdAt: number;
 }> {
   const db = getDb();
   return db
@@ -187,6 +189,7 @@ function readPersistedSlackRows(): Array<{
       role: messages.role,
       content: messages.content,
       metadata: messages.metadata,
+      createdAt: messages.createdAt,
     })
     .from(messages)
     .all()
@@ -231,6 +234,9 @@ function readPersistedSlackRows(): Array<{
           typeof envelope.provenanceRequesterIdentifier === "string"
             ? envelope.provenanceRequesterIdentifier
             : undefined,
+        sentAt:
+          typeof envelope.sentAt === "number" ? envelope.sentAt : undefined,
+        createdAt: row.createdAt,
       };
     });
 }
@@ -586,6 +592,32 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(rows.length).toBe(3);
     const texts = rows.map((r) => r.content).sort();
     expect(texts).toEqual(["older A", "older B", "older D"]);
+  });
+
+  test("backfilled rows carry the original send time as sentAt", async () => {
+    // History serialization prefers `sentAt` for the display timestamp, so a
+    // row without it reads as having arrived when the import ran.
+    const sentAt = Date.UTC(2026, 6, 8, 9, 15);
+    backfillDmMock.mockImplementation(async () => [
+      makeBackfilledMessage({
+        id: String(sentAt / 1000),
+        text: "six weeks old",
+        timestamp: sentAt,
+      }),
+    ]);
+
+    await handleChannelInbound(
+      buildDmRequest("live new DM"),
+      noopProcessMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    const [row] = readPersistedSlackRows();
+    expect(row).toBeDefined();
+    expect(row.sentAt).toBe(sentAt);
+    // The row is still written now; only the reported send time is historical.
+    // Asserting the gap is what proves `sentAt` is not just echoing createdAt.
+    expect(row.createdAt).toBeGreaterThan(sentAt);
   });
 
   test("backfill refuses history rows carrying a secret, keeping the rest", async () => {

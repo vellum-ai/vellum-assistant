@@ -1760,9 +1760,19 @@ async function persistBackfilledSlackMessage(params: {
 
   const rawText = message.text ?? "";
 
+  // `sentAt` is when the message was sent; the row's `createdAt` is when the
+  // import wrote it. History serialization prefers `sentAt` for the display
+  // timestamp, so setting it is what keeps weeks-old history from reading as
+  // having just arrived. The Slack adapter already derives this from the
+  // message ts, so no parsing happens here.
+  const sentAt = Number.isFinite(message.timestamp)
+    ? message.timestamp
+    : undefined;
+
   const persisted = await addMessage(params.conversationId, role, rawText, {
     metadata: {
       slackMeta: writeSlackMetadata(slackMeta),
+      ...(sentAt !== undefined ? { sentAt } : {}),
       provenanceTrustClass: isGuardian ? "guardian" : "unknown",
       provenanceSourceChannel: "slack",
       ...(params.guardianExternalUserId
