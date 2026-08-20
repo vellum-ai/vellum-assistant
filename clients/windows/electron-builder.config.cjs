@@ -71,6 +71,11 @@ const resolveSigning = () => {
     // name lands in app-update.yml so the updater verifies downloads.
     case "command": {
       const template = requireEnv("WINDOWS_SIGN_COMMAND");
+      if (!template.includes("{file}")) {
+        throw new Error(
+          "WINDOWS_SIGN_COMMAND must contain a {file} placeholder",
+        );
+      }
       return {
         signtoolOptions: {
           publisherName: requireEnv("WINDOWS_SIGNING_PUBLISHER_NAME"),
