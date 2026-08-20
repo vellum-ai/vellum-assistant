@@ -93,43 +93,19 @@ describe("isArchiveBySenderAuthorized", () => {
 });
 
 describe("canSeePersonalMemory", () => {
-  test("guardian keeps memory on every channel", () => {
-    for (const executionChannel of [undefined, "vellum", "slack", "phone"]) {
-      expect(
-        canSeePersonalMemory({ trustClass: "guardian", executionChannel }),
-      ).toBe(true);
-    }
-  });
-
-  test("no channel means no actor was resolved, which is a local/native turn", () => {
-    // A resolved actor always carries a channel, so absence is a signal rather
-    // than a permissive default.
-    expect(canSeePersonalMemory({ trustClass: undefined })).toBe(true);
-    expect(canSeePersonalMemory({ trustClass: "unknown" })).toBe(true);
-  });
-
-  test("a non-guardian is denied memory on remote channels", () => {
-    for (const executionChannel of ["slack", "phone", "email", "telegram"]) {
-      expect(
-        canSeePersonalMemory({
-          trustClass: "unverified_contact",
-          executionChannel,
-        }),
-      ).toBe(false);
-    }
-  });
-
-  test("a non-guardian on the first-party console currently keeps memory", () => {
-    // Pins today's channel override so a change to it is a deliberate,
-    // visible edit rather than a silent drift.
+  test("only the guardian class sees personal memory", () => {
+    expect(canSeePersonalMemory({ trustClass: "guardian" })).toBe(true);
     for (const trustClass of [
       "trusted_contact",
       "unverified_contact",
       "unknown",
     ]) {
-      expect(
-        canSeePersonalMemory({ trustClass, executionChannel: "vellum" }),
-      ).toBe(true);
+      expect(canSeePersonalMemory({ trustClass })).toBe(false);
     }
+  });
+
+  test("an unrecognized or absent class fails closed", () => {
+    expect(canSeePersonalMemory({ trustClass: "non_guardian" })).toBe(false);
+    expect(canSeePersonalMemory({ trustClass: undefined })).toBe(false);
   });
 });

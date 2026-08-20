@@ -96,7 +96,8 @@ describe("VoiceComposerBar: state announcement", () => {
   const labels: Array<[LiveVoiceSessionState, string]> = [
     ["connecting", "Connecting…"],
     ["listening", "Listening…"],
-    ["transcribing", "Transcribing…"],
+    // Shares `thinking`'s wording on purpose (JARVIS-1559).
+    ["transcribing", "Thinking…"],
     ["thinking", "Thinking…"],
     ["speaking", "Speaking…"],
     ["ending", "Ending…"],

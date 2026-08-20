@@ -22,6 +22,7 @@ import {
   updateDeliveryRenderedCopy,
 } from "./deliveries-store.js";
 import { getBroadcaster } from "./emit-signal.js";
+import { updateFeedItemConversationMessage } from "./home-feed-side-effect.js";
 import { nonEmpty } from "./notification-utils.js";
 import type { NotificationChannel } from "./types.js";
 
@@ -119,24 +120,49 @@ export async function editNotification(
       { feedItemId, signalId },
       "Feed item has no persisted decision — skipping channel updates",
     );
-    return { feedItem, channels: [] };
   }
 
-  const deliveries = findDeliveriesByDecisionId(decision.id);
-  const channels = await updateChannelDeliveries(deliveries, {
-    title,
-    body: params.body,
-  });
+  const deliveries = decision ? findDeliveriesByDecisionId(decision.id) : [];
+  const { channels, rewrittenMessageIds } = await updateChannelDeliveries(
+    deliveries,
+    { title, body: params.body },
+  );
+
+  // The delivery walk covers a conversation row only while its delivery reads
+  // sent, so the card carries the id of the row behind it and this closes
+  // whatever the walk missed. Runs after it, and skips a row the walk just
+  // rewrote, so the two never both write. Body edits only: a title-only patch
+  // leaves the feed summary alone, and the row holds the body.
+  if (params.body !== undefined) {
+    updateFeedItemConversationMessage(
+      feedItem,
+      params.body,
+      rewrittenMessageIds,
+    );
+  }
 
   return { feedItem, channels };
 }
 
+/**
+ * Walk the recorded deliveries and let each channel adapter apply the patch.
+ *
+ * Alongside the per-channel outcomes this reports the message ids the
+ * adapters rewrote, which is what tells the caller whether the row behind the
+ * card still needs writing. Only body patches contribute: an adapter reports
+ * its message id on a title-only patch too, without having touched the
+ * conversation row.
+ */
 async function updateChannelDeliveries(
   deliveries: NotificationDeliveryRow[],
   patch: { title?: string; body?: string },
-): Promise<ChannelEditResult[]> {
+): Promise<{
+  channels: ChannelEditResult[];
+  rewrittenMessageIds: ReadonlySet<string>;
+}> {
   const broadcaster = getBroadcaster();
   const results: ChannelEditResult[] = [];
+  const rewrittenMessageIds = new Set<string>();
 
   for (const delivery of deliveries) {
     const channel = delivery.channel as NotificationChannel;
@@ -167,6 +193,7 @@ async function updateChannelDeliveries(
           deliveryId: delivery.id,
           destination: delivery.destination,
           messageId: delivery.messageId,
+          conversationId: delivery.conversationId,
         },
         patch,
       );
@@ -183,6 +210,9 @@ async function updateChannelDeliveries(
         renderedTitle: patch.title,
         renderedBody: patch.body,
       });
+      if (patch.body !== undefined && result.messageId) {
+        rewrittenMessageIds.add(result.messageId);
+      }
       results.push({
         channel,
         deliveryId: delivery.id,
@@ -203,5 +233,5 @@ async function updateChannelDeliveries(
     }
   }
 
-  return results;
+  return { channels: results, rewrittenMessageIds };
 }

@@ -217,7 +217,11 @@ const main = async (): Promise<void> => {
       nativeRoot,
     );
   }
-  for (const architecture of resolveArchitectures(argValue("--arch"), "all")) {
+  // CI passes --arch all; local dev builds the current architecture.
+  for (const architecture of resolveArchitectures(
+    argValue("--arch"),
+    process.env.ELECTRON_TARGET_ARCH ?? process.arch,
+  )) {
     await runNativeCommand(
       [
         dotnet,

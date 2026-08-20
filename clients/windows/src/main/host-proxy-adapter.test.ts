@@ -24,6 +24,10 @@ test("creates a Windows runtime with only the committed portable executors", () 
     "X-Vellum-Client-Id": "client-123",
     "X-Vellum-Interface-Id": "windows",
   });
+  expect(runtime.sseFallbackClientHeaders?.()).toMatchObject({
+    "X-Vellum-Client-Id": "client-123",
+    "X-Vellum-Interface-Id": "macos",
+  });
   expect(runtime.posterClientHeaders()).toEqual({
     "X-Vellum-Client-Id": "client-123",
   });

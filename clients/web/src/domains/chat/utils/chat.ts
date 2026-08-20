@@ -43,6 +43,8 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "avatar_updated",
   "sync_changed",
   "disk_pressure_status_changed",
+  // Workspace-wide resource-pressure broadcast, no `conversationId`.
+  "resource_pressure_status_changed",
   // App source-file change broadcast — carries an `appId`, not a
   // `conversationId`; clients re-read the app on receipt.
   "app_files_changed",

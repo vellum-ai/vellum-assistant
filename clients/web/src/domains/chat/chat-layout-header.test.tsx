@@ -28,7 +28,10 @@ mock.module("@/stores/command-palette-store", () => ({
 const setInlineTitleBarActiveSpy = mock((_active: boolean) => {});
 mock.module("@/stores/title-bar-store", () => ({
   useTitleBarStore: {
-    use: { setInlineTitleBarActive: () => setInlineTitleBarActiveSpy },
+    use: {
+      setInlineTitleBarActive: () => setInlineTitleBarActiveSpy,
+      windowsMenuBarSuppressed: () => false,
+    },
   },
 }));
 

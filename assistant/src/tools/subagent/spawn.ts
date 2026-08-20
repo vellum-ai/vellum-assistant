@@ -595,7 +595,6 @@ async function runAdvisorConsult(args: {
       workingDir: context.workingDir,
       allowedToolNames: context.allowedToolNames,
       trustClass: context.trustClass,
-      sourceChannel: context.executionChannel,
       enabledPluginSet: context.enabledPluginSet,
       // The parent's warm per-turn catalog keeps the synchronous on-disk
       // catalog scan out of the consult path.

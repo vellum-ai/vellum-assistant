@@ -67,12 +67,9 @@ export const telegramTransport: ChannelTransport = {
     return { ok: true };
   },
 
-  async sendTyping(ctx, payload) {
-    await sendTelegramTypingIndicator(payload.chatId, threadOptions(ctx));
-    log.debug(
-      { chatId: payload.chatId },
-      "Telegram typing indicator delivered (direct)",
-    );
+  async typing(ctx, chatId) {
+    await sendTelegramTypingIndicator(chatId, threadOptions(ctx));
+    log.debug({ chatId }, "Telegram typing indicator delivered (direct)");
     return { ok: true };
   },
 };

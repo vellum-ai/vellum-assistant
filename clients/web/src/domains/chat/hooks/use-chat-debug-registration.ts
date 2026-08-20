@@ -80,6 +80,13 @@ export function useChatDebugRegistration({
         isSubmittingQuestion: state.isSubmittingQuestion,
         isQuestionCardDismissed: state.isQuestionCardDismissed,
         inlineConfirmationToolCallId: state.inlineConfirmationToolCallId,
+        pendingAcpConnect: state.pendingAcpConnect,
+        // The store holds a Set, which JSON-serializes to `{}` in the feedback
+        // bundle; sort so repeated captures read the same.
+        dismissedAcpConnectToolUseIds: [
+          ...state.dismissedAcpConnectToolUseIds,
+        ].sort(),
+        pendingAcpContinue: state.pendingAcpContinue,
       };
     },
     getScrollPagination: () => {

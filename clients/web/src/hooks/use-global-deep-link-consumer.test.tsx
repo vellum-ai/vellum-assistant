@@ -80,6 +80,12 @@ mock.module("@sentry/react", () => ({
   captureException: () => {},
 }));
 
+// Voice entry runs a readiness preflight before a session opens; stub it ready
+// so these tests stay about link handling. See `voice-entry-guards`.
+mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
+  preflightLiveVoice: async () => ({ status: "ready" }),
+}));
+
 const { useGlobalDeepLinkConsumer } =
   await import("./use-global-deep-link-consumer");
 
@@ -96,6 +102,7 @@ const { drainPendingVoiceStart } =
   await import("@/domains/chat/voice/live-voice/start-voice-request");
 const { useIsVoiceRoomVisible } =
   await import("@/domains/chat/voice/voice-room/use-is-voice-room-visible");
+const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 
 /**
  * Wrap a bare `start` spy in the full starter contract. Only `start` is ever
@@ -143,6 +150,10 @@ beforeEach(() => {
   // Module-level one-shot flag; drain so a prior test's focus request can't
   // satisfy this test's assertion.
   consumePendingComposerFocus();
+  // A first-ever voice entry gets the preferences card instead of a session
+  // (see `voice-entry-guards`); these tests are about the links, not that
+  // interception, so they run as a user who has entered voice before.
+  useVoicePrefsStore.setState({ firstRunSeen: true });
   resetStores();
 });
 

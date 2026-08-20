@@ -11,7 +11,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
-    <!-- UI Automation client (System.Windows.Automation) for focused-field checks. -->
+    <!-- Windows Desktop APIs for UI Automation, display capture, and focused-field checks. -->
     <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
   </ItemGroup>
 </Project>

@@ -127,6 +127,7 @@ import { ROUTES as PUBLISH_ROUTES } from "./publish-routes.js";
 import { ROUTES as QUESTION_ROUTES } from "./question-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
+import { ROUTES as RESOURCE_PRESSURE_ROUTES } from "./resource-pressure-routes.js";
 import { ROUTES as RETROSPECTIVE_ROUTES } from "./retrospective-routes.js";
 import { ROUTES as ROUTE_HOST_WORKER_ROUTES } from "./route-host-worker-routes.js";
 import { ROUTES as SANITY_ROUTES } from "./sanity-routes.js";
@@ -210,6 +211,7 @@ export const ROUTES: RouteDefinition[] = [
   ...DEFAULT_PROVIDER_ROUTES,
   ...DIAGNOSTICS_ROUTES,
   ...DISK_PRESSURE_ROUTES,
+  ...RESOURCE_PRESSURE_ROUTES,
   ...DOMAIN_ROUTES,
   ...DOCUMENT_COMMENT_ROUTES,
   ...DOCUMENT_ROUTES,

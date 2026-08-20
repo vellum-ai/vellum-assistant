@@ -1,5 +1,5 @@
 import { LogIn, LogOut } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
@@ -11,6 +11,7 @@ import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useTitleBarStore } from "@/stores/title-bar-store";
 import { routes } from "@/utils/routes";
 import { SETTINGS_SIDEBAR } from "@/utils/settings-navigation";
 import { SidebarShell } from "@/components/sidebar-shell";
@@ -25,6 +26,15 @@ import { SidebarTree, type SidebarItem } from "@/components/sidebar-tree";
 export function SettingsLayout() {
   const settingsDeveloperNav =
     useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  // Settings brings its own full-screen chrome; the Windows in-title-bar
+  // menu bar yields while it's up (inert off the Windows shell, where the
+  // menu bar doesn't render anyway).
+  const setWindowsMenuBarSuppressed =
+    useTitleBarStore.use.setWindowsMenuBarSuppressed();
+  useEffect(() => {
+    setWindowsMenuBarSuppressed(true);
+    return () => setWindowsMenuBarSuppressed(false);
+  }, [setWindowsMenuBarSuppressed]);
   const isNativeAndroid = useIsNativeAndroid();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   // The Bookmarks and Credentials tabs need routes that only newer assistants

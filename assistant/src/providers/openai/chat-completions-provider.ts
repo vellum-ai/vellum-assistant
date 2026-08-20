@@ -162,14 +162,19 @@ export interface OpenAIChatCompletionsProviderOptions {
   parseThinkTags?: boolean;
   /** Wire field used to replay prior assistant thinking on multi-turn requests.
    *  DeepSeek/Fireworks use `"reasoning_content"`; OpenRouter uses `"reasoning"`.
-   *  When unset, thinking blocks are dropped from outbound assistant messages. */
+   *  When unset, thinking blocks are dropped from outbound assistant messages.
+   *  When set, the field is included only if there is thinking to replay, so a
+   *  standard Chat Completions endpoint does not see an extra key on ordinary
+   *  tool-call turns. DeepSeek thinking mode that requires the field even when
+   *  empty is handled by a one-shot retry. */
   assistantReasoningField?: "reasoning" | "reasoning_content";
   /** Backfill a non-empty placeholder for assistant turns that would otherwise
    *  serialize with neither `content` nor `tool_calls` (e.g. reasoning-only
-   *  turns). Off by default; enabled for OpenRouter, whose downstream providers
-   *  (e.g. DeepSeek) reject such messages with `Invalid assistant message:
-   *  content or tool_calls must be set`. See {@link
-   *  EMPTY_ASSISTANT_TURN_PLACEHOLDER}. */
+   *  turns, or a Stop mid-stream before any text). Off by default; enabled for
+   *  OpenRouter, Vercel AI Gateway, LiteLLM, and custom `openai-compatible`
+   *  endpoints, whose downstream providers (e.g. DeepSeek, vLLM, Portkey)
+   *  reject such messages with `Invalid assistant message: content or
+   *  tool_calls must be set`. See {@link EMPTY_ASSISTANT_TURN_PLACEHOLDER}. */
   backfillEmptyAssistantContent?: boolean;
   /** Present object-typed tool params to the model as JSON-string params and
    *  decode them back to objects on the response. Works around models whose
@@ -315,6 +320,165 @@ function isThinkingModeToolChoiceRejection(
   }
   return /does not support this tool_choice/i.test(
     openaiCompatErrorHaystack(error),
+  );
+}
+
+type AssistantReasoningExtras = {
+  reasoning?: string;
+  reasoning_content?: string;
+};
+
+function assistantReasoningExtras(
+  msg: OpenAI.Chat.Completions.ChatCompletionMessageParam,
+): AssistantReasoningExtras | null {
+  if (msg.role !== "assistant") {
+    return null;
+  }
+  return msg as OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam &
+    AssistantReasoningExtras;
+}
+
+function paramsMessages(
+  params: unknown,
+): OpenAI.Chat.Completions.ChatCompletionMessageParam[] | undefined {
+  const messages = (params as { messages?: unknown }).messages;
+  return Array.isArray(messages)
+    ? (messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[])
+    : undefined;
+}
+
+function messagesCarryAssistantReasoningField(params: unknown): boolean {
+  const messages = paramsMessages(params);
+  if (!messages) {
+    return false;
+  }
+  return messages.some((msg) => {
+    const extra = assistantReasoningExtras(msg);
+    return (
+      extra !== null &&
+      (extra.reasoning !== undefined || extra.reasoning_content !== undefined)
+    );
+  });
+}
+
+function assistantMessagesNeedReasoningContentBackfill(
+  params: unknown,
+): boolean {
+  const messages = paramsMessages(params);
+  if (!messages) {
+    return false;
+  }
+  return messages.some((msg) => {
+    const extra = assistantReasoningExtras(msg);
+    return (
+      extra !== null &&
+      extra.reasoning_content === undefined &&
+      extra.reasoning === undefined
+    );
+  });
+}
+
+function stripAssistantReasoningFields(params: unknown): boolean {
+  const messages = paramsMessages(params);
+  if (!messages) {
+    return false;
+  }
+  let stripped = false;
+  for (const msg of messages) {
+    const extra = assistantReasoningExtras(msg);
+    if (extra === null) {
+      continue;
+    }
+    if (extra.reasoning_content !== undefined) {
+      delete extra.reasoning_content;
+      stripped = true;
+    }
+    if (extra.reasoning !== undefined) {
+      delete extra.reasoning;
+      stripped = true;
+    }
+  }
+  return stripped;
+}
+
+function backfillEmptyReasoningContent(params: unknown): boolean {
+  const messages = paramsMessages(params);
+  if (!messages) {
+    return false;
+  }
+  let added = false;
+  for (const msg of messages) {
+    const extra = assistantReasoningExtras(msg);
+    if (extra === null) {
+      continue;
+    }
+    if (
+      extra.reasoning_content !== undefined ||
+      extra.reasoning !== undefined
+    ) {
+      continue;
+    }
+    extra.reasoning_content = "";
+    added = true;
+  }
+  return added;
+}
+
+function haystackNamesAssistantReasoningField(haystack: string): boolean {
+  if (/reasoning_content/i.test(haystack)) {
+    return true;
+  }
+  return /\breasoning\b/i.test(haystack) && !/reasoning_effort/i.test(haystack);
+}
+
+/**
+ * True when thinking-mode requires `reasoning_content` on subsequent
+ * assistant messages and this request omitted it. DeepSeek 400s with
+ * `The reasoning_content in the thinking mode must be passed back to the API`.
+ * One retry with an empty string on those assistant messages satisfies the
+ * presence check without putting the extra key on every custom-endpoint turn.
+ */
+function isMissingReasoningContentRejection(
+  error: unknown,
+  params: unknown,
+): boolean {
+  if (!isClientErrorStatus(error)) {
+    return false;
+  }
+  const haystack = openaiCompatErrorHaystack(error);
+  if (
+    !/reasoning_content/i.test(haystack) ||
+    !/must be passed back/i.test(haystack)
+  ) {
+    return false;
+  }
+  return assistantMessagesNeedReasoningContentBackfill(params);
+}
+
+/**
+ * True when the request included an assistant `reasoning` / `reasoning_content`
+ * extra and the provider rejected it as an unknown message property. One retry
+ * without those extras lets a strict Chat Completions schema succeed.
+ */
+function isUnknownAssistantReasoningFieldRejection(
+  error: unknown,
+  params: unknown,
+): boolean {
+  if (!isClientErrorStatus(error)) {
+    return false;
+  }
+  if (!messagesCarryAssistantReasoningField(params)) {
+    return false;
+  }
+  const haystack = openaiCompatErrorHaystack(error);
+  if (/must be passed back/i.test(haystack)) {
+    return false;
+  }
+  if (!haystackNamesAssistantReasoningField(haystack)) {
+    return false;
+  }
+  return /unknown|unexpected|unrecognized|additional propert|extra (?:field|property)|not (?:a )?valid|invalid (?:argument|parameter|field|property)/i.test(
+    haystack,
   );
 }
 
@@ -671,6 +835,28 @@ export class OpenAIChatCompletionsProvider implements Provider {
               "Upstream rejected tool_choice in thinking mode; retrying without tool_choice",
             );
             delete params.tool_choice;
+            stream = await createStream();
+          } else if (isMissingReasoningContentRejection(error, params)) {
+            log.warn(
+              {
+                provider: this.name,
+                model: modelOverride ?? this.model,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              "Upstream requires reasoning_content round-trip; retrying with empty field on assistant messages",
+            );
+            backfillEmptyReasoningContent(params);
+            stream = await createStream();
+          } else if (isUnknownAssistantReasoningFieldRejection(error, params)) {
+            log.warn(
+              {
+                provider: this.name,
+                model: modelOverride ?? this.model,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              "Upstream rejected assistant reasoning field; retrying without it",
+            );
+            stripAssistantReasoningFields(params);
             stream = await createStream();
           } else {
             throw error;
@@ -1183,6 +1369,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
         content: textParts.length > 0 ? textParts.join("") : null,
       };
 
+    if (toolCalls.length > 0) {
+      result.tool_calls = toolCalls;
+    }
+
+    // Include the configured wire field only when there is thinking to replay.
+    // Ordinary tool-call turns omit it so a strict Chat Completions schema
+    // does not reject an extra key. Empty-field presence for DeepSeek is a
+    // one-shot retry, not the default serialization.
     if (reasoningParts.length > 0 && this.assistantReasoningField) {
       (
         result as OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam & {
@@ -1192,15 +1386,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
       )[this.assistantReasoningField] = reasoningParts.join("");
     }
 
-    if (toolCalls.length > 0) {
-      result.tool_calls = toolCalls;
-    }
-
     // An assistant message must carry `content` or `tool_calls`. A turn with
-    // neither (e.g. reasoning-only) would serialize to null/empty content with
-    // no tool calls, which strict OpenAI-compatible backends reject. Reasoning
-    // lives in a separate field and does not satisfy this constraint. Scoped to
-    // providers that need it (OpenRouter) via `backfillEmptyAssistantContent`.
+    // neither (e.g. reasoning-only, or a Stop before any text) would serialize
+    // to null/empty content with no tool calls, which strict OpenAI-compatible
+    // backends reject. Reasoning lives in a separate field and does not
+    // satisfy this constraint. Scoped to providers that need it (OpenRouter,
+    // Vercel AI Gateway, LiteLLM, openai-compatible) via
+    // `backfillEmptyAssistantContent`.
     if (
       this.backfillEmptyAssistantContent &&
       !result.tool_calls &&

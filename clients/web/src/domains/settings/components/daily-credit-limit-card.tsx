@@ -13,6 +13,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useResumeDailyLimit } from "@/hooks/use-daily-limit-skip";
 import { useScrollToAnchor } from "@/hooks/use-scroll-to-anchor";
+import { useTranslation } from "@/i18n";
 import { dailyResetTimePhrase } from "@/utils/daily-reset-time";
 import { formatUsd } from "@/utils/format-usd";
 import { Button } from "@vellumai/design-library/components/button";
@@ -65,6 +66,7 @@ export function validateDailyLimit(raw: string): string | undefined {
  * both so the summary's `daily_limit_reached`/`daily_spend_usd` stay in sync.
  */
 export function DailyCreditLimitCard() {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const limitQuery = useQuery(
     organizationsBillingDailyCreditLimitRetrieveOptions(),
@@ -228,7 +230,7 @@ export function DailyCreditLimitCard() {
           disabled={
             updateMutation.isPending || (hasLimit && requiredByAutoTopUp)
           }
-          label="Set a daily credit limit"
+          label={t("dailyCreditLimitCard.toggleLabel")}
         />
 
         {requiredByAutoTopUp && (
@@ -236,8 +238,7 @@ export function DailyCreditLimitCard() {
             className="text-body-small-default text-[var(--content-tertiary)]"
             data-testid="daily-credit-limit-required-note"
           >
-            A daily credit limit is required while automatic top-ups are
-            enabled.
+            {t("dailyCreditLimitCard.requiredNote")}
           </p>
         )}
 
@@ -325,11 +326,6 @@ export function DailyCreditLimitCard() {
           </>
         )}
       </div>
-
-      <p className="mt-3 text-body-small-default text-[var(--content-tertiary)]">
-        Applies to Vellum credit spend only. Usage billed to your own provider
-        API keys isn&apos;t limited. Resets daily at {resetPhrase}.
-      </p>
 
       {saveError != null && (
         <Notice

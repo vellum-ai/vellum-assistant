@@ -1,6 +1,7 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { forwardRef, useImperativeHandle } from "react";
+import { MemoryRouter } from "react-router";
 
 type TextInsertionStatus =
   | "inserted"
@@ -70,8 +71,8 @@ mock.module("@/domains/chat/voice/use-push-to-talk", () => ({
   usePushToTalk: () => undefined,
 }));
 
-mock.module("@/domains/chat/voice/push-to-talk-host", () => ({
-  shouldEnablePushToTalk: () => false,
+mock.module("@/domains/chat/voice/keyboard-activation-host", () => ({
+  supportsKeyboardActivation: () => false,
 }));
 
 mock.module("@/domains/chat/voice/dictation-api", () => ({
@@ -103,7 +104,13 @@ const { useConversationStore } = await import("@/stores/conversation-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
 
 const renderBridge = (assistantId: string | null = "assistant-1") => {
-  render(<GlobalPushToTalkBridge assistantId={assistantId} />);
+  // The bridge's voice mode shortcut navigates to the conversation surface
+  // when a press finds no composer, so it renders under a router in the app.
+  render(
+    <MemoryRouter>
+      <GlobalPushToTalkBridge assistantId={assistantId} />
+    </MemoryRouter>,
+  );
   if (!latestVoiceInputProps) {
     throw new Error(
       "Expected GlobalPushToTalkBridge to mount VoiceInputButton",

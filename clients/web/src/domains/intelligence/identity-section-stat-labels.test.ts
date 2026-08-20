@@ -37,9 +37,13 @@ const UNIT_LABEL_KEYS = [
 const COUNT_PHRASE_KEYS = [
   "identityOverview.memoryCount",
   "useIdentitySectionStats.activeCount",
+  "useIdentitySectionStats.appAndDocCount",
+  "useIdentitySectionStats.appCount",
   "useIdentitySectionStats.connectedCount",
   "useIdentitySectionStats.itemCount",
   "useIdentitySectionStats.personCount",
+  "useIdentitySectionStats.skillAndPluginCount",
+  "useIdentitySectionStats.skillCount",
 ] as const;
 
 /** Exercises the `one` and `other` categories and a multi-digit count. */

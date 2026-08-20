@@ -54,6 +54,7 @@ import type {
   SystemPermissionStatus,
   SystemPermissionsState,
   TextInsertionResult,
+  TitleBarOverlayTheme,
   UpdateState,
   UpdateStatus,
   VellumCommand,
@@ -199,6 +200,8 @@ declare global {
       };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;
+        titles?(): Promise<Array<{ id: string; label: string }>>;
+        popup?(id: string, x: number, y: number): Promise<void>;
       };
       localMode: {
         hatch(
@@ -262,6 +265,7 @@ declare global {
       mainWindow: {
         ensureVisible(): Promise<void>;
         setOnboarding(active: boolean): Promise<void>;
+        setTitleBarOverlay?(colors: TitleBarOverlayTheme): Promise<void>;
       };
       power: {
         onEvent(callback: (event: PowerEvent) => void): () => void;
@@ -330,7 +334,9 @@ declare global {
         update(content: VoiceActivityContent): void;
         end(): void;
         control(control: VoiceActivityControl): void;
-        onControl(callback: (control: VoiceActivityControl) => void): () => void;
+        onControl(
+          callback: (control: VoiceActivityControl) => void,
+        ): () => void;
       };
       companion?: {
         getState(): Promise<CompanionSurfaceState | null>;

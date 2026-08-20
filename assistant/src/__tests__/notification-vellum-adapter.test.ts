@@ -1,4 +1,28 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// ── Mocks: declared before imports that depend on them ──────────────
+
+let updateMessageContentShouldThrow = false;
+
+const updateMessageContentMock = mock(
+  (_messageId: string, _content: string) => {
+    if (updateMessageContentShouldThrow) {
+      throw new Error("DB write failed");
+    }
+  },
+);
+
+mock.module("../persistence/conversation-crud.js", () => ({
+  updateMessageContent: updateMessageContentMock,
+}));
+
+const messagesInvalidated: string[] = [];
+
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  publishConversationMessagesChanged: (conversationId: string) => {
+    messagesInvalidated.push(conversationId);
+  },
+}));
 
 import type { AssistantEvent } from "../api/index.js";
 import { VellumAdapter } from "../notifications/adapters/macos.js";
@@ -154,5 +178,104 @@ describe("VellumAdapter remotePushDispatched pass-through", () => {
       { type: "notification_intent" }
     >;
     expect(intent.remotePushDispatched).toBeUndefined();
+  });
+});
+
+describe("VellumAdapter update", () => {
+  beforeEach(() => {
+    updateMessageContentMock.mockClear();
+    updateMessageContentShouldThrow = false;
+    messagesInvalidated.length = 0;
+  });
+
+  test("rewrites the persisted conversation message with the new body", async () => {
+    const { adapter } = captureBroadcast();
+
+    const result = await adapter.update!(
+      {
+        deliveryId: "delivery-1",
+        destination: "vellum",
+        messageId: "msg-1",
+        conversationId: "conv-1",
+      },
+      { title: "Daily Briefing", body: "Revised briefing text." },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.messageId).toBe("msg-1");
+    expect(updateMessageContentMock).toHaveBeenCalledTimes(1);
+    expect(updateMessageContentMock.mock.calls[0]).toEqual([
+      "msg-1",
+      "Revised briefing text.",
+    ]);
+    // A client holding the conversation open refetches on this tag alone.
+    expect(messagesInvalidated).toEqual(["conv-1"]);
+  });
+
+  test("rewrites without a conversation to invalidate", async () => {
+    // Deliveries recorded before the pairing carried a conversation have none
+    // to name, and the rewrite still stands on its own.
+    const { adapter } = captureBroadcast();
+
+    const result = await adapter.update!(
+      { deliveryId: "delivery-1", destination: "vellum", messageId: "msg-1" },
+      { body: "Revised briefing text." },
+    );
+
+    expect(result.success).toBe(true);
+    expect(updateMessageContentMock).toHaveBeenCalledTimes(1);
+    expect(messagesInvalidated).toHaveLength(0);
+  });
+
+  test("leaves the message untouched on a title-only edit", async () => {
+    // The feed rewrites its summary only when the patch carries a body, so
+    // writing the title here would put the conversation out of step with the
+    // card it is supposed to match.
+    const { adapter } = captureBroadcast();
+
+    const result = await adapter.update!(
+      { deliveryId: "delivery-1", destination: "vellum", messageId: "msg-1" },
+      { title: "Daily Briefing" },
+    );
+
+    expect(result.success).toBe(true);
+    expect(updateMessageContentMock).not.toHaveBeenCalled();
+  });
+
+  test("writes an empty body through, matching the feed summary patch", async () => {
+    const { adapter } = captureBroadcast();
+
+    await adapter.update!(
+      { deliveryId: "delivery-1", destination: "vellum", messageId: "msg-1" },
+      { title: "Daily Briefing", body: "" },
+    );
+
+    expect(updateMessageContentMock.mock.calls[0]![1]).toBe("");
+  });
+
+  test("skips deliveries that persisted no conversation message", async () => {
+    const { adapter } = captureBroadcast();
+
+    const result = await adapter.update!(
+      { deliveryId: "delivery-1", destination: "vellum", messageId: null },
+      { body: "Revised briefing text." },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("missing_message_id");
+    expect(updateMessageContentMock).not.toHaveBeenCalled();
+  });
+
+  test("reports failure without throwing when the write fails", async () => {
+    const { adapter } = captureBroadcast();
+    updateMessageContentShouldThrow = true;
+
+    const result = await adapter.update!(
+      { deliveryId: "delivery-1", destination: "vellum", messageId: "msg-1" },
+      { body: "Revised briefing text." },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("DB write failed");
   });
 });
