@@ -339,30 +339,17 @@ export class CredentialBroker {
 
     const { metadata } = resolved;
 
-    // Tool policy enforcement
-    if (!isToolAllowed(request.requestingTool, metadata.allowedTools)) {
-      return {
-        success: false,
-        reason: toolNotAllowedReason(
-          request.requestingTool,
-          metadata.service,
-          metadata.field,
-          metadata.allowedTools,
-        ),
-      };
-    }
-
-    // Domain policy enforcement - credentials with domain restrictions are
-    // scoped to browser use on those domains and cannot be used server-side.
-    const domains = metadata.allowedDomains ?? [];
-    if (domains.length > 0) {
-      return {
-        success: false,
-        reason:
-          `Credential ${metadata.service}/${metadata.field} has domain restrictions ` +
-          `(${domains.join(", ")}) and cannot be used server-side. ` +
-          "Remove domain restrictions or use a separate credential without domain policy.",
-      };
+    // Shared server-use policy: the ID lookup above is the only by-ID-specific
+    // gate, so tool and domain enforcement come from the same helper serverUse
+    // uses.
+    const denialReason = serverUseDenialReason(
+      metadata,
+      request.requestingTool,
+      metadata.service,
+      metadata.field,
+    );
+    if (denialReason) {
+      return { success: false, reason: denialReason };
     }
 
     // Fail-closed: verify the secret value actually exists in secure storage.
