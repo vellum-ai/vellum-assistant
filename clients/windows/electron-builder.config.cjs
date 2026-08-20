@@ -67,11 +67,14 @@ const resolveSigning = () => {
         },
       };
     // Any other signing CLI (DigiCert KeyLocker, AzureSignTool, ...): a shell
-    // command with a {file} placeholder, run once per file.
+    // command with a {file} placeholder, run once per file. The publisher
+    // name lands in app-update.yml so the updater verifies downloads.
     case "command": {
       const template = requireEnv("WINDOWS_SIGN_COMMAND");
       return {
         signtoolOptions: {
+          publisherName: requireEnv("WINDOWS_SIGNING_PUBLISHER_NAME"),
+          signingHashAlgorithms: ["sha256"],
           sign: async ({ path: file }) => {
             const command = template.replaceAll("{file}", `"${file}"`);
             const result = spawnSync(command, {

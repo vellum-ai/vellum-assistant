@@ -127,7 +127,8 @@ Signing is provider-neutral and an explicit gate on each GitHub environment
   `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`, and
   `WINDOWS_SIGNING_PUBLISHER_NAME` variables.
 - `command`: a `WINDOWS_SIGN_COMMAND` secret holding any signing CLI
-  invocation with a `{file}` placeholder.
+  invocation with a `{file}` placeholder, plus `WINDOWS_SIGNING_PUBLISHER_NAME`
+  so the updater can verify downloaded installers.
 
 Optional: `WINDOWS_SIGNING_TIMESTAMP_URL`, `SENTRY_DSN_WINDOWS` (main
 process), and `SENTRY_AUTH_TOKEN` + `SENTRY_PROJECT_WINDOWS` (renderer source

@@ -10,7 +10,8 @@ name: Release Windows
 #   azure:   secrets.AZURE_TENANT_ID, secrets.AZURE_CLIENT_ID, secrets.AZURE_CLIENT_SECRET,
 #            vars.AZURE_TRUSTED_SIGNING_ENDPOINT, vars.AZURE_TRUSTED_SIGNING_ACCOUNT,
 #            vars.AZURE_TRUSTED_SIGNING_PROFILE, vars.WINDOWS_SIGNING_PUBLISHER_NAME
-#   command: secrets.WINDOWS_SIGN_COMMAND (a signing CLI invocation with a {file} placeholder)
+#   command: secrets.WINDOWS_SIGN_COMMAND (a signing CLI invocation with a {file} placeholder),
+#            vars.WINDOWS_SIGNING_PUBLISHER_NAME
 #   optional: vars.WINDOWS_SIGNING_TIMESTAMP_URL, secrets.SENTRY_DSN_WINDOWS,
 #             secrets.SENTRY_AUTH_TOKEN + vars.SENTRY_PROJECT_WINDOWS (renderer source maps)
 
@@ -47,7 +48,7 @@ jobs:
           SIGNING_PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
           HAS_PFX: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 != '' && secrets.WINDOWS_SIGNING_PFX_PASSWORD != '' }}
           HAS_AZURE: ${{ secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' && vars.AZURE_TRUSTED_SIGNING_ENDPOINT != '' && vars.AZURE_TRUSTED_SIGNING_ACCOUNT != '' && vars.AZURE_TRUSTED_SIGNING_PROFILE != '' && vars.WINDOWS_SIGNING_PUBLISHER_NAME != '' }}
-          HAS_COMMAND: ${{ secrets.WINDOWS_SIGN_COMMAND != '' }}
+          HAS_COMMAND: ${{ secrets.WINDOWS_SIGN_COMMAND != '' && vars.WINDOWS_SIGNING_PUBLISHER_NAME != '' }}
           HAS_SENTRY: ${{ secrets.SENTRY_AUTH_TOKEN != '' && vars.SENTRY_PROJECT_WINDOWS != '' }}
         run: |
           case "$ENVIRONMENT" in
@@ -63,7 +64,7 @@ jobs:
             azure-trusted-signing)
               [ "$HAS_AZURE" = "true" ] || { echo "::error::WINDOWS_SIGNING_PROVIDER=azure-trusted-signing needs AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET secrets and AZURE_TRUSTED_SIGNING_ENDPOINT, AZURE_TRUSTED_SIGNING_ACCOUNT, AZURE_TRUSTED_SIGNING_PROFILE, WINDOWS_SIGNING_PUBLISHER_NAME variables on the $ENVIRONMENT environment"; exit 1; } ;;
             command)
-              [ "$HAS_COMMAND" = "true" ] || { echo "::error::WINDOWS_SIGNING_PROVIDER=command needs the WINDOWS_SIGN_COMMAND secret on the $ENVIRONMENT environment"; exit 1; } ;;
+              [ "$HAS_COMMAND" = "true" ] || { echo "::error::WINDOWS_SIGNING_PROVIDER=command needs the WINDOWS_SIGN_COMMAND secret and the WINDOWS_SIGNING_PUBLISHER_NAME variable on the $ENVIRONMENT environment"; exit 1; } ;;
             "")
               echo "::error::Set the WINDOWS_SIGNING_PROVIDER variable (pfx, azure-trusted-signing, or command) on the $ENVIRONMENT environment. Unsigned Windows releases are never published."; exit 1 ;;
             *)
