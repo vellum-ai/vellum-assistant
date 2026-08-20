@@ -71,30 +71,38 @@ function formatDetailedTimestamp(epoch: number): string {
   });
 }
 
+/** Slack ts: `<unix-seconds>` with optional `.<microseconds>`. */
+const SLACK_TS = /^\d+(?:\.\d+)?$/;
+
+/**
+ * Epoch ms a Slack message was sent, read from its origin `channelTs`.
+ *
+ * Rows hydrated by Slack history backfill are written at import time, so
+ * `createdAt` records the import rather than the message; `channelTs` is the
+ * only record of when it was sent. For a live Slack row the two agree.
+ *
+ * Reaction rows are excluded: their `channelTs` is the ts of the message
+ * being reacted to, so the row's own timestamp is what dates the reaction.
+ */
+function slackOriginTimestamp(message: DisplayMessage): number | undefined {
+  const slack = message.slackMessage;
+  if (!slack || slack.eventKind === "reaction") {
+    return undefined;
+  }
+  // Full-string match: `parseFloat` alone accepts a numeric prefix, which
+  // would turn a malformed ts into a fabricated origin time.
+  if (!SLACK_TS.test(slack.channelTs)) {
+    return undefined;
+  }
+  const ms = Number.parseFloat(slack.channelTs) * 1000;
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
 /**
  * Latest activity timestamp for a message: the max of the message's own
  * timestamp and any tool-call start/completion times, so the displayed time
  * reflects when the row last did something rather than when it was created.
  */
-/**
- * Epoch ms a Slack row actually happened, read from its origin `channelTs`
- * (`"<unix-seconds>.<microseconds>"`).
- *
- * Rows hydrated by Slack history backfill are written when the import runs,
- * so their `createdAt` records the import rather than the message: a
- * six-week-old line otherwise renders as "Today". `channelTs` is the only
- * record of when the message was really sent, and for a live Slack row it
- * agrees with `createdAt` anyway.
- */
-function slackOriginTimestamp(message: DisplayMessage): number | undefined {
-  const channelTs = message.slackMessage?.channelTs;
-  if (channelTs == null) {
-    return undefined;
-  }
-  const seconds = Number.parseFloat(channelTs);
-  return Number.isFinite(seconds) ? seconds * 1000 : undefined;
-}
-
 function latestMessageActivityTimestamp(
   message: DisplayMessage,
 ): number | undefined {

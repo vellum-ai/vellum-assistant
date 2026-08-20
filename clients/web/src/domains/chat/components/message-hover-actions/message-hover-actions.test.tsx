@@ -67,6 +67,61 @@ describe("MessageHoverActions", () => {
     expect(html).toContain(expectedDay);
   });
 
+  test("dates a reaction from its arrival, not the message it reacts to", () => {
+    // A reaction row carries the reacted message's ts in `channelTs`, so
+    // reading it would date a reaction added today by a six-week-old message.
+    const message: DisplayMessage = {
+      id: "m-reaction",
+      role: "user",
+      timestamp: Date.UTC(2026, 7, 20, 12, 32),
+      slackMessage: {
+        channelId: "D0BFXBJE1QV",
+        channelTs: String(Date.UTC(2026, 6, 8, 9, 15) / 1000),
+        eventKind: "reaction",
+        reaction: {
+          emoji: "eyes",
+          op: "added",
+          targetChannelTs: String(Date.UTC(2026, 6, 8, 9, 15) / 1000),
+        },
+      },
+      ...textBody("[reaction]"),
+    };
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} />,
+    );
+
+    const reactedDay = new Date(Date.UTC(2026, 6, 8, 9, 15)).toLocaleDateString(
+      undefined,
+      { month: "short", day: "numeric" },
+    );
+    expect(html).not.toContain(reactedDay);
+  });
+
+  test("ignores a malformed Slack ts rather than inventing an origin time", () => {
+    // `parseFloat` accepts a numeric prefix, so a partial parse would render
+    // a fabricated date instead of falling back to the row's own timestamp.
+    const rowWrittenAt = Date.UTC(2026, 7, 20, 12, 32);
+    const message: DisplayMessage = {
+      id: "m-malformed",
+      role: "user",
+      timestamp: rowWrittenAt,
+      slackMessage: {
+        channelId: "D0BFXBJE1QV",
+        channelTs: "1783514100.123junk",
+      },
+      ...textBody("older message"),
+    };
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} />,
+    );
+
+    const expectedDay = new Date(rowWrittenAt).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+    expect(html).toContain(expectedDay);
+  });
+
   test("renders inspect action for user messages when provided", () => {
     const message: DisplayMessage = {
       id: "m2",
