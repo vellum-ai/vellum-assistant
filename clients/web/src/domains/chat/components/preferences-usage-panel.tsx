@@ -1,21 +1,10 @@
 import { Plus, Settings as SettingsIcon } from "lucide-react";
 
-import { useQuery } from "@tanstack/react-query";
-
 import { Button } from "@vellumai/design-library/components/button";
 import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import {
-  organizationsBillingPlansRetrieveOptions,
-  organizationsBillingSubscriptionRetrieveOptions,
-} from "@/generated/api/@tanstack/react-query.gen";
-import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
-import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
-import {
-  includedMonthlyCreditsUsdFromPlans,
-  usePlanUsageBalance,
-} from "@/hooks/use-plan-usage-balance";
+import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { useTranslation } from "@/i18n";
 
 export interface PreferencesUsagePanelProps {
@@ -28,8 +17,9 @@ export interface PreferencesUsagePanelProps {
 /**
  * The preferences menu's usage reading while `obscure-credits` is on: the same
  * share of the included bundle the billing Plan tile draws, close to where the
- * work is being done. Renders nothing when the flag is off, when the org has no
- * managed billing to read, or before an honest number lands, so the menu is
+ * work is being done. `usePreferencesUsage` decides whether there is anything
+ * honest to say, and returns nothing when the flag is off, when the org has no
+ * managed billing to read, or before a real number lands, so the menu is
  * otherwise exactly what it has always been.
  */
 export function PreferencesUsagePanel({
@@ -37,29 +27,9 @@ export function PreferencesUsagePanel({
   onAddCredits,
 }: PreferencesUsagePanelProps) {
   const { t, i18n } = useTranslation("chat");
-  const obscureCredits = useObscureCredits();
-  const { isExhausted, enabled: billingEnabled } = useBillingBalanceStatus();
-  // The plan catalog and the sub are only worth fetching when the flag is on
-  // and the org actually has managed billing; the usage read behind them gates
-  // itself the same way.
-  const enabled = obscureCredits && billingEnabled;
-  const subscriptionQuery = useQuery({
-    ...organizationsBillingSubscriptionRetrieveOptions(),
-    enabled,
-  });
-  const plansQuery = useQuery({
-    ...organizationsBillingPlansRetrieveOptions(),
-    enabled,
-  });
-  const usage = usePlanUsageBalance({
-    subscription: subscriptionQuery.data,
-    includedCreditsUsd: includedMonthlyCreditsUsdFromPlans(
-      subscriptionQuery.data,
-      plansQuery.data?.plans,
-    ),
-  });
+  const usage = usePreferencesUsage();
 
-  if (!enabled || !usage) {
+  if (!usage) {
     return null;
   }
 
@@ -71,8 +41,7 @@ export function PreferencesUsagePanel({
   }).format(new Date(usage.resetsAt));
   // Spending the whole bundle is the negative reading in its own right; the
   // strip below it waits until the wallet behind the bundle is empty too.
-  const spent = usage.ratio >= 1;
-  const exhausted = spent && isExhausted;
+  const { spent, exhausted } = usage;
 
   return (
     <div className="my-2 flex flex-col gap-1" data-testid="preferences-usage">

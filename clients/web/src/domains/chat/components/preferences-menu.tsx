@@ -20,7 +20,10 @@ import {
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { ThemeToggle } from "@/components/theme-toggle";
+import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
+import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
+import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { isElectron } from "@/runtime/is-electron";
@@ -55,6 +58,28 @@ const AddCreditsModal = lazy(() =>
  * belongs on the Settings page the menu links to.
  */
 const PREFERENCES_LABEL = "Preferences";
+
+/**
+ * Whether the credits row belongs below the usage panel.
+ *
+ * Under `obscure-credits` the dollar balance stays hidden while the included
+ * bundle still has room: the bar is the reading that matters there, and a
+ * second number beside it only invites the arithmetic the flag exists to
+ * avoid. Once the bundle is spent the next turn draws on the wallet instead,
+ * so the row that names it comes back, unless the wallet is empty too and the
+ * panel's add-credits strip is already saying so.
+ *
+ * With the flag off the row is whatever it has always been.
+ */
+export function showsMenuCredits(
+  obscureCredits: boolean,
+  usage: PreferencesUsage | null,
+): boolean {
+  if (!obscureCredits) {
+    return true;
+  }
+  return usage != null && usage.spent && !usage.exhausted;
+}
 
 export interface PreferencesMenuProps {
   assistantId?: string | null;
@@ -234,6 +259,11 @@ function PreferencesMenuContent({
   const { enabled: showBillingRows, balance: effectiveBalance } =
     useBillingBalanceStatus();
   const isNativeAndroid = useIsNativeAndroid();
+  /* The same reading the usage panel below draws, composed once so the row and
+     the bar can never disagree about how much of the bundle is left. */
+  const obscureCredits = useObscureCredits();
+  const usage = usePreferencesUsage();
+  const showCredits = showsMenuCredits(obscureCredits, usage);
 
   return (
     <>
@@ -252,7 +282,7 @@ function PreferencesMenuContent({
         }}
       />
 
-      {showBillingRows && effectiveBalance !== null ? (
+      {showBillingRows && effectiveBalance !== null && showCredits ? (
         <div className="my-2">
           <CreditsCard
             balance={formatWholeCredits(effectiveBalance)}
