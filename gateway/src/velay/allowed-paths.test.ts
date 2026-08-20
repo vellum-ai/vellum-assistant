@@ -5,6 +5,7 @@ import {
   VELAY_ALLOWED_PATHS_HEADER,
   VELAY_ALLOWED_PATHS_HEADER_VALUE,
 } from "./allowed-paths.js";
+import { isAllowedVelayWebSocketPath } from "./bridge-utils.js";
 
 describe("VELAY_ALLOWED_PATHS", () => {
   it("matches the platform-side header name (must stay in sync with vellum-assistant-platform RegistrationAllowedPathsHeader)", () => {
@@ -79,6 +80,56 @@ describe("VELAY_ALLOWED_PATHS", () => {
     for (const [path, expected] of Object.entries(samples)) {
       const matched = compiled.some((re) => re.test(path));
       expect({ path, matched }).toEqual({ path, matched: expected });
+    }
+  });
+});
+
+/**
+ * The two allowlists a tunnelled WebSocket has to clear, checked against each
+ * other.
+ *
+ * `VELAY_ALLOWED_PATHS` is declared to velay at registration and enforced
+ * platform-side; `VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS` in `bridge-utils.ts` is
+ * the local second layer, enforced when the bridge dials the gateway's own
+ * loopback listener. A route needs both, and their comments have always said
+ * to keep them in sync, but nothing checked it.
+ *
+ * That gap is not theoretical: `/v1/watch/stream` was added to the
+ * registration list alone, and every managed watch session died at the bridge.
+ * The bridge answers a path it does not recognize with a `websocket_open_error`
+ * frame and no log, velay reports it as an opaque `tunnel_error`, and the
+ * gateway records nothing at all — so the one place the omission could have
+ * been noticed was a test like this one.
+ */
+describe("the registration allowlist and the bridge's WebSocket allowlist", () => {
+  const WEBSOCKET_ROUTES = [
+    "/v1/live-voice",
+    "/v1/stt/stream",
+    "/v1/watch/stream",
+  ];
+
+  it("admits every tunnelled WebSocket route at both layers", () => {
+    const compiled = VELAY_ALLOWED_PATHS.map((p) => new RegExp(p));
+    for (const path of WEBSOCKET_ROUTES) {
+      expect({
+        path,
+        registration: compiled.some((re) => re.test(path)),
+        bridge: isAllowedVelayWebSocketPath(path),
+      }).toEqual({ path, registration: true, bridge: true });
+    }
+  });
+
+  it("does not admit a WebSocket route at the bridge that velay would refuse", () => {
+    // The reverse omission is quieter still: the bridge would dial happily and
+    // velay would 404 the upgrade before the frame ever arrived.
+    const compiled = VELAY_ALLOWED_PATHS.map((p) => new RegExp(p));
+    for (const path of ["/v1/watch", "/v1/watch/stream/extra", "/v1/speech"]) {
+      if (isAllowedVelayWebSocketPath(path)) {
+        expect({
+          path,
+          registration: compiled.some((re) => re.test(path)),
+        }).toEqual({ path, registration: true });
+      }
     }
   });
 });
