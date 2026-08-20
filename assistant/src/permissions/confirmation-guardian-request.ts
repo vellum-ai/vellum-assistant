@@ -55,6 +55,7 @@ export async function createGuardianRequestForConfirmation(
       { summarizeToolInput },
       { DAEMON_INTERNAL_ASSISTANT_ID },
       { bridgeConfirmationRequestToGuardian },
+      { resolveInlineGrantWaitMs },
     ] = await Promise.all([
       import("../daemon/conversation-registry.js"),
       import("../channels/gateway-guardian-requests.js"),
@@ -62,6 +63,7 @@ export async function createGuardianRequestForConfirmation(
       import("../tools/tool-input-summary.js"),
       import("../runtime/assistant-scope.js"),
       import("../runtime/confirmation-request-guardian-bridge.js"),
+      import("../tools/tool-approval-handler.js"),
     ]);
 
     const conversation = findConversation(conversationId);
@@ -100,7 +102,12 @@ export async function createGuardianRequestForConfirmation(
       activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
       executionTarget: msg.executionTarget,
       status: "pending",
-      expiresAt: Date.now() + 5 * 60 * 1000,
+      // The row stays decidable exactly as long as the prompt stays parked.
+      // Both read one budget so a raised `timeouts.permissionTimeoutSec`
+      // moves them together; a literal here would keep the card expiring at
+      // five minutes while the prompt waited on, and the guardian would press
+      // Approve to be told the request had already lapsed.
+      expiresAt: Date.now() + resolveInlineGrantWaitMs(),
     });
 
     // The prompt is actionable before this fire-and-forget create lands, so
