@@ -89,7 +89,7 @@ const main = async (): Promise<void> => {
     ["cli-runtime/vellum.exe", "CLI runtime"],
     ["cli-runtime/bun.exe", "Bun runtime"],
     ["cli-runtime/runtime.json", "Runtime manifest"],
-    ["native-helper/Vellum.WindowsHelper.exe", "Native helper"],
+    [`native-helper/${arch}/Vellum.WindowsHelper.exe`, "Native helper"],
     ["preview-handler/Vellum.PreviewHandler.dll", "Preview handler DLL"],
     ["tray.ico", "Tray icon"],
   ] as const) {

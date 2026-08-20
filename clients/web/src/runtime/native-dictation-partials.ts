@@ -1,7 +1,8 @@
 /**
- * Runtime wrapper for the mac helper's local speech-recognition partials.
+ * Runtime wrapper for the native helper's local speech-recognition partials.
  *
- * The helper runs `SFSpeechRecognizer` and streams cumulative partial
+ * The helper runs on-device recognition (`SFSpeechRecognizer` on macOS,
+ * `System.Speech` on Windows) and streams cumulative partial
  * transcriptions — the dictation overlay's live-text source when daemon
  * streaming STT is unreachable (platform-managed assistants whose runtime
  * traffic rides the platform proxy have no gateway WebSocket the renderer
@@ -40,8 +41,8 @@ function dictationBridge() {
 }
 
 /**
- * True when the renderer can route dictation through the mac helper's
- * `SFSpeechRecognizer` — i.e. the macOS Electron shell with a preload new
+ * True when the renderer can route dictation through the native helper's
+ * on-device recognizer, i.e. an Electron shell with a preload new
  * enough to expose the dictation bridge. Settings uses this to decide
  * whether to offer the "macOS Native Dictation" STT provider at all.
  *
@@ -279,9 +280,11 @@ export async function startNativeDictationPartials(
   // The final transcript can land before stop() is called (the recognizer
   // self-finalizes on silence) or after — capture both.
   let finalText: string | null = null;
+  let finalReceived = false;
   let finalResolve: ((text: string | null) => void) | null = null;
   const unsubscribeFinal =
     dictation.onFinalized?.((event) => {
+      finalReceived = true;
       finalText = event.text || null;
       finalResolve?.(finalText);
     }) ?? null;
@@ -336,7 +339,7 @@ export async function startNativeDictationPartials(
     });
     stopPromise = (async () => {
       let text = finalText;
-      if (!text && unsubscribeFinal) {
+      if (!finalReceived && unsubscribeFinal) {
         text = await new Promise<string | null>((resolve) => {
           finalResolve = resolve;
           setTimeout(() => resolve(null), FINALIZED_TIMEOUT_MS);

@@ -166,6 +166,22 @@ describe("guardian-verify-setup skill: channel coverage", () => {
     }
   });
 
+  test("the missing-secret guardrail names only its exception", () => {
+    const guardrail = skillContent
+      .split("\n")
+      .find((line) => line.includes("Missing `secret` guardrail"));
+    expect(guardrail).toBeDefined();
+    // The rule covers every flow but one, so the line states that exception.
+    // Naming any other channel makes it an enumeration, and an enumeration
+    // drifts out of date the next time a channel is added.
+    expect(guardrail).toContain("except");
+    expect(guardrail).toContain("Telegram");
+    const lower = guardrail!.toLowerCase();
+    for (const channel of ["phone", "voice", "slack", "discord", "email"]) {
+      expect(lower, `guardrail enumerates ${channel}`).not.toContain(channel);
+    }
+  });
+
   test("the status and revoke guards allow every supported channel", () => {
     // These enumerate valid CHANNEL values. A channel missing here reads to
     // the assistant as unsupported at exactly the point a user asks for it.

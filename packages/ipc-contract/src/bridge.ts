@@ -143,7 +143,12 @@ export interface VellumBridge {
     getState(): Promise<HelperState>;
     restart(): Promise<HelperRestartResult>;
     onState(callback: (state: HelperState) => void): () => void;
-    hotkey: {
+    /**
+     * The macOS Fn push-to-talk surface. Absent on shells with no global
+     * push-to-talk trigger (the Windows shell, whose configurable global
+     * chord ships separately).
+     */
+    hotkey?: {
       fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
     };
