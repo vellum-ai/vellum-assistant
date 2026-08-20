@@ -612,6 +612,12 @@
     "requestedMetaHost": "Solicitado {when} desde este equipo",
     "title": "Solicitudes de vinculación"
   },
+  "planCard": {
+    "usageBalancePctUsed": "{pct}% usado",
+    "usageBalanceResets": "Se restablece el {date}",
+    "usageBalanceTitle": "Saldo de uso",
+    "usageChip": "Uso de {name}, se restablece cada mes"
+  },
   "planColumnCard": {
     "currentPlan": "Plan actual",
     "includes": "Incluye:",

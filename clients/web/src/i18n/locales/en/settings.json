@@ -612,6 +612,12 @@
     "requestedMetaHost": "Requested {when} from this computer",
     "title": "Pairing requests"
   },
+  "planCard": {
+    "usageBalancePctUsed": "{pct}% used",
+    "usageBalanceResets": "Resets {date}",
+    "usageBalanceTitle": "Usage Balance",
+    "usageChip": "{name} usage, reset monthly"
+  },
   "planColumnCard": {
     "currentPlan": "Current Plan",
     "includes": "Includes:",

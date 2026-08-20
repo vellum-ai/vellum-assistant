@@ -87,6 +87,10 @@ let changePackageImpl: () => Promise<{
 });
 let currentSub: SubscriptionResponse = baseSubscription();
 let currentPlans: PlanListResponse = basePlansResponse();
+/** Managed spend this cycle, against Mighty's $25 bundle. */
+let usageTotalUsd = "10";
+let usageShouldFail = false;
+let usageTotalsCalls = 0;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -102,6 +106,16 @@ mock.module("@/generated/api/sdk.gen", () => ({
     Promise.resolve({ data: currentSub, response: { ok: true } }),
   organizationsBillingPlansRetrieve: () =>
     Promise.resolve({ data: currentPlans, response: { ok: true } }),
+  organizationsBillingUsageTotalsRetrieve: () => {
+    usageTotalsCalls += 1;
+    if (usageShouldFail) {
+      return Promise.reject(new Error("totals unavailable"));
+    }
+    return Promise.resolve({
+      data: { total_usd: usageTotalUsd, event_count: 4 },
+      response: { ok: true },
+    });
+  },
 }));
 
 // Stub the toaster: the no_op change-package branch toasts, and no <Toaster />
@@ -138,6 +152,25 @@ mock.module("@/lib/billing/takeover-avatar-stash", () => ({
 }));
 
 const { PlanCard } = await import("./plan-card");
+const { useClientFeatureFlagStore } =
+  await import("@/stores/client-feature-flag-store");
+
+/** Drives the `obscure-credits` client flag the way the app's LD sync does. */
+function setObscureCredits(value: boolean): void {
+  act(() => {
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags({ obscureCredits: value }, null);
+  });
+}
+
+/** The panel's reset date, formatted the way the panel formats it. */
+function resetLabel(iso: string): string {
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(iso));
+}
 
 function basePlansResponse(): PlanListResponse {
   return {
@@ -1010,5 +1043,114 @@ describe("PlanCard recommended upgrade — change-package", () => {
     expect(changePackageBody).toBeNull();
     expect(onTierUpgraded).not.toHaveBeenCalled();
     expect(navigateArgs).toEqual([]);
+  });
+});
+
+/**
+ * The flag-on cases render interactively rather than through
+ * `renderToStaticMarkup`: a static render reads Zustand's *initial* state (its
+ * `getServerSnapshot`), so a flag driven through the store would still read
+ * off there. Interactive renders also let the usage query settle.
+ */
+describe("PlanCard with obscure-credits on", () => {
+  beforeEach(() => {
+    usageTotalUsd = "10";
+    usageShouldFail = false;
+    usageTotalsCalls = 0;
+    setObscureCredits(true);
+  });
+
+  afterEach(() => {
+    setObscureCredits(false);
+  });
+
+  test("the current tile trades its price footer for the usage balance", async () => {
+    const { findByTestId, queryByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+    );
+
+    // $10 of Mighty's $25 bundle spent this cycle.
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("Usage Balance");
+    expect(panel.textContent).toContain("40% used");
+    expect(panel.textContent).toContain(
+      `Resets ${resetLabel("2026-08-10T00:00:00Z")}`,
+    );
+    expect(queryByTestId("plan-card-price")).toBeNull();
+  });
+
+  test("both tiles name the package's usage instead of a dollar bundle", () => {
+    const { container } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+    );
+
+    const current = within(currentTile(container));
+    expect(current.getByText("Mighty usage, reset monthly")).toBeTruthy();
+    expect(current.queryByText("$25 in credits included")).toBeNull();
+    // Machine and storage chips keep their own copy.
+    expect(current.getByText("10 GB Storage")).toBeTruthy();
+
+    const next = within(nextTile(container));
+    expect(next.getByText("Super usage, reset monthly")).toBeTruthy();
+    expect(next.queryByText("$45 in credits included")).toBeNull();
+  });
+
+  test("both tiles wrap their chips into a row", () => {
+    const { container } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+    );
+
+    // Child 0 is the header row; child 1 is the chip container.
+    expect(
+      (currentTile(container).children[1] as HTMLElement).className,
+    ).toContain("flex-wrap");
+    expect(
+      (nextTile(container).children[1] as HTMLElement).className,
+    ).toContain("flex-wrap");
+  });
+
+  test("shows neither the bar nor the price when the usage read fails", async () => {
+    usageShouldFail = true;
+    const { container } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      () => {},
+    );
+
+    await waitFor(() => {
+      expect(usageTotalsCalls).toBeGreaterThan(0);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // No honest number to draw, and the price it replaced must not come back.
+    expect(
+      container.querySelector('[data-testid="plan-usage-balance"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="plan-card-price"]'),
+    ).toBeNull();
+  });
+
+  test("a free plan drops the price row and keeps its own chips", () => {
+    // Free has no package bundle to measure, so there is no bar to draw; the
+    // price row still goes, because the flag's whole point is that this
+    // surface stops quoting dollars.
+    const { container } = renderCardInteractive(
+      baseSubscription(),
+      basePlansResponse(),
+      () => {},
+    );
+
+    const current = within(currentTile(container));
+    expect(current.queryByTestId("plan-card-price")).toBeNull();
+    expect(current.getByText("Pay as you go credits")).toBeTruthy();
+    expect(usageTotalsCalls).toBe(0);
   });
 });

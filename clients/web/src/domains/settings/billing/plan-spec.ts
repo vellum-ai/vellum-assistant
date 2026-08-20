@@ -44,13 +44,25 @@ export function machineLabel(pkg: ProPackage | null): string {
   return SIZE_LABEL[size] ?? pkg.machine_size;
 }
 
+export interface PackageSpecsOptions {
+  /**
+   * Replaces the credits chip's dollar label, for the `obscure-credits`
+   * surfaces that describe the bundle as the package's own usage allowance
+   * instead of naming an amount.
+   */
+  obscuredUsageLabel?: string;
+}
+
 /**
  * The spec chips for a package, in mock order: machine, storage, credits,
  * then any static extras from the tier copy (today only the email/subdomain
  * row on Super and Ultra; a new extra inherits the Mail icon until it needs
  * its own mapping).
  */
-export function packageSpecs(pkg: ProPackage): PlanSpec[] {
+export function packageSpecs(
+  pkg: ProPackage,
+  opts?: PackageSpecsOptions,
+): PlanSpec[] {
   const credits = pkg.credits_usd ?? FREE_CREDITS_USD;
   const extras = getPlanTierCopy(pkg.key)?.extraFeatures ?? [];
   return [
@@ -58,7 +70,12 @@ export function packageSpecs(pkg: ProPackage): PlanSpec[] {
     { icon: HardDrive, label: `${pkg.storage_gib} GB Storage` },
     // Cents-aware like every other price on these surfaces, so a sub-dollar
     // bundle reads "$0.50 in credits included" rather than "$0.5".
-    { icon: Coins, label: `${formatDollars(credits * 100)} in credits included` },
+    {
+      icon: Coins,
+      label:
+        opts?.obscuredUsageLabel ??
+        `${formatDollars(credits * 100)} in credits included`,
+    },
     ...extras.map((label) => ({ icon: Mail, label })),
   ];
 }
