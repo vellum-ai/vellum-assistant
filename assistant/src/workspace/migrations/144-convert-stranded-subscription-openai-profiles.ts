@@ -21,9 +21,9 @@ const log = getLogger("migration-144");
  *
  * Conversion requires proof from the workspace DB that the fragment is
  * genuinely stranded: the canonical subscription row exists (matched by
- * name + oauth_subscription auth, valid for both the pre- and post-366 row
- * shapes) and no `provider: "openai"` row exists (an API-key row means
- * openai fragments still resolve). An absent DB or table converts nothing;
+ * name + subscription identity, valid for every historical row shape; see
+ * `isSubscriptionRow`) and no `provider: "openai"` row exists (an API-key
+ * row means openai fragments still resolve). An absent DB or table converts nothing;
  * an open or query failure on an existing DB propagates so the runner
  * records a failed checkpoint and retries on a later boot.
  *
@@ -181,21 +181,12 @@ function isSubscriptionOnlyWorkspace(workspaceDir: string): boolean {
     }
 
     const subscription = db
-      .query(`SELECT auth FROM provider_connections WHERE name = ?`)
-      .get(SUBSCRIPTION_CONNECTION_NAME) as { auth: string } | null;
-    if (!subscription) {
-      return false;
-    }
-    try {
-      const parsed: unknown = JSON.parse(subscription.auth);
-      const authType =
-        parsed !== null && typeof parsed === "object"
-          ? (parsed as { type?: unknown }).type
-          : undefined;
-      if (authType !== "oauth_subscription") {
-        return false;
-      }
-    } catch {
+      .query(`SELECT provider, auth FROM provider_connections WHERE name = ?`)
+      .get(SUBSCRIPTION_CONNECTION_NAME) as {
+      provider: string;
+      auth: string;
+    } | null;
+    if (!subscription || !isSubscriptionRow(subscription)) {
       return false;
     }
 
@@ -217,6 +208,46 @@ function isSubscriptionOnlyWorkspace(workspaceDir: string): boolean {
   } finally {
     db.close();
   }
+}
+
+/**
+ * Whether the canonical row is genuinely the subscription route, recognized
+ * across every on-disk shape it has had:
+ *   - pre-DB-366: provider "openai", auth carries `type: "oauth_subscription"`
+ *   - post-DB-366: provider "chatgpt" (the row IS the subscription route)
+ *   - post-DB-367: payload-only auth (`type` stripped) whose credential is
+ *     the chatgpt access-token slot
+ *
+ * The post-367 arms were widened into this historical migration after DB
+ * migration 367 shipped: DB migrations run before workspace migrations at
+ * boot, so a workspace jumping several releases sees the stripped shape on
+ * the very boot this migration first runs. The edit is pure
+ * detection-widening: installs that already checkpointed this migration
+ * never re-run it, and rows in the old typed shape are judged exactly as
+ * before. A claiming row with key auth matches no arm and stays
+ * unrecognized, as before.
+ */
+function isSubscriptionRow(row: { provider: string; auth: string }): boolean {
+  if (row.provider === "chatgpt") {
+    return true;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.auth);
+  } catch {
+    return false;
+  }
+  if (parsed === null || typeof parsed !== "object") {
+    return false;
+  }
+  const { type, credential } = parsed as {
+    type?: unknown;
+    credential?: unknown;
+  };
+  if (type === "oauth_subscription") {
+    return true;
+  }
+  return type === undefined && credential === "credential/chatgpt/access_token";
 }
 
 /**

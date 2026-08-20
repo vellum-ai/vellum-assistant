@@ -1588,7 +1588,16 @@ export const migrationSteps: MigrationStep[] = [
     run: migrateStripStoredAuthType,
     // The table-exists guard treats a missing table as nothing-to-do, so the
     // creating migration must be checkpointed first or a repair flow could
-    // permanently checkpoint the no-op.
-    dependsOn: ["migrateCreateProviderConnections"],
+    // permanently checkpoint the no-op. Migrations 361 and 366 must also be
+    // checkpointed first: their predicates key on the stored auth `type`,
+    // which this step strips. The runner isolates per-step failures, so
+    // without the dependency a single upgrade running all three could
+    // checkpoint the strip while 361 or 366 threw, and their retry would
+    // no-op against typeless rows, stranding the row unreconciled.
+    dependsOn: [
+      "migrateCreateProviderConnections",
+      "migrateNormalizeManagedConnectionRows",
+      "migrateChatgptSubscriptionRowIdentity",
+    ],
   },
 ];

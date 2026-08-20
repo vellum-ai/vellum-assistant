@@ -41,7 +41,9 @@ function readConfig(): Record<string, unknown> {
 interface SeedRow {
   name: string;
   provider: string;
-  authType: string;
+  authType?: string;
+  /** Raw auth object; wins over authType when present. */
+  auth?: object;
 }
 
 function seedConnections(rows: SeedRow[]): void {
@@ -54,14 +56,19 @@ function seedConnections(rows: SeedRow[]): void {
   for (const row of rows) {
     db.run(
       `INSERT INTO provider_connections (name, provider, auth) VALUES (?, ?, ?)`,
-      [row.name, row.provider, JSON.stringify({ type: row.authType })],
+      [
+        row.name,
+        row.provider,
+        JSON.stringify(row.auth ?? { type: row.authType }),
+      ],
     );
   }
   db.close();
 }
 
-// Both on-disk shapes of the canonical row: before DB migration 366 flips
-// the provider column, and after.
+// The on-disk shapes of the canonical row: before DB migration 366 flips
+// the provider column, after it, and after DB migration 367 strips the
+// stored auth type down to the payload.
 const SUBSCRIPTION_PRE_366: SeedRow = {
   name: "chatgpt-subscription",
   provider: "openai",
@@ -71,6 +78,11 @@ const SUBSCRIPTION_POST_366: SeedRow = {
   name: "chatgpt-subscription",
   provider: "chatgpt",
   authType: "oauth_subscription",
+};
+const SUBSCRIPTION_POST_367: SeedRow = {
+  name: "chatgpt-subscription",
+  provider: "chatgpt",
+  auth: { credential: "credential/chatgpt/access_token" },
 };
 const OPENAI_KEY_ROW: SeedRow = {
   name: "openai-personal",
@@ -128,6 +140,7 @@ describe("144-convert-stranded-subscription-openai-profiles migration", () => {
   test.each([
     ["pre-366 row shape", SUBSCRIPTION_PRE_366],
     ["post-366 row shape", SUBSCRIPTION_POST_366],
+    ["post-367 typeless row shape", SUBSCRIPTION_POST_367],
   ] as const)(
     "converts unpinned openai fragments in a subscription-only workspace (%s)",
     (_label, subscriptionRow) => {

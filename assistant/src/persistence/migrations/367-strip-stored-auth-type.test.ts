@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import * as schema from "../schema.js";
+import { migrationSteps } from "../steps.js";
 import { migrateStripStoredAuthType } from "./367-strip-stored-auth-type.js";
 
 function createTestDb() {
@@ -123,5 +124,23 @@ describe("migration 367: strip stored auth type", () => {
     expect(() =>
       migrateStripStoredAuthType(drizzle(bare, { schema })),
     ).not.toThrow();
+  });
+
+  test("declares the migrations whose predicates read the stored type as dependencies", () => {
+    // 361 and 366 match rows by the auth `type` key this step strips. The
+    // runner isolates per-step failures, so without these dependencies a
+    // multi-release upgrade could checkpoint the strip while 361 or 366
+    // threw, and their retry would no-op against the typeless rows.
+    const step = migrationSteps.find(
+      (s) => typeof s !== "function" && s.name === "migrateStripStoredAuthType",
+    );
+    expect(step).toBeTruthy();
+    if (step && typeof step !== "function") {
+      expect(step.dependsOn).toEqual([
+        "migrateCreateProviderConnections",
+        "migrateNormalizeManagedConnectionRows",
+        "migrateChatgptSubscriptionRowIdentity",
+      ]);
+    }
   });
 });

@@ -314,6 +314,24 @@ describe("POST inference/provider-connections (create)", () => {
     }
   });
 
+  test("rejects service_account auth with 400", async () => {
+    // Schema-accepted on the wire, but the payload-only store would read it
+    // back as api_key and dispatch the service-account blob as a bearer key.
+    const err = await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "sa-gemini",
+          provider: "gemini",
+          auth: { type: "service_account", credential: "credential/gemini/sa" },
+        },
+      },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect((err as BadRequestError).message).toContain("service_account");
+  });
+
   test("rejects subscription auth on a non-chatgpt provider", async () => {
     const err = await call(
       findHandler("inference_provider_connections_create"),
@@ -765,6 +783,27 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
         body: { auth: { type: "platform" } },
       }),
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("rejects switching to service_account auth with 400", async () => {
+    seedConnection({
+      name: "sa-target",
+      provider: "gemini",
+      auth: { type: "api_key", credential: "credential/gemini/api_key" },
+    });
+
+    const err = await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "sa-target" },
+        body: {
+          auth: { type: "service_account", credential: "credential/gemini/sa" },
+        },
+      },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect((err as BadRequestError).message).toContain("service_account");
   });
 
   test("rejects switching a real provider's connection to platform auth", async () => {
