@@ -117,7 +117,9 @@ mock.module("./main-window", () => ({
   dispatchToMain,
   ensureVisible,
 }));
-mock.module("./logger", () => ({ default: { warn: logWarn } }));
+mock.module("./logger", () => ({
+  default: { info: () => undefined, warn: logWarn },
+}));
 
 const { default: auxiliaryWindowsModule } =
   await import("./features/auxiliary-windows");

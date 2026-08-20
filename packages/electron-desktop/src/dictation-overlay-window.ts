@@ -79,18 +79,20 @@ export interface DictationOverlayWindowDependencies {
   closeOnHide?: boolean;
   /**
    * Poll the cursor from main and hit-test it against the renderer-reported
-   * Stop region. Windows workaround: Electron's native mouse-move forwarding
-   * for click-through windows (`setIgnoreMouseEvents(true, { forward:
-   * true })`) relies on a low-level mouse hook that stops delivering while
-   * a non-Electron window has focus (electron/electron#33281), which is
-   * exactly the push-to-talk posture. Without the moves the page never sees
-   * the pointer reach the Stop button, never asks to become interactive,
-   * and the click falls through to the app behind. Synthesizing the moves
-   * via `webContents.sendInputEvent` is no fix either: it requires the
-   * window to be focused, and this window is deliberately unfocusable. So
-   * main does the hover hit-test itself and toggles interactivity directly.
+   * Stop region, toggling interactivity directly. Windows workaround:
+   * Electron forwards mouse moves to a click-through window
+   * (`setIgnoreMouseEvents(true, { forward: true })`) through a low-level
+   * hook that posts to a child HWND cached once at window creation and
+   * never refreshed (electron/electron#15376, #49982; fix pending in
+   * #52633), and the hook is blind while an elevated window is in front
+   * (#33281). Either way the page never sees the pointer reach the Stop
+   * button, never asks to become interactive, and the click falls through
+   * to the app behind. `webContents.sendInputEvent` is no fix: it requires
+   * a focused window, and this one is deliberately unfocusable.
    */
   pollCursorForHover?: boolean;
+  /** Diagnostic sink for overlay lifecycle and hit-test decisions. */
+  log?: (message: string) => void;
   handle: IpcHandle;
   on: IpcOn;
 }
@@ -300,10 +302,17 @@ const broadcastStopRequested = (): void => {
 let overlayInteractive = false;
 let overlayHitRegion: DictationOverlayHitRegion | null = null;
 
+const debug = (message: string): void => {
+  configuration.get().log?.(`[dictation-overlay] ${message}`);
+};
+
 const setOverlayInteractive = (interactive: boolean): void => {
   const win = getFloatingWindow(OVERLAY_KIND);
   if (!win || win.isDestroyed()) {
     return;
+  }
+  if (interactive !== overlayInteractive) {
+    debug(`interactive=${interactive}`);
   }
   overlayInteractive = interactive;
   if (interactive) {
@@ -320,7 +329,13 @@ const hoverPoller = createCursorHoverPoller({
   getZoomFactor: () =>
     getFloatingWindow(OVERLAY_KIND)?.webContents.getZoomFactor() ?? 1,
   isInteractive: () => overlayInteractive,
-  setInteractive: setOverlayInteractive,
+  setInteractive: (interactive) => {
+    const win = getFloatingWindow(OVERLAY_KIND);
+    debug(
+      `poll -> ${interactive}: cursor=${JSON.stringify(screen.getCursorScreenPoint())} bounds=${JSON.stringify(win?.getBounds() ?? null)} region=${JSON.stringify(overlayHitRegion)} zoom=${win?.webContents.getZoomFactor() ?? 1}`,
+    );
+    setOverlayInteractive(interactive);
+  },
   setInterval: (callback, ms) => setInterval(callback, ms),
   clearInterval: (handle) =>
     clearInterval(handle as ReturnType<typeof setInterval>),
@@ -376,12 +391,15 @@ const showOverlay = (): void => {
   // session left behind.
   overlayInteractive = false;
   overlayHitRegion = null;
-  if (configuration.get().pollCursorForHover) {
+  const poll = Boolean(configuration.get().pollCursorForHover);
+  debug(`show (pollCursorForHover=${poll})`);
+  if (poll) {
     hoverPoller.start();
   }
 };
 
 const hideOverlay = (): void => {
+  debug("hide");
   latestState = null;
   overlayHitRegion = null;
   hoverPoller.stop();
@@ -441,6 +459,7 @@ export const installDictationOverlay = (
   );
 
   on(DICTATION_OVERLAY_REQUEST_STOP, z.tuple([]), () => {
+    debug("stop requested by the overlay page; broadcasting");
     broadcastStopRequested();
   });
 
@@ -456,6 +475,7 @@ export const installDictationOverlay = (
     DICTATION_OVERLAY_SET_HIT_REGION,
     z.tuple([dictationOverlayHitRegionSchema.nullable()]),
     ([region]) => {
+      debug(`hit region ${region ? JSON.stringify(region) : "cleared"}`);
       overlayHitRegion = region;
     },
   );

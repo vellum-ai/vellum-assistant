@@ -61,12 +61,13 @@ const module: CapabilityModule<DesktopCapabilityRegistry> = {
       platform: "win32",
       resolveRoute,
     });
-    // Native mouse-move forwarding for the click-through overlay is
-    // unreliable on Windows (electron/electron#33281); poll instead so the
-    // Stop button can be hovered and clicked.
+    // Native mouse-move forwarding for the click-through overlay is broken
+    // on Windows (see `pollCursorForHover`); poll instead so the Stop button
+    // can be hovered and clicked.
     configureDictationOverlayWindow({
       closeOnHide: true,
       pollCursorForHover: true,
+      log: (message) => log.info(message),
       handle,
       on,
     });
