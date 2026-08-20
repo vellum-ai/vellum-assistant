@@ -718,6 +718,14 @@ One session at a time, on both sides. The client holds a single module-level slo
 
 **Auth posture.** The gateway (`gateway/src/http/routes/watch-stream-websocket.ts`) validates the edge JWT, rejects a revoked actor token, and requires an actor principal, refusing service tokens on this client-facing path. It then **pins the upgrade to the bound guardian**, as live voice does and for a sharper reason: the daemon resolves whose screen to observe from the guardian binding rather than from the request, and the proxy replaces the caller's identity with a service token upstream, so a non-guardian actor admitted here would open a session bound to the guardian and observing the guardian's screen with the daemon unable to tell. Both arrival paths are pinned (`gateway/src/http/routes/guardian-pin.ts`, shared with live voice): a velay-attested managed caller is cross-checked against the stored `platform_user_id`, and an actor edge JWT against the guardian binding. It then dials a *fresh* upstream socket to the daemon bearing only a short-lived gateway service token, never anything the client supplied, and pumps frames between the two. The daemon resolves the acting principal from its own guardian binding, restricts the upgrade to private-network peers and origins, and picks the host client to observe from that actor's own `host_cu` clients. The token gate and the frame pump are shared with `/v1/stt/stream` (`gateway/src/http/routes/runtime-audio-stream.ts`) so the two client-facing audio proxies cannot drift apart on who may open one. The guardian pin is deliberately not part of that shared gate: dictation is the user's own words going to a transcriber and back, is not a guardian-only surface, and keeps accepting any valid actor.
 
+**The retrospective.** The session records and says nothing; the retrospective is where the assistant speaks. The socket's teardown hands `WatchSessionManager.stop()`'s summary to `runWatchRetro` (`assistant/src/watch/watch-retro.ts`), which renders the timeline, asks the model for the task, the trigger phrase in the user's own words, the ordered steps, and the open questions, and directs it into the bundled `skill-management` flow. It reports and asks: it never scaffolds a skill, because the trigger phrase is not recoverable from watching someone work and `skill-management`'s first step is the alignment pass that confirms all four points with the user. A session that recorded nothing runs no retrospective.
+
+**The timeline reaches the model without becoming conversation content.** The retro dispatches through `wakeAgentForOpportunity` rather than as a user message, with `suppressWakeSurface` set. A wake's hint is ephemeral: it is never persisted and never broadcast. Its default "Conversation Woke" card would undo that by carrying the whole hint as its body, prepending it to the first assistant message, and persisting it when the tail flushes, so suppressing the card is what keeps a session's screen dump out of the transcript, out of memory, and out of search. What survives the turn is the assistant's own report, which is what the user confirms and corrects. The prompt fences the render in `<watch-timeline>`, escapes that tag inside it (`escapeTagBoundaries`, which matches on the tag name so `</watch-timeline >` and other near-misses are neutralized too), and wraps the whole recording in `wrapUntrustedContent` at the renderer's own byte budget. The two defenses stack: the escaping keeps screen content from closing the fence and landing beside the user-role instructions, and `<external_content>` is the one element the system prompt assigns never-follow semantics to, so text a page put on screen is data rather than a competing instruction.
+
+**Surfacing.** The session's conversation is created `background`, so a recording in progress does not sit in the sidebar with nothing in it. The retro sets `surfaced_at` once the turn has left visible assistant text behind, which promotes the row into the Recents grouping while leaving `conversation_type` alone. Invocation alone is not enough: a wake counts a `tool_use` block as output, so a run that loads a skill and then stops has produced no report, and provider-error rows do not count either. A retro that fails leaves the conversation where the session left it rather than as an empty thread.
+
+**Shutdown.** `RuntimeHttpServer.stop()` refuses new watch sessions, tears down the open ones, then waits on retrospectives already running (`closeWatchIngress`, then `destroy()`, then `drainWatchRetros`, bounded at 5s). Teardown during shutdown starts no retrospective: a turn begun there would be killed partway through, and the timeline it would have read outlives the daemon.
+
 ```mermaid
 graph LR
     SURFACE["Companion surface<br/>(Watch press)"]
@@ -730,6 +738,9 @@ graph LR
     OBS["observeHostScreen<br/>host_cu · same actor"]
     TL["watch timeline<br/>(no-turn messages)"]
     MIRROR["use-companion-mirror<br/>publishes watching"]
+    RETRO["runWatchRetro<br/>on teardown · one turn"]
+    WAKE["agent-wake<br/>ephemeral hint<br/>suppressWakeSurface"]
+    CONV["Session conversation<br/>surfaced once a report lands"]
 
     SURFACE --> MAIN
     MAIN -->|"toggleWatch command"| CTRL
@@ -745,6 +756,10 @@ graph LR
     CTRL --> MIRROR
     MIRROR -->|"watching flag"| MAIN
     MAIN --> SURFACE
+    RT -->|"teardown: session summary"| RETRO
+    TL -->|"rendered timeline (fenced)"| RETRO
+    RETRO -->|"prompt as a wake hint"| WAKE
+    WAKE -->|"assistant report only"| CONV
 ```
 
 ## Maintenance Rule
