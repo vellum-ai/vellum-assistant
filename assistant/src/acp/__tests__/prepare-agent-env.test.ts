@@ -250,10 +250,11 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     expect(fields.apiKeyShaped).toBe(false);
   });
 
-  test("a policy-denied read logs the broker reason and says the token exists but is blocked", async () => {
-    // The split-brain case: a token IS stored, but its credential policy denies
-    // the acp_spawn read. Claiming it "is not set" sent both the model and the
-    // humans debugging the incident hunting for a token that was right there.
+  test("a policy-denied read logs the broker reason and reports the policy block", async () => {
+    // Invariant: a policy-denied read must be reported as a policy block, not
+    // as an absent value. The two states have different repair stories, and
+    // the message must never assert that a value is stored (policy is checked
+    // before the value, so metadata alone can trigger this branch).
     upsertCredentialMetadata(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD, {
       allowedTools: ["bash"],
     });
@@ -272,10 +273,13 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
       code: ACP_CLAUDE_OAUTH_MISSING_CODE,
     });
     const message = (caught as Error).message;
-    expect(message).toContain("has a stored Claude OAuth token");
-    expect(message).toContain("policy blocks the acp_spawn read");
+    expect(message).toContain("cannot read the Claude OAuth token");
+    expect(message).toContain("blocks the acp_spawn read");
     expect(message).toContain("CLAUDE_CODE_OAUTH_TOKEN");
-    expect(message).toContain("Clicking Connect re-authorizes");
+    expect(message).toContain("signs in again and repairs that policy");
+    // Policy is checked before the value, so the message must never assert
+    // that a value is actually stored.
+    expect(message).not.toContain("has a stored");
     expect(message).not.toContain("which is not set");
     // The guidance steering the model away from CLI/token-paste workarounds is
     // shared with the missing-value variant, so it must survive here too.

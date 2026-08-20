@@ -329,10 +329,10 @@ export async function prepareAgentEnv(
       // so the opening states which one happened. The guidance after it is
       // shared: the Connect card fixes both.
       const opening = policyDenialReason
-        ? "claude-agent-acp has a stored Claude OAuth token, but its credential " +
-          "policy blocks the acp_spawn read, so CLAUDE_CODE_OAUTH_TOKEN is not " +
-          "set for the spawn. Clicking Connect re-authorizes and repairs that " +
-          "policy. "
+        ? "claude-agent-acp cannot read the Claude OAuth token: the credential " +
+          "policy on acp/claude_oauth_token blocks the acp_spawn read, so " +
+          "CLAUDE_CODE_OAUTH_TOKEN is not set for the spawn. Clicking Connect " +
+          "signs in again and repairs that policy. "
         : "claude-agent-acp needs a Claude OAuth token (CLAUDE_CODE_OAUTH_TOKEN), " +
           "which is not set. ";
       throw new FailedDependencyError(
