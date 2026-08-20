@@ -104,8 +104,13 @@ const { useAssistantIdentityStore } = await import(
   "@/stores/assistant-identity-store"
 );
 const { MIN_VERSION } = await import("@/lib/backwards-compat/watch-sessions");
-const { buildWatchStreamWsUrl, stopWatch, toggleWatch, useWatchStore } =
-  await import("./watch-controller");
+const {
+  buildWatchStreamWsUrl,
+  isWatchSessionActive,
+  stopWatch,
+  toggleWatch,
+  useWatchStore,
+} = await import("./watch-controller");
 
 /**
  * Live-voice subscriptions, counted.
@@ -724,6 +729,53 @@ describe("cancelling a start that has not opened a socket yet", () => {
 
     expect(sockets).toHaveLength(1);
     expect(useWatchStore.getState().watching).toBe(true);
+  });
+});
+
+/**
+ * Which edge a press is, answered before the press.
+ *
+ * `toggleWatch` decides that from its slot, and `handleToggleWatchCommand`
+ * (`src/runtime/watch-command.ts`) has to know the same answer one step
+ * earlier: it gates the start edge on the Watch flag and must let the stop edge
+ * through regardless, so a flag turned off mid-session cannot strand a capture
+ * with nothing that ends it.
+ */
+describe("whether a session is running, from outside the toggle", () => {
+  test("is false with nothing running", () => {
+    expect(isWatchSessionActive()).toBe(false);
+  });
+
+  /**
+   * The reason this is not `useWatchStore`.
+   *
+   * A start is registered in the slot before it resolves its version gate, so
+   * it is already stoppable while the store still says no. A caller reading the
+   * store would call that press a start, and gate it.
+   */
+  test("is true for an attempt the flag has not caught up to", async () => {
+    activate(ASSISTANT_ID, null);
+    const pressed = toggle();
+
+    expect(isWatchSessionActive()).toBe(true);
+    expect(useWatchStore.getState().watching).toBe(false);
+
+    stopWatch();
+    activate(ASSISTANT_ID);
+    await pressed;
+  });
+
+  test("is true while a session is running", async () => {
+    await startRunning();
+
+    expect(isWatchSessionActive()).toBe(true);
+  });
+
+  test("is false once the session has ended", async () => {
+    await startRunning();
+    await stopAndSettle();
+
+    expect(isWatchSessionActive()).toBe(false);
   });
 });
 

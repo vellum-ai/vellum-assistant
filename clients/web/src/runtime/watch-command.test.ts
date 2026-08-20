@@ -1,9 +1,23 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-const toggleWatchMock = mock(() => Promise.resolve());
+/**
+ * The controller's session slot, stood in for.
+ *
+ * Toggled by the stub the way the real `toggleWatch` toggles it, so a press
+ * that starts a session leaves the next press on the stop edge. The command
+ * reads the slot to decide which edge a press is, so a stub that never moved
+ * would only ever exercise the start edge.
+ */
+let sessionActive = false;
+
+const toggleWatchMock = mock(() => {
+  sessionActive = !sessionActive;
+  return Promise.resolve();
+});
 
 mock.module("@/domains/chat/watch/watch-controller", () => ({
   toggleWatch: toggleWatchMock,
+  isWatchSessionActive: () => sessionActive,
 }));
 
 const { handleToggleWatchCommand, isWatchEnabled } =
@@ -19,6 +33,7 @@ const setWatchFlag = (value: boolean | undefined): void => {
 afterEach(() => {
   toggleWatchMock.mockClear();
   setWatchFlag(false);
+  sessionActive = false;
 });
 
 /**
@@ -62,11 +77,7 @@ describe("the toggleWatch command", () => {
 
   /**
    * Both edges through the one call, because the surface draws one control and
-   * this side is the only one that knows which edge a press is. So the gate
-   * cannot be "start only": it is the same door either way, and a flag turned
-   * off mid-session must not be what strands a capture with nothing to end it.
-   * A running session is ended from the surface's stop control, which reaches
-   * this same command.
+   * this side is the only one that knows which edge a press is.
    */
   test("stays one call for both edges", () => {
     setWatchFlag(true);
@@ -75,6 +86,51 @@ describe("the toggleWatch command", () => {
     handleToggleWatchCommand();
 
     expect(toggleWatchMock).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * The whole reason the gate is on the start edge alone.
+   *
+   * A flag turned off under a session that is already running does not hide the
+   * companion surface's control: the surface swaps Watch for the stop control,
+   * because a capture the user can see and cannot end is worse than the feature
+   * staying visible. That stop control presses this command, so a gate that ran
+   * ahead of the stop edge would leave the microphone and the screen reading
+   * open with every visible press of stop doing nothing.
+   */
+  test("stops a running session while the flag is off", () => {
+    sessionActive = true;
+    setWatchFlag(false);
+
+    handleToggleWatchCommand();
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
+    expect(sessionActive).toBe(false);
+  });
+
+  /** The same, for the state of never having had an answer at all. */
+  test("stops a running session while the flag is unknown", () => {
+    sessionActive = true;
+    setWatchFlag(undefined);
+
+    handleToggleWatchCommand();
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
+    expect(sessionActive).toBe(false);
+  });
+
+  /**
+   * The stop edge is the only thing a running session buys. Once it has ended,
+   * the next press is a start again and the flag is back in front of it.
+   */
+  test("will not restart what it just stopped while the flag is off", () => {
+    sessionActive = true;
+    setWatchFlag(false);
+
+    handleToggleWatchCommand();
+    handleToggleWatchCommand();
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -10,6 +10,7 @@ import {
   COMPANION_BASE_CANVAS_PAD,
   COMPANION_NEAR_EDGE,
   COMPANION_SIZE_BOXES,
+  WATCH_FLAG,
   type CompanionCardGrowth,
   type CompanionGrowth,
   type CompanionContext,
@@ -80,9 +81,11 @@ export const isCompanionSurfaceEnabled = (): boolean =>
  * floating route with no auth and no flag store that ever settles, so main is
  * the only side of the surface holding a real evaluation, and it travels down
  * on the state push as {@link CompanionSurfaceState.watchEnabled}.
+ *
+ * The key itself comes from the contract package, because the web app's
+ * `toggleWatch` command reads the same evaluation to decide whether a press may
+ * start a session. See {@link WATCH_FLAG}.
  */
-const WATCH_FLAG = "watch";
-
 const isWatchEnabled = (): boolean =>
   readSetting("featureFlags")?.[WATCH_FLAG] === true;
 

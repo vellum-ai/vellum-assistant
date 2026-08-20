@@ -1,5 +1,6 @@
 /**
- * The `toggleWatch` command's whole body: the flag, then the toggle.
+ * The `toggleWatch` command's whole body: the flag in front of the start edge,
+ * then the toggle.
  *
  * A module of its own rather than a closure in `root-layout.tsx`, because this
  * is the door into a session that reads the user's screen and a door is worth
@@ -8,18 +9,13 @@
  * capture starting.
  */
 
-import { toggleWatch } from "@/domains/chat/watch/watch-controller";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { WATCH_FLAG } from "@vellumai/ipc-contract";
 
-/**
- * The flag Watch is behind.
- *
- * The same key `companion-window.ts` reads on the Electron side, where it
- * decides whether the surface draws the control at all. One name, two places
- * that have to agree, because the control and the command are two halves of
- * the same gate: the control is the affordance and this is the door.
- */
-export const WATCH_FLAG = "watch";
+import {
+  isWatchSessionActive,
+  toggleWatch,
+} from "@/domains/chat/watch/watch-controller";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 /**
  * Whether Watch is offered to the signed-in user.
@@ -29,8 +25,10 @@ export const WATCH_FLAG = "watch";
  * time, and subscribing would re-render the app's whole layout every time a
  * targeting change arrived.
  *
- * The store key is the flag key here because the key is a single word, so
- * `kebabToStoreKey` returns it unchanged (`feature-flag-catalog.ts`).
+ * Indexed by {@link WATCH_FLAG}, the same key Electron main reads to decide
+ * whether the companion surface draws the control at all. The store key is the
+ * flag key here because the key is a single word, so `kebabToStoreKey` returns
+ * it unchanged (`feature-flag-catalog.ts`).
  *
  * Anything that is not a positive evaluation is a no: registry defaults before
  * the fetch lands, a store that never got a server answer, an environment where
@@ -38,7 +36,7 @@ export const WATCH_FLAG = "watch";
  * started on a value nobody has confirmed.
  */
 export function isWatchEnabled(): boolean {
-  return useClientFeatureFlagStore.getState().watch === true;
+  return useClientFeatureFlagStore.getState()[WATCH_FLAG] === true;
 }
 
 /**
@@ -51,8 +49,15 @@ export function isWatchEnabled(): boolean {
  * before the flag moved, reaches this channel all the same. This window is the
  * side that owns the session, so this is where the answer has to be true.
  *
- * Both edges through one call, because the surface draws one control and only
- * the side holding the session knows which edge a press is.
+ * **The gate is on the start edge only.** Both edges arrive through this one
+ * call, because the surface draws one control and only the side holding the
+ * session knows which edge a press is. A flag that closed both would close the
+ * way out of a session that is already running, which is the one thing the
+ * surface deliberately keeps drawing when the flag goes off mid-session: it
+ * swaps Watch for the stop control rather than hiding the row, because a
+ * capture the user can see and cannot end is worse than the feature staying
+ * visible. That control presses this command, so a running session has to be
+ * allowed through no matter what the flag says.
  *
  * Nothing is navigated and the app is deliberately not raised, unlike
  * `startVoice`. The session reads the user's screen, so the work in front of
@@ -60,7 +65,7 @@ export function isWatchEnabled(): boolean {
  * session exists to watch.
  */
 export function handleToggleWatchCommand(): void {
-  if (!isWatchEnabled()) {
+  if (!isWatchSessionActive() && !isWatchEnabled()) {
     return;
   }
   void toggleWatch();

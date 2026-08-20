@@ -785,6 +785,24 @@ export interface CompanionContext {
   watching?: boolean;
 }
 
+/**
+ * The feature flag key Watch is behind, as the app's window wrote it into
+ * settings (`useElectronFeatureFlagBridge`).
+ *
+ * Here rather than in either client, because two clients read the same
+ * evaluation for two halves of one gate: Electron main reads it to decide
+ * whether the companion surface draws the Watch control at all, and the web
+ * app's `toggleWatch` command reads it to decide whether a press may start a
+ * session. A second copy of the string is a gate that can disagree with
+ * itself, and both ways it can disagree are bad: a visible control that
+ * nothing will start, or a command open with no control that says so.
+ *
+ * The evaluated value travels to the surface on
+ * {@link CompanionSurfaceState.watchEnabled}; this is only the key it is
+ * evaluated under.
+ */
+export const WATCH_FLAG = "watch";
+
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
   growth: CompanionGrowth;

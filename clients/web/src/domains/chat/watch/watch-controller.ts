@@ -187,6 +187,23 @@ interface WatchSession {
 let session: WatchSession | null = null;
 
 /**
+ * Whether {@link toggleWatch} would take its stop edge if it were called now.
+ *
+ * The same slot that edge reads, exposed so a caller that gates the start can
+ * gate only the start. Anything that answers this question from elsewhere would
+ * be answering a different one: {@link useWatchStore} turns true when a session
+ * opens, and a start that is registered but still resolving its version gate is
+ * already stoppable while that store still says no.
+ *
+ * Synchronous and unsubscribed on purpose. It is worth reading only in the
+ * instant before a toggle, and nothing that draws should read it: what to draw
+ * is {@link useWatchStore}.
+ */
+export function isWatchSessionActive(): boolean {
+  return session !== null;
+}
+
+/**
  * Resolves when a session that is still draining has let go of the runtime's
  * slot, or `null` when none is.
  *
