@@ -232,13 +232,20 @@ export function useChatEmptyState({
     ? buildEditAppStarters(editingApp)
     : conversationStarters;
 
+  // Everything below is about the chip dock and only the chip dock. The
+  // suggestions library takes the same docked slot on the flag-on path and
+  // fills it from its own data, which the starters query is not even asked
+  // for there: reading that silence as an empty dock would collapse the
+  // library's featured row out of sight.
+  const showStarterDock = isPlainEmptyState && !showSuggestionLibrary;
+
   // Reserve for an assistant known to produce chips, and keep the reserve up
   // as its own sizing floor once they land so a short answer cannot shrink
   // the dock either. Everything that can end the wait ends the reserve: chips
   // arriving, the daemon settling on none, a failed or paused fetch, and the
   // deadline on a generation that never lands.
   const startersReserved =
-    isPlainEmptyState &&
+    showStarterDock &&
     assistantProducesStarters &&
     (isAwaitingStarters || emptyStateStarters.length > 0);
 
@@ -247,7 +254,7 @@ export function useChatEmptyState({
   // covers the docked column's own padding as well. The credits card rides
   // this same slot, so a dock holding one is never empty.
   const startersDockCollapsed =
-    isPlainEmptyState &&
+    showStarterDock &&
     !startersReserved &&
     !showCreditsUpsell &&
     emptyStateStarters.length === 0;
@@ -282,7 +289,7 @@ export function useChatEmptyState({
         />
       </div>
     );
-  } else if (isPlainEmptyState) {
+  } else if (showStarterDock) {
     // The chips dock to the bottom of the first viewport in a subtle panel
     // with a muted caption (the Figma's 1×3 row stays a 2×2 grid here). The
     // dock mounts whether or not chips exist yet, so the layout never waits

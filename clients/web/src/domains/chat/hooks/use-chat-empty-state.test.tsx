@@ -47,12 +47,19 @@ const startersStatusRef: { value: "ready" | "empty" | "generating" } = {
   value: "ready",
 };
 
+// Honors the assistant id the way the real hook does: a null id is a
+// disabled query and answers idle. A stub that served starters regardless
+// hid the paths that never ask for them (the suggestions library, an
+// active conversation) behind chips they would never actually receive.
 mock.module("@/domains/chat/hooks/use-conversation-starters", () => ({
-  useConversationStarters: () => ({
-    starters: startersRef.value,
-    status: startersStatusRef.value,
-    isAwaitingStarters: awaitingStartersRef.value,
-  }),
+  useConversationStarters: (assistantId: string | null | undefined) =>
+    assistantId
+      ? {
+          starters: startersRef.value,
+          status: startersStatusRef.value,
+          isAwaitingStarters: awaitingStartersRef.value,
+        }
+      : { starters: [], status: "idle", isAwaitingStarters: false },
 }));
 
 // The real card mounts platform gates, subscription queries, and a router
@@ -355,6 +362,41 @@ describe("useChatEmptyState starters dock", () => {
     renderHook(() => useChatEmptyState(baseParams()));
 
     expect(loadAssistantProducesStarters("a1")).toBe(true);
+  });
+
+  test("the suggestions library is never collapsed by the chip dock's policy", () => {
+    // The library takes the same docked slot but fills it from its own data,
+    // and the starter query is disabled on that path, so it answers idle with
+    // no chips. Reading that as an empty dock collapsed the featured row out
+    // of sight on the whole flag-on empty state.
+    flagRef.value = true;
+    const { result } = renderHook(() =>
+      useChatEmptyState(baseParams({ onSelectSuggestion: () => {} })),
+    );
+
+    expect(result.current.dockStartersToBottom).toBe(true);
+    expect(result.current.startersDockCollapsed).toBe(false);
+
+    const { container } = render(<>{result.current.startersSlot}</>);
+    expect(
+      container.querySelector('[data-slot="suggestion-featured-row"]'),
+    ).not.toBeNull();
+    expect(dockOf(container)).toBeNull();
+  });
+
+  test("the library is not collapsed even for an assistant known to have no chips", () => {
+    // The discriminating case: the flag-off path for this assistant would
+    // collapse, so a gate that only checked the starter data would take the
+    // library down with it.
+    recordAssistantProducesStarters("a1", false);
+    startersRef.value = [];
+    startersStatusRef.value = "empty";
+    flagRef.value = true;
+    const { result } = renderHook(() =>
+      useChatEmptyState(baseParams({ onSelectSuggestion: () => {} })),
+    );
+
+    expect(result.current.startersDockCollapsed).toBe(false);
   });
 
   test("app editing keeps its chips inline and never docks", () => {
