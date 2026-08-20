@@ -2,13 +2,10 @@
  * Tests for the confirmation-request -> guardian.question notification bridge.
  *
  * Verifies that:
- * 1. Contact confirmation_requests emit guardian.question notifications
- * 2. A guardian's own channel prompt emits one too, because the card is its
- *    only guardian-addressed surface there, while the turns a card cannot
- *    reach (in-app, undeliverable channels) still skip
- * 3. Delivery rows are persisted for guardian destinations
- * 4. Unknown actor sessions are correctly skipped
- * 5. Missing guardian binding causes a skip
+ * 1. Trusted-contact confirmation_requests emit guardian.question notifications
+ * 2. Delivery rows are persisted for guardian destinations
+ * 3. Guardian and unknown actor sessions are correctly skipped
+ * 4. Missing guardian binding causes a skip
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -78,10 +75,7 @@ mock.module(
 
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { initializeDb } from "../persistence/db-init.js";
-import {
-  bridgeConfirmationRequestToGuardian,
-  guardianPromptDeliveredAsCard,
-} from "../runtime/confirmation-request-guardian-bridge.js";
+import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import type { SimGuardianRequest } from "./guardian-gateway-sim.js";
 
 await initializeDb();
@@ -163,72 +157,12 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(payload.requesterIdentifier).toBe("@requester");
   });
 
-  // A guardian clears the sensitive-tool gate, so that gate lets the call
-  // proceed, but the risk/threshold policy still parks a prompt they have to
-  // answer. The card is the only surface addressed to the guardian rather
-  // than to whatever chat the turn is running in, which on a shared channel
-  // is a room.
-  test("emits guardian.question for a guardian's own channel prompt", async () => {
-    const guardianRequest = makeGuardianRequest({
-      requesterExternalUserId: "guardian-1",
-    });
+  test("skips guardian actor sessions (self-approve)", async () => {
+    const guardianRequest = makeGuardianRequest();
     const trustContext: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "guardian",
       guardianExternalUserId: "guardian-1",
-      requesterExternalUserId: "guardian-1",
-    };
-
-    const result = await bridgeConfirmationRequestToGuardian({
-      guardianRequest,
-      trustContext,
-      conversationId: "conv-1",
-      toolName: "bash",
-    });
-
-    expect("bridged" in result && result.bridged).toBe(true);
-    expect(emittedSignals).toHaveLength(1);
-    expect(emittedSignals[0].sourceEventName).toBe("guardian.question");
-    // Pinned like any other guardian card, never left to conversation routing.
-    expect(emittedSignals[0].conversationAffinityHint).toEqual({
-      vellum: "conv-1",
-    });
-  });
-
-  // In the app the client renders the confirmation itself, so a card would be
-  // a second copy of a prompt already on screen.
-  test("skips a guardian prompt raised in the app", async () => {
-    const guardianRequest = makeGuardianRequest({ sourceChannel: "vellum" });
-    const trustContext: TrustContext = {
-      sourceChannel: "vellum",
-      trustClass: "guardian",
-      guardianExternalUserId: "guardian-1",
-      requesterExternalUserId: "guardian-1",
-    };
-
-    const result = await bridgeConfirmationRequestToGuardian({
-      guardianRequest,
-      trustContext,
-      conversationId: "conv-1",
-      toolName: "bash",
-    });
-
-    expect("skipped" in result && result.skipped).toBe(true);
-    if ("skipped" in result) {
-      expect(result.reason).toBe("not_bridgeable_trust_class");
-    }
-    expect(emittedSignals).toHaveLength(0);
-  });
-
-  // The rail keeps the turns a card cannot reach, so the bridge must decline
-  // them rather than emit a signal that resolves to no destination.
-  test("skips a guardian prompt on a channel the pipeline cannot deliver to", async () => {
-    const guardianRequest = makeGuardianRequest({ sourceChannel: "discord" });
-    const trustContext: TrustContext = {
-      sourceChannel: "discord",
-      trustClass: "guardian",
-      guardianExternalUserId: "guardian-1",
-      requesterExternalUserId: "guardian-1",
     };
 
     const result = await bridgeConfirmationRequestToGuardian({
@@ -463,61 +397,5 @@ describe("bridgeConfirmationRequestToGuardian", () => {
 
     expect("bridged" in result && result.bridged).toBe(true);
     expect(emittedSignals).toHaveLength(1);
-  });
-});
-
-describe("guardianPromptDeliveredAsCard", () => {
-  // The rail and the bridge both read this, so the two answers have to be one
-  // rule. A copy in either caller would eventually disagree and either
-  // deliver the prompt twice or not at all.
-  test("is true for a guardian on a channel the pipeline can deliver to", () => {
-    for (const sourceChannel of ["slack", "telegram"] as const) {
-      expect(
-        guardianPromptDeliveredAsCard({
-          trustClass: "guardian",
-          sourceChannel,
-        }),
-      ).toBe(true);
-    }
-  });
-
-  test("is false in the app, where the client renders the confirmation", () => {
-    expect(
-      guardianPromptDeliveredAsCard({
-        trustClass: "guardian",
-        sourceChannel: "vellum",
-      }),
-    ).toBe(false);
-  });
-
-  // `platform` is a push-only relay and a push carries no buttons; `whatsapp`
-  // renders inline buttons on a direct send but has no notification adapter to
-  // deliver a card through. Neither can carry a decision.
-  test("is false on channels that cannot render a card", () => {
-    for (const sourceChannel of [
-      "discord",
-      "whatsapp",
-      "email",
-      "platform",
-    ] as const) {
-      expect(
-        guardianPromptDeliveredAsCard({
-          trustClass: "guardian",
-          sourceChannel,
-        }),
-      ).toBe(false);
-    }
-  });
-
-  test("is false for every actor who is not the guardian", () => {
-    for (const trustClass of [
-      "trusted_contact",
-      "unverified_contact",
-      "unknown",
-    ] as const) {
-      expect(
-        guardianPromptDeliveredAsCard({ trustClass, sourceChannel: "slack" }),
-      ).toBe(false);
-    }
   });
 });

@@ -46,7 +46,6 @@ import {
   getApprovalInfoByConversation,
   getChannelApprovalPrompt,
 } from "../../channel-approvals.js";
-import { guardianPromptDeliveredAsCard } from "../../confirmation-request-guardian-bridge.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import type {
   ApprovalCopyGenerator,
@@ -799,15 +798,6 @@ function startPendingApprovalPromptWatcher(params: {
       requesterExternalUserId,
     })
   ) {
-    return () => {};
-  }
-
-  // This message goes to the chat the turn is running in, which on a shared
-  // channel is a room rather than the guardian, so it stands down wherever the
-  // card can carry the same prompt. Channel eligibility is not a delivery
-  // receipt: the bridge can still decline after this passes, and nothing here
-  // observes that.
-  if (guardianPromptDeliveredAsCard({ trustClass, sourceChannel })) {
     return () => {};
   }
 

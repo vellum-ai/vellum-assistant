@@ -1,16 +1,10 @@
 /**
- * Bridge confirmation_request events to guardian.question notifications.
+ * Bridge trusted-contact confirmation_request events to guardian.question notifications.
  *
- * When a channel session creates a confirmation_request (tool approval), this
- * helper emits a guardian.question notification signal and persists
- * guardian-request delivery rows to guardian destinations
- * (Telegram/Slack/Vellum), enabling the guardian to approve via
- * callback/request-code path.
- *
- * Two kinds of turn reach here. A contact's sensitive tool call escalates
- * because the contact may not decide it. A guardian's own prompt bridges for
- * a different reason: they may decide it, but the card is the only surface
- * addressed to them rather than to whatever chat the turn is running in.
+ * When a trusted-contact channel session creates a confirmation_request (tool approval),
+ * this helper emits a guardian.question notification signal and persists guardian-request
+ * delivery rows to guardian destinations (Telegram/Slack/Vellum), enabling the guardian
+ * to approve via callback/request-code path.
  *
  * Modeled after the tool-grant-request-helper pattern. Designed to be called from
  * both the daemon event registrar (server.ts) and the HTTP hub publisher
@@ -19,8 +13,6 @@
  */
 
 import type { GuardianRequestWire } from "../channels/gateway-guardian-requests.js";
-import type { ChannelId } from "../channels/types.js";
-import { channelSupportsGuardianQuestionCards } from "../daemon/channel-ui-capability.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
@@ -66,44 +58,17 @@ export type BridgeConfirmationRequestResult =
     };
 
 // ---------------------------------------------------------------------------
-// Surface rule
-// ---------------------------------------------------------------------------
-
-/**
- * Whether a guardian's own gated tool prompt is delivered as a guardian card.
- *
- * A guardian is `self` on the sensitive-tool gate, so that gate lets their
- * call proceed, but the risk/threshold policy still parks an interactive
- * prompt they have to answer. The card is the surface addressed to the
- * guardian; the in-turn rail's message addresses whatever chat the turn is
- * running in, which on a shared channel is a room.
- *
- * Channel eligibility is `channelSupportsGuardianQuestionCards`, the same set
- * the `pending_question` promotion gates on, so the two guardian-card
- * promotions cannot disagree about where a card can land.
- */
-export function guardianPromptDeliveredAsCard(params: {
-  trustClass: TrustContext["trustClass"];
-  sourceChannel: ChannelId;
-}): boolean {
-  const { trustClass, sourceChannel } = params;
-  return (
-    resolveCapabilities(trustClass).sensitiveToolApproval === "self" &&
-    channelSupportsGuardianQuestionCards(sourceChannel)
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
 
 /**
- * Bridge a confirmation_request to a guardian.question notification.
+ * Bridge a non-guardian contact confirmation_request to a guardian.question
+ * notification.
  *
- * Emits for a contact whose sensitive tool call escalates-and-waits, and for a
- * guardian's own prompt wherever a card can carry it. Unknown actors are
- * skipped, already fail-closed by the routing layer. Every path still needs a
- * resolvable guardian binding on the turn's channel.
+ * Only emits when the session belongs to a trusted_contact or unverified_contact
+ * actor with a resolvable guardian binding. Guardian and unknown actors are
+ * skipped — guardians self-approve, and unknown actors are already fail-closed
+ * by the routing layer.
  *
  * Fire-and-forget safe: notification emission errors are logged but not propagated.
  */
@@ -118,32 +83,25 @@ export async function bridgeConfirmationRequestToGuardian(
     assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
   } = params;
 
-  const sourceChannel = trustContext.sourceChannel;
-
-  // `deny` (unknown) is fail-closed before a prompt is ever parked on the
-  // confirmation path, but the bridge's two other callers do not share that
-  // guarantee, so the skip stays explicit rather than resting on it.
-  const { sensitiveToolApproval } = resolveCapabilities(
-    trustContext.trustClass,
-  );
-  const bridgeable =
-    sensitiveToolApproval === "escalate-and-wait" ||
-    guardianPromptDeliveredAsCard({
-      trustClass: trustContext.trustClass,
-      sourceChannel,
-    });
-  if (!bridgeable) {
+  // Only bridge for actors whose sensitive tool approval escalates-and-waits.
+  // Guardians self-approve and unknown actors are fail-closed by the routing
+  // layer, so neither needs a guardian bridge.
+  if (
+    resolveCapabilities(trustContext.trustClass).sensitiveToolApproval !==
+    "escalate-and-wait"
+  ) {
     return { skipped: true, reason: "not_bridgeable_trust_class" };
   }
 
   if (!trustContext.guardianExternalUserId) {
     log.debug(
-      { conversationId, sourceChannel },
-      "Skipping guardian bridge: no guardian identity on the turn's trust context",
+      { conversationId, sourceChannel: trustContext.sourceChannel },
+      "Skipping guardian bridge: no guardian identity on trusted-contact context",
     );
     return { skipped: true, reason: "missing_guardian_identity" };
   }
 
+  const sourceChannel = trustContext.sourceChannel;
   const binding = await getGuardianBinding(assistantId, sourceChannel);
   if (!binding) {
     log.debug(

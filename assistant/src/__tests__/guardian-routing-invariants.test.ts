@@ -244,40 +244,6 @@ describe("routing invariant: all decision paths reference applyGuardianDecision"
 // SECTION 2: Principal-based authorization invariants
 // ===========================================================================
 
-describe("routing invariant: one rule decides where a guardian prompt lands", () => {
-  const srcRoot = resolve(__dirname, "..");
-
-  // A guardian's own gated tool prompt has exactly two possible surfaces: the
-  // guardian card, or the in-turn rail's message into the chat the turn is
-  // running in. Both sides read `guardianPromptDeliveredAsCard` so they answer
-  // identically. If the rail stops consulting it, or restates the condition
-  // locally, the two drift and the prompt is delivered twice (card plus a
-  // public post) or not at all.
-  test("the in-turn rail defers to the shared surface rule", () => {
-    const source = readFileSync(
-      join(srcRoot, "runtime/routes/inbound-stages/background-dispatch.ts"),
-      "utf-8",
-    );
-
-    expect(source).toContain("guardianPromptDeliveredAsCard");
-    expect(source).toContain(
-      'from "../../confirmation-request-guardian-bridge.js"',
-    );
-
-    // The rule is read, not reimplemented: the rail must not re-derive the
-    // capability itself, which is how a second copy of the condition starts.
-    expect(source).not.toContain("sensitiveToolApproval");
-  });
-
-  test("the bridge owns the rule it exports", () => {
-    const source = readFileSync(
-      join(srcRoot, "runtime/confirmation-request-guardian-bridge.ts"),
-      "utf-8",
-    );
-    expect(source).toContain("export function guardianPromptDeliveredAsCard");
-  });
-});
-
 describe("routing invariant: principal-based authorization enforced before decisions", () => {
   beforeEach(() => resetTables());
 
