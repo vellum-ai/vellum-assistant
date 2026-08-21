@@ -463,13 +463,14 @@ export function Select<T extends string>({
                 return row;
               }
               return (
-                <RadixSelect.Group
+                <div
                   key={tokenFor(option.value)}
                   data-slot="select-pinned-option"
+                  role="presentation"
                   className="sticky bottom-0 z-10 border-t border-[var(--border-element)] bg-[var(--field-bg)]"
                 >
                   {row}
-                </RadixSelect.Group>
+                </div>
               );
             })}
           </RadixSelect.Viewport>
