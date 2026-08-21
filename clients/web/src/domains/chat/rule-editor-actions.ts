@@ -18,6 +18,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { reportSubmissionFailure } from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
 import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
@@ -159,7 +160,9 @@ async function executeSaveRule(
   // Confirmation path: resolve via the interaction API rather than direct save.
   if (strategy === "update-or-create" && context.requestId) {
     useRuleEditorStore.getState().setIsSavingRule(true);
-    useInteractionStore.getState().submitConfirmationStart();
+    useInteractionStore
+      .getState()
+      .claimSubmission("confirmation", context.requestId);
     try {
       const result = await submitConfirmation(
         ctx.assistantId,
@@ -169,25 +172,39 @@ async function executeSaveRule(
       );
       if (!result.ok) {
         useRuleEditorStore.getState().dismissRuleEditor();
-        useChatSessionStore.getState().setError({ message: result.error });
+        reportSubmissionFailure(
+          "confirmation",
+          context.requestId,
+          result.error,
+        );
         return;
       }
     } catch (err) {
       captureError(err, { context: "save_trust_rule" });
       useRuleEditorStore.getState().dismissRuleEditor();
-      useChatSessionStore
-        .getState()
-        .setError({ message: "Failed to save trust rule. Please try again." });
+      reportSubmissionFailure(
+        "confirmation",
+        context.requestId,
+        "Failed to save trust rule. Please try again.",
+      );
       return;
     } finally {
       useRuleEditorStore.getState().setIsSavingRule(false);
-      useInteractionStore.getState().submitConfirmationEnd();
+      useInteractionStore
+        .getState()
+        .releaseSubmission("confirmation", context.requestId);
     }
 
     useInteractionStore
       .getState()
       .dismissConfirmationIfMatches(context.requestId);
-    useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+    useInteractionStore
+      .getState()
+      .releaseInlineAnchorIfMatches(
+        useChatSessionStore
+          .getState()
+          .confirmationToolCallMap.get(context.requestId),
+      );
     useChatSessionStore
       .getState()
       .deleteConfirmationToolCall(context.requestId);

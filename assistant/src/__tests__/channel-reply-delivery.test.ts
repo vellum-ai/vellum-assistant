@@ -58,6 +58,19 @@ const renderedHistoryContentQueue: RenderedHistoryStub[] = [];
 
 let deliveryFailAtIndex = -1;
 
+const editCalls: { callbackUrl: string; target: Record<string, unknown> }[] =
+  [];
+
+mock.module("../messaging/providers/index.js", () => ({
+  editChannelMessage: async (
+    callbackUrl: string,
+    target: Record<string, unknown>,
+  ) => {
+    editCalls.push({ callbackUrl, target });
+    return { ok: true };
+  },
+}));
+
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (
     callbackUrl: string,
@@ -253,7 +266,7 @@ describe("channel-reply-delivery", () => {
       payload: {
         chatId: "chat-1",
         text: "Before tool.",
-        useBlocks: true,
+        renderRichly: true,
         attachments: undefined,
         assistantId: "assistant-1",
       },
@@ -263,7 +276,7 @@ describe("channel-reply-delivery", () => {
       payload: {
         chatId: "chat-1",
         text: "After tool.",
-        useBlocks: true,
+        renderRichly: true,
         attachments,
         assistantId: "assistant-1",
       },
@@ -322,14 +335,14 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls[0].payload).toEqual({
       chatId: "chat-3",
       text: "Before tool.",
-      useBlocks: true,
+      renderRichly: true,
       attachments: undefined,
       assistantId: "assistant-2",
     });
     expect(deliveryCalls[1].payload).toEqual({
       chatId: "chat-3",
       text: "After tool.",
-      useBlocks: true,
+      renderRichly: true,
       attachments: [
         {
           id: "att-2",
@@ -782,31 +795,32 @@ describe("channel-reply-delivery", () => {
       chatId: "chat-live",
       attachments,
       assistantId: undefined,
-      ephemeral: undefined,
-      user: undefined,
-      messageTs: "1700000000.000055",
+      audience: undefined,
     });
+    // Attachments post as new messages, so nothing is edited on this path.
+    expect(editCalls).toHaveLength(0);
     expect(seenTs).toEqual(["1700000000.000055"]);
   });
 
-  it("passes ephemeral and user through to each delivery call", async () => {
+  it("carries the audience through to every delivery call", async () => {
+    const audience = { kind: "oneReader", userId: "U456" } as const;
     await deliverRenderedReplyViaCallback({
       callbackUrl: "http://gateway/deliver/slack",
       chatId: "C123",
       textSegments: ["Part 1.", "Part 2."],
       interSegmentDelayMs: 0,
-      ephemeral: true,
-      user: "U456",
+      audience,
     });
 
     expect(deliveryCalls).toHaveLength(2);
-    expect(deliveryCalls[0].payload.ephemeral).toBe(true);
-    expect(deliveryCalls[0].payload.user).toBe("U456");
-    expect(deliveryCalls[1].payload.ephemeral).toBe(true);
-    expect(deliveryCalls[1].payload.user).toBe("U456");
+    // Every segment, not just the first: a reply restricted to one reader
+    // that loses the restriction partway becomes a public one.
+    for (const call of deliveryCalls) {
+      expect(call.payload.audience).toEqual(audience);
+    }
   });
 
-  it("does not include ephemeral fields when not set", async () => {
+  it("leaves the audience unset when the reply is for the room", async () => {
     await deliverRenderedReplyViaCallback({
       callbackUrl: "http://gateway/deliver/slack",
       chatId: "C123",
@@ -815,8 +829,7 @@ describe("channel-reply-delivery", () => {
     });
 
     expect(deliveryCalls).toHaveLength(1);
-    expect(deliveryCalls[0].payload.ephemeral).toBeUndefined();
-    expect(deliveryCalls[0].payload.user).toBeUndefined();
+    expect(deliveryCalls[0].payload.audience).toBeUndefined();
   });
 
   it("suppresses delivery when the only text segment is <no_response/>", async () => {

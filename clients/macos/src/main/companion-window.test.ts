@@ -26,6 +26,7 @@ const {
   geometryFor,
   placeCanvas,
   callOnUpdate,
+  introOnAdvance,
   shouldShowCompanionSurface,
 } = await import("./companion-window");
 
@@ -284,27 +285,63 @@ describe("the session main holds", () => {
 });
 
 /**
+ * The introduction runs once in an install's life, so the rule that walks it is
+ * worth stating as cases: there is no second chance to get it right for a user,
+ * and every wrong answer here is either a run that repeats or one that ends
+ * before it has said anything.
+ */
+describe("introOnAdvance", () => {
+  test("walks to the next beat", () => {
+    expect(introOnAdvance("meet", "next")).toBe("talk");
+    expect(introOnAdvance("talk", "next")).toBe("type");
+    expect(introOnAdvance("type", "next")).toBe("tray");
+  });
+
+  // Past the last beat there is no next one, and `null` is what main reads as
+  // the run being over and worth recording.
+  test("falls off the end of the last beat", () => {
+    expect(introOnAdvance("tray", "next")).toBe(null);
+  });
+
+  test("dismiss ends the run from any beat", () => {
+    expect(introOnAdvance("meet", "dismiss")).toBe(null);
+    expect(introOnAdvance("type", "dismiss")).toBe(null);
+  });
+
+  // A press that arrives after the run is already over. The renderer can be a
+  // beat behind main, so this is reachable by a real double-press on the last
+  // beat rather than only in theory.
+  test("stays over once it is over", () => {
+    expect(introOnAdvance(null, "next")).toBe(null);
+    expect(introOnAdvance(null, "dismiss")).toBe(null);
+  });
+});
+
+/**
  * The surface is the most conspicuous thing this app puts on screen, so what
- * decides whether it appears is worth stating as cases: the flag is a floor and
- * the tray preference is a veto.
+ * decides whether it appears is worth stating as cases: an assistant to draw is
+ * a floor and the tray preference is a veto.
  */
 describe("shouldShowCompanionSurface", () => {
-  test("shows for a targeted user who has not hidden it", () => {
+  test("shows once there is an assistant and it has not been hidden", () => {
     expect(shouldShowCompanionSurface(true, false)).toBe(true);
   });
 
-  test("stays away while the flag is off", () => {
-    expect(shouldShowCompanionSurface(false, false)).toBe(false);
-  });
-
-  test("honours the tray preference even while the flag is on", () => {
+  test("honours the tray preference even with an assistant to draw", () => {
     expect(shouldShowCompanionSurface(true, true)).toBe(false);
   });
 
-  // The pre-flag state of every launch: main reads the flags the app's window
-  // wrote last time, and a fresh install has none.
-  test("stays away when nothing is known yet", () => {
+  // The state every launch starts in, and the one a sign-out returns to: main's
+  // avatar cache is filled by the app's window, and until it has there is no
+  // creature, no name and no conversation for the pill to carry.
+  test("stays away while there is no assistant to be", () => {
     expect(shouldShowCompanionSurface(false, false)).toBe(false);
+  });
+
+  // Signing out must not also clear the preference, so this pair stays
+  // distinct from the one above rather than collapsing into it.
+  test("stays away with no assistant even when not hidden", () => {
+    expect(shouldShowCompanionSurface(false, true)).toBe(false);
   });
 });
 

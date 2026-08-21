@@ -157,40 +157,47 @@ export const SlackStreamOpSchema = z
 export type SlackStreamOp = z.infer<typeof SlackStreamOpSchema>;
 
 // ---------------------------------------------------------------------------
+// Audience
+// ---------------------------------------------------------------------------
+
+/**
+ * Restricts a message to a single reader in a room that has more.
+ *
+ * A single object rather than a flag beside an id, because the two are only
+ * meaningful together: a channel cannot address one reader without knowing
+ * which. Slack reads this as `chat.postEphemeral`; a channel whose rooms hold
+ * one reader already has nothing to do.
+ */
+export const MessageAudienceSchema = z.object({
+  kind: z.literal("oneReader"),
+  /** The reader, in the channel's own id space. */
+  userId: z.string(),
+});
+
+export type MessageAudience = z.infer<typeof MessageAudienceSchema>;
+
+// ---------------------------------------------------------------------------
 // Channel reply payload — the full outbound wire format
 // ---------------------------------------------------------------------------
 
 export const ChannelReplyPayloadSchema = z.object({
   chatId: z.string(),
   text: z.string().optional(),
-  /** Pre-formatted Block Kit blocks for Slack delivery. */
-  blocks: z.array(z.custom<KnownBlock>()).optional(),
   assistantId: z.string().optional(),
   attachments: z.array(AttachmentMetadataSchema).optional(),
   approval: ApprovalUIMetadataSchema.optional(),
   /**
-   * When true, deliver via `chat.postEphemeral` so only the target `user`
-   * sees the message.
+   * Who may see this message. Absent means everyone in the room, which is the
+   * only safe reading of an absent value: a message meant for one reader that
+   * loses its audience must not become a public one.
    */
-  ephemeral: z.boolean().optional(),
-  /** Slack user ID — required when `ephemeral` is true. */
-  user: z.string().optional(),
-  /** When provided, update an existing message instead of posting a new one. */
-  messageTs: z.string().optional(),
-  /** When true, the daemon generates Block Kit blocks from the text before delivery. */
-  useBlocks: z.boolean().optional(),
-  /** When provided, set or clear the Slack Assistants API thread status. */
-  assistantThreadStatus: z
-    .object({
-      channel: z.string(),
-      threadTs: z.string(),
-      status: z.string(),
-      /** Serialized to Slack as `loading_messages`. */
-      loadingMessages: z.array(z.string()).optional(),
-    })
-    .optional(),
-  /** When provided, perform one Slack streaming operation (start/append/stop). */
-  slackStream: SlackStreamOpSchema.optional(),
+  audience: MessageAudienceSchema.optional(),
+  /**
+   * Asks the channel to render the text richly rather than as plain text.
+   * Each channel decides what that means, and one that cannot ignores it.
+   * Slack is the only channel acting on it today, where it becomes Block Kit.
+   */
+  renderRichly: z.boolean().optional(),
 });
 
 export type ChannelReplyPayload = z.infer<typeof ChannelReplyPayloadSchema>;

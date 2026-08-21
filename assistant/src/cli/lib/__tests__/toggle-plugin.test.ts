@@ -5,6 +5,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
@@ -18,7 +19,7 @@ import {
 
 // VELLUM_WORKSPACE_DIR is set to this; getWorkspacePluginsDir() returns
 // <workspace>/plugins, so the actual plugins directory is TMP_WS_DIR/plugins.
-const TMP_WS_DIR = join(import.meta.dir, "__tmp__toggle-plugin-test");
+const TMP_WS_DIR = join(tmpdir(), `toggle-plugin-test-${process.pid}`);
 const TMP_PLUGINS_DIR = join(TMP_WS_DIR, "plugins");
 
 beforeEach(() => {

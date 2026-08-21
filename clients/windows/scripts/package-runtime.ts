@@ -15,6 +15,14 @@ const windowsDir = path.resolve(import.meta.dir, "..");
 const repoRoot = path.resolve(windowsDir, "..", "..");
 const outputDir = path.join(windowsDir, "resources", "cli-runtime");
 const releaseChannel = process.env.VELLUM_ENVIRONMENT || "local";
+const targetArch = process.env.ELECTRON_TARGET_ARCH ?? process.arch;
+if (targetArch !== "x64" && targetArch !== "arm64") {
+  throw new Error(`Unsupported Windows runtime architecture: ${targetArch}`);
+}
+if (targetArch !== process.arch) {
+  throw new Error(`${targetArch} runtime packaging requires a native runner.`);
+}
+const compileTarget = `bun-windows-${targetArch}`;
 const readPackageVersion = async (packageDir: string): Promise<string> => {
   const manifest = (await Bun.file(
     path.join(repoRoot, packageDir, "package.json"),
@@ -110,7 +118,7 @@ const targets: readonly RuntimeTarget[] = [
   },
 ];
 for (const { name, entry, externals, defines } of targets) {
-  const args = ["build", "--compile"];
+  const args = ["build", "--compile", `--target=${compileTarget}`];
   for (const external of externals ?? []) {
     args.push("--external", external);
   }
@@ -189,5 +197,5 @@ if (pluginApiShim.status !== 0) {
 copyFileSync(process.execPath, path.join(outputDir, "bun.exe"));
 await Bun.write(
   path.join(outputDir, "runtime.json"),
-  `${JSON.stringify({ version: appVersion, bunVersion, releaseChannel })}\n`,
+  `${JSON.stringify({ version: appVersion, bunVersion, releaseChannel, architecture: targetArch })}\n`,
 );

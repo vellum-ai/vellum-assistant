@@ -18,6 +18,9 @@ const slack = {
   sendSlackStreamOp: mock((..._args: unknown[]) =>
     Promise.resolve({ ok: true, ts: "stream-ts" }),
   ),
+  updateSlackMessage: mock((..._args: unknown[]) =>
+    Promise.resolve({ ts: "slack-ts" }),
+  ),
 };
 const telegram = {
   sendTelegramReply: mock((..._args: unknown[]) => Promise.resolve()),
@@ -59,8 +62,11 @@ mock.module("../../../util/logger.js", () => ({
 
 const {
   deliverDirect,
+  editChannelMessage,
   sendChannelReaction,
+  sendChannelStreamOp,
   sendChannelTyping,
+  setChannelThreadStatus,
   supportsChannelTyping,
   isDirectDelivery,
   getTransportForCallback,
@@ -152,19 +158,39 @@ describe("Slack sub-operation selection", () => {
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
   });
 
-  test("assistantThreadStatus routes to sendSlackAssistantThreadStatus", async () => {
-    await deliverDirect(
-      `${BASE}/deliver/slack`,
-      payload({
-        assistantThreadStatus: {
-          channel: "C1",
-          threadTs: "1700.5",
-          status: "is thinking",
-        },
-      }),
-    );
+  test("editChannelMessage updates in place instead of posting", async () => {
+    await editChannelMessage(`${BASE}/deliver/slack`, {
+      chatId: "C1",
+      messageId: "1700.5",
+      text: "revised",
+    });
+
+    expect(slack.updateSlackMessage).toHaveBeenCalledTimes(1);
+    // The distinction the split exists for: an edit never reaches the post
+    // path, so a failed edit cannot become a second visible message.
+    expect(slack.sendSlackReply).not.toHaveBeenCalled();
+  });
+
+  test("setChannelThreadStatus reaches Slack without touching the text path", async () => {
+    await setChannelThreadStatus(`${BASE}/deliver/slack`, {
+      chatId: "C1",
+      threadTs: "1700.5",
+      status: "is thinking",
+    });
+
     expect(slack.sendSlackAssistantThreadStatus).toHaveBeenCalledTimes(1);
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
+  });
+
+  test("a channel with no status surface resolves quietly", async () => {
+    const result = await setChannelThreadStatus(`${BASE}/deliver/telegram`, {
+      chatId: "123",
+      threadTs: "1700.5",
+      status: "is thinking",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
   });
 
   test("sendChannelTyping resolves quietly for a channel with no typing capability", async () => {
@@ -174,18 +200,16 @@ describe("Slack sub-operation selection", () => {
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
   });
 
-  test("slackStream routes to sendSlackStreamOp ahead of the text path", async () => {
-    const result = await deliverDirect(
+  test("sendChannelStreamOp reaches Slack without touching the text path", async () => {
+    const result = await sendChannelStreamOp(
       `${BASE}/deliver/slack?threadTs=1700.5`,
-      payload({
-        text: "ignored while streaming",
-        slackStream: { action: "start", threadTs: "1700.5" },
-      }),
+      "C1",
+      { action: "start", threadTs: "1700.5", markdownText: "hi" },
     );
     expect(slack.sendSlackStreamOp).toHaveBeenCalledTimes(1);
     expect(slack.sendSlackStreamOp.mock.calls[0]).toEqual([
       "C1",
-      { action: "start", threadTs: "1700.5" },
+      { action: "start", threadTs: "1700.5", markdownText: "hi" },
     ]);
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: true, ts: "stream-ts" });
@@ -205,6 +229,20 @@ describe("capability gating across channels", () => {
     } as const;
     expect(
       await sendChannelReaction(`${BASE}/deliver/telegram`, target),
+    ).toEqual({ ok: true });
+    expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
+  });
+
+  test("a channel that cannot revise a sent message resolves quietly", async () => {
+    // Only Slack implements `edit` today. A channel without the method is not
+    // a failed delivery: nothing is attempted, nothing throws, and no fresh
+    // message is posted in place of the revision.
+    expect(
+      await editChannelMessage(`${BASE}/deliver/telegram`, {
+        chatId: "C1",
+        messageId: "1",
+        text: "revised",
+      }),
     ).toEqual({ ok: true });
     expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
   });
@@ -265,15 +303,15 @@ describe("capability gating across channels", () => {
     expect(discord.sendDiscordTypingIndicator).toHaveBeenCalledTimes(1);
   });
 
-  test("a Slack-only stream payload to Discord falls through to deliver", async () => {
-    await deliverDirect(
-      `${BASE}/deliver/discord`,
-      payload({
-        text: "hi",
-        slackStream: { action: "start", threadTs: "1700.5" },
-      }),
-    );
-    expect(discord.sendDiscordReply).toHaveBeenCalledTimes(1);
+  test("a channel that cannot stream resolves quietly, and posts nothing", async () => {
+    const result = await sendChannelStreamOp(`${BASE}/deliver/discord`, "999", {
+      action: "start",
+      threadTs: "1700.5",
+      markdownText: "hi",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(discord.sendDiscordReply).not.toHaveBeenCalled();
   });
 });
 

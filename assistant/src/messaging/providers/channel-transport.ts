@@ -1,6 +1,8 @@
+import type { KnownBlock } from "@slack/types";
 import type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
+  SlackStreamOp,
 } from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../../channels/types.js";
@@ -25,14 +27,42 @@ export interface ReactionTarget {
 }
 
 /**
+ * A status surface update. `chatId` is the room, spelled the way every other
+ * method on this interface spells it.
+ */
+export interface ThreadStatus {
+  readonly chatId: string;
+  readonly threadTs: string;
+  readonly status: string;
+  /** Rotating hints shown under the status while it holds. */
+  readonly loadingMessages?: readonly string[];
+}
+
+/**
+ * An existing message to replace in place, and what to replace it with.
+ *
+ * `messageId` is the target in the channel's own id space, the same way
+ * `chatId` is. `blocks` and `renderRichly` are the rendering inputs the edit
+ * carries, so a replacement renders the way the original did rather than
+ * degrading to plain text.
+ */
+export interface EditTarget {
+  readonly chatId: string;
+  readonly messageId: string;
+  readonly text: string;
+  readonly blocks?: readonly KnownBlock[];
+  readonly renderRichly?: boolean;
+}
+
+/**
  * Direct outbound delivery for one channel, wrapping the channel's provider-API
  * send functions behind a uniform surface. Transports are registered statically
  * (delivery runs in non-daemon contexts) and dispatched by channel, resolved
  * from the gateway callback URL via `callback-routing.ts`.
  *
- * The dispatcher routes a payload to the optional sub-operation methods when the
- * matching payload field is set and the method exists; otherwise it calls
- * `deliver`. A transport only implements the sub-operations it supports.
+ * Each operation takes its own parameters and is reached through its own entry
+ * point; a transport implements only the operations its channel supports, so
+ * an absent method is an absent capability.
  */
 export interface ChannelTransport {
   /** Canonical source channel id, e.g. `"slack"`. */
@@ -42,6 +72,22 @@ export interface ChannelTransport {
   deliver(
     ctx: CallbackContext,
     payload: ChannelReplyPayload,
+  ): Promise<ChannelDeliveryResult>;
+
+  /**
+   * Replace a message the assistant already sent.
+   *
+   * Distinct from `deliver`, which always posts something new. A channel that
+   * cannot revise a sent message omits this, and a caller that needs the
+   * revision to be visible has to post instead of silently doing nothing.
+   *
+   * An implementation must not fall back to posting when the edit fails. The
+   * original would remain beside the replacement, which reads as the assistant
+   * answering twice.
+   */
+  edit?(
+    ctx: CallbackContext,
+    target: EditTarget,
   ): Promise<ChannelDeliveryResult>;
 
   /**
@@ -66,15 +112,27 @@ export interface ChannelTransport {
     target: ReactionTarget,
   ): Promise<ChannelDeliveryResult>;
 
-  /** Update an assistant-thread status surface. Routed when `payload.assistantThreadStatus` is set. */
+  /**
+   * Set or clear the channel's own "working on it" surface.
+   *
+   * Distinct from `typing`: an indicator a channel refreshes on a timer versus
+   * a status a channel holds until it is changed. Slack has both and uses this
+   * one; a channel with only the first implements only `typing`.
+   */
   setThreadStatus?(
     ctx: CallbackContext,
-    payload: ChannelReplyPayload,
+    status: ThreadStatus,
   ): Promise<ChannelDeliveryResult>;
 
-  /** Perform one streaming operation. Routed when `payload.slackStream` is set. */
+  /**
+   * Advance a streamed reply: open it, add to it, or close it.
+   *
+   * A channel that can only post a finished message omits this, and the
+   * caller falls back to delivering the reply whole.
+   */
   streamReply?(
     ctx: CallbackContext,
-    payload: ChannelReplyPayload,
+    chatId: string,
+    op: SlackStreamOp,
   ): Promise<ChannelDeliveryResult>;
 }

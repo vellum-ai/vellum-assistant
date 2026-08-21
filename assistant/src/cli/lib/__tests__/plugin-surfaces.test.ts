@@ -17,7 +17,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { detectPluginSurfaces } from "../plugin-surfaces.js";
+import {
+  detectPluginSurfaces,
+  findPluginSetupSkill,
+  formatPluginSetupHint,
+} from "../plugin-surfaces.js";
 
 let pluginDir: string;
 
@@ -186,5 +190,32 @@ describe("detectPluginSurfaces", () => {
     // WHEN its surfaces are detected
     // THEN none of them are listed
     expect(detectPluginSurfaces(pluginDir).schedules).toEqual([]);
+  });
+});
+
+describe("findPluginSetupSkill", () => {
+  test("prefers the generic setup id when both conventions are present", () => {
+    expect(
+      findPluginSetupSkill("imessage", ["setup", "imessage-setup", "other"]),
+    ).toBe("setup");
+  });
+
+  test("falls back to <plugin-name>-setup", () => {
+    expect(findPluginSetupSkill("imessage", ["imessage-setup"])).toBe(
+      "imessage-setup",
+    );
+  });
+
+  test("returns undefined when the plugin ships no setup skill", () => {
+    expect(findPluginSetupSkill("imessage", ["imessage-send"])).toBeUndefined();
+    expect(findPluginSetupSkill("imessage", [])).toBeUndefined();
+  });
+});
+
+describe("formatPluginSetupHint", () => {
+  test("names the skill in the install-command copy", () => {
+    expect(formatPluginSetupHint("imessage-setup")).toBe(
+      "Load the imessage-setup skill to help set up this plugin",
+    );
   });
 });

@@ -27,6 +27,7 @@ import {
   isDbMigrationGateBypassed,
 } from "../daemon/daemon-readiness.js";
 import { processMessage } from "../daemon/process-message.js";
+import { makeAddrInUseError } from "../daemon/startup-error.js";
 import {
   createLiveVoiceConnection,
   type LiveVoiceConnection,
@@ -975,9 +976,14 @@ let instance: RuntimeHttpServer | null = null;
 
 /**
  * Start the runtime HTTP server singleton early in daemon startup so /healthz
- * answers ASAP. A bind failure (port in use, permission denied, fd exhaustion)
- * is non-fatal: it is logged and the daemon falls back to IPC-only operation,
- * leaving the singleton unset.
+ * answers ASAP.
+ *
+ * An occupied address (`EADDRINUSE`) aborts startup: whatever holds the port
+ * owns every HTTP client of this workspace, including the gateway proxy that
+ * fronts `/v1/*`. Continuing would leave a daemon that answers IPC (so `vellum
+ * ps` and platform status read healthy) while every proxied HTTP route 502s
+ * against a foreign listener. Any other bind failure (permission denied, fd
+ * exhaustion) is non-fatal, logged with the singleton left unset.
  */
 export async function startRuntimeHttpServer(): Promise<void> {
   const port = getRuntimeHttpPort();
@@ -992,11 +998,20 @@ export async function startRuntimeHttpServer(): Promise<void> {
       "Daemon startup: runtime HTTP server listening",
     );
   } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+      log.error(
+        { err, port, hostname },
+        "Runtime HTTP port already in use, aborting startup to avoid an HTTP-blind daemon",
+      );
+      throw makeAddrInUseError(
+        `Runtime HTTP port ${hostname}:${port} is already in use by another process. Stop it, or set RUNTIME_HTTP_PORT to a free port.`,
+        err,
+      );
+    }
     log.warn(
       { err, port },
       "Failed to start runtime HTTP server, continuing without it",
     );
-    instance = null;
   }
 }
 
@@ -1007,7 +1022,7 @@ export async function startRuntimeHttpServer(): Promise<void> {
  * expiry, profile reaping) must still run; the retry sweep additionally skips
  * its cycles while readiness is unready. Never called before migrations settle,
  * so the sweeps can't race a schema mid-migration. No-op if the HTTP server
- * failed to bind (IPC-only mode) or sweeps already started.
+ * isn't running or sweeps already started.
  */
 export function startRuntimeHttpServerBackgroundSweeps(): void {
   instance?.startBackgroundSweeps();

@@ -66,7 +66,8 @@ let authUserStub: AuthUserStub | null = {
   isStaff: false,
 };
 let sessionInitializingStub = false;
-let developerNavFlagStub = false;
+let internalActionsFlagStub = true;
+let legacyForkFlagStub = false;
 let flagsHydratedStub = true;
 
 let contextStub: ContextStub = {
@@ -142,11 +143,12 @@ mock.module("@/stores/auth-store", () => ({
 // Mocked rather than driven via `setState`: zustand v5 serves
 // `getInitialState()` to server renders (`renderToStaticMarkup`), so
 // runtime state changes would never reach the component under test.
-mock.module("@/stores/assistant-feature-flag-store", () => ({
-  useAssistantFeatureFlagStore: {
+mock.module("@/stores/client-feature-flag-store", () => ({
+  useClientFeatureFlagStore: {
     use: {
-      settingsDeveloperNav: () => developerNavFlagStub,
-      hasHydrated: () => flagsHydratedStub,
+      internalThreadActions: () => internalActionsFlagStub,
+      forkFromMessage: () => legacyForkFlagStub,
+      hydrated: () => flagsHydratedStub,
     },
   },
 }));
@@ -207,9 +209,10 @@ beforeEach(() => {
   assistantStub = { assistantId: "asst-1" };
   authUserStub = { email: "dev@vellum.ai", isStaff: false };
   sessionInitializingStub = false;
-  // Hydrated, flag-off baseline: gating tests exercise the denial branch
-  // by default; flag tests opt in explicitly.
-  developerNavFlagStub = false;
+  // Hydrated, flag-on baseline: most tests exercise the allowed branch;
+  // gating tests flip the flag keys off to reach the denial branch.
+  internalActionsFlagStub = true;
+  legacyForkFlagStub = false;
   flagsHydratedStub = true;
   contextStub = {
     data: undefined,
@@ -243,22 +246,24 @@ function makeLog(id: string, createdAt: number) {
 // ---------------------------------------------------------------------------
 
 describe("InspectPage — gating", () => {
-  test("blocks non-internal users before resolving inspector params", () => {
-    authUserStub = { email: "person@example.com", isStaff: false };
+  test("blocks sessions with both flag keys off before resolving inspector params", () => {
+    internalActionsFlagStub = false;
+    legacyForkFlagStub = false;
     paramsStub = { conversationId: "conv-abc" };
 
     const html = renderInspector();
 
-    expect(html).toContain("Inspector is available to Vellum staff");
+    expect(html).toContain(
+      "Inspector is available when the Internal Thread Actions",
+    );
     // header chrome shouldn't render
     expect(html).not.toContain("LLM Context Inspector");
   });
 
-  test("allows flag-gated sessions without a staff identity", () => {
-    // Local-gateway sessions have no email/staff bit; the
-    // settings-developer-nav assistant flag is their path in.
+  test("allows identity-less sessions when the flag is on", () => {
+    // Local-gateway sessions carry no email or staff bit; the flag is the
+    // sole gate, so they qualify like any platform session.
     authUserStub = { email: null, isStaff: false };
-    developerNavFlagStub = true;
     paramsStub = { conversationId: "conv-abc" };
     contextStub = {
       data: {
@@ -278,48 +283,58 @@ describe("InspectPage — gating", () => {
 
     const html = renderInspector();
 
-    expect(html).not.toContain("Inspector is available to Vellum staff");
+    expect(html).not.toContain(
+      "Inspector is available when the Internal Thread Actions",
+    );
+    // Real CallRail emits one row per log; assert the page reached the
+    // loaded state, not the empty/loading/error branches.
+    expect(html).toContain("LLM Context Inspector");
+    expect(html).toContain("1 LLM call");
+  });
+
+  test("accepts the legacy fork-from-message key on its own", () => {
+    // The platform may serve this gate under either key, so a session
+    // carrying only the legacy one still gets in.
+    internalActionsFlagStub = false;
+    legacyForkFlagStub = true;
+    paramsStub = { conversationId: "conv-abc" };
+    contextStub = {
+      data: {
+        conversationId: "conv-int-1",
+        conversationKey: "conv-abc",
+        conversationKind: "user",
+        conversationTotalEstimatedCostUsd: null,
+        logs: [makeLog("log-1", 1)],
+        memoryRecall: null,
+        memoryV2Activation: null,
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: () => {},
+    };
+
+    const html = renderInspector();
+
+    expect(html).not.toContain(
+      "Inspector is available when the Internal Thread Actions",
+    );
     expect(html).toContain("LLM Context Inspector");
   });
 
   test("treats the pre-hydration window as loading, not denial", () => {
-    // Until /feature-flags lands, the flag reads registry-default false —
-    // non-staff sessions must see the loading state, not a denial flash.
-    authUserStub = { email: "person@example.com", isStaff: false };
+    // Until /feature-flags lands, the flag reads its registry default of
+    // false, so sessions must see the loading state, not a denial flash.
+    internalActionsFlagStub = false;
+    legacyForkFlagStub = false;
     flagsHydratedStub = false;
 
     const html = renderInspector();
 
     expect(html).toContain("Loading…");
-    expect(html).not.toContain("Inspector is available to Vellum staff");
-  });
-
-  test("allows staff users even without a vellum.ai email", () => {
-    authUserStub = { email: "person@example.com", isStaff: true };
-    paramsStub = { conversationId: "conv-abc" };
-    contextStub = {
-      data: {
-        conversationId: "conv-int-1",
-        conversationKey: "conv-abc",
-        conversationKind: "user",
-        conversationTotalEstimatedCostUsd: null,
-        logs: [makeLog("log-1", 1)],
-        memoryRecall: null,
-        memoryV2Activation: null,
-      },
-      isLoading: false,
-      isError: false,
-      error: null,
-      refetch: () => {},
-    };
-
-    const html = renderInspector();
-
-    expect(html).not.toContain("Inspector is available to Vellum staff");
-    // Real CallRail emits one row per log — assert the page reached the
-    // loaded state, not the empty/loading/error branches.
-    expect(html).toContain("LLM Context Inspector");
-    expect(html).toContain("1 LLM call");
+    expect(html).not.toContain(
+      "Inspector is available when the Internal Thread Actions",
+    );
   });
 
   // (No "missing conversationId" branch — the dynamic segment is required

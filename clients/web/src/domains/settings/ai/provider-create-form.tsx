@@ -433,8 +433,9 @@ export function ProviderCreateForm({
             }}
             options={[
               // Catalog providers first; the custom-provider entry closes the
-              // list. "OpenAI-compatible" is the protocol a custom provider
-              // must speak, not the provider's identity.
+              // list, pinned to the menu's bottom edge so the catalog can
+              // scroll past it. "OpenAI-compatible" is the protocol a custom
+              // provider must speak, not the provider's identity.
               ...connectionProviderOptions
                 .filter((p) => p !== "openai-compatible")
                 .map((p) => ({
@@ -446,6 +447,7 @@ export function ProviderCreateForm({
                     {
                       value: "openai-compatible" as ConnectionProvider,
                       label: t("providerCreateForm.customProviderOption"),
+                      sticky: true,
                     },
                   ]
                 : []),

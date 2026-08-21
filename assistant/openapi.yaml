@@ -4651,6 +4651,47 @@ paths:
                 required:
                   - recorded
                 additionalProperties: false
+  /v1/clients/web-presence:
+    post:
+      operationId: clients_webpresence_post
+      summary: Report web tab visibility and focused conversation
+      description:
+        Record the visibility and focused conversation reported by the web client identified by the
+        X-Vellum-Client-Id header.
+      tags:
+        - clients
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                visible:
+                  type: boolean
+                  description: Whether the reporting tab is currently visible.
+                focusedConversationId:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description: The conversation currently focused (chat composer on screen) in the tab, or null.
+              required:
+                - visible
+                - focusedConversationId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recorded:
+                    type: boolean
+                    description: Whether a connected client matched the reporting clientId.
+                required:
+                  - recorded
+                additionalProperties: false
   /v1/config:
     get:
       operationId: config_get
@@ -9845,7 +9886,10 @@ paths:
     post:
       operationId: credentials_delete_post
       summary: Delete a credential
-      description: Remove a secret, its metadata, and any associated OAuth connection from the vault.
+      description:
+        Remove a secret, its metadata, and any associated OAuth connection from the vault. Refused with
+        CREDENTIAL_IN_USE while an LLM provider connection resolves its auth through the credential, unless `force` is
+        set.
       tags:
         - credentials
       requestBody:
@@ -9861,6 +9905,9 @@ paths:
                 field:
                   type: string
                   description: Field name
+                force:
+                  description: Delete even when provider connections depend on the credential
+                  type: boolean
               required:
                 - service
                 - field
@@ -9876,9 +9923,15 @@ paths:
                     type: string
                   field:
                     type: string
+                  affectedConnections:
+                    type: array
+                    items:
+                      type: string
+                    description: Provider connections that depended on the deleted credential
                 required:
                   - service
                   - field
+                  - affectedConnections
                 additionalProperties: false
   /v1/credentials/inspect:
     post:
@@ -24044,10 +24097,11 @@ paths:
       summary: Disable a plugin
       description:
         Disable a plugin in this workspace by dropping a `.disabled` sentinel, mirroring the CLI's `assistant
-        plugins disable <name>`. The change is honored live at read time by every tool / injector / hook gate — no
-        restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients
-        refetch `GET /v1/plugins`. An already-disabled plugin returns 409; a user plugin with no directory returns 404
-        (default plugins are stubbed on demand via the `default-` prefix); a malformed name returns 400.
+        plugins disable <name>`. Awaits the same source reconcile enable uses so the plugin's shutdown hook runs. Tools,
+        injectors, and hook gates also honor the sentinel at read time. Broadcasts a `sync_changed` invalidation
+        carrying the `plugins:list` tag so other clients refetch `GET /v1/plugins`. An already-disabled plugin returns
+        409; a user plugin with no directory returns 404 (default plugins are stubbed on demand via the `default-`
+        prefix); a malformed name returns 400.
       tags:
         - plugins
       parameters:
@@ -27950,7 +28004,9 @@ paths:
     delete:
       operationId: secrets_delete
       summary: Delete a secret
-      description: Remove a secret from the credential vault by name.
+      description:
+        Remove a secret from the credential vault by name. Refused with CREDENTIAL_IN_USE while an LLM provider
+        connection resolves its auth through the credential, unless `force` is set.
       tags:
         - secrets
       requestBody:
@@ -27966,6 +28022,9 @@ paths:
                 name:
                   type: string
                   description: Name of the secret to delete
+                force:
+                  description: Delete even when provider connections depend on the credential
+                  type: boolean
               required:
                 - type
                 - name

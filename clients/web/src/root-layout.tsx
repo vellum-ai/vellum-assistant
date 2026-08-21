@@ -41,6 +41,7 @@ import { useBookmarksSync } from "@/hooks/use-bookmarks-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
 import { useNotificationTapNavigation } from "@/hooks/use-notification-tap-navigation";
 import { usePushRegistration } from "@/hooks/use-push-registration";
+import { useWebPresenceReport } from "@/hooks/use-web-presence-report";
 import { useSoundEffects } from "@/hooks/use-sound-effects";
 import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
 import { useConversationSync } from "@/hooks/use-conversation-sync";
@@ -162,6 +163,7 @@ export function RootLayout() {
   useFeatureFlagBusSync(assistantId, isAssistantActive);
   useWorkspaceTheme(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
+  useWebPresenceReport(assistantId);
   usePushRegistration(assistantId);
   useNotificationTapNavigation();
   useSoundEffects(assistantId, isAssistantActive);

@@ -70,16 +70,20 @@ export function useChatDebugRegistration({
     getPendingInteractionsSnapshot: () => {
       const state = useInteractionStore.getState();
       return {
+        submittingByKind: state.submittingByKind,
         pendingSecret: state.pendingSecret,
-        isSubmittingSecret: state.isSubmittingSecret,
         pendingConfirmation: state.pendingConfirmation,
-        isSubmittingConfirmation: state.isSubmittingConfirmation,
         pendingContactRequest: state.pendingContactRequest,
-        isSubmittingContactRequest: state.isSubmittingContactRequest,
         pendingQuestion: state.pendingQuestion,
-        isSubmittingQuestion: state.isSubmittingQuestion,
         isQuestionCardDismissed: state.isQuestionCardDismissed,
         inlineConfirmationToolCallId: state.inlineConfirmationToolCallId,
+        pendingAcpConnect: state.pendingAcpConnect,
+        // The store holds a Set, which JSON-serializes to `{}` in the feedback
+        // bundle; sort so repeated captures read the same.
+        dismissedAcpConnectToolUseIds: [
+          ...state.dismissedAcpConnectToolUseIds,
+        ].sort(),
+        pendingAcpContinue: state.pendingAcpContinue,
       };
     },
     getScrollPagination: () => {

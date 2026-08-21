@@ -82,15 +82,12 @@ mock.module("@/lib/sentry/capture-error", () => ({
   },
 }));
 
-const { handleQuestionResponse, handleDismissPendingQuestion } = await import(
-  "@/domains/chat/question-actions"
-);
-const { useInteractionStore } = await import(
-  "@/domains/chat/interaction-store"
-);
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { handleQuestionResponse, handleDismissPendingQuestion } =
+  await import("@/domains/chat/question-actions");
+const { useInteractionStore } =
+  await import("@/domains/chat/interaction-store");
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 const { useStreamStore } = await import("@/domains/chat/stream-store");
 
 function seedPendingQuestion(requestId: string): void {
@@ -143,7 +140,7 @@ describe("handleQuestionResponse: stale (404) interaction", () => {
 
     expect(submitCalls).toHaveLength(1);
     expect(useInteractionStore.getState().pendingQuestion).toBeNull();
-    expect(useInteractionStore.getState().isSubmittingQuestion).toBe(false);
+    expect(useInteractionStore.getState().submittingByKind.question).toBeNull();
     // The raw server string must never reach the error banner: it renders a
     // "Go to Doctor" CTA for what is an expected, unactionable outcome.
     expect(useChatSessionStore.getState().error).toBeNull();
@@ -168,7 +165,7 @@ describe("handleQuestionResponse: stale (404) interaction", () => {
     expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
       "q-broken",
     );
-    expect(useInteractionStore.getState().isSubmittingQuestion).toBe(false);
+    expect(useInteractionStore.getState().submittingByKind.question).toBeNull();
   });
 
   it("leaves a newer prompt standing when a stale answer 404s", async () => {
@@ -198,10 +195,11 @@ describe("handleQuestionResponse: stale (404) interaction", () => {
  * Start request A, let prompt B supersede it, then start request B, leaving
  * both in flight. Returns A's promise plus a release for it.
  *
- * `isSubmittingQuestion` and the session error are single slots on the store.
- * The daemon supersedes A with B, and `showQuestion` clears
- * `isSubmittingQuestion` when B arrives, so the user can answer B while A is
- * still open. Every completion path of A then lands after ownership has moved.
+ * The submission slot and the session error are single slots on the store. The
+ * daemon supersedes A with B, and the entry guard is about this prompt rather
+ * than any prompt, so the user can answer B while A is still open — B's claim
+ * takes the slot. Every completion path of A then lands after ownership has
+ * moved.
  */
 async function startOverlappingRequests(): Promise<{
   answerA: Promise<void>;
@@ -224,13 +222,13 @@ async function startOverlappingRequests(): Promise<{
 
   // Both are genuinely in flight, and B owns the shared state.
   expect(submitCalls.map((c) => c.requestId)).toEqual(["q-a", "q-b"]);
-  expect(useInteractionStore.getState().isSubmittingQuestion).toBe(true);
+  expect(useInteractionStore.getState().submittingByKind.question).toBe("q-b");
   return { answerA, answerB };
 }
 
 /** Assert B still owns everything after A landed late. */
 function expectBStillOwnsState(): void {
-  expect(useInteractionStore.getState().isSubmittingQuestion).toBe(true);
+  expect(useInteractionStore.getState().submittingByKind.question).toBe("q-b");
   expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe("q-b");
 }
 
@@ -344,7 +342,7 @@ describe("handleQuestionResponse: a late completion must not rewrite newer state
     releaseRequest("q-a");
     await answerA;
 
-    expect(useInteractionStore.getState().isSubmittingQuestion).toBe(false);
+    expect(useInteractionStore.getState().submittingByKind.question).toBeNull();
     expect(useChatSessionStore.getState().error?.message).toBe("boom");
   });
 });

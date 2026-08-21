@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  coerceArrayShapes,
   coerceStringBooleans,
   validateInputAgainstSchema,
 } from "../skills/validate-input.js";
@@ -450,20 +451,255 @@ describe("coerceStringBooleans", () => {
   });
 });
 
-describe("validateInputAgainstSchema — boolean string error message", () => {
-  test("points at the JSON boolean form when a string is passed", () => {
+describe("coerceArrayShapes", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      activation_hints: { type: "array", items: { type: "string" } },
+      files: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            path: { type: "string" },
+            content: { type: "string" },
+            copy_from: { type: "string" },
+          },
+          required: ["path"],
+        },
+      },
+      steps: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            action: { type: "string" },
+            require_approval: { type: "boolean" },
+          },
+        },
+      },
+      name: { type: "string" },
+      tags: { type: ["array", "null"] },
+      untyped: { type: "array" },
+    },
+  };
+
+  describe("a string holding the JSON text of the array", () => {
+    test("decodes an array of strings", () => {
+      const result = coerceArrayShapes(
+        { activation_hints: '["deploy staging","roll back"]' },
+        schema,
+      );
+      expect(result.activation_hints).toEqual(["deploy staging", "roll back"]);
+    });
+
+    test("decodes an array of objects", () => {
+      const result = coerceArrayShapes(
+        { files: '[{"path":"references/notes.md","content":"hi"}]' },
+        schema,
+      );
+      expect(result.files).toEqual([
+        { path: "references/notes.md", content: "hi" },
+      ]);
+    });
+
+    test("decodes for an array property that declares no item type", () => {
+      const result = coerceArrayShapes({ untyped: '["a"]' }, schema);
+      expect(result.untyped).toEqual(["a"]);
+    });
+  });
+
+  describe("a single element where a list was expected", () => {
+    test("wraps a bare phrase for a string-item array", () => {
+      const result = coerceArrayShapes(
+        { activation_hints: "user asks to deploy staging" },
+        schema,
+      );
+      expect(result.activation_hints).toEqual(["user asks to deploy staging"]);
+    });
+
+    test("wraps the decoded text of a JSON-quoted phrase", () => {
+      const result = coerceArrayShapes(
+        { activation_hints: '"user asks to deploy staging"' },
+        schema,
+      );
+      expect(result.activation_hints).toEqual(["user asks to deploy staging"]);
+    });
+
+    test("wraps one object that spells out the item schema's properties", () => {
+      const result = coerceArrayShapes(
+        { files: { path: "references/notes.md", content: "hi" } },
+        schema,
+      );
+      expect(result.files).toEqual([
+        { path: "references/notes.md", content: "hi" },
+      ]);
+    });
+
+    test("leaves an object keyed by something the item schema does not name", () => {
+      const input = { files: { "references/notes.md": "hi" } };
+      const result = coerceArrayShapes(input, schema);
+      expect(result).toBe(input);
+    });
+
+    test("leaves a bare phrase for an object-item array", () => {
+      const input = { files: "references/notes.md" };
+      const result = coerceArrayShapes(input, schema);
+      expect(result).toBe(input);
+    });
+
+    test("leaves a bare phrase when the array declares no item type", () => {
+      const input = { untyped: "one thing" };
+      expect(coerceArrayShapes(input, schema)).toBe(input);
+    });
+  });
+
+  describe("shapes left for the validator to reject", () => {
+    test.each([
+      ['["deploy staging"', "a truncated array"],
+      ['{"path":"references/notes.md"', "a truncated object"],
+      ["", "an empty string"],
+      ["   ", "blank text"],
+    ])("leaves %p (%s)", (raw) => {
+      const input = { activation_hints: raw };
+      const result = coerceArrayShapes(input, schema);
+      expect(result).toBe(input);
+      const validation = validateInputAgainstSchema(
+        "scaffold_managed_skill",
+        result,
+        schema,
+      );
+      expect(validation.ok).toBe(false);
+    });
+  });
+
+  test("repaired input passes validation and preserves intent", () => {
+    const coerced = coerceArrayShapes(
+      {
+        activation_hints: "user asks to deploy staging",
+        files: { path: "references/notes.md", content: "hi" },
+        name: "x",
+      },
+      schema,
+    );
+    expect(
+      validateInputAgainstSchema("scaffold_managed_skill", coerced, schema),
+    ).toEqual({ ok: true });
+    expect(coerced.activation_hints).toEqual(["user asks to deploy staging"]);
+  });
+
+  describe("elements an array gains here", () => {
+    test("are coerced against the item schema when decoded", () => {
+      const result = coerceArrayShapes(
+        { steps: '[{"action":"send","require_approval":"false"}]' },
+        schema,
+      );
+      expect(result.steps).toEqual([
+        { action: "send", require_approval: false },
+      ]);
+    });
+
+    test("are coerced against the item schema when wrapped", () => {
+      const result = coerceArrayShapes(
+        { steps: { action: "send", require_approval: "true" } },
+        schema,
+      );
+      expect(result.steps).toEqual([
+        { action: "send", require_approval: true },
+      ]);
+    });
+
+    test("leave non-object elements alone", () => {
+      const result = coerceArrayShapes({ steps: '["send",7]' }, schema);
+      expect(result.steps).toEqual(["send", 7]);
+    });
+  });
+
+  test("still reports a wrong element type after repair", () => {
+    const coerced = coerceArrayShapes(
+      { activation_hints: '["deploy staging",7]' },
+      schema,
+    );
+    const validation = validateInputAgainstSchema(
+      "scaffold_managed_skill",
+      coerced,
+      schema,
+    );
+    expect(validation.ok).toBe(false);
+    if (validation.ok) {
+      return;
+    }
+    expect(validation.errors).toContain("activation_hints[1] must be a string");
+  });
+
+  test("does not touch non-array-typed or union-typed properties", () => {
+    const input = { name: '["x"]', tags: '["x"]' };
+    const result = coerceArrayShapes(input, schema);
+    expect(result).toBe(input);
+    expect(result.name).toBe('["x"]');
+    expect(result.tags).toBe('["x"]');
+  });
+
+  test("does not touch real arrays or other types", () => {
+    const input = { activation_hints: ["deploy staging"] };
+    expect(coerceArrayShapes(input, schema)).toBe(input);
+    const inputNum = { activation_hints: 7 };
+    expect(coerceArrayShapes(inputNum, schema)).toBe(inputNum);
+  });
+
+  test("returns the same object when there is nothing to repair", () => {
+    const input = { name: "x" };
+    expect(coerceArrayShapes(input, schema)).toBe(input);
+    expect(coerceArrayShapes(input, undefined)).toBe(input);
+    expect(coerceArrayShapes(input, { type: "object" })).toBe(input);
+  });
+
+  test("returns a new object and never mutates the original input", () => {
+    const input = { activation_hints: '["deploy staging"]', name: "x" };
+    const snapshot = JSON.parse(JSON.stringify(input));
+    const result = coerceArrayShapes(input, schema);
+    expect(result).not.toBe(input);
+    expect(input).toEqual(snapshot);
+    expect(result.name).toBe("x");
+  });
+});
+
+describe("validateInputAgainstSchema: array shape error message", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      activation_hints: { type: "array", items: { type: "string" } },
+    },
+  };
+
+  test("points at the JSON array form when a string is passed", () => {
     const result = validateInputAgainstSchema(
-      "app_create",
-      { auto_open: "yes" },
-      { type: "object", properties: { auto_open: { type: "boolean" } } },
+      "scaffold_managed_skill",
+      { activation_hints: "[deploy staging" },
+      schema,
     );
     expect(result.ok).toBe(false);
     if (result.ok) {
       return;
     }
-    expect(result.errors).toContain(
-      "auto_open must be a boolean — pass true or false as a JSON boolean, not a string",
+    expect(result.errors).toEqual([
+      "activation_hints must be an array: pass a JSON array, not a string",
+    ]);
+  });
+
+  test("names an object when an object is passed", () => {
+    const result = validateInputAgainstSchema(
+      "scaffold_managed_skill",
+      { activation_hints: { first: "deploy staging" } },
+      schema,
     );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.errors).toEqual([
+      "activation_hints must be an array: pass a JSON array, not an object",
+    ]);
   });
 });
 

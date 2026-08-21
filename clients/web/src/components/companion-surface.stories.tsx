@@ -2,12 +2,21 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 
 import {
+  CompanionIntro,
+  introPhase,
+  introSpotlight,
+} from "@/components/companion-intro";
+import {
   CompanionSurface,
   type CompanionSurfacePhase,
 } from "@/components/companion-surface";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
-import type { VoiceActivityState } from "@vellumai/ipc-contract";
+import {
+  COMPANION_INTRO_BEATS,
+  type CompanionIntroBeat,
+  type VoiceActivityState,
+} from "@vellumai/ipc-contract";
 
 /**
  * A session for the demo reel to draw.
@@ -66,6 +75,15 @@ type Backdrop = keyof typeof BACKDROPS;
 
 type StoryArgs = React.ComponentProps<typeof CompanionSurface> & {
   backdrop: Backdrop;
+  /**
+   * Which beat the introduction opens on, for the `Introduction` story.
+   *
+   * A control rather than only a starting point, because the beats are what a
+   * user meets the surface through once and each one has to be looked at on its
+   * own: clicking through to the third every time to check the third is how a
+   * beat goes unreviewed.
+   */
+  introBeat?: CompanionIntroBeat;
 };
 
 const meta: Meta<StoryArgs> = {
@@ -93,6 +111,10 @@ const meta: Meta<StoryArgs> = {
     },
     accentHex: { control: "color" },
     glow: { control: "boolean" },
+    introBeat: {
+      control: "inline-radio",
+      options: COMPANION_INTRO_BEATS,
+    },
   },
   args: {
     phase: "resting",
@@ -161,9 +183,7 @@ export const TypingWhileWorking: Story = {
     phase: "typing",
     working: true,
     assistantName: "Ziggy",
-    turns: [
-      { role: "user", text: "what is on my calendar tomorrow?" },
-    ],
+    turns: [{ role: "user", text: "what is on my calendar tomorrow?" }],
   },
 };
 
@@ -636,3 +656,81 @@ function DemoReelPlayer(args: StoryArgs) {
     </div>
   );
 }
+
+/**
+ * The one-time introduction, walkable.
+ *
+ * The beats are what a user meets the surface through exactly once, so the
+ * thing worth looking at here is the whole run rather than any one card: the
+ * pill opening on the second beat, the spotlight moving between controls, and
+ * the card holding still through all of it because it hangs off the avatar
+ * rather than off the pill.
+ *
+ * Ends by starting over, which the real run pointedly does not do. Main records
+ * that it has been seen and there is no way back into it from the app; this is
+ * a story, and a story that could only be watched once would be useless.
+ */
+function IntroWalkthrough({ introBeat, ...args }: StoryArgs) {
+  const [beat, setBeat] = useState<CompanionIntroBeat | null>(
+    introBeat ?? COMPANION_INTRO_BEATS[0],
+  );
+
+  // Jumping straight to a beat from the controls panel, so each one can be
+  // reviewed without walking to it.
+  useEffect(() => {
+    setBeat(introBeat ?? COMPANION_INTRO_BEATS[0]);
+  }, [introBeat]);
+
+  return (
+    <CompanionSurface
+      {...args}
+      phase={introPhase(beat) ?? args.phase}
+      spotlight={introSpotlight(beat)}
+      intro={
+        beat === null ? null : (
+          <CompanionIntro
+            beat={beat}
+            growth={args.growth}
+            cardGrowth={args.cardGrowth}
+            accentHex={args.accentHex}
+            onAdvance={(action) => {
+              const next =
+                action === "dismiss"
+                  ? null
+                  : (COMPANION_INTRO_BEATS[
+                      COMPANION_INTRO_BEATS.indexOf(beat) + 1
+                    ] ?? null);
+              // Back to the top rather than gone, so the run can be watched
+              // again without reloading the story.
+              setBeat(next ?? COMPANION_INTRO_BEATS[0]);
+            }}
+          />
+        )
+      }
+    />
+  );
+}
+
+export const Introduction: Story = {
+  args: { phase: "resting", introBeat: COMPANION_INTRO_BEATS[0] },
+  render: (args) => <IntroWalkthrough {...args} />,
+};
+
+/**
+ * The card with a reply that uses the formatting an assistant actually writes:
+ * emphasis, inline code, and a short list. What the card does with markdown is
+ * worth looking at rather than reasoning about, since it is 360pt wide and set
+ * at 12px, and the primitive is authored for a full-width transcript.
+ */
+export const TypingWithMarkdown: Story = {
+  args: {
+    phase: "typing",
+    turns: [
+      { role: "user", text: "how do i reset the intro?" },
+      {
+        role: "assistant",
+        text: '## Resetting it\n\nRun this with the app quit:\n\n```sh\njq \'del(.companionIntroSeen)\' "$f" > "$f.tmp" && mv "$f.tmp" "$f"\n```\n\n- It runs **once per install**\n- `companionHidden` must be `false`\n- The surface appears *after* sign-in',
+      },
+    ],
+  },
+};

@@ -375,7 +375,7 @@
     {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
-      "description": "Set up channel verification for phone, Telegram, Slack, or email channels via outbound verification flow",
+      "description": "Set up channel verification for phone, Telegram, Slack, Discord, or email channels via outbound verification flow",
       "metadata": {
         "emoji": "🔐",
         "vellum": {
@@ -761,7 +761,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-20T11:36:19.000Z"
+      "updatedAt": "2026-08-20T12:32:31.000Z"
     },
     {
       "id": "public-ingress",
@@ -1045,7 +1045,7 @@
     {
       "id": "vellum-conversation-management",
       "name": "vellum-conversation-management",
-      "description": "Manage conversation threads (rename, list, export)",
+      "description": "Manage conversation threads (rename, list, search, export)",
       "metadata": {
         "emoji": "💬",
         "vellum": {

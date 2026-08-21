@@ -8,6 +8,7 @@ import {
   organizationsBillingAutoTopUpRetrieveQueryKey,
   organizationsBillingAutoTopUpRetrieveSetQueryData,
 } from "@/generated/api/@tanstack/react-query.gen";
+import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -17,7 +18,46 @@ import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-
 import { BillingSectionHeader } from "@/domains/settings/components/billing-section-header";
 import { PaymentMethodRow } from "@/domains/settings/components/payment-method-row";
 import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
+import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import { useTranslation } from "@/i18n";
+
+export interface PaymentMethodCardEntry {
+  id: string;
+  brand: string | null;
+  last4: string | null;
+}
+
+/**
+ * The cards to list. The backend keeps at most one payment method and has no
+ * list endpoint, so this is always length 0 or 1 today; the array is what the
+ * multi-card rules below are written against.
+ */
+export function paymentMethodCards(
+  config: AutoTopUpConfigResponse | undefined,
+): PaymentMethodCardEntry[] {
+  if (config == null || !config.has_payment_method) {
+    return [];
+  }
+  return [
+    {
+      id: "primary",
+      brand: config.payment_method_brand,
+      last4: config.payment_method_last4,
+    },
+  ];
+}
+
+/**
+ * Under `obscure-credits` a card may only be removed while another one would
+ * remain, so the account is never left with no way to pay. With the flag off
+ * every row keeps its Remove.
+ */
+export function showsRemove(
+  cardCount: number,
+  obscureCredits: boolean,
+): boolean {
+  return !obscureCredits || cardCount > 1;
+}
 
 /**
  * Settings → Billing "Payment Methods" section. Card management lives here;
@@ -32,6 +72,7 @@ export function PaymentMethodsCard() {
     organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation(),
   );
   const syncPaymentMethodSaved = usePaymentMethodSavedSync();
+  const obscureCredits = useObscureCredits();
 
   const [pmModalOpen, setPmModalOpen] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
@@ -93,7 +134,8 @@ export function PaymentMethodsCard() {
         </div>
       );
     }
-    if (!config.has_payment_method) {
+    const cards = paymentMethodCards(config);
+    if (cards.length === 0) {
       return (
         <div className="mt-4">
           <Notice tone="info" data-testid="payment-methods-empty">
@@ -102,15 +144,20 @@ export function PaymentMethodsCard() {
         </div>
       );
     }
+    const showRemove = showsRemove(cards.length, obscureCredits);
     return (
-      <div className="mt-4">
-        <PaymentMethodRow
-          brand={config.payment_method_brand}
-          last4={config.payment_method_last4}
-          onUpdateCard={() => setPmModalOpen(true)}
-          onRemove={() => setConfirmingRemove(true)}
-          removing={removeMutation.isPending}
-        />
+      <div className={cards.length > 1 ? "mt-4 flex flex-col gap-1" : "mt-4"}>
+        {cards.map((card) => (
+          <PaymentMethodRow
+            key={card.id}
+            brand={card.brand}
+            last4={card.last4}
+            onUpdateCard={() => setPmModalOpen(true)}
+            onRemove={() => setConfirmingRemove(true)}
+            removing={removeMutation.isPending}
+            showRemove={showRemove}
+          />
+        ))}
       </div>
     );
   };
