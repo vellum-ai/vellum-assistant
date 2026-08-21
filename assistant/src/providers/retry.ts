@@ -386,9 +386,24 @@ function isFallbackEligibleError(
   ) {
     return true;
   }
-  // (c) Model not found: a hard 404, or the managed proxy's preflight 400
-  // for a renamed/retired model.
-  if (error.statusCode === 404) {
+  // (c) Model not found: a provider-classified model_not_found, a 404 with
+  // no definitive classification, or the managed proxy's preflight 400 for a
+  // renamed/retired model. As in `isRetryableError`, a provider-stamped
+  // semantic reason takes precedence over the status fallback: a 404 whose
+  // classifier assigned a definitive non-model reason (Anthropic, for
+  // example, stamps `bad_request` on a 404 without a model signal) marks a
+  // deterministic request/routing failure that a different model route would
+  // not fix, so it must not switch routes. Only an absent or `unknown`
+  // reason falls through to the raw 404 check. `model_restricted` is a
+  // credential/policy denial, not a missing model, so it is deliberately not
+  // fallback-eligible here.
+  if (error.reason === "model_not_found") {
+    return true;
+  }
+  if (
+    error.statusCode === 404 &&
+    (error.reason === undefined || error.reason === "unknown")
+  ) {
     return true;
   }
   if (
@@ -1234,6 +1249,26 @@ export class RetryProvider implements Provider {
       return null;
     }
 
+    // Reject a mix backup profile outright. The fallback schema already
+    // forbids `fallbackProfile` from referencing a mix, but this wrapper must
+    // not trust that: honoring one would require the route callback, the
+    // winner-selection guard below, and the re-normalization to agree on the
+    // same seeded arm, and a request without a `selectionSeed` expands the
+    // mix independently at each of those points, so one arm's model could be
+    // sent through another arm's provider adapter. Treat it as non-applying
+    // and surface the original error.
+    if (getConfig().llm.profiles?.[route.overrideProfile]?.mix != null) {
+      log.warn(
+        {
+          provider: this.name,
+          connectionName: this.options.connectionName,
+          overrideProfile: route.overrideProfile,
+        },
+        "Backup profile is a mix, which fallback routing does not support; rethrowing the original error",
+      );
+      return null;
+    }
+
     // Guard against a backup profile that does not actually apply: the
     // resolver skips a disabled, incomplete, or missing override profile and
     // falls through to the next rung (often the failed primary), while the
@@ -1324,6 +1359,15 @@ export class RetryProvider implements Provider {
       // overwrite a more specific value the adapter already set.
       if (response.actualProvider === undefined) {
         response.actualProvider = route.provider.name;
+      }
+      // Stamp the profile that actually governed the response for the same
+      // reason: the outer `UsageTrackingProvider` resolves attribution from
+      // the ORIGINAL request options, which still carry the failed primary's
+      // resolution, so without this the usage event would bill the fallback
+      // serve under the wrong profile. Never overwrite a more specific value
+      // an inner wrapper already set.
+      if (response.actualInferenceProfile === undefined) {
+        response.actualInferenceProfile = route.overrideProfile;
       }
       return response;
     } catch (fallbackError) {

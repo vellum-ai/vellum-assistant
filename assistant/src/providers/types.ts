@@ -192,6 +192,15 @@ export interface ProviderResponse {
   /** Provider that actually produced this response, which may differ from a wrapper provider name. */
   actualProvider?: string;
   /**
+   * Inference profile key that actually governed this response when a
+   * wrapper re-routed the request away from the caller's own resolution
+   * (`RetryProvider`'s fallback-route escalation). `UsageTrackingProvider`
+   * prefers this over re-resolving from the original request options, so a
+   * successful fallback serve is attributed to the backup profile rather
+   * than the failed primary's. Absent on the normal (non-rerouted) path.
+   */
+  actualInferenceProfile?: string;
+  /**
    * Base URL the provider's HTTP client actually resolved to for this request,
    * read from the live SDK client instance rather than re-derived from config.
    * Lets diagnostics observe the true routing target (e.g. a misrouted host)

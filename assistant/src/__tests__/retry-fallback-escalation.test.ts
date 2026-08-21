@@ -259,6 +259,77 @@ describe("RetryProvider fallback-route escalation", () => {
     expect(result.model).toBe("backup-model");
   });
 
+  test.each(["unknown", undefined] as const)(
+    "404 with reason %s → status fallback applies, backup serves",
+    async (reason) => {
+      const primary = failingProvider(
+        "openai",
+        () =>
+          new ProviderError("not found", "openai", 404, {
+            ...(reason !== undefined ? { reason } : {}),
+          }),
+      );
+      const backup = backupProvider();
+      const route = makeRoute(backup.provider);
+      const wrapped = new RetryProvider(primary.provider, {
+        resolveFallbackRoute: route.resolveFallbackRoute,
+      });
+
+      const result = await wrapped.sendMessage(MESSAGES, {
+        config: { callSite: "mainAgent" },
+      });
+
+      expect(route.calls()).toBe(1);
+      expect(result.model).toBe("backup-model");
+    },
+  );
+
+  test("404 with provider-classified reason model_not_found → falls back immediately", async () => {
+    const primary = failingProvider(
+      "openai",
+      () =>
+        new ProviderError("model not found", "openai", 404, {
+          reason: "model_not_found",
+        }),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(primary.calls()).toBe(1);
+    expect(route.calls()).toBe(1);
+    expect(result.model).toBe("backup-model");
+  });
+
+  test("404 with a definitive non-model reason (bad_request) → callback never invoked", async () => {
+    // Anthropic classifies a 404 without a model signal as `bad_request`: a
+    // missing gateway resource or other deterministic request failure. The
+    // provider-stamped semantic reason takes precedence over the raw status,
+    // so the request must surface its real error instead of switching routes.
+    const requestError = new ProviderError("not found", "anthropic", 404, {
+      reason: "bad_request",
+    });
+    const primary = failingProvider("anthropic", () => requestError);
+    const route = makeRoute(backupProvider().provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const thrown = await captureError(
+      wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+    );
+
+    expect(thrown).toBe(requestError);
+    expect(primary.calls()).toBe(1);
+    expect(route.calls()).toBe(0);
+  });
+
   test("managed proxy preflight 400 for a retired model → falls back immediately", async () => {
     const primary = failingProvider(
       "openai",
@@ -451,6 +522,52 @@ describe("RetryProvider fallback-route escalation", () => {
     expect(backup.calls()).toBe(0);
   });
 
+  test("route returned for a mix backup profile → no send on the backup adapter, original error rethrown", async () => {
+    // The fallback schema forbids `fallbackProfile` from referencing a mix,
+    // and RetryProvider must not trust that: a mix backup without a
+    // `selectionSeed` would be re-expanded independently by the apply guard,
+    // the route callback, and the normalization, potentially sending one
+    // arm's model through another arm's provider adapter.
+    setConfig("llm", {
+      profiles: {
+        ...LLM_FIXTURE.profiles,
+        "arm-a": {
+          source: "user",
+          provider: "anthropic",
+          model: "arm-a-model",
+        },
+        "arm-b": {
+          source: "user",
+          provider: "openai",
+          model: "arm-b-model",
+        },
+        "backup-mix": {
+          source: "user",
+          mix: [
+            { profile: "arm-a", weight: 1 },
+            { profile: "arm-b", weight: 1 },
+          ],
+        },
+      },
+      activeProfile: "primary-profile",
+    });
+    const originalError = new ProviderError("model not found", "openai", 404);
+    const primary = failingProvider("openai", () => originalError);
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider, { overrideProfile: "backup-mix" });
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const thrown = await captureError(
+      wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+    );
+
+    expect(thrown).toBe(originalError);
+    expect(route.calls()).toBe(1);
+    expect(backup.calls()).toBe(0);
+  });
+
   test("backup also fails → fallback error rethrown with original as cause, no second fallback attempt", async () => {
     const originalError = new ProviderError("model not found", "openai", 404);
     const primary = failingProvider("openai", () => originalError);
@@ -610,5 +727,51 @@ describe("RetryProvider fallback-route escalation", () => {
     });
 
     expect(result.actualProvider).toBe("openrouter/anthropic");
+  });
+
+  test("fallback response → stamped with the backup profile key so usage tracking attributes it correctly", async () => {
+    // The outer UsageTrackingProvider resolves `inferenceProfile` from the
+    // ORIGINAL request options, which still carry the failed primary's
+    // resolution. The stamp is what lets the usage event bill the fallback
+    // serve under the backup profile.
+    const primary = failingProvider(
+      "openai",
+      () => new ProviderError("model not found", "openai", 404),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(result.actualInferenceProfile).toBe("backup-profile");
+  });
+
+  test("fallback response with a wrapper-set actualInferenceProfile → preserved, not overwritten", async () => {
+    const primary = failingProvider(
+      "openai",
+      () => new ProviderError("model not found", "openai", 404),
+    );
+    const backup: Provider = {
+      name: "anthropic",
+      sendMessage: async () => ({
+        ...okResponse("backup-model"),
+        actualInferenceProfile: "inner-specific-profile",
+      }),
+    };
+    const route = makeRoute(backup);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(result.actualInferenceProfile).toBe("inner-specific-profile");
   });
 });
