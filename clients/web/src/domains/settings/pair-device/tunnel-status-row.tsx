@@ -1,8 +1,10 @@
-import { Button } from "@vellumai/design-library/components/button";
-import { RefreshCw } from "lucide-react";
+import { cn } from "@vellumai/design-library/utils/cn";
 
-import { currentLocale, Trans, type TFunction, useTranslation } from "@/i18n";
-import { formatRelativeTime } from "@/lib/relative-time";
+import { Trans, type TFunction, useTranslation } from "@/i18n";
+
+import { CODE_CHIP_CLASS } from "./code-chip";
+import { formatRelativeAge } from "./relative-age";
+import { TunnelRecheckButton } from "./tunnel-recheck-button";
 
 /**
  * What the Pair-a-device card knows about the tunnel right now. Local to this
@@ -14,7 +16,13 @@ export type TunnelStatusView =
   | { kind: "unconfigured" }
   /** No verdict to report: the probe never ran, or it gave up. */
   | { kind: "unavailable" }
-  | { kind: "stopped"; provider: string; publicBaseUrl: string }
+  | {
+      kind: "stopped";
+      /** Provider of the tunnel on record, when the daemon remembers one. */
+      provider?: string;
+      /** Address that tunnel served, when the daemon remembers one. */
+      publicBaseUrl?: string;
+    }
   | { kind: "healthy"; publicBaseUrl: string; checkedAt: string }
   | {
       kind: "unreachable";
@@ -71,9 +79,20 @@ export function tunnelStartCommand(
     : `vellum tunnel --provider ${provider}`;
 }
 
-/** Keeps a name with whitespace in it a single shell argument. */
+/** Names that survive a shell verbatim; everything else has to be quoted. */
+const SHELL_SAFE_ARG = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * A free-form assistant name as one shell word. The card offers this command
+ * for pasting into a terminal, so a name is single-quoted unless it is plainly
+ * inert: single quotes are the only ones that also neutralize `$`, backticks
+ * and backslashes, and an embedded one closes the quote, escapes itself, and
+ * reopens.
+ */
 function shellArg(value: string): string {
-  return /\s/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value;
+  return SHELL_SAFE_ARG.test(value)
+    ? value
+    : `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 interface TunnelStatusRowProps {
@@ -96,9 +115,6 @@ const DOT_COLOR: Record<RenderedTunnelStatus["kind"], string> = {
 const SUBDUED_CLASS = "text-body-small-default text-[var(--content-tertiary)]";
 const SUBDUED_TRUNCATE_CLASS = `truncate ${SUBDUED_CLASS}`;
 
-const CODE_CLASS =
-  "rounded-md bg-[var(--surface-active)] px-1.5 py-0.5 text-[color:var(--content-primary)]";
-
 /**
  * One compact line reporting whether this assistant's public address is
  * actually serving it: a tone dot, a sentence, the address, when it was last
@@ -110,7 +126,9 @@ const CODE_CLASS =
  * and the tick that keeps the check age current all belong to the card above
  * it, per `docs/EVENT_BUS.md`.
  * Renders nothing for `unconfigured` or `unavailable`: with no tunnel and
- * with no verdict there is nothing to report, and the card speaks instead.
+ * with no verdict there is nothing to report, and the card speaks instead. Its
+ * first-run notice carries the same {@link TunnelRecheckButton} for the state
+ * this row draws nothing for.
  */
 export function TunnelStatusRow({
   status,
@@ -157,7 +175,9 @@ export function TunnelStatusRow({
               }
               ns="settings"
               values={{ command: tunnelStartCommand(provider, assistantName) }}
-              components={{ code: <code className={CODE_CLASS} /> }}
+              components={{
+                code: <code className={cn(CODE_CHIP_CLASS, "px-1.5 py-0.5")} />,
+              }}
             />
           </p>
         )}
@@ -169,26 +189,12 @@ export function TunnelStatusRow({
         {checkedAt && (
           <p className={SUBDUED_CLASS}>
             {t("tunnelStatusRow.checkedAt", {
-              when: formatRelativeTime(new Date(checkedAt).getTime(), {
-                locale: currentLocale(),
-                // The card re-renders this label on a slow tick, so minute
-                // phrasing is what it can keep honest.
-                minimumUnit: "minute",
-              }),
+              when: formatRelativeAge(checkedAt),
             })}
           </p>
         )}
       </div>
-      <Button
-        variant="ghost"
-        size="compact"
-        iconOnly={
-          <RefreshCw className={isRefreshing ? "animate-spin" : undefined} />
-        }
-        aria-label={t("tunnelStatusRow.refreshLabel")}
-        disabled={isRefreshing}
-        onClick={onRefresh}
-      />
+      <TunnelRecheckButton onRefresh={onRefresh} isRefreshing={isRefreshing} />
     </div>
   );
 }

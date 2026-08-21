@@ -111,12 +111,12 @@ describe("toStatusView", () => {
     });
   });
 
-  test("degrades a stopped verdict with no record to unavailable", () => {
-    // A stopped row exists to name the command that restarts the tunnel; with
-    // no provider there is nothing to tell the user, and nothing usable came
-    // back either, so the card keeps its own fallbacks.
+  // Ingress switched off with no tunnel on record. The daemon still answered,
+  // so the verdict stands: degrading it to `unavailable` would send the card
+  // back to the recorded ingress URL this probe exists to replace.
+  test("keeps a stopped verdict with no record a stopped row", () => {
     expect(toStatusView({ state: "stopped" }, false)).toEqual({
-      kind: "unavailable",
+      kind: "stopped",
     });
   });
 

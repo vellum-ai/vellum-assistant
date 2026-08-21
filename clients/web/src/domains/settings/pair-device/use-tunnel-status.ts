@@ -76,12 +76,12 @@ export function useTunnelStatus(enabled: boolean): TunnelStatusController {
  * a killed tunnel answers as `unreachable`, and the provider on record is
  * what lets the row print the command that starts it again.
  *
- * Only the daemon's own verdict becomes `unconfigured`. Everything the probe
- * cannot answer degrades to `unavailable` instead: no response with nothing
- * in flight (the probe is gated off, or the query exhausted its retries), or
- * a `stopped` verdict whose `lastTunnel` record is missing. The row draws
- * both as nothing, but the card reads `unavailable` as "the probe told us
- * nothing" and keeps its pre-probe fallbacks.
+ * Only an answer the card never got becomes `unavailable`: no response with
+ * nothing in flight, because the probe is gated off or the query exhausted
+ * its retries. Every verdict the daemon does give stands, a `stopped` one
+ * carrying no `lastTunnel` record included, since the card reads
+ * `unavailable` as "the probe told us nothing" and falls back to the recorded
+ * ingress URL this probe exists to replace.
  */
 export function toStatusView(
   response: IntegrationsIngressStatusGetResponse | undefined,
@@ -91,27 +91,24 @@ export function toStatusView(
     return isFetching ? { kind: "checking" } : { kind: "unavailable" };
   }
 
+  const { lastTunnel } = response;
   // Both are set by the daemon for every probed state; the wire marks them
   // optional because the response is one flat object across all five.
   const publicBaseUrl = response.publicBaseUrl ?? "";
   const checkedAt = response.checkedAt ?? "";
   // Spread onto the states that take it optionally, so an absent record stays
   // an absent key rather than an explicit `undefined`.
-  const recordedProvider = response.lastTunnel
-    ? { provider: response.lastTunnel.provider }
-    : {};
+  const recordedProvider = lastTunnel ? { provider: lastTunnel.provider } : {};
 
   switch (response.state) {
     case "unconfigured":
       return { kind: "unconfigured" };
     case "stopped":
-      return response.lastTunnel
-        ? {
-            kind: "stopped",
-            provider: response.lastTunnel.provider,
-            publicBaseUrl: response.lastTunnel.publicBaseUrl,
-          }
-        : { kind: "unavailable" };
+      return {
+        kind: "stopped",
+        ...recordedProvider,
+        ...(lastTunnel ? { publicBaseUrl: lastTunnel.publicBaseUrl } : {}),
+      };
     case "healthy":
       return { kind: "healthy", publicBaseUrl, checkedAt };
     case "unreachable":

@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import {
   statusPublicBaseUrl,
   TunnelStatusRow,
+  tunnelStartCommand,
   type TunnelStatusView,
 } from "./tunnel-status-row";
 
@@ -196,8 +197,25 @@ describe("TunnelStatusRow", () => {
     );
 
     expect(
-      screen.getByText('vellum tunnel "My Assistant" --provider tailscale'),
+      screen.getByText("vellum tunnel 'My Assistant' --provider tailscale"),
     ).toBeDefined();
+  });
+
+  // Reachable whenever ingress is switched off with no tunnel on record: the
+  // daemon still answered "stopped", so the row reports it rather than
+  // leaving the card to re-advertise an address nothing is serving.
+  test("reports a stopped tunnel the daemon remembers nothing about", () => {
+    renderRow({ kind: "stopped" });
+
+    expect(
+      screen.getByText(
+        "The tunnel is stopped, so other devices cannot reach this assistant.",
+      ),
+    ).toBeDefined();
+    // No provider to name, so no restart command and no address.
+    expect(screen.queryByText(/vellum tunnel/)).toBeNull();
+    expect(screen.queryByText(PUBLIC_URL)).toBeNull();
+    expect(refreshButton().disabled).toBe(false);
   });
 
   test("refreshing calls back to the owner", () => {
@@ -223,6 +241,52 @@ describe("TunnelStatusRow", () => {
     );
 
     expect(refreshButton().disabled).toBe(true);
+  });
+});
+
+// Assistant names are free-form user text and this string is offered for
+// pasting into a terminal, so anything the shell would act on has to be inert.
+describe("tunnelStartCommand", () => {
+  test("leaves a plain name unquoted", () => {
+    expect(tunnelStartCommand("tailscale", "jarvis-2.0_beta")).toBe(
+      "vellum tunnel jarvis-2.0_beta --provider tailscale",
+    );
+  });
+
+  test("neutralizes a command separator", () => {
+    expect(tunnelStartCommand("tailscale", "Bob&Alice")).toBe(
+      "vellum tunnel 'Bob&Alice' --provider tailscale",
+    );
+  });
+
+  test("neutralizes variable expansion", () => {
+    expect(tunnelStartCommand("tailscale", "My $team")).toBe(
+      "vellum tunnel 'My $team' --provider tailscale",
+    );
+  });
+
+  test("neutralizes command substitution", () => {
+    expect(tunnelStartCommand("tailscale", "a`whoami`")).toBe(
+      "vellum tunnel 'a`whoami`' --provider tailscale",
+    );
+  });
+
+  test("closes, escapes and reopens around an embedded single quote", () => {
+    expect(tunnelStartCommand("tailscale", "Bob's box")).toBe(
+      "vellum tunnel 'Bob'\\''s box' --provider tailscale",
+    );
+  });
+
+  test("keeps a name with whitespace one argument", () => {
+    expect(tunnelStartCommand("ngrok", "My Assistant")).toBe(
+      "vellum tunnel 'My Assistant' --provider ngrok",
+    );
+  });
+
+  test("omits the name when none is known", () => {
+    expect(tunnelStartCommand("cloudflare", null)).toBe(
+      "vellum tunnel --provider cloudflare",
+    );
   });
 });
 

@@ -244,6 +244,13 @@ function openUrlField() {
   fireEvent.click(screen.getByRole("button", { name: URL_DISCLOSURE_LABEL }));
 }
 
+/** The re-check the status row and the first-run notice both offer. */
+const RECHECK_LABEL = "Check the tunnel again";
+
+function recheckButton(): HTMLElement | null {
+  return screen.queryByRole("button", { name: RECHECK_LABEL });
+}
+
 beforeEach(() => {
   gatewayPath = "/assistant/__gateway/20100";
   supportsPairingRoutes = true;
@@ -725,9 +732,25 @@ describe("PairDeviceCard: tunnel status", () => {
 
     expect(await screen.findByText("Open a tunnel first")).toBeTruthy();
     expect(screen.getByText("vellum tunnel --provider tailscale")).toBeTruthy();
+  });
+
+  // The user leaves this state to run `vellum tunnel` in a terminal beside the
+  // window, which is never a foreground edge, so `app.resume` alone would
+  // strand the card on "Open a tunnel first" until a full reload.
+  test("re-checks from the first-run notice, which the row cannot offer", async () => {
+    probeAnswers({ state: "unconfigured" });
+    renderCard();
+    await screen.findByText("Open a tunnel first");
+    expect(probeMock).toHaveBeenCalledTimes(1);
+
+    probeAnswers(healthyStatus());
+    fireEvent.click(recheckButton()!);
+
+    await waitFor(() => expect(probeMock).toHaveBeenCalledTimes(2));
     expect(
-      screen.queryByRole("button", { name: "Check the tunnel again" }),
-    ).toBeNull();
+      await screen.findByText("The tunnel is running and reachable."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Open a tunnel first")).toBeNull();
   });
 
   test("re-checks the tunnel when the app resumes", async () => {
@@ -921,6 +944,27 @@ describe("PairDeviceCard: tunnel status", () => {
     ).toBe(true);
   });
 
+  // Reachable after ingress is switched off with no tunnel left on record.
+  // The daemon answered, so its verdict stands: falling back here would
+  // re-advertise the recorded ingress URL the probe exists to replace.
+  test("trusts a stopped verdict the daemon remembers no tunnel for", async () => {
+    selectedAssistant = {
+      assistantId: ASSISTANT_ID,
+      cloud: "local",
+      ingressUrl: RECORDED_INGRESS_URL,
+    };
+    probeAnswers({ state: "stopped" });
+    renderCard();
+
+    await screen.findByText(
+      "The tunnel is stopped, so other devices cannot reach this assistant.",
+    );
+    expect(urlField().value).toBe("");
+    expect(screen.queryByText("Open a tunnel first")).toBeNull();
+    // No provider on record, so nothing claims to know the restart command.
+    expect(screen.queryByText(/vellum tunnel --provider/)).toBeNull();
+  });
+
   test("keeps the URL field leading when the verdict carries no address", async () => {
     // `publicBaseUrl` is optional on every state of the flat wire response, so
     // an empty one must not read as an address the card can lead with.
@@ -954,7 +998,7 @@ describe("PairDeviceCard: tunnel status", () => {
     ).toBeTruthy();
     expect(screen.getByText("connection refused")).toBeTruthy();
     expect(
-      screen.getByText('vellum tunnel "My Assistant" --provider tailscale'),
+      screen.getByText("vellum tunnel 'My Assistant' --provider tailscale"),
     ).toBeTruthy();
   });
 
@@ -969,7 +1013,7 @@ describe("PairDeviceCard: tunnel status", () => {
 
     expect(await screen.findByText("Open a tunnel first")).toBeTruthy();
     expect(
-      screen.getByText('vellum tunnel "My Assistant" --provider tailscale'),
+      screen.getByText("vellum tunnel 'My Assistant' --provider tailscale"),
     ).toBeTruthy();
   });
 
@@ -1055,15 +1099,16 @@ describe("PairDeviceCard: when the tunnel probe gives up", () => {
     ).toBe(false);
     expect(screen.queryByText("Open a tunnel first")).toBeNull();
     // Nothing to report and nothing to re-check from: the row stays silent.
-    expect(
-      screen.queryByRole("button", { name: "Check the tunnel again" }),
-    ).toBeNull();
+    expect(recheckButton()).toBeNull();
   });
 
   test("falls back to the field-derived empty state with nothing recorded", async () => {
     renderCard();
 
     expect(await screen.findByText("Open a tunnel first")).toBeTruthy();
+    // Inferred from the field rather than reported, so there is no verdict to
+    // re-check and the notice offers none.
+    expect(recheckButton()).toBeNull();
     expect(urlField().value).toBe("");
     expect(
       (
@@ -1086,9 +1131,7 @@ describe("PairDeviceCard: without the ingress-status route", () => {
     renderCard();
 
     expect(urlField().value).toBe(RECORDED_INGRESS_URL);
-    expect(
-      screen.queryByRole("button", { name: "Check the tunnel again" }),
-    ).toBeNull();
+    expect(recheckButton()).toBeNull();
     // A recorded URL is the pre-probe evidence of a tunnel, so no first-run
     // notice even though the probe never reported one.
     expect(screen.queryByText("Open a tunnel first")).toBeNull();
@@ -1106,6 +1149,9 @@ describe("PairDeviceCard: without the ingress-status route", () => {
     renderCard();
 
     expect(screen.getByText("Open a tunnel first")).toBeTruthy();
+    // A re-check below the version floor would probe a route that is not
+    // there, so the notice offers none.
+    expect(recheckButton()).toBeNull();
     expect(probeMock).not.toHaveBeenCalled();
   });
 

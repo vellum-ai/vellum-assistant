@@ -16,6 +16,8 @@ import type {
   LocalRevokeDeviceResult,
 } from "@/runtime/local-mode-host";
 
+import { createTimerHarness } from "./pair-device-test-helpers";
+
 let listImpl: (assistantId: string) => Promise<LocalListDevicesResult>;
 let listCalls: string[] = [];
 let revokeResult: LocalRevokeDeviceResult = { ok: true };
@@ -292,27 +294,16 @@ describe("PairedDevicesSection", () => {
   });
 
   test("polls while a pairing code is live and refreshes once more when it ends", async () => {
-    // bun:test has no fake timers; capture interval callbacks and fire them
-    // by hand so the test stays deterministic.
-    const intervals = new Map<unknown, () => void>();
-    let nextIntervalId = 1;
-    const originalSetInterval = globalThis.setInterval;
-    const originalClearInterval = globalThis.clearInterval;
-    globalThis.setInterval = ((fn: () => void) => {
-      const id = nextIntervalId++;
-      intervals.set(id, fn);
-      return id;
-    }) as unknown as typeof setInterval;
-    globalThis.clearInterval = ((id: unknown) => {
-      intervals.delete(id);
-    }) as typeof clearInterval;
+    const timerHarness = createTimerHarness();
+    const livePolls = () => timerHarness.timers.filter((t) => !t.cleared);
+    timerHarness.install();
 
     try {
       setListResult({ ok: true, devices: [device()] });
       const { rerender } = render(<PairedDevicesSection pollWhilePairing />);
       await act(async () => {});
       expect(listCalls).toEqual(["self"]);
-      expect(intervals.size).toBe(1);
+      expect(livePolls()).toHaveLength(1);
 
       // Another device claims the live code; the next tick surfaces it.
       setListResult({
@@ -323,8 +314,8 @@ describe("PairedDevicesSection", () => {
         ],
       });
       await act(async () => {
-        for (const tick of intervals.values()) {
-          tick();
+        for (const poll of livePolls()) {
+          poll.handler();
         }
       });
       expect(listCalls).toEqual(["self", "self"]);
@@ -336,27 +327,22 @@ describe("PairedDevicesSection", () => {
       // refresh catches a claim in the last window.
       rerender(<PairedDevicesSection pollWhilePairing={false} />);
       await act(async () => {});
-      expect(intervals.size).toBe(0);
+      expect(livePolls()).toHaveLength(0);
       expect(listCalls).toEqual(["self", "self", "self"]);
     } finally {
-      globalThis.setInterval = originalSetInterval;
-      globalThis.clearInterval = originalClearInterval;
+      timerHarness.restore();
     }
   });
 
   test("does not poll without a live pairing code", async () => {
-    const originalSetInterval = globalThis.setInterval;
-    let intervalCount = 0;
-    globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
-      intervalCount++;
-      return originalSetInterval(...args);
-    }) as typeof setInterval;
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
     try {
       await renderExpanded([device()]);
-      expect(intervalCount).toBe(0);
+      expect(timerHarness.timers).toHaveLength(0);
       expect(listCalls).toEqual(["self"]);
     } finally {
-      globalThis.setInterval = originalSetInterval;
+      timerHarness.restore();
     }
   });
 
