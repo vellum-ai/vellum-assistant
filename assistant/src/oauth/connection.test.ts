@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  decodeJsonSafeOAuthBody,
   decodeOAuthResponseBytes,
   jsonSafeOAuthBody,
+  materializeOAuthRequestOutput,
 } from "./connection.js";
 
 const PNG_MAGIC = Buffer.from([
@@ -63,5 +65,47 @@ describe("jsonSafeOAuthBody", () => {
     expect(Buffer.from(PNG_MAGIC.toString("base64"), "base64").equals(PNG_MAGIC)).toBe(
       true,
     );
+  });
+});
+
+describe("decodeJsonSafeOAuthBody", () => {
+  test("round-trips a binary envelope back to the original bytes", () => {
+    const encoded = jsonSafeOAuthBody(PNG_MAGIC);
+    const decoded = decodeJsonSafeOAuthBody(encoded);
+    expect(Buffer.isBuffer(decoded)).toBe(true);
+    expect(Buffer.from(decoded as Uint8Array).equals(PNG_MAGIC)).toBe(true);
+  });
+
+  test("leaves JSON and text envelopes unchanged", () => {
+    expect(decodeJsonSafeOAuthBody({ body: { ok: true } })).toEqual({
+      ok: true,
+    });
+    expect(decodeJsonSafeOAuthBody({ body: "hello" })).toBe("hello");
+  });
+
+  test("rejects a base64 marker whose body is not a string", () => {
+    expect(() =>
+      decodeJsonSafeOAuthBody({ body: { ok: true }, bodyEncoding: "base64" }),
+    ).toThrow("bodyEncoding=base64");
+  });
+});
+
+describe("materializeOAuthRequestOutput", () => {
+  test("writes raw bytes for a base64-marked envelope", () => {
+    const output = materializeOAuthRequestOutput(jsonSafeOAuthBody(PNG_MAGIC));
+    expect(output?.isBinary).toBe(true);
+    expect(output?.bytes.equals(PNG_MAGIC)).toBe(true);
+  });
+
+  test("pretty-prints parsed JSON and marks it as text", () => {
+    const output = materializeOAuthRequestOutput({ body: { ok: true } });
+    expect(output?.isBinary).toBe(false);
+    expect(output?.bytes.toString("utf8")).toBe(
+      JSON.stringify({ ok: true }, null, 2),
+    );
+  });
+
+  test("returns null for a missing body", () => {
+    expect(materializeOAuthRequestOutput({ body: null })).toBeNull();
   });
 });

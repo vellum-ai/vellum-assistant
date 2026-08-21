@@ -113,6 +113,50 @@ export function jsonSafeOAuthBody(body: unknown): {
   return { body };
 }
 
+/**
+ * Inverse of {@link jsonSafeOAuthBody}. Restores a `bodyEncoding: "base64"`
+ * envelope to a Buffer so callers can write the original bytes.
+ */
+export function decodeJsonSafeOAuthBody(envelope: {
+  body: unknown;
+  bodyEncoding?: string | null;
+}): unknown {
+  if (envelope.bodyEncoding === "base64") {
+    if (typeof envelope.body !== "string") {
+      throw new Error(
+        "OAuth response marked bodyEncoding=base64 but body is not a string",
+      );
+    }
+    return Buffer.from(envelope.body, "base64");
+  }
+  return envelope.body;
+}
+
+/**
+ * Bytes to write for a CLI `oauth request` body. Binary envelopes become
+ * raw bytes. Text stays UTF-8. Parsed JSON is pretty-printed. Null bodies
+ * produce no output.
+ */
+export function materializeOAuthRequestOutput(envelope: {
+  body: unknown;
+  bodyEncoding?: string | null;
+}): { bytes: Buffer; isBinary: boolean } | null {
+  const decoded = decodeJsonSafeOAuthBody(envelope);
+  if (decoded == null) {
+    return null;
+  }
+  if (isBinaryOAuthBody(decoded)) {
+    return { bytes: Buffer.from(decoded), isBinary: true };
+  }
+  if (typeof decoded === "string") {
+    return { bytes: Buffer.from(decoded, "utf8"), isBinary: false };
+  }
+  return {
+    bytes: Buffer.from(JSON.stringify(decoded, null, 2), "utf8"),
+    isBinary: false,
+  };
+}
+
 export interface OAuthConnection {
   /** Make an authenticated HTTP request through this connection. */
   request(req: OAuthConnectionRequest): Promise<OAuthConnectionResponse>;
