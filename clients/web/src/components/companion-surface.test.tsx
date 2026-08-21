@@ -833,11 +833,11 @@ describe("the summary a finished watch session leaves on the surface", () => {
   // one: nothing on this surface should draw a question with no answer in it.
   test("draws the ordinary controls when there is no summary", () => {
     // `watchEnabled` because this asserts the ordinary controls, and the flag
-    // is what decides whether Watch is among them.
+    // is what decides whether Teach is among them.
     const { container } = render(
       <CompanionSurface phase="summary" watchEnabled />,
     );
-    expect(buttonOf(container, "Watch")).not.toBeNull();
+    expect(buttonOf(container, "Teach")).not.toBeNull();
   });
 });
 
