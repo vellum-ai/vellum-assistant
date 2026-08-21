@@ -1,11 +1,14 @@
 /**
  * Tests for the tunnel reachability probe.
  *
- * Two properties carry the feature. First, healthy means the whole chain is
- * live, so an edge whose nginx answers while the gateway behind it does not
- * must read `unreachable`. Second, `foreign` is an accusation ("this URL now
- * fronts someone else's assistant"), so it is reserved for a positive
- * mismatch of two known ids and every skew case reads `healthy`.
+ * Three properties carry the feature. First, `/healthz` alone decides
+ * liveness, so an edge whose nginx answers while the gateway behind it does
+ * not must read `unreachable`, while an ingress that never serves
+ * `/assistant/__config` at all still reads `healthy`. Second, `foreign` is an
+ * accusation ("this URL now fronts someone else's assistant"), so it is
+ * reserved for a positive mismatch of two known ids and every skew case reads
+ * `healthy`. Third, the probe runs often enough that a body it never parses
+ * has to be cancelled rather than left to GC.
  *
  * Every case injects `fetchImpl`, so nothing here touches the network.
  */
@@ -16,7 +19,7 @@ import { probeTunnel } from "../tunnel-probe.js";
 
 const BASE = "https://edge.example";
 
-type Route = { status?: number; body?: string };
+type Route = { status?: number; body?: string; reject?: unknown };
 
 /** `typeof fetch` carries extras (e.g. `preconnect`) a stub has no use for. */
 function asFetch(
@@ -25,21 +28,47 @@ function asFetch(
   return stub as unknown as typeof fetch;
 }
 
-/** Serves canned responses per path, and records the URLs it was asked for. */
+/**
+ * A hand-rolled response rather than a real one, so `body.cancel()` is
+ * observable and stays callable after a failed `json()`.
+ */
+function stubResponse(route: Route, onCancel: () => void): Response {
+  const status = route.status ?? 200;
+  const text = route.body ?? "";
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    body: {
+      cancel: async (): Promise<void> => {
+        onCancel();
+      },
+    },
+    json: async (): Promise<unknown> => JSON.parse(text),
+  } as unknown as Response;
+}
+
+/** Serves canned responses per path, recording requests and body cancels. */
 function stubFetch(routes: { healthz?: Route; config?: Route }): {
   fetchImpl: typeof fetch;
   urls: string[];
+  cancelled: string[];
 } {
   const urls: string[] = [];
+  const cancelled: string[] = [];
   const fetchImpl = asFetch(async (input) => {
     const url = String(input);
     urls.push(url);
-    const route = url.endsWith("/healthz")
-      ? (routes.healthz ?? { status: 200, body: "ok" })
-      : (routes.config ?? { status: 200, body: "{}" });
-    return new Response(route.body ?? "", { status: route.status ?? 200 });
+    const isHealth = url.endsWith("/healthz");
+    const label = isHealth ? "healthz" : "config";
+    const route = isHealth
+      ? (routes.healthz ?? { body: "ok" })
+      : (routes.config ?? { body: "{}" });
+    if (route.reject !== undefined) {
+      throw route.reject;
+    }
+    return stubResponse(route, () => cancelled.push(label));
   });
-  return { fetchImpl, urls };
+  return { fetchImpl, urls, cancelled };
 }
 
 function configBody(config: Record<string, unknown>): Route {
@@ -137,6 +166,40 @@ describe("probeTunnel", () => {
     });
   });
 
+  test("healthy when the ingress does not serve the config path at all", async () => {
+    const { fetchImpl } = stubFetch({
+      config: { status: 404, body: "not found" },
+    });
+    await expect(
+      probeTunnel({
+        publicBaseUrl: BASE,
+        expectedAssistantId: "asst_1",
+        fetchImpl,
+      }),
+    ).resolves.toEqual({
+      kind: "healthy",
+      assistantId: undefined,
+      assistantName: undefined,
+    });
+  });
+
+  test("healthy when the config request rejects but the gateway answers", async () => {
+    const { fetchImpl } = stubFetch({
+      config: { reject: new TypeError("fetch failed") },
+    });
+    await expect(
+      probeTunnel({
+        publicBaseUrl: BASE,
+        expectedAssistantId: "asst_1",
+        fetchImpl,
+      }),
+    ).resolves.toEqual({
+      kind: "healthy",
+      assistantId: undefined,
+      assistantName: undefined,
+    });
+  });
+
   test("unreachable when the request rejects", async () => {
     const fetchImpl = asFetch(async () => {
       throw new TypeError("Unable to connect");
@@ -174,6 +237,40 @@ describe("probeTunnel", () => {
     ).resolves.toEqual({ kind: "unreachable", detail: "timeout" });
   });
 
+  test("unreachable when only the config request times out", async () => {
+    const timeout = new DOMException("The operation timed out", "TimeoutError");
+    const { fetchImpl } = stubFetch({ config: { reject: timeout } });
+    await expect(
+      probeTunnel({ publicBaseUrl: BASE, fetchImpl }),
+    ).resolves.toEqual({ kind: "unreachable", detail: "timeout" });
+  });
+
+  test("surfaces the syscall code hidden under a generic fetch wrapper", async () => {
+    const cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:80"), {
+      code: "ECONNREFUSED",
+    });
+    const fetchImpl = asFetch(async () => {
+      throw new TypeError("fetch failed", { cause });
+    });
+    await expect(
+      probeTunnel({ publicBaseUrl: BASE, fetchImpl }),
+    ).resolves.toEqual({ kind: "unreachable", detail: "ECONNREFUSED" });
+  });
+
+  test("falls back to the cause's message when neither level has a code", async () => {
+    const fetchImpl = asFetch(async () => {
+      throw new TypeError("fetch failed", {
+        cause: new Error("getaddrinfo lookup failed"),
+      });
+    });
+    await expect(
+      probeTunnel({ publicBaseUrl: BASE, fetchImpl }),
+    ).resolves.toEqual({
+      kind: "unreachable",
+      detail: "getaddrinfo lookup failed",
+    });
+  });
+
   test("keeps the probed URL out of the failure detail", async () => {
     const fetchImpl = asFetch(async (input) => {
       throw new TypeError(`Failed to parse URL from ${String(input)}`);
@@ -192,5 +289,65 @@ describe("probeTunnel", () => {
       detail: "no public base URL",
     });
     expect(urls).toEqual([]);
+  });
+
+  test.each(["not-a-url", "one.ngrok.app", "ftp://x", "https://x?a=b"])(
+    "unreachable without a request for the malformed URL %p",
+    async (publicBaseUrl) => {
+      const { fetchImpl, urls } = stubFetch({});
+      const result = await probeTunnel({ publicBaseUrl, fetchImpl });
+      expect(result).toEqual({
+        kind: "unreachable",
+        detail: "not an http(s) URL",
+      });
+      expect(urls).toEqual([]);
+    },
+  );
+
+  test("cancels the health body it never reads", async () => {
+    const { fetchImpl, cancelled } = stubFetch({
+      config: configBody({ assistantId: "asst_1" }),
+    });
+    await probeTunnel({ publicBaseUrl: BASE, fetchImpl });
+    expect(cancelled).toEqual(["healthz"]);
+  });
+
+  test("cancels both bodies when the gateway is down", async () => {
+    const { fetchImpl, cancelled } = stubFetch({
+      healthz: { status: 502, body: "bad gateway" },
+      config: configBody({ assistantId: "asst_1" }),
+    });
+    await probeTunnel({ publicBaseUrl: BASE, fetchImpl });
+    expect(cancelled.sort()).toEqual(["config", "healthz"]);
+  });
+
+  test("cancels the config body it does not parse", async () => {
+    const { fetchImpl, cancelled } = stubFetch({
+      config: { status: 404, body: "not found" },
+    });
+    await probeTunnel({ publicBaseUrl: BASE, fetchImpl });
+    expect(cancelled.sort()).toEqual(["config", "healthz"]);
+  });
+
+  test("survives a body that refuses to be cancelled", async () => {
+    const fetchImpl = asFetch(async () =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        body: {
+          cancel: async (): Promise<void> => {
+            throw new Error("already locked");
+          },
+        },
+        json: async (): Promise<unknown> => ({ assistantId: "asst_1" }),
+      } as unknown as Response),
+    );
+    await expect(
+      probeTunnel({ publicBaseUrl: BASE, fetchImpl }),
+    ).resolves.toEqual({
+      kind: "healthy",
+      assistantId: "asst_1",
+      assistantName: undefined,
+    });
   });
 });
