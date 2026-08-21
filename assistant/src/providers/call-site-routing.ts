@@ -36,7 +36,7 @@ import {
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
-  isConnectionCompatibleWithModel,
+  pickAutoResolvedConnection,
 } from "./connection-model-compat.js";
 import {
   ConnectionResolutionError,
@@ -308,8 +308,10 @@ export class CallSiteRoutingProvider implements Provider {
         autoResolveCandidates = listConnections(getDb(), {
           provider: resolved.provider,
         });
-        const active = autoResolveCandidates.find((c) =>
-          isConnectionCompatibleWithModel(c, resolved.model),
+        const active = pickAutoResolvedConnection(
+          autoResolveCandidates,
+          resolved.provider,
+          resolved.model,
         );
         if (active) {
           connectionName = active.name;

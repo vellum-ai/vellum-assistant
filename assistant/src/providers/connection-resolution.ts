@@ -38,7 +38,7 @@ import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
-  isConnectionCompatibleWithModel,
+  pickAutoResolvedConnection,
 } from "./connection-model-compat.js";
 import { VALID_CONNECTION_PROVIDERS } from "./inference/auth.js";
 import {
@@ -323,8 +323,10 @@ export async function tryResolveProviderForConnectionName(
     try {
       const db = getDb();
       mismatchCandidates = listConnections(db, { provider: expectedProvider });
-      const active = mismatchCandidates.find((c) =>
-        isConnectionCompatibleWithModel(c, model),
+      const active = pickAutoResolvedConnection(
+        mismatchCandidates,
+        expectedProvider,
+        model,
       );
       if (active) {
         log.info(
@@ -505,8 +507,10 @@ export async function resolveDefaultProvider(
         autoResolveCandidates = listConnections(getDb(), {
           provider: resolved.provider,
         });
-        const active = autoResolveCandidates.find((c) =>
-          isConnectionCompatibleWithModel(c, resolved.model),
+        const active = pickAutoResolvedConnection(
+          autoResolveCandidates,
+          resolved.provider,
+          resolved.model,
         );
         if (active) {
           log.info(

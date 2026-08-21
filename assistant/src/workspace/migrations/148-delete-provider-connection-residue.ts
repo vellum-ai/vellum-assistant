@@ -26,12 +26,18 @@ const log = getLogger("migrations/148-delete-provider-connection-residue");
 //   IDENTITY value only when the identity can serve the entry's model
 //   (the read-path schema strips an unroutable pair); otherwise the field
 //   is deleted with a structured warn.
-// - Everything else (row missing, kind disagreement, unreadable table) is
-//   this recovery's end state: the field is deleted with a structured warn
+// - Everything else (row missing, kind disagreement) is this recovery's
+//   end state: the field is deleted with a structured warn
 //   `{ profile, provider, binding, reason: "dangling_binding_dropped" }`
 //   and the entry keeps its declared provider.
 // - A binding equal to the declared provider is a plain delete: the bare
 //   vendor value already means the default entry of that kind.
+//
+// With bindings to judge, an unreadable or unqueryable connection table
+// DEFERS the run (failed checkpoint, retried next boot) instead of
+// treating every binding as dangling; an absent DB file is a real state
+// (restored config) and proceeds. A config without the field completes
+// normally regardless of table state.
 //
 // Idempotent: a config without the field is untouched. Forward-only.
 //
@@ -110,6 +116,7 @@ export const deleteProviderConnectionResidueMigration: WorkspaceMigration = {
   id: "148-delete-provider-connection-residue",
   description:
     "Delete provider_connection from llm.default and llm.profiles.*, folding verifiable pins into provider",
+  retryFailedCheckpoint: true,
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
     if (!existsSync(configPath)) {
@@ -154,10 +161,18 @@ export const deleteProviderConnectionResidueMigration: WorkspaceMigration = {
       return;
     }
 
-    // The end state is field-free regardless, so an unreadable DB or a
-    // missing table is not a retry: every binding it would have verified
-    // drops as dangling instead.
+    // Bindings exist, so the rewrite needs the rows. An ABSENT DB file is a
+    // real state (a config restored into a fresh workspace has no rows, so
+    // every binding is genuinely dangling); an unreadable or unqueryable DB
+    // must instead fail the run (retried next boot) rather than checkpoint
+    // a pass that would take the destructive dangling path for every
+    // binding.
     const rows = readConnectionRows(workspaceDir);
+    if (rows === null) {
+      throw new Error(
+        "provider_connections is not readable; retrying the residue sweep on the next run",
+      );
+    }
 
     for (const [key, entry] of carriers) {
       const binding = entry.provider_connection;
@@ -259,11 +274,11 @@ function kindAgrees(rowKind: string, provider: string | undefined): boolean {
 }
 
 /**
- * Connection name -> provider kind. An absent, unreadable, or unqueryable
- * DB yields an empty map: with no rows to verify against, every binding is
- * dangling, which is exactly the drop path.
+ * Connection name -> provider kind, or null when the DB or table is not
+ * readable. The caller fails the run on null: bindings must be judged
+ * against real rows, never guessed.
  */
-function readConnectionRows(workspaceDir: string): Map<string, string> {
+function readConnectionRows(workspaceDir: string): Map<string, string> | null {
   const dbPath = join(workspaceDir, "data", "db", "assistant.db");
   if (!existsSync(dbPath)) {
     return new Map();
@@ -272,7 +287,7 @@ function readConnectionRows(workspaceDir: string): Map<string, string> {
   try {
     db = new Database(dbPath);
   } catch {
-    return new Map();
+    return null;
   }
   try {
     const rows = db
@@ -280,7 +295,7 @@ function readConnectionRows(workspaceDir: string): Map<string, string> {
       .all() as Array<{ name: string; provider: string }>;
     return new Map(rows.map((r) => [r.name, r.provider]));
   } catch {
-    return new Map();
+    return null;
   } finally {
     db.close();
   }

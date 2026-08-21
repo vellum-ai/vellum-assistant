@@ -49,6 +49,7 @@ import {
   getModelDisplayName,
   isModelInCatalog,
 } from "../../providers/model-catalog.js";
+import { MANAGED_ROUTABLE_PROVIDERS } from "../../providers/vellum-model-routing.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   commitConfigWrite,
@@ -124,10 +125,22 @@ const profileWriteResultSchema = z
   })
   .meta({ id: "InferenceProfileWriteResult" });
 
+/**
+ * Deprecated wire shim: older generated clients and CLIs still send
+ * `connection` alongside `provider`. The handlers translate it with the
+ * same verified-fold semantics as workspace migration 148 (see
+ * `translateDeprecatedConnection`); it is never persisted as its own
+ * field. Delete with the fleet-telemetry-gated legacy shims.
+ */
+const DEPRECATED_CONNECTION_REQUEST_SHIM = {
+  connection: z.string().min(1).optional(),
+};
+
 const createRequestSchema = z.object({
   name: z.string().min(1),
   provider: z.string().min(1),
   model: z.string().min(1),
+  ...DEPRECATED_CONNECTION_REQUEST_SHIM,
   label: z.string().min(1).optional(),
   effort: z.string().optional(),
   maxTokens: z.number().int().positive().optional(),
@@ -141,6 +154,7 @@ const createRequestSchema = z.object({
 const updateRequestSchema = z.object({
   provider: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
+  ...DEPRECATED_CONNECTION_REQUEST_SHIM,
   label: z.string().min(1).optional(),
   effort: z.string().optional(),
   maxTokens: z.number().int().positive().optional(),
@@ -160,6 +174,51 @@ function assertValidProvider(provider: string): void {
   if (issue) {
     throw new BadRequestError(issue);
   }
+}
+
+/**
+ * Translate the deprecated `connection` request field into the entries
+ * model with the same verified-fold semantics as workspace migration 148:
+ * a row that exists and whose kind agrees with the sent provider becomes
+ * the profile's `provider` (the entry name); anything unverifiable is
+ * rejected loudly rather than silently persisting a bare vendor whose
+ * routing differs from what the caller pinned. Kind agreement mirrors
+ * dispatch: same provider, a "chatgpt" row for a declared "openai", or a
+ * "vellum" row for a declared managed-routable provider.
+ */
+function translateDeprecatedConnection(
+  provider: string | undefined,
+  connectionName: string,
+): string | undefined {
+  if (provider !== undefined && ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+    // Identity profiles carry no binding by definition; a stray one is
+    // ignored (migration 148's identity rule).
+    return provider;
+  }
+  if (connectionName === provider) {
+    // The bare vendor value already means the default entry of that kind.
+    return provider;
+  }
+  const row = getConnection(getDb(), connectionName);
+  if (!row) {
+    throw new BadRequestError(
+      `Connection "${connectionName}" does not exist. Omit the deprecated ` +
+        `"connection" field, or set "provider" to the name of an existing connection.`,
+    );
+  }
+  const kindAgrees =
+    provider === undefined ||
+    row.provider === provider ||
+    (row.provider === "chatgpt" && provider === "openai") ||
+    (row.provider === "vellum" && MANAGED_ROUTABLE_PROVIDERS.has(provider));
+  if (!kindAgrees) {
+    throw new BadRequestError(
+      `Connection "${connectionName}" has provider "${row.provider}" and ` +
+        `cannot serve provider "${provider}". Omit the deprecated "connection" ` +
+        `field, or point it at a connection matching the profile's provider.`,
+    );
+  }
+  return connectionName;
 }
 
 /**
@@ -432,15 +491,19 @@ async function handleCreateProfile({ body = {} }: RouteHandlerArgs) {
   }
 
   assertValidProvider(input.provider);
+  const provider = input.connection
+    ? (translateDeprecatedConnection(input.provider, input.connection) ??
+      input.provider)
+    : input.provider;
   const warnings = validateModel(
-    input.provider,
+    provider,
     input.model,
     input.allowUnlisted ?? false,
   );
 
   const entry: Record<string, unknown> = {
     ...fragmentFromBody(body as Record<string, unknown>),
-    provider: input.provider,
+    provider,
     model: input.model,
     source: "user",
   };
@@ -451,7 +514,7 @@ async function handleCreateProfile({ body = {} }: RouteHandlerArgs) {
   if (entry.label === undefined) {
     const displayName =
       getModelDisplayName(input.model) ??
-      getConnection(getDb(), input.provider)?.models?.find(
+      getConnection(getDb(), provider)?.models?.find(
         (m) => m.id === input.model,
       )?.displayName;
     if (displayName) {
@@ -533,19 +596,24 @@ async function handleUpdateProfile({
     );
   }
 
-  const nextProvider =
+  const sentProvider =
     input.provider ??
     (typeof existing.provider === "string" ? existing.provider : undefined);
+  if (input.provider) {
+    assertValidProvider(input.provider);
+  }
+  const nextProvider = input.connection
+    ? translateDeprecatedConnection(sentProvider, input.connection)
+    : sentProvider;
   const nextModel =
     input.model ??
     (typeof existing.model === "string" ? existing.model : undefined);
 
-  if (input.provider) {
-    assertValidProvider(input.provider);
-  }
   let warnings: string[] = [];
   if (
-    (input.provider !== undefined || input.model !== undefined) &&
+    (input.provider !== undefined ||
+      input.model !== undefined ||
+      input.connection !== undefined) &&
     typeof nextProvider === "string" &&
     typeof nextModel === "string"
   ) {
@@ -559,7 +627,9 @@ async function handleUpdateProfile({
   const merged: Record<string, unknown> = {
     ...existing,
     ...fragmentFromBody(body as Record<string, unknown>),
-    ...(input.provider !== undefined ? { provider: input.provider } : {}),
+    ...(input.provider !== undefined || input.connection !== undefined
+      ? { provider: nextProvider }
+      : {}),
     ...(input.model !== undefined ? { model: input.model } : {}),
     source:
       existing.source === "managed" ? "user" : (existing.source ?? "user"),
@@ -567,9 +637,14 @@ async function handleUpdateProfile({
   validateProfileEntry(merged);
 
   // The availability guard runs only when the write touches the fields that
-  // determine dispatchability (provider/model); metadata-only edits to a
-  // pre-staged profile must not require the escape hatch.
-  if (input.provider !== undefined || input.model !== undefined) {
+  // determine dispatchability (provider/model/deprecated connection);
+  // metadata-only edits to a pre-staged profile must not require the
+  // escape hatch.
+  if (
+    input.provider !== undefined ||
+    input.model !== undefined ||
+    input.connection !== undefined
+  ) {
     const forced = await guardProfileAvailability({
       entry: merged,
       repair: { kind: "update" },

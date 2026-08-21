@@ -14758,6 +14758,9 @@ paths:
                 model:
                   type: string
                   minLength: 1
+                connection:
+                  type: string
+                  minLength: 1
                 label:
                   type: string
                   minLength: 1
@@ -14877,6 +14880,9 @@ paths:
                   type: string
                   minLength: 1
                 model:
+                  type: string
+                  minLength: 1
+                connection:
                   type: string
                   minLength: 1
                 label:

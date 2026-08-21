@@ -18,7 +18,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
-import { isConnectionCompatibleWithModel } from "../connection-model-compat.js";
+import {
+  isConnectionCompatibleWithModel,
+  pickAutoResolvedConnection,
+} from "../connection-model-compat.js";
 import type { Auth } from "../inference/auth.js";
 
 // ---------------------------------------------------------------------------
@@ -72,6 +75,43 @@ describe("isConnectionCompatibleWithModel", () => {
 // Integration tests through `getConfiguredProvider` — module mocks below must
 // be declared before the import-under-test.
 // ---------------------------------------------------------------------------
+
+describe("pickAutoResolvedConnection", () => {
+  const row = (name: string, auth: Auth = apiKeyAuth) => ({ name, auth });
+
+  test("a row named exactly the vendor id wins over every other candidate", () => {
+    const picked = pickAutoResolvedConnection(
+      [row("aaa-anthropic"), row("anthropic-personal"), row("anthropic")],
+      "anthropic",
+      "claude-opus-4-8",
+    );
+    expect(picked?.name).toBe("anthropic");
+  });
+
+  test("the conventional -personal row wins over non-conventional siblings", () => {
+    const picked = pickAutoResolvedConnection(
+      [row("aaa-anthropic"), row("anthropic-personal")],
+      "anthropic",
+      "claude-opus-4-8",
+    );
+    expect(picked?.name).toBe("anthropic-personal");
+  });
+
+  test("falls back to the first model-compatible candidate", () => {
+    const picked = pickAutoResolvedConnection(
+      [row("codex", oauthAuth), row("my-openai")],
+      "openai",
+      "gpt-5",
+    );
+    expect(picked?.name).toBe("my-openai");
+  });
+
+  test("returns undefined with no compatible candidates", () => {
+    expect(
+      pickAutoResolvedConnection([row("codex", oauthAuth)], "openai", "gpt-5"),
+    ).toBeUndefined();
+  });
+});
 
 const mockDbSentinel = { __mock: "db" };
 mock.module("../../persistence/db-connection.js", () => ({

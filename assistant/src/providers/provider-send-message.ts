@@ -14,7 +14,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
-  isConnectionCompatibleWithModel,
+  pickAutoResolvedConnection,
 } from "./connection-model-compat.js";
 import {
   connectionProviderKind,
@@ -180,8 +180,10 @@ export async function resolveConfiguredProvider(
         const candidates = listConnections(getDb(), {
           provider: inferenceProvider,
         });
-        const active = candidates.find((c) =>
-          isConnectionCompatibleWithModel(c, resolved.model),
+        const active = pickAutoResolvedConnection(
+          candidates,
+          inferenceProvider,
+          resolved.model,
         );
         if (active) {
           connectionName = active.name;

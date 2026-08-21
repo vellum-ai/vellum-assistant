@@ -92,6 +92,7 @@ mock.module("../registry.js", () => ({
 // Imports (after mocks).
 // ---------------------------------------------------------------------------
 
+import { resolveDefaultConnectionName } from "../../config/default-provider-resolution.js";
 import {
   ConnectionResolutionError,
   resolveRoutingIdentity,
@@ -273,6 +274,45 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
     // however they want (rollup producer skips, others throw a domain-
     // specific error).
     expect(result).toBeNull();
+  });
+
+  test("bare-vendor auto-resolve prefers the conventional row over list order", async () => {
+    // Two active same-vendor rows; the non-conventional one sorts first.
+    // Dispatch must land on the conventional `<provider>-personal` row so
+    // it agrees with the default-provider status route and the deletion
+    // guard, which reason via `resolveDefaultConnectionName`.
+    registerConnection(
+      {
+        name: "aaa-anthropic",
+        provider: "anthropic",
+        auth: { type: "api_key", credential: "credential/anthropic/work" },
+      },
+      { name: "anthropic", tag: "work-stub" },
+    );
+    registerConnection(
+      {
+        name: "anthropic-personal",
+        provider: "anthropic",
+        auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+      },
+      { name: "anthropic", tag: "personal-stub" },
+    );
+
+    setLlmConfig({
+      profiles: {
+        bare: { provider: "anthropic", model: "claude-opus-4-7" },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "bare",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls.length).toBe(1);
+    expect(resolveProviderCalls[0].name).toBe(
+      resolveDefaultConnectionName({ provider: "anthropic" }),
+    );
   });
 });
 

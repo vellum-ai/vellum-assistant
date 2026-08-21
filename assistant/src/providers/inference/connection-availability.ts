@@ -21,7 +21,7 @@ import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyResultAsync } from "../../security/secure-keys.js";
 import {
   describeSubscriptionModelIncompatibility,
-  isConnectionCompatibleWithModel,
+  pickAutoResolvedConnection,
 } from "../connection-model-compat.js";
 import {
   connectionProviderKind,
@@ -356,9 +356,7 @@ export async function computeProfileAvailability(
       message: `Connections for provider "${provider}" could not be looked up. Try again shortly.`,
     };
   }
-  const active = candidates.find((candidate) =>
-    isConnectionCompatibleWithModel(candidate, model),
-  );
+  const active = pickAutoResolvedConnection(candidates, provider, model);
   if (active) {
     return computeConnectionAvailability(provider, active.name);
   }

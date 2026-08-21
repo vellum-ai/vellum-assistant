@@ -269,7 +269,7 @@ describe("148-delete-provider-connection-residue", () => {
     expect(bound).not.toHaveProperty("provider_connection");
   });
 
-  test("a missing table is a plain drop, never a retry", () => {
+  test("defers (for retry) when bindings exist but the table is missing", () => {
     writeConfig({
       llm: {
         profiles: {
@@ -285,10 +285,54 @@ describe("148-delete-provider-connection-residue", () => {
     mkdirSync(join(workspaceDir, "data", "db"), { recursive: true });
     new Database(join(workspaceDir, "data", "db", "assistant.db")).close();
 
+    expect(() => run()).toThrow(/not readable/);
+    // Config untouched: no destructive guess was made.
+    expect(readProfiles().bound.provider_connection).toBe("anthropic-work");
+    expect(deleteProviderConnectionResidueMigration.retryFailedCheckpoint).toBe(
+      true,
+    );
+  });
+
+  test("defers when bindings exist but the DB is unreadable", () => {
+    writeConfig({
+      llm: {
+        profiles: {
+          bound: {
+            provider: "anthropic",
+            provider_connection: "anthropic-work",
+            model: "claude-opus-4-8",
+          },
+        },
+      },
+    });
+    // A directory where the DB file should be makes the open itself fail.
+    mkdirSync(join(workspaceDir, "data", "db", "assistant.db"), {
+      recursive: true,
+    });
+
+    expect(() => run()).toThrow(/not readable/);
+    expect(readProfiles().bound.provider_connection).toBe("anthropic-work");
+  });
+
+  test("a config without bindings completes normally regardless of table state", () => {
+    writeConfig({
+      llm: {
+        profiles: {
+          unbound: { provider: "anthropic", model: "claude-opus-4-8" },
+        },
+      },
+    });
+    // DB file exists but carries no provider_connections table: with
+    // nothing to judge, fresh installs must not loop on a failed
+    // checkpoint.
+    mkdirSync(join(workspaceDir, "data", "db"), { recursive: true });
+    new Database(join(workspaceDir, "data", "db", "assistant.db")).close();
+    const before = readFileSync(join(workspaceDir, "config.json"), "utf-8");
+
     expect(() => run()).not.toThrow();
-    const bound = readProfiles().bound;
-    expect(bound.provider).toBe("anthropic");
-    expect(bound).not.toHaveProperty("provider_connection");
+    expect(readFileSync(join(workspaceDir, "config.json"), "utf-8")).toBe(
+      before,
+    );
   });
 
   test("no-ops without the field and is idempotent", () => {
