@@ -11,7 +11,7 @@ import {
 import { slackUserActorFields, slackBotSenderInfo } from "./actor.js";
 import { extractSlackAttachments, extractSlackFileMap } from "./attachments.js";
 import type { ChannelConversationType } from "@vellumai/gateway-client";
-import { isKnownSlackMpimSync } from "./user-directory.js";
+import { cachedSlackChannelIsMpim } from "./user-directory.js";
 import type { GatewayConfig } from "../config.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
@@ -271,14 +271,20 @@ export function slackConversationVisibility(
 ): ChannelConversationType | undefined {
   if (channelType === "im") return "dm";
   if (channelType === "group" || channelType === "mpim") return "private";
-  if (typeof channelId === "string") {
-    if (channelId.startsWith("D")) return "dm";
-    if (channelId.startsWith("G")) return "private";
-    if (botToken && isKnownSlackMpimSync(channelId, botToken)) return "private";
-  }
-  return channelType === "channel" || typeof channelId === "string"
-    ? "public"
+  if (typeof channelId !== "string") return undefined;
+  if (channelId.startsWith("D")) return "dm";
+  if (channelId.startsWith("G")) return "private";
+  if (channelType === "channel") return "public";
+  // A `C` proves nothing on its own: a modern multi-person IM is minted with
+  // one, so claiming public here would hand a group DM a public-channel rule.
+  // Only what the cache already knows can settle it, and a miss declines to
+  // answer rather than fetching: this runs on every inbound event, and the
+  // mention path resolves nothing it does not already have.
+  const isMpim = botToken
+    ? cachedSlackChannelIsMpim(channelId, botToken)
     : undefined;
+  if (isMpim === true) return "private";
+  return isMpim === false ? "public" : undefined;
 }
 
 /**

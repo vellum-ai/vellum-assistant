@@ -423,6 +423,31 @@ export async function resolveSlackChannelKind(
 }
 
 /**
+ * What is already known about a channel's kind, with no fetch of any sort.
+ *
+ * {@link isKnownSlackMpimSync} warms the cache on a miss, which is right for
+ * admission, where being wrong drops a message and the next event should do
+ * better. It is wrong for a caller that only wants to label what it already
+ * knows: an ingress path that classified every unseen channel would add a
+ * `conversations.info` round trip per first message, and the mention path
+ * deliberately resolves nothing it does not have.
+ *
+ * `undefined` means unknown rather than "not a group DM", so a caller can tell
+ * the two apart and decline to guess.
+ */
+export function cachedSlackChannelIsMpim(
+  channelId: string,
+  botToken: string,
+): boolean | undefined {
+  const cached = cacheGet(
+    channelKindCache,
+    slackChannelCacheKey(channelId, botToken),
+  );
+  if (!cached || cached.unresolved) return undefined;
+  return cached.isMpim === true;
+}
+
+/**
  * Cache-only group-DM check for the synchronous admission filter.
  *
  * Returns what is already known and never blocks; on a miss it fires a

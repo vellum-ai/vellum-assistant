@@ -42,7 +42,17 @@ describe("conversation type, per channel", () => {
     // fails if the fallback is ever simplified away.
     expect(slackConversationVisibility("G0PRIVATE", undefined)).toBe("private");
     expect(slackConversationVisibility("D0DIRECT", undefined)).toBe("dm");
-    expect(slackConversationVisibility("C0PUBLIC", undefined)).toBe("public");
+  });
+
+  test("a bare C prefix is not enough to call a room public", () => {
+    // The failure this shape exists to prevent. A modern multi-person IM is
+    // minted with a plain `C`, and an app mention never warms the kind cache,
+    // so the first mention in a private group DM after a restart would be
+    // stamped public and a public-channel rule would govern it. Unknown fails
+    // closed: no answer rather than the permissive one.
+    expect(slackConversationVisibility("C0UNKNOWN", undefined)).toBeUndefined();
+    // An explicit type is still proof.
+    expect(slackConversationVisibility("C0PUBLIC", "channel")).toBe("public");
   });
 
   test("nothing to go on resolves to nothing", () => {
