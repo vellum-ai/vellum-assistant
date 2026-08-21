@@ -243,7 +243,9 @@ describe("resolveResponseArtifacts", () => {
     ]);
   });
 
-  test("keeps a document previewed by a later response", () => {
+  test("leaves a later response that only previews the same document empty", () => {
+    // The document is in the conversation's assets from the create onwards, so
+    // reopening it is not news the transcript repeats.
     const items = [
       user("u1"),
       assistant("a1", [createCall("tc-1", "surf-notes")]),
@@ -251,8 +253,92 @@ describe("resolveResponseArtifacts", () => {
       assistant("a2", [], [previewBlock("surf-notes")]),
     ];
 
-    expect(resolveResponseArtifacts(items).get("a1")).toEqual([
-      doc("surf-notes"),
+    const byKey = resolveResponseArtifacts(items);
+
+    expect(byKey.get("a1")).toEqual([doc("surf-notes")]);
+    expect(byKey.has("a2")).toBe(false);
+  });
+
+  test("leaves a later response that edits the same document empty", () => {
+    const items = [
+      user("u1"),
+      assistant("a1", [createCall("tc-1", "surf-notes")]),
+      user("u2"),
+      assistant("a2", [updateCall("tc-2", "surf-notes")]),
+      user("u3"),
+      assistant("a3", [updateCall("tc-3", "surf-notes")]),
+    ];
+
+    const byKey = resolveResponseArtifacts(items);
+
+    expect([...byKey]).toEqual([["a1", [doc("surf-notes")]]]);
+  });
+
+  test("leaves a later response that updates the same app empty", () => {
+    const items = [
+      user("u1"),
+      assistant(
+        "a1",
+        [appCreateCall("tc-1", "app-7")],
+        [appPreviewBlock("app-7")],
+      ),
+      user("u2"),
+      assistant("a2", [appUpdateCall("tc-2", "app-7")]),
+    ];
+
+    const byKey = resolveResponseArtifacts(items);
+
+    expect([...byKey]).toEqual([["a1", [{ kind: "app", id: "app-7" }]]]);
+  });
+
+  test("keeps the card on the response that first reached the asset", () => {
+    // Nothing in this thread created the document; it was reached from an
+    // older conversation, so the response that first touches it here is the
+    // one that owes the card.
+    const items = [
+      user("u1"),
+      assistant("a1", [], [previewBlock("surf-notes")]),
+      user("u2"),
+      assistant("a2", [updateCall("tc-1", "surf-notes")]),
+    ];
+
+    const byKey = resolveResponseArtifacts(items);
+
+    expect([...byKey]).toEqual([["a1", [doc("surf-notes")]]]);
+  });
+
+  test("gives each asset its own first response", () => {
+    const items = [
+      user("u1"),
+      assistant("a1", [createCall("tc-1", "surf-notes")]),
+      user("u2"),
+      assistant("a2", [
+        updateCall("tc-2", "surf-notes"),
+        createCall("tc-3", "surf-plan"),
+      ]),
+    ];
+
+    const byKey = resolveResponseArtifacts(items);
+
+    expect(byKey.get("a1")).toEqual([doc("surf-notes")]);
+    expect(byKey.get("a2")).toEqual([doc("surf-plan")]);
+  });
+
+  test("does not let the in-flight response claim an asset it repeats", () => {
+    // The in-flight response is withheld, and a response that draws nothing
+    // must not consume the entry either. The create keeps it throughout.
+    const items = [
+      user("u1"),
+      assistant("a1", [createCall("tc-1", "surf-notes")]),
+      user("u2"),
+      assistant("a2", [updateCall("tc-2", "surf-notes")]),
+    ];
+
+    expect([...resolveResponseArtifacts(items, { turnActive: true })]).toEqual([
+      ["a1", [doc("surf-notes")]],
+    ]);
+    expect([...resolveResponseArtifacts(items)]).toEqual([
+      ["a1", [doc("surf-notes")]],
     ]);
   });
 
@@ -375,6 +461,88 @@ describe("resolveResponseArtifacts", () => {
 
     expect(byKey.get("a1")).toEqual([doc("surf-notes")]);
     expect(byKey.has("a2")).toBe(false);
+  });
+
+  test("does not let a system-card-only response claim an asset", () => {
+    // A response with no ordinary message has no card slot, so it cannot draw
+    // the asset it touched. Claiming it there would lose the card entirely.
+    const card = (key: string, toolCalls: ChatMessageToolCall[]) =>
+      ({
+        kind: "message",
+        key,
+        message: {
+          id: key,
+          role: "assistant",
+          isSystemCard: true,
+          toolCalls,
+          contentBlocks: toolCalls.map(
+            (toolCall) =>
+              ({ type: "tool_use", toolCall }) as ConversationContentBlock,
+          ),
+        },
+      }) as TranscriptItem;
+    const items = [
+      user("u1"),
+      card("a1", [createCall("tc-1", "surf-notes")]),
+      user("u2"),
+      assistant("a2", [updateCall("tc-2", "surf-notes")]),
+    ];
+
+    expect([...resolveResponseArtifacts(items)]).toEqual([
+      ["a2", [doc("surf-notes")]],
+    ]);
+  });
+
+  test("keeps a drawn card where it is when older history arrives", () => {
+    // The transcript loads its newest page first and prepends older ones, so
+    // an earlier touch can surface after the card is already drawn. Retracting
+    // it would remove height below the viewport, which the prepend's
+    // scrollHeight-delta correction reads as prepended content.
+    const conversationId = "conv-prepend";
+    const newestPage = [user("u2"), assistant("a2", [updateCall("tc-2", "s")])];
+    const withOlderPage = [
+      user("u1"),
+      assistant("a1", [createCall("tc-1", "s")]),
+      ...newestPage,
+    ];
+
+    expect([
+      ...resolveResponseArtifacts(newestPage, { conversationId }),
+    ]).toEqual([["a2", [doc("s")]]]);
+    expect([
+      ...resolveResponseArtifacts(withOlderPage, { conversationId }),
+    ]).toEqual([["a2", [doc("s")]]]);
+  });
+
+  test("awards the oldest touch when the held response has left the window", () => {
+    // A fork or a cleared history retires the anchor an award names, and an
+    // anchor nothing can draw must not keep the card from the responses that
+    // remain.
+    const conversationId = "conv-forked";
+    const before = [user("u1"), assistant("a1", [createCall("tc-1", "s")])];
+    const after = [user("u2"), assistant("a2", [updateCall("tc-2", "s")])];
+
+    resolveResponseArtifacts(before, { conversationId });
+
+    expect([...resolveResponseArtifacts(after, { conversationId })]).toEqual([
+      ["a2", [doc("s")]],
+    ]);
+  });
+
+  test("starts fresh awards for another conversation", () => {
+    const first = [user("u1"), assistant("a1", [createCall("tc-1", "s")])];
+    const second = [
+      user("u1"),
+      assistant("a1", [createCall("tc-1", "s")]),
+      user("u2"),
+      assistant("a2", [updateCall("tc-2", "s")]),
+    ];
+
+    resolveResponseArtifacts(first, { conversationId: "conv-a" });
+
+    expect([
+      ...resolveResponseArtifacts(second, { conversationId: "conv-b" }),
+    ]).toEqual([["a1", [doc("s")]]]);
   });
 
   test("reuses the previous array when a response resolves the same ids", () => {

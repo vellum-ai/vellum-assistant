@@ -213,16 +213,17 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       ? -1
       : partition.historyItems.findLastIndex((item) => item.kind === "message");
 
-    // A document a response changed earns one reopen link at the end of that
-    // response, not one per message that wrote to it. Resolved here because
-    // this is where the flat item list is read as turns; the in-flight response
-    // is withheld until the turn settles, `awaiting_user_input` included, so a
-    // paused turn never reads as finished.
+    // A document the thread changed earns one reopen link, at the end of the
+    // response that first reached it. Not one per message that wrote to it,
+    // and not another one each time a later response writes to it again.
+    // Resolved here because this is where the flat item list is read as turns;
+    // the in-flight response is withheld until the turn settles,
+    // `awaiting_user_input` included, so a paused turn never reads as finished.
     const turnPhase = useTurnStore.use.phase();
     const turnActive = isSending(turnPhase);
     const responseArtifactsByKey = useMemo(
-      () => resolveResponseArtifacts(items, { turnActive }),
-      [items, turnActive],
+      () => resolveResponseArtifacts(items, { turnActive, conversationId }),
+      [items, turnActive, conversationId],
     );
 
     useImperativeHandle(

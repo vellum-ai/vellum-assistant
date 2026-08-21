@@ -1,6 +1,8 @@
 /**
- * The card for an app the assistant created or changed during a turn, rendered
- * at the end of that turn's response.
+ * The card for an app the assistant first reached during a turn, rendered at
+ * the end of that turn's response. A later turn that changes the same app
+ * draws nothing: by then the app is in the conversation's assets, which the
+ * header pill lists (see `resolve-response-artifacts.ts`).
  *
  * The app twin of `DocumentReopenLink`, and it exists for the same reason: the
  * daemon emits a `dynamic_page` preview where `app_create` ran, which put a
@@ -67,10 +69,10 @@ function useAppSummary(
  * resolved, `null` once no list carries the app.
  *
  * The conversation-scoped list is asked first so the card reads the same cache
- * entry as the assets pill. A miss there is not an absence: the assistant can
- * edit any app it can reach, and an edit does not link the app to the
- * conversation it was made from, so an app reached from an older conversation
- * is missing from this one's list while still existing. The assistant-wide list
+ * entry as the assets pill. A miss there is not an absence: the daemon links an
+ * app to the conversation that created, changed, or opened it, but it links on
+ * the tool's post-execution hook, so a card rendering before that list is
+ * refetched reads a list the app has not landed in yet. The assistant-wide list
  * settles that, and only a miss in both hides the card.
  */
 function useAppDisplaySummary(

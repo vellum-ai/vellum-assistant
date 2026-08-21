@@ -6,10 +6,11 @@
  * surface the tool emits where it ran (a `document_preview`, or a
  * `dynamic_page` carrying `data.preview`, which renders an `AppCard` rather
  * than the expanded live app). The transcript draws neither in place. It
- * collects both into one card per asset at the end of the response, which is
- * what keeps a create-then-edit turn from producing two cards for one asset at
- * two different sizes, and what keeps a pointer surface from splitting the
- * "Earlier activity" run it lands in.
+ * collects both into one card per asset, at the end of the response that first
+ * reached it (`resolve-response-artifacts.ts`), which is what keeps a
+ * create-then-edit turn from producing two cards for one asset at two different
+ * sizes, and what keeps a pointer surface from splitting the "Earlier activity"
+ * run it lands in.
  *
  * A kind is registered here once, and the three consumers read the registry
  * rather than naming a tool or a surface type themselves:

@@ -1,11 +1,14 @@
 /**
- * The card for a document the assistant created or changed during a turn,
- * rendered at the end of that turn's response.
+ * The card for a document the assistant first reached during a turn, rendered
+ * at the end of that turn's response. A later turn that changes the same
+ * document draws nothing: by then the document is in the conversation's assets,
+ * where the header pill lists it and lights its unseen dot (see
+ * `resolve-response-artifacts.ts`).
  *
- * This is the single affordance a response owes each document it touched. The
+ * This is the single affordance a thread owes each document it touched. The
  * daemon also emits an inline `document_preview` surface where the tool ran,
- * but the transcript does not draw that one (see `resolve-response-documents.ts`
- * and `transcript-message-body.tsx`): one document produced two cards in the
+ * but the transcript does not draw that one (see `response-artifacts.ts` and
+ * `message-content.ts`): one document produced two cards in the
  * same response, at two different sizes, whenever a create was followed by an
  * edit.
  *

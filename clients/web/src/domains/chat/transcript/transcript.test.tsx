@@ -72,6 +72,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { Transcript } from "@/domains/chat/transcript/transcript";
+import { resetResponseArtifactAwards } from "@/domains/chat/transcript/resolve-response-artifacts";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
@@ -482,6 +483,9 @@ describe("Transcript changed-document reopen links", () => {
   afterEach(() => {
     cleanup();
     useTurnStore.setState(INITIAL_TURN_STATE);
+    // These cases share one conversation id and reuse message ids across
+    // cases, which the awards would otherwise carry from one to the next.
+    resetResponseArtifactAwards();
   });
 
   /** A settled `document_update` whose result carries the surface it wrote. */
@@ -626,6 +630,69 @@ describe("Transcript changed-document reopen links", () => {
     ]);
 
     expect(reopenSurfaceIds(container)).toEqual(["surf-notes", "surf-plan"]);
+  });
+
+  test("renders no second link when a later response edits the same document", () => {
+    // The document is in the conversation's assets from the first response
+    // onwards, and the assets pill is where it stays reachable.
+    const { container } = renderTranscript([
+      userMessage("u1", "update my notes"),
+      editingMessage("a1", [updateCall("tc-1", "surf-notes")]),
+      userMessage("u2", "one more edit"),
+      editingMessage("a2", [updateCall("tc-2", "surf-notes")]),
+    ]);
+
+    const links = container.querySelectorAll(
+      "[data-testid='document-reopen-link']",
+    );
+    expect(links.length).toBe(1);
+    expect(
+      links[0]!.closest("[data-message-id]")!.getAttribute("data-message-id"),
+    ).toBe("a1");
+  });
+
+  test("keeps the link where it is when an older page arrives above it", () => {
+    // The transcript prepends older pages, so the earliest response to touch a
+    // document can appear after its card is drawn. Moving the card then would
+    // change the height below the viewport, which the prepend's scroll
+    // correction reads as prepended content.
+    const conversationId = "conv-doc-paged";
+    const newestPage = [
+      userMessage("u2", "one more edit"),
+      editingMessage("a2", [updateCall("tc-2", "surf-notes")]),
+    ];
+    const render1 = render(
+      <Transcript
+        items={newestPage}
+        conversationId={conversationId}
+        assistantId="asst-doc"
+        onSurfaceAction={noop}
+        onOpenDocument={noop}
+      />,
+    );
+    expect(reopenSurfaceIds(render1.container)).toEqual(["surf-notes"]);
+
+    render1.rerender(
+      <Transcript
+        items={[
+          userMessage("u1", "start my notes"),
+          editingMessage("a1", [updateCall("tc-1", "surf-notes")]),
+          ...newestPage,
+        ]}
+        conversationId={conversationId}
+        assistantId="asst-doc"
+        onSurfaceAction={noop}
+        onOpenDocument={noop}
+      />,
+    );
+
+    const links = render1.container.querySelectorAll(
+      "[data-testid='document-reopen-link']",
+    );
+    expect(links.length).toBe(1);
+    expect(
+      links[0]!.closest("[data-message-id]")!.getAttribute("data-message-id"),
+    ).toBe("a2");
   });
 });
 
