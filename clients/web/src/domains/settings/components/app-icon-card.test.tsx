@@ -1,6 +1,7 @@
 /**
  * The settings card is the user-initiated half of the feature: it ignores the
- * prompt's decline memory, and it is the only way back to the default icon.
+ * prompt's decline memory, and it is the only way back to the default icon, so
+ * Reset stays reachable for as long as one of our icons is applied.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -15,6 +16,8 @@ const TRAITS = {
   color: "cosmic-purple",
 };
 const ICON = "avatar-blob-curious-cosmic-purple";
+/** One of ours, applied for an avatar the assistant no longer wears. */
+const STALE_ICON = "avatar-blob-curious-moss";
 
 const CHARACTER: AvatarState = {
   kind: "character",
@@ -39,7 +42,11 @@ let iconState: AppIconState = {
 };
 
 const getAppIconState = mock(async () => iconState);
-const setAppIcon = mock(async (_name: string | null) => true);
+// Mirrors the shell: a successful swap changes what the next read reports.
+const setAppIcon = mock(async (name: string | null) => {
+  iconState = { ...iconState, current: name };
+  return true;
+});
 
 mock.module("@/runtime/app-icon", () => ({ getAppIconState, setAppIcon }));
 mock.module("@/runtime/platform-detection", () => ({
@@ -58,6 +65,8 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
 
 const { AppIconCard } =
   await import("@/domains/settings/components/app-icon-card");
+const { APP_ICON_UNSUPPORTED, useAppIconStore } =
+  await import("@/stores/app-icon-store");
 const { useClientFeatureFlagStore } =
   await import("@/stores/client-feature-flag-store");
 const { useResolvedAssistantsStore } =
@@ -82,6 +91,7 @@ beforeEach(() => {
   nativeIOS = true;
   iconState = { supported: true, current: null, available: [ICON] };
   localStorage.clear();
+  useAppIconStore.setState({ snapshot: APP_ICON_UNSUPPORTED });
   useClientFeatureFlagStore.setState({ iosAvatarAppIcon: true });
   useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
 });
@@ -133,8 +143,66 @@ describe("AppIconCard", () => {
     expect(setAppIcon.mock.calls[0]?.[0]).toBe(ICON);
   });
 
-  test("offers no reset while the avatar is a character", async () => {
+  test("keeps a reset once the icon matches the avatar", async () => {
     iconState = { supported: true, current: ICON, available: [ICON] };
+
+    await renderCard();
+
+    await waitFor(() => {
+      expect(buttonByText("Use default")).toBeDefined();
+    });
+    // Nothing left to match, so Reset stands alone.
+    expect(buttonByText("Match avatar")).toBeUndefined();
+  });
+
+  test("keeps a reset available after a successful match", async () => {
+    await renderCard();
+    await waitFor(() => {
+      expect(buttonByText("Match avatar")).toBeDefined();
+    });
+
+    act(() => {
+      buttonByText("Match avatar")?.click();
+    });
+
+    await waitFor(() => {
+      expect(buttonByText("Use default")).toBeDefined();
+    });
+    expect(buttonByText("Match avatar")).toBeUndefined();
+
+    setAppIcon.mockClear();
+    act(() => {
+      buttonByText("Use default")?.click();
+    });
+
+    await waitFor(() => {
+      expect(setAppIcon).toHaveBeenCalledTimes(1);
+    });
+    expect(setAppIcon.mock.calls[0]?.[0]).toBeNull();
+  });
+
+  test("offers reset beside match while a stale icon of ours is applied", async () => {
+    iconState = {
+      supported: true,
+      current: STALE_ICON,
+      available: [ICON, STALE_ICON],
+    };
+
+    await renderCard();
+
+    await waitFor(() => {
+      expect(buttonByText("Match avatar")).toBeDefined();
+    });
+    expect(buttonByText("Use default")).toBeDefined();
+  });
+
+  test("offers no reset for an icon this feature never applied", async () => {
+    avatarState = IMAGE;
+    iconState = {
+      supported: true,
+      current: "seasonal-winter",
+      available: [ICON, "seasonal-winter"],
+    };
 
     await renderCard();
 
@@ -142,7 +210,6 @@ describe("AppIconCard", () => {
       expect(getAppIconState).toHaveBeenCalled();
     });
     expect(buttonByText("Use default")).toBeUndefined();
-    expect(buttonByText("Match avatar")).toBeUndefined();
   });
 
   test("offers a reset once the avatar is no longer a character", async () => {

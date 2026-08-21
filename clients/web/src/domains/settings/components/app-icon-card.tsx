@@ -17,6 +17,7 @@ import { DetailCard } from "@/components/detail-card";
 import { useAppIconSync } from "@/hooks/use-app-icon-sync";
 import { useTranslation } from "@/i18n";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { isAvatarAppIcon } from "@/utils/avatar-app-icon";
 import { Button } from "@vellumai/design-library/components/button";
 
 export function AppIconCard() {
@@ -30,9 +31,11 @@ export function AppIconCard() {
     return null;
   }
 
-  // An alternate icon is applied while the avatar maps to none: the avatar is
-  // an uploaded image now, or gone. Only this card can undo that.
-  const canReset = currentIcon !== null && targetIcon === null;
+  // Reset is offered for as long as one of our icons is applied, matching
+  // avatar or not. A user who just pressed Match has an alternate icon and an
+  // avatar that agrees with it, and this card is still their only way back to
+  // the default. It sits beside Match whenever a different icon is on offer.
+  const canReset = isAvatarAppIcon(currentIcon);
 
   const status =
     currentIcon === null

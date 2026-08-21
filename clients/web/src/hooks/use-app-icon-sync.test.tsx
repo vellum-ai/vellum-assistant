@@ -1,7 +1,8 @@
 /**
  * The invariants this feature rests on: an icon is only ever *offered* for a
- * character avatar the installed build ships a bundle for, and `setAppIcon` is
- * only ever reached from a user-pressed callback.
+ * character avatar the installed build ships a bundle for, `setAppIcon` is only
+ * ever reached from a user-pressed callback, and every mounted consumer reads
+ * the same shell snapshot.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -68,6 +69,8 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
 }));
 
 const { useAppIconSync } = await import("@/hooks/use-app-icon-sync");
+const { APP_ICON_UNSUPPORTED, useAppIconStore } =
+  await import("@/stores/app-icon-store");
 const { useClientFeatureFlagStore } =
   await import("@/stores/client-feature-flag-store");
 const { publish } = await import("@/lib/event-bus");
@@ -84,6 +87,7 @@ beforeEach(() => {
   avatarState = CHARACTER;
   nativeIOS = true;
   iconState = { supported: true, current: null, available: [ICON] };
+  useAppIconStore.setState({ snapshot: APP_ICON_UNSUPPORTED });
   useClientFeatureFlagStore.setState({ iosAvatarAppIcon: true });
 });
 
@@ -232,6 +236,46 @@ describe("useAppIconSync", () => {
     });
 
     expect(setAppIcon).not.toHaveBeenCalled();
+  });
+
+  test("an apply in one consumer reaches every other consumer", async () => {
+    // The root prompt and the settings card, both mounted while the user is on
+    // the Privacy page.
+    const prompt = await renderSync();
+    const card = renderHook(() => useAppIconSync("asst-1"));
+    await waitFor(() => {
+      expect(card.result.current.canOffer).toBe(true);
+    });
+    iconState = { supported: true, current: ICON, available: [ICON] };
+
+    await act(async () => {
+      await prompt.result.current.apply();
+    });
+
+    await waitFor(() => {
+      expect(card.result.current.currentIcon).toBe(ICON);
+    });
+    // The card must stop offering an icon that is already on the home screen,
+    // rather than firing a second iOS swap alert for it.
+    expect(card.result.current.canOffer).toBe(false);
+  });
+
+  test("a reset in one consumer reaches every other consumer", async () => {
+    iconState = { supported: true, current: ICON, available: [ICON] };
+    const card = await renderSync();
+    const prompt = renderHook(() => useAppIconSync("asst-1"));
+    await waitFor(() => {
+      expect(prompt.result.current.currentIcon).toBe(ICON);
+    });
+    iconState = { supported: true, current: null, available: [ICON] };
+
+    await act(async () => {
+      await card.result.current.reset();
+    });
+
+    await waitFor(() => {
+      expect(prompt.result.current.currentIcon).toBeNull();
+    });
   });
 
   test("re-reads the shell's answer on foreground", async () => {

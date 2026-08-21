@@ -2,7 +2,8 @@
  * The prompt is the only surface that asks, so the tests here are about when
  * it must stay quiet: a non-character avatar, a build without the bundle, the
  * flag off, onboarding on screen, a name already declined, and a name already
- * asked about this session.
+ * asked about this session. An offer already on screen has to go quiet on the
+ * same terms, so the tests below also take the question away mid-display.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -92,6 +93,8 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
 
 const { AppIconMatchPrompt, __resetAppIconOfferSession } =
   await import("@/components/avatar/app-icon-match-prompt");
+const { APP_ICON_UNSUPPORTED, useAppIconStore } =
+  await import("@/stores/app-icon-store");
 const { useClientFeatureFlagStore } =
   await import("@/stores/client-feature-flag-store");
 const { useInChatOnboardingStore } =
@@ -104,6 +107,16 @@ function renderPrompt(pathname = "/assistant/c/conv-1") {
     createElement(
       MemoryRouter,
       { initialEntries: [pathname] },
+      createElement(AppIconMatchPrompt, { assistantId: "asst-1" }),
+    ),
+  );
+}
+
+function rerenderPrompt(view: ReturnType<typeof renderPrompt>) {
+  view.rerender(
+    createElement(
+      MemoryRouter,
+      { initialEntries: ["/assistant/c/conv-1"] },
       createElement(AppIconMatchPrompt, { assistantId: "asst-1" }),
     ),
   );
@@ -149,6 +162,7 @@ beforeEach(() => {
   iconState = { supported: true, current: null, available: [ICON, OTHER_ICON] };
   localStorage.clear();
   __resetAppIconOfferSession();
+  useAppIconStore.setState({ snapshot: APP_ICON_UNSUPPORTED });
   useClientFeatureFlagStore.setState({ iosAvatarAppIcon: true });
   useOnboardingFocusStore.setState({ focused: false });
   useInChatOnboardingStore.setState({ prototypeActive: false, stage: "done" });
@@ -272,6 +286,50 @@ describe("AppIconMatchPrompt", () => {
     renderPrompt();
 
     await expectNoPrompt();
+  });
+
+  test("closes an open offer when onboarding takes the screen", async () => {
+    renderPrompt();
+    await expectPrompt();
+
+    act(() => {
+      useOnboardingFocusStore.setState({ focused: true });
+    });
+
+    await waitFor(() => {
+      expect(dialogTitle()).toBeNull();
+    });
+    expect(setAppIcon).not.toHaveBeenCalled();
+  });
+
+  test("closes an open offer when the target becomes one already declined", async () => {
+    localStorage.setItem(`vellum:appIcon:declined:${OTHER_ICON}`, "1");
+    const view = renderPrompt();
+    await expectPrompt();
+
+    // The active assistant changes. The dialog on screen asks about the icon
+    // the old avatar wanted, but Apply now swaps to the new one, which this
+    // user already said no to.
+    avatarState = OTHER_CHARACTER;
+    rerenderPrompt(view);
+
+    await waitFor(() => {
+      expect(dialogTitle()).toBeNull();
+    });
+    expect(setAppIcon).not.toHaveBeenCalled();
+  });
+
+  test("closes an open offer when the avatar stops mapping to an icon", async () => {
+    const view = renderPrompt();
+    await expectPrompt();
+
+    avatarState = IMAGE_WITH_STALE_TRAITS;
+    rerenderPrompt(view);
+
+    await waitFor(() => {
+      expect(dialogTitle()).toBeNull();
+    });
+    expect(setAppIcon).not.toHaveBeenCalled();
   });
 
   test("never offers a name declined in an earlier session", async () => {

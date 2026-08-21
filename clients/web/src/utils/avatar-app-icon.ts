@@ -31,6 +31,9 @@ export interface AppIconTarget {
   availableMatch: boolean;
 }
 
+/** The namespace every icon this feature applies is emitted under. */
+const AVATAR_ICON_PREFIX = "avatar-";
+
 /**
  * The single chokepoint for the invariant that only character avatars have an
  * app icon. Uploaded images, AI-generated avatars, and "no avatar" all return
@@ -46,7 +49,18 @@ export function appIconNameForAvatar(state: AvatarState | null): string | null {
   if (!isCharacterTraits(traits)) {
     return null;
   }
-  return `avatar-${traits.bodyShape}-${traits.eyeStyle}-${traits.color}`;
+  return `${AVATAR_ICON_PREFIX}${traits.bodyShape}-${traits.eyeStyle}-${traits.color}`;
+}
+
+/**
+ * True when the applied icon is one this feature put there, whatever the
+ * avatar says today. Settings needs this to keep offering Reset after a
+ * successful match, and after an avatar changes to one with no icon of its
+ * own: the applied name is the only record that we ever swapped, since nothing
+ * here resets an icon on its own.
+ */
+export function isAvatarAppIcon(name: string | null): boolean {
+  return name !== null && name.startsWith(AVATAR_ICON_PREFIX);
 }
 
 /**

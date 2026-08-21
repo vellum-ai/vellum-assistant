@@ -14,25 +14,20 @@
  * The whole surface reports `enabled: false`, and therefore draws nothing, off
  * native iOS, with the `ios-avatar-app-icon` flag off, or on a shell whose
  * build ships no alternate icons (`docs/CAPACITOR.md` § The skew rule).
+ *
+ * The shell's answer is one fact about one device, so it lives in
+ * {@link useAppIconStore} rather than in per-instance state: an apply from the
+ * root prompt has to reach the settings card mounted beside it.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import {
-  getAppIconState,
-  setAppIcon,
-  type AppIconState,
-} from "@/runtime/app-icon";
+import { getAppIconState, setAppIcon } from "@/runtime/app-icon";
 import { useIsNativeIOS } from "@/runtime/platform-detection";
+import { APP_ICON_UNSUPPORTED, useAppIconStore } from "@/stores/app-icon-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { resolveAppIconTarget } from "@/utils/avatar-app-icon";
-
-const UNSUPPORTED: AppIconState = {
-  supported: false,
-  current: null,
-  available: [],
-};
 
 export interface AppIconSync {
   /** Whether any app-icon UI may draw at all. */
@@ -55,15 +50,16 @@ export function useAppIconSync(assistantId: string | null): AppIconSync {
   const gateOpen = isNativeIOS && flagEnabled;
 
   const { state } = useAssistantAvatar(assistantId);
-  const [iconState, setIconState] = useState<AppIconState>(UNSUPPORTED);
+  const iconState = useAppIconStore.use.snapshot();
+  const setSnapshot = useAppIconStore.use.setSnapshot();
 
   const refresh = useCallback(async () => {
     if (!gateOpen) {
-      setIconState(UNSUPPORTED);
+      setSnapshot(APP_ICON_UNSUPPORTED);
       return;
     }
-    setIconState(await getAppIconState());
-  }, [gateOpen]);
+    setSnapshot(await getAppIconState());
+  }, [gateOpen, setSnapshot]);
 
   useEffect(() => {
     void refresh();

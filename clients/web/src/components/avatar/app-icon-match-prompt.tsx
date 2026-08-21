@@ -72,16 +72,25 @@ export function AppIconMatchPrompt({ assistantId }: AppIconMatchPromptProps) {
 
   const [offer, setOffer] = useState<string | null>(null);
 
+  // An offer is about one icon name, so it only survives while that name is
+  // still the answer. Onboarding taking the screen, the avatar becoming one we
+  // ship no icon for, or the active assistant changing all retire the question
+  // on screen rather than leaving it to act on the new assistant's behalf.
   useEffect(() => {
     if (!canOffer || targetIcon === null || onboardingActive) {
+      setOffer(null);
+      return;
+    }
+    if (offer === targetIcon) {
       return;
     }
     if (offeredThisSession.has(targetIcon) || isDeclined(targetIcon)) {
+      setOffer(null);
       return;
     }
     offeredThisSession.add(targetIcon);
     setOffer(targetIcon);
-  }, [canOffer, targetIcon, onboardingActive]);
+  }, [canOffer, targetIcon, onboardingActive, offer]);
 
   if (!enabled) {
     return null;
