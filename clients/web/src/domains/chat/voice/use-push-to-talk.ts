@@ -15,6 +15,7 @@ import {
 } from "@/runtime/hotkey";
 import { getAudioContextCtor } from "@/domains/chat/voice/audio-context";
 import { setPushToTalkHoldActive } from "@/domains/chat/voice/push-to-talk-hold";
+import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { playBlip } from "@/lib/sounds/blip";
 
 /**
@@ -112,6 +113,10 @@ export function usePushToTalk(
     };
 
     const startActiveTarget = (origin: "dom" | "native") => {
+      // A recording the mic button started is not ours to stop on release.
+      if (useVoiceRecordingStore.getState().phase === "recording") {
+        return;
+      }
       const target = resolvePushToTalkTarget(targetSource);
       if (!target) {
         return;

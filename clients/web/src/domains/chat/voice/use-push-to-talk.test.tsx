@@ -12,6 +12,7 @@ import {
   PTT_HOLD_DELAY_MS,
   usePushToTalk,
 } from "@/domains/chat/voice/use-push-to-talk";
+import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { setConfigurablePushToTalkActive } from "@/runtime/hotkey";
 import { setLocalSetting } from "@/utils/local-settings";
 
@@ -46,6 +47,7 @@ afterEach(() => {
   document.body.innerHTML = "";
   localStorage.clear();
   setConfigurablePushToTalkActive(false);
+  useVoiceRecordingStore.getState().reset();
 });
 
 describe("usePushToTalk", () => {
@@ -204,6 +206,25 @@ describe("usePushToTalk", () => {
     });
 
     expect(target.start).not.toHaveBeenCalled();
+  });
+
+  test("leaves a recording the mic button started alone", async () => {
+    localStorage.setItem(
+      LS_PTT_ACTIVATION_KEY,
+      serializeActivator(CTRL_PTT_ACTIVATOR),
+    );
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    renderPushToTalk(target);
+    act(() => useVoiceRecordingStore.getState().startRecording());
+
+    fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
+    await act(async () => {
+      await wait(PTT_HOLD_DELAY_MS + 25);
+    });
+    fireEvent.keyUp(window, { key: "Control" });
+
+    expect(target.start).not.toHaveBeenCalled();
+    expect(target.stop).not.toHaveBeenCalled();
   });
 
   test("reads a legacy Fn binding as off instead of Ctrl", async () => {
