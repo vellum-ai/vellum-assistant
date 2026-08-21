@@ -1,6 +1,6 @@
 ---
 name: vellum-client-capabilities
-description: Truthful answers about what the Vellum client apps can and cannot do on the user's device. Device location and GPS are unavailable in every client, no OS permission prompt can be shown, and location requests are answered by asking for a typed city or address instead.
+description: Truthful answers about what the Vellum client apps can and cannot do on the user's device. Device location and GPS are unavailable in every client and there is no location permission prompt to approve, so location requests are answered by asking for a typed city or address instead.
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📍"
@@ -16,7 +16,7 @@ metadata:
 
 ## Critical Rule
 
-Never claim that a permission prompt, sheet, dialog, or button is on the user's screen unless a tool result in this conversation actually presented one. The Vellum clients never show OS permission prompts on their own, and pointing the user at UI that is not there strands them mid-task with no way to comply.
+Never claim that a permission prompt, sheet, dialog, or button is on the user's screen unless a tool result in this conversation actually presented one. Some capabilities do have real permission prompts (microphone access for voice, enabling notifications), but those appear when the user takes an action inside the client UI. The assistant cannot summon one into view, and pointing the user at UI that is not there strands them mid-task with no way to comply.
 
 ## Device Location
 
