@@ -585,6 +585,7 @@ export function CompanionSurface({
           {typing ? (
             <Composer
               assistantName={assistantName}
+              growth={growth}
               onSubmit={onSubmit}
               onCancel={onCancelTyping}
             />
@@ -701,10 +702,13 @@ function RecentTurns({ turns }: { turns: CompanionTurn[] }) {
  */
 function Composer({
   assistantName,
+  growth = "right",
   onSubmit,
   onCancel,
 }: {
   assistantName: string;
+  /** Which side the avatar sits on, so the padding can go on the other one. */
+  growth?: CompanionSurfaceGrowth;
   onSubmit?: (message: string) => void;
   onCancel?: () => void;
 }) {
@@ -732,7 +736,14 @@ function Composer({
   };
 
   return (
-    <div className="relative flex min-w-0 flex-1 items-center gap-1 pr-2">
+    // The gap goes on the edge away from the avatar. The avatar's row reverses
+    // with `growth`, so a fixed side would put the whole gap between the field
+    // and the avatar and leave the text flush against the card's outer edge.
+    <div
+      className={`relative flex min-w-0 flex-1 items-center gap-1 ${
+        growth === "left" ? "pl-2" : "pr-2"
+      }`}
+    >
       <input
         ref={inputRef}
         type="text"
