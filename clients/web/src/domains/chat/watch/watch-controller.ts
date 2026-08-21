@@ -95,7 +95,7 @@ import {
   type LiveVoiceAudioCaptureOptions,
   type LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
-import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
+import { LIVE_VOICE_AUDIO_FORMAT_PARAMS } from "@/domains/chat/voice/live-voice/protocol";
 import { beginWatchRetro } from "@/domains/chat/watch/watch-retro";
 import { supportsWatchRetroCompletion } from "@/lib/backwards-compat/watch-retro-completion";
 import { resolveSupportsWatchSessions } from "@/lib/backwards-compat/watch-sessions";
@@ -263,16 +263,6 @@ let drainRelease: Promise<void> | null = null;
 const WATCH_STREAM_ROUTE = "/v1/watch/stream";
 
 /**
- * Query params the gateway requires on the upgrade. `mimeType` is mandatory
- * (`watch-stream-websocket.ts` refuses an upgrade without it); both are
- * forwarded upstream unchanged on the velay path.
- */
-const WATCH_STREAM_PARAMS: Record<string, string> = {
-  mimeType: LIVE_VOICE_AUDIO_FORMAT.mimeType,
-  sampleRate: String(LIVE_VOICE_AUDIO_FORMAT.sampleRate),
-};
-
-/**
  * Build the self-hosted watch stream WebSocket URL:
  *
  *   ws(s)://<ingressHost>/v1/watch/stream?token=…&mimeType=audio/pcm&sampleRate=16000
@@ -292,7 +282,7 @@ export function buildWatchStreamWsUrl({
     ingressUrl,
     routePath: WATCH_STREAM_ROUTE,
     token,
-    params: WATCH_STREAM_PARAMS,
+    params: LIVE_VOICE_AUDIO_FORMAT_PARAMS,
   });
 }
 
@@ -344,7 +334,7 @@ export async function resolveWatchStreamWsUrl(
     assistantId,
     routePath: WATCH_STREAM_ROUTE,
     token,
-    params: WATCH_STREAM_PARAMS,
+    params: LIVE_VOICE_AUDIO_FORMAT_PARAMS,
   });
 }
 

@@ -1,3 +1,4 @@
+import { LIVE_VOICE_AUDIO_FORMAT_PARAMS } from "@/domains/chat/voice/live-voice/protocol";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
@@ -273,7 +274,7 @@ const toggle = ({
         assistantId,
         routePath: "/v1/watch/stream",
         token: mintedToken,
-        params: { mimeType: "audio/pcm", sampleRate: "16000" },
+        params: LIVE_VOICE_AUDIO_FORMAT_PARAMS,
       });
     },
     readyTimeoutMs,
