@@ -28,7 +28,7 @@ The Vellum gateway listens locally and needs a publicly reachable URL for:
 
 This skill installs ngrok, configures authentication, starts a tunnel, discovers the public URL, and saves it to the assistant's ingress config.
 
-Use the command blocks for the assistant host operating system. On Windows, `host_bash` runs PowerShell, so do not run the POSIX process-management or `/tmp` commands.
+Use the command blocks for the assistant host operating system. On Windows, use the PowerShell blocks rather than the POSIX process-management or `/tmp` commands.
 
 ## Step 0: Reject Managed Callback Environments
 
