@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 
 import { InsetDetailCard } from "@/components/inset-detail-card";
 import { StatusDot } from "@/domains/settings/components/schedule-shared-ui";
+import type { ScheduleRun } from "@/domains/settings/types/schedules";
 import {
   formatDuration,
   formatScheduleCost,
@@ -11,11 +12,10 @@ import {
   getOpenableScheduleRunConversationId,
   hasRunText,
 } from "@/domains/settings/utils/schedule-formatters";
+import { useTranslation } from "@/i18n";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { Button } from "@vellumai/design-library/components/button";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
-
-import type { ScheduleRun } from "@/domains/settings/types/schedules";
 
 interface RecentRunsCardProps {
   runs: ScheduleRun[] | undefined;
@@ -32,13 +32,16 @@ interface RecentRunsCardProps {
 export function RecentRunsCard({
   runs,
   isLoading,
-  emptyMessage = "No runs yet.",
+  emptyMessage,
   hasMore = false,
   isLoadingMore = false,
   onLoadMore,
 }: RecentRunsCardProps) {
+  const { t } = useTranslation("settings");
   const navigate = useNavigate();
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const resolvedEmptyMessage =
+    emptyMessage ?? t("recentRunsCard.emptyDefault");
 
   // Rendered in the empty state too: a page can filter down to nothing
   // (e.g. bookkeeping-only pages from daemons that still send them) while
@@ -57,13 +60,15 @@ export function RecentRunsCard({
             ) : undefined
           }
         >
-          {isLoadingMore ? "Loading…" : "Load more"}
+          {isLoadingMore
+            ? t("recentRunsCard.loadingMore")
+            : t("recentRunsCard.loadMore")}
         </Button>
       </div>
     ) : null;
 
   return (
-    <InsetDetailCard title="Recent runs">
+    <InsetDetailCard title={t("recentRunsCard.title")}>
       {isLoading ? (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="h-5 w-5 animate-spin text-stone-400" />
@@ -71,7 +76,7 @@ export function RecentRunsCard({
       ) : !runs || runs.length === 0 ? (
         <>
           <p className="py-4 text-center text-body-medium-lighter text-[var(--content-tertiary)] italic">
-            {emptyMessage}
+            {resolvedEmptyMessage}
           </p>
           {loadMoreControl}
         </>
@@ -114,8 +119,8 @@ export function RecentRunsCard({
                               {hasOutput
                                 ? run.output
                                 : run.status === "missed"
-                                  ? "Missed"
-                                  : "Skipped"}
+                                  ? t("recentRunsCard.missed")
+                                  : t("recentRunsCard.skipped")}
                             </>
                           ) : (
                             <>
@@ -147,7 +152,9 @@ export function RecentRunsCard({
                         ? () => setExpandedRunId(isExpanded ? null : run.id)
                         : undefined
                   }
-                  aria-label={`Run at ${formatTimestamp(run.startedAt)}`}
+                  aria-label={t("recentRunsCard.runAtAria", {
+                    time: formatTimestamp(run.startedAt),
+                  })}
                   aria-expanded={hasLocalDetails ? isExpanded : undefined}
                   aria-controls={hasLocalDetails ? detailsId : undefined}
                   className="h-auto py-2.5 gap-3 -mx-2 px-2"
@@ -158,7 +165,7 @@ export function RecentRunsCard({
                       {hasOutput ? (
                         <div>
                           <div className="mb-1 text-body-small-default text-[var(--content-secondary)]">
-                            Output
+                            {t("recentRunsCard.output")}
                           </div>
                           <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-body-small-default font-mono text-[var(--content-default)]">
                             {run.output}
@@ -168,7 +175,7 @@ export function RecentRunsCard({
                       {hasError ? (
                         <div>
                           <div className="mb-1 text-body-small-default text-[var(--content-secondary)]">
-                            Error
+                            {t("recentRunsCard.error")}
                           </div>
                           <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-body-small-default font-mono text-[var(--system-negative-strong)]">
                             {run.error}

@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 
 import { DetailCard } from "@/components/detail-card";
 import { SettingsDivider } from "@/domains/settings/components/settings-divider";
+import { useTranslation } from "@/i18n";
 import {
   getDeviceBool,
   getDeviceSetting,
@@ -45,6 +46,7 @@ function loadAllowlist(): string[] {
 }
 
 export function MediaEmbedsCard() {
+  const { t } = useTranslation("settings");
   const [enabled, setEnabled] = useState<boolean>(() => loadEnabled());
   const [domains, setDomains] = useState<string[]>(() => loadAllowlist());
   const [expanded, setExpanded] = useState(false);
@@ -91,12 +93,12 @@ export function MediaEmbedsCard() {
 
   return (
     <DetailCard
-      title="Media Embeds"
-      subtitle="Automatically embed images, videos, and other media shared in chat messages."
+      title={t("mediaEmbedsCard.title")}
+      subtitle={t("mediaEmbedsCard.subtitle")}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="text-body-medium-lighter text-[var(--content-default)]">
-          Auto Media Embeds
+          {t("mediaEmbedsCard.autoToggle")}
         </div>
         <Toggle checked={enabled} onChange={handleToggle} />
       </div>
@@ -120,10 +122,10 @@ export function MediaEmbedsCard() {
               ) : (
                 <ChevronRight className="h-4 w-4" aria-hidden />
               )}
-              Video Domain Allowlist
+              {t("mediaEmbedsCard.allowlist")}
             </span>
             <span className="text-body-small-default text-[var(--content-tertiary)]">
-              {domains.length} domain{domains.length === 1 ? "" : "s"}
+              {t("mediaEmbedsCard.domainCount", { count: domains.length })}
             </span>
           </Button>
 
@@ -131,7 +133,7 @@ export function MediaEmbedsCard() {
             <div className="mt-3 space-y-3">
               <div className="flex items-end gap-2">
                 <Input
-                  label="Add Domain"
+                  label={t("mediaEmbedsCard.addDomainLabel")}
                   type="text"
                   value={newDomain}
                   onChange={(e) => setNewDomain(e.target.value)}
@@ -141,7 +143,7 @@ export function MediaEmbedsCard() {
                       addDomain();
                     }
                   }}
-                  placeholder="Add domain (e.g. example.com)"
+                  placeholder={t("mediaEmbedsCard.addDomainPlaceholder")}
                   fullWidth
                   wrapperClassName="flex-1"
                 />
@@ -151,7 +153,7 @@ export function MediaEmbedsCard() {
                   onClick={addDomain}
                   disabled={!trimmedNewDomain}
                 >
-                  Add
+                  {t("mediaEmbedsCard.add")}
                 </Button>
               </div>
 
@@ -165,7 +167,7 @@ export function MediaEmbedsCard() {
                     disabled={isDefaultAllowlist}
                     tintColor="var(--content-tertiary)"
                   >
-                    Reset to Defaults
+                    {t("mediaEmbedsCard.resetDefaults")}
                   </Button>
                 </div>
               )}
@@ -185,7 +187,9 @@ export function MediaEmbedsCard() {
                         size="compact"
                         iconOnly={<Trash2 />}
                         onClick={() => removeDomain(domain)}
-                        aria-label={`Remove ${domain}`}
+                        aria-label={t("mediaEmbedsCard.removeDomainAria", {
+                          domain,
+                        })}
                       />
                     </li>
                   ))}

@@ -308,7 +308,7 @@ describe("AdjustPlanModal credit bundle — upgrade", () => {
     );
 
     openCreditSelect();
-    clickOption("50 credits — $50/mo");
+    clickOption("50 credits - $50/mo");
 
     fireEvent.click(getByTestId("modal-upgrade-to-pro-button"));
 
@@ -410,7 +410,7 @@ describe("AdjustPlanModal credit bundle — change mode", () => {
     );
 
     openCreditSelect();
-    clickOption("25 credits — $25/mo");
+    clickOption("25 credits - $25/mo");
 
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
@@ -431,7 +431,7 @@ describe("AdjustPlanModal credit bundle — change mode", () => {
     );
 
     openCreditSelect();
-    clickOption("No credit bundle — $0/mo");
+    clickOption("No credit bundle - $0/mo");
 
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
@@ -601,7 +601,7 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
     });
 
     openCreditSelect();
-    clickOption("No credit bundle — $0/mo");
+    clickOption("No credit bundle - $0/mo");
 
     // Simulate a mid-modal refetch: re-seed by replacing the plans object so the
     // seeding effect re-runs with a fresh `proPlan` identity.
@@ -636,7 +636,7 @@ describe("AdjustPlanModal credit bundle — resize flow", () => {
     );
 
     openCreditSelect();
-    clickOption("25 credits — $25/mo");
+    clickOption("25 credits - $25/mo");
 
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
@@ -699,7 +699,7 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     });
 
     openCreditSelect();
-    clickOption("50 credits — $50/mo");
+    clickOption("50 credits - $50/mo");
 
     await waitFor(() => {
       if (getByTestId("modal-pro-price").textContent?.includes("$85/mo")) {
@@ -725,7 +725,7 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     });
 
     openCreditSelect();
-    clickOption("25 credits — $25/mo");
+    clickOption("25 credits - $25/mo");
 
     await waitFor(() => {
       const text = getByTestId("modal-pro-price").textContent ?? "";
@@ -941,7 +941,7 @@ describe("AdjustPlanModal — multi-dimension tier coordination", () => {
 
     // Add a credit bundle
     openCreditSelect();
-    clickOption("25 credits — $25/mo");
+    clickOption("25 credits - $25/mo");
 
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
