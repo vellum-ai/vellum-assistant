@@ -10,6 +10,7 @@ import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
 import {
   getDefaultWorkspaceDir,
+  isLocalContainerEntry,
   parseGatewayPortFromEntryUrls,
   saveNgrokDomain,
 } from "../lib/ingress-config.js";
@@ -186,11 +187,6 @@ interface LocalTunnelTarget {
   entry: AssistantEntry;
   gatewayPort: number;
   workspaceDir: string;
-}
-
-/** Container topologies whose gateway runs on this machine without host `resources`. */
-function isLocalContainerEntry(entry: AssistantEntry): boolean {
-  return entry.cloud === "docker" || entry.cloud === "apple-container";
 }
 
 /**
