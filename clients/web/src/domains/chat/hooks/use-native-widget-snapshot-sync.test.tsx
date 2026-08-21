@@ -43,6 +43,7 @@ mock.module("@/utils/conversation-list-fetchers", () => ({
 }));
 
 const syncedSnapshots: WidgetSnapshotPayload[] = [];
+let clearCount = 0;
 let syncAvailable = true;
 
 // Full module surface: `mock.module` is process-global in bun, so a partial
@@ -53,7 +54,9 @@ mock.module("@/runtime/widget-snapshot", () => ({
   syncWidgetSnapshot: async (snapshot: WidgetSnapshotPayload) => {
     syncedSnapshots.push(snapshot);
   },
-  clearWidgetSnapshot: async () => {},
+  clearWidgetSnapshot: async () => {
+    clearCount++;
+  },
 }));
 
 const { useConversationStore } = await import("@/stores/conversation-store");
@@ -80,6 +83,7 @@ function group(id: string, name: string): ConversationGroup {
 }
 
 interface Props {
+  assistantId?: string;
   conversations: Conversation[];
   conversationGroups: ConversationGroup[];
   listResolved: boolean;
@@ -92,7 +96,7 @@ function render(initialProps: Props) {
   return renderHook(
     (props: Props) =>
       useNativeWidgetSnapshotSync(
-        ASSISTANT_ID,
+        props.assistantId ?? ASSISTANT_ID,
         props.conversations,
         props.conversationGroups,
         true,
@@ -108,6 +112,7 @@ function render(initialProps: Props) {
 
 beforeEach(() => {
   syncedSnapshots.length = 0;
+  clearCount = 0;
   syncAvailable = true;
   useConversationStore.setState({ processingConversationIds: new Set() });
 });
@@ -151,6 +156,114 @@ describe("useNativeWidgetSnapshotSync", () => {
       listResolved: false,
     });
     expect(syncedSnapshots).toHaveLength(1);
+    expect(clearCount).toBe(0);
+  });
+
+  it("clears the snapshot when the assistant changes before the new list resolves", () => {
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      listResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(1);
+    expect(clearCount).toBe(0);
+
+    // The switch lands: the new assistant's list query starts over, so it is
+    // the unresolved `[]` fallback again. The previous assistant's rows must
+    // not survive it.
+    rerender({
+      assistantId: "asst-2",
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      listResolved: false,
+    });
+    expect(clearCount).toBe(1);
+    expect(syncedSnapshots).toHaveLength(1);
+
+    // A second unresolved render of the same new assistant is not another
+    // switch.
+    rerender({
+      assistantId: "asst-2",
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      listResolved: false,
+    });
+    expect(clearCount).toBe(1);
+
+    // The new assistant's own list finally lands.
+    rerender({
+      assistantId: "asst-2",
+      conversations: [conversation("c2", { title: "Flights" })],
+      conversationGroups: NO_GROUPS,
+      listResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(2);
+    expect(syncedSnapshots[1]?.conversations[0]?.id).toBe("c2");
+  });
+
+  it("writes the new assistant's snapshot without a clear when its list is already resolved", () => {
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      listResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(1);
+
+    rerender({
+      assistantId: "asst-2",
+      conversations: [conversation("c2", { title: "Flights" })],
+      conversationGroups: NO_GROUPS,
+      listResolved: true,
+    });
+    expect(clearCount).toBe(0);
+    expect(syncedSnapshots).toHaveLength(2);
+    expect(syncedSnapshots[1]?.conversations[0]?.id).toBe("c2");
+  });
+
+  it("re-syncs identical data across an assistant switch", () => {
+    // The dedup key is the serialized payload, so two assistants with the
+    // same rows would collide. The switch drops the key with the snapshot.
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      listResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(1);
+
+    rerender({
+      assistantId: "asst-2",
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      listResolved: false,
+    });
+    rerender({
+      assistantId: "asst-2",
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      listResolved: true,
+    });
+    expect(clearCount).toBe(1);
+    expect(syncedSnapshots).toHaveLength(2);
+  });
+
+  it("does not clear on the launch transition into the first assistant", () => {
+    // `activeAssistantId` resolves after the layout mounts, so the hook sees
+    // one unresolved render before the id arrives. That is not a switch: the
+    // App Group's last-known-good snapshot has to survive it.
+    const { rerender } = render({
+      assistantId: "asst-1",
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      listResolved: false,
+    });
+    rerender({
+      assistantId: "asst-2",
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      listResolved: false,
+    });
+    expect(clearCount).toBe(0);
+    expect(syncedSnapshots).toHaveLength(0);
   });
 
   it("syncs the three most recent rows with group names, unseen and processing state", () => {

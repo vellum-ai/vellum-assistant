@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { useUnreadConversationCount } from "@/hooks/conversation-queries";
 import {
+  clearWidgetSnapshot,
   isWidgetSnapshotSyncAvailable,
   syncWidgetSnapshot,
   WIDGET_SNAPSHOT_SCHEMA_VERSION,
@@ -59,6 +60,16 @@ const MAX_SNAPSHOT_CONVERSATIONS = 3;
  * long as it lasted, despite a last-known-good snapshot sitting in the App
  * Group. An empty list from a *successful* query does sync: genuinely having
  * no conversations should empty the widgets.
+ *
+ * That preservation is scoped to ONE assistant. A snapshot describes the
+ * assistant it was built from, so an in-SPA switch
+ * (`switchToResolvedAssistant`) invalidates it outright: the new assistant's
+ * list starts unresolved, and preserving across the switch would leave the
+ * previous assistant's titles, counts and conversation targets on a Home
+ * Screen that never reloads on its own, indefinitely if the new assistant
+ * never comes up. So the hook tracks which assistant produced the snapshot it
+ * last wrote and drops it as soon as that id changes. A launch (no snapshot
+ * written yet) is not a switch and keeps the preservation.
  */
 export function useNativeWidgetSnapshotSync(
   assistantId: string | null,
@@ -68,6 +79,10 @@ export function useNativeWidgetSnapshotSync(
   listResolved: boolean,
 ): void {
   const lastPayloadRef = useRef<string | null>(null);
+  // The assistant the snapshot in the App Group was built from; null until
+  // this hook has written one, which is what keeps a launch from reading as
+  // a switch.
+  const syncedAssistantIdRef = useRef<string | null>(null);
   const processingConversationIds =
     useConversationStore.use.processingConversationIds();
 
@@ -78,7 +93,29 @@ export function useNativeWidgetSnapshotSync(
   );
 
   useEffect(() => {
-    if (!isWidgetSnapshotSyncAvailable() || !listResolved) {
+    if (!isWidgetSnapshotSyncAvailable()) {
+      return;
+    }
+
+    // Checked ahead of the `listResolved` guard, which would otherwise hold
+    // the previous assistant's snapshot for the whole time the new one takes
+    // to resolve. Dropping the dedup key too, so the new assistant's first
+    // resolved list always reaches the bridge even when it happens to
+    // serialize identically to what the previous one last wrote.
+    const switchedAssistant =
+      syncedAssistantIdRef.current !== null &&
+      syncedAssistantIdRef.current !== assistantId;
+    if (switchedAssistant) {
+      syncedAssistantIdRef.current = null;
+      lastPayloadRef.current = null;
+    }
+
+    if (!listResolved) {
+      // Only on a switch: a pending or errored query for the SAME assistant
+      // still keeps its last-known-good snapshot.
+      if (switchedAssistant) {
+        void clearWidgetSnapshot();
+      }
       return;
     }
 
@@ -123,11 +160,13 @@ export function useNativeWidgetSnapshotSync(
       return;
     }
     lastPayloadRef.current = serialized;
+    syncedAssistantIdRef.current = assistantId;
     void syncWidgetSnapshot({
       ...content,
       generatedAt: new Date().toISOString(),
     });
   }, [
+    assistantId,
     conversations,
     conversationGroups,
     processingConversationIds,

@@ -225,6 +225,28 @@ const sessionEnded = (): Partial<AuthState> => ({
 });
 
 /**
+ * Apply the {@link sessionEnded} transition. Every path that ends a session
+ * goes through here, not through a bare `set(sessionEnded())`, because a
+ * session ends far more often without an explicit `logout()` than with one:
+ * a revoked or expired session settles through `refreshSession`'s 401 branch,
+ * and a boot that finds no session settles through `initSession`.
+ *
+ * The one thing that has to happen off-store is dropping the iOS widget
+ * snapshot. A Home Screen widget is readable without unlocking the device, so
+ * the previous account's conversation titles must not outlive the session that
+ * produced them, whichever way it ended. No-op off Capacitor iOS.
+ *
+ * Awaited BEFORE the state write: the write is what flips signed-in surfaces
+ * to the login screen, and on the logout path that can end in a hard
+ * navigation that tears the page down before a detached bridge call would
+ * reach the shell.
+ */
+async function endSession(set: AuthSet): Promise<void> {
+  await clearWidgetSnapshot();
+  set(sessionEnded());
+}
+
+/**
  * A `getSession()` outcome that says nothing about the session itself —
  * the request threw (fetch rejection), never completed, or failed for a
  * non-auth reason (429 rate limiting, 5xx outages, the Electron proxy's
@@ -862,7 +884,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       if (await hasRemoteGatewaySessionAfterRefresh()) {
         set({ ...authenticatedLocalUser(), platformSession: "absent" });
       } else {
-        set(sessionEnded());
+        await endSession(set);
       }
       return;
     }
@@ -921,7 +943,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         } else {
           clearUserSnapshot();
         }
-        set(sessionEnded());
+        await endSession(set);
         return;
       }
       set(authenticatedLocalUser());
@@ -990,7 +1012,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     if (!isInconclusiveProbe(result)) {
       clearUserSnapshot();
     }
-    set(sessionEnded());
+    await endSession(set);
   },
 
   /**
@@ -1088,7 +1110,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         set({ ...authenticatedLocalUser(), platformSession: "absent" });
         return true;
       }
-      set(sessionEnded());
+      await endSession(set);
       return false;
     }
 
@@ -1106,7 +1128,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         }
         set({ sessionStatus: "authenticated" });
       } catch {
-        set(sessionEnded());
+        await endSession(set);
         return false;
       }
       probePlatformSessionIfReachable(set, { clearOnFailure: true });
@@ -1182,18 +1204,11 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     }
     clearUserSnapshot();
     await syncUserScopedState(null);
-    set(sessionEnded());
+    await endSession(set);
     return false;
   },
 
   logout: async () => {
-    // Drop the iOS widget snapshot first, ahead of both branches below: a
-    // Home Screen widget is readable without unlocking the device, so the
-    // previous account's conversation titles must not outlive the session.
-    // Awaited rather than fired and forgotten because a logout that ends in
-    // a hard navigation can tear the page down before a detached bridge call
-    // reaches the shell. No-op off Capacitor iOS.
-    await clearWidgetSnapshot();
     if (isGatewayAuthMode()) {
       // Clear lifecycle state BEFORE `sessionStatus` leaves `authenticated`
       // so the assistant sync hooks don't observe a stale assistant id in
@@ -1208,7 +1223,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       clearGatewayToken();
       clearOrganization();
       clearUserScopedStorage();
-      set(sessionEnded());
+      await endSession(set);
       broadcastAuthChange();
       return;
     }
@@ -1241,7 +1256,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       // removed the persisted key, and a surviving slice would resolve the
       // previous user's assistant after re-login.
       await setSelectedAssistant(null);
-      set(sessionEnded());
+      await endSession(set);
       broadcastAuthChange();
     }
   },
