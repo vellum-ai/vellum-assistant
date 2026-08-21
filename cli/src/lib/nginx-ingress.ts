@@ -132,6 +132,10 @@ export interface RemoteWebIngressOptions {
   /** Serving assistant's display name, stamped into the served config so
    *  remote clients can label this origin. Absent in older served configs. */
   assistantName?: string;
+  /** Serving assistant's id, stamped into the served config so a caller can
+   *  confirm which assistant an edge is fronting. Absent in older served
+   *  configs. */
+  assistantId?: string;
   /** Cloud web SPA base the remote client can hand this origin to (see
    *  `cloudWebHubUrl`). Absent in older served configs. */
   hubUrl?: string;
@@ -147,7 +151,10 @@ export function cloudWebHubUrl(env: string | undefined): string {
 }
 
 function remoteWebIngressConfig(
-  opts: Pick<RemoteWebIngressOptions, "config" | "assistantName" | "hubUrl">,
+  opts: Pick<
+    RemoteWebIngressOptions,
+    "config" | "assistantName" | "assistantId" | "hubUrl"
+  >,
 ): Record<string, unknown> {
   return {
     mode: "remote-gateway",
@@ -155,6 +162,7 @@ function remoteWebIngressConfig(
     platformDisabled: true,
     disablePlatform: true,
     ...(opts.assistantName ? { assistantName: opts.assistantName } : {}),
+    ...(opts.assistantId ? { assistantId: opts.assistantId } : {}),
     ...(opts.hubUrl ? { hubUrl: opts.hubUrl } : {}),
     ...opts.config,
   };
@@ -165,7 +173,7 @@ function remoteWebIngressConfig(
  * fingerprint matches, so this must change whenever the generated index or
  * nginx template does.
  */
-const EDGE_TEMPLATE_VERSION = 3;
+const EDGE_TEMPLATE_VERSION = 4;
 
 /**
  * Stable fingerprint of the SPA config injected into the served index and
@@ -748,6 +756,12 @@ export async function startRemoteWebIngress(opts: {
    */
   assistantName?: string;
   /**
+   * Serving assistant's id, stamped into the served remote-web config
+   * (`__VELLUM_CONFIG__.assistantId`) so a caller probing this origin can
+   * confirm which assistant the edge fronts. Omitted when unknown.
+   */
+  assistantId?: string;
+  /**
    * Invoked once, after every preflight check passes and immediately before
    * nginx is spawned, so callers can emit their own "starting" progress line
    * with the resolved version/dist/port (webDistDir is null in webhooks-only
@@ -777,6 +791,7 @@ export async function startRemoteWebIngress(opts: {
     ? {
         hubUrl: cloudWebHubUrl(getCurrentEnvironment().name),
         ...(opts.assistantName ? { assistantName: opts.assistantName } : {}),
+        ...(opts.assistantId ? { assistantId: opts.assistantId } : {}),
       }
     : undefined;
   const requestedConfigHash = spaOptions
@@ -953,6 +968,7 @@ export async function ensureTunnelEdge(opts: {
     gatewayPort: opts.gatewayPort,
     includeWebApp: true,
     ...(assistantName ? { assistantName } : {}),
+    ...(opts.assistantId ? { assistantId: opts.assistantId } : {}),
     ...(opts.onStarting ? { onStarting: opts.onStarting } : {}),
   });
 
