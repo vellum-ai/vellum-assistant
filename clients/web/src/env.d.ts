@@ -84,6 +84,8 @@ interface Window {
     platformUrl?: string;
     /** Serving assistant's display name (remote-web ingress configs only). */
     assistantName?: string;
+    /** Serving assistant's id (remote-web ingress configs only). */
+    assistantId?: string;
     /** Cloud web SPA base for this build's environment (remote-web ingress configs only). */
     hubUrl?: string;
   };

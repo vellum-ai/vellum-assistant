@@ -1204,10 +1204,12 @@
     "generateButton": "Generate pairing QR",
     "generateButtonMinting": "Generating…",
     "generateButtonRegenerate": "Generate new code",
+    "generateButtonWarned": "Generate anyway",
     "noTunnelMore": "Other providers and options: <code>{command}</code>",
     "noTunnelNext": "The tunnel prints an https address. Paste it into Public URL below, and leave the tunnel running while you pair and use other devices.",
     "noTunnelTitle": "Open a tunnel first",
     "noTunnelWhy": "Other devices reach {name} over the internet through a tunnel from this computer. In a terminal here, run:",
+    "publicUrlDisclosure": "Use a different address",
     "publicUrlHelper": "The https address your devices can reach this assistant at (your Tailscale URL, or another tunnel's).",
     "publicUrlHelperTunnel": "This address comes from `vellum tunnel` on this computer. Edit it if your devices reach this assistant at a different URL.",
     "publicUrlLabel": "Public URL",
@@ -1959,6 +1961,19 @@
     "riskMedium": "Medium",
     "showAllDefaults": "Show all defaults",
     "title": "Trust Rules"
+  },
+  "tunnelStatusRow": {
+    "checkedAt": "Checked {when}",
+    "checkingStatus": "Checking whether the tunnel is reachable…",
+    "foreignStatus": "This address is serving a different assistant right now.",
+    "foreignStatusNamed": "This address is serving {name} right now, not this assistant.",
+    "healthyStatus": "The tunnel is running and reachable.",
+    "refreshLabel": "Check the tunnel again",
+    "restartHint": "Start this assistant's tunnel again with <code>{command}</code> in a terminal on this computer.",
+    "stoppedRestart": "Run <code>{command}</code> in a terminal on this computer to start it again.",
+    "stoppedStatus": "The tunnel is stopped, so other devices cannot reach this assistant.",
+    "unpairableStatus": "This address answers, but it is not serving the pairing app. Start a tunnel with the web app enabled so pairing links open.",
+    "unreachableStatus": "This address is not answering right now."
   },
   "twoFactorSection": {
     "addAuthenticatorApp": "Add authenticator app",

@@ -1204,10 +1204,12 @@
     "generateButton": "Generar QR de vinculación",
     "generateButtonMinting": "Generando…",
     "generateButtonRegenerate": "Generar nuevo código",
+    "generateButtonWarned": "Generar de todos modos",
     "noTunnelMore": "Otros proveedores y opciones: <code>{command}</code>",
     "noTunnelNext": "El túnel imprime una dirección https. Pégala en URL pública más abajo y deja el túnel en marcha mientras vinculas y usas otros dispositivos.",
     "noTunnelTitle": "Abre primero un túnel",
     "noTunnelWhy": "Otros dispositivos alcanzan {name} por internet a través de un túnel desde este equipo. En una terminal aquí, ejecuta:",
+    "publicUrlDisclosure": "Usar otra dirección",
     "publicUrlHelper": "La dirección https en la que tus dispositivos pueden alcanzar este asistente (tu URL de Tailscale o la de otro túnel).",
     "publicUrlHelperTunnel": "Esta dirección proviene de `vellum tunnel` en este equipo. Edítala si tus dispositivos alcanzan este asistente en otra URL.",
     "publicUrlLabel": "URL pública",
@@ -1959,6 +1961,19 @@
     "riskMedium": "Medio",
     "showAllDefaults": "Mostrar todos los valores predeterminados",
     "title": "Reglas de confianza"
+  },
+  "tunnelStatusRow": {
+    "checkedAt": "Comprobado {when}",
+    "checkingStatus": "Comprobando si el túnel es accesible…",
+    "foreignStatus": "Esta dirección está sirviendo a otro asistente ahora mismo.",
+    "foreignStatusNamed": "Esta dirección está sirviendo a {name} ahora mismo, no a este asistente.",
+    "healthyStatus": "El túnel está en marcha y es accesible.",
+    "refreshLabel": "Comprobar el túnel de nuevo",
+    "restartHint": "Vuelve a iniciar el túnel de este asistente con <code>{command}</code> en una terminal de este equipo.",
+    "stoppedRestart": "Ejecuta <code>{command}</code> en una terminal de este equipo para volver a iniciarlo.",
+    "stoppedStatus": "El túnel está detenido, por lo que otros dispositivos no pueden alcanzar este asistente.",
+    "unpairableStatus": "Esta dirección responde, pero no está sirviendo la aplicación de vinculación. Inicia un túnel con la aplicación web habilitada para que los enlaces de vinculación se abran.",
+    "unreachableStatus": "Esta dirección no responde ahora mismo."
   },
   "twoFactorSection": {
     "addAuthenticatorApp": "Añadir aplicación de autenticación",

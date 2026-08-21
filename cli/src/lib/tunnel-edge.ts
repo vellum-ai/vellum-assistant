@@ -55,23 +55,45 @@ function wantsTunnelEdge(workspaceDir: string): boolean {
 }
 
 /**
- * Bring the nginx edge back up after a wake or local upgrade and point the
- * webhook auto-tunnel at it. The edge is wanted when webhook integrations are
- * configured or the workspace ingress config is enabled with a saved public
- * URL. A healthy SPA edge whose recorded state already targets the requested
- * gateway port is reused without the `remoteWebConfigHash` comparison
- * `startRemoteWebIngress` performs; injected-config drift (a renamed
- * assistant, a changed hub URL) is repaired by the next explicit
- * `vellum tunnel`, not by background wakes.
- * A recorded webhooks-only edge is never reused: it goes through
- * `ensureTunnelEdge` so the wake upgrades it to the SPA edge.
- * Edge failures warn
- * (with the error's install or diagnostic text) and fall back to tunneling the
- * gateway port directly, which `maybeStartNgrokTunnel` only does when webhook
- * integrations are configured, so webhook channels on nginx-less machines
- * keep working, and the caller never fails because of edge problems.
+ * Listen port of an SPA edge still serving in front of `gatewayPort`, or null
+ * when nothing verifiably fronts that gateway (an unrecorded upstream port is
+ * unverified, see `IngressState`).
+ */
+function survivingSpaEdgePort(
+  workspaceDir: string,
+  gatewayPort: number,
+): number | null {
+  try {
+    const recorded = isIngressRunning(workspaceDir)
+      ? readIngressState(workspaceDir)
+      : null;
+    return recorded?.includeWebApp && recorded.gatewayPort === gatewayPort
+      ? recorded.listenPort
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Bring the nginx edge back up after a wake or local upgrade. The edge is
+ * wanted when webhook integrations are configured or the workspace ingress
+ * config is enabled with a saved public URL. `ensureTunnelEdge` owns the reuse
+ * decision, so a running edge is adopted only while its mode, gateway port,
+ * and injected SPA config fingerprint all match what this restore asks for; an
+ * edge that drifted in any of those respects (a renamed assistant, a changed
+ * hub URL, an older edge template) is restarted rather than adopted, which is
+ * what keeps a wake from serving a config the current CLI would never
+ * generate.
  *
- * Returns the spawned ngrok child (for PID tracking) or null.
+ * Several of those failures leave the old edge serving (the web-dist preflight
+ * bails before it is stopped; a drifted edge whose stop fails is reported as
+ * stale), and tunneling the gateway directly would take the edge's
+ * sensitive-route denylist out from in front of the tunnel. So a failure warns
+ * and reports a surviving SPA edge as the target instead.
+ *
+ * Returns the loopback port a tunnel should front, or null when no edge is
+ * wanted and when none survives a failed rebuild.
  */
 export async function restoreTunnelEdge(
   assistantId: string,
@@ -84,40 +106,26 @@ export async function restoreTunnelEdge(
   if (!wantsTunnelEdge(workspaceDir)) {
     return null;
   }
-  const recorded = isIngressRunning(workspaceDir)
-    ? readIngressState(workspaceDir)
-    : null;
-  let edge: TunnelEdge | null = null;
-  if (
-    recorded !== null &&
-    recorded.gatewayPort === gatewayPort &&
-    recorded.includeWebApp
-  ) {
-    edge = {
-      port: recorded.listenPort,
-      started: false,
-      includesWebApp: true,
-    };
-  } else {
-    try {
-      edge = await ensureTunnelEdge({
-        assistantId,
-        workspaceDir,
-        gatewayPort,
-      });
-    } catch (err) {
-      const impact = gatewayFallback
-        ? "Webhooks still work, but the web app is not being served."
-        : "The web app and webhook delivery are unavailable until it is rebuilt.";
-      console.warn(
-        `   Could not restore the tunnel edge: ${
-          err instanceof Error ? err.message : String(err)
-        } ${impact} Run \`vellum tunnel\` to rebuild the edge.`,
-      );
-    }
-  }
-  if (!edge) {
-    return null;
+  let edge: TunnelEdge;
+  try {
+    edge = await ensureTunnelEdge({
+      assistantId,
+      workspaceDir,
+      gatewayPort,
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    const survivingPort = survivingSpaEdgePort(workspaceDir, gatewayPort);
+    const impact =
+      survivingPort !== null
+        ? `The edge already running on 127.0.0.1:${survivingPort} stays in front of the gateway, serving an outdated config.`
+        : gatewayFallback
+          ? "Webhooks still work, but the web app is not being served."
+          : "The web app and webhook delivery are unavailable until it is rebuilt.";
+    console.warn(
+      `   Could not restore the tunnel edge: ${detail} ${impact} Run \`vellum tunnel\` to rebuild the edge.`,
+    );
+    return survivingPort;
   }
   console.log(
     `   Tunnel edge ${edge.started ? "started" : "already running"} on 127.0.0.1:${edge.port} (${formatEdgeMode(
@@ -235,5 +243,9 @@ export async function restoreTunnelEdgeAndAutoTunnel(
     gatewayPort,
     workspaceDir,
   );
-  return maybeStartNgrokTunnel(edgePort ?? gatewayPort, workspaceDir);
+  return maybeStartNgrokTunnel(
+    edgePort ?? gatewayPort,
+    workspaceDir,
+    assistantId,
+  );
 }

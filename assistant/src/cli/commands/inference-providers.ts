@@ -23,6 +23,7 @@ import { cliIpcCall } from "../../ipc/cli-client.js";
 import type { OAuth2Config } from "../../security/oauth2.js";
 import { subcommand } from "../lib/cli-command-help.js";
 import { writeCliError } from "../lib/cli-output.js";
+import { openInHostBrowser } from "../lib/open-browser.js";
 import { attachDefaultProviderSubcommand } from "./inference-providers-default.js";
 
 // ---------------------------------------------------------------------------
@@ -474,12 +475,19 @@ function attachLoginChatgptSubcommand(providers: Command): void {
           import("../../security/secure-keys.js"),
         ]);
         // Step 1: Run browser-based PKCE OAuth flow
-        process.stdout.write("Opening browser for ChatGPT authentication...\n");
+        if (!opts.json) {
+          process.stdout.write(
+            "Opening browser for ChatGPT authentication...\n",
+          );
+        }
         const result = await startOAuth2Flow(
           OPENAI_CODEX_OAUTH_CONFIG,
           {
             openUrl: (url) => {
-              Bun.spawn(["open", url]);
+              openInHostBrowser(url);
+              const fallbackMessage = `If the browser did not open, visit:\n${url}\n`;
+              const output = opts.json ? process.stderr : process.stdout;
+              output.write(fallbackMessage);
             },
           },
           {
