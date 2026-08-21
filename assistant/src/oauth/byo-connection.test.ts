@@ -589,9 +589,9 @@ describe("BYOOAuthConnection", () => {
       expect(plan.url).toBe(
         "https://api.telegram.org/bottelegram-test-token/getMe",
       );
-      expect(plan.headers.authorization ?? plan.headers.Authorization).toBe(
-        undefined,
-      );
+      expect(
+        plan.headers.authorization ?? plan.headers.Authorization,
+      ).toBeUndefined();
     });
   });
 

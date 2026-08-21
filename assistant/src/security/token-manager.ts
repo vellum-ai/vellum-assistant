@@ -321,7 +321,10 @@ export async function withValidToken<T>(
     typeof opts === "object" && opts !== null ? opts : undefined;
   const conn = optsObject
     ? getConnection(optsObject.connectionId)
-    : getConnectionByProvider(service, opts);
+    : getConnectionByProvider(
+        service,
+        typeof opts === "string" ? opts : undefined,
+      );
   const tokenResult = conn
     ? await getConnectionAccessTokenResult({
         provider: conn.provider,
