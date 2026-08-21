@@ -45,6 +45,14 @@ export interface FetchProviderCatalogEntry {
   /** Privacy-policy URL surfaced in marketing data-sharing docs.
    *  BYOK providers only. */
   readonly privacyPolicyUrl?: string;
+  /**
+   * When true, settings UIs show an optional API Base field. Empty /
+   * omitted base uses {@link defaultApiBase}.
+   */
+  readonly supportsApiBase?: boolean;
+  /** Cloud default origin when `supportsApiBase` is true and the user
+   *  leaves API Base empty. */
+  readonly defaultApiBase?: string;
 }
 
 export const FETCH_PROVIDER_CATALOG: readonly FetchProviderCatalogEntry[] = [
@@ -64,6 +72,17 @@ export const FETCH_PROVIDER_CATALOG: readonly FetchProviderCatalogEntry[] = [
     envVar: "FIRECRAWL_API_KEY",
     secretKey: "firecrawl",
     privacyPolicyUrl: "https://www.firecrawl.dev/privacy-policy",
+  },
+  {
+    id: "fastcrw",
+    displayName: "fastCRW",
+    kind: "byok",
+    apiKeyPrefix: "crw_live_...",
+    envVar: "FASTCRW_API_KEY",
+    secretKey: "fastcrw",
+    privacyPolicyUrl: "https://fastcrw.com/privacy",
+    supportsApiBase: true,
+    defaultApiBase: "https://api.fastcrw.com",
   },
 ];
 
