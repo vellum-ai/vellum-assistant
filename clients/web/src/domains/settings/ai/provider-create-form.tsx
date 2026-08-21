@@ -41,6 +41,7 @@ import {
   parseCredentialRef,
   providerAllowsCustomBaseUrl,
   validationErrorMessage,
+  warnOnFailedEndpointCheck,
 } from "@/domains/settings/ai/provider-editor-constants";
 import { useSelectableConnectionProviders } from "@/domains/settings/ai/provider-availability";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
@@ -323,6 +324,7 @@ export function ProviderCreateForm({
       // Single success confirmation for both the standalone and inline
       // surfaces; failures above already surface inline via `error` (no toast).
       toast.success(t("providerCreateForm.providerConnectedToast"));
+      warnOnFailedEndpointCheck(created, t);
       onCreated(created);
     } catch {
       setError(t("providerCreateForm.failedSaveProvider"));

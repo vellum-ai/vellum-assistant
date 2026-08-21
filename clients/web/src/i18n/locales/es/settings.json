@@ -907,6 +907,12 @@
     "saveChanges": "Guardar cambios",
     "saving": "Guardando…"
   },
+  "providerEndpointCheck": {
+    "httpError": "El endpoint devolvió HTTP {status} en una solicitud de prueba.",
+    "notFound": "El endpoint devolvió 404 en una solicitud de prueba: revisa la ruta base de este proveedor (p. ej., NVIDIA necesita /v1 y OpenRouter /api/v1). Algunos proveedores exigen autenticación, así que puede ser una falsa alarma.",
+    "unauthorized": "El endpoint rechazó la credencial en una solicitud de prueba (HTTP {status}). Revisa la clave de API.",
+    "unreachable": "No se pudo conectar con el endpoint en una solicitud de prueba. Revisa la URL."
+  },
   "providerRow": {
     "actionsAriaLabel": "Acciones para {displayName}",
     "customTag": "Personalizado",

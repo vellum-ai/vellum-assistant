@@ -31,6 +31,11 @@ function parsePortFromUrl(url: unknown): number | undefined {
   }
 }
 
+/** Container topologies whose gateway runs on this machine without host `resources`. */
+export function isLocalContainerEntry(entry: AssistantEntry): boolean {
+  return entry.cloud === "docker" || entry.cloud === "apple-container";
+}
+
 /**
  * Derive the gateway port from an entry's recorded URLs, preferring the
  * loopback `localUrl` over `runtimeUrl`. Undefined when neither carries an

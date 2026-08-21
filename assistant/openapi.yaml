@@ -15010,7 +15010,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProviderConnection"
+                $ref: "#/components/schemas/SavedProviderConnection"
         "400":
           description: Invalid provider or auth schema
         "409":
@@ -15121,7 +15121,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProviderConnection"
+                $ref: "#/components/schemas/SavedProviderConnection"
         "400":
           description: Invalid auth schema, or attempt to change auth on a managed connection
         "404":
@@ -35613,6 +35613,78 @@ components:
         - createdAt
         - updatedAt
         - isManaged
+      additionalProperties: false
+    SavedProviderConnection:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        provider:
+          $ref: "#/components/schemas/ConnectionProvider"
+        auth:
+          $ref: "#/components/schemas/AuthOutput"
+        label:
+          anyOf:
+            - type: string
+              minLength: 1
+            - type: "null"
+        baseUrl:
+          anyOf:
+            - type: string
+              format: uri
+            - type: "null"
+        models:
+          anyOf:
+            - type: array
+              items:
+                $ref: "#/components/schemas/ConnectionModelOutput"
+            - type: "null"
+        createdAt:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        updatedAt:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        isManaged:
+          type: boolean
+        endpoint_check:
+          $ref: "#/components/schemas/EndpointCheck"
+      required:
+        - name
+        - provider
+        - auth
+        - label
+        - baseUrl
+        - models
+        - createdAt
+        - updatedAt
+        - isManaged
+      additionalProperties: false
+    EndpointCheck:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        status:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        resolved_url:
+          type: string
+        error_class:
+          type: string
+          enum:
+            - http_error
+            - timeout
+            - network
+        hint:
+          type: string
+      required:
+        - ok
+        - resolved_url
       additionalProperties: false
     ProcessEntry:
       type: object
