@@ -11,7 +11,7 @@ import { hostFileExecutor } from "@vellumai/electron-desktop/host-proxy/executor
 import { hostTransferExecutor } from "@vellumai/electron-desktop/host-proxy/executors/host-transfer-executor";
 import { createHostUiSnapshotExecutor } from "@vellumai/electron-desktop/host-proxy/executors/host-ui-snapshot-executor";
 
-import { getDevRendererBase, RENDERER_BASE_PROD } from "./app-config";
+import { getRendererBase } from "./app-config";
 import { hostBashExecutor } from "./executors/host-bash-adapter";
 
 import type { ComputerUseActionExecutors } from "./features/computer-use-actions";
@@ -52,8 +52,7 @@ export const createWindowsHostProxyRuntime = (
       host_transfer: hostTransferExecutor,
       host_browser: browserExecutor,
       host_ui_snapshot: createHostUiSnapshotExecutor({
-        resolveRendererBase: () =>
-          app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
+        resolveRendererBase: () => getRendererBase(app.isPackaged),
       }),
       ...(computerUseExecutors
         ? { host_cu: computerUseExecutors.host_cu }

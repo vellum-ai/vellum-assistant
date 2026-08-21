@@ -11,6 +11,7 @@
 import type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
+  SlackStreamOp,
 } from "@vellumai/gateway-client";
 
 import { a2aTransport } from "./a2a/transport.js";
@@ -19,6 +20,7 @@ import { channelForCallback } from "./callback-routing.js";
 import type {
   CallbackContext,
   ChannelTransport,
+  EditTarget,
   ReactionTarget,
   ThreadStatus,
 } from "./channel-transport.js";
@@ -85,6 +87,24 @@ export async function sendChannelTyping(
  * reaction is an acknowledgement, and a channel that cannot show one is not a
  * failed delivery.
  */
+/**
+ * Replace a message the assistant already sent.
+ *
+ * Returns `ok` without acting when the channel cannot revise a sent message,
+ * matching the other capability entry points: an absent method is an absent
+ * capability, not an error.
+ */
+export async function editChannelMessage(
+  callbackUrl: string,
+  target: EditTarget,
+): Promise<ChannelDeliveryResult> {
+  const transport = getTransportForCallback(callbackUrl);
+  if (!transport?.edit) {
+    return { ok: true };
+  }
+  return transport.edit(callbackContext(callbackUrl), target);
+}
+
 export async function sendChannelReaction(
   callbackUrl: string,
   target: ReactionTarget,
@@ -111,6 +131,24 @@ export async function setChannelThreadStatus(
     return { ok: true };
   }
   return transport.setThreadStatus(callbackContext(callbackUrl), status);
+}
+
+/**
+ * Advance a streamed reply on the channel this callback addresses.
+ *
+ * Resolves to nothing when the channel cannot stream, so a caller that wants a
+ * streamed reply learns it has to send the whole thing instead.
+ */
+export async function sendChannelStreamOp(
+  callbackUrl: string,
+  chatId: string,
+  op: SlackStreamOp,
+): Promise<ChannelDeliveryResult> {
+  const transport = getTransportForCallback(callbackUrl);
+  if (!transport?.streamReply) {
+    return { ok: true };
+  }
+  return transport.streamReply(callbackContext(callbackUrl), chatId, op);
 }
 
 function callbackContext(callbackUrl: string): CallbackContext {
@@ -142,9 +180,8 @@ export function isDirectDelivery(callbackUrl: string): boolean {
  * Deliver a channel reply directly to the provider API, bypassing the gateway
  * HTTP proxy. Callers MUST check `isDirectDelivery()` first.
  *
- * Sub-operations (reaction, thread status) route to the transport's optional
- * method when both the payload field and the method are present; otherwise
- * the reply is delivered as text / approval / attachments.
+ * Delivers the reply itself: text, approval card, attachments. Every other
+ * operation a transport supports is reached through its own entry point.
  */
 export async function deliverDirect(
   callbackUrl: string,
@@ -158,8 +195,5 @@ export async function deliverDirect(
   }
 
   const ctx = callbackContext(callbackUrl);
-  if (payload.slackStream && transport.streamReply) {
-    return transport.streamReply(ctx, payload);
-  }
   return transport.deliver(ctx, payload);
 }

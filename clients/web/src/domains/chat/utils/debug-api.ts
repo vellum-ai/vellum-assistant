@@ -138,14 +138,11 @@ export interface ChatDebugThinkingDoneSignal {
  * snapshot never carries tool-call argument values.
  */
 export interface PendingInteractionsSnapshot {
+  submittingByKind: Record<string, string | null>;
   pendingSecret: PendingSecretState | null;
-  isSubmittingSecret: boolean;
   pendingConfirmation: PendingConfirmationState | null;
-  isSubmittingConfirmation: boolean;
   pendingContactRequest: PendingContactRequestState | null;
-  isSubmittingContactRequest: boolean;
   pendingQuestion: PendingQuestionState | null;
-  isSubmittingQuestion: boolean;
   /** True while the question card is hidden but `pendingQuestion` is set —
    *  the composer free-text intercept still routes to `submitQuestionResponse`. */
   isQuestionCardDismissed: boolean;
@@ -621,11 +618,13 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     if (conditions.hasUncompletedVisibleSurface) {
       failingConditions.push("hasUncompletedVisibleSurface");
     }
-    if (!(
-      conditions.isThinking ||
-      conditions.restoredProcessing ||
-      !conditions.hasStreamingAssistantMessage
-    )) {
+    if (
+      !(
+        conditions.isThinking ||
+        conditions.restoredProcessing ||
+        !conditions.hasStreamingAssistantMessage
+      )
+    ) {
       failingConditions.push("streamingAssistantMessageActive");
     }
     if (conditions.hasStreamingAssistantThinking) {

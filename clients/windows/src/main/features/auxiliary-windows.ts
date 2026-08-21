@@ -29,14 +29,14 @@ import {
   toggleQuickInput,
 } from "@vellumai/electron-desktop/quick-input-window";
 
-import { RENDERER_BASE_PROD, getDevRendererBase } from "../app-config";
+import { getRendererBase } from "../app-config";
 import { handle, on } from "../ipc.client";
 import log from "../logger";
 import { current, dispatchToMain, ensureVisible } from "../main-window";
 import { createWindow } from "../windows.client";
 
 const resolveRoute = createWindowRouteResolver(() =>
-  app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
+  getRendererBase(app.isPackaged),
 );
 
 const module: CapabilityModule<DesktopCapabilityRegistry> = {
@@ -61,7 +61,16 @@ const module: CapabilityModule<DesktopCapabilityRegistry> = {
       platform: "win32",
       resolveRoute,
     });
-    configureDictationOverlayWindow({ closeOnHide: true, handle, on });
+    // Native mouse-move forwarding for the click-through overlay is broken
+    // on Windows (see `pollCursorForHover`); poll instead so the Stop button
+    // can be hovered and clicked.
+    configureDictationOverlayWindow({
+      closeOnHide: true,
+      pollCursorForHover: true,
+      log: (message) => log.info(message),
+      handle,
+      on,
+    });
     configurePopoutWindows({ createWindow, handle, resolveRoute });
 
     installCommandPaletteWindow();

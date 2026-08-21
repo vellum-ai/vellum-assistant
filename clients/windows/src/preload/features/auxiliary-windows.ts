@@ -10,6 +10,7 @@ import {
   COMMAND_PALETTE_SELECT,
   DICTATION_OVERLAY_GET_STATE,
   DICTATION_OVERLAY_REQUEST_STOP,
+  DICTATION_OVERLAY_SET_HIT_REGION,
   DICTATION_OVERLAY_SET_INTERACTIVE,
   DICTATION_OVERLAY_SET_STATE,
   DICTATION_OVERLAY_STATE_EVENT,
@@ -38,7 +39,10 @@ const module: CapabilityModule<BridgeCapabilityRegistry<VellumBridge>> = {
         ipcRenderer.send(DICTATION_OVERLAY_SET_STATE, state);
       },
       onState: (callback) => {
-        const listener = (_event: IpcRendererEvent, state: DictationOverlayState): void => {
+        const listener = (
+          _event: IpcRendererEvent,
+          state: DictationOverlayState,
+        ): void => {
           callback(state);
         };
         ipcRenderer.on(DICTATION_OVERLAY_STATE_EVENT, listener);
@@ -61,6 +65,9 @@ const module: CapabilityModule<BridgeCapabilityRegistry<VellumBridge>> = {
       },
       setInteractive: (interactive) => {
         ipcRenderer.send(DICTATION_OVERLAY_SET_INTERACTIVE, interactive);
+      },
+      setHitRegion: (region) => {
+        ipcRenderer.send(DICTATION_OVERLAY_SET_HIT_REGION, region);
       },
     });
     registry.contribute("popout", {

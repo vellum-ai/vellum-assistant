@@ -11,6 +11,7 @@ import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { timeAgo } from "../lib/time-ago.js";
 import { log } from "../logger.js";
+import { shouldOutputJson, writeError, writeOutput } from "../output.js";
 import { tryResolveConversationId } from "../utils/conversation-id.js";
 import { conversationsHelp } from "./conversations.help.js";
 import { registerConversationsDeferCommand } from "./conversations-defer.js";
@@ -28,6 +29,66 @@ type SlackDetachCliResult = {
   source: "explicit" | "conversation_binding";
   conversationId?: string;
 };
+
+type ConversationSearchMessage = {
+  messageId: string;
+  role: string;
+  excerpt: string;
+  createdAt: number;
+};
+
+type ConversationSearchResult = {
+  conversationId: string;
+  conversationTitle: string | null;
+  conversationUpdatedAt: number;
+  matchingMessages: ConversationSearchMessage[];
+};
+
+type ConversationSearchResponse = {
+  query: string;
+  results: ConversationSearchResult[];
+};
+
+function parsePositiveLimit(
+  raw: string | undefined,
+): { ok: true; value: number | undefined } | { ok: false; error: string } {
+  if (raw === undefined) {
+    return { ok: true, value: undefined };
+  }
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return {
+      ok: false,
+      error:
+        "Invalid --limit value. Must be a positive integer, e.g. --limit 10.",
+    };
+  }
+  const value = Number(trimmed);
+  if (!Number.isSafeInteger(value) || value < 1) {
+    return {
+      ok: false,
+      error:
+        "Invalid --limit value. Must be a positive integer, e.g. --limit 10.",
+    };
+  }
+  return { ok: true, value };
+}
+
+function formatSearchResultLines(
+  results: ConversationSearchResult[],
+): string[] {
+  const lines: string[] = [];
+  for (const result of results) {
+    lines.push(
+      `  ${result.conversationId}  ${result.conversationTitle ?? "Untitled"}  ${timeAgo(result.conversationUpdatedAt)}`,
+    );
+    for (const message of result.matchingMessages) {
+      const excerpt = message.excerpt.replace(/\s+/g, " ").trim();
+      lines.push(`    ${message.role}  ${excerpt}`);
+    }
+  }
+  return lines;
+}
 
 function outputSlackDetachError(message: string, json?: boolean): void {
   if (json) {
@@ -197,6 +258,70 @@ export function registerConversationsCommand(program: Command): void {
               );
             }
           }
+        },
+      );
+
+      // -------------------------------------------------------------------
+      // search
+      // -------------------------------------------------------------------
+
+      subcommand(conversations, "search").action(
+        async (term: string, opts: { limit?: string }, cmd: Command) => {
+          const trimmed = term.trim();
+          if (!trimmed) {
+            writeError(
+              cmd,
+              'Search term must be a non-empty string. Quote multi-word queries, e.g. assistant conversations search "project planning".',
+            );
+            process.exitCode = 1;
+            return;
+          }
+
+          const parsedLimit = parsePositiveLimit(opts.limit);
+          if (!parsedLimit.ok) {
+            writeError(cmd, parsedLimit.error);
+            process.exitCode = 1;
+            return;
+          }
+
+          const queryParams: Record<string, string> = { q: trimmed };
+          if (parsedLimit.value !== undefined) {
+            queryParams.limit = String(parsedLimit.value);
+          }
+
+          const result = await cliIpcCall<ConversationSearchResponse>(
+            "conversations_search",
+            { queryParams },
+          );
+
+          if (!result.ok) {
+            if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, {
+                ok: false,
+                error: result.error ?? "Conversation search failed",
+              });
+              process.exitCode = exitCodeFromIpcResult(result);
+              return;
+            }
+            return exitFromIpcResult(result);
+          }
+
+          const payload = result.result!;
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, payload);
+            return;
+          }
+
+          if (payload.results.length === 0) {
+            process.stdout.write(
+              `No conversations matched "${payload.query}"\n`,
+            );
+            return;
+          }
+
+          process.stdout.write(
+            formatSearchResultLines(payload.results).join("\n") + "\n",
+          );
         },
       );
 

@@ -248,7 +248,7 @@
     "title": "{name} actions"
   },
   "inspectPage": {
-    "accessDenied": "Inspector is available to Vellum staff, or when the settings-developer-nav developer flag is enabled.",
+    "accessDenied": "Inspector is available when the Internal Thread Actions feature flag is enabled.",
     "allMessages": "All messages",
     "back": "Back",
     "backToConversationAria": "Back to conversation",
@@ -527,6 +527,14 @@
       "yellow": "Yellow"
     },
     "noColor": "No color"
+  },
+  "preferencesUsagePanel": {
+    "addCreditsAriaLabel": "Add credits",
+    "exhausted": "Add credits to continue.",
+    "pctUsed": "{pct}% used",
+    "resets": "Resets {date}",
+    "settingsAriaLabel": "Usage and billing settings",
+    "title": "Usage"
   },
   "promptTab": {
     "availableTools": "Available tools",

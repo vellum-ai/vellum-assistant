@@ -29,6 +29,7 @@ import {
   type AssistantStatus,
 } from "./status";
 import { invalidateIconCache, statusFrames } from "./status-icon";
+import { COMPANION_SIZE_LABELS } from "./companion-menu";
 
 export type TrayMenuIcon =
   | "check"
@@ -43,7 +44,15 @@ export interface TrayModelRuntime {
   accelerator: (
     command: VellumCommand["kind"],
   ) => Pick<MenuItemConstructorOptions, "accelerator">;
-  companionEnabled: () => boolean;
+  /**
+   * Whether this platform has a companion surface at all.
+   *
+   * A statement about the build, not about the user: macOS has one and Windows
+   * does not. It never becomes true on Windows and is never false on macOS, so
+   * it decides whether these items exist rather than tracking anything that
+   * changes while the app runs.
+   */
+  companionSupported: () => boolean;
   companionHidden: () => boolean;
   /** Which named size the companion surface is drawn at. */
   companionSize: () => CompanionSize;
@@ -130,21 +139,6 @@ export interface TrayHandlers {
  * Resolve a user-facing display title for a lockfile assistant. Uses the
  * assistant name when present, falling back to a truncated id.
  */
-/**
- * Menu wording for each companion size.
- *
- * Here rather than in the contract: the contract carries what the two processes
- * send each other, and these are words on a menu. The point sizes are not in
- * the labels: "88pt" means nothing next to a floating avatar, and the sizes
- * are meant to be picked by looking at the result.
- */
-const COMPANION_SIZE_LABELS: Record<CompanionSize, string> = {
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  huge: "Huge",
-};
-
 const assistantDisplayTitle = (assistant: LockfileAssistant): string => {
   if (assistant.name) {
     return assistant.name;
@@ -361,11 +355,11 @@ const buildTrayMenu = (
       label: "Show / Hide Main Window",
       click: handlers.toggleMainWindow,
     },
-    // The floating avatar pill (`companion-window.ts`), for whoever the flag
-    // is on for. Off, there is no surface to show or hide, and an item
-    // offering to bring one back would be the only place in the app that
-    // mentions it exists.
-    ...(trayRuntime.companionEnabled()
+    // The floating avatar pill (`companion-window.ts`), on the platforms that
+    // have one. Where there is no surface there is nothing to show or hide, and
+    // an item offering to bring one back would be the only place in the app
+    // that mentions it exists.
+    ...(trayRuntime.companionSupported()
       ? [
           {
             // A checkbox rather than a toggle-action item: once the surface is
@@ -373,7 +367,7 @@ const buildTrayMenu = (
             // so the item has to show which state it is in. Electron flips
             // `checked` before `click` runs, so the item carries the state
             // being asked for.
-            label: "Show Floating Companion",
+            label: "Show Companion",
             type: "checkbox" as const,
             checked: !trayRuntime.companionHidden(),
             click: (item: Electron.MenuItem) => {

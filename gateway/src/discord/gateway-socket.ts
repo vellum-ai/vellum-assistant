@@ -28,6 +28,10 @@ import { fetchImpl } from "../fetch.js";
 import type { DiscordInboundEvent } from "../channels/inbound-event.js";
 import { admitDiscordMessage } from "./admit.js";
 import { AdmissionDropLog } from "./admission-log.js";
+import {
+  extractDiscordAttachmentMap,
+  type DiscordAttachmentReference,
+} from "./attachments.js";
 import { ReconnectBackoff, SESSION_STABLE_AFTER_MS } from "./backoff.js";
 import {
   RESUMABLE_CLOSE_CODE,
@@ -52,6 +56,11 @@ import { ThreadParentCache } from "./thread-parents.js";
 const log = getLogger("discord-gateway");
 
 const DISCORD_API_BASE_URL = "https://discord.com/api/v10";
+
+export type DiscordGatewayEventHandler = (
+  event: DiscordInboundEvent,
+  attachmentRefs?: Map<string, DiscordAttachmentReference>,
+) => void;
 
 /**
  * Floor for the `session_start_limit.remaining` warning. Steady state spends
@@ -160,7 +169,7 @@ export class DiscordGatewayClient {
 
   constructor(
     options: DiscordGatewayClientOptions,
-    private readonly onEvent: (event: DiscordInboundEvent) => void,
+    private readonly onEvent: DiscordGatewayEventHandler,
   ) {
     this.botToken = options.botToken;
     this.readAllowedChannelIds = options.readAllowedChannelIds;
@@ -706,7 +715,7 @@ export class DiscordGatewayClient {
       },
       "Discord message admitted",
     );
-    this.onEvent(normalized);
+    this.onEvent(normalized, extractDiscordAttachmentMap(message.attachments));
   }
 
   /**

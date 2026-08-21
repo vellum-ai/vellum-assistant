@@ -150,6 +150,8 @@ export const DICTATION_OVERLAY_STOP_REQUESTED =
   "vellum:dictationOverlay:stopRequested";
 export const DICTATION_OVERLAY_SET_INTERACTIVE =
   "vellum:dictationOverlay:setInteractive";
+export const DICTATION_OVERLAY_SET_HIT_REGION =
+  "vellum:dictationOverlay:setHitRegion";
 
 // Voice activity: the running live-voice session, as the companion surface
 // renders it. The session's window publishes; the surface's window presses.
@@ -169,6 +171,9 @@ export const COMPANION_ACTIVATE = "vellum:companion:activate";
 export const COMPANION_SET_COMPOSING = "vellum:companion:setComposing";
 export const COMPANION_SUBMIT = "vellum:companion:submit";
 export const COMPANION_SET_CONTEXT = "vellum:companion:setContext";
+export const COMPANION_ADVANCE_INTRO = "vellum:companion:advanceIntro";
+export const COMPANION_CONTEXT_MENU = "vellum:companion:contextMenu";
+export const COMPANION_OPEN_LINK = "vellum:companion:openLink";
 
 // Popout
 export const POPOUT_OPEN = "vellum:popout:open";

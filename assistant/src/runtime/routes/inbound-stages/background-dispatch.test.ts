@@ -92,10 +92,22 @@ const sentReactions: Array<{
   callbackUrl: string;
   target: Record<string, unknown>;
 }> = [];
+const sentStreamOps: Array<Record<string, unknown>> = [];
+let sendChannelStreamOpImpl: (
+  op: Record<string, unknown>,
+) => Promise<{ ok: boolean; ts?: string }> = async () => ({ ok: true });
 const sentThreadStatuses: Array<Record<string, unknown>> = [];
 mock.module("../../../messaging/providers/index.js", () => ({
   sendChannelTyping: async () => ({ ok: true }),
   supportsChannelTyping: () => false,
+  sendChannelStreamOp: async (
+    _callbackUrl: string,
+    _chatId: string,
+    op: Record<string, unknown>,
+  ) => {
+    sentStreamOps.push(op);
+    return sendChannelStreamOpImpl(op);
+  },
   setChannelThreadStatus: async (
     _callbackUrl: string,
     status: Record<string, unknown>,
@@ -152,6 +164,8 @@ beforeEach(() => {
   clearConversations();
   deliveredChannelReplies.length = 0;
   sentReactions.length = 0;
+  sentStreamOps.length = 0;
+  sendChannelStreamOpImpl = async () => ({ ok: true });
   sentThreadStatuses.length = 0;
   markedProcessedEvents.length = 0;
   processingFailureEvents.length = 0;
@@ -170,10 +184,7 @@ beforeEach(() => {
   deliverReplyViaCallbackImpl = async () => {};
 });
 
-const slackStreamOps = (): Array<Record<string, unknown>> =>
-  deliveredChannelReplies
-    .map((entry) => entry.payload.slackStream as Record<string, unknown>)
-    .filter(Boolean);
+const slackStreamOps = (): Array<Record<string, unknown>> => sentStreamOps;
 
 describe("isBoundGuardianActor", () => {
   test("returns true only when requester matches bound guardian", () => {
@@ -518,7 +529,7 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     const channelId = "D-STREAMED";
     const threadTs = "1700000000.000044";
     const streamTs = "1700000000.000033";
-    deliverChannelReplyImpl = async () => ({ ok: true, ts: streamTs });
+    sendChannelStreamOpImpl = async () => ({ ok: true, ts: streamTs });
 
     const processMessage: MessageProcessor = async (
       _conversationId,
@@ -697,7 +708,7 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     const channelId = "D-STREAM-PROCESSING-FAILURE";
     const threadTs = "1700000000.000066";
     const streamTs = "1700000000.000077";
-    deliverChannelReplyImpl = async () => ({ ok: true, ts: streamTs });
+    sendChannelStreamOpImpl = async () => ({ ok: true, ts: streamTs });
 
     const processMessage: MessageProcessor = async (
       _conversationId,

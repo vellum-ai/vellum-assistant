@@ -17,6 +17,7 @@ import {
   attachmentsToContentBlocks,
   type MessageAttachmentInput,
 } from "../../agent/attachments.js";
+import { audienceForReader } from "../../channels/message-audience.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -42,6 +43,7 @@ import { mapChatTypeToConversationType } from "../../daemon/trust-context.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
+import { editChannelMessage } from "../../messaging/providers/index.js";
 import {
   resolveSlackBotUserId,
   withSlackBotToken,
@@ -908,10 +910,11 @@ export async function handleChannelInbound({
         text: replyText,
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
-      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.ephemeral = true;
-        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
-      }
+      replyPayload.audience = audienceForReader(
+        sourceChannel,
+        conversationExternalId,
+        canonicalSenderId ?? rawSenderId,
+      );
       try {
         await deliverChannelReply(replyCallbackUrl, replyPayload);
         replyDelivered = true;
@@ -970,10 +973,11 @@ export async function handleChannelInbound({
         text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
-      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.ephemeral = true;
-        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
-      }
+      replyPayload.audience = audienceForReader(
+        sourceChannel,
+        conversationExternalId,
+        canonicalSenderId ?? rawSenderId,
+      );
       try {
         await deliverChannelReply(replyCallbackUrl, replyPayload);
       } catch (err) {
@@ -1190,15 +1194,16 @@ export async function handleChannelInbound({
         }
       }
 
-      // On Slack, edit the original approval message to remove stale buttons
-      // and deliver an ephemeral error so the user gets visible feedback
+      // Edit the original approval message to remove stale buttons
+      // and reply so the user gets visible feedback
       // instead of a silent no-op (JARVIS-299).
-      if (sourceChannel === "slack" && replyCallbackUrl && approvalMessageTs) {
-        deliverChannelReply(replyCallbackUrl, {
+      // No channel check: a transport without `edit` declines the call, so a
+      // channel gains this the moment it can revise a sent message.
+      if (replyCallbackUrl && approvalMessageTs) {
+        editChannelMessage(replyCallbackUrl, {
           chatId: conversationExternalId,
+          messageId: approvalMessageTs,
           text: "This approval request has been resolved.",
-          messageTs: approvalMessageTs,
-          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         }).catch((err) => {
           log.error(
             { err, conversationId: result.conversationId },
@@ -1760,9 +1765,19 @@ async function persistBackfilledSlackMessage(params: {
 
   const rawText = message.text ?? "";
 
+  // `sentAt` is when the message was sent; the row's `createdAt` is when the
+  // import wrote it. History serialization prefers `sentAt` for the display
+  // timestamp, so setting it is what keeps weeks-old history from reading as
+  // having just arrived. The Slack adapter already derives this from the
+  // message ts, so no parsing happens here.
+  const sentAt = Number.isFinite(message.timestamp)
+    ? message.timestamp
+    : undefined;
+
   const persisted = await addMessage(params.conversationId, role, rawText, {
     metadata: {
       slackMeta: writeSlackMetadata(slackMeta),
+      ...(sentAt !== undefined ? { sentAt } : {}),
       provenanceTrustClass: isGuardian ? "guardian" : "unknown",
       provenanceSourceChannel: "slack",
       ...(params.guardianExternalUserId

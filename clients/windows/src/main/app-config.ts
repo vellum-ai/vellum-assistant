@@ -47,6 +47,20 @@ export const RENDERER_BASE_PROD = `${APP_PROTOCOL}://${APP_HOST}/assistant`;
 export const getDevRendererBase = (): string =>
   (process.env.VELLUM_DEV_URL ?? DEV_SERVER_FALLBACK_URL).replace(/\/+$/, "");
 
+/**
+ * Renderer-base URL for the current process, for auxiliary windows and
+ * any other surface that must land on the same origin as the main window.
+ * Follows `usesAppProtocolRenderer`, not `isPackaged` alone: with
+ * `VELLUM_LOCAL_RENDERER` the main window is served over `app://` while
+ * `VELLUM_DEV_URL` points at the remote platform, and loading that remote
+ * URL would hand a window a foreign origin that the IPC sender guard
+ * rejects.
+ */
+export const getRendererBase = (isPackaged: boolean): string =>
+  usesAppProtocolRenderer(isPackaged)
+    ? RENDERER_BASE_PROD
+    : getDevRendererBase();
+
 /** Whether this process loads the renderer through the app protocol. */
 export const usesAppProtocolRenderer = (isPackaged: boolean): boolean =>
   isPackaged || process.env.VELLUM_LOCAL_RENDERER === "true";

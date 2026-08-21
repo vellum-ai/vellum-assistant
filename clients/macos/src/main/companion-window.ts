@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from "electron";
+import { BrowserWindow, Menu, screen, shell } from "electron";
 import { z } from "zod";
 
 import {
@@ -8,23 +8,27 @@ import {
   voiceActivityStartSchema,
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_CANVAS_PAD,
+  COMPANION_INTRO_ACTIONS,
+  COMPANION_INTRO_BEATS,
+  COMPANION_SIZES,
   COMPANION_NEAR_EDGE,
   COMPANION_SIZE_BOXES,
   type CompanionCardGrowth,
   type CompanionGrowth,
   type CompanionContext,
+  type CompanionIntroAction,
+  type CompanionIntroBeat,
   type CompanionSize,
   type CompanionSurfaceState,
   type VellumCommand,
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
-import {
-  onSettingChange,
-  readSetting,
-} from "@vellumai/electron-desktop/settings";
+import { COMPANION_SIZE_LABELS } from "@vellumai/electron-desktop/companion-menu";
 import {
   readCompanionHidden,
+  readCompanionIntroSeen,
   readCompanionSize,
+  writeCompanionIntroSeen,
   writeCompanionSize,
   writeCompanionHidden,
 } from "@vellumai/electron-desktop/window-state";
@@ -34,6 +38,10 @@ import {
   getCharacter,
   onAvatarChange,
 } from "@vellumai/electron-desktop/avatar";
+import {
+  getName as getAssistantName,
+  onNameChange,
+} from "@vellumai/electron-desktop/identity";
 import {
   createFloatingWindow,
   getFloatingWindow,
@@ -46,39 +54,11 @@ import {
 } from "./main-window";
 
 /**
- * The flag the whole surface is behind, evaluated for the signed-in user and
- * written into settings by the app's window (`useElectronFeatureFlagBridge`).
- *
- * Absent means off, which is the answer for every state that is not a positive
- * evaluation: a fresh install whose window has not synced yet, and an
- * environment where the flag was never provisioned. An avatar that appears
- * over everything the user is doing is the most conspicuous thing this app
- * ships, so the state of not knowing has to be the state of not showing it.
- */
-const SURFACE_FLAG = "companion-surface";
-
-export const isCompanionSurfaceEnabled = (): boolean =>
-  readSetting("featureFlags")?.[SURFACE_FLAG] === true;
-
-/**
- * Whether the surface belongs on screen, given the flag and the user's own
- * choice from the tray.
- *
- * The flag is a floor and the tray preference is a veto, so both have to say
- * yes. Exported for its tests, as `callOnUpdate` is: it is the rule that decides
- * whether the most conspicuous window this app has appears at all.
- */
-export const shouldShowCompanionSurface = (
-  enabled: boolean,
-  hidden: boolean,
-): boolean => enabled && !hidden;
-
-/**
  * The companion surface (LUM-3086): the assistant's avatar floating from app
  * launch, expanding on hover into a pill with the voice and type-chat options,
  * and holding that expansion for as long as a call runs. It stays on screen
  * for the app's whole run unless the user hides it via the tray's "Show
- * Floating Companion" item, a choice that persists across launches
+ * Companion" item, a choice that persists across launches
  * (`readCompanionHidden` in `window-state.ts`).
  *
  * **It is also the desktop's live-voice session surface**, the counterpart to
@@ -224,6 +204,55 @@ let cardGrowth: CompanionCardGrowth = "up";
 let geometry: CompanionGeometry = geometryFor(readCompanionSize());
 
 /**
+ * The beat of the one-time introduction the surface is on, or `null` when it is
+ * not running.
+ *
+ * Held here rather than in the surface's renderer for the reason the session is:
+ * that renderer can reload, be recreated, or load its route late, and a run
+ * anchored in it would begin again from the first beat every time it did. Main
+ * is also the side holding the "already seen" record, so the two cannot
+ * disagree about whether a run is due.
+ */
+let intro: CompanionIntroBeat | null = null;
+
+/**
+ * The introduction after a press, which is `null` once it is over.
+ *
+ * `dismiss` ends it wherever it is; `next` walks to the following beat and
+ * falls off the end into `null`. Resolved against the beat main is actually on
+ * rather than one the renderer names, so a press from a renderer a beat behind
+ * lands where the user could see that it would.
+ *
+ * Exported for its tests, as `callOnUpdate` is.
+ */
+export const introOnAdvance = (
+  current: CompanionIntroBeat | null,
+  action: CompanionIntroAction,
+): CompanionIntroBeat | null => {
+  if (current === null || action === "dismiss") {
+    return null;
+  }
+  const next = COMPANION_INTRO_BEATS[COMPANION_INTRO_BEATS.indexOf(current) + 1];
+  return next ?? null;
+};
+
+/**
+ * End the introduction and record that it happened.
+ *
+ * One way only. Every path out of a run goes through here, including the ones
+ * that are not a press on it: hiding the surface from the tray is an answer to
+ * the introduction as much as skipping it is, and a user who has just put the
+ * thing away must not be introduced to it again when they bring it back.
+ */
+const finishIntro = (): void => {
+  if (intro === null) {
+    return;
+  }
+  intro = null;
+  writeCompanionIntroSeen();
+};
+
+/**
  * The running live-voice session, or `null` when none is.
  *
  * Held here rather than in the surface's renderer because that renderer can
@@ -264,6 +293,7 @@ const currentState = (): CompanionSurfaceState => {
     character: character === null ? undefined : character,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
+    intro,
     assistantName: context.assistantName,
     turns: context.turns,
     working: context.working,
@@ -688,6 +718,96 @@ export const installCompanionWindow = (): void => {
    * This *does* raise the app, unlike Talk. It is the one press on the surface
    * whose entire purpose is to go back to Vellum.
    */
+  // The introduction's two presses. Main resolves them rather than taking a
+  // beat from the renderer, so a press that arrives from a renderer showing a
+  // beat main has already left is the no-op the guard makes it, not a jump
+  // backwards.
+  on(
+    "vellum:companion:advanceIntro",
+    z.tuple([z.enum(COMPANION_INTRO_ACTIONS)]),
+    ([action]) => {
+      if (intro === null) {
+        return;
+      }
+      const next = introOnAdvance(intro, action);
+      if (next === null) {
+        finishIntro();
+      } else {
+        intro = next;
+      }
+      pushState();
+    },
+  );
+
+  /**
+   * The surface's own menu, on a right-click.
+   *
+   * **Because the tray is the wrong place to look.** The two things a user
+   * wants from a floating avatar are to resize it and to make it go away, and
+   * both were otherwise reachable only from a menu-bar icon that says nothing
+   * about the thing they are actually looking at. A press on the object itself
+   * is where people reach first.
+   *
+   * Built here rather than in the renderer: a menu is a native window, and main
+   * is the side that owns both the size and the visibility. The wording comes
+   * from the tray's own table, so the two menus cannot drift into describing
+   * the same surface differently.
+   */
+  on("vellum:companion:contextMenu", z.tuple([]), () => {
+    const win = getFloatingWindow(COMPANION_KIND);
+    if (!win || win.isDestroyed()) {
+      return;
+    }
+    const current = readCompanionSize();
+    const menu = Menu.buildFromTemplate([
+      ...COMPANION_SIZES.map((size) => ({
+        label: COMPANION_SIZE_LABELS[size],
+        type: "radio" as const,
+        checked: current === size,
+        click: () => {
+          setCompanionSurfaceSize(size);
+        },
+      })),
+      { type: "separator" as const },
+      {
+        // Named for what it does to the thing under the cursor. The tray's item
+        // is a checkbox because it is also the way back; here there is a
+        // surface in front of the user, so this only has to take it away.
+        label: "Hide Companion",
+        click: () => {
+          setCompanionSurfaceVisible(false);
+        },
+      },
+    ]);
+    menu.popup({ window: win });
+  });
+
+  /**
+   * A link pressed on the card.
+   *
+   * The surface's window is created `deny-all`, which refuses every top-level
+   * navigation and every `window.open`, so an anchor in a reply cannot follow
+   * itself and a press would otherwise do nothing at all. Main is the side
+   * allowed to open things, so the URL comes here.
+   *
+   * **Only http and https.** The string arrives over IPC and is drawn from
+   * model output, so it is untrusted twice over: `file:` would open anything
+   * on disk the user can read, and a custom scheme would hand the press to
+   * whichever application claims it.
+   */
+  on("vellum:companion:openLink", z.tuple([z.string()]), ([url]) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return;
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return;
+    }
+    void shell.openExternal(parsed.toString());
+  });
+
   on("vellum:companion:activate", z.tuple([]), () => {
     void ensureMainWindowVisible().then(() => {
       dispatchToMain({ kind: "currentConversation" });
@@ -766,15 +886,14 @@ export const installCompanionWindow = (): void => {
   );
 
   // One avatar feeds every surface, so a change to the Dock icon is a change
-  // here too.
+  // here too. Repaint only: whether there is a surface to repaint is a question
+  // about the assistant, not about its picture.
   onAvatarChange(pushState);
 
-  // The flag arrives after launch, not before it: main reads it from settings
-  // and the app's window is what puts it there, once it has signed in and
-  // fetched an evaluation. So the surface cannot be decided once at startup.
-  // This is what opens it when the answer finally lands, and closes it if the
-  // answer changes.
-  onSettingChange("featureFlags", syncCompanionSurface);
+  // The assistant arriving or going away, which is what decides whether the
+  // surface belongs on screen at all. The name is published after sign-in and
+  // blanked on sign-out, so this is both edges.
+  onNameChange(syncCompanionSurface);
 
   // The route loads lazily after the window is created, so a state pushed
   // before its subscription registers is dropped. It pulls this once mounted.
@@ -793,6 +912,15 @@ export const installCompanionWindow = (): void => {
 export const openCompanionWindow = (): void => {
   if (getFloatingWindow(COMPANION_KIND) !== null) {
     return;
+  }
+
+  // A run is due the first time the surface actually reaches the screen, which
+  // is later than launch and later than sign-in: it is the moment the thing
+  // being introduced is there to be pointed at. Set before the window is
+  // created so the state its route pulls on mount already carries the beat,
+  // rather than the surface appearing plain and being annotated a frame later.
+  if (!readCompanionIntroSeen()) {
+    intro = COMPANION_INTRO_BEATS[0];
   }
 
   const win = createFloatingWindow({
@@ -855,10 +983,19 @@ const closeCompanionWindow = (): void => {
 export const setCompanionSurfaceVisible = (visible: boolean): void => {
   writeCompanionHidden(!visible);
   if (visible) {
-    openCompanionWindow();
-  } else {
-    closeCompanionWindow();
+    // Through the same decision every other path uses, never straight to
+    // `openCompanionWindow`. The tray item survives a sign-out, so a user who
+    // had the surface hidden and then signed out could otherwise tick it and
+    // get a blank disc floating over a signed-out app: the one state the
+    // assistant gate exists to prevent, reached around the side.
+    syncCompanionSurface();
+    return;
   }
+  // Putting the surface away mid-introduction is an answer to it. Recorded, so
+  // bringing it back later does not start explaining it again to someone who
+  // has already decided what they think.
+  finishIntro();
+  closeCompanionWindow();
 };
 
 /** Which size the surface is currently drawn at, for the tray's radio items. */
@@ -909,21 +1046,54 @@ export const setCompanionSurfaceSize = (size: CompanionSize): void => {
 };
 
 /**
+ * Whether there is an assistant for the surface to be.
+ *
+ * The published identity, not the avatar. Main's avatar cache is empty for an
+ * assistant whose avatar is simply unconfigured (`resolveAvatarRender` answers
+ * `none` and the renderer publishes null for both the image and the traits), so
+ * reading it here would keep the surface shut for exactly the users who never
+ * picked one, and the surface has a fallback disc for that case. It is also
+ * empty in the wrong direction: signing out clears the name and leaves the
+ * cached avatar behind, which would leave a pill floating over the login
+ * screen.
+ *
+ * The name is the identity signal, held in main by `identity.ts`, blank until
+ * the renderer has fetched one and blanked again on sign-out and on an
+ * assistant switch. An assistant the user is signed in to has one whatever its
+ * avatar looks like.
+ */
+const hasAssistant = (): boolean => getAssistantName() !== null;
+
+/**
+ * Whether the surface belongs on screen, given an assistant to draw and the
+ * user's own choice from the tray.
+ *
+ * The assistant is a floor and the tray preference is a veto, so both have to
+ * say yes. Exported for its tests, as `callOnUpdate` is: it is the rule that
+ * decides whether the most conspicuous window this app has appears at all.
+ */
+export const shouldShowCompanionSurface = (
+  assistant: boolean,
+  hidden: boolean,
+): boolean => assistant && !hidden;
+
+/**
  * Open or close the surface to match the two things that decide whether it
- * belongs on screen: the flag, and the user's own choice from the tray.
+ * belongs on screen: whether there is an assistant to draw, and the user's own
+ * choice from the tray.
  *
  * The single place that decision is made, called at launch and again whenever
- * the flags in settings change. Two call sites reading the same pair of
- * conditions is how they come to disagree, and disagreeing here means either a
- * floating avatar nobody was meant to have or a missing one the user turned on.
+ * either input changes. Two call sites reading the same pair of conditions is
+ * how they come to disagree, and disagreeing here means either a floating
+ * avatar nobody asked for or a missing one the user turned on.
  *
- * **The flag never writes the tray preference.** Losing the flag has to leave
- * the user's choice exactly as they left it, so that being targeted again
- * restores the surface for someone who wanted it and leaves it hidden for
- * someone who did not.
+ * **Neither input ever writes the other.** Signing out has to leave the tray
+ * preference exactly as the user left it, so that signing back in restores the
+ * surface for someone who wanted it and leaves it hidden for someone who did
+ * not.
  */
 export const syncCompanionSurface = (): void => {
-  if (shouldShowCompanionSurface(isCompanionSurfaceEnabled(), readCompanionHidden())) {
+  if (shouldShowCompanionSurface(hasAssistant(), readCompanionHidden())) {
     openCompanionWindow();
     return;
   }

@@ -1,4 +1,12 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import type { CreateWindowOptions } from "@vellumai/electron-desktop/windows";
 
@@ -33,6 +41,7 @@ const makeWindow = () => {
       isDestroyed: () => destroyed,
       on: () => undefined,
       send: mock(() => undefined),
+      getZoomFactor: () => 1,
     },
     close: mock(() => emit("closed")),
     emit,
@@ -70,7 +79,9 @@ mock.module("electron", () => ({
   app: { isPackaged: false },
   BrowserWindow: class {
     static getAllWindows() {
-      return created.map(({ window }) => window).filter((win) => !win.isDestroyed());
+      return created
+        .map(({ window }) => window)
+        .filter((win) => !win.isDestroyed());
     }
 
     static getFocusedWindow() {
@@ -106,9 +117,12 @@ mock.module("./main-window", () => ({
   dispatchToMain,
   ensureVisible,
 }));
-mock.module("./logger", () => ({ default: { warn: logWarn } }));
+mock.module("./logger", () => ({
+  default: { info: () => undefined, warn: logWarn },
+}));
 
-const { default: auxiliaryWindowsModule } = await import("./features/auxiliary-windows");
+const { default: auxiliaryWindowsModule } =
+  await import("./features/auxiliary-windows");
 beforeAll(() => {
   auxiliaryWindowsModule.install({} as never);
 });
@@ -149,7 +163,9 @@ describe("Windows auxiliary windows", () => {
       y: 324,
       alwaysOnTop: true,
     });
-    expect(window.loadURL).toHaveBeenCalledWith("http://localhost:5173/assistant/quick-input");
+    expect(window.loadURL).toHaveBeenCalledWith(
+      "http://localhost:5173/assistant/quick-input",
+    );
     window.emit("blur");
     expect(window.isDestroyed()).toBe(true);
   });
@@ -168,8 +184,49 @@ describe("Windows auxiliary windows", () => {
     expect(window.loadURL).toHaveBeenCalledWith(
       "http://localhost:5173/assistant/floating/dictation-overlay",
     );
-    onListeners.get("vellum:dictationOverlay:setState")?.([{ kind: "dismiss" }]);
+    onListeners.get("vellum:dictationOverlay:setState")?.([
+      { kind: "dismiss" },
+    ]);
     expect(window.isDestroyed()).toBe(true);
+  });
+
+  test("polls the cursor against the reported Stop region and unlocks clicks", async () => {
+    // Native forward:true mouse-move delivery is unreliable on Windows
+    // (electron/electron#33281), so main hit-tests the cursor against the
+    // Stop region the overlay page reports. The mocked cursor sits at the
+    // window's origin; a region covering it must flip the window
+    // interactive.
+    onListeners.get("vellum:dictationOverlay:setState")?.([
+      { kind: "recording", transcription: "" },
+    ]);
+    onListeners.get("vellum:dictationOverlay:setHitRegion")?.([
+      { x: 0, y: 0, width: 24, height: 24 },
+    ]);
+    const { window } = created[0]!;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(window.setIgnoreMouseEvents).toHaveBeenCalledWith(false);
+    onListeners.get("vellum:dictationOverlay:setState")?.([
+      { kind: "dismiss" },
+    ]);
+  });
+
+  test("loads auxiliary windows from the app origin in local-renderer dev", () => {
+    // VELLUM_LOCAL_RENDERER serves the main window over app:// while
+    // VELLUM_DEV_URL names the remote platform; auxiliary windows must
+    // follow the main window or the IPC sender guard rejects them.
+    process.env.VELLUM_LOCAL_RENDERER = "true";
+    process.env.VELLUM_DEV_URL = "https://dev-assistant.example.com/assistant";
+    try {
+      onListeners.get("vellum:dictationOverlay:setState")?.([
+        { kind: "recording", transcription: "" },
+      ]);
+      expect(created[0]!.window.loadURL).toHaveBeenCalledWith(
+        "app://vellum.ai/assistant/floating/dictation-overlay",
+      );
+    } finally {
+      delete process.env.VELLUM_LOCAL_RENDERER;
+      delete process.env.VELLUM_DEV_URL;
+    }
   });
 
   test("repositions transient windows after a display change", () => {

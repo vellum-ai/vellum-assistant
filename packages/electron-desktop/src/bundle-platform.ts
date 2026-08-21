@@ -17,10 +17,6 @@ export interface BundleHostProvider {
   denyAllPermissions: (targetSession: Session) => void;
 }
 
-export const bundleHostProviderToken = capabilityToken<BundleHostProvider>(
-  "desktop.bundle-host-provider",
-);
-
 export const bundleFileHandlerToken = capabilityToken<
   (filePath: string) => Promise<void>
 >("desktop.bundle-file-handler");

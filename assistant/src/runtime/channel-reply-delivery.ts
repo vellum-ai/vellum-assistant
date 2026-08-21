@@ -1,6 +1,9 @@
+import type { MessageAudience } from "@vellumai/gateway-client";
+
 import { stripVellumLinks } from "../daemon/assistant-attachments.js";
 import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
+import { editChannelMessage } from "../messaging/providers/index.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
@@ -35,13 +38,11 @@ type DeliverRenderedReplyParams = {
    *  1-based count of segments delivered so far (including prior attempts). */
   onSegmentDelivered?: (deliveredCount: number) => void;
   /**
-   * When true, deliver via ephemeral messaging so only the target `user`
-   * sees the content. Ephemeral messages are fire-and-forget: they cannot
-   * be edited or deleted after posting.
+   * Restricts the reply to one reader. Absent means the whole room sees it.
+   * A restricted reply is fire-and-forget: it cannot be edited or deleted
+   * after posting.
    */
-  ephemeral?: boolean;
-  /** Channel-specific user ID — required when `ephemeral` is true. */
-  user?: string;
+  audience?: MessageAudience;
   /** When provided, the first segment will update the existing message
    *  identified by this ts instead of posting a new one (Slack-specific). */
   messageTs?: string;
@@ -140,8 +141,7 @@ export async function deliverRenderedReplyViaCallback(
     interSegmentDelayMs = INTER_SEGMENT_DELAY_MS,
     startFromSegment = 0,
     onSegmentDelivered,
-    ephemeral,
-    user,
+    audience,
     messageTs,
     onMessageTs,
   } = params;
@@ -167,9 +167,7 @@ export async function deliverRenderedReplyViaCallback(
           chatId,
           attachments: replyAttachments,
           assistantId,
-          ephemeral,
-          user,
-          messageTs,
+          audience,
         },
       );
       if (result.ts) {
@@ -187,9 +185,7 @@ export async function deliverRenderedReplyViaCallback(
           chatId,
           attachments: replyAttachments,
           assistantId,
-          ephemeral,
-          user,
-          messageTs,
+          audience,
         },
       );
       const deliveredTs = result.ts ?? messageTs;
@@ -210,21 +206,51 @@ export async function deliverRenderedReplyViaCallback(
     const isLastSegment = i === deliverableSegments.length - 1;
     const isFirstSegment = i === startFromSegment;
     const segmentText = deliverableSegments[i];
-    const result: ChannelDeliveryResult = await deliverChannelReply(
-      callbackUrl,
-      {
+    // Ask the channel to render richly; each channel's adapter decides how
+    // (Slack to Block Kit). Channels without rich rendering send plain text.
+    const segmentAttachments = isLastSegment ? replyAttachments : undefined;
+    const editTarget = isFirstSegment ? currentMessageTs : undefined;
+
+    let result: ChannelDeliveryResult;
+    if (editTarget) {
+      result = await editChannelMessage(callbackUrl, {
+        chatId,
+        messageId: editTarget,
+        text: segmentText,
+        renderRichly: true,
+      });
+      // An edit replaces the text of one message. Attachments are always new
+      // messages, so they still have to be posted alongside it.
+      //
+      // Failures here are not the reply failing. A transport rejects a total
+      // attachment failure only when there is no text to fall back on, and the
+      // edit above already delivered the text. Rethrowing would mark a reply
+      // undelivered that the reader can see, and have the sweep repost it.
+      if (segmentAttachments) {
+        try {
+          await deliverChannelReply(callbackUrl, {
+            chatId,
+            attachments: segmentAttachments,
+            assistantId,
+            audience,
+          });
+        } catch (err) {
+          log.warn(
+            { err, chatId },
+            "Attachments failed after an in-place edit; the edited text stands",
+          );
+        }
+      }
+    } else {
+      result = await deliverChannelReply(callbackUrl, {
         chatId,
         text: segmentText,
-        // Ask the channel to render richly; each channel's adapter decides how
-        // (Slack → Block Kit). Channels without rich rendering send plain text.
-        useBlocks: true,
-        attachments: isLastSegment ? replyAttachments : undefined,
+        renderRichly: true,
+        attachments: segmentAttachments,
         assistantId,
-        ephemeral,
-        user,
-        messageTs: isFirstSegment ? currentMessageTs : undefined,
-      },
-    );
+        audience,
+      });
+    }
 
     if (result.ts) {
       currentMessageTs = result.ts;
@@ -251,10 +277,8 @@ export type DeliverReplyOptions = {
   sinceMessageId?: string;
   startFromSegment?: number;
   onSegmentDelivered?: (deliveredCount: number) => void;
-  /** Deliver as ephemeral (visible only to `user`). Fire-and-forget. */
-  ephemeral?: boolean;
-  /** Channel-specific user ID — required when `ephemeral` is true. */
-  user?: string;
+  /** Restricts the reply to one reader. Absent means the whole room. */
+  audience?: MessageAudience;
   /** Update an existing message instead of posting a new one. */
   messageTs?: string;
   /** Called with the ts of the delivered/updated message. */
@@ -384,8 +408,7 @@ async function deliverPersistedAssistantMessageViaCallback(
     assistantId,
     startFromSegment: options?.startFromSegment,
     onSegmentDelivered: options?.onSegmentDelivered,
-    ephemeral: options?.ephemeral,
-    user: options?.user,
+    audience: options?.audience,
     messageTs: options?.messageTs,
     onMessageTs: composedOnMessageTs,
   });

@@ -20,6 +20,7 @@ describe("config: hardcoded defaults", () => {
       telegramOutbound: 50 * 1024 * 1024,
       slack: 100 * 1024 * 1024,
       whatsapp: 16 * 1024 * 1024,
+      discord: 100 * 1024 * 1024,
       email: 25 * 1024 * 1024,
       default: 100 * 1024 * 1024,
     });
