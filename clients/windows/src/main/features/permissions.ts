@@ -79,7 +79,7 @@ const kindSchema = z.enum(SYSTEM_PERMISSION_KINDS);
 // Settings deep links for the kinds a Windows user can actually change;
 // absent kinds have no Windows permission concept or remediation surface.
 const SETTINGS_URIS: Partial<Record<SystemPermissionKind, string>> = {
-  screen: "ms-settings:privacy-graphicscapture",
+  screen: "ms-settings:privacy-graphicscaptureprogrammatic",
   microphone: "ms-settings:privacy-microphone",
   speechRecognition: "ms-settings:privacy-speech",
   notifications: "ms-settings:notifications",

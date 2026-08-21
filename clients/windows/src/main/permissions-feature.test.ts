@@ -83,6 +83,6 @@ test("reports Windows-only applicability and opens screen capture settings", asy
   await handlers.get(PERMISSIONS_OPEN_SETTINGS)!(["screen"]);
 
   expect(openExternal).toHaveBeenCalledWith(
-    "ms-settings:privacy-graphicscapture",
+    "ms-settings:privacy-graphicscaptureprogrammatic",
   );
 });
