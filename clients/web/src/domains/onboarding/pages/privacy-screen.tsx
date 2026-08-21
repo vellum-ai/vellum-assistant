@@ -12,6 +12,7 @@ import {
   getOnboardingFunnelSessionId,
   ONBOARDING_FUNNEL_STEPS,
 } from "@/domains/onboarding/funnel-events";
+import { hasOnboardedAssistant } from "@/domains/onboarding/onboarded-assistant";
 import {
   canSkipOnboardingResearch,
   onboardingDestinationAfterConsent,
@@ -37,6 +38,7 @@ import {
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { saveConsent } from "@/lib/consent/consent-persistence";
 import { useTranslation } from "@/i18n";
 import { PACKAGE_PARAM, routes } from "@/utils/routes";
@@ -125,9 +127,13 @@ export function PrivacyScreen() {
     // to chat.
     const isLocalHatch =
       isLocalClient() && hostingParam !== null && hostingParam !== "vellum-cloud";
+    const alreadyOnboarded = hasOnboardedAssistant(
+      useResolvedAssistantsStore.getState().assistants,
+    );
     const destination = onboardingDestinationAfterConsent({
       isLocalHatch,
       skipResearch,
+      alreadyOnboarded,
     });
     const onboardingNext = skipResearch
       ? withSkipResearch(`${destination}${qs ? `?${qs}` : ""}`)

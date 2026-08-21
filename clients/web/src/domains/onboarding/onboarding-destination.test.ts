@@ -66,6 +66,24 @@ describe("onboardingDestinationAfterConsent", () => {
       }),
     ).toBe(routes.onboarding.research);
   });
+
+  test("an already-onboarded assistant skips research on every build", () => {
+    expect(
+      onboardingDestinationAfterConsent({
+        isLocalHatch: false,
+        alreadyOnboarded: true,
+        env: "production",
+      }),
+    ).toBe(routes.assistant);
+    expect(
+      onboardingDestinationAfterConsent({
+        isLocalHatch: true,
+        skipResearch: true,
+        alreadyOnboarded: true,
+        env: "staging",
+      }),
+    ).toBe(routes.assistant);
+  });
 });
 
 describe("withSkipResearch", () => {

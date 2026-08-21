@@ -15,6 +15,7 @@ import {
   readConsentHydrated,
 } from "@/domains/onboarding/prefs";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
+import { hasOnboardedAssistant } from "@/domains/onboarding/onboarded-assistant";
 import {
   assistantsValidForOrg,
   useResolvedAssistantsStore,
@@ -72,6 +73,7 @@ export function buildNavigationState(
     diagnosticsConsentCurrent: readDiagnosticsConsentCurrent(),
     consentHydrated: readConsentHydrated(),
     assistantsHydrated,
+    alreadyOnboarded: hasOnboardedAssistant(assistants),
     ...overrides,
   };
 }

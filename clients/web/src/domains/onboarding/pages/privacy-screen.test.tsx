@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { SKIP_RESEARCH_PARAM } from "@/domains/onboarding/onboarding-destination";
+import { ONBOARDED_HATCH_AGE_MS } from "@/domains/onboarding/onboarded-assistant";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 
 // react-router: capture navigate() targets and drive the ?preview flag.
@@ -139,6 +141,7 @@ describe("PrivacyScreen — Start navigation", () => {
     localMode = false;
     checkoutIntentValue = null;
     takeoverValue = "enabled";
+    useResolvedAssistantsStore.setState({ assistants: [] });
   });
   afterEach(() => {
     cleanup();
@@ -146,6 +149,7 @@ describe("PrivacyScreen — Start navigation", () => {
     localMode = false;
     checkoutIntentValue = null;
     takeoverValue = "enabled";
+    useResolvedAssistantsStore.setState({ assistants: [] });
   });
 
   test("preview mode no-ops on Start without persisting consent", () => {
@@ -216,6 +220,28 @@ describe("PrivacyScreen — Start navigation", () => {
       userId: "user-1",
     });
     expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.research, {
+      replace: true,
+    });
+  });
+
+  test("skips research when the assistant was hatched over a week ago", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "asst-1",
+          hatchedAt: new Date(Date.now() - ONBOARDED_HATCH_AGE_MS).toISOString(),
+          isLocal: false,
+          isPlatformHosted: true,
+          isPaired: false,
+        },
+      ],
+    });
+    searchParamsValue = new URLSearchParams();
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(navigateMock).toHaveBeenCalledWith(routes.assistant, {
       replace: true,
     });
   });

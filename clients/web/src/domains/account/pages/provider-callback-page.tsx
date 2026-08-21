@@ -6,6 +6,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { AccountHeading } from "@/components/account/account-form";
 import { AccountShell } from "@/components/account/account-shell";
 import { listAssistants } from "@/assistant/api";
+import { refreshPlatformAssistantsIfStale } from "@/assistant/platform-assistants-sync";
 import { getSession } from "@/lib/auth/allauth-client";
 import {
   readAuthCallbackIntent,
@@ -66,6 +67,9 @@ export function ProviderCallbackPage() {
         switch (outcome.kind) {
           case "authenticated": {
             await refreshSession();
+            // Wait for the assistants list so post-auth can skip privacy and
+            // research when the assistant is already onboarded.
+            await refreshPlatformAssistantsIfStale();
 
             if (isLocalClient()) {
               try {

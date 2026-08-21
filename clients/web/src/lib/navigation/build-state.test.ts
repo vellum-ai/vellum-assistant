@@ -200,3 +200,39 @@ describe("buildNavigationState — hasPlatformHostedAssistant", () => {
     expect(buildNavigationState().hasPlatformHostedAssistant).toBe(false);
   });
 });
+
+describe("buildNavigationState — alreadyOnboarded", () => {
+  test("false when no assistant is a week old", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "asst-fresh",
+          hatchedAt: new Date().toISOString(),
+          isLocal: false,
+          isPlatformHosted: true,
+          isPaired: false,
+        },
+      ],
+    });
+
+    expect(buildNavigationState().alreadyOnboarded).toBe(false);
+  });
+
+  test("true when any assistant was hatched at least a week ago", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "asst-old",
+          hatchedAt: new Date(
+            Date.now() - 8 * 24 * 60 * 60 * 1000,
+          ).toISOString(),
+          isLocal: false,
+          isPlatformHosted: true,
+          isPaired: false,
+        },
+      ],
+    });
+
+    expect(buildNavigationState().alreadyOnboarded).toBe(true);
+  });
+});
