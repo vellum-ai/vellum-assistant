@@ -310,7 +310,8 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   the same structure — only the `fill.solid` colour differs.
 - `App/App/AvatarIcons.xcassets` holds the alternate icons, one
   `.appiconset` per character avatar trait combination, named
-  `avatar-<body>-<eye>-<color>`. Each set is a single opaque 1024×1024
+  `avatar-<body>-<eye>-<color>`. Every combination ships: 10 body shapes ×
+  9 eye styles × 6 colors, so 540 sets. Each set is a single opaque 1024×1024
   `icon.png` covering every idiom: a background rect tinted from the trait
   color with the composed character centered on top. App icons may not be
   transparent, so the background is baked into the pixels and the file is
@@ -323,9 +324,9 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   (`ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES`) are generated
   output produced from the avatar component library (`assistant/src/avatar/`)
   by `clients/ios/scripts/generate-avatar-icons.ts`. Edit the script, not the
-  files. Regenerate with `bun clients/ios/scripts/generate-avatar-icons.ts`
-  (add `--full` for every combination instead of the committed pilot set) and
-  verify with
+  files. Regenerate with `bun clients/ios/scripts/generate-avatar-icons.ts`,
+  which reproduces the committed state in a few minutes (add `--pilot` to
+  rasterize a 24-set slice in seconds while iterating locally), and verify with
   `cd clients/ios && bun test scripts/__tests__/generate-avatar-icons.test.ts`.
   Both the generator and the test rasterize through the native
   `@resvg/resvg-js` binding, so the assistant package's dependencies have to
@@ -346,18 +347,17 @@ inline in `App/project.yml` under the `AppEnvironment` template.
 
 #### Alternate icon size cost
 
-Measured on unsigned `App Dev` builds (Xcode 26.2), base commit versus the
-committed 24-icon pilot catalog:
+Measured on unsigned `App Dev` builds (Xcode 26.2):
 
 | Build | `.app` total | `Assets.car` |
 | ----- | ------------ | ------------ |
 | No avatar catalog | 12,477,009 B (11.90 MiB) | 1,749,608 B (1.67 MiB) |
-| 24 PNG alternates | 13,276,458 B (12.66 MiB) | 2,548,104 B (2.43 MiB) |
-| Delta | +799,449 B (+0.76 MiB) | +798,496 B |
+| 540 PNG alternates | 31,455,985 B (30.00 MiB) | 20,700,120 B (19.74 MiB) |
+| Delta | +18,978,976 B (+18.10 MiB) | +18,950,512 B (+18.07 MiB) |
 
-That is **32.5 KiB per alternate icon**, so the full 540-combination catalog
-projects to roughly 17.1 MiB of `Assets.car` growth, taking the app to about
-29 MiB.
+That is **34.3 KiB per alternate icon** compiled, against 8.82 MiB of PNGs
+checked in. The whole catalog is one `Assets.car` slice, so the cost lands on
+every install whether or not the user ever switches icons.
 
 ### Bundle ID vs capacitor.config appId
 
