@@ -145,7 +145,7 @@
       "scope": "client",
       "key": "internal-thread-actions",
       "label": "Internal Thread Actions",
-      "description": "Show the internal-only thread affordances: 'Fork from here' on messages, 'Fork Conversation', 'Analyze Conversation', and 'Copy conversation ID' in the thread menu, plus the LLM inspector surfaces. Staff-only: the client also requires the viewer to be Vellum staff, so enabling this for a non-staff account still shows nothing.",
+      "description": "Show the internal thread affordances: 'Fork from here' on messages, 'Fork Conversation', 'Analyze Conversation', and 'Copy conversation ID' in the thread menu, plus the LLM inspector surfaces. The flag is the sole gate: any session that enables it gets the affordances, including local sessions with no platform identity.",
       "defaultEnabled": false
     },
     {
