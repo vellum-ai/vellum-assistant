@@ -608,6 +608,7 @@ describe("companion toggle", () => {
       "Medium",
       "Large",
       "Huge",
+      "Ridiculous",
     ]);
   });
 
