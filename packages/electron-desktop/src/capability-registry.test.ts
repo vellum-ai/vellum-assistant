@@ -63,3 +63,20 @@ test("bridge registry composes namespaces", () => {
   expect(registry.build().app?.version).toBe("1.0.0");
   expect(registry.build().power?.ready).toBe(true);
 });
+
+test("bridge registry composes distinct nested capabilities", () => {
+  interface Bridge {
+    helper: { hotkey: boolean; dictation: boolean };
+  }
+  const registry = new BridgeCapabilityRegistry<Bridge>({});
+
+  registry.contributePartial("helper", { hotkey: true });
+  registry.contributePartial("helper", { dictation: true });
+  expect(registry.build().helper).toEqual({
+    hotkey: true,
+    dictation: true,
+  });
+  expect(() =>
+    registry.contributePartial("helper", { hotkey: false }),
+  ).toThrow(/helper\.hotkey/);
+});

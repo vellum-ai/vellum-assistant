@@ -77,20 +77,21 @@ const required = VELLUM_BRIDGE_KEYS.filter(
   (key) => !NOT_APPLICABLE.includes(key),
 );
 
-// Windows draws its own menu bar and themes the native caption buttons.
+// Windows draws its own menu bar, themes the native caption buttons, and
+// registers a configurable push-to-talk chord with its keyboard hook.
 const WINDOWS_ONLY_SURFACE = [
+  "helper.hotkey.onRegistrationChange",
+  "helper.hotkey.setPushToTalk",
   "mainWindow.setTitleBarOverlay",
   "menu.popup",
   "menu.titles",
 ];
 // The Fn push-to-talk key and the offline whole-utterance recognizer are
-// macOS helper contracts; Windows dictates through partials plus a
-// configurable global chord.
+// macOS helper contracts; Windows dictates through partials.
 const MACOS_ONLY_SURFACE = [
   "helper.dictation.onTranscribed",
   "helper.dictation.transcribe",
   "helper.hotkey.fnPushToTalk",
-  "helper.hotkey.onEvent",
 ];
 
 test("the composed Windows bridge satisfies every applicable VellumBridge key", () => {

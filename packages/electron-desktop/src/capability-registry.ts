@@ -98,6 +98,26 @@ export class BridgeCapabilityRegistry<Bridge extends object> {
     this.#bridge[key] = value;
   }
 
+  contributePartial<Key extends keyof Bridge>(
+    key: Key,
+    value: Bridge[Key] extends object ? Partial<Bridge[Key]> : never,
+  ): void {
+    const existing = this.#bridge[key];
+    if (typeof existing === "object" && existing !== null) {
+      for (const nestedKey of Object.keys(value)) {
+        if (Object.prototype.hasOwnProperty.call(existing, nestedKey)) {
+          throw new Error(
+            `Bridge capability already registered: ${String(key)}.${nestedKey}`,
+          );
+        }
+      }
+    }
+    this.#bridge[key] = {
+      ...(typeof existing === "object" && existing !== null ? existing : {}),
+      ...value,
+    } as Bridge[Key];
+  }
+
   build(): Partial<Bridge> {
     return { ...this.#bridge };
   }

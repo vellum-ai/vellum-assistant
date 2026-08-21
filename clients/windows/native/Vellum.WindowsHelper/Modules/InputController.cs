@@ -10,7 +10,7 @@ public static class KeyPlanner
 {
     private static readonly Dictionary<string, ushort> Modifiers = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["cmd"] = 0x11, ["command"] = 0x11, ["ctrl"] = 0x11, ["control"] = 0x11,
+        ["ctrl"] = 0x11, ["control"] = 0x11,
         ["shift"] = 0x10, ["alt"] = 0x12, ["option"] = 0x12, ["win"] = 0x5B, ["meta"] = 0x5B,
     };
 
@@ -33,9 +33,7 @@ public static class KeyPlanner
         var codes = new ushort[parts.Length];
         for (var i = 0; i < parts.Length - 1; i++)
         {
-            codes[i] = Modifiers.TryGetValue(parts[i], out var modifier)
-                ? modifier
-                : throw new ArgumentException($"Unsupported modifier: {parts[i]}");
+            codes[i] = ResolveModifier(parts[i]);
         }
         codes[^1] = ResolveKey(parts[^1]);
         return codes;
@@ -47,7 +45,7 @@ public static class KeyPlanner
         {
             return named;
         }
-        if (Modifiers.TryGetValue(key, out var modifier))
+        if (TryResolveModifier(key, commandAsWindowsKey: false, out var modifier))
         {
             return modifier;
         }
@@ -62,6 +60,31 @@ public static class KeyPlanner
             return (ushort)(0x70 + fn - 1);
         }
         throw new ArgumentException($"Unsupported key: {key}");
+    }
+
+    public static ushort ResolveModifier(
+        string modifier,
+        bool commandAsWindowsKey = false)
+    {
+        if (TryResolveModifier(modifier, commandAsWindowsKey, out var code))
+        {
+            return code;
+        }
+        throw new ArgumentException($"Unsupported modifier: {modifier}");
+    }
+
+    private static bool TryResolveModifier(
+        string modifier,
+        bool commandAsWindowsKey,
+        out ushort code)
+    {
+        if (modifier.Equals("cmd", StringComparison.OrdinalIgnoreCase) ||
+            modifier.Equals("command", StringComparison.OrdinalIgnoreCase))
+        {
+            code = commandAsWindowsKey ? (ushort)0x5B : (ushort)0x11;
+            return true;
+        }
+        return Modifiers.TryGetValue(modifier, out code);
     }
 
     // UTF-16 units for KEYEVENTF_UNICODE typing (surrogate pairs stay two

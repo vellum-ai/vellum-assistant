@@ -225,7 +225,7 @@ public sealed class NotificationService : IRpcModule, INotificationAdapter
     {
         var arguments = (args as ToastActivatedEventArgs)?.Arguments ?? string.Empty;
         var (kind, index) = ParseActivationArguments(arguments);
-        Console.Out.WriteLine(BuildEventFrame(token, kind, index));
+        RpcOutput.WriteLine(BuildEventFrame(token, kind, index));
     }
 
     private void Track(string token, ToastNotification toast)
