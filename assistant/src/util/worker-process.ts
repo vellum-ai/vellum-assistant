@@ -253,6 +253,7 @@ export async function spawnWorkerProcess(args: {
     env: workerMemoryEnv(),
     stdio: ["ignore", "ignore", stderrFd],
     detached,
+    windowsHide: true,
   });
 
   // Close our copy of the log fd — the child has its own.

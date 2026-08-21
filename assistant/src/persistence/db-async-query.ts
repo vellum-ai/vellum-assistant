@@ -216,6 +216,7 @@ async function runViaCli(
   // never an issue regardless of the statement complexity.
   const proc = Bun.spawn({
     cmd: [sqlite3Path, dbPath],
+    windowsHide: true,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
@@ -396,7 +397,7 @@ export function spawnDetachedWalCheckpoint(): boolean {
         getDbPath(),
         `PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}; PRAGMA wal_checkpoint(TRUNCATE);`,
       ],
-      { detached: true, stdio: "ignore" },
+      { detached: true, stdio: "ignore", windowsHide: true },
     );
     // A post-spawn failure can't be acted on — the daemon is exiting — but an
     // unlistened ChildProcess "error" event would throw as an uncaught

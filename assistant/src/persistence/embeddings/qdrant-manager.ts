@@ -154,6 +154,7 @@ export class QdrantManager {
 
     const proc = Bun.spawn({
       cmd: [spawnPath],
+      windowsHide: true,
       env: {
         ...process.env,
         QDRANT__SERVICE__HOST: this.host,
