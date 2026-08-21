@@ -4,6 +4,8 @@
 // Regenerate with:
 //   bun clients/ios/scripts/generate-avatar-icons.ts
 //
-// Lists every bundle in App/App/AvatarIcons/.
+// Ships every icon set in App/App/AvatarIcons.xcassets as an alternate
+// app icon. actool writes them into CFBundleIcons ->
+// CFBundleAlternateIcons, which AppIconPlugin.swift reads back.
 
-ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = avatar-blob-grumpy-green avatar-blob-grumpy-orange avatar-blob-grumpy-pink avatar-blob-grumpy-purple avatar-blob-grumpy-teal avatar-blob-grumpy-yellow avatar-blob-gentle-green avatar-blob-gentle-orange avatar-blob-gentle-pink avatar-blob-gentle-purple avatar-blob-gentle-teal avatar-blob-gentle-yellow avatar-ghost-grumpy-green avatar-ghost-grumpy-orange avatar-ghost-grumpy-pink avatar-ghost-grumpy-purple avatar-ghost-grumpy-teal avatar-ghost-grumpy-yellow avatar-ghost-gentle-green avatar-ghost-gentle-orange avatar-ghost-gentle-pink avatar-ghost-gentle-purple avatar-ghost-gentle-teal avatar-ghost-gentle-yellow
+ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES

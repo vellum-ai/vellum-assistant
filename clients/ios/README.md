@@ -308,22 +308,51 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   but is its own Icon Composer bundle living in this repo.
 - `AppIcon-Staging.icon` (yellow) and `AppIcon-Dev.icon` (pink) follow
   the same structure — only the `fill.solid` colour differs.
-- `App/App/AvatarIcons/` holds generated alternate icons, one Icon
-  Composer bundle per character avatar trait combination, named
-  `avatar-<body>-<eye>-<color>`. They are produced from the avatar
-  component library (`assistant/src/avatar/`) by
-  `clients/ios/scripts/generate-avatar-icons.ts`, alongside
-  `Config/AvatarIcons.xcconfig`, which lists the bundle names. Both are
-  generated output: edit the script, not the files. Regenerate with
-  `bun clients/ios/scripts/generate-avatar-icons.ts` (add `--full` for
-  every combination instead of the committed pilot set) and verify with
+- `App/App/AvatarIcons.xcassets` holds the alternate icons, one
+  `.appiconset` per character avatar trait combination, named
+  `avatar-<body>-<eye>-<color>`. Each set is a single opaque 1024×1024
+  `icon.png` covering every idiom: a background rect tinted from the trait
+  color with the composed character centered on top. App icons may not be
+  transparent, so the background is baked into the pixels.
+- The catalog and `Config/AvatarIcons.xcconfig`
+  (`ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES`) are generated
+  output produced from the avatar component library (`assistant/src/avatar/`)
+  by `clients/ios/scripts/generate-avatar-icons.ts`. Edit the script, not the
+  files. Regenerate with `bun clients/ios/scripts/generate-avatar-icons.ts`
+  (add `--full` for every combination instead of the committed pilot set) and
+  verify with
   `cd clients/ios && bun test scripts/__tests__/generate-avatar-icons.test.ts`.
-  `pr-ios.yaml` and `ci-main-ios.yaml` run that same check, and both watch
-  `assistant/src/avatar/**`, so a catalog edit without a regeneration fails
-  CI. No target builds them yet, so `project.yml` excludes the directory.
+  Both the generator and the test rasterize through the native
+  `@resvg/resvg-js` binding, so the assistant package's dependencies have to
+  be installed first: `bun install --filter=@vellumai/assistant`.
+  `pr-ios.yaml` and `ci-main-ios.yaml` run that same check right after their
+  install step, and both watch `assistant/src/avatar/**`, so a catalog edit
+  without a regeneration fails CI.
+- All three app targets ship the catalog: it rides along in the
+  `AppEnvironment` source sweep the way `Assets.xcassets` does, and each
+  target's `Config/App*.xcconfig` includes `AvatarIcons.xcconfig`. Every
+  target keeps its own `ASSETCATALOG_COMPILER_APPICON_NAME`, so the primary
+  icon is unchanged and actool writes the avatar sets into `CFBundleIcons` ->
+  `CFBundleAlternateIcons` (and the `~ipad` variant), which
+  `AppIconPlugin.swift` reads back at runtime.
 - `App/App/Base.lproj/LaunchScreen.storyboard` references the `Splash`
   imageset in `Assets.xcassets/`. Those 2732×2732 PNGs are a solid green
   background with a centered white V — same palette as the icon.
+
+#### Alternate icon size cost
+
+Measured on unsigned `App Dev` builds (Xcode 26.2), base commit versus the
+committed 24-icon pilot catalog:
+
+| Build | `.app` total | `Assets.car` |
+| ----- | ------------ | ------------ |
+| No avatar catalog | 12,477,009 B (11.90 MiB) | 1,749,608 B (1.67 MiB) |
+| 24 PNG alternates | 13,276,458 B (12.66 MiB) | 2,548,104 B (2.43 MiB) |
+| Delta | +799,449 B (+0.76 MiB) | +798,496 B |
+
+That is **32.5 KiB per alternate icon**, so the full 540-combination catalog
+projects to roughly 17.1 MiB of `Assets.car` growth, taking the app to about
+29 MiB.
 
 ### Bundle ID vs capacitor.config appId
 
@@ -709,7 +738,7 @@ clients/
     ├── docs/
     │   └── NATIVE_VOICE.md           # Live Activity, App Intents, deep links
     ├── scripts/
-    │   └── generate-avatar-icons.ts  # Generates App/App/AvatarIcons/ + Config/AvatarIcons.xcconfig
+    │   └── generate-avatar-icons.ts  # Generates App/App/AvatarIcons.xcassets + Config/AvatarIcons.xcconfig
     ├── App/
     │   ├── App.xcodeproj/            # Open this in Xcode
     │   │   └── xcshareddata/xcschemes/  # Shared schemes for all 3 targets
@@ -718,7 +747,7 @@ clients/
     │   │   ├── AppIcon.icon/         # Production icon (green)
     │   │   ├── AppIcon-Staging.icon/  # Staging icon (yellow)
     │   │   ├── AppIcon-Dev.icon/      # Dev icon (pink)
-    │   │   ├── AvatarIcons/          # Generated avatar alternate icons (not in any target yet)
+    │   │   ├── AvatarIcons.xcassets/ # Generated avatar alternate icons (all 3 app targets)
     │   │   ├── Assets.xcassets/      # Splash imageset lives here
     │   │   ├── Base.lproj/           # LaunchScreen.storyboard, Main.storyboard
     │   │   ├── AppDelegate.swift     # Universal Links + APNs token forwarding
