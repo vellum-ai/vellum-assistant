@@ -45,9 +45,19 @@ enum WidgetTheme {
     /// Deepened for dark mode where ``brand`` is lightened, because the two
     /// play opposite roles: `brand` is drawn *on* `surface` and has to separate
     /// from it, while this one *is* the surface, and a mint block would be the
-    /// brightest thing on a dark Home Screen. Content drawn on it is white in
-    /// both appearances, which is why there is no companion text color here.
+    /// brightest thing on a dark Home Screen.
     static let brandCardSurface = dynamic(light: "#0E9B8B", dark: "#0B7A6E")
+
+    /// Glyphs and text drawn on ``brandCardSurface``. Fixed rather than
+    /// dynamic: the card underneath is a deep green in both appearances, so
+    /// this answers to the card rather than to the Home Screen behind it.
+    static let onBrand = fixed("#FFFFFF")
+
+    /// A control's fill on ``brandCardSurface``: ``onBrand`` at low opacity, so
+    /// the action circles and the unread chip read as cut out of the green
+    /// rather than as a second color placed on top of it, and the card stays
+    /// one block.
+    static let onBrandFill = onBrand.opacity(0.22)
 
     /// The assistant mark's body on the brand card, lighter than the card it
     /// sits on. That contrast is the only reason it is a separate value: a

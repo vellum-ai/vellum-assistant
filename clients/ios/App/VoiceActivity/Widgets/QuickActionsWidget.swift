@@ -68,14 +68,15 @@ struct QuickActionsEntry: TimelineEntry {
     }
 }
 
-/// ``SnapshotProvider``'s timeline, restated in the async shape a configurable
+/// ``SnapshotProvider``'s timeline, restated in the shape a configurable
 /// widget requires, with the chosen appearance folded into every entry.
 ///
 /// `AppIntentConfiguration` takes an `AppIntentTimelineProvider` and the shared
-/// provider is a plain `TimelineProvider`, so something has to bridge the two.
-/// This delegates instead of re-reading the store: which snapshot to render and
-/// when it stops being fresh are one decision for all the Vellum widgets, and a
-/// second copy of the staleness rule is a second copy that drifts.
+/// provider is a plain `TimelineProvider`, so something has to restate one as
+/// the other. This calls ``SnapshotProvider``'s synchronous producers instead
+/// of re-reading the store: which snapshot to render and when it stops being
+/// fresh are one decision for all the Vellum widgets, and a second copy of the
+/// staleness rule is a second copy that drifts.
 struct QuickActionsProvider: AppIntentTimelineProvider {
     private let snapshots = SnapshotProvider()
 
@@ -87,19 +88,17 @@ struct QuickActionsProvider: AppIntentTimelineProvider {
         for configuration: QuickActionsAppearanceIntent,
         in context: Context
     ) async -> QuickActionsEntry {
-        let entry: SnapshotEntry = await withCheckedContinuation { continuation in
-            snapshots.getSnapshot(in: context) { continuation.resume(returning: $0) }
-        }
-        return QuickActionsEntry(snapshotEntry: entry, appearance: configuration.appearance)
+        QuickActionsEntry(
+            snapshotEntry: snapshots.entry(in: context),
+            appearance: configuration.appearance
+        )
     }
 
     func timeline(
         for configuration: QuickActionsAppearanceIntent,
         in context: Context
     ) async -> Timeline<QuickActionsEntry> {
-        let timeline: Timeline<SnapshotEntry> = await withCheckedContinuation { continuation in
-            snapshots.getTimeline(in: context) { continuation.resume(returning: $0) }
-        }
+        let timeline = snapshots.timeline(now: Date())
         return Timeline(
             entries: timeline.entries.map {
                 QuickActionsEntry(snapshotEntry: $0, appearance: configuration.appearance)
@@ -211,10 +210,10 @@ struct QuickActionsWidgetView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .privacySensitive()
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(WidgetTheme.onBrand)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(.white.opacity(0.22), in: Capsule())
+            .background(WidgetTheme.onBrandFill, in: Capsule())
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(count) unread")
         }
@@ -261,60 +260,6 @@ private struct QuickActionsAvatar: View {
     }
 }
 
-/// A round tap target running an App Intent, with the glyph as its whole label.
-///
-/// Generic over the intent for the reason `WidgetActionTile` is: `Button(intent:)`
-/// takes a concrete `AppIntent` and these buttons run different ones. Both
-/// intents declare `openAppWhenRun`, so the system performs them in the app
-/// process and the appex only needs the types to exist.
-private struct CircleActionButton<ActionIntent: AppIntent>: View {
-    let intent: ActionIntent
-    let icon: Image
-    let label: String
-    let fill: Color
-    let tint: Color
-    let diameter: CGFloat
-
-    var body: some View {
-        Button(intent: intent) {
-            icon
-                .font(.system(size: diameter * 0.4))
-                .foregroundStyle(tint)
-                .frame(width: diameter, height: diameter)
-                .background(fill, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-    }
-}
-
-/// A full-width capsule running an App Intent, glyph beside a word.
-private struct PillActionButton<ActionIntent: AppIntent>: View {
-    let intent: ActionIntent
-    let icon: Image
-    let title: String
-    let fill: Color
-    let tint: Color
-    let height: CGFloat
-
-    var body: some View {
-        Button(intent: intent) {
-            HStack(spacing: 6) {
-                icon
-                    .font(.system(size: height * 0.4))
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-            }
-            .foregroundStyle(tint)
-            .frame(maxWidth: .infinity)
-            .frame(height: height)
-            .background(fill, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-    }
-}
-
 /// The whole of what an appearance decides: three colors.
 private extension QuickActionsAppearance {
     /// The card behind everything.
@@ -327,13 +272,11 @@ private extension QuickActionsAppearance {
         }
     }
 
-    /// The circle behind an action glyph. Translucent white on the brand card,
-    /// so the circles read as cut out of the green rather than as a second
-    /// color placed on top of it, and the card stays one block.
+    /// The circle behind an action glyph.
     var controlFill: Color {
         switch self {
         case .brand:
-            return .white.opacity(0.22)
+            return WidgetTheme.onBrandFill
         case .light:
             return WidgetTheme.voiceFill
         }
@@ -343,7 +286,7 @@ private extension QuickActionsAppearance {
     var controlTint: Color {
         switch self {
         case .brand:
-            return .white
+            return WidgetTheme.onBrand
         case .light:
             return WidgetTheme.textPrimary
         }

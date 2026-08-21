@@ -4,12 +4,12 @@ import Foundation
 /// Screen row and to deep-link into the conversation it names.
 ///
 /// `subtitle` is the conversation's group name, absent when it belongs to no
-/// group. `lastMessageAt` is absent for a conversation that has none.
+/// group. Ordering is the producer's, so the rows carry no timestamp of their
+/// own: nothing here renders one.
 struct WidgetSnapshotConversation: Codable, Equatable {
     let id: String
     let title: String
     let subtitle: String?
-    let lastMessageAt: Date?
     let hasUnseen: Bool
     let isProcessing: Bool
 }

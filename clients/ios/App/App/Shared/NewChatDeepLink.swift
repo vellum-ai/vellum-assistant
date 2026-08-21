@@ -20,11 +20,6 @@ enum NewChatDeepLink {
     /// Host segment shared with `NEW_CHAT_DEEP_LINK_HOST` on the web side.
     private static let host = "new-chat"
 
-    /// The command URL for the running build; see ``CommandDeepLink/url(host:)``.
-    static func url() -> URL? {
-        CommandDeepLink.url(host: host)
-    }
-
     /// Hand this command to the shell; see ``CommandDeepLink/route(host:)``.
     @MainActor
     static func route() {
