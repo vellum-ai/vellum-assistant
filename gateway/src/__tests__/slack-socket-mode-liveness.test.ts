@@ -58,7 +58,7 @@ import type {
   SlackSocketLike,
   SlackSocketModeConfig,
 } from "../slack/socket-mode.js";
-import { CONNECT_DEADLINE_MS } from "../slack/socket-mode.js";
+import { CONNECT_DEADLINE_MS, MAX_BACKOFF_MS } from "../slack/socket-mode.js";
 
 /** Deterministic stand-in for the client's timers. */
 class FakeClock {
@@ -81,7 +81,9 @@ class FakeClock {
       const due = this.queue
         .filter((e) => !e.cancelled && e.dueAt <= target)
         .sort((a, b) => a.dueAt - b.dueAt)[0];
-      if (!due) break;
+      if (!due) {
+        break;
+      }
       this.queue = this.queue.filter((e) => e !== due);
       this.current = due.dueAt;
       due.fn();
@@ -145,6 +147,10 @@ class FakeSocket implements SlackSocketLike {
 
   emitPong(): void {
     this.emit("pong");
+  }
+
+  emitMessage(data: string): void {
+    this.emit("message", { data });
   }
 
   emitClose(code: number, reason: string): void {
@@ -264,12 +270,21 @@ describe("Slack Socket Mode liveness", () => {
     ]);
 
     // forceReconnect waits briefly for a close event that never comes, then
-    // proceeds anyway. This is the assertion that matters: a replacement
-    // connection exists even though the dead socket reported nothing at any
-    // point, which is precisely what the old code could not do.
+    // proceeds anyway.
     clock.advance(5_000);
     await flush();
 
+    // The replacement is paced by the capped exponential backoff rather than
+    // dialled immediately, so a Slack edge outage cannot become a fixed-rate
+    // `apps.connections.open` loop.
+    expect(sockets).toHaveLength(1);
+
+    clock.advance(MAX_BACKOFF_MS);
+    await flush();
+
+    // This is the assertion that matters: a replacement connection exists
+    // even though the dead socket reported nothing at any point, which is
+    // precisely what the old code could not do.
     expect(sockets).toHaveLength(2);
     expect(sockets[1]).not.toBe(sockets[0]);
 
@@ -346,6 +361,48 @@ describe("Slack Socket Mode liveness", () => {
 
     clock.advance(5_000);
     await flush();
+    expect(sockets).toHaveLength(1);
+
+    clock.advance(MAX_BACKOFF_MS);
+    await flush();
+    expect(sockets).toHaveLength(2);
+
+    client.stop();
+  });
+
+  test("a Slack-requested rotation does not orphan the watchdog", async () => {
+    // Slack rotates Socket Mode connections on a routine cadence. That path
+    // abandons the socket itself, so the close handler's identity guard is
+    // already false and cannot stop the watchdog on its behalf. A watchdog
+    // left armed against the rotated-away socket would fire a minute later
+    // and tear down the healthy replacement, turning every rotation into a
+    // reconnect storm.
+    const { clock, sockets, client } = await startClient();
+    sockets[0].emitOpen();
+    await flush();
+
+    sockets[0].emitMessage(
+      JSON.stringify({ type: "disconnect", reason: "refresh_requested" }),
+    );
+    expect(sockets[0].closeCalls).toHaveLength(1);
+
+    clock.advance(MAX_BACKOFF_MS);
+    await flush();
+    expect(sockets).toHaveLength(2);
+
+    sockets[1].emitOpen();
+    await flush();
+
+    // Past the abandoned generation's probe interval and its deadline.
+    clock.advance(DEFAULT_PROBE_INTERVAL_MS);
+    sockets[1].emitPong();
+    clock.advance(DEFAULT_PONG_DEADLINE_MS + 1);
+
+    // The rotated-away socket was never probed, and the replacement is alive
+    // and being probed on its own schedule.
+    expect(sockets[0].pings).toBe(0);
+    expect(sockets[1].pings).toBe(1);
+    expect(sockets[1].closeCalls).toHaveLength(0);
     expect(sockets).toHaveLength(2);
 
     client.stop();

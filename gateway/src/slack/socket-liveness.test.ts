@@ -32,7 +32,9 @@ class FakeClock {
       const due = this.queue
         .filter((e) => !e.cancelled && e.dueAt <= target)
         .sort((a, b) => a.dueAt - b.dueAt)[0];
-      if (!due) break;
+      if (!due) {
+        break;
+      }
       this.queue = this.queue.filter((e) => e !== due);
       this.current = due.dueAt;
       due.fn();

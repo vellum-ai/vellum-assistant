@@ -88,7 +88,7 @@ type SlackAdmission = {
 };
 
 const BASE_BACKOFF_MS = 1_000;
-const MAX_BACKOFF_MS = 30_000;
+export const MAX_BACKOFF_MS = 30_000;
 const DEDUP_TTL_MS = 24 * 60 * 60 * 1_000;
 const DEDUP_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
 const ACTIVE_THREAD_TTL_MS = 24 * 60 * 60 * 1_000;
@@ -322,7 +322,7 @@ export class SlackSocketModeClient {
     maxDelayMs: MAX_BACKOFF_MS,
     jitter: { mode: "additive", ratio: 0.5 },
   });
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectTimer: CancelTimer | null = null;
   private dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
   private store: SlackStore;
   private emitQueues: Map<string, Promise<void>> | undefined = new Map();
@@ -360,9 +360,28 @@ export class SlackSocketModeClient {
         // Not scheduleReconnect: a socket that fails a liveness probe may
         // never emit a close event, so recovery must tear it down rather
         // than wait to be told.
-        this.forceReconnect("liveness probe failed", { resetBackoff: false });
+        this.forceReconnect("liveness probe failed", "backoff");
       },
     });
+  }
+
+  /**
+   * Drop the active socket along with every timer bound to its generation.
+   *
+   * Every path that abandons a socket must go through here. The liveness
+   * watchdog and the connect deadline are armed per generation, and a path
+   * that clears `this.ws` without stopping them leaves a timer aimed at a
+   * corpse. The `close` handler cannot clean up on their behalf, because its
+   * `this.ws === ws` identity guard is already false by the time the close
+   * lands. The orphaned probe then fires against the dead socket and forces a
+   * reconnect that tears down whatever healthy connection replaced it, which
+   * on Slack's routine rotation cadence is every rotation.
+   */
+  private abandonSocket(): void {
+    this.ws = null;
+    this.liveness.stop();
+    this.cancelConnectDeadline?.();
+    this.cancelConnectDeadline = null;
   }
 
   async start(): Promise<void> {
@@ -584,15 +603,12 @@ export class SlackSocketModeClient {
     this.running = false;
     this.connecting = false;
     this.stopDedupCleanup();
-    this.liveness.stop();
-    this.cancelConnectDeadline?.();
-    this.cancelConnectDeadline = null;
     if (this.identityRetryTimer) {
       clearTimeout(this.identityRetryTimer);
       this.identityRetryTimer = null;
     }
     if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer();
       this.reconnectTimer = null;
     }
     if (this.ws) {
@@ -601,8 +617,8 @@ export class SlackSocketModeClient {
       } catch {
         // ignore close errors during shutdown
       }
-      this.ws = null;
     }
+    this.abandonSocket();
   }
 
   /**
@@ -618,35 +634,39 @@ export class SlackSocketModeClient {
    * to prevent overlapping connections where stale message events could
    * be ACKed on the wrong socket.
    *
-   * `resetBackoff` distinguishes the causes. A wake means the network just
-   * came back and the next attempt should be immediate. A liveness or
-   * connect-deadline failure carries no such news, so it leaves the backoff
-   * to escalate: if the connection is flapping, each cycle already costs a
-   * detection window, and resetting would pin retries at that floor.
+   * `retry` paces the replacement connection, and the two causes want
+   * opposite things:
+   *
+   * - `"immediate"` (the wake case): the network just came back, so clear the
+   *   backoff and reconnect now.
+   * - `"backoff"` (liveness and connect-deadline failures): route through
+   *   `scheduleReconnect` so the capped exponential delay actually applies.
+   *   Reconnecting directly would retry `apps.connections.open` on a fixed
+   *   cycle for as long as the failure lasts, which is exactly the wrong
+   *   behaviour during a Slack edge outage. `backoff` only escalates while
+   *   connections keep failing: a socket that reaches `open` resets it there.
    */
   forceReconnect(
     reason = "sleep/wake recovery",
-    options: { resetBackoff?: boolean } = {},
+    retry: "immediate" | "backoff" = "immediate",
   ): void {
-    if (!this.running) return;
+    if (!this.running) {
+      return;
+    }
 
-    log.info({ reason }, "Force-reconnecting Slack Socket Mode");
-
-    this.liveness.stop();
-    this.cancelConnectDeadline?.();
-    this.cancelConnectDeadline = null;
+    log.info({ reason, retry }, "Force-reconnecting Slack Socket Mode");
 
     if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer();
       this.reconnectTimer = null;
     }
 
-    if (options.resetBackoff ?? true) {
+    if (retry === "immediate") {
       this.backoff.reset();
     }
 
     const oldWs = this.ws;
-    this.ws = null;
+    this.abandonSocket();
 
     // If a connect() call is already in-flight (awaiting getWebSocketUrl),
     // don't start another one — the in-flight attempt will complete and
@@ -666,10 +686,18 @@ export class SlackSocketModeClient {
       return;
     }
 
-    if (!oldWs || oldWs.readyState === WebSocket.CLOSED) {
+    const reconnect = () => {
+      if (retry === "backoff") {
+        this.scheduleReconnect();
+        return;
+      }
       this.connect().catch((err) => {
         log.error({ err }, "Force reconnect failed");
       });
+    };
+
+    if (!oldWs || oldWs.readyState === WebSocket.CLOSED) {
+      reconnect();
       return;
     }
 
@@ -681,11 +709,11 @@ export class SlackSocketModeClient {
     let settled = false;
 
     const proceed = () => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
-      this.connect().catch((err) => {
-        log.error({ err }, "Force reconnect failed");
-      });
+      reconnect();
     };
 
     oldWs.addEventListener("close", proceed, { once: true });
@@ -1108,13 +1136,13 @@ export class SlackSocketModeClient {
       this.cancelConnectDeadline?.();
       this.cancelConnectDeadline = this.schedule(() => {
         this.cancelConnectDeadline = null;
-        if (this.ws !== ws) return;
+        if (this.ws !== ws) {
+          return;
+        }
         log.warn(
           "Slack Socket Mode socket did not open within the deadline, reconnecting",
         );
-        this.forceReconnect("connect deadline exceeded", {
-          resetBackoff: false,
-        });
+        this.forceReconnect("connect deadline exceeded", "backoff");
       }, CONNECT_DEADLINE_MS);
 
       ws.addEventListener("open", () => {
@@ -1171,10 +1199,7 @@ export class SlackSocketModeClient {
         // forceReconnect nulls this.ws before initiating a new connection,
         // so a stale close event should be ignored.
         if (this.ws === ws) {
-          this.ws = null;
-          this.liveness.stop();
-          this.cancelConnectDeadline?.();
-          this.cancelConnectDeadline = null;
+          this.abandonSocket();
           this.scheduleReconnect();
         }
       });
@@ -1187,11 +1212,8 @@ export class SlackSocketModeClient {
       });
     } catch (err) {
       log.error({ err }, "Failed to create WebSocket connection");
-      this.ws = null;
+      this.abandonSocket();
       this.connecting = false;
-      this.cancelConnectDeadline?.();
-      this.cancelConnectDeadline = null;
-      this.liveness.stop();
       this.scheduleReconnect();
     }
   }
@@ -1253,7 +1275,7 @@ export class SlackSocketModeClient {
         } catch {
           // ignore
         }
-        this.ws = null;
+        this.abandonSocket();
         // Reconnect immediately (attempt 0 = minimal backoff)
         this.backoff.reset();
         this.scheduleReconnect();
@@ -1895,9 +1917,13 @@ export class SlackSocketModeClient {
           abort,
         });
         if (this.ws !== ownerWs) return;
-        if (!result.ok) failedFetches++;
+        if (!result.ok) {
+          failedFetches++;
+        }
         for (const msg of sortMessagesAscendingByTs(result.messages)) {
-          if (this.injectReplayMessage(channel, msg, botUserId)) recovered++;
+          if (this.injectReplayMessage(channel, msg, botUserId)) {
+            recovered++;
+          }
         }
       };
     });
@@ -1914,7 +1940,9 @@ export class SlackSocketModeClient {
           abort,
         });
         if (this.ws !== ownerWs) return;
-        if (!result.ok) failedFetches++;
+        if (!result.ok) {
+          failedFetches++;
+        }
         for (const msg of sortMessagesAscendingByTs(result.messages)) {
           // conversations.replies always returns the thread parent as the
           // first element regardless of `oldest` / `inclusive` — see
@@ -1924,8 +1952,12 @@ export class SlackSocketModeClient {
           // catch a same-day re-emission, but for long-lived active threads
           // (TTL refreshed past the dedup window) the dedup row could have
           // expired, so filter explicitly.
-          if (msg.ts === threadTs) continue;
-          if (this.injectReplayMessage(channelId, msg, botUserId)) recovered++;
+          if (msg.ts === threadTs) {
+            continue;
+          }
+          if (this.injectReplayMessage(channelId, msg, botUserId)) {
+            recovered++;
+          }
         }
       };
     });
@@ -2039,15 +2071,19 @@ export class SlackSocketModeClient {
   }
 
   private scheduleReconnect(): void {
-    if (!this.running) return;
-    if (this.reconnectTimer) return;
+    if (!this.running) {
+      return;
+    }
+    if (this.reconnectTimer) {
+      return;
+    }
 
     const attempt = this.backoff.attemptCount;
     const delay = this.backoff.nextDelayMs();
 
     log.info({ attempt, delayMs: delay }, "Scheduling Socket Mode reconnect");
 
-    this.reconnectTimer = setTimeout(() => {
+    this.reconnectTimer = this.schedule(() => {
       this.reconnectTimer = null;
       this.connect().catch((err) => {
         log.error({ err }, "Reconnect failed");

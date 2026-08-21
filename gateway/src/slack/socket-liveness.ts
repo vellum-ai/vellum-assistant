@@ -150,7 +150,9 @@ export class SlackSocketLiveness {
     this.cancelProbeTimer = this.schedule(() => {
       this.cancelProbeTimer = null;
       const socket = this.socket;
-      if (!socket) return;
+      if (!socket) {
+        return;
+      }
 
       try {
         socket.ping();
