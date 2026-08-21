@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { PULL_THRESHOLD_PX } from "@/domains/chat/transcript/pull-to-refresh-utils";
 import type { PullPhase } from "@/domains/chat/transcript/use-pull-to-refresh";
+import { useTranslation } from "@/i18n";
 
 interface PullRefreshSpinnerProps {
   /** Visual height of the spinner element in px. Drives the
@@ -39,6 +40,7 @@ export function PullRefreshSpinner({
   progress,
   phase,
 }: PullRefreshSpinnerProps) {
+  const { t } = useTranslation("chat");
   const reduceMotion = usePrefersReducedMotion();
 
   // Only animate height transitions when not actively dragging — the
@@ -82,7 +84,7 @@ export function PullRefreshSpinner({
             viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
             className={reduceMotion ? undefined : "animate-spin"}
             role="status"
-            aria-label="Refreshing"
+            aria-label={t("pullRefreshSpinner.refreshing")}
           >
             <circle
               cx={SVG_SIZE / 2}

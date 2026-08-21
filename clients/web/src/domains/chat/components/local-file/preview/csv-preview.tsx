@@ -17,6 +17,7 @@ import { Typography } from "@vellumai/design-library";
 import { parseCsv } from "@/domains/chat/components/local-file/preview/csv";
 import { PreviewError } from "@/domains/chat/components/local-file/preview/preview-error";
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
+import { useTranslation } from "@/i18n";
 
 /**
  * Rows rendered before the viewport is measured. Virtuoso needs a height to
@@ -60,6 +61,7 @@ export function CsvPreview({ blob, filename }: CsvPreviewProps): ReactNode {
     blob.text().then(
       (decoded) => {
         if (!cancelled) {
+  const { t } = useTranslation("chat");
           setText(decoded);
         }
       },
@@ -121,7 +123,7 @@ export function CsvPreview({ blob, filename }: CsvPreviewProps): ReactNode {
           variant="body-small-default"
           className="text-[var(--content-tertiary)]"
         >
-          This file is empty
+          {t("csvPreview.emptyFile")}
         </Typography>
       </div>
     );
@@ -148,8 +150,15 @@ export function CsvPreview({ blob, filename }: CsvPreviewProps): ReactNode {
         variant="label-small-default"
         className="shrink-0 border-t border-[var(--border-element)] px-3 py-1.5 text-[var(--content-tertiary)]"
       >
-        {`${parsed.rows.length} rows x ${columnCount} columns`}
-        {parsed.truncated ? " (truncated)" : ""}
+        {parsed.truncated
+          ? t("csvPreview.summaryTruncated", {
+              rows: parsed.rows.length,
+              columns: columnCount,
+            })
+          : t("csvPreview.summary", {
+              rows: parsed.rows.length,
+              columns: columnCount,
+            })}
       </Typography>
     </div>
   );

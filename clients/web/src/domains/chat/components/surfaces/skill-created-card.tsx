@@ -11,6 +11,7 @@ import {
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
+import { useTranslation } from "@/i18n";
 
 /**
  * Card copy lives here as the single source so a design copy swap is a
@@ -66,6 +67,7 @@ function parseSkills(skills: unknown): SkillCardEntry[] {
  * retrospective run as stacked rows; each row deep-links to the skill.
  */
 export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
+  const { t } = useTranslation("chat");
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const skills = parseSkills(surface.data.skills);
@@ -98,7 +100,7 @@ export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
           <button
             key={skill.skillId}
             type="button"
-            aria-label={`View ${skill.name}`}
+            aria-label={t("skillCreatedCard.viewAria", { name: skill.name })}
             onClick={() => handleView(skill.skillId)}
             className="flex w-full cursor-pointer items-center gap-3 rounded-md py-2.5 text-left transition-colors first:pt-0 last:pb-0 hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
           >
@@ -121,7 +123,7 @@ export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
               aria-hidden="true"
               className="flex h-6 shrink-0 items-center rounded-md border border-[var(--border-element)] px-2 text-label-medium-default text-[var(--primary-base)]"
             >
-              View
+              {t("skillCreatedCard.view")}
             </span>
           </button>
         ))}

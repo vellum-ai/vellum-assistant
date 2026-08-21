@@ -8,6 +8,7 @@ import { useMemo, useState } from "react";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import type { Surface } from "@/domains/chat/types/types";
+import { useTranslation } from "@/i18n";
 
 interface ChoiceSurfaceProps {
   surface: Surface;
@@ -55,6 +56,7 @@ export function ChoiceSurface({
   onAction,
   assistantId,
 }: ChoiceSurfaceProps) {
+  const { t } = useTranslation("chat");
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
   // (tolerant, so a real payload never fails to parse) rather than an
   // unchecked cast or a re-declared local interface.
@@ -195,7 +197,7 @@ export function ChoiceSurface({
                   </span>
                   {option.recommended && (
                     <span className="rounded-full bg-[var(--primary-base)] px-2 py-0.5 text-label-small-default text-[var(--content-inset)]">
-                      Recommended
+                      {t("choiceSurface.recommended")}
                     </span>
                   )}
                 </span>
@@ -221,7 +223,7 @@ export function ChoiceSurface({
             {submitting === "submit" && (
               <Loader2 className="h-4 w-4 animate-spin" />
             )}
-            {data.submitLabel ?? "Continue"}
+            {data.submitLabel ?? t("choiceSurface.continue")}
           </button>
         </div>
       )}

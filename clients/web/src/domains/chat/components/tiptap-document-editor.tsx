@@ -38,6 +38,7 @@ import {
   charOffsetToPmPos,
   pmPosToCharOffset,
 } from "@/domains/chat/utils/tiptap-position-map";
+import { useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,6 +78,7 @@ function BubbleToolbar({
   onCommentSubmit,
   commentSubmitting,
 }: BubbleToolbarProps) {
+  const { t } = useTranslation("chat");
   const [commentOpen, setCommentOpen] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -211,7 +213,7 @@ function BubbleToolbar({
               type="button"
               className={cn(btnBase, commentOpen && btnActive)}
               onClick={toggleComment}
-              aria-label="Comment"
+              aria-label={t("tiptapDocumentEditor.comment")}
               aria-pressed={commentOpen}
             >
               <MessageSquareText size={14} />
@@ -224,7 +226,7 @@ function BubbleToolbar({
           <textarea
             className="w-full resize-none rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] px-3 py-2 text-body-medium-lighter text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-[border-color] duration-150 ease-out focus-visible:border-[var(--border-active)]"
             rows={2}
-            placeholder="Add your feedback…"
+            placeholder={t("tiptapDocumentEditor.feedbackPlaceholder")}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
@@ -247,7 +249,7 @@ function BubbleToolbar({
               onClick={handleSubmitComment}
               disabled={commentSubmitting || !draft.trim()}
             >
-              {commentSubmitting ? "Adding…" : "Comment"}
+              {commentSubmitting ? t("tiptapDocumentEditor.adding") : t("tiptapDocumentEditor.comment")}
             </button>
           </div>
         </div>

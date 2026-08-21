@@ -22,7 +22,9 @@
   },
   "activityStepsPanel": {
     "backAria": "Volver a todos los pasos",
-    "backTooltip": "Todos los pasos"
+    "backTooltip": "Todos los pasos",
+    "closeSteps": "Cerrar pasos",
+    "viewThinkingAria": "Ver razonamiento"
   },
   "addToChatSheet": {
     "camera": "Cámara",
@@ -46,7 +48,10 @@
     "newChat": "Chat nuevo"
   },
   "assistantSideMenu": {
-    "bulkActionMembersFailed": "No se pudieron cargar todas las conversaciones de esta sección. Inténtalo de nuevo."
+    "bulkActionMembersFailed": "No se pudieron cargar todas las conversaciones de esta sección. Inténtalo de nuevo.",
+    "closeNavAria": "Cerrar navegación",
+    "navAria": "Navegación del asistente",
+    "searchShortcut": "Buscar (⌘K)"
   },
   "assistantSwitcher": {
     "collapse": "Ocultar asistentes",
@@ -60,6 +65,10 @@
     "cancelUploadAria": "Cancelar la carga de {filename}",
     "uploadingTitle": "Subiendo {filename}"
   },
+  "attachmentOverflowSquare": {
+    "moreTitle": "{count} más",
+    "showAllAria": "Mostrar todos los archivos ({count} más)"
+  },
   "attachmentPreviewModal": {
     "closePreviewAria": "Cerrar vista previa",
     "downloadAria": "Descargar {filename}",
@@ -67,6 +76,13 @@
     "nextAttachmentAria": "Adjunto siguiente",
     "previewAria": "Vista previa de {filename}",
     "previousAttachmentAria": "Adjunto anterior"
+  },
+  "backgroundTaskDetailPanel": {
+    "closeDetail": "Cerrar detalle de la tarea",
+    "command": "Comando",
+    "exitCode": "Código de salida: {code}",
+    "output": "Salida",
+    "stopCommandAria": "Detener comando"
   },
   "billingErrorBanner": {
     "dismiss": "Descartar"
@@ -165,6 +181,9 @@
   "callSummarySurface": {
     "eventsRecorded": "{count, plural, one {# evento} other {# eventos}} registrados."
   },
+  "cardSurface": {
+    "tasksProgress": "{completed} / {total} tareas"
+  },
   "chatAttachments": {
     "attachFileAria": "Adjuntar archivo",
     "dismiss": "Descartar",
@@ -190,6 +209,9 @@
     "newChat": "Chat nuevo",
     "untitled": "Sin título"
   },
+  "chatLayout": {
+    "navigationAria": "Navegación"
+  },
   "chatLayoutHeader": {
     "backAria": "Atrás (Ctrl+[)",
     "forwardAria": "Adelante (Ctrl+])",
@@ -204,6 +226,13 @@
     "imageFailedWithAlt": "No se pudo cargar la imagen ({alt})",
     "loadingImage": "Cargando imagen…",
     "loadingImageWithAlt": "Cargando imagen… ({alt})"
+  },
+  "chatPage": {
+    "connecting": "Conectando…",
+    "connectingStuck": "Todavía se está conectando a tu asistente; parece que algo se ha quedado atascado. Inténtalo de nuevo, o actualiza la página si sigue ocurriendo.",
+    "retryNow": "Reintentar ahora",
+    "selfHostedUnreachable": "No se pudo contactar con tu asistente autoalojado. Asegúrate de que el asistente esté en ejecución e inténtalo de nuevo.",
+    "tryAgain": "Intentar de nuevo"
   },
   "chatRouteContent": {
     "askTheDoctor": "Preguntar al Doctor",
@@ -228,6 +257,13 @@
     "suggested": "Sugerido: {risk}",
     "treatAs": "Tratar como",
     "where": "Dónde"
+  },
+  "choiceSurface": {
+    "continue": "Continuar",
+    "recommended": "Recomendado"
+  },
+  "collapsedGroupIcon": {
+    "noConversations": "No hay conversaciones"
   },
   "compactionCircuitOpenBanner": {
     "ariaLabel": "Compactación automática en pausa",
@@ -269,9 +305,26 @@
     "allowMicrophone": "Permitir micrófono",
     "openSettings": "Abrir configuración"
   },
+  "composerSecretNotice": {
+    "blockedTitle": "Mensaje no enviado. Parece que contiene una clave de API.",
+    "body": "Las credenciales enviadas en el chat son visibles en la transcripción. Guárdala de forma segura en su lugar.",
+    "dismiss": "Descartar",
+    "sendAnyway": "Enviar de todos modos",
+    "storeSecurely": "Guardar de forma segura",
+    "warningTitle": "Esto parece una clave de API"
+  },
   "composerSettingsMenu": {
     "profileSwitchFailed": "Perfil creado, pero no se pudo cambiar a él",
     "profileSwitchFallback": "No se pudo cambiar de perfil. Inténtalo de nuevo."
+  },
+  "contactPromptCard": {
+    "addContact": "Añadir un contacto",
+    "cancel": "Cancelar",
+    "contactSaved": "Contacto guardado",
+    "dismiss": "Descartar",
+    "enterAddress": "Introduce la dirección de {channel}",
+    "save": "Guardar",
+    "saving": "Guardando…"
   },
   "conversationActions": {
     "archive": "Archivar",
@@ -296,6 +349,21 @@
   "conversationActionsSheet": {
     "closeAriaLabel": "Cerrar",
     "title": "Acciones de conversación"
+  },
+  "conversationActivityPill": {
+    "activity": "Actividad",
+    "recent": "Recientes",
+    "running": "En ejecución"
+  },
+  "conversationAssetActions": {
+    "delete": "Eliminar",
+    "downloadPdf": "Descargar PDF",
+    "exportAsVellum": "Exportar como archivo .vellum",
+    "open": "Abrir",
+    "optionsFor": "Opciones para {name}",
+    "pin": "Anclar",
+    "share": "Compartir",
+    "unpin": "Desanclar"
   },
   "conversationAssets": {
     "ariaLabel": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}}",
@@ -331,6 +399,11 @@
   "creditsUpsellCard": {
     "loginToAddCredits": "Inicia sesión en la plataforma Vellum para agregar créditos."
   },
+  "csvPreview": {
+    "emptyFile": "Este archivo está vacío",
+    "summary": "{rows} filas x {columns} columnas",
+    "summaryTruncated": "{rows} filas x {columns} columnas (truncado)"
+  },
   "dailyLimitBanner": {
     "skipConfirmTitle": "¿Omitir el límite de créditos de hoy?",
     "skipError": "No se pudo omitir el límite de hoy. Inténtalo de nuevo.",
@@ -343,6 +416,10 @@
   },
   "documentAssetActions": {
     "pdfDownloadFailed": "No se pudo descargar el PDF"
+  },
+  "documentCommentForm": {
+    "send": "Enviar",
+    "sending": "Enviando…"
   },
   "documentCommentPanel": {
     "addCommentPlaceholder": "Agregar un comentario…",
@@ -417,6 +494,20 @@
   "groupActionsSheet": {
     "title": "Acciones de {name}"
   },
+  "groupNameDialogFromStore": {
+    "create": "Crear",
+    "newTitle": "Grupo nuevo",
+    "renameTitle": "Renombrar grupo",
+    "save": "Guardar"
+  },
+  "inChatOnboardingController": {
+    "next": "Siguiente",
+    "showMeAround": "Muéstrame cómo funciona",
+    "skipTour": "Omitir recorrido"
+  },
+  "inlineProcessCard": {
+    "stop": "Detener"
+  },
   "inspectPage": {
     "accessDenied": "El inspector está disponible cuando la marca Internal Thread Actions está habilitada.",
     "allMessages": "Todos los mensajes",
@@ -474,6 +565,18 @@
   },
   "localFileLink": {
     "unavailable": "Este archivo no está disponible aquí"
+  },
+  "lowBalanceBanner": {
+    "addCredits": "Añadir créditos",
+    "ariaLabel": "Tus créditos se están agotando. {detail}",
+    "subtitle": "Añade créditos para evitar una interrupción.",
+    "title": "Tus créditos se están agotando"
+  },
+  "maintenanceModeBanner": {
+    "body": "El espacio de trabajo de tu asistente está conectado actualmente a un terminal de depuración. El chat no está disponible en el modo de recuperación.",
+    "loginHint": "Inicia sesión en la plataforma Vellum para salir del modo de recuperación.",
+    "resume": "Reanudar asistente",
+    "title": "Asistente en modo de recuperación"
   },
   "maintenanceRecoveryCard": {
     "body": "El chat no está disponible mientras el mantenimiento está activo.",
@@ -695,6 +798,19 @@
   "newChatPluginsSection": {
     "managePlugins": "Gestionar plugins"
   },
+  "oauthConnectSurface": {
+    "approvalAria": "Acerca de la aprobación del asistente",
+    "approvalTooltip": "{name} nunca actúa en tu nombre sin tu aprobación",
+    "connect": "Conectar",
+    "connectTitle": "Conectar {name}",
+    "connected": "Conectado",
+    "defaultDescription": "Conecta {name} para que pueda usarlo en esta tarea.",
+    "dismiss": "Descartar",
+    "missingDetails": "Faltan detalles del asistente o del proveedor.",
+    "thisAccount": "esta cuenta",
+    "waiting": "Esperando...",
+    "yourAssistant": "Tu asistente"
+  },
   "onboardingChoiceCard": {
     "continue": "Continuar",
     "helpWithHeading": "¿En qué puedo ayudarte?",
@@ -759,6 +875,12 @@
     "disableAria": "Desactivar {name} para este chat",
     "enableAria": "Activar {name} para este chat"
   },
+  "preferencesMenu": {
+    "admin": "Admin",
+    "preferences": "Preferencias",
+    "settings": "Ajustes",
+    "shareFeedback": "Compartir comentarios"
+  },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Añadir créditos",
     "exhausted": "Añade créditos para continuar.",
@@ -770,6 +892,9 @@
   "previewMessageCard": {
     "download": "Descargar",
     "downloadAria": "Descargar {filename}"
+  },
+  "previewSkeleton": {
+    "loadingPreview": "Cargando vista previa"
   },
   "previewUnsupported": {
     "downloadFile": "Descargar archivo",
@@ -790,6 +915,13 @@
     "formatTypeScript": "TypeScript",
     "noContentAvailable": "No hay contenido disponible.",
     "promptSectionsTitle": "Secciones del prompt"
+  },
+  "providerBillingBanner": {
+    "body": "Añade fondos con tu proveedor o baja el límite de tokens del modelo.",
+    "title": "Tu clave de API necesita créditos"
+  },
+  "pullRefreshSpinner": {
+    "refreshing": "Actualizando"
   },
   "questionPromptCard": {
     "closeQuestionAria": "Cerrar pregunta",
@@ -874,6 +1006,10 @@
     "mockNote": "(mock: el flujo en vivo muestra aquí el feed de actividad de búsqueda)",
     "resultsTitle": "Esto es lo que sé de ti. Puedes quitar lo que no sea cierto:"
   },
+  "researchResultsOverlay": {
+    "body": "Esto es lo que sé de ti. Puedes quitar lo que no sea cierto:",
+    "loading": "Conociéndote…"
+  },
   "researchSuggestions": {
     "heading": "Así podría ayudarte para empezar:"
   },
@@ -898,6 +1034,20 @@
     "stopReasonChip": "Motivo de parada: {reason}",
     "toolChip": "Herramienta: {name}"
   },
+  "secretPromptCard": {
+    "cancel": "Cancelar",
+    "domains": "Dominios: {list}",
+    "placeholder": "Introduce el valor secreto...",
+    "save": "Guardar",
+    "savedSecurely": "Guardado de forma segura",
+    "saving": "Guardando...",
+    "secretValueFallback": "Valor secreto",
+    "sendOnce": "Enviar una vez (sin guardar)",
+    "sending": "Enviando...",
+    "storedSecurelyNote": "Esta información se guarda de forma segura en tu dispositivo y no se envía a ningún servidor. La IA nunca ve este valor.",
+    "title": "Credencial segura",
+    "tools": "Herramientas: {list}"
+  },
   "selfHostedScreen": {
     "body": "Las conversaciones de asistentes autoalojados aún no están disponibles desde la web. Gestiona tu asistente desde ajustes.",
     "openSettings": "Abrir ajustes",
@@ -905,6 +1055,9 @@
   },
   "setupScreen": {
     "settingUp": "Configurando tu asistente…"
+  },
+  "sideMenuBuiltInNav": {
+    "yourAssistant": "Tu asistente"
   },
   "sideMenuOverlayBottomColumn": {
     "newChat": "Chat nuevo"
@@ -916,9 +1069,21 @@
   "sidebarConversationSkeleton": {
     "loadingAria": "Cargando conversaciones"
   },
+  "sidebarListContextMenu": {
+    "newGroup": "Grupo nuevo…"
+  },
+  "skillCreatedCard": {
+    "view": "Ver",
+    "viewAria": "Ver {name}"
+  },
   "skillDetailPanel": {
     "actionsAria": "Acciones de habilidad",
-    "moreTooltip": "Más"
+    "closeDetails": "Cerrar detalles de la habilidad",
+    "goToSkill": "Ir a la habilidad",
+    "loadError": "No se pudo cargar esta habilidad. Puede que se haya eliminado.",
+    "moreTooltip": "Más",
+    "removeSkill": "Eliminar habilidad",
+    "titleFallback": "Habilidad"
   },
   "skillExecuteDetail": {
     "parameters": "Parámetros",
@@ -938,6 +1103,9 @@
     "outputFormatAria": "Formato de salida",
     "showLess": "Mostrar menos",
     "showMore": "Mostrar más"
+  },
+  "skillToolList": {
+    "fromSkill": "De {name}"
   },
   "skillsTab": {
     "callLink": "Llamada {number}",
@@ -959,12 +1127,30 @@
     "details": "Detalles",
     "showDetailsAria": "Mostrar detalles del subagente"
   },
+  "subagentDetailPanel": {
+    "backToTimelineAria": "Volver a la línea de tiempo",
+    "backTooltip": "Atrás",
+    "closeDetail": "Cerrar detalle del subagente",
+    "input": "Entrada",
+    "noEventsYet": "Aún no hay eventos",
+    "objective": "Objetivo",
+    "output": "Salida",
+    "showLess": "Mostrar menos",
+    "showMore": "Mostrar más",
+    "stopSubagentAria": "Detener subagente",
+    "timeline": "Línea de tiempo"
+  },
   "subagentPhaseTimeline": {
     "viewReasoning": "Ver el razonamiento",
     "viewSearchDetails": "Ver detalles de la búsqueda",
     "viewSearchError": "Ver error de la búsqueda",
     "viewToolDetails": "Ver detalles de la herramienta",
     "workedFor": "Trabajó durante {duration}"
+  },
+  "subagentSpawnGroup": {
+    "collapse": "Contraer",
+    "collapseDetailsAria": "Contraer detalles del subagente",
+    "stopSubagentAria": "Detener subagente"
   },
   "suggestionDetailPanel": {
     "closeAria": "Cerrar",
@@ -975,6 +1161,14 @@
   "suggestionLibrary": {
     "scrollForMore": "Desplázate hacia abajo para ver más"
   },
+  "surfaceRouter": {
+    "cancelled": "Cancelado",
+    "displayFailed": "No se pudo mostrar este contenido.",
+    "displayFailedNamed": "No se pudo mostrar \"{title}\".",
+    "done": "Hecho",
+    "unknownSurface": "Superficie desconocida",
+    "unsupportedType": "Tipo de superficie no admitido: {type}"
+  },
   "taskPreferencesSurface": {
     "continue": "Continuar",
     "defaultTitle": "¿En qué puedo ayudarte?",
@@ -982,6 +1176,11 @@
     "otherPlaceholder": "Describe con qué necesitas ayuda...",
     "selectAll": "Selecciona todas las que correspondan",
     "somethingElse": "otra cosa distinta"
+  },
+  "tiptapDocumentEditor": {
+    "adding": "Añadiendo…",
+    "comment": "Comentar",
+    "feedbackPlaceholder": "Añade tu comentario…"
   },
   "toolCallChip": {
     "allow": "Permitir",
@@ -1032,6 +1231,9 @@
   "visualPlaceholder": {
     "sketching": "Bocetando un visual..."
   },
+  "visualSurface": {
+    "visual": "Visual"
+  },
   "voiceComposerBar": {
     "ariaLabel": "Sesión de voz",
     "endSession": "Finalizar la sesión de voz",
@@ -1041,6 +1243,19 @@
     "openVoiceRoom": "Abrir la sala de voz",
     "unmuteAssistant": "Activar el audio del asistente",
     "unmuteMicrophone": "Activar el micrófono"
+  },
+  "voiceFirstRunCard": {
+    "backAria": "Atrás",
+    "description": "Una conversación hablada, manos libres, con {name}.",
+    "listeningLanguage": "Idioma de escucha",
+    "listeningLanguageApplies": "Se aplica a partir de tu próximo turno hablado.",
+    "liveCaptions": "Activa los subtítulos en vivo cuando quieras.",
+    "muteMic": "Silencia el micrófono sin terminar la sesión.",
+    "speakNaturally": "Habla con naturalidad y {name} responde en voz alta.",
+    "startTalking": "Empezar a hablar",
+    "title": "Modo de voz",
+    "voiceSettings": "Ajustes de voz",
+    "yourAssistant": "tu asistente"
   },
   "voicePickerSurface": {
     "unavailable": "Elegir una voz no está disponible para este asistente ahora mismo."
@@ -1061,6 +1276,16 @@
     "unmuteAssistant": "Activar el audio del asistente",
     "unmuteMicrophone": "Activar el micrófono"
   },
+  "voiceSessionPill": {
+    "dismiss": "Descartar",
+    "endSession": "Terminar sesión de voz",
+    "goToThreadAria": "Ir al hilo de la sesión de voz",
+    "groupAria": "Sesión de voz",
+    "muteAssistant": "Silenciar asistente",
+    "muteMic": "Silenciar micrófono",
+    "unmuteAssistant": "Activar sonido del asistente",
+    "unmuteMic": "Activar micrófono"
+  },
   "voiceSessionPillHost": {
     "muted": "Silenciado"
   },
@@ -1080,6 +1305,9 @@
     "viewExtracted": "Ver extraído",
     "viewRaw": "Ver sin procesar"
   },
+  "webSearchStepRow": {
+    "moreCount": "+{count} más"
+  },
   "workflowDetailPanel": {
     "agents": "Agentes",
     "back": "Atrás",
@@ -1090,6 +1318,15 @@
     "output": "Salida",
     "stopWorkflow": "Detener flujo de trabajo",
     "subagents": "Subagentes"
+  },
+  "workflowLeafDetail": {
+    "input": "Entrada",
+    "noPromptSummary": "Sin resumen del prompt",
+    "noResultSummary": "Sin resumen del resultado",
+    "output": "Salida",
+    "prompt": "Prompt",
+    "result": "Resultado",
+    "running": "En ejecución…"
   },
   "workflowSubagentRow": {
     "cancelledAria": "Cancelado",

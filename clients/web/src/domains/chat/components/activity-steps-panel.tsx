@@ -175,7 +175,7 @@ export function ActivityStepsPanel({
           </span>
         )
       }
-      closeLabel="Close steps"
+      closeLabel={t("activityStepsPanel.closeSteps")}
       onClose={onClose}
     >
       {stepDetail ? (
@@ -238,7 +238,7 @@ function TimelineStep({
       <ToolStepPill
         iconName="brain"
         label={truncate(thinkingPreview(step.text), THINKING_PILL_MAX_CHARS)}
-        ariaLabel="View thinking"
+        ariaLabel={t("activityStepsPanel.viewThinkingAria")}
         active={false}
         onClick={() =>
           onOpenDetail({

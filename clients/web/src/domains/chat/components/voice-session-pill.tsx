@@ -75,6 +75,7 @@ import {
   voiceSurfaceTheme,
   type VoiceSurfacePaint,
 } from "@/domains/chat/voice/voice-room/voice-surface-paint";
+import { useTranslation } from "@/i18n";
 
 // While the mic is not live (muted, assistant speaking) the band reads a
 // steady zero and settles into its quiet drift, the room's own resting
@@ -168,6 +169,7 @@ export function VoiceSessionPill({
   paint = null,
   layout = "pill",
 }: VoiceSessionPillProps) {
+  const { t } = useTranslation("chat");
   const isRow = layout === "row";
   const label = muted ? "Muted" : primaryLabel;
   const iconClass = isRow ? "size-4" : "size-3.5";
@@ -220,7 +222,7 @@ export function VoiceSessionPill({
   return (
     <div
       role="group"
-      aria-label="Voice session"
+      aria-label={t("voiceSessionPill.groupAria")}
       data-theme={voiceSurfaceTheme(paint)}
       style={paint ? voiceSurfaceStyle(paint) : undefined}
       className={cn(
@@ -251,9 +253,9 @@ export function VoiceSessionPill({
         // touch chrome.
         expandOnMobile={isRow}
         onClick={onToggleMute}
-        aria-label={muted ? "Unmute microphone" : "Mute microphone"}
+        aria-label={muted ? t("voiceSessionPill.unmuteMic") : t("voiceSessionPill.muteMic")}
         aria-pressed={muted}
-        tooltip={muted ? "Unmute microphone" : "Mute microphone"}
+        tooltip={muted ? t("voiceSessionPill.unmuteMic") : t("voiceSessionPill.muteMic")}
         className={cn("relative", VOICE_SURFACE_CONTROL_CLASS)}
         style={muted ? mutedInk : undefined}
       />
@@ -266,7 +268,7 @@ export function VoiceSessionPill({
         <button
           type="button"
           onClick={onNavigate}
-          aria-label="Go to voice session thread"
+          aria-label={t("voiceSessionPill.goToThreadAria")}
           className="relative min-w-0 flex-1 cursor-pointer self-stretch rounded-full hover:bg-[var(--room-wash,var(--surface-hover))]"
         />
       ) : (
@@ -293,9 +295,9 @@ export function VoiceSessionPill({
             )
           }
           expandOnMobile={isRow}
-          aria-label={outputMuted ? "Unmute assistant" : "Mute assistant"}
+          aria-label={outputMuted ? t("voiceSessionPill.unmuteAssistant") : t("voiceSessionPill.muteAssistant")}
           aria-pressed={outputMuted}
-          tooltip={outputMuted ? "Unmute assistant" : "Mute assistant"}
+          tooltip={outputMuted ? t("voiceSessionPill.unmuteAssistant") : t("voiceSessionPill.muteAssistant")}
           onClick={onToggleOutputMute}
           className={cn("relative", VOICE_SURFACE_CONTROL_CLASS)}
           style={outputMuted ? mutedInk : undefined}
@@ -304,8 +306,8 @@ export function VoiceSessionPill({
           variant="ghost"
           iconOnly={<X className={iconClass} strokeWidth={2.5} />}
           expandOnMobile={isRow}
-          aria-label="End voice session"
-          tooltip="End voice session"
+          aria-label={t("voiceSessionPill.endSession")}
+          tooltip={t("voiceSessionPill.endSession")}
           onClick={onEnd}
           className={cn("relative", VOICE_SURFACE_CONTROL_CLASS)}
         />
@@ -334,13 +336,14 @@ export function VoiceSessionErrorChip({
   message,
   onDismiss,
 }: VoiceSessionErrorChipProps) {
+  const { t } = useTranslation("chat");
   return (
     <Tag
       role="alert"
       tone="negative"
       leftIcon={<TriangleAlert />}
       onRemove={onDismiss}
-      removeLabel="Dismiss"
+      removeLabel={t("voiceSessionPill.dismiss")}
       className="h-8 max-w-80 gap-2 rounded-full border border-[color-mix(in_srgb,var(--system-negative-strong)_25%,transparent)] py-1 pl-3 pr-1.5 [-webkit-app-region:no-drag]"
     >
       <span className="min-w-0 truncate" title={message}>

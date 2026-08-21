@@ -22,7 +22,9 @@
   },
   "activityStepsPanel": {
     "backAria": "Back to all steps",
-    "backTooltip": "All steps"
+    "backTooltip": "All steps",
+    "closeSteps": "Close steps",
+    "viewThinkingAria": "View thinking"
   },
   "addToChatSheet": {
     "camera": "Camera",
@@ -46,7 +48,10 @@
     "newChat": "New Chat"
   },
   "assistantSideMenu": {
-    "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again."
+    "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again.",
+    "closeNavAria": "Close navigation",
+    "navAria": "Assistant navigation",
+    "searchShortcut": "Search (⌘K)"
   },
   "assistantSwitcher": {
     "collapse": "Hide assistants",
@@ -60,6 +65,10 @@
     "cancelUploadAria": "Cancel upload of {filename}",
     "uploadingTitle": "Uploading {filename}"
   },
+  "attachmentOverflowSquare": {
+    "moreTitle": "{count} more",
+    "showAllAria": "Show all files ({count} more)"
+  },
   "attachmentPreviewModal": {
     "closePreviewAria": "Close preview",
     "downloadAria": "Download {filename}",
@@ -67,6 +76,13 @@
     "nextAttachmentAria": "Next attachment",
     "previewAria": "Preview of {filename}",
     "previousAttachmentAria": "Previous attachment"
+  },
+  "backgroundTaskDetailPanel": {
+    "closeDetail": "Close task detail",
+    "command": "Command",
+    "exitCode": "Exit code: {code}",
+    "output": "Output",
+    "stopCommandAria": "Stop command"
   },
   "billingErrorBanner": {
     "dismiss": "Dismiss"
@@ -165,6 +181,9 @@
   "callSummarySurface": {
     "eventsRecorded": "{count, plural, one {# event} other {# events}} recorded."
   },
+  "cardSurface": {
+    "tasksProgress": "{completed} / {total} tasks"
+  },
   "chatAttachments": {
     "attachFileAria": "Attach file",
     "dismiss": "Dismiss",
@@ -190,6 +209,9 @@
     "newChat": "New Chat",
     "untitled": "Untitled"
   },
+  "chatLayout": {
+    "navigationAria": "Navigation"
+  },
   "chatLayoutHeader": {
     "backAria": "Back (Ctrl+[)",
     "forwardAria": "Forward (Ctrl+])",
@@ -204,6 +226,13 @@
     "imageFailedWithAlt": "Image failed to load ({alt})",
     "loadingImage": "Loading image…",
     "loadingImageWithAlt": "Loading image… ({alt})"
+  },
+  "chatPage": {
+    "connecting": "Connecting…",
+    "connectingStuck": "Still connecting to your assistant - something seems stuck. Try again, or refresh the page if this keeps happening.",
+    "retryNow": "Retry now",
+    "selfHostedUnreachable": "Couldn't reach your self-hosted assistant. Make sure your assistant is running, then try again.",
+    "tryAgain": "Try again"
   },
   "chatRouteContent": {
     "askTheDoctor": "Ask the Doctor",
@@ -228,6 +257,13 @@
     "suggested": "Suggested: {risk}",
     "treatAs": "Treat as",
     "where": "Where"
+  },
+  "choiceSurface": {
+    "continue": "Continue",
+    "recommended": "Recommended"
+  },
+  "collapsedGroupIcon": {
+    "noConversations": "No conversations"
   },
   "compactionCircuitOpenBanner": {
     "ariaLabel": "Auto-compaction paused",
@@ -269,9 +305,26 @@
     "allowMicrophone": "Allow Microphone",
     "openSettings": "Open Settings"
   },
+  "composerSecretNotice": {
+    "blockedTitle": "Message not sent. It looks like it contains an API key.",
+    "body": "Credentials sent in chat are visible in the transcript. Store it securely instead.",
+    "dismiss": "Dismiss",
+    "sendAnyway": "Send anyway",
+    "storeSecurely": "Store securely",
+    "warningTitle": "This looks like an API key"
+  },
   "composerSettingsMenu": {
     "profileSwitchFailed": "Profile created, but couldn't switch to it",
     "profileSwitchFallback": "Failed to switch profile. Please try again."
+  },
+  "contactPromptCard": {
+    "addContact": "Add a contact",
+    "cancel": "Cancel",
+    "contactSaved": "Contact saved",
+    "dismiss": "Dismiss",
+    "enterAddress": "Enter {channel} address",
+    "save": "Save",
+    "saving": "Saving…"
   },
   "conversationActions": {
     "archive": "Archive",
@@ -296,6 +349,21 @@
   "conversationActionsSheet": {
     "closeAriaLabel": "Close",
     "title": "Conversation Actions"
+  },
+  "conversationActivityPill": {
+    "activity": "Activity",
+    "recent": "Recent",
+    "running": "Running"
+  },
+  "conversationAssetActions": {
+    "delete": "Delete",
+    "downloadPdf": "Download PDF",
+    "exportAsVellum": "Export as .vellum file",
+    "open": "Open",
+    "optionsFor": "Options for {name}",
+    "pin": "Pin",
+    "share": "Share",
+    "unpin": "Unpin"
   },
   "conversationAssets": {
     "ariaLabel": "Conversation assets, {count, plural, one {# item} other {# items}}",
@@ -331,6 +399,11 @@
   "creditsUpsellCard": {
     "loginToAddCredits": "Log in to the Vellum platform to add credits."
   },
+  "csvPreview": {
+    "emptyFile": "This file is empty",
+    "summary": "{rows} rows x {columns} columns",
+    "summaryTruncated": "{rows} rows x {columns} columns (truncated)"
+  },
   "dailyLimitBanner": {
     "skipConfirmTitle": "Skip today's credit limit?",
     "skipError": "Could not skip today's limit. Please try again.",
@@ -343,6 +416,10 @@
   },
   "documentAssetActions": {
     "pdfDownloadFailed": "Failed to download PDF"
+  },
+  "documentCommentForm": {
+    "send": "Send",
+    "sending": "Sending…"
   },
   "documentCommentPanel": {
     "addCommentPlaceholder": "Add a comment…",
@@ -417,6 +494,20 @@
   "groupActionsSheet": {
     "title": "{name} actions"
   },
+  "groupNameDialogFromStore": {
+    "create": "Create",
+    "newTitle": "New group",
+    "renameTitle": "Rename group",
+    "save": "Save"
+  },
+  "inChatOnboardingController": {
+    "next": "Next",
+    "showMeAround": "Show me around",
+    "skipTour": "Skip tour"
+  },
+  "inlineProcessCard": {
+    "stop": "Stop"
+  },
   "inspectPage": {
     "accessDenied": "Inspector is available when the Internal Thread Actions feature flag is enabled.",
     "allMessages": "All messages",
@@ -474,6 +565,18 @@
   },
   "localFileLink": {
     "unavailable": "This file isn't available here"
+  },
+  "lowBalanceBanner": {
+    "addCredits": "Add credits",
+    "ariaLabel": "Your credits are running low. {detail}",
+    "subtitle": "Add credits to avoid an interruption.",
+    "title": "Your credits are running low"
+  },
+  "maintenanceModeBanner": {
+    "body": "Your assistant workspace is currently connected to a debug terminal. Chat is unavailable while in Recovery Mode.",
+    "loginHint": "Log in to the Vellum platform to exit Recovery Mode.",
+    "resume": "Resume Assistant",
+    "title": "Assistant in Recovery Mode"
   },
   "maintenanceRecoveryCard": {
     "body": "Chat is unavailable while maintenance is active.",
@@ -695,6 +798,19 @@
   "newChatPluginsSection": {
     "managePlugins": "Manage Plugins"
   },
+  "oauthConnectSurface": {
+    "approvalAria": "About assistant approval",
+    "approvalTooltip": "{name} never acts on your behalf without your approval",
+    "connect": "Connect",
+    "connectTitle": "Connect {name}",
+    "connected": "Connected",
+    "defaultDescription": "Connect {name} so I can use it for this task.",
+    "dismiss": "Dismiss",
+    "missingDetails": "Missing assistant or provider details.",
+    "thisAccount": "this account",
+    "waiting": "Waiting...",
+    "yourAssistant": "Your assistant"
+  },
   "onboardingChoiceCard": {
     "continue": "Continue",
     "helpWithHeading": "What can I help with?",
@@ -759,6 +875,12 @@
     "disableAria": "Disable {name} for this chat",
     "enableAria": "Enable {name} for this chat"
   },
+  "preferencesMenu": {
+    "admin": "Admin",
+    "preferences": "Preferences",
+    "settings": "Settings",
+    "shareFeedback": "Share Feedback"
+  },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Add credits",
     "exhausted": "Add credits to continue.",
@@ -770,6 +892,9 @@
   "previewMessageCard": {
     "download": "Download",
     "downloadAria": "Download {filename}"
+  },
+  "previewSkeleton": {
+    "loadingPreview": "Loading preview"
   },
   "previewUnsupported": {
     "downloadFile": "Download file",
@@ -790,6 +915,13 @@
     "formatTypeScript": "TypeScript",
     "noContentAvailable": "No content available.",
     "promptSectionsTitle": "Prompt sections"
+  },
+  "providerBillingBanner": {
+    "body": "Add funds with your provider or lower the model token limit.",
+    "title": "Your API key needs credits"
+  },
+  "pullRefreshSpinner": {
+    "refreshing": "Refreshing"
   },
   "questionPromptCard": {
     "closeQuestionAria": "Close question",
@@ -874,6 +1006,10 @@
     "mockNote": "(mock - the live flow shows the search activity feed here)",
     "resultsTitle": "Here's what I know about you. You can remove any that aren't true:"
   },
+  "researchResultsOverlay": {
+    "body": "Here's what I know about you. You can remove any that aren't true:",
+    "loading": "Getting to know you…"
+  },
   "researchSuggestions": {
     "heading": "Here's how I could help to start:"
   },
@@ -898,6 +1034,20 @@
     "stopReasonChip": "Stop reason: {reason}",
     "toolChip": "Tool: {name}"
   },
+  "secretPromptCard": {
+    "cancel": "Cancel",
+    "domains": "Domains: {list}",
+    "placeholder": "Enter secret value...",
+    "save": "Save",
+    "savedSecurely": "Saved securely",
+    "saving": "Saving...",
+    "secretValueFallback": "Secret value",
+    "sendOnce": "Send Once (not saved)",
+    "sending": "Sending...",
+    "storedSecurelyNote": "This information is stored securely on your device and not sent to any server. AI never sees this value.",
+    "title": "Secure Credential",
+    "tools": "Tools: {list}"
+  },
   "selfHostedScreen": {
     "body": "Conversations for self-hosted assistants aren't available from the web yet. Manage your assistant from settings.",
     "openSettings": "Open settings",
@@ -905,6 +1055,9 @@
   },
   "setupScreen": {
     "settingUp": "Setting up your assistant…"
+  },
+  "sideMenuBuiltInNav": {
+    "yourAssistant": "Your Assistant"
   },
   "sideMenuOverlayBottomColumn": {
     "newChat": "New Chat"
@@ -916,9 +1069,21 @@
   "sidebarConversationSkeleton": {
     "loadingAria": "Loading conversations"
   },
+  "sidebarListContextMenu": {
+    "newGroup": "New group…"
+  },
+  "skillCreatedCard": {
+    "view": "View",
+    "viewAria": "View {name}"
+  },
   "skillDetailPanel": {
     "actionsAria": "Skill actions",
-    "moreTooltip": "More"
+    "closeDetails": "Close skill details",
+    "goToSkill": "Go to Skill",
+    "loadError": "This skill could not be loaded. It may have been removed.",
+    "moreTooltip": "More",
+    "removeSkill": "Remove skill",
+    "titleFallback": "Skill"
   },
   "skillExecuteDetail": {
     "parameters": "Parameters",
@@ -938,6 +1103,9 @@
     "outputFormatAria": "Output format",
     "showLess": "Show less",
     "showMore": "Show more"
+  },
+  "skillToolList": {
+    "fromSkill": "From {name}"
   },
   "skillsTab": {
     "callLink": "Call {number}",
@@ -959,12 +1127,30 @@
     "details": "Details",
     "showDetailsAria": "Show subagent details"
   },
+  "subagentDetailPanel": {
+    "backToTimelineAria": "Back to timeline",
+    "backTooltip": "Back",
+    "closeDetail": "Close subagent detail",
+    "input": "Input",
+    "noEventsYet": "No events yet",
+    "objective": "Objective",
+    "output": "Output",
+    "showLess": "Show less",
+    "showMore": "Show more",
+    "stopSubagentAria": "Stop subagent",
+    "timeline": "Timeline"
+  },
   "subagentPhaseTimeline": {
     "viewReasoning": "View reasoning",
     "viewSearchDetails": "View search details",
     "viewSearchError": "View search error",
     "viewToolDetails": "View tool details",
     "workedFor": "Worked for {duration}"
+  },
+  "subagentSpawnGroup": {
+    "collapse": "Collapse",
+    "collapseDetailsAria": "Collapse subagent details",
+    "stopSubagentAria": "Stop subagent"
   },
   "suggestionDetailPanel": {
     "closeAria": "Close",
@@ -975,6 +1161,14 @@
   "suggestionLibrary": {
     "scrollForMore": "Scroll down to see more"
   },
+  "surfaceRouter": {
+    "cancelled": "Cancelled",
+    "displayFailed": "This content couldn't be displayed.",
+    "displayFailedNamed": "\"{title}\" couldn't be displayed.",
+    "done": "Done",
+    "unknownSurface": "Unknown surface",
+    "unsupportedType": "Unsupported surface type: {type}"
+  },
   "taskPreferencesSurface": {
     "continue": "Continue",
     "defaultTitle": "What can I help with?",
@@ -982,6 +1176,11 @@
     "otherPlaceholder": "Describe what you need help with...",
     "selectAll": "Select all that apply",
     "somethingElse": "something else entirely"
+  },
+  "tiptapDocumentEditor": {
+    "adding": "Adding…",
+    "comment": "Comment",
+    "feedbackPlaceholder": "Add your feedback…"
   },
   "toolCallChip": {
     "allow": "Allow",
@@ -1032,6 +1231,9 @@
   "visualPlaceholder": {
     "sketching": "Sketching a visual..."
   },
+  "visualSurface": {
+    "visual": "Visual"
+  },
   "voiceComposerBar": {
     "ariaLabel": "Voice session",
     "endSession": "End voice session",
@@ -1041,6 +1243,19 @@
     "openVoiceRoom": "Open voice room",
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
+  },
+  "voiceFirstRunCard": {
+    "backAria": "Back",
+    "description": "A hands-free, spoken conversation with {name}.",
+    "listeningLanguage": "Listening language",
+    "listeningLanguageApplies": "Applies from your next spoken turn.",
+    "liveCaptions": "Turn on live captions anytime.",
+    "muteMic": "Mute the mic without ending the session.",
+    "speakNaturally": "Speak naturally and {name} replies out loud.",
+    "startTalking": "Start talking",
+    "title": "Voice mode",
+    "voiceSettings": "Voice settings",
+    "yourAssistant": "your assistant"
   },
   "voicePickerSurface": {
     "unavailable": "Choosing a voice isn't available for this assistant right now."
@@ -1061,6 +1276,16 @@
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
   },
+  "voiceSessionPill": {
+    "dismiss": "Dismiss",
+    "endSession": "End voice session",
+    "goToThreadAria": "Go to voice session thread",
+    "groupAria": "Voice session",
+    "muteAssistant": "Mute assistant",
+    "muteMic": "Mute microphone",
+    "unmuteAssistant": "Unmute assistant",
+    "unmuteMic": "Unmute microphone"
+  },
   "voiceSessionPillHost": {
     "muted": "Muted"
   },
@@ -1080,6 +1305,9 @@
     "viewExtracted": "View extracted",
     "viewRaw": "View raw"
   },
+  "webSearchStepRow": {
+    "moreCount": "+{count} more"
+  },
   "workflowDetailPanel": {
     "agents": "Agents",
     "back": "Back",
@@ -1090,6 +1318,15 @@
     "output": "Output",
     "stopWorkflow": "Stop workflow",
     "subagents": "Subagents"
+  },
+  "workflowLeafDetail": {
+    "input": "Input",
+    "noPromptSummary": "No prompt summary",
+    "noResultSummary": "No result summary",
+    "output": "Output",
+    "prompt": "Prompt",
+    "result": "Result",
+    "running": "Running…"
   },
   "workflowSubagentRow": {
     "cancelledAria": "Cancelled",

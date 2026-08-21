@@ -27,6 +27,7 @@ import {
   isActiveBackgroundTaskStatus,
 } from "@/utils/background-task-status";
 import { captureError } from "@/lib/sentry/capture-error";
+import { useTranslation } from "@/i18n";
 
 export interface BackgroundTaskDetailPanelProps {
   entry: BackgroundTaskEntry;
@@ -37,6 +38,7 @@ export function BackgroundTaskDetailPanel({
   entry,
   onClose,
 }: BackgroundTaskDetailPanelProps) {
+  const { t } = useTranslation("chat");
   const isRunning = isActiveBackgroundTaskStatus(entry.status);
   const isTerminal = !isRunning;
   // Output and exit code are only meaningful once the task has settled.
@@ -65,23 +67,23 @@ export function BackgroundTaskDetailPanel({
         isRunning ? (
           <DetailPanelStopButton
             onStop={handleStop}
-            ariaLabel="Stop command"
+            ariaLabel={t("backgroundTaskDetailPanel.stopCommandAria")}
             disabled={stopping}
           />
         ) : undefined
       }
       closeVariant="outlined"
-      closeLabel="Close task detail"
+      closeLabel={t("backgroundTaskDetailPanel.closeDetail")}
       onClose={onClose}
     >
       <div>
-        <SectionLabel>Command</SectionLabel>
+        <SectionLabel>{t("backgroundTaskDetailPanel.command")}</SectionLabel>
         <CodeBlock text={entry.command} />
       </div>
 
       {showOutput && (
         <div className="mt-5">
-          <SectionLabel>Output</SectionLabel>
+          <SectionLabel>{t("backgroundTaskDetailPanel.output")}</SectionLabel>
           <CodeBlock text={entry.output as string} />
         </div>
       )}
@@ -92,7 +94,7 @@ export function BackgroundTaskDetailPanel({
           as="p"
           className="mt-2 text-[var(--content-tertiary)]"
         >
-          Exit code: {entry.exitCode}
+          {t("backgroundTaskDetailPanel.exitCode", { code: entry.exitCode })}
         </Typography>
       )}
     </DetailShell>

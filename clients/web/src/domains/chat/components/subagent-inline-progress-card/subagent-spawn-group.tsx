@@ -8,6 +8,7 @@ import { useState } from "react";
 import { SubagentAvatarRow } from "@/domains/chat/components/subagent-inline-progress-card/subagent-avatar-row";
 import { SUBAGENT_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/subagent";
 import { InlineProcessCardRow } from "@/domains/chat/process-registry/inline-process-card-row";
+import { useTranslation } from "@/i18n";
 
 export interface SubagentSpawnGroupProps {
   subagentIds: string[];
@@ -20,6 +21,7 @@ export function SubagentSpawnGroup({
   onSubagentClick,
   onStopSubagent,
 }: SubagentSpawnGroupProps) {
+  const { t } = useTranslation("chat");
   // Default collapsed — the avatar summary is the resting state in the mocks.
   const [expanded, setExpanded] = useState(false);
   const reduce = useReducedMotion();
@@ -70,7 +72,7 @@ export function SubagentSpawnGroup({
                 id={id}
                 onOpen={onSubagentClick ? () => onSubagentClick(id) : undefined}
                 onStop={onStopSubagent ? () => onStopSubagent(id) : undefined}
-                stopAriaLabel="Stop subagent"
+                stopAriaLabel={t("subagentSpawnGroup.stopSubagentAria")}
                 testId="inline-process-card"
               />
             ))}
@@ -79,12 +81,12 @@ export function SubagentSpawnGroup({
           <button
             type="button"
             onClick={() => setExpanded(false)}
-            aria-label="Collapse subagent details"
+            aria-label={t("subagentSpawnGroup.collapseDetailsAria")}
             data-testid="subagent-spawn-group-collapse"
             // Matches the SubagentAvatarRow "Details" twin.
             className="mt-2 flex cursor-pointer items-center gap-1 text-[13px] font-medium text-[var(--content-secondary)]"
           >
-            Collapse
+            {t("subagentSpawnGroup.collapse")}
             <ChevronUp className="h-3 w-3 text-[var(--content-tertiary)]" />
           </button>
         </motion.div>

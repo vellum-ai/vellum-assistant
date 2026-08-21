@@ -11,6 +11,7 @@ import {
   injectWidgetBridge,
   isRelayableExternalHref,
 } from "@/utils/sandbox-bridge";
+import { useTranslation } from "@/i18n";
 
 interface VisualSurfaceData {
   html?: string;
@@ -75,6 +76,7 @@ function hashString(value: string): number {
  * here on the assumption that the activation gate is a security boundary.
  */
 export function VisualSurface({ surface }: { surface: Surface }) {
+  const { t } = useTranslation("chat");
   const navigate = useNavigate();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const theme = useDocumentTheme();
@@ -181,7 +183,7 @@ export function VisualSurface({ surface }: { surface: Surface }) {
         srcDoc={srcDoc}
         sandbox="allow-scripts"
         referrerPolicy="no-referrer"
-        title={surface.title || "Visual"}
+        title={surface.title || t("visualSurface.visual")}
         style={{
           width: "100%",
           height: `${heightState.height}px`,

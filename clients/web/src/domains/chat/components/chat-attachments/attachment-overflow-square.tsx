@@ -6,6 +6,7 @@ import {
   useViewerStore,
   type MessageFilesPayload,
 } from "@/stores/viewer-store";
+import { useTranslation } from "@/i18n";
 
 interface AttachmentOverflowSquareProps {
   /** How many attachments are hidden behind this tile. */
@@ -29,6 +30,7 @@ export function AttachmentOverflowSquare({
   count,
   payload,
 }: AttachmentOverflowSquareProps) {
+  const { t } = useTranslation("chat");
   const toggleMessageFiles = useViewerStore.use.toggleMessageFiles();
   const mainView = useViewerStore.use.mainView();
   const activeMessageFiles = useViewerStore.use.activeMessageFiles();
@@ -44,9 +46,9 @@ export function AttachmentOverflowSquare({
     <button
       type="button"
       onClick={() => toggleMessageFiles(payload)}
-      aria-label={`Show all files (${count} more)`}
+      aria-label={t("attachmentOverflowSquare.showAllAria", { count })}
       aria-expanded={active}
-      title={`${count} more`}
+      title={t("attachmentOverflowSquare.moreTitle", { count })}
       className={`${ATTACHMENT_TILE_BOX_CLASS} flex items-center justify-center border border-dashed transition-colors ${
         active
           ? "border-[var(--border-active)] bg-[var(--surface-lift)]"
