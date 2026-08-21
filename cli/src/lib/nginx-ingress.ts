@@ -21,10 +21,17 @@ import { cloudAssistantHubUrl } from "@vellumai/environments";
 import {
   getAssistantDisplayName,
   lookupAssistantByIdentifier,
+  type AssistantEntry,
 } from "./assistant-config.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { waitForDaemonReady } from "./http-client.js";
-import { loadRawConfig, saveRawConfig } from "./ingress-config.js";
+import {
+  getDefaultWorkspaceDir,
+  isLocalContainerEntry,
+  loadRawConfig,
+  parseGatewayPortFromEntryUrls,
+  saveRawConfig,
+} from "./ingress-config.js";
 import { findWebDistDir } from "./web-dist.js";
 
 export { findWebDistDir } from "./web-dist.js";
@@ -909,6 +916,35 @@ function lockfileAssistantName(assistantId: string): string | undefined {
 /** User-facing label for the edge mode, shared by every edge status line. */
 export function formatEdgeMode(includesWebApp: boolean): string {
   return includesWebApp ? "remote web + webhooks" : "webhooks only";
+}
+
+/**
+ * Stop the tunnel edge fronting a container assistant, if this assistant is
+ * the one it currently fronts.
+ *
+ * Container topologies share one default-workspace edge (one pidfile, one
+ * listen port), so the recorded `gatewayPort` is what attributes it. Without
+ * that check this would tear down another assistant's working tunnel; a record
+ * with no recorded port cannot be attributed, so it is left alone.
+ */
+export async function stopContainerTunnelEdge(
+  entry: AssistantEntry,
+): Promise<boolean> {
+  if (!isLocalContainerEntry(entry)) {
+    return false;
+  }
+  const gatewayPort = parseGatewayPortFromEntryUrls(entry);
+  if (gatewayPort === undefined) {
+    return false;
+  }
+  const workspaceDir = getDefaultWorkspaceDir();
+  if (!isIngressRunning(workspaceDir)) {
+    return false;
+  }
+  if (readIngressState(workspaceDir)?.gatewayPort !== gatewayPort) {
+    return false;
+  }
+  return stopIngressNginx(workspaceDir);
 }
 
 /** Resolved edge a tunnel (or bring-your-own HTTPS front) should target. */

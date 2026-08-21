@@ -294,13 +294,13 @@ describe("introOnAdvance", () => {
   test("walks to the next beat", () => {
     expect(introOnAdvance("meet", "next")).toBe("talk");
     expect(introOnAdvance("talk", "next")).toBe("type");
-    expect(introOnAdvance("type", "next")).toBe("tray");
+    expect(introOnAdvance("type", "next")).toBe("menu");
   });
 
   // Past the last beat there is no next one, and `null` is what main reads as
   // the run being over and worth recording.
   test("falls off the end of the last beat", () => {
-    expect(introOnAdvance("tray", "next")).toBe(null);
+    expect(introOnAdvance("menu", "next")).toBe(null);
   });
 
   test("dismiss ends the run from any beat", () => {
