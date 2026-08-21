@@ -527,7 +527,7 @@ describe("deprecated providers connections alias", () => {
 });
 
 describe("providers login-chatgpt", () => {
-  test("delivers the authorization URL through the host browser signal and stderr", async () => {
+  test("delivers the authorization URL through the browser helper and stderr", async () => {
     const { stdout, stderr, exitCode } = await run([
       "providers",
       "login-chatgpt",
