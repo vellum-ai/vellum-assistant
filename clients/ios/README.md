@@ -9,7 +9,8 @@ This is _not_ a port of the web app — it's a thin `WKWebView` shell in
 (`options.deploymentTarget.iOS`) — both, because the xcconfig wins for
 targets that carry one and the `project.yml` value covers those that
 don't. Do not lower it: Live Activities need 16.1, interactive Live
-Activity content 17.0, and the Action Button 17.1. The Control Center
+Activity content 17.0, the Home Screen widgets' `Button(intent:)`
+targets 17.0, and the Action Button 17.1. The Control Center
 control needs 18.0 and is therefore `@available`-gated rather than
 holding the whole app back.
 
@@ -751,11 +752,15 @@ clients/
     │   │   ├── SelfHostedServer.swift      # Active + remembered self-hosted origins
     │   │   ├── SelfHostedServersPlugin.swift # Server list / origin switching bridge
     │   │   ├── RecentChatsPlugin.swift # Conversation-list cache for the Shortcuts chat picker
+    │   │   ├── WidgetSnapshotPlugin.swift # App Group snapshot the Home Screen widgets render
     │   │   ├── Intents/              # App Intents + AppShortcutsProvider
     │   │   ├── Shared/               # Compiled into app + widget extension
     │   │   └── Info.plist
     │   ├── VoiceActivity/            # WidgetKit extension: Live Activity
-    │   │                             # presentations + Control Center controls
+    │   │   │                         # presentations + Control Center controls
+    │   │   └── Widgets/              # Catch Up, Status, and Quick Actions
+    │   │                             # Home Screen widgets over the App Group
+    │   │                             # snapshot
     │   └── CapApp-SPM/               # SPM local package: pulls in @capacitor/ios
     │                                 # and any Capacitor plugin native deps
     └── debug.xcconfig                # Sets CAPACITOR_DEBUG for Debug builds

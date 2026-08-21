@@ -40,6 +40,27 @@ enum WidgetTheme {
     /// chrome, and so it survives sitting on the green tile's neighbours.
     static let unseenIndicator = dynamic(light: "#FFB200", dark: "#FFC13D")
 
+    /// The whole card, for the Quick Actions widget's brand appearance.
+    ///
+    /// Deepened for dark mode where ``brand`` is lightened, because the two
+    /// play opposite roles: `brand` is drawn *on* `surface` and has to separate
+    /// from it, while this one *is* the surface, and a mint block would be the
+    /// brightest thing on a dark Home Screen. Content drawn on it is white in
+    /// both appearances, which is why there is no companion text color here.
+    static let brandCardSurface = dynamic(light: "#0E9B8B", dark: "#0B7A6E")
+
+    /// The assistant mark's body on the brand card, lighter than the card it
+    /// sits on. That contrast is the only reason it is a separate value: a
+    /// brand-green mark on a brand-green card is not a mark.
+    static let avatarBody = fixed("#7FD7C8")
+
+    /// The mark's eye whites and pupils, carrying the values the product's
+    /// avatar compositor draws with so the widget's stand-in is recognizably
+    /// the same character. Fixed rather than dynamic for the same reason a
+    /// face does not change color with the Home Screen behind it.
+    static let avatarSclera = fixed("#F2F2F2")
+    static let avatarPupil = fixed("#1A1A1A")
+
     /// A color that resolves from the appearance the widget is rendered in.
     ///
     /// Both hex strings go through ``UIColor/init(cssHex:)`` so this file does
@@ -51,5 +72,13 @@ enum WidgetTheme {
         return Color(uiColor: UIColor { traits in
             traits.userInterfaceStyle == .dark ? darkColor : lightColor
         })
+    }
+
+    /// A color that is the same in both appearances, for the few values whose
+    /// job is to be one specific color rather than to sit legibly on a surface
+    /// that changes. Same parser and same unreachable-fallback story as
+    /// ``dynamic(light:dark:)``.
+    private static func fixed(_ hex: String) -> Color {
+        Color(uiColor: UIColor(cssHex: hex) ?? .gray)
     }
 }

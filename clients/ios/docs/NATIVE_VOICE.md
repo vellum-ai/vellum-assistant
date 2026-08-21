@@ -22,8 +22,8 @@ exactly four things:
 | --- | --- |
 | `VoiceAudioSessionPlugin` | Owns `AVAudioSession` for the duration of a session (`.playAndRecord` / `.voiceChat`), and reports interruptions |
 | `VoiceLiveActivityPlugin` | Requests, updates, and ends the one ActivityKit activity mirroring the session |
-| `VoiceActivity` widget extension | Renders that activity on the Lock Screen and in the Dynamic Island, plus the Control Center controls (the voice one below, and the non-voice "Open Vellum" app launcher) |
-| App Intents + `AppShortcutsProvider` | Turn a Siri phrase, a Spotlight hit, an Action Button press, or a control tap into a `<scheme>://voice` URL |
+| `VoiceActivity` widget extension | Renders that activity on the Lock Screen and in the Dynamic Island, plus the two Control Center / Lock Screen controls (the voice one below, and the non-voice "Open Vellum" app launcher). The same bundle also hosts three non-voice Home Screen widgets, Catch Up, Status, and Quick Actions, which draw the shared App Group snapshot and carry a voice button of their own |
+| App Intents + `AppShortcutsProvider` | Turn a Siri phrase, a Spotlight hit, an Action Button press, a control tap, or a widget button into a `<scheme>://voice` URL |
 
 Everything native is *additive*. Remove all of it and voice still works — that
 property is load-bearing, because the shell ships on App Store review cadence
@@ -63,6 +63,7 @@ Siri phrase / Spotlight / Action Button   →  StartVoiceModeIntent
                                              StartNewVoiceConversationIntent
                                              AskVellumIntent
 Control Center / Lock Screen control      →  StartNewVoiceConversationIntent
+Home Screen widget voice button           →  StartNewVoiceConversationIntent
 Dynamic Island / Lock Screen tap          →  .widgetURL(VoiceModeDeepLink.resume.url())
 Safari, a test link, another app          →  application(_:open:) / launchOptions[.url]
         │                        all of them produce  <scheme>://voice?mode=…
@@ -260,7 +261,7 @@ otherwise arrive as a `prompt` of `Ben ` plus a stray parameter.
 | Producer | Mode | Where |
 | --- | --- | --- |
 | `StartVoiceModeIntent` (Siri: "Talk to Vellum") | `resume` | `App/App/Intents/` |
-| `StartNewVoiceConversationIntent` (Action Button, Control Center) | `new` | `App/App/Shared/` |
+| `StartNewVoiceConversationIntent` (Action Button, Control Center, Home Screen widgets) | `new` | `App/App/Shared/` |
 | `AskVellumIntent` (Siri collects the question) | `new` + `prompt` | `App/App/Intents/` |
 | Live Activity `widgetURL` (island / Lock Screen tap) | `resume` | `App/VoiceActivity/VoiceSessionLiveActivity.swift` |
 | Safari, a note, another app, a test link | either | — |
@@ -807,6 +808,7 @@ agree character for character across the portal, the xcconfigs, and
 | `App/App/Shared/VoiceSessionControlIntent.swift` | The intent behind every island button; in `Shared/` so the appex can name it |
 | `App/App/Intents/` | The other two intents and `VoiceAppShortcuts` |
 | `App/VoiceActivity/` | Widget extension: bundle, Live Activity, island views, Control Center controls |
+| `App/VoiceActivity/Widgets/` | The three Home Screen widgets, their shared snapshot timeline, and the widget palette; snapshot-driven and unrelated to voice apart from a shared voice button |
 | `App/App/Config/Extension*.xcconfig` | Extension build settings; bundle IDs, schemes, profile specifiers |
 | `App/project.yml` | Six targets, `VOICE_ACTIVITY_EXTENSION`, embed relationships |
 
