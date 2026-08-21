@@ -156,6 +156,7 @@ export function QueuedMessagesDrawer({
   onSteer,
   onEditTail,
 }: QueuedMessagesDrawerProps): ReactNode {
+  const { t } = useTranslation("chat");
   // Read once per mount: the primary pointer does not change under a live
   // component, and re-reading per render would fight the reveal state.
   const twoStep = useMemo(() => isPointerCoarse(), []);
@@ -176,7 +177,6 @@ export function QueuedMessagesDrawer({
   // re-target the reveal instead, which the row handler already does.
   useEffect(() => {
     if (revealedMessageId === null) {
-  const { t } = useTranslation("chat");
       return;
     }
     const onPointerDown = (event: PointerEvent) => {
