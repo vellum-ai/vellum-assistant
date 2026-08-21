@@ -642,23 +642,18 @@ async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
     ) {
       setSelfHostedConnection(previous);
     }
-    // A mint that still refuses the guardian token after the `wake` the repair
-    // just ran needs a guardian re-provision, which a plain wake never
-    // performs, so no amount of retrying here revives this session. Drop the
-    // rejected token so the reconnect mints one rather than replaying a token
-    // whose local expiry still looks fine, and hand the session to the
-    // chooser, which owns the re-provision.
-    //
     // A selection that moved while the wake and its retries ran makes this the
     // verdict on an assistant nobody is connected to any more, so it says
     // nothing about the one that is: clearing the shared gateway token or
     // routing to the chooser would act on a session this never touched.
     const repairRequired =
       isRepairableGatewayTokenError(err) && stillRecoveringForSelection;
-    const outcome = repairRequired ? "guardian_repair" : "failed";
+    const outcome = repairRequired ? "repair_handoff" : "failed";
     recordLifecycleDiagnostic("gw_401_recovery", { outcome });
     captureError(err, { context: "gw_401_recovery", tags: { outcome } });
     if (repairRequired) {
+      // Drop the rejected token so the reconnect mints one rather than
+      // replaying a token whose local expiry still looks fine.
       clearGatewayToken();
       gw401AbandonedFor = { token: getSelfHostedActorToken() };
       publish("gateway.guardian-repair-required", {});

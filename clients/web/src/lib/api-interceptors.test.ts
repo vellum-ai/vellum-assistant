@@ -1195,11 +1195,21 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
   let originalReload: typeof window.location.reload;
   let reloadCalls: number;
+  // Publishes of the guardian-repair handoff during the test that is running.
+  let repairRequests: number;
+  let unsubscribeRepairRequests: () => void;
   let originalFetch: typeof globalThis.fetch;
   let replayedRequests: Request[];
 
   beforeEach(() => {
     reloadCalls = 0;
+    repairRequests = 0;
+    unsubscribeRepairRequests = subscribe(
+      "gateway.guardian-repair-required",
+      () => {
+        repairRequests += 1;
+      },
+    );
     originalReload = window.location.reload;
     Object.defineProperty(window.location, "reload", {
       configurable: true,
@@ -1233,6 +1243,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   });
 
   afterEach(() => {
+    unsubscribeRepairRequests();
     globalThis.fetch = originalFetch;
     Object.defineProperty(window.location, "reload", {
       configurable: true,
@@ -1496,29 +1507,21 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     primeGatewayWithRepairImpl = async () => {
       throw new GatewayTokenError(401, "Gateway token request failed: 401");
     };
-    let repairRequests = 0;
-    const unsubscribe = subscribe("gateway.guardian-repair-required", () => {
-      repairRequests += 1;
-    });
 
-    try {
-      // WHEN a 401 reaches the interceptor
-      const response = gatewayResponse(401);
-      const result = await localGatewayAuthRecoveryInterceptor(
-        response,
-        gatewayGet(),
-      );
+    // WHEN a 401 reaches the interceptor
+    const response = gatewayResponse(401);
+    const result = await localGatewayAuthRecoveryInterceptor(
+      response,
+      gatewayGet(),
+    );
 
-      // THEN nothing is left for the reconnect to replay
-      expect(getGatewayToken()).toBeNull();
-      // AND the chooser is asked for the repair it alone offers
-      expect(repairRequests).toBe(1);
-      // AND the 401 still flows to the caller's error path, no reload
-      expect(result).toBe(response);
-      expect(reloadCalls).toBe(0);
-    } finally {
-      unsubscribe();
-    }
+    // THEN nothing is left for the reconnect to replay
+    expect(getGatewayToken()).toBeNull();
+    // AND the chooser is asked for the repair it alone offers
+    expect(repairRequests).toBe(1);
+    // AND the 401 still flows to the caller's error path, no reload
+    expect(result).toBe(response);
+    expect(reloadCalls).toBe(0);
   });
 
   test("a repair verdict from a superseded assistant leaves the live session alone", async () => {
@@ -1536,25 +1539,17 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
       selectedAssistantImpl = () => ({ assistantId: "asst-b", cloud: "local" });
       throw new GatewayTokenError(401, "Gateway token request failed: 401");
     };
-    let repairRequests = 0;
-    const unsubscribe = subscribe("gateway.guardian-repair-required", () => {
-      repairRequests += 1;
-    });
 
-    try {
-      // WHEN the superseded recovery fails repairably
-      await localGatewayAuthRecoveryInterceptor(
-        gatewayResponse(401),
-        gatewayGet(),
-      );
+    // WHEN the superseded recovery fails repairably
+    await localGatewayAuthRecoveryInterceptor(
+      gatewayResponse(401),
+      gatewayGet(),
+    );
 
-      // THEN the token the new selection may already hold survives
-      expect(getGatewayToken()).toBe("stale-jwt");
-      // AND the user is not routed away from it
-      expect(repairRequests).toBe(0);
-    } finally {
-      unsubscribe();
-    }
+    // THEN the token the new selection may already hold survives
+    expect(getGatewayToken()).toBe("stale-jwt");
+    // AND the user is not routed away from it
+    expect(repairRequests).toBe(0);
   });
 
   test("re-arms recovery once a reconnect installs a fresh bearer", async () => {
@@ -1607,30 +1602,22 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     primeGatewayWithRepairImpl = async () => {
       throw new GatewayTokenError(401, "Gateway token request failed: 401");
     };
-    let repairRequests = 0;
-    const unsubscribe = subscribe("gateway.guardian-repair-required", () => {
-      repairRequests += 1;
-    });
 
-    try {
-      // WHEN a 401 gives up, an ingress 2xx refunds the budget, and
-      // another 401 arrives
-      await localGatewayAuthRecoveryInterceptor(
-        gatewayResponse(401),
-        gatewayGet(),
-      );
-      await localGatewayAuthRecoveryInterceptor(gatewayResponse(200));
-      await localGatewayAuthRecoveryInterceptor(
-        gatewayResponse(401),
-        gatewayGet(),
-      );
+    // WHEN a 401 gives up, an ingress 2xx refunds the budget, and
+    // another 401 arrives
+    await localGatewayAuthRecoveryInterceptor(
+      gatewayResponse(401),
+      gatewayGet(),
+    );
+    await localGatewayAuthRecoveryInterceptor(gatewayResponse(200));
+    await localGatewayAuthRecoveryInterceptor(
+      gatewayResponse(401),
+      gatewayGet(),
+    );
 
-      // THEN the repair ran once and was asked for once
-      expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
-      expect(repairRequests).toBe(1);
-    } finally {
-      unsubscribe();
-    }
+    // THEN the repair ran once and was asked for once
+    expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
+    expect(repairRequests).toBe(1);
   });
 
   test("a failed recovery restores the connection slot the prime nulled", async () => {
