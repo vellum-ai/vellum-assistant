@@ -1,7 +1,14 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ToolContext } from "../../../../tools/types.js";
-import { run } from "./open-system-settings.js";
+
+let windowsHost = true;
+
+mock.module("../../../../util/platform.js", () => ({
+  isWindows: () => windowsHost,
+}));
+
+const { run } = await import("./open-system-settings.js");
 
 let sentMessages: Array<{ type: string; [key: string]: unknown }> = [];
 
@@ -19,6 +26,7 @@ function makeContext(): ToolContext {
 describe("open_system_settings tool", () => {
   beforeEach(() => {
     sentMessages = [];
+    windowsHost = true;
   });
 
   test("opens Windows microphone privacy settings", async () => {
@@ -55,6 +63,13 @@ describe("open_system_settings tool", () => {
         conversationId: "conv-xyz",
       },
     ]);
+  });
+
+  test("uses the host platform when the client platform is absent", async () => {
+    const result = await run({ pane: "microphone" }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(sentMessages[0]?.url).toBe("ms-settings:privacy-microphone");
   });
 
   test("rejects an unsupported platform", async () => {

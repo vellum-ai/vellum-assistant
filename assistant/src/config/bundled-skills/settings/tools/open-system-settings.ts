@@ -56,8 +56,9 @@ export async function run(
     };
   }
 
-  const platform: SettingsPlatform =
-    requestedPlatform === "windows" || isWindows() ? "windows" : "macos";
+  const platform =
+    (requestedPlatform as SettingsPlatform | undefined) ??
+    (isWindows() ? "windows" : "macos");
   const meta = PANES[pane as PaneName];
 
   if (context.sendToClient) {
