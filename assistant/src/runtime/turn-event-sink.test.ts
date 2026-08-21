@@ -74,7 +74,7 @@ describe("createBatchedTurnEventSink", () => {
 
     expect(publish).toHaveBeenNthCalledWith(1, textEvent);
     expect(publish).toHaveBeenNthCalledWith(2, openUrlEvent, undefined, {
-      targetClientId: "client-1",
+      targetClientId: "client-2",
     });
     expect(publish).toHaveBeenCalledTimes(2);
   });
