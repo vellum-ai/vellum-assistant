@@ -169,6 +169,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(ApnsEnvironmentPlugin())
         bridge?.registerPluginInstance(SelfHostedServersPlugin())
         bridge?.registerPluginInstance(RecentChatsPlugin())
+        bridge?.registerPluginInstance(WidgetSnapshotPlugin())
         installNavigationDelegateProxy()
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
