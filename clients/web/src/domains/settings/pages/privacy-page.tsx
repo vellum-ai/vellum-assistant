@@ -8,6 +8,7 @@ import {
   useShareDiagnostics,
 } from "@/domains/onboarding/prefs";
 import { AccessConsentSetting } from "@/domains/settings/components/access-consent-setting";
+import { AppIconCard } from "@/domains/settings/components/app-icon-card";
 import { BiometricSettingsCard } from "@/domains/settings/components/biometric-settings-card";
 import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card";
 import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings";
@@ -96,6 +97,7 @@ export function PrivacyPage() {
   return (
     <div className="space-y-4">
       <BiometricSettingsCard />
+      <AppIconCard />
       <SystemPermissionsCard />
       <TrustRules />
       <RiskToleranceSettings />

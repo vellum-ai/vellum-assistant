@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { appIconNameForAvatar, resolveAppIconTarget } from "./avatar-app-icon";
+import {
+  appIconNameForAvatar,
+  isAvatarAppIcon,
+  resolveAppIconTarget,
+} from "./avatar-app-icon";
 import type { AvatarState } from "@/types/avatar";
 
 /**
@@ -132,5 +136,27 @@ describe("resolveAppIconTarget", () => {
       supportedShell,
     );
     expect(result).toEqual({ target: null, availableMatch: false });
+  });
+});
+
+describe("isAvatarAppIcon", () => {
+  test("recognizes a name this feature produced", () => {
+    const name = appIconNameForAvatar(
+      avatarState({
+        bodyShape: "blob",
+        eyeStyle: "curious",
+        color: "cosmic-purple",
+      }),
+    );
+
+    expect(isAvatarAppIcon(name)).toBe(true);
+  });
+
+  test("the default icon is not one of ours", () => {
+    expect(isAvatarAppIcon(null)).toBe(false);
+  });
+
+  test("an alternate from some other feature is not one of ours", () => {
+    expect(isAvatarAppIcon("seasonal-winter")).toBe(false);
   });
 });
