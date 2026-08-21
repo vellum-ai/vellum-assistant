@@ -450,10 +450,10 @@ function normalizeSendMessageOptions(
     }
 
     // Apply resolved values, letting per-call explicit fields win where set.
-    // `model` has no explicit-field escape hatch: the last producer (the
-    // agent loop's per-run `model` option) was removed as dead code, and a
-    // caller-set model would graft one model's id onto another model's
-    // resolved parameters. Call-site/profile resolution alone decides it.
+    // `model` has no explicit-field escape hatch: call-site/profile
+    // resolution is the sole source of the model, because a caller-set model
+    // would graft one model's id onto another model's resolved parameters
+    // (thinking encoding, token budgets, and effort mapping are per-model).
     nextConfig.model = resolved.model;
     if (nextConfig.max_tokens === undefined) {
       nextConfig.max_tokens = resolved.maxTokens;
