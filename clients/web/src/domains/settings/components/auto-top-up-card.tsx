@@ -239,7 +239,7 @@ export function AutoTopUpCard() {
     return (
       <div data-testid="auto-top-up-card">
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          Loading…
+          {t("autoTopUpCard.loading")}
         </p>
       </div>
     );
@@ -474,8 +474,10 @@ export function AutoTopUpCard() {
               variant="body-medium-default"
               className="truncate text-[var(--content-default)]"
             >
-              Add {formatUsdShort(config.amount_usd)} when balance falls under{" "}
-              {formatUsdShort(config.threshold_usd)}
+              {t("autoTopUpCard.summary", {
+                amount: formatUsdShort(config.amount_usd),
+                threshold: formatUsdShort(config.threshold_usd),
+              })}
             </Typography>
           </SummaryChip>
           {config.monthly_cap_usd != null && (
@@ -485,12 +487,12 @@ export function AutoTopUpCard() {
                 className="truncate text-[var(--content-default)]"
               >
                 <span>
-                  {formatUsdShort(
-                    config.current_month_credits_purchased_usd,
-                  )}{" "}
+                  {formatUsdShort(config.current_month_credits_purchased_usd)}
                 </span>
                 <span className="text-[var(--content-tertiary)]">
-                  / {formatUsdShort(config.monthly_cap_usd)} this month
+                  {t("autoTopUpCard.capProgress", {
+                    cap: formatUsdShort(config.monthly_cap_usd),
+                  })}
                 </span>
               </Typography>
             </SummaryChip>
@@ -521,8 +523,7 @@ export function AutoTopUpCard() {
             </Button>
           }
         >
-          We paused automatic reloads after several declined payments. Add a new
-          payment method to turn auto-reload back on.
+          {t("autoTopUpCard.declinedCutoffNotice")}
         </Notice>
       )}
 
@@ -550,7 +551,7 @@ export function AutoTopUpCard() {
                 </div>
                 <button
                   type="button"
-                  aria-label="Dismiss"
+                  aria-label={t("autoTopUpCard.dismiss")}
                   onClick={() => setBannerDismissed(true)}
                   className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 text-[var(--system-mid-strong)] opacity-70 transition-opacity hover:opacity-100"
                 >

@@ -3,29 +3,32 @@ import { AlertTriangle, Bug, Flame, Info, Timer, XCircle } from "lucide-react";
 import { type ReactNode, useCallback } from "react";
 
 import { DetailCard } from "@/components/detail-card";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
 
 export function SentryTestingPanel() {
+  const { t } = useTranslation("settings");
+
   const handleCaptureError = useCallback(() => {
     Sentry.captureException(new Error("[Dev Settings] Test error event"));
-    toast.success("Sentry error event sent.");
-  }, []);
+    toast.success(t("sentryTestingPanel.errorSentToast"));
+  }, [t]);
 
   const handleCaptureWarning = useCallback(() => {
     Sentry.captureMessage("[Dev Settings] Test warning event", "warning");
-    toast.success("Sentry warning event sent.");
-  }, []);
+    toast.success(t("sentryTestingPanel.warningSentToast"));
+  }, [t]);
 
   const handleCaptureInfo = useCallback(() => {
     Sentry.captureMessage("[Dev Settings] Test info event", "info");
-    toast.success("Sentry info event sent.");
-  }, []);
+    toast.success(t("sentryTestingPanel.infoSentToast"));
+  }, [t]);
 
   const handleCaptureFatal = useCallback(() => {
     Sentry.captureMessage("[Dev Settings] Test fatal event", "fatal");
-    toast.success("Sentry fatal event sent.");
-  }, []);
+    toast.success(t("sentryTestingPanel.fatalSentToast"));
+  }, [t]);
 
   const handleCaptureTransaction = useCallback(() => {
     const transaction = Sentry.startInactiveSpan({
@@ -34,51 +37,51 @@ export function SentryTestingPanel() {
       forceTransaction: true,
     });
     transaction.end();
-    toast.success("Sentry performance transaction sent.");
-  }, []);
+    toast.success(t("sentryTestingPanel.transactionSentToast"));
+  }, [t]);
 
   return (
     <DetailCard
-      title="Sentry Testing"
-      subtitle="Fire test events to verify Sentry integration is working."
+      title={t("sentryTestingPanel.title")}
+      subtitle={t("sentryTestingPanel.subtitle")}
     >
       <div className="space-y-3">
         <SentryTestRow
           icon={
             <Flame className="h-4 w-4 text-[var(--system-negative-strong)]" />
           }
-          label="Fatal Event"
-          description="Send a fatal-level event to Sentry."
+          label={t("sentryTestingPanel.fatalLabel")}
+          description={t("sentryTestingPanel.fatalDescription")}
           onClick={handleCaptureFatal}
         />
         <SentryTestRow
           icon={
             <XCircle className="h-4 w-4 text-[var(--system-negative-default)]" />
           }
-          label="Error Event"
-          description="Capture a test Error exception."
+          label={t("sentryTestingPanel.errorLabel")}
+          description={t("sentryTestingPanel.errorDescription")}
           onClick={handleCaptureError}
         />
         <SentryTestRow
           icon={
             <AlertTriangle className="h-4 w-4 text-[var(--system-warning-default)]" />
           }
-          label="Warning Event"
-          description="Send a warning-level message."
+          label={t("sentryTestingPanel.warningLabel")}
+          description={t("sentryTestingPanel.warningDescription")}
           onClick={handleCaptureWarning}
         />
         <SentryTestRow
           icon={<Info className="h-4 w-4 text-[var(--content-tertiary)]" />}
-          label="Info Event"
-          description="Send an info-level message."
+          label={t("sentryTestingPanel.infoLabel")}
+          description={t("sentryTestingPanel.infoDescription")}
           onClick={handleCaptureInfo}
         />
         <SentryTestRow
           icon={
             <Timer className="h-4 w-4 text-[var(--system-positive-default)]" />
           }
-          label="Performance Transaction"
-          description="Start and end a test transaction span."
+          label={t("sentryTestingPanel.performanceLabel")}
+          description={t("sentryTestingPanel.performanceDescription")}
           onClick={handleCaptureTransaction}
         />
       </div>
@@ -99,6 +102,7 @@ function SentryTestRow({
   description,
   onClick,
 }: SentryTestRowProps) {
+  const { t } = useTranslation("settings");
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border border-[var(--border-base)] px-4 py-3">
       <div className="flex min-w-0 items-center gap-3">
@@ -114,7 +118,7 @@ function SentryTestRow({
       </div>
       <Button variant="outlined" size="compact" onClick={onClick}>
         <Bug className="h-4 w-4" />
-        Send
+        {t("sentryTestingPanel.send")}
       </Button>
     </div>
   );
