@@ -18,6 +18,24 @@ import {
  * no-`.vellum/`-reads boundary in cli/AGENTS.md.
  */
 
+export type TunnelProviderName = "ngrok" | "cloudflare" | "tailscale";
+
+const TUNNEL_PROVIDER_NAMES: readonly string[] = [
+  "ngrok",
+  "cloudflare",
+  "tailscale",
+];
+
+function isTunnelProviderName(value: unknown): value is TunnelProviderName {
+  return typeof value === "string" && TUNNEL_PROVIDER_NAMES.includes(value);
+}
+
+/** The tunnel that most recently ran, kept after teardown so UIs can name the command to restart. */
+export interface LastTunnelRecord {
+  provider: TunnelProviderName;
+  publicBaseUrl: string;
+}
+
 /** Default workspace dir: `$VELLUM_WORKSPACE_DIR` or `~/.vellum/workspace`. */
 export function getDefaultWorkspaceDir(): string {
   return (
@@ -38,6 +56,14 @@ export function loadRawConfig(workspaceDir: string): Record<string, unknown> {
     string,
     unknown
   >;
+}
+
+function loadIngressSection(
+  workspaceDir: string,
+): Record<string, unknown> | undefined {
+  return loadRawConfig(workspaceDir).ingress as
+    | Record<string, unknown>
+    | undefined;
 }
 
 /** Write the workspace `config.json`, creating parent directories as needed. */
@@ -68,21 +94,62 @@ function stampLockfileIngressUrl(
   saveAssistantEntry(entry);
 }
 
-/** Persist a public ingress URL to the workspace config and enable ingress. */
+/**
+ * Persist a public ingress URL to the workspace config and enable ingress.
+ * `provider`/`assistantId` also land under `ingress.lastTunnel` and
+ * `ingress.assistantId` — workspace-only records the daemon reads to report
+ * tunnel health, deliberately not mirrored onto the lockfile.
+ */
 export function saveIngressUrl(
   workspaceDir: string,
   publicUrl: string,
   assistantId?: string,
+  provider?: TunnelProviderName,
 ): void {
   const config = loadRawConfig(workspaceDir);
   const ingress = (config.ingress ?? {}) as Record<string, unknown>;
   ingress.publicBaseUrl = publicUrl;
   ingress.enabled = true;
+  if (provider) {
+    ingress.lastTunnel = {
+      provider,
+      publicBaseUrl: publicUrl,
+    } satisfies LastTunnelRecord;
+  }
+  // The daemon can't derive this: it uses 'self' internally.
+  if (assistantId) {
+    ingress.assistantId = assistantId;
+  }
   config.ingress = ingress;
   saveRawConfig(workspaceDir, config);
   if (assistantId) {
     stampLockfileIngressUrl(assistantId, publicUrl);
   }
+}
+
+/** Read the last tunnel that ran, or null when absent or malformed. */
+export function loadLastTunnel(workspaceDir: string): LastTunnelRecord | null {
+  const record = loadIngressSection(workspaceDir)?.lastTunnel as
+    | Record<string, unknown>
+    | undefined;
+  const provider = record?.provider;
+  const publicBaseUrl = record?.publicBaseUrl;
+  if (
+    !isTunnelProviderName(provider) ||
+    typeof publicBaseUrl !== "string" ||
+    !publicBaseUrl.trim()
+  ) {
+    return null;
+  }
+  return { provider, publicBaseUrl };
+}
+
+/** Read the assistant ID the last tunnel fronted, or null when absent. */
+export function loadRecordedAssistantId(workspaceDir: string): string | null {
+  const assistantId = loadIngressSection(workspaceDir)?.assistantId;
+  return typeof assistantId === "string" && assistantId.trim()
+    ? assistantId
+    : null;
 }
 
 /** Persist a reserved ngrok domain under `ingress.ngrok.domain`; null clears it. */
@@ -103,9 +170,9 @@ export function saveNgrokDomain(
 
 /** Read the reserved ngrok domain from the workspace config, if saved. */
 export function loadNgrokDomain(workspaceDir: string): string | null {
-  const config = loadRawConfig(workspaceDir);
-  const ingress = config.ingress as Record<string, unknown> | undefined;
-  const ngrok = ingress?.ngrok as Record<string, unknown> | undefined;
+  const ngrok = loadIngressSection(workspaceDir)?.ngrok as
+    | Record<string, unknown>
+    | undefined;
   const domain = ngrok?.domain;
   return typeof domain === "string" && domain.trim() ? domain : null;
 }
@@ -117,6 +184,8 @@ export function clearIngressUrl(
 ): void {
   const config = loadRawConfig(workspaceDir);
   const ingress = (config.ingress ?? {}) as Record<string, unknown>;
+  // `lastTunnel`/`assistantId` survive teardown on purpose — readers name the
+  // tunnel to restart once it is gone.
   delete ingress.publicBaseUrl;
   config.ingress = ingress;
   saveRawConfig(workspaceDir, config);

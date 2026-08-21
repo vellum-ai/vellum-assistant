@@ -7,7 +7,12 @@ import { join } from "node:path";
 const testDir = mkdtempSync(join(tmpdir(), "ingress-config-test-"));
 process.env.VELLUM_LOCKFILE_DIR = testDir;
 
-import { clearIngressUrl, saveIngressUrl } from "../lib/ingress-config.js";
+import {
+  clearIngressUrl,
+  loadLastTunnel,
+  loadRecordedAssistantId,
+  saveIngressUrl,
+} from "../lib/ingress-config.js";
 
 function writeLockfile(entry: Record<string, unknown>): void {
   writeFileSync(
@@ -99,5 +104,101 @@ describe("ingress lockfile mirroring", () => {
       saveIngressUrl(ws, "https://tunnel.example.ts.net", "no-such-assistant");
     }).not.toThrow();
     expect(readLockfileEntry().ingressUrl).toBeUndefined();
+  });
+});
+
+describe("last-tunnel record", () => {
+  function readIngress(ws: string) {
+    const config = JSON.parse(readFileSync(join(ws, "config.json"), "utf-8"));
+    return config.ingress;
+  }
+
+  test("saveIngressUrl records the provider, URL, and assistant ID", () => {
+    const ws = makeWorkspace();
+
+    saveIngressUrl(
+      ws,
+      "https://a.trycloudflare.com",
+      "ingress-test",
+      "cloudflare",
+    );
+
+    const ingress = readIngress(ws);
+    expect(ingress.publicBaseUrl).toBe("https://a.trycloudflare.com");
+    expect(ingress.lastTunnel).toEqual({
+      provider: "cloudflare",
+      publicBaseUrl: "https://a.trycloudflare.com",
+    });
+    expect(ingress.assistantId).toBe("ingress-test");
+    expect(loadLastTunnel(ws)).toEqual({
+      provider: "cloudflare",
+      publicBaseUrl: "https://a.trycloudflare.com",
+    });
+    expect(loadRecordedAssistantId(ws)).toBe("ingress-test");
+  });
+
+  test("clearIngressUrl drops the URL but keeps the tunnel and assistant records", () => {
+    const ws = makeWorkspace();
+    saveIngressUrl(
+      ws,
+      "https://tunnel.example.ts.net",
+      "ingress-test",
+      "tailscale",
+    );
+
+    clearIngressUrl(ws);
+
+    expect(readIngress(ws).publicBaseUrl).toBeUndefined();
+    expect(loadLastTunnel(ws)).toEqual({
+      provider: "tailscale",
+      publicBaseUrl: "https://tunnel.example.ts.net",
+    });
+    expect(loadRecordedAssistantId(ws)).toBe("ingress-test");
+  });
+
+  test("saving without a provider leaves an existing lastTunnel untouched", () => {
+    const ws = makeWorkspace();
+    saveIngressUrl(ws, "https://one.ngrok.app", undefined, "ngrok");
+
+    saveIngressUrl(ws, "https://two.ngrok.app");
+
+    expect(readIngress(ws).publicBaseUrl).toBe("https://two.ngrok.app");
+    expect(loadLastTunnel(ws)).toEqual({
+      provider: "ngrok",
+      publicBaseUrl: "https://one.ngrok.app",
+    });
+  });
+
+  test("loadLastTunnel returns null for missing, unknown, or empty records", () => {
+    const missing = makeWorkspace();
+    expect(loadLastTunnel(missing)).toBeNull();
+    expect(loadRecordedAssistantId(missing)).toBeNull();
+
+    saveIngressUrl(missing, "https://one.ngrok.app");
+    expect(loadLastTunnel(missing)).toBeNull();
+    expect(loadRecordedAssistantId(missing)).toBeNull();
+
+    const unknown = makeWorkspace();
+    writeFileSync(
+      join(unknown, "config.json"),
+      JSON.stringify({
+        ingress: {
+          lastTunnel: {
+            provider: "wireguard",
+            publicBaseUrl: "https://x.test",
+          },
+        },
+      }),
+    );
+    expect(loadLastTunnel(unknown)).toBeNull();
+
+    const emptyUrl = makeWorkspace();
+    writeFileSync(
+      join(emptyUrl, "config.json"),
+      JSON.stringify({
+        ingress: { lastTunnel: { provider: "ngrok", publicBaseUrl: "  " } },
+      }),
+    );
+    expect(loadLastTunnel(emptyUrl)).toBeNull();
   });
 });

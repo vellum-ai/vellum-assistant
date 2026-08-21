@@ -270,7 +270,7 @@ export async function maybeStartNgrokTunnel(
       return null;
     }
     console.log(`   Found existing ngrok tunnel: ${existingUrl}`);
-    saveIngressUrl(workspaceDir, existingUrl);
+    saveIngressUrl(workspaceDir, existingUrl, undefined, "ngrok");
     return null;
   }
   if (runningTunnels.length > 0) {
@@ -297,7 +297,7 @@ export async function maybeStartNgrokTunnel(
 
   try {
     const publicUrl = await waitForNgrokUrl(targetPort, savedDomain);
-    saveIngressUrl(workspaceDir, publicUrl);
+    saveIngressUrl(workspaceDir, publicUrl, undefined, "ngrok");
     console.log(`   Tunnel established: ${publicUrl}`);
 
     return ngrokProcess;
@@ -384,7 +384,7 @@ export async function runNgrokTunnel(
       process.exit(1);
     }
     console.log(`Found existing ngrok tunnel: ${existingUrl}`);
-    saveIngressUrl(workspaceDir, existingUrl, opts.assistantId);
+    saveIngressUrl(workspaceDir, existingUrl, opts.assistantId, "ngrok");
     if (opts.domain) {
       saveNgrokDomain(workspaceDir, opts.domain);
     }
@@ -468,7 +468,7 @@ export async function runNgrokTunnel(
 
   // The domain is standing intent, not tunnel state: cleanup clears the
   // ingress URL but leaves the domain saved for wake/daemon restores.
-  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId);
+  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId, "ngrok");
   if (opts.domain) {
     saveNgrokDomain(workspaceDir, opts.domain);
   }
