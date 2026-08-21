@@ -7,6 +7,7 @@ import { __setResumeGraceMsForTesting } from "@/hooks/use-resume-grace";
 import { __resetForTesting, publish } from "@/lib/event-bus";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { ApiError } from "@/utils/api-errors";
+import type * as GatewaySession from "@/lib/auth/gateway-session";
 
 const CONVERSATION_LIST_LOAD_FAILED_CODE = "CONVERSATION_LIST_LOAD_FAILED";
 const DEFAULT_RESUME_GRACE_MS = 15_000;
@@ -54,6 +55,17 @@ mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
 }));
 
+// Which auth mode the session is in decides whether a 401 means "your login
+// failed" at all. Stubbed so each case states its own mode rather than
+// inheriting whatever the ambient config resolves to.
+let gatewayAuthMode = false;
+mock.module(
+  "@/lib/auth/gateway-session",
+  (): Partial<typeof GatewaySession> => ({
+    isGatewayAuthMode: () => gatewayAuthMode,
+  }),
+);
+
 const { useConversationLoader } =
   await import("@/domains/chat/hooks/use-conversation-loader");
 
@@ -94,6 +106,7 @@ beforeEach(() => {
   __setResumeGraceMsForTesting(DEFAULT_RESUME_GRACE_MS);
   listError = null;
   toastErrorMock = mock((_message: string) => {});
+  gatewayAuthMode = false;
   useChatSessionStore.getState().setError(null);
 });
 
@@ -154,10 +167,11 @@ describe("useConversationLoader resume grace on list-load errors", () => {
     expect(currentErrorCode()).toBe(CONVERSATION_LIST_LOAD_FAILED_CODE);
   });
 
-  // A 401 is never transient: the session is gone and the user has to
-  // re-authenticate, so the toast fires regardless of the grace window.
+  // On a platform session a 401 is never transient: the session is gone and
+  // the user has to re-authenticate, so the toast fires regardless of the
+  // grace window.
   test("still toasts an auth failure inside the resume grace window", () => {
-    // GIVEN a mounted loader that just resumed from the background
+    // GIVEN a platform session that just resumed from the background
     const { rerender } = renderLoader();
     act(() => {
       publish("app.resume", { signal: "visibility" });
@@ -170,5 +184,26 @@ describe("useConversationLoader resume grace on list-load errors", () => {
     // THEN the auth toast fires and no load-failed banner is raised
     expect(toastErrorMock).toHaveBeenCalledWith("Failed to authenticate user.");
     expect(currentErrorCode()).toBeNull();
+  });
+
+  test("says nothing about authentication on a gateway-auth 401", () => {
+    /**
+     * In gateway-auth mode there is no user login to fail. A 401 means the
+     * gateway rejected the bearer, which the 401 recovery either re-mints
+     * through or hands to the chooser's guardian repair, so the guardian is
+     * told their authentication failed while it is working and pointed at a
+     * sign-in that would not help.
+     */
+
+    // GIVEN a local session authenticated through the gateway
+    gatewayAuthMode = true;
+    const { rerender } = renderLoader();
+
+    // WHEN the gateway rejects the bearer
+    listError = new ApiError(401, "unauthorized");
+    rerender();
+
+    // THEN nothing claims the user failed to authenticate
+    expect(toastErrorMock).not.toHaveBeenCalled();
   });
 });

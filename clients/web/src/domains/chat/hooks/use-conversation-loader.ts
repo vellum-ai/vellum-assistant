@@ -1,4 +1,5 @@
 import { t } from "@/i18n";
+import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useViewerStore } from "@/stores/viewer-store";
 
@@ -214,8 +215,18 @@ export function useConversationLoader({
   // Effect-scoped so the toast fires once per transition to a 401 error,
   // not on every render. The banner consumer below intentionally skips 401
   // because this toast already surfaces the right message.
+  //
+  // Platform sessions only. In gateway-auth mode there is no user login to
+  // fail: the guardian is authenticated locally and a 401 means the gateway
+  // rejected the bearer, which the 401 recovery either re-mints through or
+  // hands to the chooser's guardian repair. Telling that user their
+  // authentication failed names the wrong subject and points them at a
+  // sign-in they do not need.
   // -------------------------------------------------------------------------
   useEffect(() => {
+    if (isGatewayAuthMode()) {
+      return;
+    }
     if (
       conversationListError instanceof ApiError &&
       conversationListError.status === 401
