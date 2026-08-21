@@ -206,6 +206,19 @@ describe("usePushToTalk", () => {
     expect(target.start).not.toHaveBeenCalled();
   });
 
+  test("reads a legacy Fn binding as off instead of Ctrl", async () => {
+    localStorage.setItem(LS_PTT_ACTIVATION_KEY, "fn");
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    renderPushToTalk(target);
+
+    fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
+    await act(async () => {
+      await wait(PTT_HOLD_DELAY_MS + 25);
+    });
+
+    expect(target.start).not.toHaveBeenCalled();
+  });
+
   test("keeps key activators disabled inside editable targets", async () => {
     localStorage.setItem(
       LS_PTT_ACTIVATION_KEY,
@@ -323,6 +336,38 @@ describe("usePushToTalk", () => {
     act(() => listener?.({ kind: "pushToTalk", state: "down" }));
     expect(target.start).toHaveBeenCalledTimes(1);
     act(() => listener?.({ kind: "pushToTalk", state: "up" }));
+    expect(target.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("stops a native hold when registration drops", () => {
+    let listener: ((event: HotkeyEvent) => void) | null = null;
+    window.vellum = {
+      platform: "electron",
+      helper: {
+        hotkey: {
+          setPushToTalk: async () => ({ ok: true, enabled: true }),
+          onEvent: (callback: (event: HotkeyEvent) => void) => {
+            listener = callback;
+            return () => {
+              listener = null;
+            };
+          },
+        },
+      },
+    } as unknown as typeof window.vellum;
+    localStorage.setItem(
+      LS_PTT_ACTIVATION_KEY,
+      serializeActivator(CTRL_PTT_ACTIVATOR),
+    );
+    const target = { start: mock(() => {}), stop: mock(() => {}) };
+    setConfigurablePushToTalkActive(true);
+    renderPushToTalk(target);
+
+    act(() => listener?.({ kind: "pushToTalk", state: "down" }));
+    expect(target.start).toHaveBeenCalledTimes(1);
+
+    // The helper went away mid-hold; its up event will not arrive.
+    act(() => setConfigurablePushToTalkActive(false));
     expect(target.stop).toHaveBeenCalledTimes(1);
   });
 

@@ -211,10 +211,19 @@ export function parseActivator(
   return CTRL_PTT_ACTIVATOR;
 }
 
+/**
+ * Stored hold-to-dictate binding. Fn now starts Talk on macOS, so a legacy
+ * Fn push-to-talk value reads as off rather than silently becoming Ctrl.
+ */
 export const pushToTalkActivation = createStorageAccessor<PTTActivator>({
   key: LS_PTT_ACTIVATION_KEY,
   scope: "device",
-  parse: parseActivator,
+  parse: (raw) => {
+    const activator = parseActivator(raw, { preserveFunction: true });
+    return activator.kind !== "off" && activator.modifiers.includes("function")
+      ? { kind: "off" }
+      : activator;
+  },
   serialize: serializeActivator,
   fallback: { kind: "off" },
 });
