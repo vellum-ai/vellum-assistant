@@ -1,3 +1,5 @@
+
+import { useTranslation } from "@/i18n";
 /**
  * "Back to top" pill for the sidebar's conversation list.
  *
@@ -27,6 +29,7 @@ export interface SidebarBackToTopProps {
 }
 
 export function SidebarBackToTop({ visible, onClick }: SidebarBackToTopProps) {
+  const { t } = useTranslation("chat");
   return (
     /* `h-0` so the pill reserves no room at the end of the list: it floats
        over the rows, and the list should run right up to the footer. */
@@ -48,7 +51,7 @@ export function SidebarBackToTop({ visible, onClick }: SidebarBackToTopProps) {
           visible ? "pointer-events-auto" : "pointer-events-none opacity-0",
         )}
       >
-        Back to top
+        {t("sidebarBackToTop.label")}
       </Button>
     </div>
   );

@@ -3,6 +3,8 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Check, Loader2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-agent-icon";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { isClaudeConnected } from "@/hooks/connect-claude-api";
@@ -171,19 +173,21 @@ function BrandIcon() {
 }
 
 function Title() {
+  const { t } = useTranslation("chat");
   return (
     <div className="text-title-small text-[var(--content-strong)]">
-      Connect Claude Code
+      {t("acpConnectAffordance.title")}
     </div>
   );
 }
 
 function DismissButton({ onDismiss }: { onDismiss: () => void }) {
+  const { t } = useTranslation("chat");
   return (
     <button
       type="button"
-      aria-label="Dismiss"
-      title="Dismiss"
+      aria-label={t("acpConnectAffordance.dismiss")}
+      title={t("acpConnectAffordance.dismiss")}
       onClick={onDismiss}
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)]"
     >
@@ -214,20 +218,21 @@ function OneStepCard({
   connection: UseConnectClaudeResult;
   onDismiss: () => void;
 }) {
+  const { t } = useTranslation("chat");
   const { phase, error, connect } = connection;
 
   const subtitle =
     phase === "error"
-      ? (error ?? "Connecting Claude failed. Please try again.")
+      ? (error ?? t("acpConnectAffordance.connectFailed"))
       : phase === "starting"
-        ? "Starting sign-in..."
+        ? t("acpConnectAffordance.startingSignIn")
         : phase === "awaiting_capture" || phase === "awaiting_paste"
-          ? "Waiting for Claude sign-in..."
+          ? t("acpConnectAffordance.waitingSignIn")
           : phase === "exchanging"
-            ? "Completing sign-in..."
+            ? t("acpConnectAffordance.completingSignIn")
             : phase === "connected"
-              ? "Claude Code connected — continuing..."
-              : "Sign in — no API key needed";
+              ? t("acpConnectAffordance.connectedContinuing")
+              : t("acpConnectAffordance.signInNoKey");
 
   const subtitleColor =
     phase === "error"
@@ -258,7 +263,7 @@ function OneStepCard({
 
       {canConnect ? (
         <Button variant="primary" onClick={() => void connect()}>
-          Connect
+          {t("acpConnectAffordance.connect")}
         </Button>
       ) : busy ? (
         <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--content-tertiary)]" />
@@ -286,6 +291,7 @@ function TwoStepCard({
   onPastedCodeChange: (value: string) => void;
   onDismiss: () => void;
 }) {
+  const { t } = useTranslation("chat");
   const { phase, error, connect, submitPastedCode } = connection;
 
   return (
@@ -312,21 +318,23 @@ function TwoStepCard({
               }`}
             >
               {phase === "error"
-                ? (error ?? "Connecting Claude failed. Please try again.")
-                : "Sign in with your Claude account to run this agent. No API key required."}
+                ? (error ?? t("acpConnectAffordance.connectFailed"))
+                : t("acpConnectAffordance.signInWithAccount")}
             </p>
             <Button variant="primary" fullWidth onClick={() => void connect()}>
-              Connect
+              {t("acpConnectAffordance.connect")}
             </Button>
           </>
         ) : null}
 
-        {phase === "starting" ? <BusyRow label="Starting sign-in..." /> : null}
+        {phase === "starting" ? (
+          <BusyRow label={t("acpConnectAffordance.startingSignIn")} />
+        ) : null}
         {phase === "awaiting_capture" ? (
-          <BusyRow label="Waiting for Claude sign-in..." />
+          <BusyRow label={t("acpConnectAffordance.waitingSignIn")} />
         ) : null}
         {phase === "exchanging" ? (
-          <BusyRow label="Completing sign-in..." />
+          <BusyRow label={t("acpConnectAffordance.completingSignIn")} />
         ) : null}
 
         {phase === "awaiting_paste" ? (
@@ -341,8 +349,7 @@ function TwoStepCard({
               {/* A failed exchange (bad/expired code, 400) returns here with an
                   error set; show it on the paste step so Save doesn't look
                   like a no-op. The input keeps its value for a retry. */}
-              {error ??
-                "A browser tab opened. Paste the key it gives you to finish."}
+              {error ?? t("acpConnectAffordance.pasteKeyHint")}
             </p>
             <div className="flex items-center gap-2">
               <div className="min-w-0 flex-1">
@@ -350,7 +357,7 @@ function TwoStepCard({
                   type="password"
                   value={pastedCode}
                   onChange={(e) => onPastedCodeChange(e.target.value)}
-                  placeholder="Paste your key"
+                  placeholder={t("acpConnectAffordance.pasteKeyPlaceholder")}
                   fullWidth
                 />
               </div>
@@ -359,7 +366,7 @@ function TwoStepCard({
                 disabled={!pastedCode.trim()}
                 onClick={() => void submitPastedCode(pastedCode)}
               >
-                Save
+                {t("acpConnectAffordance.save")}
               </Button>
             </div>
           </>
@@ -367,7 +374,7 @@ function TwoStepCard({
 
         {phase === "connected" ? (
           <p className="text-body-medium-lighter text-[var(--system-positive-strong)]">
-            Claude Code connected — continuing...
+            {t("acpConnectAffordance.connectedContinuing")}
           </p>
         ) : null}
       </div>

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import type { Conversation } from "@/types/conversation-types";
 import { ConfirmDialog } from "@vellumai/design-library";
 
@@ -80,21 +82,21 @@ export function ArchiveAllConfirmDialog({
   onConfirm,
   onCancel,
 }: ArchiveAllConfirmDialogProps) {
+  const { t } = useTranslation("chat");
   const count = pending?.conversations.length ?? 0;
   return (
     <ConfirmDialog
       open={pending !== null}
-      title="Archive All"
+      title={t("archiveAllConfirmDialog.title")}
       message={
         pending
-          ? `Archive ${
-              count === 1
-                ? "the conversation"
-                : `all ${count} conversations`
-            } in “${pending.groupName}”? Archived conversations leave the sidebar. You can find them later by searching “is:archived”.`
+          ? t("archiveAllConfirmDialog.message", {
+              count,
+              groupName: pending.groupName,
+            })
           : ""
       }
-      confirmLabel="Archive All"
+      confirmLabel={t("archiveAllConfirmDialog.confirm")}
       onConfirm={onConfirm}
       onCancel={onCancel}
     />

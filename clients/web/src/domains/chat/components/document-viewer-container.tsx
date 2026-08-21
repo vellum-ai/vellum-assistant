@@ -1,3 +1,5 @@
+
+import { useTranslation } from "@/i18n";
 /**
  * Document viewer with integrated comment panel.
  *
@@ -112,6 +114,7 @@ export function DocumentViewerContainer({
   onExport,
   onSubmitFeedback,
 }: DocumentViewerContainerProps) {
+  const { t } = useTranslation("chat");
   // Where autosave writes.
   const saveTarget: DocumentSaveTarget = {
     source: "document",
@@ -372,7 +375,7 @@ export function DocumentViewerContainer({
               variant="label-small-default"
               className="text-[var(--content-tertiary)]"
             >
-              {saveStatus === "saving" ? "Saving…" : "Saved"}
+              {saveStatus === "saving" ? t("documentViewerContainer.saving") : t("documentViewerContainer.saved")}
             </Typography>
           </span>
         ) : null}
@@ -384,7 +387,7 @@ export function DocumentViewerContainer({
             leftIcon={<Download />}
             onClick={onExport}
           >
-            Export
+            {t("documentViewerContainer.export")}
           </Button>
         ) : null}
 
@@ -393,10 +396,10 @@ export function DocumentViewerContainer({
           size="compact"
           leftIcon={<MessageSquareText />}
           onClick={toggleComments}
-          aria-label={commentsPanelOpen ? "Close comments" : "Open comments"}
+          aria-label={commentsPanelOpen ? t("documentViewerContainer.closeCommentsAria") : t("documentViewerContainer.openCommentsAria")}
           aria-pressed={commentsPanelOpen}
         >
-          Comments
+          {t("documentViewerContainer.comments")}
         </Button>
 
         <Button
@@ -404,8 +407,8 @@ export function DocumentViewerContainer({
           size="compact"
           iconOnly={<X />}
           onClick={onClose}
-          aria-label="Close document"
-          tooltip="Close"
+          aria-label={t("documentViewerContainer.closeDocumentAria")}
+          tooltip={t("documentViewerContainer.close")}
         />
       </div>
 

@@ -1,5 +1,7 @@
 import { Stepper } from "@vellumai/design-library";
 
+import { useTranslation } from "@/i18n";
+
 import type { FormPage } from "@vellumai/assistant-api";
 
 interface PageTabsProps {
@@ -20,6 +22,7 @@ export function PageTabs({
   onNavigate,
   disabled = false,
 }: PageTabsProps) {
+  const { t } = useTranslation("chat");
   const steps = pages.map((page, i) => ({
     id: page.id,
     label: `${i + 1}. ${page.title}`,
@@ -27,7 +30,7 @@ export function PageTabs({
 
   return (
     <Stepper
-      aria-label="Form steps"
+      aria-label={t("pageTabs.formStepsAria")}
       steps={steps}
       current={current}
       onStepSelect={onNavigate}

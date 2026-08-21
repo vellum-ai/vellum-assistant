@@ -2,6 +2,8 @@ import { type ReactNode, useEffect, useState } from "react";
 import { Bolt, ChevronRight } from "lucide-react";
 import { Collapsible } from "@vellumai/design-library";
 
+import { useTranslation } from "@/i18n";
+
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { cn } from "@/utils/misc";
@@ -45,6 +47,7 @@ export function AssistantContentDisclosure({
   items,
   isStreaming = false,
 }: AssistantContentDisclosureProps) {
+  const { t } = useTranslation("chat");
   const [animateOnSettle] = useState(isStreaming);
   const [value, setValue] = useState(
     isStreaming ? EARLIER_ACTIVITY_VALUE : "",
@@ -79,7 +82,7 @@ export function AssistantContentDisclosure({
             !isStreaming && animateOnSettle && "animate-in fade-in",
           )}
         >
-          <span>Earlier activity</span>
+          <span>{t("assistantContentDisclosure.earlierActivity")}</span>
           {/* Same rule as the inline activity rows: the chevron shows when the
               trigger is reachable (hover / keyboard focus) or already open, so
               a settled response carries a label rather than a glyph. */}

@@ -1,4 +1,7 @@
 {
+  "acpChatPlanBlock": {
+    "plan": "Plan"
+  },
   "acpChatTerminalBlock": {
     "atTime": "at {time}",
     "cancelled": "Cancelled",
@@ -6,6 +9,27 @@
     "refused": "Refused",
     "runFailed": "Run failed",
     "stoppedLimitReached": "Stopped: limit reached"
+  },
+  "acpChatToolCard": {
+    "hideRaw": "Hide raw input/output",
+    "rawInput": "Raw input",
+    "rawOutput": "Raw output",
+    "showRaw": "Show raw input/output"
+  },
+  "acpConnectAffordance": {
+    "completingSignIn": "Completing sign-in...",
+    "connect": "Connect",
+    "connectFailed": "Connecting Claude failed. Please try again.",
+    "connectedContinuing": "Claude Code connected. Continuing...",
+    "dismiss": "Dismiss",
+    "pasteKeyHint": "A browser tab opened. Paste the key it gives you to finish.",
+    "pasteKeyPlaceholder": "Paste your key",
+    "save": "Save",
+    "signInNoKey": "Sign in. No API key needed",
+    "signInWithAccount": "Sign in with your Claude account to run this agent. No API key required.",
+    "startingSignIn": "Starting sign-in...",
+    "title": "Connect Claude Code",
+    "waitingSignIn": "Waiting for Claude sign-in..."
   },
   "acpRunChatView": {
     "backToConversationAria": "Back to conversation",
@@ -19,6 +43,18 @@
     "steerAria": "Steering instruction",
     "steerPlaceholder": "Steer the run…",
     "stopRunAria": "Stop run"
+  },
+  "activeChatView": {
+    "retryConfirm": "Retry",
+    "retryMessage": "The latest response will be discarded and regenerated. This can't be undone.",
+    "retryTitle": "Retry this response?",
+    "startingFirst": "Starting your first conversation…",
+    "stillWorking": "Your assistant is still working…",
+    "summarizeConfirm": "Summarize",
+    "summarizeMessage": "The assistant will summarize the conversation before this point and carry only the summary in its working memory going forward. Messages stay visible and are never deleted.",
+    "summarizeTitle": "Summarize up to here?",
+    "takingLonger": "Your assistant is taking longer than expected.",
+    "tryAgain": "Try again"
   },
   "activityStepsPanel": {
     "backAria": "Back to all steps",
@@ -44,6 +80,14 @@
     "appExported": "App exported",
     "shareFailed": "Failed to share app"
   },
+  "archiveAllConfirmDialog": {
+    "confirm": "Archive All",
+    "message": "{count, plural, one {Archive the conversation in “{groupName}”? Archived conversations leave the sidebar. You can find them later by searching “is:archived”.} other {Archive all # conversations in “{groupName}”? Archived conversations leave the sidebar. You can find them later by searching “is:archived”.}}",
+    "title": "Archive All"
+  },
+  "assistantContentDisclosure": {
+    "earlierActivity": "Earlier activity"
+  },
   "assistantNavItem": {
     "newChat": "New Chat"
   },
@@ -60,6 +104,13 @@
     "switchFailed": "Couldn't switch assistants. Try again.",
     "switchTo": "Switch to {name}",
     "unnamedAssistant": "Unnamed assistant"
+  },
+  "attachmentChip": {
+    "removeAria": "Remove {filename}"
+  },
+  "attachmentDownloadOverlay": {
+    "download": "Download",
+    "downloadAria": "Download {filename}"
   },
   "attachmentLoadingChip": {
     "cancelUploadAria": "Cancel upload of {filename}",
@@ -184,6 +235,25 @@
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tasks"
   },
+  "channelSetupPanel": {
+    "accountSid": "Account SID",
+    "accountSidPlaceholder": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "authToken": "Auth Token",
+    "authTokenPlaceholder": "Twilio auth token",
+    "close": "Close",
+    "closeSetupAria": "Close setup panel",
+    "connectedHeading": "{channel} is connected",
+    "credentialsSaved": "Credentials saved. Return to the chat to finish setup.",
+    "phoneConnected": "Your assistant is ready for phone calls via Twilio.",
+    "phoneLabel": "Phone",
+    "save": "Save",
+    "saving": "Saving…",
+    "settingsTitle": "{channel} settings",
+    "setupTitle": "{channel} setup",
+    "slackConnected": "Your assistant is ready to receive messages on Slack.",
+    "telegramConnected": "Your assistant is ready to receive messages on Telegram.",
+    "twilioIntro": "Enter your Twilio credentials from the <consoleLink>Twilio Console</consoleLink>. After saving, return to the chat. Your assistant will finish configuring your phone number and webhooks."
+  },
   "chatAttachments": {
     "attachFileAria": "Attach file",
     "dismiss": "Dismiss",
@@ -262,6 +332,17 @@
     "continue": "Continue",
     "recommended": "Recommended"
   },
+  "cleanupScreen": {
+    "broomAria": "broom",
+    "hatchHint": "You'll be able to hatch a new assistant once this is complete.",
+    "hintAlmostDone": "Almost done…",
+    "hintCleaning": "Cleaning up your assistant…",
+    "hintWrapping": "Wrapping things up…",
+    "timeoutBody": "Try running Vellum Doctor to diagnose the issue, or <communityLink>ask the community</communityLink> for help.",
+    "timeoutTitle": "Cleanup is taking longer than expected",
+    "title": "Cleaning up your assistant…",
+    "warningAria": "warning"
+  },
   "collapsedGroupIcon": {
     "noConversations": "No conversations"
   },
@@ -301,6 +382,10 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Trigger"
   },
+  "composerDraftNotices": {
+    "draftRestored": "Draft restored from your previous session.",
+    "waitingUpload": "{count, plural, one {Waiting for the attachment to finish uploading before sending.} other {Waiting for # attachments to finish uploading before sending.}}"
+  },
   "composerNotices": {
     "allowMicrophone": "Allow Microphone",
     "openSettings": "Open Settings"
@@ -314,8 +399,29 @@
     "warningTitle": "This looks like an API key"
   },
   "composerSettingsMenu": {
+    "accessAria": "Assistant access: {label}",
+    "assistantAccess": "Assistant Access",
+    "assistantAccessTitle": "Assistant access",
+    "compactAria": "Assistant access and model profile",
+    "compactAriaWithSummary": "Assistant access and model profile: {summary}",
+    "defaultLabel": "{label} (default)",
+    "defaultSuffix": "(default)",
+    "loadingProfiles": "Loading profiles…",
+    "modelProfile": "Model Profile",
+    "modelProfileTitle": "Model profile",
+    "newProfile": "New Profile",
+    "profileAria": "Model profile: {label}",
+    "profileAriaFallback": "Model profile",
     "profileSwitchFailed": "Profile created, but couldn't switch to it",
     "profileSwitchFallback": "Failed to switch profile. Please try again."
+  },
+  "confirmationPromptCard": {
+    "allow": "Allow",
+    "deny": "Deny",
+    "hideDetails": "Hide details",
+    "showDetails": "Show details",
+    "titleFallback": "Confirmation required",
+    "toolLabel": "Tool:"
   },
   "contactPromptCard": {
     "addContact": "Add a contact",
@@ -325,6 +431,17 @@
     "enterAddress": "Enter {channel} address",
     "save": "Save",
     "saving": "Saving…"
+  },
+  "contextWindowIndicator": {
+    "clearContext": "Clear Context",
+    "compactsHint": "{name} automatically<br></br>compacts its context.",
+    "compactsHintInline": "{name} automatically compacts context",
+    "defaultAssistantName": "Your assistant",
+    "label": "Context window:",
+    "percentFull": "{percentage}% full",
+    "ringAria": "Context window {percentage}% full",
+    "title": "Context Window",
+    "tokensUsed": "{used} / {max} tokens used"
   },
   "conversationActions": {
     "archive": "Archive",
@@ -376,6 +493,9 @@
   },
   "conversationStarterDock": {
     "caption": "Try some suggestions:"
+  },
+  "conversationStarterGrid": {
+    "sendAria": "Send: {label}"
   },
   "copyBlockSurface": {
     "copied": "Copied",
@@ -429,11 +549,37 @@
     "submitFeedback": "Submit Feedback",
     "title": "Comments"
   },
+  "documentCommentThread": {
+    "deleteCommentAria": "Delete comment",
+    "jumpToHighlight": "Jump to highlighted text",
+    "open": "Open",
+    "reopen": "Reopen",
+    "reply": "Reply",
+    "replyPlaceholder": "Write a reply…",
+    "resolve": "Resolve",
+    "resolved": "Resolved"
+  },
   "documentPreviewSurface": {
     "openAria": "Open {name}"
   },
   "documentReopenLink": {
     "openAria": "Open {name}"
+  },
+  "documentViewerContainer": {
+    "close": "Close",
+    "closeCommentsAria": "Close comments",
+    "closeDocumentAria": "Close document",
+    "comments": "Comments",
+    "export": "Export",
+    "openCommentsAria": "Open comments",
+    "saved": "Saved",
+    "saving": "Saving…"
+  },
+  "documentViewerPage": {
+    "notFound": "Document not found."
+  },
+  "dynamicPageSurface": {
+    "titleFallback": "Dynamic content"
   },
   "exportProgressModal": {
     "cancel": "Cancel",
@@ -505,6 +651,13 @@
     "showMeAround": "Show me around",
     "skipTour": "Skip tour"
   },
+  "inChatPluginPill": {
+    "ariaLabel": "Chat plugins, {count} active",
+    "costCaption": "Changing plugin settings can incur high costs.",
+    "countLabel": "{count, plural, one {# plugin} other {# plugins}}",
+    "manage": "Manage",
+    "plugins": "Plugins"
+  },
   "inlineProcessCard": {
     "stop": "Stop"
   },
@@ -565,6 +718,12 @@
   },
   "localFileLink": {
     "unavailable": "This file isn't available here"
+  },
+  "localFileMenu": {
+    "download": "Download",
+    "fileActionsAria": "File actions",
+    "goToFile": "Go to file",
+    "pictureInPicture": "Picture in Picture"
   },
   "lowBalanceBanner": {
     "addCredits": "Add credits",
@@ -761,6 +920,11 @@
     "v3SourceNeedle": "needle",
     "yes": "Yes"
   },
+  "messageFilesPanel": {
+    "closeAria": "Close files",
+    "empty": "No files on this message",
+    "title": "Files"
+  },
   "messageHoverActions": {
     "bookmark": "Bookmark",
     "copied": "Copied",
@@ -784,6 +948,14 @@
     "description": "Voice input requires microphone access. Audio is transcribed by your configured speech-to-text provider, or by your device's built-in dictation when no provider is set.",
     "title": "Microphone Access"
   },
+  "missingApiKeyBanner": {
+    "ariaLabel": "API key required",
+    "body": "Add an API key in Settings → Models & Services to start chatting.",
+    "dismiss": "Dismiss",
+    "dismissAria": "Dismiss API key required alert",
+    "openSettings": "Open Settings",
+    "title": "API key required"
+  },
   "mobileCallSelector": {
     "callOfTotal": "Call {number} of {total}",
     "llmCallCount": "{count, plural, one {1 LLM call} other {# LLM calls}}",
@@ -794,6 +966,19 @@
     "dismissAria": "Dismiss",
     "unknownCommandNudge": "This command wasn't recognized. <ruleLink>Create a rule</ruleLink> to classify it for next time.",
     "viewSteps": "View steps"
+  },
+  "nameInputDialog": {
+    "cancel": "Cancel",
+    "icon": "Icon",
+    "name": "Name",
+    "noIcon": "No icon"
+  },
+  "newChatPluginsPicker": {
+    "heading": "Add plugins for new chat",
+    "managePlugins": "Manage Plugins",
+    "showAll": "Show all (+{count})",
+    "showLess": "Show less",
+    "tooltip": "Choose which plugins this chat can use. Your selection is applied when you send your first message and stays with this conversation."
   },
   "newChatPluginsSection": {
     "managePlugins": "Manage Plugins"
@@ -820,6 +1005,9 @@
     "selectAll": "Select all that apply",
     "somethingElse": "something else",
     "specific": "I have something specific"
+  },
+  "orphanedHistoryNotice": {
+    "message": "The conversation this one branched from was deleted, so the messages before the branch point are gone. Everything sent since is intact."
   },
   "overviewTab": {
     "cacheTokensLabel": "Cache tokens",
@@ -852,6 +1040,9 @@
     "totalToFirstTokenLabel": "Total to first token",
     "usageSubtitle": "Token and call counts normalized by the assistant route.",
     "usageTitle": "Usage"
+  },
+  "pageTabs": {
+    "formStepsAria": "Form steps"
   },
   "phaseGroupedStepList": {
     "startedAt": "Started at {time}"
@@ -1010,6 +1201,11 @@
     "body": "Here's what I know about you. You can remove any that aren't true:",
     "loading": "Getting to know you…"
   },
+  "researchResultsView": {
+    "continue": "Continue",
+    "emptyBody": "I couldn't pull together a clean profile this time. We can get to know each other as we go.",
+    "emptyTitle": "Let's just dive in."
+  },
   "researchSuggestions": {
     "heading": "Here's how I could help to start:"
   },
@@ -1033,6 +1229,10 @@
     "sectionUnavailable": "Section rendering unavailable",
     "stopReasonChip": "Stop reason: {reason}",
     "toolChip": "Tool: {name}"
+  },
+  "scrollToLatestButton": {
+    "aria": "Go to newest message",
+    "label": "Go to Newest"
   },
   "secretPromptCard": {
     "cancel": "Cancel",
@@ -1062,6 +1262,9 @@
   "sideMenuOverlayBottomColumn": {
     "newChat": "New Chat"
   },
+  "sidebarBackToTop": {
+    "label": "Back to top"
+  },
   "sidebarConversationError": {
     "message": "Your conversations failed to load.",
     "retry": "Try again"
@@ -1071,6 +1274,9 @@
   },
   "sidebarListContextMenu": {
     "newGroup": "New group…"
+  },
+  "singleActivity": {
+    "webSearch": "Web Search"
   },
   "skillCreatedCard": {
     "view": "View",
@@ -1152,6 +1358,9 @@
     "collapseDetailsAria": "Collapse subagent details",
     "stopSubagentAria": "Stop subagent"
   },
+  "suggestionCard": {
+    "openAria": "Open suggestion: {title}"
+  },
   "suggestionDetailPanel": {
     "closeAria": "Close",
     "letsDoIt": "Let's do it!",
@@ -1169,6 +1378,11 @@
     "unknownSurface": "Unknown surface",
     "unsupportedType": "Unsupported surface type: {type}"
   },
+  "tableSurface": {
+    "copied": "Copied",
+    "copy": "Copy",
+    "copyAria": "Copy table as markdown"
+  },
   "taskPreferencesSurface": {
     "continue": "Continue",
     "defaultTitle": "What can I help with?",
@@ -1176,6 +1390,13 @@
     "otherPlaceholder": "Describe what you need help with...",
     "selectAll": "Select all that apply",
     "somethingElse": "something else entirely"
+  },
+  "textPreview": {
+    "loadFailed": "Failed to load preview.",
+    "tooLarge": "File too large to preview inline."
+  },
+  "textSelectionPopover": {
+    "reply": "Reply"
   },
   "tiptapDocumentEditor": {
     "adding": "Adding…",
@@ -1202,6 +1423,12 @@
     "required": "required",
     "settings": "Settings"
   },
+  "toolDetailPanel": {
+    "closeAria": "Close tool details",
+    "output": "Output",
+    "riskLevel": "Risk Level",
+    "running": "Running…"
+  },
   "toolStepPill": {
     "openAria": "Open {label}",
     "viewDetailsAria": "View details: {label}"
@@ -1227,6 +1454,10 @@
   "useSendMessage": {
     "commandFailed": "Couldn't run that command. Please try again.",
     "doctorUnavailable": "The Doctor isn't available on this assistant."
+  },
+  "vellumFileActionModal": {
+    "downloadFile": "Download file",
+    "goToFile": "Go to file"
   },
   "visualPlaceholder": {
     "sketching": "Sketching a visual..."
@@ -1305,8 +1536,20 @@
     "viewExtracted": "View extracted",
     "viewRaw": "View raw"
   },
+  "webSearchDetailView": {
+    "noSources": "No sources found.",
+    "query": "Query",
+    "sources": "Sources",
+    "sourcesWithCount": "Sources ({count})"
+  },
   "webSearchStepRow": {
     "moreCount": "+{count} more"
+  },
+  "workResultSurface": {
+    "after": "After",
+    "before": "Before",
+    "notSet": "Not set",
+    "removed": "Removed"
   },
   "workflowDetailPanel": {
     "agents": "Agents",

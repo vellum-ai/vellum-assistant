@@ -1,4 +1,7 @@
 {
+  "acpChatPlanBlock": {
+    "plan": "Plan"
+  },
   "acpChatTerminalBlock": {
     "atTime": "a las {time}",
     "cancelled": "Cancelado",
@@ -6,6 +9,27 @@
     "refused": "Rechazado",
     "runFailed": "La ejecución falló",
     "stoppedLimitReached": "Detenido: se alcanzó el límite"
+  },
+  "acpChatToolCard": {
+    "hideRaw": "Ocultar entrada/salida en bruto",
+    "rawInput": "Entrada en bruto",
+    "rawOutput": "Salida en bruto",
+    "showRaw": "Mostrar entrada/salida en bruto"
+  },
+  "acpConnectAffordance": {
+    "completingSignIn": "Completando el inicio de sesión...",
+    "connect": "Conectar",
+    "connectFailed": "No se pudo conectar Claude. Inténtalo de nuevo.",
+    "connectedContinuing": "Claude Code conectado. Continuando...",
+    "dismiss": "Descartar",
+    "pasteKeyHint": "Se abrió una pestaña del navegador. Pega la clave que te da para terminar.",
+    "pasteKeyPlaceholder": "Pega tu clave",
+    "save": "Guardar",
+    "signInNoKey": "Inicia sesión. No hace falta una clave API",
+    "signInWithAccount": "Inicia sesión con tu cuenta de Claude para ejecutar este agente. No se necesita una clave API.",
+    "startingSignIn": "Iniciando sesión...",
+    "title": "Conectar Claude Code",
+    "waitingSignIn": "Esperando el inicio de sesión de Claude..."
   },
   "acpRunChatView": {
     "backToConversationAria": "Volver a la conversación",
@@ -19,6 +43,18 @@
     "steerAria": "Instrucción de orientación",
     "steerPlaceholder": "Orientar la ejecución…",
     "stopRunAria": "Detener la ejecución"
+  },
+  "activeChatView": {
+    "retryConfirm": "Reintentar",
+    "retryMessage": "Se descartará la última respuesta y se generará de nuevo. Esto no se puede deshacer.",
+    "retryTitle": "¿Reintentar esta respuesta?",
+    "startingFirst": "Iniciando tu primera conversación…",
+    "stillWorking": "Tu asistente sigue trabajando…",
+    "summarizeConfirm": "Resumir",
+    "summarizeMessage": "El asistente resumirá la conversación hasta este punto y solo llevará el resumen en su memoria de trabajo a partir de ahora. Los mensajes siguen visibles y nunca se eliminan.",
+    "summarizeTitle": "¿Resumir hasta aquí?",
+    "takingLonger": "Tu asistente está tardando más de lo esperado.",
+    "tryAgain": "Reintentar"
   },
   "activityStepsPanel": {
     "backAria": "Volver a todos los pasos",
@@ -44,6 +80,14 @@
     "appExported": "Aplicación exportada",
     "shareFailed": "No se pudo compartir la aplicación"
   },
+  "archiveAllConfirmDialog": {
+    "confirm": "Archivar todo",
+    "message": "{count, plural, one {¿Archivar la conversación en “{groupName}”? Las conversaciones archivadas salen de la barra lateral. Puedes encontrarlas después buscando “is:archived”.} other {¿Archivar las # conversaciones en “{groupName}”? Las conversaciones archivadas salen de la barra lateral. Puedes encontrarlas después buscando “is:archived”.}}",
+    "title": "Archivar todo"
+  },
+  "assistantContentDisclosure": {
+    "earlierActivity": "Actividad anterior"
+  },
   "assistantNavItem": {
     "newChat": "Chat nuevo"
   },
@@ -60,6 +104,13 @@
     "switchFailed": "No se pudo cambiar de asistente. Inténtalo de nuevo.",
     "switchTo": "Cambiar a {name}",
     "unnamedAssistant": "Asistente sin nombre"
+  },
+  "attachmentChip": {
+    "removeAria": "Eliminar {filename}"
+  },
+  "attachmentDownloadOverlay": {
+    "download": "Descargar",
+    "downloadAria": "Descargar {filename}"
   },
   "attachmentLoadingChip": {
     "cancelUploadAria": "Cancelar la carga de {filename}",
@@ -184,6 +235,25 @@
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tareas"
   },
+  "channelSetupPanel": {
+    "accountSid": "SID de la cuenta",
+    "accountSidPlaceholder": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "authToken": "Token de autenticación",
+    "authTokenPlaceholder": "Token de autenticación de Twilio",
+    "close": "Cerrar",
+    "closeSetupAria": "Cerrar el panel de configuración",
+    "connectedHeading": "{channel} está conectado",
+    "credentialsSaved": "Credenciales guardadas. Vuelve al chat para terminar la configuración.",
+    "phoneConnected": "Tu asistente ya puede hacer llamadas telefónicas con Twilio.",
+    "phoneLabel": "Teléfono",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "settingsTitle": "Ajustes de {channel}",
+    "setupTitle": "Configuración de {channel}",
+    "slackConnected": "Tu asistente ya puede recibir mensajes en Slack.",
+    "telegramConnected": "Tu asistente ya puede recibir mensajes en Telegram.",
+    "twilioIntro": "Introduce tus credenciales de Twilio desde la <consoleLink>consola de Twilio</consoleLink>. Después de guardar, vuelve al chat. Tu asistente terminará de configurar tu número de teléfono y los webhooks."
+  },
   "chatAttachments": {
     "attachFileAria": "Adjuntar archivo",
     "dismiss": "Descartar",
@@ -262,6 +332,17 @@
     "continue": "Continuar",
     "recommended": "Recomendado"
   },
+  "cleanupScreen": {
+    "broomAria": "escoba",
+    "hatchHint": "Podrás crear un nuevo asistente cuando esto termine.",
+    "hintAlmostDone": "Casi listo…",
+    "hintCleaning": "Limpiando tu asistente…",
+    "hintWrapping": "Cerrando todo…",
+    "timeoutBody": "Prueba a ejecutar Vellum Doctor para diagnosticar el problema, o <communityLink>pregunta a la comunidad</communityLink> para pedir ayuda.",
+    "timeoutTitle": "La limpieza está tardando más de lo esperado",
+    "title": "Limpiando tu asistente…",
+    "warningAria": "advertencia"
+  },
   "collapsedGroupIcon": {
     "noConversations": "No hay conversaciones"
   },
@@ -301,6 +382,10 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Disparador"
   },
+  "composerDraftNotices": {
+    "draftRestored": "Borrador restaurado de tu sesión anterior.",
+    "waitingUpload": "{count, plural, one {Esperando a que termine de subirse el adjunto antes de enviar.} other {Esperando a que terminen de subirse # adjuntos antes de enviar.}}"
+  },
   "composerNotices": {
     "allowMicrophone": "Permitir micrófono",
     "openSettings": "Abrir configuración"
@@ -314,8 +399,29 @@
     "warningTitle": "Esto parece una clave de API"
   },
   "composerSettingsMenu": {
+    "accessAria": "Acceso del asistente: {label}",
+    "assistantAccess": "Acceso del asistente",
+    "assistantAccessTitle": "Acceso del asistente",
+    "compactAria": "Acceso del asistente y perfil del modelo",
+    "compactAriaWithSummary": "Acceso del asistente y perfil del modelo: {summary}",
+    "defaultLabel": "{label} (predeterminado)",
+    "defaultSuffix": "(predeterminado)",
+    "loadingProfiles": "Cargando perfiles…",
+    "modelProfile": "Perfil del modelo",
+    "modelProfileTitle": "Perfil del modelo",
+    "newProfile": "Nuevo perfil",
+    "profileAria": "Perfil del modelo: {label}",
+    "profileAriaFallback": "Perfil del modelo",
     "profileSwitchFailed": "Perfil creado, pero no se pudo cambiar a él",
     "profileSwitchFallback": "No se pudo cambiar de perfil. Inténtalo de nuevo."
+  },
+  "confirmationPromptCard": {
+    "allow": "Permitir",
+    "deny": "Denegar",
+    "hideDetails": "Ocultar detalles",
+    "showDetails": "Mostrar detalles",
+    "titleFallback": "Confirmación necesaria",
+    "toolLabel": "Herramienta:"
   },
   "contactPromptCard": {
     "addContact": "Añadir un contacto",
@@ -325,6 +431,17 @@
     "enterAddress": "Introduce la dirección de {channel}",
     "save": "Guardar",
     "saving": "Guardando…"
+  },
+  "contextWindowIndicator": {
+    "clearContext": "Borrar contexto",
+    "compactsHint": "{name} compacta<br></br>su contexto automáticamente.",
+    "compactsHintInline": "{name} compacta el contexto automáticamente",
+    "defaultAssistantName": "Tu asistente",
+    "label": "Ventana de contexto:",
+    "percentFull": "{percentage} % lleno",
+    "ringAria": "Ventana de contexto al {percentage} %",
+    "title": "Ventana de contexto",
+    "tokensUsed": "{used} / {max} tokens usados"
   },
   "conversationActions": {
     "archive": "Archivar",
@@ -376,6 +493,9 @@
   },
   "conversationStarterDock": {
     "caption": "Prueba algunas sugerencias:"
+  },
+  "conversationStarterGrid": {
+    "sendAria": "Enviar: {label}"
   },
   "copyBlockSurface": {
     "copied": "Copiado",
@@ -429,11 +549,37 @@
     "submitFeedback": "Enviar comentarios",
     "title": "Comentarios"
   },
+  "documentCommentThread": {
+    "deleteCommentAria": "Eliminar comentario",
+    "jumpToHighlight": "Ir al texto resaltado",
+    "open": "Abierto",
+    "reopen": "Reabrir",
+    "reply": "Responder",
+    "replyPlaceholder": "Escribe una respuesta…",
+    "resolve": "Resolver",
+    "resolved": "Resuelto"
+  },
   "documentPreviewSurface": {
     "openAria": "Abrir {name}"
   },
   "documentReopenLink": {
     "openAria": "Abrir {name}"
+  },
+  "documentViewerContainer": {
+    "close": "Cerrar",
+    "closeCommentsAria": "Cerrar comentarios",
+    "closeDocumentAria": "Cerrar documento",
+    "comments": "Comentarios",
+    "export": "Exportar",
+    "openCommentsAria": "Abrir comentarios",
+    "saved": "Guardado",
+    "saving": "Guardando…"
+  },
+  "documentViewerPage": {
+    "notFound": "Documento no encontrado."
+  },
+  "dynamicPageSurface": {
+    "titleFallback": "Contenido dinámico"
   },
   "exportProgressModal": {
     "cancel": "Cancelar",
@@ -505,6 +651,13 @@
     "showMeAround": "Muéstrame cómo funciona",
     "skipTour": "Omitir recorrido"
   },
+  "inChatPluginPill": {
+    "ariaLabel": "Plugins del chat, {count} activos",
+    "costCaption": "Cambiar la configuración de plugins puede generar costes altos.",
+    "countLabel": "{count, plural, one {# plugin} other {# plugins}}",
+    "manage": "Administrar",
+    "plugins": "Plugins"
+  },
   "inlineProcessCard": {
     "stop": "Detener"
   },
@@ -565,6 +718,12 @@
   },
   "localFileLink": {
     "unavailable": "Este archivo no está disponible aquí"
+  },
+  "localFileMenu": {
+    "download": "Descargar",
+    "fileActionsAria": "Acciones del archivo",
+    "goToFile": "Ir al archivo",
+    "pictureInPicture": "Imagen en imagen"
   },
   "lowBalanceBanner": {
     "addCredits": "Añadir créditos",
@@ -761,6 +920,11 @@
     "v3SourceNeedle": "aguja",
     "yes": "Sí"
   },
+  "messageFilesPanel": {
+    "closeAria": "Cerrar archivos",
+    "empty": "No hay archivos en este mensaje",
+    "title": "Archivos"
+  },
   "messageHoverActions": {
     "bookmark": "Marcador",
     "copied": "Copiado",
@@ -784,6 +948,14 @@
     "description": "La entrada de voz requiere acceso al micrófono. El audio lo transcribe tu proveedor de voz a texto configurado, o el dictado integrado del dispositivo cuando no hay proveedor.",
     "title": "Acceso al micrófono"
   },
+  "missingApiKeyBanner": {
+    "ariaLabel": "Se requiere una clave API",
+    "body": "Añade una clave API en Ajustes → Modelos y servicios para empezar a chatear.",
+    "dismiss": "Descartar",
+    "dismissAria": "Descartar la alerta de clave API requerida",
+    "openSettings": "Abrir ajustes",
+    "title": "Se requiere una clave API"
+  },
   "mobileCallSelector": {
     "callOfTotal": "Llamada {number} de {total}",
     "llmCallCount": "{count, plural, one {1 llamada LLM} other {# llamadas LLM}}",
@@ -794,6 +966,19 @@
     "dismissAria": "Descartar",
     "unknownCommandNudge": "Este comando no se reconoció. <ruleLink>Crea una regla</ruleLink> para clasificarlo la próxima vez.",
     "viewSteps": "Ver pasos"
+  },
+  "nameInputDialog": {
+    "cancel": "Cancelar",
+    "icon": "Icono",
+    "name": "Nombre",
+    "noIcon": "Sin icono"
+  },
+  "newChatPluginsPicker": {
+    "heading": "Añadir plugins para el chat nuevo",
+    "managePlugins": "Administrar plugins",
+    "showAll": "Mostrar todos (+{count})",
+    "showLess": "Mostrar menos",
+    "tooltip": "Elige qué plugins puede usar este chat. Tu selección se aplica al enviar el primer mensaje y permanece con esta conversación."
   },
   "newChatPluginsSection": {
     "managePlugins": "Gestionar plugins"
@@ -820,6 +1005,9 @@
     "selectAll": "Selecciona todas las que correspondan",
     "somethingElse": "otra cosa",
     "specific": "Tengo algo concreto"
+  },
+  "orphanedHistoryNotice": {
+    "message": "La conversación de la que esta se ramificó se eliminó, así que los mensajes anteriores al punto de ramificación ya no están. Todo lo enviado desde entonces sigue intacto."
   },
   "overviewTab": {
     "cacheTokensLabel": "Tokens de caché",
@@ -852,6 +1040,9 @@
     "totalToFirstTokenLabel": "Total hasta el primer token",
     "usageSubtitle": "Recuentos de tokens y llamadas normalizados por la ruta del asistente.",
     "usageTitle": "Uso"
+  },
+  "pageTabs": {
+    "formStepsAria": "Pasos del formulario"
   },
   "phaseGroupedStepList": {
     "startedAt": "Comenzó a las {time}"
@@ -1010,6 +1201,11 @@
     "body": "Esto es lo que sé de ti. Puedes quitar lo que no sea cierto:",
     "loading": "Conociéndote…"
   },
+  "researchResultsView": {
+    "continue": "Continuar",
+    "emptyBody": "Esta vez no pude armar un perfil limpio. Podemos conocernos sobre la marcha.",
+    "emptyTitle": "Empecemos de una vez."
+  },
   "researchSuggestions": {
     "heading": "Así podría ayudarte para empezar:"
   },
@@ -1033,6 +1229,10 @@
     "sectionUnavailable": "Renderizado de sección no disponible",
     "stopReasonChip": "Motivo de parada: {reason}",
     "toolChip": "Herramienta: {name}"
+  },
+  "scrollToLatestButton": {
+    "aria": "Ir al mensaje más reciente",
+    "label": "Ir al más reciente"
   },
   "secretPromptCard": {
     "cancel": "Cancelar",
@@ -1062,6 +1262,9 @@
   "sideMenuOverlayBottomColumn": {
     "newChat": "Chat nuevo"
   },
+  "sidebarBackToTop": {
+    "label": "Volver arriba"
+  },
   "sidebarConversationError": {
     "message": "No se pudieron cargar tus conversaciones.",
     "retry": "Reintentar"
@@ -1071,6 +1274,9 @@
   },
   "sidebarListContextMenu": {
     "newGroup": "Grupo nuevo…"
+  },
+  "singleActivity": {
+    "webSearch": "Búsqueda web"
   },
   "skillCreatedCard": {
     "view": "Ver",
@@ -1152,6 +1358,9 @@
     "collapseDetailsAria": "Contraer detalles del subagente",
     "stopSubagentAria": "Detener subagente"
   },
+  "suggestionCard": {
+    "openAria": "Abrir sugerencia: {title}"
+  },
   "suggestionDetailPanel": {
     "closeAria": "Cerrar",
     "letsDoIt": "¡Hagámoslo!",
@@ -1169,6 +1378,11 @@
     "unknownSurface": "Superficie desconocida",
     "unsupportedType": "Tipo de superficie no admitido: {type}"
   },
+  "tableSurface": {
+    "copied": "Copiado",
+    "copy": "Copiar",
+    "copyAria": "Copiar tabla como markdown"
+  },
   "taskPreferencesSurface": {
     "continue": "Continuar",
     "defaultTitle": "¿En qué puedo ayudarte?",
@@ -1176,6 +1390,13 @@
     "otherPlaceholder": "Describe con qué necesitas ayuda...",
     "selectAll": "Selecciona todas las que correspondan",
     "somethingElse": "otra cosa distinta"
+  },
+  "textPreview": {
+    "loadFailed": "No se pudo cargar la vista previa.",
+    "tooLarge": "El archivo es demasiado grande para previsualizarlo en línea."
+  },
+  "textSelectionPopover": {
+    "reply": "Responder"
   },
   "tiptapDocumentEditor": {
     "adding": "Añadiendo…",
@@ -1202,6 +1423,12 @@
     "required": "obligatorio",
     "settings": "Configuración"
   },
+  "toolDetailPanel": {
+    "closeAria": "Cerrar detalles de la herramienta",
+    "output": "Salida",
+    "riskLevel": "Nivel de riesgo",
+    "running": "Ejecutando…"
+  },
   "toolStepPill": {
     "openAria": "Abrir {label}",
     "viewDetailsAria": "Ver detalles: {label}"
@@ -1227,6 +1454,10 @@
   "useSendMessage": {
     "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",
     "doctorUnavailable": "El Doctor no está disponible en este asistente."
+  },
+  "vellumFileActionModal": {
+    "downloadFile": "Descargar archivo",
+    "goToFile": "Ir al archivo"
   },
   "visualPlaceholder": {
     "sketching": "Bocetando un visual..."
@@ -1305,8 +1536,20 @@
     "viewExtracted": "Ver extraído",
     "viewRaw": "Ver sin procesar"
   },
+  "webSearchDetailView": {
+    "noSources": "No se encontraron fuentes.",
+    "query": "Consulta",
+    "sources": "Fuentes",
+    "sourcesWithCount": "Fuentes ({count})"
+  },
   "webSearchStepRow": {
     "moreCount": "+{count} más"
+  },
+  "workResultSurface": {
+    "after": "Después",
+    "before": "Antes",
+    "notSet": "Sin definir",
+    "removed": "Eliminado"
   },
   "workflowDetailPanel": {
     "agents": "Agentes",

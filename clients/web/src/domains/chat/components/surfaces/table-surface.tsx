@@ -8,6 +8,8 @@ import {
 import { Check, Copy } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import { SelectionIndicator } from "@/domains/chat/components/surfaces/selection-indicator";
 import { sfSymbolToLucideIcon } from "@/domains/chat/components/surfaces/sf-symbol-map";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
@@ -78,6 +80,7 @@ function tableToMarkdown(columns: TableColumn[], rows: TableRow[]): string {
 // ---------------------------------------------------------------------------
 
 export function TableSurface({ surface, onAction }: TableSurfaceProps) {
+  const { t } = useTranslation("chat");
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
   // (tolerant — malformed deliveries with no `rows`/`columns` collapse to
   // empty arrays instead of crashing on `data.rows.filter`, and a near-empty
@@ -131,14 +134,14 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
             type="button"
             onClick={handleCopy}
             className="flex items-center gap-1 rounded p-1 text-body-small-default text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
-            aria-label="Copy table as markdown"
+            aria-label={t("tableSurface.copyAria")}
           >
             {copied ? (
               <Check className="h-3.5 w-3.5" />
             ) : (
               <Copy className="h-3.5 w-3.5" />
             )}
-            {copied ? "Copied" : "Copy"}
+            {copied ? t("tableSurface.copied") : t("tableSurface.copy")}
           </button>
         </div>
         <table className="w-full text-left text-body-medium-lighter">

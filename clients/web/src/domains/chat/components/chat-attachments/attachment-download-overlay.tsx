@@ -1,3 +1,5 @@
+
+import { useTranslation } from "@/i18n";
 /**
  * The download affordance laid over an attachment thumbnail, for the image
  * grids and the file squares alike.
@@ -36,6 +38,7 @@ export function AttachmentDownloadOverlay({
   onDownload,
   className,
 }: AttachmentDownloadOverlayProps) {
+  const { t } = useTranslation("chat");
   return (
     <div className={cn("pointer-events-none absolute inset-0", className)}>
       <span
@@ -46,12 +49,12 @@ export function AttachmentDownloadOverlay({
           "group-focus-within:opacity-100",
         )}
       />
-      <Tooltip content="Download">
+      <Tooltip content={t("attachmentDownloadOverlay.download")}>
         <button
           type="button"
           onClick={onDownload}
           onKeyDown={(e) => e.stopPropagation()}
-          aria-label={`Download ${filename}`}
+          aria-label={t("attachmentDownloadOverlay.downloadAria", { filename })}
           className={cn(
             "absolute bottom-1 right-1 flex h-6 w-6",
             "items-center justify-center rounded-md text-white/80",
