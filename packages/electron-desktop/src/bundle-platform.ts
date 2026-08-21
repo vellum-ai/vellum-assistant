@@ -1,5 +1,7 @@
 import type { Session } from "electron";
 
+import { getLockfileData } from "@vellumai/local-mode";
+
 import { capabilityToken } from "./capability-registry";
 import type { IpcRegistrar } from "./ipc";
 
@@ -10,6 +12,20 @@ export interface ActiveBundleGateway {
   assistantId: string;
   port: number;
 }
+
+export const resolveActiveBundleGateway = (
+  lockfilePaths: string[],
+): ActiveBundleGateway | null => {
+  const result = getLockfileData(lockfilePaths);
+  if (!result.ok || !result.data.activeAssistant) {
+    return null;
+  }
+  const entry = result.data.assistants.find(
+    (assistant) => assistant.assistantId === result.data.activeAssistant,
+  );
+  const port = entry?.resources?.gatewayPort;
+  return entry && port ? { assistantId: entry.assistantId, port } : null;
+};
 
 export interface BundleHostProvider {
   resolveActiveGateway: () => ActiveBundleGateway | null;

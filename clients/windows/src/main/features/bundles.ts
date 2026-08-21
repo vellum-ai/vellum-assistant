@@ -23,10 +23,7 @@ import { handle, on } from "../ipc.client";
 const bundles: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "windows.bundles",
   install(registry) {
-    const host = registry.get(bundleHostProviderToken);
-    if (!host) {
-      return;
-    }
+    const host = registry.require(bundleHostProviderToken);
 
     configureBundlePlatform({
       ...host,

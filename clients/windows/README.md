@@ -26,8 +26,11 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
   dynamic assistant titles, and frameless title-bar overlay controls.
 - Static serving of the renderer from `src/main/index.ts`, with
   path-traversal protection from `@vellumai/electron-utils/app-protocol`,
-  platform API forwarding, single-instance lock, per-environment `userData`
-  separation, and `electron-log` file logging.
+  local, paired, and platform request forwarding, paired-request frame-origin
+  enforcement, CSP, a permission allowlist, single-instance lock,
+  per-environment `userData` separation, and `electron-log` file logging.
+- `.vellum` file association, assistant scan and confirmation flow, isolated
+  bundle storage, and sandboxed `vellumapp://` windows.
 - `electron-builder` NSIS installer target (`bun run pack`).
 
 ## Packaged CLI provisioning
@@ -56,13 +59,6 @@ Packaged Windows startup installs the bundled CLI runtime for the current user:
 `vellum retire` stages assistant data before archiving it. On Windows the
 background archive uses PowerShell and the built-in `tar.exe`; other platforms
 use the existing POSIX archive process.
-
-## Not ported yet (see `clients/macos/src/main/` for reference implementations)
-
-- Gateway (`/assistant/__gateway/{port}/*`) request forwarding. Packaged
-  builds cannot reach local gateways until this lands.
-- Native auth / OAuth sign-in chain, notifications, auto-update, CSP, hotkeys,
-  local-mode IPC (hatch/wake/retire), and device id.
 
 ## Development
 

@@ -54,6 +54,7 @@ import {
   FEEDBACK_LOGS,
 } from "@vellumai/ipc-contract";
 import {
+  createBundleConfirmationBridge,
   createDeepLinksBridge,
   createLaunchAtLoginBridge,
 } from "@vellumai/electron-desktop/preload";
@@ -396,15 +397,7 @@ const bridge: VellumBridge = {
       };
     },
   },
-  bundleConfirm: {
-    getData: () =>
-      ipcRenderer.invoke(
-        "vellum:bundleConfirm:getData",
-      ) as Promise<BundleScanData | null>,
-    respond: (accepted: boolean): void => {
-      ipcRenderer.send("vellum:bundleConfirm:respond", accepted);
-    },
-  },
+  bundleConfirm: createBundleConfirmationBridge(ipcRenderer),
   quickInput: {
     submit: (message: string): Promise<void> =>
       ipcRenderer.invoke("vellum:quickInput:submit", message) as Promise<void>,

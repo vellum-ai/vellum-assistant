@@ -188,6 +188,33 @@ export type GatewayForwardFetcher = (
   init: RequestInit & { duplex?: "half" },
 ) => Promise<Response>;
 
+export type GatewayForwardableRequest = GatewayForwardRequest &
+  Pick<Request, "body">;
+
+export const forwardGatewayRequest = (
+  request: GatewayForwardableRequest,
+  getAllowedPorts: () => Set<number>,
+  fetcher: GatewayForwardFetcher,
+): Promise<Response> | Response | null =>
+  executeGatewayForwardPlan(
+    planGatewayForward(request, getAllowedPorts),
+    request,
+    fetcher,
+  );
+
+export const forwardPairedGatewayRequest = async (
+  request: GatewayForwardableRequest,
+  getTargets: () => Map<string, string>,
+  getGuardianToken: PairedGuardianTokenProvider,
+  fetcher: GatewayForwardFetcher,
+): Promise<Response | null> => {
+  const plan = await authorizePairedGatewayForwardPlan(
+    planPairedGatewayForward(request, getTargets),
+    getGuardianToken,
+  );
+  return executeGatewayForwardPlan(plan, request, fetcher);
+};
+
 /**
  * Turn a gateway forward plan into its effect: `null` on `pass` so the caller
  * serves the request as a static asset, otherwise the plan's rejection or a

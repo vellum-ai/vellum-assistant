@@ -66,15 +66,6 @@ beforeEach(() => {
 });
 
 describe("Windows bundle workflow", () => {
-  test("stays disabled without a host provider", () => {
-    const registry = new DesktopCapabilityRegistry();
-    bundles.install(registry);
-
-    expect(registry.get(bundleFileHandlerToken)).toBeUndefined();
-    expect(installBundleFlowMock).not.toHaveBeenCalled();
-    expect(onFileOpenMock).not.toHaveBeenCalled();
-  });
-
   test("installs through an explicit host provider", () => {
     const registry = new DesktopCapabilityRegistry();
     const denyAllPermissions = mock(() => undefined);

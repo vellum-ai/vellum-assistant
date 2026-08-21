@@ -1,20 +1,40 @@
 import "./env-seed";
 
 import { app, net, protocol, session, shell } from "electron";
-import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
-import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
-import { VELLUMAPP_PROTOCOL } from "@vellumai/electron-desktop/bundle-platform";
+import {
+  BUNDLES_DIR_NAME,
+  VELLUMAPP_PROTOCOL,
+} from "@vellumai/electron-desktop/bundle-platform";
+import { installCsp } from "@vellumai/electron-desktop/csp";
 import { getDeviceId } from "@vellumai/electron-desktop/device-id";
+import {
+  forwardGatewayRequest,
+  forwardPairedGatewayRequest,
+  type GatewayForwardFetcher,
+} from "@vellumai/electron-desktop/gateway-forward";
+import { getPairedGuardianAccessToken } from "@vellumai/electron-desktop/local-mode";
+import { getWatchedLockfileSnapshot } from "@vellumai/electron-desktop/lockfile-watcher";
+import { installPairedGatewayRequestGuard } from "@vellumai/electron-desktop/paired-gateway-request-guard";
+import { installPermissionHandler } from "@vellumai/electron-desktop/permissions";
 import {
   executePlatformForwardPlan,
   planPlatformForward,
 } from "@vellumai/electron-desktop/platform-forward";
-import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
+import { registerVellumAppProtocol } from "@vellumai/electron-desktop/vellumapp-protocol";
+import { planAppProtocolAssetRequest } from "@vellumai/electron-utils/app-protocol";
+import {
+  pairedGatewayTargetsFromLockfile,
+  readAllowedGatewayPorts,
+  readPairedGatewayTargets,
+  resolveLocalConfigFromEnv,
+  resolveLockfilePaths,
+} from "@vellumai/local-mode";
 
 import {
+  APP_HOST,
   APP_PROTOCOL,
   WINDOWS_RELEASE_INFO,
   usesAppProtocolRenderer,
@@ -28,18 +48,7 @@ import { ensureVisible } from "./main-window";
 import { installWebContentsSecurity } from "./windows.client";
 
 /**
- * Minimal Windows shell for the Vellum Assistant.
- *
- * This is the bootstrap skeleton: a hardened BrowserWindow loading the
- * clients/web renderer (Vite dev server in dev, `app://` static serving of
- * `resources/web-dist` in packaged builds) plus the smallest IPC surface
- * the renderer needs to boot. The renderer's runtime wrappers
- * (`clients/web/src/runtime/`) feature-detect each bridge namespace, so the
- * partial preload bridge degrades to web behavior everywhere else.
- *
- * Not ported from the macOS client yet (see `clients/macos/src/main/` for the
- * reference implementations): gateway request forwarding, auto-update, CSP,
- * notifications, and hotkeys.
+ * Windows Electron shell for the Vellum Assistant web renderer.
  */
 
 // Dev-only: override the package `name` (`@vellumai/windows`) so
@@ -123,8 +132,36 @@ const resolveRendererRoot = (): string => {
 const registerAppProtocol = (): void => {
   const rendererRoot = resolveRendererRoot();
   const indexHtml = path.join(rendererRoot, "index.html");
+  const lockfilePaths = resolveLockfilePaths(process.env);
+  const getAllowedGatewayPorts = (): Set<number> =>
+    readAllowedGatewayPorts(lockfilePaths);
+  const getPairedGatewayTargets = (): Map<string, string> => {
+    const watched = getWatchedLockfileSnapshot();
+    return watched
+      ? pairedGatewayTargetsFromLockfile(watched)
+      : readPairedGatewayTargets(lockfilePaths);
+  };
 
   protocol.handle(APP_PROTOCOL, async (request) => {
+    const gatewayProxied = await forwardGatewayRequest(
+      request,
+      getAllowedGatewayPorts,
+      gatewayForwardFetcher,
+    );
+    if (gatewayProxied) {
+      return gatewayProxied;
+    }
+
+    const pairedGatewayProxied = await forwardPairedGatewayRequest(
+      request,
+      getPairedGatewayTargets,
+      getPairedGuardianAccessToken,
+      gatewayForwardFetcher,
+    );
+    if (pairedGatewayProxied) {
+      return pairedGatewayProxied;
+    }
+
     const platformProxied = await forwardPlatformRequest(
       request,
       resolvedConfig.platformUrl,
@@ -133,34 +170,25 @@ const registerAppProtocol = (): void => {
       return platformProxied;
     }
 
-    const result = resolveAppProtocolPath(
+    const asset = await planAppProtocolAssetRequest({
       rendererRoot,
-      request.url,
-      RENDERER_MOUNT,
-    );
-    if (result.kind === "forbidden") {
+      indexHtml,
+      requestUrl: request.url,
+      mountPrefix: RENDERER_MOUNT,
+      allowedOrigin: { protocol: `${APP_PROTOCOL}:`, host: APP_HOST },
+    });
+    if (asset.kind === "forbidden") {
       return new Response("Forbidden", { status: 403 });
     }
-    const { resolved } = result;
-    if (await fileExists(resolved)) {
-      return net.fetch(pathToFileURL(resolved).toString());
-    }
-    const ext = path.extname(resolved);
-    if (ext === "" || ext === ".html") {
-      return net.fetch(pathToFileURL(indexHtml).toString());
+    if (asset.kind === "fetch") {
+      return net.fetch(pathToFileURL(asset.path).toString());
     }
     return new Response("Not Found", { status: 404 });
   });
 };
 
-const fileExists = async (candidate: string): Promise<boolean> => {
-  try {
-    const stat = await fs.stat(candidate);
-    return stat.isFile();
-  } catch {
-    return false;
-  }
-};
+const gatewayForwardFetcher: GatewayForwardFetcher = (url, init) =>
+  net.fetch(url, init);
 
 // Synchronous config snapshot the preload reads at startup and exposes to the
 // renderer as `window.__VELLUM_CONFIG__`.
@@ -208,7 +236,16 @@ app
     log.info("[app] ready");
     if (usesAppProtocolRenderer(app.isPackaged)) {
       registerAppProtocol();
+      installPairedGatewayRequestGuard({
+        appOrigin: { protocol: `${APP_PROTOCOL}:`, host: APP_HOST },
+        resolveAllowedOrigin,
+      });
     }
+    registerVellumAppProtocol(
+      path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
+    );
+    installPermissionHandler(resolveAllowedOrigin);
+    installCsp();
     if (app.isPackaged && process.platform === "win32") {
       try {
         const result = provisionCliForCurrentUser({
