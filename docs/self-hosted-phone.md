@@ -120,8 +120,10 @@ install instructions. The edge listen port defaults to `7840`; override it
 with the `VELLUM_NGINX_INGRESS_PORT` environment variable if it clashes with
 something else. The edge runs in the background and outlives the tunnel:
 Ctrl+C on `vellum tunnel` leaves it listening, and `vellum sleep` stops it
-along with the rest of the assistant. Its config and log live under the
-assistant's workspace at `data/ingress/nginx.conf` and
+along with the rest of the assistant. Apple Container assistants are the
+exception, since the macOS app owns their lifecycle and `vellum sleep`
+declines them; their edge is cleared by `vellum retire`. Its config and log
+live under the assistant's workspace at `data/ingress/nginx.conf` and
 `data/logs/nginx-ingress.log` if you need to inspect what it is serving.
 
 The tunnel records the public URL in your workspace config

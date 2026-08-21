@@ -24,6 +24,7 @@ import {
 } from "bun:test";
 
 import * as httpClient from "../lib/http-client.js";
+import type { AssistantEntry } from "../lib/assistant-config.js";
 
 const realChildProcess = { ...childProcess };
 const realFs = { ...fsModule };
@@ -73,6 +74,7 @@ import {
   cloudWebHubUrl,
   ensureTunnelEdge,
   startRemoteWebIngress,
+  stopContainerTunnelEdge,
   stopIngressNginx,
 } from "../lib/nginx-ingress.js";
 
@@ -1975,5 +1977,79 @@ describe("ensureTunnelEdge", () => {
     await expect(promise).rejects.toThrow(
       join(ws, "data", "logs", "nginx-ingress.log"),
     );
+  });
+});
+
+describe("stopContainerTunnelEdge", () => {
+  const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+
+  afterEach(() => {
+    if (originalWorkspaceDir === undefined) {
+      delete process.env.VELLUM_WORKSPACE_DIR;
+    } else {
+      process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+    }
+  });
+
+  /** A container entry whose gateway port is only recoverable from its URLs. */
+  function containerEntry(port: number): AssistantEntry {
+    return {
+      assistantId: "docker-1",
+      runtimeUrl: `http://localhost:${port}`,
+      cloud: "docker",
+    } as AssistantEntry;
+  }
+
+  test("stops the default-workspace edge fronting this assistant", async () => {
+    const ws = makeWorkspace();
+    process.env.VELLUM_WORKSPACE_DIR = ws;
+    const pid = mockRunningEdge(ws, { listenPort: 7840, gatewayPort: 7930 });
+    const { killed } = mockKillableNginx(pid);
+
+    expect(await stopContainerTunnelEdge(containerEntry(7930))).toBe(true);
+    expect(killed()).toBe(true);
+  });
+
+  test("leaves an edge fronting a different container assistant alone", async () => {
+    const ws = makeWorkspace();
+    process.env.VELLUM_WORKSPACE_DIR = ws;
+    const pid = mockRunningEdge(ws, { listenPort: 7840, gatewayPort: 7930 });
+    const { killed } = mockKillableNginx(pid);
+
+    expect(await stopContainerTunnelEdge(containerEntry(8030))).toBe(false);
+    expect(killed()).toBe(false);
+  });
+
+  test("leaves an unattributable edge alone", async () => {
+    const ws = makeWorkspace();
+    process.env.VELLUM_WORKSPACE_DIR = ws;
+    const pid = mockRunningEdge(ws, { listenPort: 7840 });
+    const { killed } = mockKillableNginx(pid);
+
+    expect(await stopContainerTunnelEdge(containerEntry(7930))).toBe(false);
+    expect(killed()).toBe(false);
+  });
+
+  test("is a no-op when the entry carries no explicit gateway port", async () => {
+    const ws = makeWorkspace();
+    process.env.VELLUM_WORKSPACE_DIR = ws;
+    const pid = mockRunningEdge(ws, { listenPort: 7840, gatewayPort: 7930 });
+    const { killed } = mockKillableNginx(pid);
+
+    expect(
+      await stopContainerTunnelEdge({
+        assistantId: "docker-1",
+        runtimeUrl: "https://runtime.example.com/docker-1",
+        cloud: "docker",
+      } as AssistantEntry),
+    ).toBe(false);
+    expect(killed()).toBe(false);
+  });
+
+  test("is a no-op when no edge is running", async () => {
+    const ws = makeWorkspace();
+    process.env.VELLUM_WORKSPACE_DIR = ws;
+
+    expect(await stopContainerTunnelEdge(containerEntry(7930))).toBe(false);
   });
 });
