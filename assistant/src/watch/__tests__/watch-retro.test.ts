@@ -234,9 +234,16 @@ describe("watch retrospective", () => {
     expect(prompt).toContain("what they would say to start this task");
     // And the report is not turned back into a questionnaire about itself.
     expect(prompt).toContain(
-      "Do not ask them to confirm something the recording already showed you.",
+      "do not ask them to confirm something the recording already showed you.",
     );
     expect(prompt).toContain("No preamble");
+    // A destructive step is confirmed however plainly it was recorded. The
+    // recording establishes what someone did once and nothing about whether
+    // they want it repeated unattended, so it is the one exception to the
+    // rule above.
+    expect(prompt).toContain(
+      "Always confirm any destructive or irreversible step, even one the recording showed plainly",
+    );
   });
 
   test("authors nothing until the user has confirmed", async () => {

@@ -68,10 +68,17 @@ const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
  * field the recording cannot supply: the timeline holds what they did, never
  * what they would call it. The steps are usually not, because the recording is
  * exactly the evidence for those.
+ *
+ * A destructive step is the exception, and it is asked about however plainly it
+ * was seen. The recording establishes what someone did once; it establishes
+ * nothing about whether they want it done again without being asked, and the
+ * gap between those two is the whole risk of turning a demonstration into a
+ * skill. `skill-management` will not scaffold until that step is settled
+ * either, so an unasked one stalls the flow it was meant to feed.
  */
 const RETRO_INSTRUCTIONS = `Write back to the user in two sections, in this order, both as level-2 headings.
 
-First, "What I need from you". The questions you cannot answer from the recording, numbered, most consequential first. Each one concrete enough to answer in a sentence, and each one about something you are genuinely guessing at: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of. Always ask what they would say to start this task, in their own words, because the recording cannot tell you that. Ask about the destructive step and the done condition if either is unclear. Do not ask them to confirm something the recording already showed you.
+First, "What I need from you". The questions you cannot answer from the recording, numbered, most consequential first. Each one concrete enough to answer in a sentence, and each one about something you are genuinely guessing at: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of. Always ask what they would say to start this task, in their own words, because the recording cannot tell you that. Ask about the done condition if it is unclear. Always confirm any destructive or irreversible step, even one the recording showed plainly: watching someone do a thing once is not agreement to have it done again unattended, and this is the one place the rule below does not apply. Otherwise do not ask them to confirm something the recording already showed you.
 
 Second, "What I saw". Open with one sentence naming the task and what it is for, on its own and not as a list item. Then the steps in order beneath it, one line each and concrete enough to follow, carrying no purpose of their own. This is the record your questions sit on top of, so state it rather than asking about it.
 
