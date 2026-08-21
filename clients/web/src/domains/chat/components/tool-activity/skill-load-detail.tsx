@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n";
 /**
  * Purpose-built activity UI for a `skill_load` call (LUM-2999), laid out to
  * Figma node 7778-163402: a "Used Skill" card carrying the skill's identity and
@@ -29,14 +30,15 @@ import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-a
  * own input, so it's known immediately and showing it beats a shimmer.
  */
 function SkillLoadSkeleton() {
+  const { t } = useTranslation("chat");
   return (
     <div
       role="status"
-      aria-label="Loading skill"
+      aria-label={t("skillLoadDetail.loadingAria")}
       className="flex flex-col gap-5"
     >
       <div>
-        <SectionLabel>Provides</SectionLabel>
+        <SectionLabel>{t("skillLoadDetail.provides")}</SectionLabel>
         <div className="flex flex-col gap-4">
           {[0, 1].map((row) => (
             <div key={row}>
@@ -62,6 +64,7 @@ export function SkillLoadDetail({
   isError,
   assistantId,
 }: ToolActivityRendererProps) {
+  const { t } = useTranslation("chat");
   const {
     skillId,
     displayName,
@@ -83,7 +86,7 @@ export function SkillLoadDetail({
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <SectionLabel>Used Skill</SectionLabel>
+        <SectionLabel>{t("skillLoadDetail.usedSkill")}</SectionLabel>
         <SkillLoadCard
           skillId={skillId}
           name={displayName || skillId || "Skill"}
@@ -102,7 +105,7 @@ export function SkillLoadDetail({
 
       {tools.length > 0 && (
         <div>
-          <SectionLabel>Provides</SectionLabel>
+          <SectionLabel>{t("skillLoadDetail.provides")}</SectionLabel>
           <SkillToolList tools={tools} />
         </div>
       )}

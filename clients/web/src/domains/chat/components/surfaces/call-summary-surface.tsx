@@ -8,6 +8,7 @@ import {
 import { useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
+import { useTranslation } from "@/i18n";
 
 interface CallEvent {
   eventType: string;
@@ -37,6 +38,7 @@ export function CallSummarySurface({
     data?: Record<string, unknown>,
   ) => void;
 }) {
+  const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(false);
   const { status, duration, events = [] } = surface.data as CallSummaryData;
 
@@ -66,7 +68,7 @@ export function CallSummarySurface({
           <strong>{statusLabel}</strong>
           {durationStr}
           {". "}
-          {events.length} event{events.length !== 1 ? "s" : ""} recorded.
+          {t("callSummarySurface.eventsRecorded", { count: events.length })}
         </span>
         {events.length > 0 &&
           (expanded ? (

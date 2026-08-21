@@ -4,6 +4,7 @@ import {
 } from "@vellumai/assistant-api";
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "@/i18n";
 
 import type { Surface } from "@/domains/chat/types/types";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
@@ -18,6 +19,7 @@ interface CopyBlockSurfaceProps {
 }
 
 export function CopyBlockSurface({ surface }: CopyBlockSurfaceProps) {
+  const { t } = useTranslation("chat");
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
   // (tolerant, so a real payload never fails to parse) rather than an
   // unchecked cast or a re-declared local interface.
@@ -64,7 +66,7 @@ export function CopyBlockSurface({ surface }: CopyBlockSurfaceProps) {
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}
-          {copied ? "Copied" : "Copy"}
+          {copied ? t("copyBlockSurface.copied") : t("copyBlockSurface.copy")}
         </button>
       </div>
     </div>

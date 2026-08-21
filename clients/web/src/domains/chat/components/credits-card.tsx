@@ -1,5 +1,6 @@
 import { Button } from "@vellumai/design-library";
 import { Coins, Plus } from "lucide-react";
+import { useTranslation } from "@/i18n";
 
 interface CreditsCardProps {
   /** Formatted whole-credits string, or null when unavailable. */
@@ -16,6 +17,7 @@ interface CreditsCardProps {
  * container never shows up empty.
  */
 export function CreditsCard({ balance, onAddCredits }: CreditsCardProps) {
+  const { t } = useTranslation("chat");
   if (balance === null) {
     return null;
   }
@@ -29,9 +31,9 @@ export function CreditsCard({ balance, onAddCredits }: CreditsCardProps) {
         />
         <span
           className="text-body-medium-default font-normal! max-md:text-title-medium text-[color:var(--content-default)]"
-          aria-label={`${balance} credits`}
+          aria-label={t("creditsCard.balanceAria", { balance })}
         >
-          {balance} c
+          {t("creditsCard.balanceShort", { balance })}
         </span>
       </div>
       {onAddCredits ? (
@@ -42,7 +44,7 @@ export function CreditsCard({ balance, onAddCredits }: CreditsCardProps) {
           className="h-6 gap-1 px-1.5 font-normal!"
         >
           <Plus className="h-3.5 w-3.5" aria-hidden />
-          Credits
+          {t("creditsCard.credits")}
         </Button>
       ) : null}
     </div>

@@ -1,3 +1,4 @@
+import { useTranslation, Trans } from "@/i18n";
 /**
  * Live research activity feed for the focused-onboarding loading state.
  *
@@ -84,6 +85,7 @@ function useElapsedHint(): string | null {
 }
 
 export function ResearchActivityFeed() {
+  const { t } = useTranslation("chat");
   const liveWebActivity = useTurnStore((s) => s.liveWebActivity);
   const statusText = useTurnStore((s) => s.statusText);
   const elapsedHint = useElapsedHint();
@@ -94,10 +96,10 @@ export function ResearchActivityFeed() {
     <div className="flex w-full flex-col gap-6">
       <div className="flex flex-col gap-1">
         <h2 className="text-xl font-medium text-[var(--content-default)]">
-          Getting to know you…
+          {t("researchActivityFeed.heading")}
         </h2>
         <p className="text-body-medium-lighter text-[var(--content-secondary)]">
-          {statusText ?? "Searching the web to get to know you."}
+          {statusText ?? t("researchActivityFeed.defaultStatus")}
         </p>
         {elapsedHint ? (
           <p className="text-body-small-default text-[var(--content-tertiary)]">
@@ -110,7 +112,7 @@ export function ResearchActivityFeed() {
         <div className="flex items-center gap-3 rounded-xl border border-[var(--border-base)] bg-[var(--surface-lift)] px-5 py-4">
           <Search className="size-4 shrink-0 animate-pulse text-[var(--content-tertiary)]" />
           <span className="text-base text-[var(--content-secondary)]">
-            Warming up the search…
+            {t("researchActivityFeed.warmingUp")}
           </span>
         </div>
       ) : (
@@ -126,8 +128,14 @@ export function ResearchActivityFeed() {
                   <div className="flex items-center gap-3">
                     <Search className="size-4 shrink-0 text-[var(--content-secondary)]" />
                     <span className="text-base text-[var(--content-default)]">
-                      Searching for{" "}
-                      <span className="font-medium">“{item.query}”</span>
+                      <Trans
+                        i18nKey="researchActivityFeed.searchingFor"
+                        ns="chat"
+                        values={{ query: item.query }}
+                        components={{
+                          query: <span className="font-medium" />,
+                        }}
+                      />
                     </span>
                   </div>
                   {item.results.length > 0 ? (
@@ -150,11 +158,17 @@ export function ResearchActivityFeed() {
                 <div className="flex items-center gap-3">
                   <SourceFavicon src={item.faviconUrl} domain={item.domain} />
                   <span className="min-w-0 text-base text-[var(--content-default)]">
-                    Reading <span className="font-medium">{item.title}</span>
-                    <span className="text-[var(--content-tertiary)]">
-                      {" "}
-                      · {item.domain}
-                    </span>
+                    <Trans
+                      i18nKey="researchActivityFeed.reading"
+                      ns="chat"
+                      values={{ title: item.title, domain: item.domain }}
+                      components={{
+                        title: <span className="font-medium" />,
+                        domain: (
+                          <span className="text-[var(--content-tertiary)]" />
+                        ),
+                      }}
+                    />
                   </span>
                 </div>
               )}

@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useTranslation } from "@/i18n";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
@@ -55,6 +56,7 @@ function QueuedMessageRow({
   revealed,
   onReveal,
 }: QueuedMessageRowProps) {
+  const { t } = useTranslation("chat");
   const preview = useMemo(() => messagePlainText(message), [message]);
   const supportsSteer = useSupportsQueueSteering();
   const awaitingReveal = twoStep && !revealed;
@@ -91,7 +93,7 @@ function QueuedMessageRow({
             className="max-md:h-6 max-md:w-6 max-md:bg-transparent max-md:rounded-md"
             iconOnly={<MoreHorizontal className="h-3.5 w-3.5" />}
             onClick={onReveal}
-            aria-label="Show queued message actions"
+            aria-label={t("queuedMessagesDrawer.showActionsAria")}
           />
         ) : (
           <>
@@ -102,7 +104,7 @@ function QueuedMessageRow({
                 className="max-md:h-6 max-md:w-6 max-md:bg-transparent max-md:rounded-md"
                 iconOnly={<ArrowUp className="h-3.5 w-3.5" />}
                 onClick={onSteer}
-                aria-label="Push to agent"
+                aria-label={t("queuedMessagesDrawer.pushToAgentAria")}
               />
             )}
             {isTail && (
@@ -112,7 +114,7 @@ function QueuedMessageRow({
                 className="max-md:h-6 max-md:w-6 max-md:bg-transparent max-md:rounded-md"
                 iconOnly={<Pencil className="h-3.5 w-3.5" />}
                 onClick={onEdit}
-                aria-label="Edit queued message"
+                aria-label={t("queuedMessagesDrawer.editAria")}
               />
             )}
             <Button
@@ -121,7 +123,7 @@ function QueuedMessageRow({
               className="max-md:h-6 max-md:w-6 max-md:bg-transparent max-md:rounded-md"
               iconOnly={<X className="h-3.5 w-3.5" />}
               onClick={onCancel}
-              aria-label="Cancel queued message"
+              aria-label={t("queuedMessagesDrawer.cancelAria")}
             />
           </>
         )}
@@ -154,6 +156,7 @@ export function QueuedMessagesDrawer({
   onSteer,
   onEditTail,
 }: QueuedMessagesDrawerProps): ReactNode {
+  const { t } = useTranslation("chat");
   // Read once per mount: the primary pointer does not change under a live
   // component, and re-reading per render would fight the reveal state.
   const twoStep = useMemo(() => isPointerCoarse(), []);
@@ -215,15 +218,15 @@ export function QueuedMessagesDrawer({
         {/* Header */}
         <div className="mb-0.5 flex items-center justify-between md:mb-1">
           <span className="text-label-medium-default text-[var(--content-secondary)]">
-            Queue &middot; {queuedMessages.length}
+            {t("queuedMessagesDrawer.queueHeading", { count: queuedMessages.length })}
           </span>
           <Button
             variant="ghost"
             size="compact"
             onClick={onCancelAll}
-            aria-label="Cancel all queued messages"
+            aria-label={t("queuedMessagesDrawer.cancelAllAria")}
           >
-            Cancel all
+            {t("queuedMessagesDrawer.cancelAll")}
           </Button>
         </div>
 
