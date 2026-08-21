@@ -328,6 +328,7 @@ export class Conversation {
    * {@link emit}, which also notifies {@link addEventObserver} observers.
    */
   private readonly sendToClient: (msg: AssistantEvent) => void;
+  /** @internal */ currentTurnEventSink?: (msg: AssistantEvent) => void;
   /**
    * Observers notified after every {@link emit}, in registration order. An
    * observer sees the event after the sink delivered it, so anything it does
@@ -1537,9 +1538,12 @@ export class Conversation {
    * agent loop's own stream rides its per-turn `onEvent`, which defaults to
    * this when the caller passes none.
    */
-  readonly emit = (msg: AssistantEvent): void => {
+  private deliverEvent(
+    msg: AssistantEvent,
+    sink: (msg: AssistantEvent) => void,
+  ): void {
     try {
-      this.sendToClient(msg);
+      sink(msg);
     } catch (err) {
       log.warn(
         { err, conversationId: this.conversationId, type: msg.type },
@@ -1556,6 +1560,15 @@ export class Conversation {
         );
       }
     }
+  }
+
+  readonly emit = (msg: AssistantEvent): void => {
+    this.deliverEvent(msg, this.sendToClient);
+  };
+
+  /** Deliver a tool event through the active turn's request-bound sink. */
+  readonly emitToCurrentTurn = (msg: AssistantEvent): void => {
+    this.deliverEvent(msg, this.currentTurnEventSink ?? this.sendToClient);
   };
 
   /**
@@ -2771,13 +2784,19 @@ export class Conversation {
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};
-    return runAgentLoopImpl(
-      this,
-      content,
-      userMessageId,
-      onEvent ?? this.emit,
-      rest,
-    );
+    const previousTurnEventSink = this.currentTurnEventSink;
+    this.currentTurnEventSink = onEvent;
+    try {
+      return await runAgentLoopImpl(
+        this,
+        content,
+        userMessageId,
+        onEvent ?? this.emit,
+        rest,
+      );
+    } finally {
+      this.currentTurnEventSink = previousTurnEventSink;
+    }
   }
 
   drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
