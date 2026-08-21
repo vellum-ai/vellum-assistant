@@ -249,7 +249,7 @@ const REPORT_QUESTION = "Which calendar should I check, work or personal?";
 /**
  * Drive a turn through the escalate verdict and hand back the escalated leg's
  * bridge options, so a test can script that leg block by block: text deltas,
- * `tool_use_preview_start` for a tool-use block opening, and completion.
+ * `tool_block_opened` for a tool block opening, and completion.
  */
 async function startEscalatedTurn(
   streamTtsAudio: LiveVoiceTtsStreamer,
@@ -1233,9 +1233,9 @@ describe("LiveVoiceSession escalated-turn speech", () => {
     // Two working blocks, each closed by a tool-use block opening, then the
     // block nothing follows: the turn's report back.
     legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
-    legs?.tool_use_preview_start?.("calendar_read", "toolu-1");
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
     legs?.assistant_text_delta?.(makeTextDelta(`${SECOND_COMMENTARY} `));
-    legs?.tool_use_preview_start?.("calendar_read", "toolu-2");
+    legs?.tool_block_opened?.("calendar_read", "toolu-2");
     legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
     legs?.message_complete?.(makeMessageComplete());
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
@@ -1254,6 +1254,31 @@ describe("LiveVoiceSession escalated-turn speech", () => {
     expect(transcript).toContain(FIRST_COMMENTARY);
     expect(transcript).toContain(SECOND_COMMENTARY);
     expect(transcript).toContain(REPORT_SENTENCE);
+  });
+
+  test("a provider-native tool closes a block like any other", async () => {
+    // Web search and friends arrive as server_tool_start rather than a
+    // preview event. The bridge routes both to tool_block_opened, so from
+    // here a provider-native tool is not a special case at all: this asserts
+    // the session treats that boundary like any other. That the bridge
+    // actually routes it is asserted in voice-session-bridge.test.ts.
+    const { streamTtsAudio, synthesized } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    legs?.tool_block_opened?.("web_search", "srvtoolu-1");
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
+    expect(synthesizedTexts(synthesized)).toContain(FIRST_COMMENTARY);
+    // Holding is a TTS-only concern here too: the transcript keeps every word.
+    expect(assistantTranscript(frames)).toContain(FIRST_COMMENTARY);
   });
 
   test("a direct front-door answer is unchanged", async () => {
@@ -1295,7 +1320,7 @@ describe("LiveVoiceSession escalated-turn speech", () => {
     const legs = escalated.callbacks;
 
     legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
-    legs?.tool_use_preview_start?.("calendar_read", "toolu-1");
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
     await flushAsyncCallbacks();
     legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
     await waitFor(() =>
@@ -1325,7 +1350,7 @@ describe("LiveVoiceSession escalated-turn speech", () => {
     const legs = escalated.callbacks;
 
     legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
-    legs?.tool_use_preview_start?.("calendar_read", "toolu-1");
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
     legs?.assistant_text_delta?.(makeTextDelta(REPORT_QUESTION));
     legs?.message_complete?.(makeMessageComplete());
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
@@ -1357,7 +1382,7 @@ describe("LiveVoiceSession escalated-turn speech", () => {
       b64(`audio:${approvalPhrase}`),
     ]);
 
-    legs?.tool_use_preview_start?.("send_email", "toolu-1");
+    legs?.tool_block_opened?.("send_email", "toolu-1");
     legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
     legs?.message_complete?.(makeMessageComplete());
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
@@ -1389,7 +1414,7 @@ describe("LiveVoiceSession escalated-turn speech", () => {
 
     // Retracting it makes it unhearable at once, even though the provider is
     // still sitting on the aborted stream, so the tool phase reads idle.
-    legs?.tool_use_preview_start?.("calendar_read", "toolu-1");
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
     expect(held.audioIdle()).toBe(true);
 
     legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
@@ -1414,7 +1439,7 @@ describe("LiveVoiceSession escalated-turn speech", () => {
     );
 
     legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
-    legs?.tool_use_preview_start?.("calendar_read", "toolu-1");
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
     await flushAsyncCallbacks();
 
     const bridgeCall = synthesized.find(

@@ -4999,7 +4999,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             }
             current.assistantMessageId = messageId;
           },
-          tool_use_preview_start: (toolName) => {
+          tool_block_opened: (toolName) => {
             const current = this.activeAssistantTurn;
             if (current?.token !== token || leg.routingLeg !== "escalated") {
               return;
