@@ -541,12 +541,6 @@ interface AgentLoopRunOptionsBase {
   onEvent: (event: AgentEvent) => void | Promise<void>;
   signal?: AbortSignal;
   requestId: string;
-  /**
-   * Explicit model override (provider/model string) for every LLM call in
-   * this run. When omitted, the model is resolved through the normal
-   * call-site / profile resolution path.
-   */
-  model?: string;
   onCheckpoint?: (
     checkpoint: CheckpointInfo,
   ) => CheckpointDecision | Promise<CheckpointDecision>;
@@ -1049,7 +1043,6 @@ export class AgentLoop {
       resolveOverrideProfile,
       compactInPlace = false,
       isNonInteractive = false,
-      model: runModel,
       latencyTracker,
     } = options;
     // Snapshot the system prompt once per run. The instance field is mutable
@@ -1421,11 +1414,10 @@ export class AgentLoop {
           : resolvedTools;
 
         // Field precedence (highest wins):
-        //   1. Per-run explicit (`runModel`)
-        //   2. Call-site resolved values (filled by
+        //   1. Call-site resolved values (filled by
         //      `RetryProvider.normalizeSendMessageOptions` from
         //      `resolveCallSiteConfig(callSite, llm)`)
-        //   3. Conversation defaults (`this.config.*`, from the resolved
+        //   2. Conversation defaults (`this.config.*`, from the resolved
         //      default call-site config)
         //
         // When `callSite` is present we deliberately leave
@@ -1441,10 +1433,6 @@ export class AgentLoop {
 
         if (!callSite) {
           providerConfig.max_tokens = this.config.maxTokens;
-        }
-
-        if (runModel) {
-          providerConfig.model = runModel;
         }
 
         if (!callSite) {

@@ -426,11 +426,6 @@ function normalizeSendMessageOptions(
       selectionSeed: config.selectionSeed,
     });
 
-    const explicitModel =
-      typeof config.model === "string" && config.model.trim().length > 0
-        ? config.model.trim()
-        : undefined;
-
     // Routing key is consumed by the resolver above and must not leak
     // downstream as a wire-format field.
     delete nextConfig.callSite;
@@ -455,7 +450,11 @@ function normalizeSendMessageOptions(
     }
 
     // Apply resolved values, letting per-call explicit fields win where set.
-    nextConfig.model = explicitModel ?? resolved.model;
+    // `model` has no explicit-field escape hatch: the last producer (the
+    // agent loop's per-run `model` option) was removed as dead code, and a
+    // caller-set model would graft one model's id onto another model's
+    // resolved parameters. Call-site/profile resolution alone decides it.
+    nextConfig.model = resolved.model;
     if (nextConfig.max_tokens === undefined) {
       nextConfig.max_tokens = resolved.maxTokens;
     }
