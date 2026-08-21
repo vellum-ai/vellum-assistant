@@ -31,6 +31,14 @@ mock.module("../../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => fakeConversation,
 }));
 
+// Vision capability of the image pin's target profile. Install-dependent in
+// production (a BYO provider resolves the profile key through its own column
+// of the intent matrix), so it is scripted rather than read from a catalog.
+let pinProfileSupportsVision = true;
+mock.module("../../plugin-api/vision-support.js", () => ({
+  doesSupportVision: () => pinProfileSupportsVision,
+}));
+
 // Conversation-CRUD doubles for the teardown transcript-hygiene pass. The
 // real module is spread so every other export keeps its production behavior;
 // only the functions the hygiene pass (and discard) touch are recorded.
@@ -657,7 +665,8 @@ describe("startVoiceTurn channel capabilities", () => {
   // The turn installs its capabilities, then cleanup resets them to null — so
   // capture every applied value and read the installed (non-null) one.
   function captureInstalledCapabilities(): () =>
-    Record<string, unknown> | undefined {
+    | Record<string, unknown>
+    | undefined {
     const fake = makeFakeConversation({ processing: false });
     fakeConversation = fake.conversation;
     const applied: unknown[] = [];
@@ -1736,7 +1745,8 @@ describe("front-door hub stream gate", () => {
   function makeStreamingConversation(
     deltas: string[],
     finalEvent:
-      "message_complete" | "generation_cancelled" = "message_complete",
+      | "message_complete"
+      | "generation_cancelled" = "message_complete",
   ): void {
     const fake = makeFakeConversation({ processing: false });
     fake.conversation.runAgentLoop = async (...args: unknown[]) => {
@@ -2181,6 +2191,10 @@ describe("startVoiceTurn image-bearing profile pin", () => {
     },
   ];
 
+  beforeEach(() => {
+    pinProfileSupportsVision = true;
+  });
+
   async function runOptionsFor(opts: {
     messages?: Array<{ role: string; content: unknown[] }>;
     turn?: Record<string, unknown>;
@@ -2242,6 +2256,18 @@ describe("startVoiceTurn image-bearing profile pin", () => {
 
     expect(runOptions.overrideProfile).toBeUndefined();
     expect(runOptions.callSite).toBe("voiceFrontDoor");
+  });
+
+  test("no pin when the pin target can't take an image either", async () => {
+    // Fireworks: `latency-optimized` resolves to a text-only model while
+    // `balanced` is vision-capable, so pinning would break the very turn the
+    // pin exists to save.
+    pinProfileSupportsVision = false;
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBeUndefined();
+    expect(runOptions.forceOverrideProfile).toBeUndefined();
   });
 
   test("an explicit routing pin wins over the image pin", async () => {
