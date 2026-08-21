@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n";
 /**
  * In-chat onboarding card that morphs between two phases:
  *
@@ -25,6 +26,7 @@ export function OnboardingChoiceCard({
   onSelectSpecific,
   onSubmitTasks,
 }: OnboardingChoiceCardProps): ReactNode {
+  const { t } = useTranslation("chat");
   const [phase, setPhase] = useState<"choice" | "taskSelection">("choice");
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(
     new Set<string>(),
@@ -72,7 +74,7 @@ export function OnboardingChoiceCard({
               fullWidth
               onClick={onSelectSpecific}
             >
-              I have something specific
+              {t("onboardingChoiceCard.specific")}
             </Button>
             <Button
               variant="primary"
@@ -80,7 +82,7 @@ export function OnboardingChoiceCard({
               fullWidth
               onClick={() => setPhase("taskSelection")}
             >
-              Let&apos;s chat
+              {t("onboardingChoiceCard.letsChat")}
             </Button>
           </div>
         ) : (
@@ -90,10 +92,10 @@ export function OnboardingChoiceCard({
           >
             <div>
               <div className="text-body-medium-default text-[color:var(--content-default)]">
-                What can I help with?
+                {t("onboardingChoiceCard.helpWithHeading")}
               </div>
               <div className="mt-0.5 text-label-small-default text-[color:var(--content-tertiary)]">
-                Select all that apply
+                {t("onboardingChoiceCard.selectAll")}
               </div>
             </div>
 
@@ -178,17 +180,17 @@ export function OnboardingChoiceCard({
                     onChange={(e) => setOtherText(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
                     rows={1}
-                    placeholder="What do you need help with?"
+                    placeholder={t("onboardingChoiceCard.otherPlaceholder")}
                     className="mt-0.5 w-full resize-none overflow-hidden border-none bg-transparent p-0 text-body-small-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:outline-none"
                     style={{ fieldSizing: "content" } as CSSProperties}
                   />
                 ) : (
                   <div>
                     <div className="text-body-small-default text-[var(--content-default)]">
-                      Other
+                      {t("onboardingChoiceCard.other")}
                     </div>
                     <div className="text-label-small-default text-[var(--content-tertiary)]">
-                      something else
+                      {t("onboardingChoiceCard.somethingElse")}
                     </div>
                   </div>
                 )}
@@ -207,7 +209,7 @@ export function OnboardingChoiceCard({
                 )
               }
             >
-              Continue
+              {t("onboardingChoiceCard.continue")}
             </Button>
           </div>
         )}

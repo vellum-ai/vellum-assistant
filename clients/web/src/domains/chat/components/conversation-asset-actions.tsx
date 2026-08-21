@@ -106,21 +106,21 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
   }, [assistantId, app.id, app.name, isSharing]);
 
   return (
-    <MenuShell title={`Options for ${app.name}`}>
+    <MenuShell title={t("chat:conversationAssetActions.optionsFor", { name: app.name })}>
       <ActionMenu.Item
         icon={isPinned ? PinOff : Pin}
-        label={isPinned ? "Unpin" : "Pin"}
+        label={isPinned ? t("chat:conversationAssetActions.unpin") : t("chat:conversationAssetActions.pin")}
         onSelect={() => togglePin(app)}
       />
       <ActionMenu.Item
         icon={ArrowUp}
-        label="Share"
-        description="Export as .vellum file"
+        label={t("chat:conversationAssetActions.share")}
+        description={t("chat:conversationAssetActions.exportAsVellum")}
         onSelect={() => void handleShare()}
       />
       <ActionMenu.Item
         icon={Trash2}
-        label="Delete"
+        label={t("chat:conversationAssetActions.delete")}
         tone="destructive"
         onSelect={() => onRequestDelete(app)}
       />
@@ -163,11 +163,11 @@ export const DocumentAssetActions: FC<DocumentAssetActionsProps> = ({
   }, [assistantId, doc.surfaceId, doc.title]);
 
   return (
-    <MenuShell title={`Options for ${doc.title}`}>
-      <ActionMenu.Item icon={ExternalLink} label="Open" onSelect={onOpen} />
+    <MenuShell title={t("chat:conversationAssetActions.optionsFor", { name: doc.title })}>
+      <ActionMenu.Item icon={ExternalLink} label={t("chat:conversationAssetActions.open")} onSelect={onOpen} />
       <ActionMenu.Item
         icon={Download}
-        label="Download PDF"
+        label={t("chat:conversationAssetActions.downloadPdf")}
         onSelect={() => void handleDownloadPdf()}
       />
     </MenuShell>

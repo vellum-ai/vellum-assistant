@@ -35,6 +35,7 @@ import { adminUrl, routes } from "@/utils/routes";
 
 import { CreditsCard } from "./credits-card";
 import { PreferencesUsagePanel } from "./preferences-usage-panel";
+import { useTranslation } from "@/i18n";
 
 // Modal only opens when the user clicks "Share Feedback" — defer loading
 // until then to keep the modal's form deps (markdown editor, etc.) out of
@@ -58,7 +59,6 @@ const AddCreditsModal = lazy(() =>
  * settings entry point rather than a profile row, and the account's identity
  * belongs on the Settings page the menu links to.
  */
-const PREFERENCES_LABEL = "Preferences";
 
 /**
  * Whether the credits row belongs below the usage panel.
@@ -102,6 +102,7 @@ export function PreferencesMenu({
   activeConversationId,
   triggerVariant = "item",
 }: PreferencesMenuProps) {
+  const { t } = useTranslation("chat");
   /* From the menu rather than a prop: this trigger has to reduce to a tile at
      the same moment every other rail entry does, and a threaded prop is that
      one fact derived twice, free to disagree with the menu rendering around
@@ -135,7 +136,7 @@ export function PreferencesMenu({
         {/* `truncate` is belt-and-braces: the label is a fixed short string,
             but the pill shares its row with New Chat and must never grow
             wide enough to overlap it at narrow viewports. */}
-        <span className="min-w-0 truncate">{PREFERENCES_LABEL}</span>
+        <span className="min-w-0 truncate">{t("preferencesMenu.preferences")}</span>
       </Button>
     ) : collapsed ? (
       /* Collapsed, the same tile every other rail entry reduces to: a circle
@@ -152,7 +153,7 @@ export function PreferencesMenu({
          no room for it beside the glyph. */
       <SideMenu.Item
         icon={CircleUser}
-        label={PREFERENCES_LABEL}
+        label={t("preferencesMenu.preferences")}
         showCollapsedTooltip
         shape="tile"
         active={isOpen}
@@ -175,7 +176,7 @@ export function PreferencesMenu({
            own and needs telling that it is still a control. */
         trigger
         icon={CircleUser}
-        label={PREFERENCES_LABEL}
+        label={t("preferencesMenu.preferences")}
         expandChevron={isOpen ? ChevronDown : ChevronUp}
         active={isOpen}
         data-tour-id="settings"
@@ -198,7 +199,7 @@ export function PreferencesMenu({
           <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
           <BottomSheet.Content className="max-h-[85dvh]">
             <BottomSheet.Header className="sr-only">
-              <BottomSheet.Title>Preferences</BottomSheet.Title>
+              <BottomSheet.Title>{t("preferencesMenu.preferences")}</BottomSheet.Title>
             </BottomSheet.Header>
             <BottomSheet.Body className="pt-0">{content}</BottomSheet.Body>
           </BottomSheet.Content>
@@ -260,6 +261,7 @@ function PreferencesMenuContent({
   onAddCredits,
   activeConversationId,
 }: PreferencesMenuContentProps) {
+  const { t } = useTranslation("chat");
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
@@ -322,7 +324,7 @@ function PreferencesMenuContent({
       {(platformGate === "full" || isElectron()) && (
         <PanelItem
           icon={MessageSquareText}
-          label="Share Feedback"
+          label={t("preferencesMenu.shareFeedback")}
           onSelect={() => {
             onClose();
             onShareFeedback();
@@ -333,7 +335,7 @@ function PreferencesMenuContent({
       {user?.isStaff ? (
         <PanelItem
           icon={Shield}
-          label="Admin"
+          label={t("preferencesMenu.admin")}
           onSelect={() => {
             onClose();
             void openUrl(adminUrl());
@@ -348,7 +350,7 @@ function PreferencesMenuContent({
       */}
       <PanelItem
         icon={SettingsIcon}
-        label="Settings"
+        label={t("preferencesMenu.settings")}
         onSelect={() => {
           onClose();
           navigate(routes.settings.root);

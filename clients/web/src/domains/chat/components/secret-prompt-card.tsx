@@ -11,6 +11,7 @@ import {
 import { type FormEvent, type ReactNode, useState } from "react";
 
 import { Button, Card, Input } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
 
 /**
  * Mechanically humanize a structured identifier like `slack_channel` or
@@ -73,6 +74,7 @@ export function SecretPromptCard({
   onSendOnce,
   onCancel,
 }: SecretPromptCardProps) {
+  const { t } = useTranslation("chat");
   const [value, setValue] = useState("");
 
   const trimmedValue = value.trim();
@@ -84,7 +86,7 @@ export function SecretPromptCard({
     .filter(Boolean)
     .join(" · ");
 
-  const inputLabel = secret.label || credentialIdentity || "Secret value";
+  const inputLabel = secret.label || credentialIdentity || t("secretPromptCard.secretValueFallback");
 
   const handleSave = (e: FormEvent) => {
     e.preventDefault();
@@ -102,7 +104,7 @@ export function SecretPromptCard({
           <Lock className="h-3 w-3 text-[var(--content-emphasised)]" />
         </div>
         <span className="text-title-small text-[var(--content-emphasised)]">
-          Secure Credential
+          {t("secretPromptCard.title")}
         </span>
       </div>
 
@@ -120,12 +122,12 @@ export function SecretPromptCard({
           )}
           {secret.allowedTools?.length ? (
             <ContextChip icon={Wrench}>
-              Tools: {secret.allowedTools.join(", ")}
+              {t("secretPromptCard.tools", { list: secret.allowedTools.join(", ") })}
             </ContextChip>
           ) : null}
           {secret.allowedDomains?.length ? (
             <ContextChip icon={Globe}>
-              Domains: {secret.allowedDomains.join(", ")}
+              {t("secretPromptCard.domains", { list: secret.allowedDomains.join(", ") })}
             </ContextChip>
           ) : null}
         </div>
@@ -144,13 +146,12 @@ export function SecretPromptCard({
             type="password"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder={secret.placeholder || "Enter secret value..."}
+            placeholder={secret.placeholder || t("secretPromptCard.placeholder")}
             disabled={isSubmitting || saved}
             fullWidth
           />
           <p className="text-body-small-default text-[var(--content-disabled)]">
-            This information is stored securely on your device and not sent to
-            any server. AI never sees this value.
+            {t("secretPromptCard.storedSecurelyNote")}
           </p>
         </div>
 
@@ -158,7 +159,7 @@ export function SecretPromptCard({
           <div className="flex items-center gap-1.5">
             <CheckCircle className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
             <span className="text-body-small-default text-[var(--system-positive-strong)]">
-              Saved securely
+              {t("secretPromptCard.savedSecurely")}
             </span>
           </div>
         ) : (
@@ -170,7 +171,7 @@ export function SecretPromptCard({
                 onClick={onCancel}
                 disabled={isSubmitting}
               >
-                Cancel
+                {t("secretPromptCard.cancel")}
               </Button>
               <Button
                 type="submit"
@@ -182,7 +183,7 @@ export function SecretPromptCard({
                   ) : undefined
                 }
               >
-                {isSubmitting ? "Saving..." : "Save"}
+                {isSubmitting ? t("secretPromptCard.saving") : t("secretPromptCard.save")}
               </Button>
             </div>
 
@@ -201,7 +202,7 @@ export function SecretPromptCard({
                   disabled={!canSubmit}
                   className="text-body-small-default text-[var(--content-tertiary)] underline transition-colors hover:text-[var(--content-default)] disabled:opacity-50 dark:text-[var(--content-disabled)] dark:hover:text-[var(--content-default)]"
                 >
-                  {isSubmitting ? "Sending..." : "Send Once (not saved)"}
+                  {isSubmitting ? t("secretPromptCard.sending") : t("secretPromptCard.sendOnce")}
                 </button>
               </div>
             )}

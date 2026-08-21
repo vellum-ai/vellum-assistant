@@ -1,11 +1,11 @@
 /**
- * Tests for the presentational `PluginPill` toggle button. Rendered to static
- * markup (no DOM needed) to assert the accessible label, `aria-pressed` state,
- * and the selected vs unselected token class branches. Click behaviour is
- * covered by invoking the rendered element's `onClick` directly.
+ * Tests for the presentational `PluginPill` toggle button. Asserts the
+ * accessible label, `aria-pressed` state, selected vs unselected token class
+ * branches, and click behaviour.
  */
 
 import { describe, expect, test } from "bun:test";
+import { fireEvent, render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PluginPill } from "./plugin-pill";
 
@@ -51,17 +51,17 @@ describe("PluginPill", () => {
 
   test("invokes onToggle when the rendered button is clicked", () => {
     let toggled = 0;
-    const element = PluginPill({
-      name: "simple-memory",
-      selected: false,
-      onToggle: () => {
-        toggled += 1;
-      },
-    });
+    const { getByRole } = render(
+      <PluginPill
+        name="simple-memory"
+        selected={false}
+        onToggle={() => {
+          toggled += 1;
+        }}
+      />,
+    );
 
-    // The hand-rolled button exposes its click handler directly on props.
-    const props = (element as { props: { onClick: () => void } }).props;
-    props.onClick();
+    fireEvent.click(getByRole("button"));
 
     expect(toggled).toBe(1);
   });

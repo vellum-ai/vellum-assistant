@@ -228,7 +228,7 @@ export function ConversationRow({
       trailingActions={trailingActions}
     >
       <PanelItem
-        label={conversation.title ?? "Untitled"}
+        label={conversation.title ?? t("conversationRow.untitled")}
         marqueeOnHover={marquee}
         active={conversationId === ctx.activeConversationId}
         onSelect={() => select(conversationId)}

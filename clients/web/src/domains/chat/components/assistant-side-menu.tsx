@@ -140,6 +140,7 @@ const NATIVE_MOBILE_LIST_TOP_FADE =
   "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)] native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)]";
 
 function SearchButton() {
+  const { t } = useTranslation("chat");
   const toggle = useCommandPaletteStore.use.toggle();
   // Leaves the drawer open: the palette (fixed z-50) covers it, so dismissing
   // search returns to the menu rather than the chat behind it.
@@ -150,8 +151,8 @@ function SearchButton() {
     <Button
       variant="ghost"
       iconOnly={<Search />}
-      aria-label="Search (⌘K)"
-      title="Search (⌘K)"
+      aria-label={t("assistantSideMenu.searchShortcut")}
+      title={t("assistantSideMenu.searchShortcut")}
       className={`pointer-events-auto ${NATIVE_MOBILE_BARE_ICON_BUTTON}`}
       onClick={handleClick}
     />
@@ -240,6 +241,7 @@ export function AssistantSideMenu({
   onCreateGroupInto,
   onRemoveFromGroup,
 }: AssistantSideMenuProps) {
+  const { t } = useTranslation("chat");
   const sidebar = useSidebarState({
     assistantId,
     conversations,
@@ -277,8 +279,6 @@ export function AssistantSideMenu({
   // Reported by SideMenuOverlayBottomColumn; only read while the overlay
   // variant is up, so a stale value from a dismissed overlay is inert.
   const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
-
-  const { t } = useTranslation("chat");
 
   // Whole-section reordering. Rows themselves do not reorder: every section
   // is recency-sorted (LUM-3108).
@@ -495,7 +495,7 @@ export function AssistantSideMenu({
   return (
     <ConversationListProvider value={listContext}>
       <SideMenu
-        ariaLabel="Assistant navigation"
+        ariaLabel={t("assistantSideMenu.navAria")}
         collapsed={collapsed}
         variant={variant}
         width={width}
@@ -533,7 +533,7 @@ export function AssistantSideMenu({
                 <Button
                   variant="ghost"
                   iconOnly={<X />}
-                  aria-label="Close navigation"
+                  aria-label={t("assistantSideMenu.closeNavAria")}
                   className="pointer-events-auto"
                   onClick={() => onClose?.()}
                 />

@@ -35,6 +35,9 @@ import { useVellumCommands } from "@/runtime/vellum-commands";
 import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
 import { Button, cn } from "@vellumai/design-library";
 
+const RECORDING_GLYPH_CLASS =
+  "[&_svg]:size-5 touch-mobile:[&_svg]:size-5";
+
 // ---------------------------------------------------------------------------
 // MIME type selection
 // ---------------------------------------------------------------------------
@@ -1091,7 +1094,7 @@ export const VoiceInputButton = forwardRef<
         mobileRow
           ? MOBILE_GLYPH_CLASS
           : recording
-            ? "[&_svg]:size-5 touch-mobile:[&_svg]:size-5"
+            ? RECORDING_GLYPH_CLASS
             : undefined
       }
       // The row sizes its own controls when it owns this one.

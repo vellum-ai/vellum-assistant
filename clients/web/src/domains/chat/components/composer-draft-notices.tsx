@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import { Notice } from "@vellumai/design-library";
 
 import {
@@ -21,6 +23,7 @@ import { useConversationStore } from "@/stores/conversation-store";
  * conversation whose draft was restored.
  */
 export function ComposerDraftNotices() {
+  const { t } = useTranslation("chat");
   const hasText = useComposerStore((s) => s.input.trim().length > 0);
   const attachments = useComposerStore.use.attachments();
   const attachmentLastError = useComposerStore.use.attachmentLastError();
@@ -63,9 +66,7 @@ export function ComposerDraftNotices() {
       {showUploadBlocked && (
         <div className="mb-2">
           <Notice tone="info">
-            {uploadingCount === 1
-              ? "Waiting for the attachment to finish uploading before sending."
-              : `Waiting for ${uploadingCount} attachments to finish uploading before sending.`}
+            {t("composerDraftNotices.waitingUpload", { count: uploadingCount })}
           </Notice>
         </div>
       )}
@@ -77,7 +78,7 @@ export function ComposerDraftNotices() {
               useComposerStore.getState().clearRestoredDraftNotice()
             }
           >
-            Draft restored from your previous session.
+            {t("composerDraftNotices.draftRestored")}
           </Notice>
         </div>
       )}
