@@ -1449,6 +1449,96 @@ describe("PATCH profile entries fold the legacy provider_connection", () => {
   });
 });
 
+describe("SET profile writes fold the legacy provider_connection", () => {
+  const configSetRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+
+  const savedProfiles = () =>
+    (
+      loadRawConfig().llm as {
+        profiles?: Record<string, Record<string, unknown>>;
+      }
+    ).profiles ?? {};
+
+  beforeEach(() => {
+    getDb().delete(providerConnections).run();
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          mine: {
+            source: "user",
+            provider: "openai",
+            model: "gpt-5.5",
+          },
+        },
+      },
+    };
+    seedRawConfig();
+  });
+
+  test("an object set containing a verified binding folds it", async () => {
+    createConnection(getDb(), {
+      name: "personal-openai",
+      provider: "openai",
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
+    });
+    await configSetRoute.handler({
+      body: {
+        path: "llm.profiles.mine",
+        value: {
+          source: "user",
+          provider: "openai",
+          provider_connection: "personal-openai",
+          model: "gpt-5.5",
+        },
+      },
+    });
+    const saved = savedProfiles().mine!;
+    expect(saved.provider).toBe("personal-openai");
+    expect(saved).not.toHaveProperty("provider_connection");
+  });
+
+  test("a leaf set of a verified binding folds into provider", async () => {
+    createConnection(getDb(), {
+      name: "personal-openai",
+      provider: "openai",
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
+    });
+    await configSetRoute.handler({
+      body: {
+        path: "llm.profiles.mine.provider_connection",
+        value: "personal-openai",
+      },
+    });
+    const saved = savedProfiles().mine!;
+    expect(saved.provider).toBe("personal-openai");
+    expect(saved).not.toHaveProperty("provider_connection");
+  });
+
+  test("a leaf set of a dangling binding is rejected loudly, config untouched", async () => {
+    await expect(
+      configSetRoute.handler({
+        body: {
+          path: "llm.profiles.mine.provider_connection",
+          value: "deleted-row",
+        },
+      }),
+    ).rejects.toThrow(/Connection "deleted-row" does not exist/);
+    const saved = savedProfiles().mine!;
+    expect(saved.provider).toBe("openai");
+    expect(saved).not.toHaveProperty("provider_connection");
+  });
+
+  test("a leaf set of null (cleared binding) is a no-op with no residue", async () => {
+    const result = await configSetRoute.handler({
+      body: { path: "llm.profiles.mine.provider_connection", value: null },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedProfiles().mine!;
+    expect(saved.provider).toBe("openai");
+    expect(saved).not.toHaveProperty("provider_connection");
+  });
+});
+
 describe("call-site override writes stay sparse", () => {
   const configPatchRoute = ROUTES.find(
     (r) => r.operationId === "config_patch",
@@ -1788,6 +1878,65 @@ describe("call-site model writes are validated against the winning route", () =>
     expect(llm.callSites?.conversationSummarization?.model).toBe(
       "gpt-5.4-mini",
     );
+  });
+
+  // Mix winners expand via an unseeded random arm pick per resolution, so
+  // any judgment would be against a nondeterministic route; the loops catch
+  // a regression that only misjudges on some arm picks.
+  const mixedProfiles = {
+    op: { source: "user", provider: "openai", model: "gpt-5.5" },
+    an: { source: "user", provider: "anthropic", model: "claude-opus-4-8" },
+    ab: {
+      source: "user",
+      label: "A/B",
+      mix: [
+        { profile: "op", weight: 1 },
+        { profile: "an", weight: 1 },
+      ],
+    },
+  };
+
+  test("a call-site model write under a mix winner always saves", async () => {
+    for (let i = 0; i < 20; i += 1) {
+      rawConfigFixture = {
+        llm: {
+          profiles: structuredClone(mixedProfiles),
+          callSites: { memoryExtraction: { profile: "ab" } },
+        },
+      };
+      seedRawConfig();
+      await configPatchRoute.handler({
+        body: {
+          llm: { callSites: { memoryExtraction: { model: "gpt-5.4-nano" } } },
+        },
+      });
+      const llm = loadRawConfig().llm as {
+        callSites?: Record<string, Record<string, unknown>>;
+      };
+      expect(llm.callSites?.memoryExtraction?.model).toBe("gpt-5.4-nano");
+    }
+  });
+
+  test("an unrelated save under a mix winner never rejects", async () => {
+    rawConfigFixture = {
+      llm: {
+        profiles: structuredClone(mixedProfiles),
+        callSites: {
+          memoryExtraction: { profile: "ab", model: "gpt-5.4-nano" },
+        },
+      },
+    };
+    seedRawConfig();
+    for (let i = 0; i < 20; i += 1) {
+      await configPatchRoute.handler({
+        body: { llm: { callSites: { recall: { maxTokens: 512 + i } } } },
+      });
+    }
+    const llm = loadRawConfig().llm as {
+      callSites?: Record<string, Record<string, unknown>>;
+    };
+    expect(llm.callSites?.recall?.maxTokens).toBe(531);
+    expect(llm.callSites?.memoryExtraction?.model).toBe("gpt-5.4-nano");
   });
 });
 

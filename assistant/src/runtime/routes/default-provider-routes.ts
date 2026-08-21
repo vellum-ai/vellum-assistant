@@ -107,7 +107,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleGetDefaultProvider,
     summary: "Get the default provider and its availability",
     description:
-      "Returns `llm.defaultProvider`, the connection name it conventionally resolves to, and whether that connection is currently usable (connection exists, credential stored, Vellum authenticated). Availability is informational — a broken default is a valid persisted state that surfaces explainable errors at resolution time.",
+      "Returns `llm.defaultProvider`, the connection name it conventionally resolves to, and whether that connection is currently usable (connection exists, credential stored, Vellum authenticated). Availability is informational: a broken default is a valid persisted state that surfaces explainable errors at resolution time.",
     tags: ["config"],
     responseBody: defaultProviderStatusSchema,
   },
@@ -122,7 +122,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handlePutDefaultProvider,
     summary: "Set the default provider",
     description:
-      "Replaces `llm.defaultProvider`. Strict-validates the body (unlike the generic config write paths, which silently drop invalid values). Does not require the conventionally resolved connection to exist — a dangling name is allowed by design and reported via the availability status.",
+      "Replaces `llm.defaultProvider`. Strict-validates the body (unlike the generic config write paths, which silently drop invalid values). Does not require the conventionally resolved connection to exist: a dangling name is allowed by design and reported via the availability status.",
     tags: ["config"],
     requestBody: DefaultProviderSchema,
     responseBody: defaultProviderStatusSchema,

@@ -1041,12 +1041,6 @@ export const ALL_CATALOG_MODELS = dedupedModelUnion(
 );
 
 /**
- * The managed upstream that serves a model picked under the Vellum entry —
- * the first VELLUM_SERVED_PROVIDERS member whose catalog lists the id. Used
- * at profile-save time to derive the wire-shape provider for
- * provider_connection: "vellum" profiles.
- */
-/**
  * Decode a `<provider>/<model>` Vellum routing string (mirrors the daemon's
  * parseVellumModel): the prefix names the upstream, the remainder is the
  * upstream's native model id. Null for anything else.

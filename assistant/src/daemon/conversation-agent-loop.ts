@@ -53,6 +53,7 @@ import {
   updateConversationSlackContextWatermark,
 } from "../persistence/conversation-crud.js";
 import { isReplaceableTitle } from "../persistence/conversation-title-service.js";
+import { getDb } from "../persistence/db-connection.js";
 import {
   backfillMessageIdOnLogs,
   recordSyntheticAgentErrorMessageLog,
@@ -61,11 +62,13 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { runHook } from "../plugins/pipeline.js";
+import { pickAutoResolvedConnection } from "../providers/connection-model-compat.js";
 import {
   dispatchProviderResolvable,
   isManagedConnectionRoute,
   resolveEntryConnectionName,
 } from "../providers/connection-resolution.js";
+import { listConnections } from "../providers/inference/connections.js";
 import {
   ConnectionResolutionError,
   resolveRoutingIdentity,
@@ -534,6 +537,14 @@ export async function runAgentLoopImpl(
       // dispatch-side translation.
       connectionName ??=
         resolveEntryConnectionName(resolved.provider) ?? undefined;
+      // A bare vendor auto-resolves to a row, matching dispatch's rung, so
+      // the now-typical connection-less profile still names the row that
+      // served the request.
+      connectionName ??= pickAutoResolvedConnection(
+        listConnections(getDb(), { provider: resolved.provider }),
+        resolved.provider,
+        resolved.model,
+      )?.name;
       // Managed-ness comes from the connection row, matching what dispatch
       // decides. The profile's own provider can't stand in: a concrete
       // provider tweak over a managed winner keeps the managed connection

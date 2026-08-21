@@ -1485,8 +1485,11 @@ function assertServableCallSiteModels(
     readPlainObject(readPlainObject(preWrite.llm)?.callSites) ?? {};
 
   interface RouteFingerprint {
-    /** The winner's raw provider value (entry names untranslated). */
-    provider: string;
+    /**
+     * The winner's raw provider value (entry names untranslated). Null =
+     * indeterminate (a mix winner).
+     */
+    provider: string | null;
     /**
      * The kind the route is judged by: a vendor provider value verbatim,
      * otherwise the entry-name row's provider column, so an identity row
@@ -1499,7 +1502,14 @@ function assertServableCallSiteModels(
     llm: z.infer<typeof LLMSchema>,
     site: LLMCallSite,
   ): RouteFingerprint => {
-    const { config } = resolveCallSiteConfigWithProfile(site, llm);
+    const { config, profileName } = resolveCallSiteConfigWithProfile(site, llm);
+    // A mix winner expands to a random arm on every unseeded resolution
+    // here, so its route cannot be fingerprinted: any judgment would be
+    // against a nondeterministic arm. Indeterminate, like the other
+    // fail-open cases.
+    if (profileName != null && llm.profiles?.[profileName]?.mix != null) {
+      return { provider: null, kind: null };
+    }
     const kind = (VALID_CONNECTION_PROVIDERS as readonly string[]).includes(
       config.provider,
     )
@@ -1775,6 +1785,33 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
   rejectMcpTransportHeaderWrite(patchShape);
 
   const raw = loadRawConfig();
+  // The deprecated `provider_connection` binding folds here like PATCH:
+  // the pin becomes the entry's `provider` or the write is rejected loudly
+  // (never silently dropped). An object-shape SET (`llm`, `llm.profiles`,
+  // an entry) is covered by reference: the fold mutates the same object
+  // `setNestedValue` writes below. A leaf SET of the key itself bypasses
+  // that object, so its write is redirected to the folded result.
+  foldDeprecatedProfileBindings(patchShape, raw);
+  let writePath = path;
+  let writeValue = value;
+  if (
+    pathSegments[0] === "llm" &&
+    pathSegments[1] === "profiles" &&
+    pathSegments.length >= 4 &&
+    pathSegments[3] === "provider_connection"
+  ) {
+    const folded = readPlainObject(
+      readPlainObject(readPlainObject(patchShape.llm)?.profiles)?.[
+        pathSegments[2]!
+      ],
+    );
+    if (typeof folded?.provider !== "string") {
+      // A null/empty clear of a field that no longer exists: a no-op.
+      return { ok: true };
+    }
+    writePath = `llm.profiles.${pathSegments[2]}.provider`;
+    writeValue = folded.provider;
+  }
   // A SET below the entry level (`llm.profiles.<name>.<leaf>`) writes the
   // primitive leaf directly into `raw`, bypassing the by-reference
   // normalization above — creating an entry for a managed-owned name would
@@ -1793,7 +1830,7 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
         readPlainObject(readPlainObject(raw.llm)?.profiles)?.[managedEntryName],
       )
     : undefined;
-  setNestedValue(raw, path, value);
+  setNestedValue(raw, writePath, writeValue);
   if (
     managedEntryName &&
     (priorManagedEntry == null || priorManagedEntry.source === "managed")
