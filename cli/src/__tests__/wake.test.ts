@@ -621,6 +621,70 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });
 
+  test("a docker wake restores the shared default-workspace edge", async () => {
+    const defaultWorkspace = mkdtempSync(
+      join(tmpdir(), "vellum-wake-default-"),
+    );
+    const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = defaultWorkspace;
+    resolveTargetAssistantMock.mockReturnValue({
+      assistantId: "docker-1",
+      runtimeUrl: "http://localhost:7930",
+      cloud: "docker",
+    } as AssistantEntry);
+    loadRawConfigMock.mockReturnValue(enabledConfig);
+    process.argv = ["bun", "vellum", "wake", "docker-1"];
+
+    try {
+      await wake();
+
+      expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+        assistantId: "docker-1",
+        workspaceDir: defaultWorkspace,
+        gatewayPort: 7930,
+      });
+      // Container wakes never tracked a spawned ngrok PID, so the auto-tunnel
+      // stays out of this path.
+      expect(maybeStartNgrokTunnelMock).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith("Wake complete.");
+    } finally {
+      if (originalWorkspaceDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+      }
+      rmSync(defaultWorkspace, { recursive: true, force: true });
+    }
+  });
+
+  test("a docker wake without an ingress config leaves the edge alone", async () => {
+    const defaultWorkspace = mkdtempSync(
+      join(tmpdir(), "vellum-wake-default-"),
+    );
+    const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = defaultWorkspace;
+    resolveTargetAssistantMock.mockReturnValue({
+      assistantId: "docker-1",
+      runtimeUrl: "http://localhost:7930",
+      cloud: "docker",
+    } as AssistantEntry);
+    process.argv = ["bun", "vellum", "wake", "docker-1"];
+
+    try {
+      await wake();
+
+      expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith("Wake complete.");
+    } finally {
+      if (originalWorkspaceDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+      }
+      rmSync(defaultWorkspace, { recursive: true, force: true });
+    }
+  });
+
   test("skips the edge and tunnels the gateway port when nothing wants an edge", async () => {
     await wake();
 

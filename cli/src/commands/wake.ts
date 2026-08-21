@@ -29,7 +29,10 @@ import {
   startLocalDaemon,
   startGateway,
 } from "../lib/local";
-import { restoreTunnelEdgeAndAutoTunnel } from "../lib/tunnel-edge.js";
+import {
+  restoreContainerTunnelEdge,
+  restoreTunnelEdgeAndAutoTunnel,
+} from "../lib/tunnel-edge.js";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -82,6 +85,7 @@ export async function wake(): Promise<void> {
     const res = dockerResourceNames(entry.assistantId);
     await wakeContainers(res);
     console.log("Docker containers started.");
+    await restoreContainerTunnelEdge(entry);
     console.log("Wake complete.");
     return;
   }

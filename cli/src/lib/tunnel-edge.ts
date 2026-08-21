@@ -1,6 +1,13 @@
 import type { ChildProcess } from "child_process";
 
-import { loadRawConfig } from "./ingress-config.js";
+import type { AssistantEntry } from "./assistant-config.js";
+
+import {
+  getDefaultWorkspaceDir,
+  isLocalContainerEntry,
+  loadRawConfig,
+  parseGatewayPortFromEntryUrls,
+} from "./ingress-config.js";
 import {
   ensureTunnelEdge,
   formatEdgeMode,
@@ -58,50 +65,89 @@ function wantsTunnelEdge(workspaceDir: string): boolean {
  *
  * Returns the spawned ngrok child (for PID tracking) or null.
  */
+export async function restoreTunnelEdge(
+  assistantId: string,
+  gatewayPort: number,
+  workspaceDir: string,
+): Promise<number | null> {
+  if (!wantsTunnelEdge(workspaceDir)) {
+    return null;
+  }
+  const recorded = isIngressRunning(workspaceDir)
+    ? readIngressState(workspaceDir)
+    : null;
+  let edge: TunnelEdge | null = null;
+  if (
+    recorded !== null &&
+    recorded.gatewayPort === gatewayPort &&
+    recorded.includeWebApp
+  ) {
+    edge = {
+      port: recorded.listenPort,
+      started: false,
+      includesWebApp: true,
+    };
+  } else {
+    try {
+      edge = await ensureTunnelEdge({
+        assistantId,
+        workspaceDir,
+        gatewayPort,
+      });
+    } catch (err) {
+      console.warn(
+        `   Could not restore the tunnel edge: ${
+          err instanceof Error ? err.message : String(err)
+        } Webhooks still work, but the web app is not being served. Run \`vellum tunnel\` to rebuild the edge.`,
+      );
+    }
+  }
+  if (!edge) {
+    return null;
+  }
+  console.log(
+    `   Tunnel edge ${edge.started ? "started" : "already running"} on 127.0.0.1:${edge.port} (${formatEdgeMode(
+      edge.includesWebApp,
+    )}).`,
+  );
+  return edge.port;
+}
+
+/**
+ * Wake counterpart to `stopContainerTunnelEdge`: bring the shared
+ * default-workspace edge back for a container assistant, so a tunnel that
+ * survived across sleep (a tailnet serve, a reserved ngrok domain) reaches the
+ * gateway again without a manual `vellum tunnel`.
+ *
+ * No webhook auto-tunnel here. Container wakes have never tracked a spawned
+ * ngrok PID, so starting one would leak it past the next sleep.
+ */
+export async function restoreContainerTunnelEdge(
+  entry: AssistantEntry,
+): Promise<void> {
+  if (!isLocalContainerEntry(entry)) {
+    return;
+  }
+  const gatewayPort = parseGatewayPortFromEntryUrls(entry);
+  if (gatewayPort === undefined) {
+    return;
+  }
+  await restoreTunnelEdge(
+    entry.assistantId,
+    gatewayPort,
+    getDefaultWorkspaceDir(),
+  );
+}
+
 export async function restoreTunnelEdgeAndAutoTunnel(
   assistantId: string,
   gatewayPort: number,
   workspaceDir: string,
 ): Promise<ChildProcess | null> {
-  let tunnelTargetPort = gatewayPort;
-  if (wantsTunnelEdge(workspaceDir)) {
-    const recorded = isIngressRunning(workspaceDir)
-      ? readIngressState(workspaceDir)
-      : null;
-    let edge: TunnelEdge | null = null;
-    if (
-      recorded !== null &&
-      recorded.gatewayPort === gatewayPort &&
-      recorded.includeWebApp
-    ) {
-      edge = {
-        port: recorded.listenPort,
-        started: false,
-        includesWebApp: true,
-      };
-    } else {
-      try {
-        edge = await ensureTunnelEdge({
-          assistantId,
-          workspaceDir,
-          gatewayPort,
-        });
-      } catch (err) {
-        console.warn(
-          `   Could not restore the tunnel edge: ${
-            err instanceof Error ? err.message : String(err)
-          } Webhooks still work, but the web app is not being served. Run \`vellum tunnel\` to rebuild the edge.`,
-        );
-      }
-    }
-    if (edge) {
-      tunnelTargetPort = edge.port;
-      console.log(
-        `   Tunnel edge ${edge.started ? "started" : "already running"} on 127.0.0.1:${edge.port} (${formatEdgeMode(
-          edge.includesWebApp,
-        )}).`,
-      );
-    }
-  }
-  return maybeStartNgrokTunnel(tunnelTargetPort, workspaceDir);
+  const edgePort = await restoreTunnelEdge(
+    assistantId,
+    gatewayPort,
+    workspaceDir,
+  );
+  return maybeStartNgrokTunnel(edgePort ?? gatewayPort, workspaceDir);
 }
