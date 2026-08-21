@@ -1,9 +1,8 @@
 /**
  * CLI-side helper that opens a URL on the user's host machine.
  *
- * Writes an `open_url` event to the `signals/emit-event` file so that the
- * assistant's ConfigWatcher picks it up and publishes it to connected
- * clients (e.g. the Swift macOS app) via the assistant event hub.
+ * On macOS, launches the default browser directly. Other platforms write an
+ * `open_url` event so a connected host client can open the URL.
  *
  * CLI-initiated emit — no conversation context available, so the inner
  * message has no `conversationId`. That's fine: `OpenUrlEventSchema`
@@ -13,6 +12,7 @@
  * Uses only `node:` imports so it's safe for `ipc`-tagged CLI commands.
  */
 
+import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -27,9 +27,28 @@ function getWorkspaceDir(): string {
   );
 }
 
-export function openInHostBrowser(url: string): void {
+export function openInHostBrowser(
+  url: string,
+  deps: {
+    platform?: NodeJS.Platform;
+    spawnImpl?: typeof spawn;
+    workspaceDir?: string;
+  } = {},
+): void {
+  if ((deps.platform ?? process.platform) === "darwin") {
+    const child = (deps.spawnImpl ?? spawn)("open", [url], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.on("error", () => {
+      // The caller prints a fallback URL.
+    });
+    child.unref();
+    return;
+  }
+
   try {
-    const signalsDir = join(getWorkspaceDir(), "signals");
+    const signalsDir = join(deps.workspaceDir ?? getWorkspaceDir(), "signals");
     mkdirSync(signalsDir, { recursive: true });
     writeFileSync(
       join(signalsDir, "emit-event"),

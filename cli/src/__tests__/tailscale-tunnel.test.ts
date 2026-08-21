@@ -10,6 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  getTailscaleBinaryCandidates,
+  getTailscaleInstallMessage,
   normalizeDnsName,
   resolveServeHostname,
   retractServeUrl,
@@ -20,6 +22,27 @@ import {
   type TailscaleDeps,
 } from "../lib/tailscale-tunnel.js";
 import { snapshotEnv } from "./helpers/env.js";
+
+describe("Tailscale discovery", () => {
+  test("checks PATH and standard Windows install locations", () => {
+    expect(
+      getTailscaleBinaryCandidates("win32", {
+        ProgramFiles: "C:\\Program Files",
+        LOCALAPPDATA: "C:\\Users\\Example\\AppData\\Local",
+      }),
+    ).toEqual([
+      "tailscale.exe",
+      "C:\\Program Files\\Tailscale\\tailscale.exe",
+      "C:\\Users\\Example\\AppData\\Local\\Tailscale\\tailscale.exe",
+    ]);
+  });
+
+  test("provides Windows installation guidance", () => {
+    expect(getTailscaleInstallMessage("win32")).toContain(
+      "winget install Tailscale.Tailscale",
+    );
+  });
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -115,7 +115,7 @@ function parseArgs(): TunnelArgs {
         "               No Cloudflare account required for quick tunnels.",
       );
       console.log(
-        "  tailscale    Tailscale serve (default). Install: brew install tailscale, then `tailscale up`",
+        "  tailscale    Tailscale serve (default). Install: https://tailscale.com/download, then run `tailscale up`",
       );
       console.log(
         "               Reachable only from your own tailnet (private; LetsEncrypt cert).",
