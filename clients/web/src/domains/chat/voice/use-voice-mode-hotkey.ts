@@ -10,6 +10,7 @@ import {
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { startVoiceFromSurface } from "@/domains/chat/voice/live-voice/start-voice-request";
+import { isPushToTalkHoldActive } from "@/domains/chat/voice/push-to-talk-hold";
 import { useNativeFnRegistration } from "@/domains/chat/voice/use-native-fn-registration";
 import {
   LS_VOICE_MODE_ACTIVATION_KEY,
@@ -196,6 +197,11 @@ export function useVoiceModeHotkey({
         return;
       }
       bareTapArmed = false;
+      // The same modifier can also be the hold-to-dictate binding. Once that
+      // hold has started recording, its release ends the hold, not a tap.
+      if (isPushToTalkHoldActive()) {
+        return;
+      }
       event.preventDefault();
       toggleVoiceMode();
     };

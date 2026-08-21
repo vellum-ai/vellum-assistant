@@ -39,6 +39,8 @@ import type {
   LocalAssistantStatusResult,
   NotificationActionEvent,
   PowerEvent,
+  PushToTalkActivator,
+  PushToTalkRegistrationResult,
   ResolvedHotkey,
   ShowNotificationPayload,
   SystemPermissionKind,
@@ -104,7 +106,8 @@ export type LocalListDevicesResult =
   | { ok: false; error: string };
 
 export type LocalRevokeDeviceResult =
-  { ok: true } | { ok: false; error: string };
+  | { ok: true }
+  | { ok: false; error: string };
 
 export interface VellumBridge {
   platform: "electron";
@@ -147,12 +150,16 @@ export interface VellumBridge {
     restart(): Promise<HelperRestartResult>;
     onState(callback: (state: HelperState) => void): () => void;
     /**
-     * The macOS Fn push-to-talk surface. Absent on shells with no global
-     * push-to-talk trigger (the Windows shell, whose configurable global
-     * chord ships separately).
+     * Global push-to-talk. macOS exposes the Fn hold; Windows exposes the
+     * configurable chord (`setPushToTalk`) plus registration-state events.
+     * Absent on shells with no global push-to-talk trigger.
      */
     hotkey?: {
-      fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
+      fnPushToTalk?(enable: boolean): Promise<FnPushToTalkResult>;
+      setPushToTalk?(
+        activator: PushToTalkActivator | null,
+      ): Promise<PushToTalkRegistrationResult>;
+      onRegistrationChange?(callback: (active: boolean) => void): () => void;
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
     };
     dictation: {

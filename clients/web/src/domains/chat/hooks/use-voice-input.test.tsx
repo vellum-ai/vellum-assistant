@@ -35,7 +35,7 @@ mock.module("@/domains/chat/voice/dictation-api", () => ({
   postDictation: async () => nextDictationResult,
 }));
 
-mock.module("@/domains/chat/voice/keyboard-activation-host", () => ({
+mock.module("@/utils/keyboard-activation-host", () => ({
   supportsKeyboardActivation: () => false,
 }));
 

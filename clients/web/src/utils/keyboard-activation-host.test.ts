@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
+import { supportsKeyboardActivation } from "@/utils/keyboard-activation-host";
 
 describe("supportsKeyboardActivation", () => {
   test("enables shortcuts for fine-pointer web surfaces", () => {

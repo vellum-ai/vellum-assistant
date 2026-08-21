@@ -45,6 +45,8 @@ const {
 const { FN_PTT_ACTIVATOR } = await import("@/utils/ptt-activator");
 const { useVoiceModeHotkey } =
   await import("@/domains/chat/voice/use-voice-mode-hotkey");
+const { setPushToTalkHoldActive } =
+  await import("@/domains/chat/voice/push-to-talk-hold");
 
 /** The hook navigates when nothing is registered, so it needs a router. */
 function renderVoiceModeHotkey(options?: { enabled?: boolean }) {
@@ -306,6 +308,42 @@ describe("useVoiceModeHotkey", () => {
       );
       window.dispatchEvent(
         new KeyboardEvent("keyup", { key: "Control", cancelable: true }),
+      );
+      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
+    });
+
+    test("a release that ends a push-to-talk hold is not a tap", () => {
+      onElectron = true;
+      setHostOS("windows");
+      writeVoiceModeActivator({ kind: "modifierOnly", modifiers: ["option"] });
+      renderVoiceModeHotkey();
+
+      // Alt is also the hold-to-dictate binding: the hold started recording
+      // before Alt came up, so this release ends dictation, not a tap.
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Alt",
+          altKey: true,
+          cancelable: true,
+        }),
+      );
+      setPushToTalkHoldActive(true);
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", { key: "Alt", cancelable: true }),
+      );
+      setPushToTalkHoldActive(false);
+      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+
+      // A clean tap (no hold reached the delay) still toggles.
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Alt",
+          altKey: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", { key: "Alt", cancelable: true }),
       );
       expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
     });

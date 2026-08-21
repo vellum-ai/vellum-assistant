@@ -132,13 +132,28 @@ export interface ResolvedHotkey {
 
 export type HotkeyEventState = "down" | "up";
 
+export type PushToTalkModifier =
+  | "function"
+  | "control"
+  | "shift"
+  | "option"
+  | "command";
+
+export type PushToTalkActivator =
+  | { kind: "off" }
+  | { kind: "modifierOnly"; modifiers: PushToTalkModifier[] }
+  | { kind: "key"; label: string; modifiers: PushToTalkModifier[] };
+
 export interface HotkeyEvent {
-  kind: "fnPushToTalk";
+  kind: "fnPushToTalk" | "pushToTalk";
   state: HotkeyEventState;
 }
 
 export type FnPushToTalkResult =
-  { ok: true; enabled: boolean } | { ok: false; reason: string };
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
+
+export type PushToTalkRegistrationResult = FnPushToTalkResult;
 
 // ---------------------------------------------------------------------------
 // System permissions
@@ -213,7 +228,11 @@ export type ConnectivityState = (typeof CONNECTIVITY_STATES)[number];
 // ---------------------------------------------------------------------------
 
 export type PowerEventKind =
-  "suspend" | "resume" | "lock" | "unlock" | "active";
+  | "suspend"
+  | "resume"
+  | "lock"
+  | "unlock"
+  | "active";
 
 export interface PowerEvent {
   kind: PowerEventKind;
@@ -270,7 +289,8 @@ export type DeepLink =
 // ---------------------------------------------------------------------------
 
 export type DictationPartialsResult =
-  { ok: true; enabled: boolean } | { ok: false; reason: string };
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
 
 export interface DictationPartialEvent {
   text: string;
@@ -287,7 +307,8 @@ export type DictationOverlayState =
   | { kind: "error"; message: string };
 
 export type DictationOverlayMessage =
-  DictationOverlayState | { kind: "dismiss" };
+  | DictationOverlayState
+  | { kind: "dismiss" };
 
 /**
  * Where the overlay's Stop control sits, in window-relative CSS pixels.
@@ -525,7 +546,12 @@ export interface BundleScanData {
 // ---------------------------------------------------------------------------
 
 export type UpdateStatus =
-  "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "error";
 
 export interface UpdateState {
   status: UpdateStatus;
@@ -588,7 +614,8 @@ export interface Lockfile {
 }
 
 export type LockfileWriteResult =
-  { ok: true; lockfile: Lockfile } | { ok: false; error: string };
+  | { ok: true; lockfile: Lockfile }
+  | { ok: false; error: string };
 
 export type LocalAssistantRuntimeState =
   | "healthy"

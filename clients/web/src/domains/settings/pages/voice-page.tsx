@@ -18,6 +18,9 @@ import { ShortcutKeys } from "@vellumai/design-library/components/shortcut-keys"
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { ListeningLanguageCard } from "@/domains/settings/pages/listening-language-card";
+import { ActivationKeyOption } from "@/domains/settings/pages/activation-key-option";
+import { PushToTalkCard } from "@/domains/settings/pages/push-to-talk-card";
+import { supportsKeyboardActivation } from "@/utils/keyboard-activation-host";
 import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -117,6 +120,7 @@ export function VoiceSections() {
         <MicrophoneCard />
         <ListeningLanguageCard />
         <VoiceModeShortcutCard />
+        {supportsKeyboardActivation() && <PushToTalkCard />}
         <ConversationTuningCard />
       </VoiceSection>
 
@@ -736,51 +740,6 @@ function VoiceModeShortcutCard() {
         )}
       </div>
     </DetailCard>
-  );
-}
-
-function ActivationKeyOption({
-  label,
-  badge,
-  selected,
-  recording = false,
-  onClick,
-}: {
-  label: ReactNode;
-  /** Muted suffix inside the chip, e.g. marking the recommended option. */
-  badge?: string;
-  selected: boolean;
-  recording?: boolean;
-  onClick: () => void;
-}) {
-  const classes = [
-    "inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-body-medium-lighter transition-colors",
-    "border-[var(--border-subtle)]",
-    selected
-      ? "bg-[var(--surface-active)]"
-      : "bg-[var(--surface-lift)] hover:bg-[var(--surface-hover)]",
-    recording ? "animate-pulse" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  return (
-    <button type="button" onClick={onClick} className={classes}>
-      <span
-        className={[
-          "inline-block h-2.5 w-2.5 rounded-full border",
-          selected
-            ? "border-[var(--primary-base)] bg-[var(--primary-base)]"
-            : "border-[var(--border-element)]",
-        ].join(" ")}
-      />
-      <span className="text-[var(--content-default)]">{label}</span>
-      {badge && (
-        <span className="text-body-small-default text-[var(--content-quiet)]">
-          {badge}
-        </span>
-      )}
-    </button>
   );
 }
 

@@ -11,28 +11,20 @@
  * Fn binding.
  */
 
-export type PTTModifier =
-  "function" | "control" | "shift" | "option" | "command";
+import type {
+  PushToTalkActivator,
+  PushToTalkModifier,
+} from "@vellumai/ipc-contract";
 
-export interface PTTOff {
-  kind: "off";
-}
+import { createStorageAccessor } from "@/utils/typed-storage";
 
-export interface PTTModifierOnly {
-  kind: "modifierOnly";
-  modifiers: PTTModifier[];
-}
+export type PTTModifier = PushToTalkModifier;
+export type PTTActivator = PushToTalkActivator;
+export type PTTOff = Extract<PTTActivator, { kind: "off" }>;
+export type PTTModifierOnly = Extract<PTTActivator, { kind: "modifierOnly" }>;
+export type PTTKey = Extract<PTTActivator, { kind: "key" }>;
 
-export interface PTTKey {
-  kind: "key";
-  /** Display label for the captured key (e.g. "A", "Space"). */
-  label: string;
-  /** Modifiers held alongside the key, if any. */
-  modifiers: PTTModifier[];
-}
-
-export type PTTActivator = PTTOff | PTTModifierOnly | PTTKey;
-
+export const LS_PTT_ACTIVATION_KEY = "vellum:voice:activationKey";
 export const CTRL_PTT_ACTIVATOR: PTTModifierOnly = {
   kind: "modifierOnly",
   modifiers: ["control"],
@@ -71,10 +63,19 @@ export function sortModifiers(
   );
 }
 
+/** Stored key labels that are not readable as-is (`KeyboardEvent.key`). */
+const KEY_LABELS: Record<string, string> = {
+  " ": "Space",
+};
+
 export function modifierLabel(modifiers: readonly PTTModifier[]): string {
   return sortModifiers(modifiers)
     .map((m) => MODIFIER_LABELS[m])
     .join("+");
+}
+
+export function keyLabel(label: string): string {
+  return KEY_LABELS[label] ?? label;
 }
 
 export function activatorDisplayName(activator: PTTActivator): string {
@@ -85,7 +86,8 @@ export function activatorDisplayName(activator: PTTActivator): string {
     return modifierLabel(activator.modifiers);
   }
   const mods = modifierLabel(activator.modifiers);
-  return mods ? `${mods}+${activator.label}` : activator.label;
+  const key = keyLabel(activator.label);
+  return mods ? `${mods}+${key}` : key;
 }
 
 export function activatorsEqual(a: PTTActivator, b: PTTActivator): boolean {
@@ -170,7 +172,7 @@ export function parseActivator(
         : ["shift"],
     };
   }
-  if (raw === "off") {
+  if (raw === "off" || raw === "none") {
     return { kind: "off" };
   }
   try {
@@ -199,8 +201,23 @@ export function parseActivator(
   } catch {
     // fall through
   }
+  if (raw === "Space" || raw.length === 1 || /^[A-Za-z0-9]+$/.test(raw)) {
+    return {
+      kind: "key",
+      label: raw === "Space" ? " " : raw.length === 1 ? raw.toUpperCase() : raw,
+      modifiers: [],
+    };
+  }
   return CTRL_PTT_ACTIVATOR;
 }
+
+export const pushToTalkActivation = createStorageAccessor<PTTActivator>({
+  key: LS_PTT_ACTIVATION_KEY,
+  scope: "device",
+  parse: parseActivator,
+  serialize: serializeActivator,
+  fallback: { kind: "off" },
+});
 
 // ---------------------------------------------------------------------------
 // Keyboard event matching (runtime PTT listener)
@@ -282,4 +299,33 @@ export function eventActivatesPTT(
     return false;
   }
   return sameModifierSet(held, requiredMods);
+}
+
+export function eventDeactivatesPTT(
+  event: KeyboardEvent,
+  activator: PTTActivator,
+): boolean {
+  if (activator.kind === "off" || activator.modifiers.includes("function")) {
+    return false;
+  }
+  if (activator.kind === "key") {
+    const label = event.key.length === 1 ? event.key.toUpperCase() : event.key;
+    if (label === activator.label) {
+      return true;
+    }
+  }
+  return (
+    (event.key === "Control" &&
+      !event.ctrlKey &&
+      activator.modifiers.includes("control")) ||
+    (event.key === "Alt" &&
+      !event.altKey &&
+      activator.modifiers.includes("option")) ||
+    (event.key === "Shift" &&
+      !event.shiftKey &&
+      activator.modifiers.includes("shift")) ||
+    (event.key === "Meta" &&
+      !event.metaKey &&
+      activator.modifiers.includes("command"))
+  );
 }
