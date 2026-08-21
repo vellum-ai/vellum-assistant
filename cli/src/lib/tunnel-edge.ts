@@ -69,6 +69,9 @@ export async function restoreTunnelEdge(
   assistantId: string,
   gatewayPort: number,
   workspaceDir: string,
+  /** Whether the caller tunnels the gateway port directly when the edge fails,
+   *  which is what keeps webhook delivery alive without an edge. */
+  gatewayFallback = true,
 ): Promise<number | null> {
   if (!wantsTunnelEdge(workspaceDir)) {
     return null;
@@ -95,10 +98,13 @@ export async function restoreTunnelEdge(
         gatewayPort,
       });
     } catch (err) {
+      const impact = gatewayFallback
+        ? "Webhooks still work, but the web app is not being served."
+        : "The web app and webhook delivery are unavailable until it is rebuilt.";
       console.warn(
         `   Could not restore the tunnel edge: ${
           err instanceof Error ? err.message : String(err)
-        } Webhooks still work, but the web app is not being served. Run \`vellum tunnel\` to rebuild the edge.`,
+        } ${impact} Run \`vellum tunnel\` to rebuild the edge.`,
       );
     }
   }
@@ -132,11 +138,18 @@ export async function restoreContainerTunnelEdge(
   if (gatewayPort === undefined) {
     return;
   }
-  await restoreTunnelEdge(
-    entry.assistantId,
-    gatewayPort,
-    getDefaultWorkspaceDir(),
-  );
+  const workspaceDir = getDefaultWorkspaceDir();
+  // A running edge that fronts a different container is left alone: waking this
+  // assistant must not restart the shared edge against its own gateway and
+  // redirect the other one's public endpoint. `ensureTunnelEdge` would do
+  // exactly that, so the check cannot be delegated to it.
+  if (
+    isIngressRunning(workspaceDir) &&
+    readIngressState(workspaceDir)?.gatewayPort !== gatewayPort
+  ) {
+    return;
+  }
+  await restoreTunnelEdge(entry.assistantId, gatewayPort, workspaceDir, false);
 }
 
 export async function restoreTunnelEdgeAndAutoTunnel(

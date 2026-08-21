@@ -657,6 +657,114 @@ describe("vellum wake — tunnel edge restore", () => {
     }
   });
 
+  test("a docker wake leaves an edge fronting another container alone", async () => {
+    const defaultWorkspace = mkdtempSync(
+      join(tmpdir(), "vellum-wake-default-"),
+    );
+    const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = defaultWorkspace;
+    resolveTargetAssistantMock.mockReturnValue({
+      assistantId: "docker-1",
+      runtimeUrl: "http://localhost:7930",
+      cloud: "docker",
+    } as AssistantEntry);
+    loadRawConfigMock.mockReturnValue(enabledConfig);
+    isIngressRunningMock.mockReturnValue(true);
+    readIngressStateMock.mockReturnValue({
+      listenPort: 7840,
+      includeWebApp: true,
+      gatewayPort: 8030,
+    });
+    process.argv = ["bun", "vellum", "wake", "docker-1"];
+
+    try {
+      await wake();
+
+      expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith("Wake complete.");
+    } finally {
+      if (originalWorkspaceDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+      }
+      rmSync(defaultWorkspace, { recursive: true, force: true });
+    }
+  });
+
+  test("a docker wake reuses an edge that already fronts it", async () => {
+    const defaultWorkspace = mkdtempSync(
+      join(tmpdir(), "vellum-wake-default-"),
+    );
+    const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = defaultWorkspace;
+    resolveTargetAssistantMock.mockReturnValue({
+      assistantId: "docker-1",
+      runtimeUrl: "http://localhost:7930",
+      cloud: "docker",
+    } as AssistantEntry);
+    loadRawConfigMock.mockReturnValue(enabledConfig);
+    isIngressRunningMock.mockReturnValue(true);
+    readIngressStateMock.mockReturnValue({
+      listenPort: 7840,
+      includeWebApp: true,
+      gatewayPort: 7930,
+    });
+    process.argv = ["bun", "vellum", "wake", "docker-1"];
+
+    try {
+      await wake();
+
+      expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.stringContaining("already running on 127.0.0.1:7840"),
+      );
+    } finally {
+      if (originalWorkspaceDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+      }
+      rmSync(defaultWorkspace, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed docker edge restore does not claim webhooks still work", async () => {
+    const defaultWorkspace = mkdtempSync(
+      join(tmpdir(), "vellum-wake-default-"),
+    );
+    const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = defaultWorkspace;
+    resolveTargetAssistantMock.mockReturnValue({
+      assistantId: "docker-1",
+      runtimeUrl: "http://localhost:7930",
+      cloud: "docker",
+    } as AssistantEntry);
+    loadRawConfigMock.mockReturnValue(enabledConfig);
+    ensureTunnelEdgeMock.mockRejectedValue(
+      new Error("nginx is not installed."),
+    );
+    process.argv = ["bun", "vellum", "wake", "docker-1"];
+
+    try {
+      await wake();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("webhook delivery are unavailable"),
+      );
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("Webhooks still work"),
+      );
+    } finally {
+      if (originalWorkspaceDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+      }
+      rmSync(defaultWorkspace, { recursive: true, force: true });
+    }
+  });
+
   test("a docker wake without an ingress config leaves the edge alone", async () => {
     const defaultWorkspace = mkdtempSync(
       join(tmpdir(), "vellum-wake-default-"),
