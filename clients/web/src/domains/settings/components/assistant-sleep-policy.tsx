@@ -18,10 +18,9 @@ const PRESET_SECONDS = [
 
 const DEV_ONLY_SECONDS = new Set([300, 600]);
 
-function formatDuration(
-  seconds: number,
-  t: (key: string, options?: Record<string, unknown>) => string,
-): string {
+type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
+
+function formatDuration(seconds: number, t: SettingsTranslate): string {
   if (seconds === 0) {
     return t("assistantSleepPolicy.neverSleep");
   }
@@ -43,10 +42,7 @@ function formatDuration(
   return t("assistantSleepPolicy.seconds", { seconds });
 }
 
-function presetLabel(
-  seconds: number,
-  t: (key: string, options?: Record<string, unknown>) => string,
-): string {
+function presetLabel(seconds: number, t: SettingsTranslate): string {
   switch (seconds) {
     case 0:
       return t("assistantSleepPolicy.presetNever");
