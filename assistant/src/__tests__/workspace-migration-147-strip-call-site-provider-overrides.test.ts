@@ -210,6 +210,61 @@ describe("147-strip-call-site-provider-overrides", () => {
     expect(sites.replySuggestion).toEqual({ profile: "mine" });
   });
 
+  test("a vellum-pinned winner judges servability by the managed route", () => {
+    // A 145-residue profile still carrying `provider_connection: "vellum"`
+    // routes managed (migration 148 folds it into the vellum identity), so
+    // servability is judged by the managed route, not the declared vendor.
+    writeConfig({
+      llm: {
+        profiles: {
+          residue: {
+            source: "user",
+            provider: "openai",
+            provider_connection: "vellum",
+            model: "gpt-5.5",
+          },
+        },
+        callSites: {
+          memoryExtraction: { profile: "residue", model: "gemini-2.5-pro" },
+          conversationTitle: { profile: "residue", model: "not-a-real-model" },
+        },
+      },
+    });
+
+    run();
+
+    // The managed route serves the gemini model: kept.
+    expect(readCallSites().memoryExtraction.model).toBe("gemini-2.5-pro");
+    // A model the managed route cannot serve still deletes: the vellum
+    // winner is judged, not treated as indeterminate.
+    expect(readCallSites()).not.toHaveProperty("conversationTitle");
+  });
+
+  test("a vellum pin the identity cannot serve judges the declared vendor", () => {
+    // Migration 148 refuses the fold when the profile's own model is not
+    // vellum-routable (the pin drops and the declared provider stays), so
+    // the tweak is judged against that vendor.
+    writeConfig({
+      llm: {
+        profiles: {
+          refused: {
+            source: "user",
+            provider: "openai",
+            provider_connection: "vellum",
+            model: "claude-ancient-1",
+          },
+        },
+        callSites: {
+          memoryExtraction: { profile: "refused", model: "gemini-2.5-pro" },
+        },
+      },
+    });
+
+    run();
+
+    expect(readCallSites()).not.toHaveProperty("memoryExtraction");
+  });
+
   test("an entry-name winner is judged through its connection row", () => {
     seedRows([{ name: "my-openai", provider: "openai" }]);
     writeConfig({

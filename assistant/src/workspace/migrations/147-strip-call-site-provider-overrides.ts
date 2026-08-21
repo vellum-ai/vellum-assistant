@@ -412,7 +412,10 @@ function winnerProviderForSite(
 
 /**
  * A named rung's provider: the profile's own provider when it is plainly
- * usable, the intent column for default-key names with no workspace entry
+ * usable (judged as the vellum identity when the profile pins the managed
+ * "vellum" connection and its model is vellum-routable, mirroring
+ * migration 148's fold), the intent column for default-key names with no
+ * workspace entry
  * (or an explicitly managed stub, which the resolver overrides with the
  * code-owned body), "fall_through" when the name resolves to nothing, and
  * null when the outcome cannot be determined. A user-owned workspace entry
@@ -435,11 +438,25 @@ function rungProvider(
     // A mix winner's arm is a seeded pick this migration does not reproduce.
     return null;
   }
+  const model = asNonEmptyString(entry.model);
   const usableProvider =
-    entry.status !== "disabled" && asNonEmptyString(entry.model) !== null
+    entry.status !== "disabled" && model !== null
       ? asNonEmptyString(entry.provider)
       : null;
   if (usableProvider !== null) {
+    // A profile still carrying a `provider_connection` pin on the managed
+    // "vellum" connection routes managed: migration 148 (which runs next)
+    // folds the pin into the vellum identity when the profile's model is
+    // vellum-routable. Servability is judged by that post-fold winner, not
+    // the declared vendor, so this pass never deletes a tweak the managed
+    // route serves.
+    if (
+      entry.provider_connection === "vellum" &&
+      model !== null &&
+      VELLUM_ROUTABLE_MODELS.has(model)
+    ) {
+      return "vellum";
+    }
     return usableProvider;
   }
   // A managed stub of a default key is overridden by the code-owned intent
