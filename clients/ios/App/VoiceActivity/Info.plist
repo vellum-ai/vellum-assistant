@@ -33,6 +33,13 @@
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.widgetkit-extension</string>
 	</dict>
+	<!-- The App Group this appex shares with its containing app, so code
+	     here can open the shared container. The entitlement grants access
+	     but is not readable from Swift, so the identifier travels as this
+	     plain string, populated from the same $(APP_GROUP_ID) variable that
+	     fills the entitlement. -->
+	<key>VellumAppGroupId</key>
+	<string>$(APP_GROUP_ID)</string>
 	<!-- The containing app's URL scheme, so the Live Activity's widgetURL
 	     deep-links back into the app this appex is embedded in. Deliberately
 	     NOT CFBundleURLTypes: an appex must not register a URL type (it can
