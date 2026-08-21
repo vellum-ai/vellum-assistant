@@ -196,8 +196,8 @@ export function createSlackReplySession(params: {
   ): string | undefined =>
     tasks ? JSON.stringify({ title, tasks }) : undefined;
 
-  // Typed from where these go, a streamed reply's closing blocks, rather than
-  // from the reply payload, which carries no blocks of its own.
+  // Typed from the stream operation these are passed to, so the element type
+  // follows that contract rather than drifting from it.
   const imageBlocks = (
     text: string,
   ): Extract<SlackStreamOp, { action: "stop" }>["blocks"] => {
