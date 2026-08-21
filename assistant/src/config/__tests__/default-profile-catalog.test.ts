@@ -12,6 +12,7 @@ import {
   resolveDefaultProfileForProvider,
 } from "../default-profile-catalog.js";
 import {
+  BACKUP_PROFILE_KEYS,
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
   OS_BETA_PROFILE_KEY,
@@ -78,7 +79,7 @@ describe("getEffectiveProfiles", () => {
   test("defaults absent from the workspace resolve from the catalog; os-beta stays flag-gated", () => {
     const effective = getEffectiveProfiles(undefined);
     expect(Object.keys(effective).sort()).toEqual(
-      [...DEFAULT_PROFILE_KEYS].sort(),
+      [...DEFAULT_PROFILE_KEYS, ...BACKUP_PROFILE_KEYS].sort(),
     );
     expect(getEffectiveProfile({}, "balanced")?.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,

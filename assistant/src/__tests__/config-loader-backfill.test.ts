@@ -1800,6 +1800,10 @@ describe("seedInferenceProfiles BYOK-mode default profiles", () => {
       "quality-optimized",
       "cost-optimized",
       "latency-optimized",
+      "balanced-backup",
+      "quality-optimized-backup",
+      "cost-optimized-backup",
+      "latency-optimized-backup",
       "my-custom",
     ]);
   });
