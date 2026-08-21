@@ -77,7 +77,6 @@ describe("events client registration", () => {
       "host_bash",
       "host_file",
       "host_cu",
-      "host_app_control",
       "host_browser",
       "host_ui_snapshot",
     ]);

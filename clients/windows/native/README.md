@@ -18,6 +18,12 @@ uses DWM bounds for window-relative coordinates, and blocks capture or pointer
 input when another process covers the target. Window capture reads the visible
 desktop pixels and never sends messages into another process.
 
+Windows does not advertise or register `host_app_control` yet. The helper RPC
+loop reads one request at a time, so it cannot receive a cancellation frame
+while an app-control request is running. The capability remains withheld until
+app control has module-local cancellation that does not change concurrency or
+cancellation behavior for unrelated helper modules.
+
 Release builds publish self-contained, single-file `win-x64` and `win-arm64`
 executables under the Electron resources directory. Users do not install a
 separate .NET runtime. Packaging must preserve architecture selection.

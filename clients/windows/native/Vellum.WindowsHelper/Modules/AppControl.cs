@@ -46,6 +46,39 @@ public static class AppTargetSelector
     }
 }
 
+public static class AppInputSafety
+{
+    public static void TypeText(
+        string text,
+        Action validateOwner,
+        Action<char, bool> typeUnit,
+        CancellationToken cancellationToken)
+    {
+        foreach (var (unit, isReturn) in KeyPlanner.PlanText(text))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            validateOwner();
+            typeUnit(unit, isReturn);
+        }
+    }
+
+    public static void MoveAndValidate(
+        double x,
+        double y,
+        Action<double, double> move,
+        Action validate)
+    {
+        move(x, y);
+        validate();
+    }
+
+    public static void ButtonDown(Action validate, Action send)
+    {
+        validate();
+        send();
+    }
+}
+
 public interface IAppControlHost
 {
     AppResolution ResolveRunning(string app);
@@ -59,7 +92,8 @@ public interface IAppControlHost
     Task PressAsync(
         AppTarget target, AppWindow window, IReadOnlyList<ushort> keys, int durationMs,
         CancellationToken cancellationToken);
-    void TypeText(AppTarget target, AppWindow window, string text);
+    void TypeText(
+        AppTarget target, AppWindow window, string text, CancellationToken cancellationToken);
     Task ClickAsync(
         AppTarget target, AppWindow window, double x, double y, string button, bool doubleClick,
         CancellationToken cancellationToken);
@@ -401,7 +435,7 @@ public sealed class AppControl : IRpcModule
         }
         return await WithForegroundAsync(requestId, target, window =>
         {
-            _host.TypeText(target, window, text);
+            _host.TypeText(target, window, text, cancellationToken);
             return Task.FromResult(WindowResult(
                 requestId, window, execution: $"typed {text.Length} char(s) (pid={target.ProcessId})"));
         }, cancellationToken);
@@ -640,12 +674,11 @@ public sealed class WindowsAppControlHost : IAppControlHost
             return new AppResolution(null, $"Failed to launch {app}: {error.Message}");
         }
 
-        var processName = Path.GetFileNameWithoutExtension(executable);
         var deadline = Environment.TickCount64 + LaunchTimeoutMs;
         while (Environment.TickCount64 < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var resolution = ResolveRunning(processName);
+            var resolution = ResolveRunning(executable);
             if (resolution.Target is not null)
             {
                 return resolution;
@@ -776,22 +809,31 @@ public sealed class WindowsAppControlHost : IAppControlHost
         return NativeInput.PressChordAsync(keys, durationMs, cancellationToken);
     }
 
-    public void TypeText(AppTarget target, AppWindow window, string text)
+    public void TypeText(
+        AppTarget target, AppWindow window, string text, CancellationToken cancellationToken)
     {
-        EnsureForeground(target, window);
-        NativeInput.TypeText(text);
+        AppInputSafety.TypeText(
+            text,
+            () => EnsureForeground(target, window),
+            NativeInput.TypeUnit,
+            cancellationToken);
     }
 
     public async Task ClickAsync(
         AppTarget target, AppWindow window, double x, double y, string button, bool doubleClick,
         CancellationToken cancellationToken)
     {
-        EnsureForeground(target, window);
-        EnsurePointOwner(target, x, y);
-        NativeInput.MoveTo(x, y);
+        void Validate()
+        {
+            EnsureForeground(target, window);
+            EnsurePointOwner(target, x, y);
+        }
+        AppInputSafety.MoveAndValidate(x, y, NativeInput.MoveTo, Validate);
         for (var click = 0; click < (doubleClick ? 2 : 1); click++)
         {
-            NativeInput.Button(button, down: true);
+            AppInputSafety.ButtonDown(
+                Validate,
+                () => NativeInput.Button(button, down: true));
             try
             {
                 await Task.Delay(25, cancellationToken);
@@ -812,23 +854,33 @@ public sealed class WindowsAppControlHost : IAppControlHost
         double fromX, double fromY, double toX, double toY, string button,
         CancellationToken cancellationToken)
     {
-        EnsureForeground(target, window);
-        EnsurePointOwner(target, fromX, fromY);
-        EnsurePointOwner(target, toX, toY);
-        NativeInput.MoveTo(fromX, fromY);
-        NativeInput.Button(button, down: true);
+        void Validate(double x, double y)
+        {
+            EnsureForeground(target, window);
+            EnsurePointOwner(target, x, y);
+        }
+        AppInputSafety.MoveAndValidate(
+            fromX,
+            fromY,
+            NativeInput.MoveTo,
+            () => Validate(fromX, fromY));
+        AppInputSafety.ButtonDown(
+            () => Validate(fromX, fromY),
+            () => NativeInput.Button(button, down: true));
         try
         {
             const int steps = 20;
             for (var step = 1; step <= steps; step++)
             {
-                cancellationToken.ThrowIfCancellationRequested();
                 var fraction = step / (double)steps;
                 var x = fromX + (toX - fromX) * fraction;
                 var y = fromY + (toY - fromY) * fraction;
-                EnsureForeground(target, window);
-                EnsurePointOwner(target, x, y);
-                NativeInput.MoveTo(x, y);
+                cancellationToken.ThrowIfCancellationRequested();
+                AppInputSafety.MoveAndValidate(
+                    x,
+                    y,
+                    NativeInput.MoveTo,
+                    () => Validate(x, y));
                 await Task.Delay(10, cancellationToken);
             }
         }
@@ -841,7 +893,8 @@ public sealed class WindowsAppControlHost : IAppControlHost
     private static void EnsureForeground(AppTarget target, AppWindow window)
     {
         if (AppControlNativeMethods.GetForegroundWindow() != window.Handle ||
-            !WindowBelongsToProcess(window.Handle, target.ProcessId))
+            !WindowBelongsToProcess(window.Handle, target.ProcessId) ||
+            !IsTargetIdentity(target))
         {
             throw new InvalidOperationException("Target window lost foreground ownership; input was not sent");
         }
@@ -852,7 +905,7 @@ public sealed class WindowsAppControlHost : IAppControlHost
         var hit = AppControlNativeMethods.WindowFromPoint(
             new NativePoint((int)Math.Round(x), (int)Math.Round(y)));
         _ = AppControlNativeMethods.GetWindowThreadProcessId(hit, out var owner);
-        if (hit == 0 || owner != target.ProcessId)
+        if (hit == 0 || owner != target.ProcessId || !IsTargetIdentity(target))
         {
             throw new InvalidOperationException(
                 "A target coordinate is covered by another process; input was not sent");

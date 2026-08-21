@@ -94,5 +94,5 @@ test("installs native input executors contributed by their capability", async ()
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   expect(__testing.executors.has("host_cu")).toBe(true);
-  expect(__testing.executors.has("host_app_control")).toBe(true);
+  expect(__testing.executors.has("host_app_control")).toBe(false);
 });

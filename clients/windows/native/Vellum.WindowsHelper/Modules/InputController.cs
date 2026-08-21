@@ -207,16 +207,21 @@ internal static partial class NativeInput
     {
         foreach (var (unit, isReturn) in KeyPlanner.PlanText(text))
         {
-            if (isReturn)
-            {
-                Key(0x0D, down: true);
-                Key(0x0D, down: false);
-            }
-            else
-            {
-                Unicode(unit, down: true);
-                Unicode(unit, down: false);
-            }
+            TypeUnit(unit, isReturn);
+        }
+    }
+
+    public static void TypeUnit(char unit, bool isReturn)
+    {
+        if (isReturn)
+        {
+            Key(0x0D, down: true);
+            Key(0x0D, down: false);
+        }
+        else
+        {
+            Unicode(unit, down: true);
+            Unicode(unit, down: false);
         }
     }
 }

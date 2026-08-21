@@ -37,7 +37,7 @@ test("creates a Windows runtime with only the committed portable executors", () 
   expect(() => runtime.teardownExecutors?.()).not.toThrow();
 });
 
-test("adds native input executors when the capability is installed", () => {
+test("keeps app control withheld when native input is installed", () => {
   // GIVEN computer-use executors contributed by the capability module
   const host_cu = {
     handleRequest: () => undefined,
@@ -66,7 +66,6 @@ test("adds native input executors when the capability is installed", () => {
 
   // THEN the daemon sees host_cu and teardown is routed to the helper shutdown
   expect(Object.keys(runtime.executors).sort()).toEqual([
-    "host_app_control",
     "host_bash",
     "host_browser",
     "host_cu",
@@ -75,10 +74,10 @@ test("adds native input executors when the capability is installed", () => {
     "host_ui_snapshot",
   ]);
   expect(runtime.executors.host_cu).toBe(host_cu);
-  expect(runtime.executors.host_app_control).toBe(host_app_control);
+  expect(runtime.executors.host_app_control).toBeUndefined();
   expect(
     runtime.sseClientHeaders()["X-Vellum-Host-Capabilities"]?.split(","),
-  ).toContain("host_app_control");
+  ).not.toContain("host_app_control");
   runtime.teardownExecutors?.();
   expect(didTeardown).toBe(true);
 });

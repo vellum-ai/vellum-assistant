@@ -12,6 +12,7 @@ public static class AppControlTests
         await TestCoordinatesAsync();
         await TestSequenceOwnershipAsync();
         TestTargetSelection();
+        TestInputSafety();
         TestSessionExpiry();
         Console.WriteLine("App control tests passed");
     }
@@ -156,6 +157,56 @@ public static class AppControlTests
             "headless processes are not selected or relaunched");
     }
 
+    private static void TestInputSafety()
+    {
+        var pointerEvents = new List<string>();
+        AppInputSafety.MoveAndValidate(
+            10,
+            20,
+            (_, _) => pointerEvents.Add("move"),
+            () => pointerEvents.Add("validate"));
+        AppInputSafety.ButtonDown(
+            () => pointerEvents.Add("validate"),
+            () => pointerEvents.Add("down"));
+        Check(
+            pointerEvents.SequenceEqual(["move", "validate", "validate", "down"]),
+            "pointer ownership is checked after movement and before button-down");
+
+        var validations = 0;
+        var typed = new List<char>();
+        try
+        {
+            AppInputSafety.TypeText(
+                "abc",
+                () =>
+                {
+                    validations += 1;
+                    if (validations == 2)
+                    {
+                        throw new InvalidOperationException("focus changed");
+                    }
+                },
+                (unit, _) => typed.Add(unit),
+                CancellationToken.None);
+            throw new Exception("Typing continued after ownership changed");
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        Check(typed.SequenceEqual(['a']), "typing stops before leaking into a new foreground window");
+
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        try
+        {
+            AppInputSafety.TypeText("a", () => { }, (_, _) => { }, cancelled.Token);
+            throw new Exception("Cancelled typing continued");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
     private static async Task<Dictionary<string, object?>> InvokeAsync(
         AppControl module, string conversationId, string toolName, string inputJson)
     {
@@ -229,7 +280,12 @@ public static class AppControlTests
             return Task.CompletedTask;
         }
 
-        public void TypeText(AppTarget target, AppWindow window, string text) => TypedText = text;
+        public void TypeText(
+            AppTarget target, AppWindow window, string text, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            TypedText = text;
+        }
 
         public Task ClickAsync(
             AppTarget target, AppWindow window, double x, double y, string button, bool doubleClick,

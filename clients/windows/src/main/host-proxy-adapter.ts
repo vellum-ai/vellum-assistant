@@ -44,7 +44,6 @@ export const createWindowsHostProxyRuntime = (
     ...(computerUseExecutors
       ? {
           host_cu: computerUseExecutors.host_cu,
-          host_app_control: computerUseExecutors.host_app_control,
         }
       : {}),
   };
