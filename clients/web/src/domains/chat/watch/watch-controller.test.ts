@@ -351,6 +351,12 @@ beforeEach(() => {
   capture = createCaptureFake();
   useLiveVoiceStore.setState({ state: "idle" });
   liveVoiceListeners = 0;
+  // The watch store is module state shared by every case in this file, and the
+  // session's own writes are the only thing that ever moves it. Cleared here so
+  // a case reads its own session's counts rather than inheriting the previous
+  // one's, which would make the reset a session does on `ready` look like test
+  // isolation it is not providing.
+  useWatchStore.setState({ watching: false, captureCount: 0 });
   activate(ASSISTANT_ID);
 });
 
@@ -481,6 +487,85 @@ describe("toggling a watch session", () => {
 
     expect(sockets).toHaveLength(0);
     expect(useWatchStore.getState().watching).toBe(false);
+  });
+});
+
+/**
+ * The capture count, which is what the companion draws each time the user's
+ * screen has actually been read.
+ *
+ * The runtime owns the cadence and reports only the reads that landed, so the
+ * whole of this module's job is to count its `observation` frames and never to
+ * invent one. Every case here is one way an extra count would be a lie.
+ */
+describe("counting the session's captures", () => {
+  /** The runtime reporting one screen read that reached its timeline. */
+  const serverObservation = async (): Promise<void> => {
+    socket().serverMessage({ type: "observation" });
+    await Promise.resolve();
+  };
+
+  const captures = (): number => useWatchStore.getState().captureCount;
+
+  test("counts one capture per observation frame", async () => {
+    await startRunning();
+    expect(captures()).toBe(0);
+
+    await serverObservation();
+    expect(captures()).toBe(1);
+
+    await serverObservation();
+    expect(captures()).toBe(2);
+  });
+
+  /**
+   * A session that inherited the last one's total would be indistinguishable
+   * from one that had already captured something, which is the state the
+   * surface draws a capture from.
+   */
+  test("starts each session's count from none", async () => {
+    await startRunning();
+    await serverObservation();
+    await serverObservation();
+    expect(captures()).toBe(2);
+
+    await stopAndSettle();
+    await startRunning();
+
+    expect(captures()).toBe(0);
+  });
+
+  /**
+   * The stop edge takes the flag down before the socket drains, so from that
+   * moment nothing is drawing a capture. A late read arriving on the flush has
+   * nothing left to mark, and counting it would step the number under a
+   * session the user has already ended.
+   */
+  test("ignores an observation that lands after the user stopped", async () => {
+    await startRunning();
+    await serverObservation();
+    expect(captures()).toBe(1);
+
+    stopWatch();
+    expect(useWatchStore.getState().watching).toBe(false);
+    await serverObservation();
+
+    expect(captures()).toBe(1);
+  });
+
+  /**
+   * A session's own reads and nothing else. The frame is the only thing that
+   * may move this number: no timer here approximates the runtime's cadence,
+   * and audio going out is not evidence that anything came back.
+   */
+  test("counts nothing for narration the session merely sent", async () => {
+    await startRunning();
+
+    capture.pushChunk(new ArrayBuffer(8));
+    socket().serverMessage({ type: "entry" });
+    await wait(30);
+
+    expect(captures()).toBe(0);
   });
 });
 

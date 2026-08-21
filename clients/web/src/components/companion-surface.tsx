@@ -412,6 +412,36 @@ export interface CompanionSurfaceProps {
    */
   watching?: boolean;
   /**
+   * How many times the running session has read the screen.
+   *
+   * Drawn as one brief flare of the ring per read, which is the difference
+   * between a surface that says a session is on and one that shows the thing
+   * the session actually does. A session is minutes long and its reads are
+   * three or four a minute, so the state and the events inside it are separate
+   * facts and each gets its own treatment: the lit ring for the session, a
+   * flare for each capture.
+   *
+   * **A number that only goes up, and only when a capture landed.** The
+   * runtime counts a read that came back and was kept, and everything between
+   * here and there passes the count along without inventing steps in it, so a
+   * flare drawn from a step is a capture that happened. Nothing on this surface
+   * may fill the gaps in: the cadence follows what the user is doing, and a
+   * pulse on a local timer would claim the machine read a screen it did not.
+   *
+   * Zero is a session that has not captured yet, which draws the ring and no
+   * flare.
+   *
+   * **A value, not an event.** This surface can meet a session at any point in
+   * it, and on macOS it routinely does: the renderer is recreated on a reload
+   * and the main process hands the new one the state it is holding, so a count
+   * of forty can arrive standing for a read that happened a minute ago. Only a
+   * step that lands inside a session this surface was already watching is a
+   * capture happening now, so a count that arrives with the session is a
+   * baseline and draws nothing.
+   */
+  captureCount?: number;
+
+  /**
    * Whether Watch is offered at all, which is the feature flag rather than any
    * fact about a session.
    *
@@ -459,6 +489,52 @@ export interface CompanionSurfaceProps {
   intro?: ReactNode;
 }
 
+/**
+ * How many captures this surface has watched arrive, which is not the same as
+ * how many the session has taken.
+ *
+ * {@link CompanionSurfaceProps.captureCount} is a running total that outlives
+ * any one surface reading it. The macOS renderer is recreated on every reload
+ * and the main process replays its retained state into the new one, so a
+ * surface routinely meets a session already forty reads in. A flare drawn off
+ * the value would present the last of those as a capture happening now, which
+ * is the one thing this indicator must never do: it is worth something only
+ * because a flare means the screen was read at that moment.
+ *
+ * So a step counts only when it lands inside a session this surface was
+ * already watching. That covers both ways a total arrives without a capture
+ * behind it: the first render, whatever the count is by then, and the jump
+ * from nothing to a session already in progress, which is what a reload looks
+ * like from here. What is left is a count moving under a session that was
+ * running a moment ago, which is a read that just happened.
+ *
+ * The result is a key rather than a flag, so each step remounts the element and
+ * replays a one-shot animation instead of a single node playing once for the
+ * first capture and sitting still through the rest.
+ *
+ * Zero is nothing observed yet, which draws no flare. It returns to zero when
+ * the session ends, so the next session starts from a baseline of its own
+ * rather than the last flare replaying the moment the ring comes back on.
+ */
+function useObservedCaptures(captureCount: number, watching: boolean): number {
+  const seen = useRef({ captureCount, watching });
+  const [observed, setObserved] = useState(0);
+
+  useEffect(() => {
+    const previous = seen.current;
+    seen.current = { captureCount, watching };
+    if (!watching) {
+      setObserved(0);
+      return;
+    }
+    if (previous.watching && captureCount > previous.captureCount) {
+      setObserved((count) => count + 1);
+    }
+  }, [captureCount, watching]);
+
+  return observed;
+}
+
 export function CompanionSurface({
   phase,
   turns = [],
@@ -484,6 +560,7 @@ export function CompanionSurface({
   onAvatarClick,
   working = false,
   watching = false,
+  captureCount = 0,
   watchEnabled = false,
   call,
   onControl,
@@ -504,6 +581,7 @@ export function CompanionSurface({
    */
   const assistantWorking =
     working || (call !== undefined && ASSISTANT_TURN_PHASES.has(call.phase));
+  const observedCaptures = useObservedCaptures(captureCount, watching);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [contentWidth, setContentWidth] = useState<number | null>(null);
 
@@ -659,6 +737,35 @@ export function CompanionSurface({
               ["--companion-ring-accent" as string]: watching
                 ? WATCHING_RING_ACCENT
                 : accentHex,
+            }}
+            aria-hidden
+          />
+        )}
+        {/* One capture, as a single breath of light around the same edge.
+
+            The ring says a session is running, which is a state; this says the
+            screen was read just now, which is an event, and the two need
+            different treatments or the second is invisible inside the first. The
+            same edge rather than a mark of its own, because the edge is already
+            where the user looks for this surface's state and a capture is that
+            state doing something.
+
+            Keyed by the captures this surface has watched arrive, so each one
+            remounts the element and replays a one-shot animation. That is the
+            whole mechanism: a step is a read the runtime took and kept, and
+            there is no other way for this to fire. It cannot pulse in a gap, it
+            cannot pulse for a read that failed, timed out, or was cut off by the
+            session ending, because none of those advance the count, and it
+            cannot pulse for the count a reload handed it, because a first value
+            is a baseline rather than a step. */}
+        {watching && observedCaptures > 0 && (
+          <span
+            key={observedCaptures}
+            className={`companion-capture-pulse pointer-events-none absolute -inset-0.5 ${
+              typing ? "rounded-[24px]" : "rounded-full"
+            }`}
+            style={{
+              ["--companion-ring-accent" as string]: WATCHING_RING_ACCENT,
             }}
             aria-hidden
           />

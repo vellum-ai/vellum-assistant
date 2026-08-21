@@ -132,6 +132,12 @@ function currentContext(): CompanionContext {
     // asked for, so this is the one side that can say whether it is running.
     // What the surface turns into its capture indicator.
     watching: useWatchStore.getState().watching,
+    // The session's screen reads, counted. A step in this is the surface's
+    // only evidence that a capture happened, so it is published with the flag
+    // rather than beside it: the two are one fact about one session, and a
+    // count that arrived a push apart from the flag it belongs to would mark a
+    // capture against a session the surface has already stopped drawing.
+    captureCount: useWatchStore.getState().captureCount,
     turns: messages
       .filter(isSpeech)
       .slice(-TAIL)
@@ -151,6 +157,7 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.assistantName === b.assistantName &&
     a.working === b.working &&
     a.watching === b.watching &&
+    a.captureCount === b.captureCount &&
     a.turns.length === b.turns.length &&
     a.turns.every(
       (turn, index) =>
@@ -218,8 +225,9 @@ export function useCompanionMirror(): void {
     // on its own when the socket drops. Only its own store reports either.
     //
     // Straight to `sync` rather than through a flip gate like the one above,
-    // because this store is written on the session's two edges and nothing
-    // else, where the conversation store moves for plenty the card never draws.
+    // because this store is written on the session's two edges and once per
+    // screen read, all three of which the surface draws, where the
+    // conversation store moves for plenty the card never draws.
     const unsubscribeWatch = useWatchStore.subscribe(sync);
     return () => {
       // **Before the unsubscribes**, so the flip this causes is still published

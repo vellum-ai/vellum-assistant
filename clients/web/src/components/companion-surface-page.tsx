@@ -97,6 +97,10 @@ export function CompanionSurfacePage() {
   // Held by main and pushed here with everything else, so this window can
   // reload mid-session without the indicator that says so going dark.
   const [watching, setWatching] = useState(false);
+  // How many times the running session has read the screen. Held with the flag
+  // rather than derived from it, because the flag is a state that lasts for
+  // minutes and this is the only account of the discrete moments inside it.
+  const [captureCount, setCaptureCount] = useState(0);
   // Whether Watch is offered at all, from the only side of this surface that
   // can know. This window never hydrates a flag store: it has no auth and no
   // `RootLayout`, so it would sit on registry defaults forever. Main reads the
@@ -155,6 +159,10 @@ export function CompanionSurfacePage() {
       // reads as nothing running, because the alternative is a capture
       // indicator over a machine nobody is reading.
       setWatching(state.watching === true);
+      // Absence is no reads, for the same reason absence is no session: a
+      // state that cannot say how much of the screen was taken has not
+      // established that any of it was.
+      setCaptureCount(state.captureCount ?? 0);
       // Off unless the answer is positively yes, which covers a shell that
       // predates the field and a window whose flags have not synced yet. The
       // control this decides starts reading the user's screen, so a state of
@@ -445,6 +453,10 @@ export function CompanionSurfacePage() {
           // indicator and the control that ends the session are not: they
           // belong to the session, not to whatever the pill is drawing over it.
           watching={watching}
+          // The reads that session has taken, which is what turns a running
+          // session into something the user can see happening rather than
+          // something they are told is on.
+          captureCount={captureCount}
           // The flag, from main. It hides the way into a session and leaves
           // everything a running one draws alone, so a session already going
           // when the flag turns off can still be seen and still be stopped.

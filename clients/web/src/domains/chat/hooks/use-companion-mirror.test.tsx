@@ -27,6 +27,7 @@ mock.module("@/runtime/popout-window", () => ({
 // and ending the session at teardown, so the module is stood in for by the
 // flag and a counted stop.
 let watching = false;
+let captureCount = 0;
 const watchListeners = new Set<() => void>();
 const stopWatchMock = mock(() => {
   setWatching(false);
@@ -36,7 +37,7 @@ mock.module(
   (): Partial<typeof WatchController> => ({
     stopWatch: stopWatchMock,
     useWatchStore: {
-      getState: () => ({ watching }),
+      getState: () => ({ watching, captureCount }),
       subscribe: (listener: () => void) => {
         watchListeners.add(listener);
         return () => {
@@ -47,12 +48,24 @@ mock.module(
   }),
 );
 
-/** Flip the session the way the controller does, listeners and all. */
-const setWatching = (next: boolean) => {
-  watching = next;
+/** Wake the hook the way any write to the controller's store does. */
+const notifyWatchListeners = () => {
   for (const listener of [...watchListeners]) {
     listener();
   }
+};
+
+/** Flip the session the way the controller does, listeners and all. */
+const setWatching = (next: boolean) => {
+  watching = next;
+  captureCount = 0;
+  notifyWatchListeners();
+};
+
+/** One screen read landing, which is the other thing the session publishes. */
+const captureLanded = () => {
+  captureCount += 1;
+  notifyWatchListeners();
 };
 
 const { useTurnStore } = await import("@/domains/chat/turn-store");
@@ -73,6 +86,7 @@ afterEach(() => {
   clearWorkingMock.mockClear();
   stopWatchMock.mockClear();
   watching = false;
+  captureCount = 0;
   watchListeners.clear();
   isPopout = false;
   useTurnStore.getState().resetTurn();
@@ -312,6 +326,61 @@ describe("the watch flag the companion mirror publishes", () => {
     setWatching(true);
 
     expect(published.length).toBe(count);
+  });
+});
+
+/**
+ * The session's screen reads cross the same bridge the flag does, and they are
+ * the half the surface draws a capture from: the flag says a session is open,
+ * and only this says the screen has been read.
+ */
+describe("the capture count the companion mirror publishes", () => {
+  test("is none for a session that has captured nothing", async () => {
+    render(<Mirror />);
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().watching).toBe(true);
+    });
+
+    expect(latest().captureCount).toBe(0);
+  });
+
+  test("publishes each capture the session reports", async () => {
+    render(<Mirror />);
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().watching).toBe(true);
+    });
+
+    captureLanded();
+    await waitFor(() => {
+      expect(latest().captureCount).toBe(1);
+    });
+
+    captureLanded();
+    await waitFor(() => {
+      expect(latest().captureCount).toBe(2);
+    });
+  });
+
+  /**
+   * A capture that moved nothing else about the card still has to go out. It
+   * is the one fact on this bridge with no other carrier: the tail, the name,
+   * and the working flag are all unchanged by a screen being read.
+   */
+  test("pushes for a capture that changed nothing else", async () => {
+    render(<Mirror />);
+    setWatching(true);
+    await waitFor(() => {
+      expect(latest().watching).toBe(true);
+    });
+    const count = published.length;
+
+    captureLanded();
+
+    await waitFor(() => {
+      expect(published.length).toBe(count + 1);
+    });
   });
 });
 
