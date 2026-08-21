@@ -2210,58 +2210,10 @@ jobs:
             .dependencies["@vellumai/vellum-gateway"] = $v |
             .dependencies["@vellumai/web"] = $v
           ' package.json > tmp && mv tmp package.json
-      # The meta package was just stamped to depend on freshly published
-      # @vellumai/* versions, but `npm publish` returning 0 does not mean the
-      # version is resolvable yet: npm queues some publishes for asynchronous
-      # processing ("Your package is being processed and may take a few
-      # minutes to become available"). @vellumai/cli hits that queue on every
-      # dev release and has been landing on the registry a consistent ~5m
-      # after its publish job goes green, so a shrinkwrap install kicked off
-      # right after the last publish fails with ETARGET. Wait until every dep
-      # is actually resolvable before installing.
-      #
-      # The deadline sits well past the observed ~5m lag on purpose. The
-      # equivalent prod steps in release.yml originally waited 300s, close
-      # enough to that lag to be a coin flip; they are widened to match.
       - name: Wait for dependencies to propagate
-        working-directory: meta
-        run: |
-          node -e '
-            const deps = require("./package.json").dependencies || {};
-            for (const [name, version] of Object.entries(deps)) {
-              if (name.startsWith("@vellumai/")) console.log(`${name}@${version}`);
-            }
-          ' > /tmp/vellum-meta-deps.txt
-          deadline=$((SECONDS + 900))
-          while read -r spec; do
-            [ -z "$spec" ] && continue
-            until npm view "$spec" version >/dev/null 2>&1; do
-              if [ "$SECONDS" -ge "$deadline" ]; then
-                echo "::error::$spec still not resolvable on the registry after waiting ~15m"
-                exit 1
-              fi
-              echo "  $spec not yet available; retrying in 10s..."
-              sleep 10
-            done
-            echo "  ✓ $spec available"
-          done < /tmp/vellum-meta-deps.txt
-      # npm only honors "overrides" in the root package.json, so they are
-      # ignored when end users run `npm install -g vellum`. Shipping an
-      # npm-shrinkwrap.json generated with the overrides applied makes npm
-      # follow the same resolution for installed copies of the package.
+        run: ./scripts/npm-wait-for-meta-deps.sh
       - name: Generate npm-shrinkwrap.json
-        working-directory: meta
-        run: |
-          for attempt in 1 2 3; do
-            npm install --package-lock-only && break
-            if [ "$attempt" -eq 3 ]; then
-              echo "::error::npm install --package-lock-only failed after 3 attempts"
-              exit 1
-            fi
-            echo "npm install failed (attempt $attempt); retrying in 15s..."
-            sleep 15
-          done
-          npm shrinkwrap
+        run: ./scripts/npm-generate-meta-shrinkwrap.sh
       - name: Publish
         working-directory: meta
         env:
