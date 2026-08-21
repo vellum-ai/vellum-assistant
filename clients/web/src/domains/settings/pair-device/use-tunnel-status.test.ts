@@ -2,22 +2,24 @@
  * Tests for the tunnel-status query hook and its wire-to-view mapper.
  *
  * `useIsOrgReady` and the generated probe call are the two `mock.module`s
- * here; the version gate and the active assistant id are driven through their
- * real stores so the gating the hook actually ships with is what gets
- * exercised. Mocking the SDK call (rather than only reading TanStack's
- * `fetchStatus`) is what lets the refresh tests count probes: an imperative
- * `refetch()` that the guard should have swallowed leaves no trace in the
- * query state, but it would show up as a call here.
+ * here (the probe through the shared `installIngressProbe` harness); the
+ * version gate and the active assistant id are driven through their real
+ * stores so the gating the hook actually ships with is what gets exercised.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { createElement, type ReactNode } from "react";
 
 import { integrationsIngressStatusGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { MIN_VERSION } from "@/lib/backwards-compat/ingress-status-gate";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+
+import {
+  createQueryClientWrapper,
+  installIngressProbe,
+  VERSION_BELOW_INGRESS_STATUS,
+} from "./pair-device-test-helpers";
 
 const ASSISTANT_ID = "asst-1";
 const PUBLIC_URL = "https://foo.ts.net";
@@ -28,33 +30,15 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
 }));
 
-/** Set by a test to make the probe fail the way a dead daemon would. */
-let probeFailure: Error | null = null;
-
-const probeMock = mock(async () => {
-  if (probeFailure) {
-    throw probeFailure;
-  }
-  return {
-    data: {
-      state: "healthy",
-      publicBaseUrl: PUBLIC_URL,
-      checkedAt: CHECKED_AT,
-    },
-    error: undefined,
-    response: new Response(null, { status: 200 }),
-  };
+const {
+  probe: probeMock,
+  failWith,
+  reset: resetProbe,
+} = await installIngressProbe({
+  state: "healthy",
+  publicBaseUrl: PUBLIC_URL,
+  checkedAt: CHECKED_AT,
 });
-
-/* Spread over the real module rather than replacing it: the generated SDK is a
-   single barrel that the query-options barrel also pulls from, and a bare
-   object drops every export this file does not name. */
-const realDaemonSdk = await import("@/generated/daemon/sdk.gen");
-
-mock.module("@/generated/daemon/sdk.gen", () => ({
-  ...realDaemonSdk,
-  integrationsIngressStatusGet: probeMock,
-}));
 
 const { toStatusView, useTunnelStatus } = await import("./use-tunnel-status");
 
@@ -70,11 +54,7 @@ function probeFetchStatus(client: QueryClient): string {
 }
 
 function renderStatus(enabled = true) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  const wrapper = ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client }, children);
+  const { client, wrapper } = createQueryClientWrapper();
   const { result } = renderHook(() => useTunnelStatus(enabled), { wrapper });
   return { result, client };
 }
@@ -85,8 +65,7 @@ async function settle() {
 
 beforeEach(() => {
   orgReady = true;
-  probeFailure = null;
-  probeMock.mockClear();
+  resetProbe();
   useResolvedAssistantsStore.getState().setActiveAssistantId(ASSISTANT_ID);
   useAssistantIdentityStore
     .getState()
@@ -154,7 +133,7 @@ describe("toStatusView", () => {
     });
   });
 
-  test("maps unreachable and drops the daemon's detail string", () => {
+  test("carries the daemon's detail onto unreachable", () => {
     expect(
       toStatusView(
         {
@@ -169,6 +148,47 @@ describe("toStatusView", () => {
       kind: "unreachable",
       publicBaseUrl: PUBLIC_URL,
       checkedAt: CHECKED_AT,
+      detail: "connection refused",
+    });
+  });
+
+  // A killed tunnel answers as unreachable, and the record the daemon kept is
+  // what lets the row name the command that starts it again.
+  test("carries the last tunnel's provider onto unreachable", () => {
+    expect(
+      toStatusView(
+        {
+          state: "unreachable",
+          publicBaseUrl: PUBLIC_URL,
+          checkedAt: CHECKED_AT,
+          lastTunnel: { provider: "tailscale", publicBaseUrl: PUBLIC_URL },
+        },
+        false,
+      ),
+    ).toEqual({
+      kind: "unreachable",
+      publicBaseUrl: PUBLIC_URL,
+      checkedAt: CHECKED_AT,
+      provider: "tailscale",
+    });
+  });
+
+  test("carries the last tunnel's provider onto foreign", () => {
+    expect(
+      toStatusView(
+        {
+          state: "foreign",
+          publicBaseUrl: PUBLIC_URL,
+          checkedAt: CHECKED_AT,
+          lastTunnel: { provider: "ngrok", publicBaseUrl: PUBLIC_URL },
+        },
+        false,
+      ),
+    ).toEqual({
+      kind: "foreign",
+      publicBaseUrl: PUBLIC_URL,
+      checkedAt: CHECKED_AT,
+      provider: "ngrok",
     });
   });
 
@@ -217,7 +237,7 @@ describe("useTunnelStatus", () => {
   test("never probes an assistant whose version predates the route", () => {
     useAssistantIdentityStore
       .getState()
-      .setIdentity("Test", "0.11.5", ASSISTANT_ID);
+      .setIdentity("Test", VERSION_BELOW_INGRESS_STATUS, ASSISTANT_ID);
     const { result, client } = renderStatus();
 
     expect(probeFetchStatus(client)).toBe("idle");
@@ -260,7 +280,7 @@ describe("useTunnelStatus", () => {
   });
 
   test("reports unavailable once the probe gives up", async () => {
-    probeFailure = new Error("connection refused");
+    failWith(new Error("connection refused"));
     const { result } = renderStatus();
 
     await waitFor(() =>
@@ -277,7 +297,7 @@ describe("useTunnelStatus · refresh", () => {
   test("does not probe when the assistant predates the route", async () => {
     useAssistantIdentityStore
       .getState()
-      .setIdentity("Test", "0.11.5", ASSISTANT_ID);
+      .setIdentity("Test", VERSION_BELOW_INGRESS_STATUS, ASSISTANT_ID);
     const { result } = renderStatus();
 
     act(() => result.current.refresh());
