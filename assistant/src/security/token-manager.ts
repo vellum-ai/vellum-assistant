@@ -315,16 +315,12 @@ async function doRefresh(service: string, connId: string): Promise<string> {
 export async function withValidToken<T>(
   service: string,
   callback: (token: string) => Promise<T>,
-  opts?: string | { connectionId: string; forceRefresh?: boolean },
+  opts?: string | { connectionId: string },
 ): Promise<T> {
-  const optsObject =
-    typeof opts === "object" && opts !== null ? opts : undefined;
-  const conn = optsObject
-    ? getConnection(optsObject.connectionId)
-    : getConnectionByProvider(
-        service,
-        typeof opts === "string" ? opts : undefined,
-      );
+  const conn =
+    opts && typeof opts === "object"
+      ? getConnection(opts.connectionId)
+      : getConnectionByProvider(service, opts);
   const tokenResult = conn
     ? await getConnectionAccessTokenResult({
         provider: conn.provider,
@@ -339,9 +335,8 @@ export async function withValidToken<T>(
     );
   }
 
-  // Proactively refresh if expired, near-expiry, or the caller asked to
-  // rotate after an upstream 401 observed outside this callback.
-  if (optsObject?.forceRefresh === true || isTokenExpired(conn.expiresAt)) {
+  // Proactively refresh if expired or about to expire.
+  if (isTokenExpired(conn.expiresAt)) {
     token = await refreshDeduplicator.deduplicate(conn.id, () =>
       doRefresh(service, conn.id),
     );
