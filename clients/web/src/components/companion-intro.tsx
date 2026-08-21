@@ -74,11 +74,11 @@ interface IntroCopy {
 export const INTRO_COPY: Record<CompanionIntroBeat, IntroCopy> = {
   meet: {
     title: "This is me",
-    body: "I stay on your desktop, even when Vellum is closed.",
+    body: "I stay on your desktop, even when Vellum isn’t visible.",
   },
   talk: {
     title: "Talk",
-    body: "Start a voice conversation without opening anything.",
+    body: "Start a voice conversation.",
   },
   type: {
     title: "Type",
@@ -86,7 +86,7 @@ export const INTRO_COPY: Record<CompanionIntroBeat, IntroCopy> = {
   },
   tray: {
     title: "Hide me anytime",
-    body: "Uncheck Show Companion in the menu bar.",
+    body: "Disable “Show Companion” in the menu bar.",
   },
 };
 
