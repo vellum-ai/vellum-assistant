@@ -68,6 +68,10 @@ import {
 
 import { clearQueueStatus } from "@/domains/chat/utils/stream-updaters/shared";
 import type { ChatError } from "@/domains/chat/types";
+import {
+  isProviderNotConfiguredPostError,
+  PROVIDER_NOT_CONFIGURED_CODE,
+} from "@/domains/chat/utils/error-classification";
 
 import {
   clearPendingConfirmationsFromMessages,
@@ -120,6 +124,21 @@ type SendStreamResult =
     }
   | { status: "ignored" }
   | { status: "failed"; error: ChatError };
+
+/**
+ * The code a failed POST carries, with the legacy "no API key" 422 folded
+ * into `PROVIDER_NOT_CONFIGURED` so the banner path sees one code.
+ */
+function resolvePostErrorCode(
+  postResult: Extract<
+    Awaited<ReturnType<typeof postChatMessage>>,
+    { ok: false }
+  >,
+): string | undefined {
+  return isProviderNotConfiguredPostError(postResult)
+    ? PROVIDER_NOT_CONFIGURED_CODE
+    : postResult.error.code;
+}
 
 // ---------------------------------------------------------------------------
 // Send options
@@ -430,18 +449,16 @@ export function useSendMessage({
           });
           return { status: "ignored" };
         }
+        const code = resolvePostErrorCode(postResult);
         const detail = resolvePostError(
-          postResult.error.code,
+          code,
           postResult.error.detail,
           "Something went wrong. Please try again.",
         );
         endTurn({ conversationId: requestConversationId, reason: "error" });
         return {
           status: "failed",
-          error: {
-            message: detail,
-            ...(postResult.error.code ? { code: postResult.error.code } : {}),
-          },
+          error: { message: detail, ...(code ? { code } : {}) },
         };
       }
       // Success — drain the ref so subsequent messages omit the field.
@@ -793,15 +810,13 @@ export function useSendMessage({
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);
+            const code = resolvePostErrorCode(postResult);
             const detail = resolvePostError(
-              postResult.error.code,
+              code,
               postResult.error.detail,
               "Failed to queue message. Please try again.",
             );
-            setError({
-              message: detail,
-              code: postResult.error.code ?? undefined,
-            });
+            setError({ message: detail, code });
             return;
           }
           void surfaceConversationAfterUserSend(
@@ -927,6 +942,14 @@ export function useSendMessage({
             .removeProcessingConversationId(activeConversationId);
           if (isDraft) {
             removeConversation(queryClient, assistantId, activeConversationId);
+          }
+          if (result.error.code === PROVIDER_NOT_CONFIGURED_CODE) {
+            // The composer's missing-API-key banner owns this error (server
+            // copy plus an "Open Settings" action), so hand the text straight
+            // back instead of blocking on a modal, for drafts too.
+            useComposerStore.getState().setInput(content);
+            setError(result.error);
+          } else if (isDraft) {
             setError({
               message: result.error.message,
               ...(result.error.code ? { code: result.error.code } : {}),
@@ -1024,7 +1047,12 @@ export function useSendMessage({
             .getState()
             .pendingDraftProfiles.get(activeConversationId);
           if (stashedProfile !== undefined) {
-            resolveDraftKey(queryClient, assistantId, activeConversationId, activeConversationId);
+            resolveDraftKey(
+              queryClient,
+              assistantId,
+              activeConversationId,
+              activeConversationId,
+            );
             useConversationStore
               .getState()
               .clearPendingDraftProfile(activeConversationId);

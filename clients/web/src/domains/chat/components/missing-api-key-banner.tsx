@@ -5,11 +5,14 @@ import { Button } from "@vellumai/design-library";
 export interface MissingApiKeyBannerProps {
   onOpenSettings: () => void;
   onDismiss: () => void;
+  /** Server-supplied detail (names the connection); replaces the default copy. */
+  message?: string;
 }
 
 export function MissingApiKeyBanner({
   onOpenSettings,
   onDismiss,
+  message,
 }: MissingApiKeyBannerProps) {
   return (
     <div
@@ -35,7 +38,8 @@ export function MissingApiKeyBanner({
           API key required
         </p>
         <p className="text-body-medium-default text-[var(--content-tertiary)]">
-          Add an API key in Settings → Models & Services to start chatting.
+          {message ||
+            "Add an API key in Settings → Models & Services to start chatting."}
         </p>
       </div>
 

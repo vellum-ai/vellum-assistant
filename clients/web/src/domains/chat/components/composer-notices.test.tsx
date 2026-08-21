@@ -51,4 +51,21 @@ describe("ComposerNotices", () => {
     );
     expect(container.childElementCount).toBeGreaterThan(0);
   });
+
+  test("the missing-API-key banner shows the assistant's own message", () => {
+    // GIVEN a send the assistant rejected for a missing key, with its reason
+    const { getByTestId, getByRole } = render(
+      <ComposerNotices
+        {...REQUIRED}
+        showMissingApiKeyBanner
+        missingApiKeyMessage='provider_connection "anthropic-personal" has no API key stored'
+      />,
+    );
+
+    // THEN the banner carries that reason and still offers the settings action
+    expect(getByTestId("missing-api-key-banner").textContent).toContain(
+      "anthropic-personal",
+    );
+    expect(getByRole("button", { name: "Open Settings" })).toBeTruthy();
+  });
 });

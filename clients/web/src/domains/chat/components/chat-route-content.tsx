@@ -1414,6 +1414,11 @@ export function ChatMainPanel({
             // suppressed warning hands the space to the resource banner.
             resourcePressureBanner={resourcePressureBannerSlot}
             showMissingApiKeyBanner={error?.code === "PROVIDER_NOT_CONFIGURED"}
+            missingApiKeyMessage={
+              error?.code === "PROVIDER_NOT_CONFIGURED"
+                ? error.message
+                : undefined
+            }
             onOpenAiSettings={pushToAiSettings}
             onDismissApiKeyError={handleDismissApiKeyError}
             compactionCircuitOpenUntil={compactionCircuitOpenUntil}

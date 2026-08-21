@@ -63,6 +63,8 @@ export interface ComposerNoticesProps {
 
   /** True when the assistant returned `PROVIDER_NOT_CONFIGURED`. */
   showMissingApiKeyBanner: boolean;
+  /** The assistant's own message for that error, shown in the banner when present. */
+  missingApiKeyMessage?: string;
   /** Handler invoked when the user clicks "Open settings" on the missing-API-key banner. */
   onOpenAiSettings: () => void;
   /** Handler invoked when the user dismisses the missing-API-key banner. */
@@ -96,6 +98,7 @@ export function ComposerNotices({
   resourcePressureBanner,
   billingBannerSlot,
   showMissingApiKeyBanner,
+  missingApiKeyMessage,
   onOpenAiSettings,
   onDismissApiKeyError,
   compactionCircuitOpenUntil,
@@ -161,6 +164,7 @@ export function ComposerNotices({
           <MissingApiKeyBanner
             onOpenSettings={onOpenAiSettings}
             onDismiss={onDismissApiKeyError}
+            message={missingApiKeyMessage}
           />
         </div>
       )}

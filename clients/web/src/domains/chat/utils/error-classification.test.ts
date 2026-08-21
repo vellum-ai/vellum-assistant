@@ -4,6 +4,7 @@ import {
   getChatBillingBannerDecision,
   isCreditsExhaustedProviderError,
   isManagedCredentialChatError,
+  isProviderNotConfiguredPostError,
   resolveComposerBillingBanner,
   shouldShowGenericChatErrorNotice,
   shouldSuppressGenericChatErrorNotice,
@@ -358,5 +359,56 @@ describe("isCreditsExhaustedProviderError", () => {
     );
     expect(isCreditsExhaustedProviderError(undefined)).toBe(false);
     expect(isCreditsExhaustedProviderError(null)).toBe(false);
+  });
+});
+
+describe("isProviderNotConfiguredPostError", () => {
+  test("matches the PROVIDER_NOT_CONFIGURED code regardless of prose", () => {
+    expect(
+      isProviderNotConfiguredPostError({
+        status: 422,
+        error: { code: "PROVIDER_NOT_CONFIGURED", detail: "anything" },
+      }),
+    ).toBe(true);
+  });
+
+  test("folds a legacy 422 that names the missing key or connection", () => {
+    expect(
+      isProviderNotConfiguredPostError({
+        status: 422,
+        error: {
+          code: "UNPROCESSABLE_ENTITY",
+          detail:
+            'provider_connection "anthropic-personal" has no API key stored',
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isProviderNotConfiguredPostError({
+        status: 422,
+        error: { detail: "No API key configured for anthropic." },
+      }),
+    ).toBe(true);
+  });
+
+  test("leaves other 422s and other statuses alone", () => {
+    expect(
+      isProviderNotConfiguredPostError({
+        status: 422,
+        error: { code: "UNPROCESSABLE_ENTITY", detail: "content is required" },
+      }),
+    ).toBe(false);
+    expect(
+      isProviderNotConfiguredPostError({
+        status: 422,
+        error: { code: "secret_blocked", detail: "no API key please" },
+      }),
+    ).toBe(false);
+    expect(
+      isProviderNotConfiguredPostError({
+        status: 500,
+        error: { detail: "no API key" },
+      }),
+    ).toBe(false);
   });
 });
