@@ -314,6 +314,39 @@ describe("PlatformOAuthConnection", () => {
     expect(callCount).toBe(3);
   });
 
+  test("prepareCallerExecution returns a platform proxy plan without fetching", async () => {
+    const clientFetch = mock(async () => {
+      throw new Error("prepare must not call the platform");
+    });
+    const client = {
+      ...makeMockClient(),
+      fetch: clientFetch,
+    } as unknown as VellumPlatformClient;
+
+    const conn = new PlatformOAuthConnection({
+      ...DEFAULT_OPTIONS,
+      client,
+    });
+    const plan = await conn.prepareCallerExecution({
+      method: "GET",
+      path: "/gmail/v1/users/me/messages",
+      query: { maxResults: "10" },
+    });
+
+    expect(plan.mode).toBe("platform_proxy");
+    expect(plan.proxyPath).toBe(
+      "/v1/assistants/asst-abc/external-provider-proxy/platform-conn-123/",
+    );
+    expect(plan.envelope.request).toEqual({
+      method: "GET",
+      path: "/gmail/v1/users/me/messages",
+      query: { maxResults: "10" },
+      headers: {},
+      body: null,
+    });
+    expect(clientFetch).not.toHaveBeenCalled();
+  });
+
   test("withToken throws clear error", async () => {
     const conn = new PlatformOAuthConnection(DEFAULT_OPTIONS);
     await expect(conn.withToken(async (token) => token)).rejects.toThrow(

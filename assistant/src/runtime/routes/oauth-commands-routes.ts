@@ -25,6 +25,7 @@ import {
   resolveOAuthConnectionWithMeta,
 } from "../../oauth/connection-resolver.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
+import { buildOAuthRequestClientResult } from "../../oauth/request-result.js";
 import {
   disconnectOAuthProvider,
   getActiveConnection,
@@ -763,6 +764,13 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
     head?: boolean;
     account?: string;
     client_id?: string;
+    /**
+     * When true, resolve the connection and return a caller-side execution
+     * plan. The HTTP call and response-body parse happen in the CLI process.
+     */
+    prepare_only?: boolean;
+    /** Refresh the BYO access token before minting a caller-side plan. */
+    force_refresh?: boolean;
   };
 
   if (!b.provider) {
@@ -923,63 +931,46 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
     ...(baseUrl ? { baseUrl } : {}),
   };
 
-  const response = await connection.request(req);
-
-  const result: Record<string, unknown> = {
-    ok: response.status >= 200 && response.status < 300,
-    status: response.status,
-    headers: response.headers,
-    body: response.body,
-    // Which connected account actually served the request, so the caller can
-    // tell whether the intended account was used.
-    account: connection.accountInfo,
-  };
-
-  // Surface a caller-visible warning when the provider had several active
-  // connections and no account was pinned — the model must see that a
-  // silent pick happened, not just the daemon log.
+  let accountWarning: string | undefined;
   if (ambiguous && allAccounts.length > 1) {
     const selected = allAccounts[0];
-    result.accountWarning =
+    accountWarning =
       `Multiple ${b.provider} accounts are connected (${allAccounts.join(", ")}); ` +
       `used "${selected}". Pass --account to select a specific one.`;
   }
 
-  if (response.status === 401 || response.status === 403) {
-    result.hint = managed
-      ? `Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-        `Run 'assistant oauth status ${b.provider}' to check connection health.\n` +
-        `To reconnect, run 'assistant oauth connect --help'.`
-      : `Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-        `Run 'assistant oauth status ${b.provider}' to check connection status.\n` +
-        `To reconnect, run 'assistant oauth connect --help'.`;
-  } else if (response.status === 404 && isHtmlResponse(response.headers)) {
-    // An HTML 404 (rather than a JSON API error) is the signature of a request
-    // reaching a valid host but a path that host does not serve — e.g. a
-    // relative path resolved against a base URL that points at the wrong
-    // product. Surface the resolved base so the caller can tell where the path
-    // landed, and steer them to an absolute URL for non-default services.
-    const resolvedBaseUrl =
-      baseUrl ?? providerRow.baseUrl ?? "(none configured)";
-    result.hint =
-      `Request returned HTTP ${response.status} with an HTML body, which usually means ` +
-      `the path does not exist on the base URL it resolved against.\n\n` +
-      `This request used base URL "${resolvedBaseUrl}" (relative paths are joined onto it). ` +
-      `If you meant a different service on this provider, pass an absolute URL ` +
-      `(e.g. https://host/full/path) so the host and full path are set explicitly.`;
-  }
+  const resolvedBaseUrl = baseUrl ?? providerRow.baseUrl ?? "(none configured)";
 
-  return result;
-}
-
-/** True when the response's Content-Type header indicates an HTML body. */
-function isHtmlResponse(headers: Record<string, string>): boolean {
-  for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() === "content-type") {
-      return value.toLowerCase().includes("text/html");
+  if (b.prepare_only) {
+    if (typeof connection.prepareCallerExecution !== "function") {
+      throw new InternalError(
+        "OAuth connection does not support caller-side request execution.",
+      );
     }
+    const plan = await connection.prepareCallerExecution(req, {
+      forceRefresh: Boolean(b.force_refresh),
+    });
+    return {
+      ok: true,
+      prepare_only: true,
+      plan,
+      account: connection.accountInfo,
+      ...(accountWarning ? { accountWarning } : {}),
+      managed,
+      resolvedBaseUrl,
+      provider: b.provider,
+    };
   }
-  return false;
+
+  const response = await connection.request(req);
+  return buildOAuthRequestClientResult({
+    response,
+    account: connection.accountInfo,
+    accountWarning,
+    managed,
+    provider: b.provider,
+    resolvedBaseUrl,
+  });
 }
 
 // ---------------------------------------------------------------------------

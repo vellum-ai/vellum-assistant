@@ -538,6 +538,63 @@ describe("BYOOAuthConnection", () => {
     });
   });
 
+  describe("prepareCallerExecution()", () => {
+    test("returns a direct plan with a minted token and does not fetch", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      const plan = await conn.prepareCallerExecution({
+        method: "GET",
+        path: "/messages",
+        query: { maxResults: "10" },
+      });
+
+      expect(plan.mode).toBe("direct");
+      expect(plan.authScheme).toBe("Bearer");
+      expect(plan.url).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10",
+      );
+      expect(plan.headers.authorization ?? plan.headers.Authorization).toBe(
+        "Bearer test-access-token",
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    test("forceRefresh rotates the token before minting the plan", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      const plan = await conn.prepareCallerExecution(
+        { method: "GET", path: "/messages" },
+        { forceRefresh: true },
+      );
+
+      expect(mockRefreshOAuth2Token).toHaveBeenCalled();
+      expect(plan.headers.authorization ?? plan.headers.Authorization).toBe(
+        "Bearer refreshed-access-token",
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    test("Telegram plans embed the bot token in the URL without Authorization", async () => {
+      await setupTelegramCredential();
+      const conn = createConnection("telegram");
+
+      const plan = await conn.prepareCallerExecution({
+        method: "GET",
+        path: "/getMe",
+      });
+
+      expect(plan.authScheme).toBe("none");
+      expect(plan.url).toBe(
+        "https://api.telegram.org/bottelegram-test-token/getMe",
+      );
+      expect(plan.headers.authorization ?? plan.headers.Authorization).toBe(
+        undefined,
+      );
+    });
+  });
+
   describe("withToken()", () => {
     test("provides valid token to callback", async () => {
       await setupCredential("google");

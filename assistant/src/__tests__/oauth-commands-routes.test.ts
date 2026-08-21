@@ -70,6 +70,8 @@ let mockResolveResponse: {
   body: unknown;
 } = { status: 200, headers: {}, body: { ok: true } };
 let mockResolveRequests: unknown[] = [];
+let mockPrepareRequests: unknown[] = [];
+let mockPrepareOptions: unknown[] = [];
 let mockSyncManualTokenCalls: string[] = [];
 
 const mockDisconnectOAuthProvider = mock(() => Promise.resolve());
@@ -117,6 +119,25 @@ mock.module("../oauth/connection-resolver.js", () => {
     request: async (req: unknown) => {
       mockResolveRequests.push(req);
       return mockResolveResponse;
+    },
+    prepareCallerExecution: async (
+      req: {
+        method: string;
+        path: string;
+        baseUrl?: string;
+      },
+      options?: { forceRefresh?: boolean },
+    ) => {
+      mockPrepareRequests.push(req);
+      mockPrepareOptions.push(options);
+      return {
+        mode: "direct",
+        method: req.method,
+        url: `${req.baseUrl ?? "https://api.google.com"}${req.path}`,
+        headers: { Authorization: "Bearer tok-fake" },
+        authScheme: "Bearer",
+        account: "user@example.com",
+      };
     },
   });
   return {
@@ -217,6 +238,8 @@ beforeEach(() => {
   });
   mockResolveResponse = { status: 200, headers: {}, body: { ok: true } };
   mockResolveRequests = [];
+  mockPrepareRequests = [];
+  mockPrepareOptions = [];
   mockSyncManualTokenCalls = [];
   mockDisconnectOAuthProvider.mockClear();
 });
@@ -856,6 +879,65 @@ describe("POST oauth/request", () => {
       }),
     )) as { hint?: string };
     expect(result.hint).toContain("https://www.googleapis.com");
+  });
+
+  test("prepare_only returns a caller plan and does not execute the request", async () => {
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "https://api.google.com/v1/me",
+          prepare_only: true,
+        },
+      }),
+    )) as {
+      ok: boolean;
+      prepare_only: boolean;
+      plan: { mode: string; url: string; authScheme: string };
+      managed: boolean;
+      resolvedBaseUrl: string;
+    };
+    expect(result.ok).toBe(true);
+    expect(result.prepare_only).toBe(true);
+    expect(result.plan.mode).toBe("direct");
+    expect(result.plan.url).toBe("https://api.google.com/v1/me");
+    expect(result.plan.authScheme).toBe("Bearer");
+    expect(result.managed).toBe(false);
+    expect(result.resolvedBaseUrl).toBe("https://api.google.com");
+    expect(mockPrepareRequests).toHaveLength(1);
+    expect(mockPrepareOptions).toEqual([{ forceRefresh: false }]);
+    expect(mockResolveRequests).toHaveLength(0);
+  });
+
+  test("prepare_only passes force_refresh through to the connection", async () => {
+    await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "https://api.google.com/v1/me",
+          prepare_only: true,
+          force_refresh: true,
+        },
+      }),
+    );
+    expect(mockPrepareOptions).toEqual([{ forceRefresh: true }]);
+    expect(mockResolveRequests).toHaveLength(0);
+  });
+
+  test("prepare_only still rejects hosts outside the allowlist", async () => {
+    await expect(
+      getRoute("POST", "oauth/request").handler(
+        makeArgs({
+          body: {
+            provider: "google",
+            url: "https://attacker.example/v1/me",
+            prepare_only: true,
+          },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    expect(mockPrepareRequests).toHaveLength(0);
+    expect(mockResolveRequests).toHaveLength(0);
   });
 
   test("rejects unregistered client_id in BYO mode", async () => {

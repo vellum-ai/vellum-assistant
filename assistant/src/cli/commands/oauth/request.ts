@@ -3,9 +3,27 @@ import { readFileSync, writeFileSync } from "node:fs";
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { isOAuthCallerPlan } from "../../../oauth/caller-plan.js";
+import { runPreparedOAuthRequest } from "../../../oauth/execute-caller-plan.js";
+import { buildOAuthRequestClientResult } from "../../../oauth/request-result.js";
 import { readStdinSync } from "../../../util/read-stdin.js";
 import { subcommand } from "../../lib/cli-command-help.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+
+interface OAuthRequestIpcResult {
+  ok?: boolean;
+  prepare_only?: boolean;
+  plan?: unknown;
+  status?: number;
+  headers?: Record<string, string>;
+  body?: unknown;
+  hint?: string;
+  account?: string | null;
+  accountWarning?: string;
+  managed?: boolean;
+  resolvedBaseUrl?: string;
+  provider?: string;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -68,6 +86,80 @@ function readBodyData(data: string): unknown {
   }
 
   return tryJsonParse(data);
+}
+
+async function prepareOAuthRequest(
+  body: Record<string, unknown>,
+  forceRefresh: boolean,
+): Promise<OAuthRequestIpcResult> {
+  const r = await cliIpcCall<OAuthRequestIpcResult>("oauth_request", {
+    body: forceRefresh ? { ...body, force_refresh: true } : body,
+  });
+  if (!r.ok) {
+    return exitFromIpcResult(r);
+  }
+  return r.result!;
+}
+
+function isExecutedOAuthResponse(
+  value: OAuthRequestIpcResult,
+): value is OAuthRequestIpcResult & {
+  status: number;
+  headers: Record<string, string>;
+} {
+  return (
+    typeof value.status === "number" &&
+    value.headers !== undefined &&
+    value.headers !== null &&
+    typeof value.headers === "object"
+  );
+}
+
+async function prepareAndExecuteOAuthRequest(body: Record<string, unknown>) {
+  const first = await prepareOAuthRequest(body, false);
+
+  if (isOAuthCallerPlan(first.plan)) {
+    let prepared = first;
+    let plan = first.plan;
+    const { response } = await runPreparedOAuthRequest({
+      prepare: async (forceRefresh) => {
+        if (!forceRefresh) {
+          return plan;
+        }
+        prepared = await prepareOAuthRequest(body, true);
+        if (!isOAuthCallerPlan(prepared.plan)) {
+          throw new Error("assistant returned an invalid OAuth request plan");
+        }
+        plan = prepared.plan;
+        return plan;
+      },
+    });
+
+    return buildOAuthRequestClientResult({
+      response,
+      account: prepared.account ?? plan.account ?? null,
+      accountWarning: prepared.accountWarning ?? plan.accountWarning,
+      managed: prepared.managed === true || plan.mode === "platform_proxy",
+      provider:
+        prepared.provider ??
+        (typeof body.provider === "string" ? body.provider : ""),
+      resolvedBaseUrl: prepared.resolvedBaseUrl ?? "(none configured)",
+    });
+  }
+
+  if (isExecutedOAuthResponse(first)) {
+    return {
+      ok: first.ok ?? (first.status >= 200 && first.status < 300),
+      status: first.status,
+      headers: first.headers,
+      body: first.body,
+      account: first.account ?? null,
+      ...(first.accountWarning ? { accountWarning: first.accountWarning } : {}),
+      ...(first.hint ? { hint: first.hint } : {}),
+    };
+  }
+
+  throw new Error("assistant returned an invalid OAuth request result");
 }
 
 // ---------------------------------------------------------------------------
@@ -175,10 +267,13 @@ export function registerRequestCommand(oauth: Command): void {
             parsedData = readBodyData(opts.data);
           }
 
-          // Build IPC request body
+          // Build IPC request body. prepare_only keeps the upstream fetch and
+          // JSON parse in this process so Gmail-sized payloads stay off the
+          // assistant event loop.
           const body: Record<string, unknown> = {
             provider: opts.provider,
             url,
+            prepare_only: true,
           };
           if (opts.request) {
             body.method = opts.request;
@@ -202,21 +297,7 @@ export function registerRequestCommand(oauth: Command): void {
             body.client_id = opts.clientId;
           }
 
-          const r = await cliIpcCall<{
-            ok: boolean;
-            status: number;
-            headers: Record<string, string>;
-            body: unknown;
-            hint?: string;
-            account?: string | null;
-            accountWarning?: string;
-          }>("oauth_request", { body });
-
-          if (!r.ok) {
-            return exitFromIpcResult(r);
-          }
-
-          const result = r.result!;
+          const result = await prepareAndExecuteOAuthRequest(body);
 
           // Non-2xx exit code
           if (result.status < 200 || result.status >= 300) {
@@ -251,7 +332,7 @@ export function registerRequestCommand(oauth: Command): void {
             writeInfo(`<`);
           }
 
-          // Body output (skip for null bodies — HEAD requests, 204, etc.)
+          // Body output (skip for null bodies: HEAD requests, 204, etc.)
           if (result.body != null) {
             const bodyStr =
               typeof result.body === "string"

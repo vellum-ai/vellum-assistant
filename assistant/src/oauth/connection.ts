@@ -1,3 +1,5 @@
+import type { OAuthCallerPlan } from "./caller-plan.js";
+
 export interface OAuthConnectionRequest {
   method: string;
   path: string; // relative, e.g. "/2/tweets"
@@ -21,9 +23,23 @@ export interface OAuthConnectionResponse {
   body: unknown;
 }
 
+export interface OAuthPrepareCallerOptions {
+  /** Refresh the stored access token before minting a BYO caller plan. */
+  forceRefresh?: boolean;
+}
+
 export interface OAuthConnection {
   /** Make an authenticated HTTP request through this connection. */
   request(req: OAuthConnectionRequest): Promise<OAuthConnectionResponse>;
+
+  /**
+   * Build a caller-side execution plan (minted token or platform-proxy
+   * envelope) without performing the upstream HTTP call or parsing its body.
+   */
+  prepareCallerExecution?(
+    req: OAuthConnectionRequest,
+    options?: OAuthPrepareCallerOptions,
+  ): Promise<OAuthCallerPlan>;
 
   /**
    * Execute a callback with a valid raw access token. This is an escape hatch

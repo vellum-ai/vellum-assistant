@@ -1,43 +1,22 @@
 import type { VellumPlatformClient } from "../platform/client.js";
 import { BackendError } from "../util/errors.js";
-import { getLogger } from "../util/logger.js";
-import { getHttpRetryDelay, isRetryableStatus, sleep } from "../util/retry.js";
+import type { OAuthPlatformProxyCallerPlan } from "./caller-plan.js";
 import type {
   OAuthConnection,
   OAuthConnectionRequest,
   OAuthConnectionResponse,
 } from "./connection.js";
+import {
+  buildPlatformProxyEnvelope,
+  buildPlatformProxyPath,
+  executePlatformProxyRequest,
+} from "./platform-proxy-request.js";
 
-const log = getLogger("platform-oauth-connection");
-const MAX_RETRIES = 3;
-
-export class CredentialRequiredError extends BackendError {
-  constructor(
-    message = "OAuth credential for this provider has expired or been revoked. The service needs to be reconnected.",
-  ) {
-    super(message);
-    this.name = "CredentialRequiredError";
-  }
-}
-
-export class ProviderUnreachableError extends BackendError {
-  constructor(
-    message = "The external service provider is temporarily unreachable. This may be a transient issue — retry after a brief pause.",
-  ) {
-    super(message);
-    this.name = "ProviderUnreachableError";
-  }
-}
-
-export class InsufficientBalanceError extends BackendError {
-  constructor(
-    message = "Your Vellum account balance is too low to use this managed OAuth connection. " +
-      "You can add funds or switch to using your own OAuth app.",
-  ) {
-    super(message);
-    this.name = "InsufficientBalanceError";
-  }
-}
+export {
+  CredentialRequiredError,
+  InsufficientBalanceError,
+  ProviderUnreachableError,
+} from "./platform-proxy-errors.js";
 
 export interface PlatformOAuthConnectionOptions {
   id: string;
@@ -80,79 +59,27 @@ export class PlatformOAuthConnection implements OAuthConnection {
   }
 
   async request(req: OAuthConnectionRequest): Promise<OAuthConnectionResponse> {
-    const proxyPath = `/v1/assistants/${this.client.platformAssistantId}/external-provider-proxy/${this.connectionId}/`;
+    const plan = await this.prepareCallerExecution(req);
+    return executePlatformProxyRequest(
+      this.client,
+      plan.proxyPath,
+      plan.envelope,
+      req.signal,
+    );
+  }
 
-    const body: Record<string, unknown> = {
-      request: {
-        method: req.method,
-        path: req.path,
-        query: req.query ?? {},
-        headers: req.headers ?? {},
-        body: req.body ?? null,
-        ...((req.baseUrl ?? this.baseUrl)
-          ? { base_url: req.baseUrl ?? this.baseUrl }
-          : {}),
-      },
+  async prepareCallerExecution(
+    req: OAuthConnectionRequest,
+  ): Promise<OAuthPlatformProxyCallerPlan> {
+    return {
+      mode: "platform_proxy",
+      proxyPath: buildPlatformProxyPath(
+        this.client.platformAssistantId,
+        this.connectionId,
+      ),
+      envelope: buildPlatformProxyEnvelope(req, this.baseUrl),
+      account: this.accountInfo,
     };
-
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      const response = await this.client.fetch(proxyPath, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-        signal: req.signal,
-      });
-
-      if (response.status === 402) {
-        throw new InsufficientBalanceError();
-      }
-
-      if (response.status === 424) {
-        throw new CredentialRequiredError();
-      }
-
-      if (
-        !response.ok &&
-        isRetryableStatus(response.status) &&
-        attempt < MAX_RETRIES
-      ) {
-        log.warn(
-          { status: response.status, attempt, provider: "platform-proxy" },
-          `Retryable status ${response.status} from platform proxy (attempt ${attempt + 1}/${MAX_RETRIES + 1})`,
-        );
-        await sleep(getHttpRetryDelay(response, attempt));
-        continue;
-      }
-
-      if (response.status === 502) {
-        const detail = await response.text().catch(() => "");
-        throw new ProviderUnreachableError(
-          `The external service provider is temporarily unreachable (HTTP 502).${detail ? ` Detail: ${detail}` : ""} This may be a transient issue — retry after a brief pause.`,
-        );
-      }
-
-      if (!response.ok) {
-        throw new BackendError(
-          `Platform proxy returned unexpected status ${response.status}`,
-        );
-      }
-
-      const json = (await response.json()) as {
-        status: number;
-        headers: Record<string, string>;
-        body: unknown;
-      };
-
-      return {
-        status: json.status,
-        headers: json.headers,
-        body: json.body,
-      };
-    }
-
-    throw new BackendError("Platform proxy request failed after retries");
   }
 
   async withToken<T>(_fn: (token: string) => Promise<T>): Promise<T> {
