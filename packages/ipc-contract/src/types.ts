@@ -658,13 +658,22 @@ export type CompanionCardGrowth = (typeof COMPANION_CARD_GROWTHS)[number];
  * Named rather than free, because the avatar's box is not a style: it is the
  * geometry both sides of the bridge agree on, and everything derives from it:
  * the pill's reach, the card's height, and the canvas sized to hold the largest
- * state. A continuous scale would be a layout nobody had ever looked at; four
- * steps are four layouts, each checkable in Storybook.
+ * state. A continuous scale would be a layout nobody had ever looked at; five
+ * steps are five layouts, each checkable in Storybook.
  *
  * `medium` is the default. `small` is the size the surface's layout is authored
- * at, which every other step scales from.
+ * at, which every other step scales from. `ridiculous` is the joke at the end
+ * of the scale, and it is a real step rather than a gag drawn some other way:
+ * every length on the surface is stated in `small`, so the largest step costs
+ * one number here and is drawn by the same code as the other four.
  */
-export const COMPANION_SIZES = ["small", "medium", "large", "huge"] as const;
+export const COMPANION_SIZES = [
+  "small",
+  "medium",
+  "large",
+  "huge",
+  "ridiculous",
+] as const;
 
 export type CompanionSize = (typeof COMPANION_SIZES)[number];
 
@@ -674,6 +683,12 @@ export const COMPANION_SIZE_BOXES: Record<CompanionSize, number> = {
   medium: 66,
   large: 88,
   huge: 110,
+  // Five times the authored size, which puts the canvas well past the width of
+  // any display it will be shown on. That is allowed: a canvas may hang off the
+  // left and right freely, and the card flips to growing downward when the
+  // display is too short for it, so the oversize step lands on paths the other
+  // four already take near an edge.
+  ridiculous: 220,
 };
 
 /**
