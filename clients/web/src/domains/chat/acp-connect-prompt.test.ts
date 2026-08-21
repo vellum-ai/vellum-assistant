@@ -73,7 +73,7 @@ describe("acp connect prompt — store lifecycle", () => {
   });
 
   test("a dismissed failure is not resurrected by a later restore (no history nag)", () => {
-    // Card shown, then dismissed (an explicit X or the implicit dismiss-on-send).
+    // Card shown, then dismissed (the implicit dismiss-on-send).
     useInteractionStore.getState().showAcpConnect({ toolUseId: "tc-1" });
     useInteractionStore.getState().dismissAcpConnect();
     expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();

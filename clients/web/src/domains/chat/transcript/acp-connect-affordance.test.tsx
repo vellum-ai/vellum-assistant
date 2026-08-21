@@ -138,6 +138,12 @@ describe("AcpConnectAffordance", () => {
     render(<AcpConnectAffordance assistantId="assistant-123" />);
 
     expect(screen.getByRole("button", { name: "Connect" })).not.toBeNull();
+    expect(
+      screen.getByText("Use your Claude Code subscription"),
+    ).not.toBeNull();
+    // The card has no manual dismissal; it retires via connect, self-heal, or
+    // the implicit dismiss-on-send.
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
   });
 
   test("renders nothing when the daemon is too old to support Connect", () => {
@@ -265,6 +271,10 @@ describe("AcpConnectAffordance", () => {
       expect(screen.getByPlaceholderText("Paste your key")).not.toBeNull(),
     );
     expect(screen.getByRole("button", { name: "Save" })).not.toBeNull();
+    expect(
+      screen.getByText("Paste the key from the tab that opened"),
+    ).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
   });
 
   test("signals auto-continue once the connect flow completes", async () => {
