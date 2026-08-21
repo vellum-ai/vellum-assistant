@@ -56,4 +56,6 @@ test("composes the real Windows preload capability modules", () => {
   expect(bridge.menu).toBeDefined();
   expect(bridge.featureFlags).toBeDefined();
   expect(bridge.auth).toBeDefined();
+  expect(bridge.helper?.dictation.transcribe).toBeFunction();
+  expect(bridge.helper?.dictation.onTranscribed).toBeFunction();
 });

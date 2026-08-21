@@ -6,12 +6,18 @@ import type {
   DesktopCapabilityRegistry,
 } from "@vellumai/electron-desktop/capability-registry";
 import {
+  DICTATION_PUSH_SAMPLE_RATE,
+  dictationPartialsHelperResultSchema,
   DictationOwnerRouter,
+  requestDictationTranscription,
   toAudioBuffer,
 } from "@vellumai/electron-desktop/dictation-routing";
 import {
+  HELPER_DICTATION_FINALIZED_EVENT,
   HELPER_DICTATION_PARTIAL_EVENT,
   HELPER_DICTATION_SET_PARTIALS,
+  HELPER_DICTATION_TRANSCRIBE,
+  HELPER_DICTATION_TRANSCRIBED_EVENT,
   HELPER_GET_STATE,
   HELPER_PING,
   HELPER_RESTART,
@@ -35,14 +41,7 @@ import { getWindowsHelperClient } from "../windows-helper";
  * the recognizer, so no audio or transcript content is ever persisted.
  */
 
-const HELPER_RESULT_SCHEMA = z.object({
-  enabled: z.boolean(),
-  reason: z.string().optional(),
-  tap: z.string().optional(),
-});
 const DICTATION_TEXT_SCHEMA = z.object({ text: z.string() });
-const DICTATION_PUSH_SAMPLE_RATE = 16000;
-
 let clientFactory = (): NativeSidecarClient => getWindowsHelperClient();
 let client: NativeSidecarClient | null = null;
 const getClient = (): NativeSidecarClient => (client ??= clientFactory());
@@ -61,7 +60,7 @@ const applyDictationPartials = async (
     return { ok: true, enabled: false };
   }
   try {
-    const result = HELPER_RESULT_SCHEMA.safeParse(
+    const result = dictationPartialsHelperResultSchema.safeParse(
       await getClient().call("dictation.setPartials", {
         enable,
         ...(deviceName ? { deviceName } : {}),
@@ -83,7 +82,7 @@ const applyDictationPartials = async (
       previousOwner !== sender &&
       !previousOwner.isDestroyed()
     ) {
-      previousOwner.send("vellum:helper:dictation:finalized", { text: "" });
+      previousOwner.send(HELPER_DICTATION_FINALIZED_EVENT, { text: "" });
     }
     return { ok: true, enabled: result.data.enabled };
   } catch (err) {
@@ -119,7 +118,10 @@ const handleHelperState = (state: NativeSidecarState): void => {
   if (state.status !== "running") {
     dictationOwners
       .target()
-      ?.send("vellum:helper:dictation:finalized", { text: "" });
+      ?.send(HELPER_DICTATION_FINALIZED_EVENT, { text: "" });
+    dictationOwners
+      .transcriptionTarget()
+      ?.send(HELPER_DICTATION_TRANSCRIBED_EVENT, { text: "" });
     dictationOwners.clear();
   }
 };
@@ -142,7 +144,15 @@ export const installDictation = (): void => {
       log.info(`[win-helper] dictation finalized chars=${event.text.length}`);
       dictationOwners
         .target()
-        ?.send("vellum:helper:dictation:finalized", event);
+        ?.send(HELPER_DICTATION_FINALIZED_EVENT, event);
+    },
+  );
+  helper.onNotification(
+    "dictation.transcribed",
+    DICTATION_TEXT_SCHEMA,
+    (event) => {
+      const owner = dictationOwners.takeTranscriptionTarget();
+      owner?.send(HELPER_DICTATION_TRANSCRIBED_EVENT, event);
     },
   );
   helper.onNotification(
@@ -152,8 +162,8 @@ export const installDictation = (): void => {
       log.warn(`[win-helper] dictation error: ${event.message}`);
       dictationOwners
         .target()
-        ?.send("vellum:helper:dictation:finalized", { text: "" });
-      dictationOwners.clear();
+        ?.send(HELPER_DICTATION_FINALIZED_EVENT, { text: "" });
+      dictationOwners.clearStreaming();
     },
   );
   helper.onState(handleHelperState);
@@ -180,6 +190,17 @@ export const installDictation = (): void => {
     z.tuple([z.boolean(), z.string().optional(), z.boolean().optional()]),
     ([enable, deviceName, pushAudio], event) =>
       setDictationPartials(event.sender, enable, deviceName, pushAudio),
+  );
+  handle(
+    HELPER_DICTATION_TRANSCRIBE,
+    z.tuple([z.unknown()]),
+    ([audio], event) =>
+      requestDictationTranscription({
+        audio,
+        sender: event.sender,
+        owners: dictationOwners,
+        client: getClient(),
+      }),
   );
   // Fire-and-forget PCM from the partials owner (no per-chunk round-trip).
   on(

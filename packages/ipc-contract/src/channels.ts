@@ -55,6 +55,12 @@ export const HELPER_HOTKEY_EVENT = "vellum:helper:hotkey:event";
 export const HELPER_DICTATION_SET_PARTIALS =
   "vellum:helper:dictation:setPartials";
 export const HELPER_DICTATION_PARTIAL_EVENT = "vellum:helper:dictation:partial";
+export const HELPER_DICTATION_FINALIZED_EVENT =
+  "vellum:helper:dictation:finalized";
+export const HELPER_DICTATION_TRANSCRIBE =
+  "vellum:helper:dictation:transcribe";
+export const HELPER_DICTATION_TRANSCRIBED_EVENT =
+  "vellum:helper:dictation:transcribed";
 
 // Commands
 export const COMMAND_EVENT = "vellum:command";
