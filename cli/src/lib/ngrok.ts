@@ -235,11 +235,15 @@ function hasNonNgrokIngressUrl(workspaceDir: string): boolean {
  * non-ngrok ingress URL is present. Designed to be called during daemon/gateway
  * startup. Non-fatal: if ngrok is unavailable or fails, startup continues.
  *
+ * `assistantId` is what the recorded tunnel fronts — without it an automatic
+ * start would leave `ingress.assistantId` absent or stale from an earlier run.
+ *
  * Returns the spawned ngrok child process (for PID tracking) or null.
  */
 export async function maybeStartNgrokTunnel(
   targetPort: number,
   workspaceDir: string,
+  assistantId?: string,
 ): Promise<ChildProcess | null> {
   // Managed/containerized deployments route webhooks through the platform's
   // callback proxy. ngrok is not needed and would not be reachable from the
@@ -270,7 +274,7 @@ export async function maybeStartNgrokTunnel(
       return null;
     }
     console.log(`   Found existing ngrok tunnel: ${existingUrl}`);
-    saveIngressUrl(workspaceDir, existingUrl, undefined, "ngrok");
+    saveIngressUrl(workspaceDir, existingUrl, assistantId, "ngrok");
     return null;
   }
   if (runningTunnels.length > 0) {
@@ -297,7 +301,7 @@ export async function maybeStartNgrokTunnel(
 
   try {
     const publicUrl = await waitForNgrokUrl(targetPort, savedDomain);
-    saveIngressUrl(workspaceDir, publicUrl, undefined, "ngrok");
+    saveIngressUrl(workspaceDir, publicUrl, assistantId, "ngrok");
     console.log(`   Tunnel established: ${publicUrl}`);
 
     return ngrokProcess;

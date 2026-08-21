@@ -102,5 +102,5 @@ export async function restoreTunnelEdgeAndAutoTunnel(
       );
     }
   }
-  return maybeStartNgrokTunnel(tunnelTargetPort, workspaceDir);
+  return maybeStartNgrokTunnel(tunnelTargetPort, workspaceDir, assistantId);
 }

@@ -9,6 +9,11 @@ describe("sanitizeConfigForTransfer", () => {
         publicBaseUrl: "https://example.com",
         enabled: true,
         publicBaseUrlManagedBy: "velay",
+        lastTunnel: {
+          provider: "ngrok",
+          publicBaseUrl: "https://source.ngrok.app",
+        },
+        assistantId: "source-assistant",
         webhook: { path: "/hook" },
       },
       daemon: { port: 3000, logLevel: "debug" },
@@ -33,6 +38,8 @@ describe("sanitizeConfigForTransfer", () => {
     expect(result.ingress.publicBaseUrl).toBe("");
     expect(result.ingress.enabled).toBeUndefined();
     expect(result.ingress.publicBaseUrlManagedBy).toBeUndefined();
+    expect(result.ingress.lastTunnel).toBeUndefined();
+    expect(result.ingress.assistantId).toBeUndefined();
     expect(result.daemon).toBeUndefined();
     expect(result.skills.load.extraDirs).toEqual([]);
     expect(result.hostBrowser).toEqual({
@@ -143,6 +150,29 @@ describe("sanitizeConfigForTransfer", () => {
         publicBaseUrl: "https://velay-public.example.test",
         enabled: true,
         publicBaseUrlManagedBy: "velay",
+        webhook: { path: "/webhook" },
+      },
+    };
+
+    const result = JSON.parse(sanitizeConfigForTransfer(JSON.stringify(input)));
+
+    expect(result.ingress).toEqual({
+      publicBaseUrl: "",
+      webhook: { path: "/webhook" },
+    });
+  });
+
+  test("strips the remembered tunnel and the assistant it fronted", () => {
+    // Both records describe the source host's tunnel; a destination that
+    // inherited them would report the old deployment's tunnel as its own.
+    const input = {
+      ingress: {
+        publicBaseUrl: "https://source.ngrok.app",
+        lastTunnel: {
+          provider: "ngrok",
+          publicBaseUrl: "https://source.ngrok.app",
+        },
+        assistantId: "source-assistant",
         webhook: { path: "/webhook" },
       },
     };
