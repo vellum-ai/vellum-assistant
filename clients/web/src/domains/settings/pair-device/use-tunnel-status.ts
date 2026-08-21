@@ -14,7 +14,7 @@ export interface TunnelStatusController {
   status: TunnelStatusView;
   /** A probe is in flight, whether the first one or a re-check. */
   isRefreshing: boolean;
-  /** Re-runs the daemon-side probe. */
+  /** Re-runs the daemon-side probe; a no-op while the probe is gated off. */
   refresh: () => void;
 }
 
@@ -32,24 +32,33 @@ export interface TunnelStatusController {
  * rendering at all). It is ANDed with the version gate, so an assistant that
  * predates the route is never asked for it, and with org readiness, so the
  * request cannot go out before the `Vellum-Organization-Id` header exists.
+ * Those three live in one `canProbe` boolean that drives both the query's
+ * `enabled` option and `refresh`: TanStack's imperative `refetch()` ignores
+ * `enabled`, so an unguarded `refresh` would let the `app.resume` handler
+ * fire the probe past every safeguard, and one shared boolean keeps the two
+ * from drifting apart.
  */
 export function useTunnelStatus(enabled: boolean): TunnelStatusController {
   const assistantId = useActiveAssistantId();
-  const supportsIngressStatus = useSupportsIngressStatus();
+  const supportsIngressStatus = useSupportsIngressStatus(assistantId);
   const isOrgReady = useIsOrgReady();
+  const canProbe = enabled && supportsIngressStatus && isOrgReady;
 
   const { data, isFetching, refetch } = useQuery({
     ...integrationsIngressStatusGetOptions({
       path: { assistant_id: assistantId },
     }),
-    enabled: enabled && supportsIngressStatus && isOrgReady,
+    enabled: canProbe,
     staleTime: 0,
     refetchOnWindowFocus: false,
   });
 
   const refresh = useCallback(() => {
+    if (!canProbe) {
+      return;
+    }
     void refetch();
-  }, [refetch]);
+  }, [canProbe, refetch]);
 
   return {
     status: toStatusView(data, isFetching),

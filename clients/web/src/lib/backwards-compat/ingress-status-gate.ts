@@ -18,12 +18,29 @@
  * and 404 against them. Dev builds with a pre-0.11.6 base are excluded even
  * when they do carry the route; that is the deliberate conservative trade for
  * zero 404 noise.
+ *
+ * Assistant-scoped via `useAssistantScopedSupports` (see its JSDoc in
+ * `./utils.ts` for the atomic version+owner snapshot and the conservative
+ * unknown/mismatch semantics). The scoping closes a cross-assistant skew
+ * window: on a switch, the active-assistant id flips to the incoming
+ * assistant a render before the identity store re-hydrates, so an unscoped
+ * read would check the outgoing assistant's version and could aim the probe
+ * at an incoming daemon below the floor. An owner mismatch reports
+ * unsupported until the matching identity lands.
  */
-import { useAssistantSupports } from "./utils";
+import { useAssistantScopedSupports } from "./utils";
 
 export const MIN_VERSION = "0.11.6";
 
-/** `true` when the connected assistant serves the ingress-status probe. */
-export function useSupportsIngressStatus(): boolean {
-  return useAssistantSupports(MIN_VERSION);
+/**
+ * Returns `true` when the assistant that owns the probe serves the
+ * ingress-status route. `ownerAssistantId` is the assistant whose ingress
+ * status is being queried. Conservative (`false`) until that assistant's own
+ * version hydrates and on any owner mismatch, so the status query stays idle
+ * and a daemon without the route is never asked for it.
+ */
+export function useSupportsIngressStatus(
+  ownerAssistantId: string | null | undefined,
+): boolean {
+  return useAssistantScopedSupports(MIN_VERSION, ownerAssistantId);
 }

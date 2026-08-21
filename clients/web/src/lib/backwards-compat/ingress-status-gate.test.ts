@@ -7,9 +7,19 @@ import {
 } from "@/lib/backwards-compat/ingress-status-gate";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
-function check(version: string | null): boolean {
-  useAssistantIdentityStore.getState().setIdentity("test-asst", version);
-  const { result } = renderHook(() => useSupportsIngressStatus());
+const OWNER_ASSISTANT_ID = "asst-owner";
+
+/** Read the gate through the exported hook, scoped to OWNER_ASSISTANT_ID. */
+function check(
+  version: string | null,
+  identityAssistantId: string | null = OWNER_ASSISTANT_ID,
+): boolean {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", version, identityAssistantId);
+  const { result } = renderHook(() =>
+    useSupportsIngressStatus(OWNER_ASSISTANT_ID),
+  );
   return result.current;
 }
 
@@ -57,5 +67,27 @@ describe("useSupportsIngressStatus", () => {
   test("returns false for unparseable versions", () => {
     expect(check("not-a-version")).toBe(false);
     expect(check("0.11")).toBe(false);
+  });
+
+  // The skew window this gate is scoped for: mid-switch the active id is
+  // already the incoming assistant while the identity store still holds the
+  // outgoing one's version. A supported version from a DIFFERENT assistant
+  // must not authorize this one's probe.
+  test("returns false when the version belongs to a different assistant", () => {
+    expect(check(MIN_VERSION, "asst-other")).toBe(false);
+    expect(check("0.12.0", "asst-other")).toBe(false);
+  });
+
+  test("returns false when the identity records no owner", () => {
+    expect(check(MIN_VERSION, null)).toBe(false);
+  });
+
+  test("returns false when no owner is provided even on a supported version", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", MIN_VERSION, OWNER_ASSISTANT_ID);
+    expect(renderHook(() => useSupportsIngressStatus(null)).result.current).toBe(
+      false,
+    );
   });
 });
