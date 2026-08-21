@@ -1208,12 +1208,36 @@ async function spawnBackgroundWebInterface(
   console.log(`Stop with: kill ${child.pid}`);
 }
 
+/**
+ * Config the local web host injects as `window.__VELLUM_CONFIG__` and serves at
+ * `/assistant/__config`, the document a caller probes to learn which assistant
+ * an origin fronts. `assistantId` is omitted when only the daemon-internal
+ * placeholder is known, so the probe reads an unknown identity rather than a
+ * mismatch (same contract as the nginx edge's served config).
+ */
+export function buildWebInterfaceConfig(opts: {
+  webUrl: string;
+  platformUrl: string;
+  disablePlatform: boolean;
+  assistantId?: string;
+}): Record<string, unknown> {
+  const { webUrl, platformUrl, disablePlatform, assistantId } = opts;
+  const named = assistantId && assistantId !== DAEMON_INTERNAL_ASSISTANT_ID;
+  return {
+    webUrl,
+    platformUrl,
+    disablePlatform,
+    ...(named ? { assistantId } : {}),
+  };
+}
+
 async function runWebInterface(
   flagEnvVars: Record<string, string>,
   parsedFlagOverrides: Record<string, boolean | string>,
   disablePlatform: boolean,
   openInBrowser: boolean,
   webPort: number | undefined,
+  assistantId: string,
 ): Promise<void> {
   // Propagate flag env vars so child processes (e.g. hatch from the web UI) inherit them.
   Object.assign(process.env, flagEnvVars);
@@ -1247,7 +1271,14 @@ async function runWebInterface(
   const webUrl = getWebUrl();
   const safeJson = (v: unknown) =>
     JSON.stringify(v).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
-  const configJson = safeJson({ webUrl, platformUrl, disablePlatform });
+  const configJson = safeJson(
+    buildWebInterfaceConfig({
+      webUrl,
+      platformUrl,
+      disablePlatform,
+      assistantId,
+    }),
+  );
   const hasOverrides = Object.keys(parsedFlagOverrides).length > 0;
   const flagOverridesSnippet = hasOverrides
     ? `;window.__VELLUM_FLAG_OVERRIDES__=${safeJson(parsedFlagOverrides)}`
@@ -1544,6 +1575,7 @@ export async function client(): Promise<void> {
       disablePlatform,
       openInBrowser,
       webPort,
+      assistantId,
     );
     return;
   }

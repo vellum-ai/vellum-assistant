@@ -655,83 +655,33 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
   });
 
-  test("a running edge recorded against this gateway port is reused without ensureTunnelEdge", async () => {
+  test("a recorded edge with a stale config fingerprint is restarted, not adopted", async () => {
+    // Recorded mode and gateway port are not a licence to reuse: only
+    // ensureTunnelEdge compares the injected-config fingerprint, so an edge
+    // predating the current edge template (one serving no assistantId, which
+    // makes the identity probe degrade to always-healthy) must be restarted
+    // rather than carried across the wake at its recorded listen port.
     loadRawConfigMock.mockReturnValue(webhookConfig);
     isIngressRunningMock.mockReturnValue(true);
     readIngressStateMock.mockReturnValue({
       listenPort: 7845,
       includeWebApp: true,
       gatewayPort: 7830,
+      remoteWebConfigHash: "fingerprint-of-an-older-edge-template",
     });
 
     await wake();
 
-    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
-    expect(logSpy).toHaveBeenCalledWith(
-      "   Tunnel edge already running on 127.0.0.1:7845 (remote web + webhooks).",
-    );
-    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
-      7845,
-      workspaceDirOf(tempDir),
-      "local-assistant",
-    );
-  });
-
-  test("a running webhooks-only edge goes through ensureTunnelEdge to upgrade to the SPA edge", async () => {
-    loadRawConfigMock.mockReturnValue(webhookConfig);
-    isIngressRunningMock.mockReturnValue(true);
-    readIngressStateMock.mockReturnValue({
-      listenPort: 7845,
-      includeWebApp: false,
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+      assistantId: "local-assistant",
+      workspaceDir: workspaceDirOf(tempDir),
       gatewayPort: 7830,
     });
-
-    await wake();
-
-    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ gatewayPort: 7830 }),
-    );
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7840,
       workspaceDirOf(tempDir),
       "local-assistant",
     );
-  });
-
-  test("a running edge recorded against a different gateway port goes through ensureTunnelEdge", async () => {
-    loadRawConfigMock.mockReturnValue(webhookConfig);
-    isIngressRunningMock.mockReturnValue(true);
-    readIngressStateMock.mockReturnValue({
-      listenPort: 7845,
-      includeWebApp: true,
-      gatewayPort: 7900,
-    });
-
-    await wake();
-
-    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ gatewayPort: 7830 }),
-    );
-    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
-      7840,
-      workspaceDirOf(tempDir),
-      "local-assistant",
-    );
-  });
-
-  test("a running edge without a recorded gateway port goes through ensureTunnelEdge", async () => {
-    // An unverified upstream must not be reused blindly; ensureTunnelEdge
-    // restarts it so the running config provably targets the requested port.
-    loadRawConfigMock.mockReturnValue(webhookConfig);
-    isIngressRunningMock.mockReturnValue(true);
-    readIngressStateMock.mockReturnValue({
-      listenPort: 7845,
-      includeWebApp: true,
-    });
-
-    await wake();
-
-    expect(ensureTunnelEdgeMock).toHaveBeenCalled();
   });
 
   test("nginx-missing falls back to the gateway-port tunnel with a warning", async () => {

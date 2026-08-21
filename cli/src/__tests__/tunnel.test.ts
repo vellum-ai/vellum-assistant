@@ -118,6 +118,24 @@ function makeAppleContainerEntry(assistantId = "apple-1"): AssistantEntry {
   };
 }
 
+/** Seed a local entry's workspace config; returns that workspace dir. */
+function writeEntryWorkspaceConfig(
+  entry: AssistantEntry,
+  config: Record<string, unknown>,
+): string {
+  const workspaceDir = join(
+    entry.resources!.instanceDir,
+    ".vellum",
+    "workspace",
+  );
+  mkdirSync(workspaceDir, { recursive: true });
+  writeFileSync(
+    join(workspaceDir, "config.json"),
+    JSON.stringify(config, null, 2),
+  );
+  return workspaceDir;
+}
+
 /** Point the default workspace dir at a temp dir; returns that dir. */
 function useTempDefaultWorkspaceDir(): string {
   const workspaceDir = mkdtempSync(join(tmpdir(), "vellum-tunnel-ws-"));
@@ -642,6 +660,72 @@ describe("tunnel edge targeting", () => {
     });
     expect(runNgrokTunnelMock).not.toHaveBeenCalled();
     expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("a bare invocation refuses tailscale when webhook integrations are configured", async () => {
+    const entry = makeLocalEntry();
+    writeLockfile(entry);
+    writeEntryWorkspaceConfig(entry, {
+      telegram: { botUsername: "example_bot" },
+    });
+    process.argv = ["bun", "vellum", "tunnel"];
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain("reachable only from your own tailnet");
+    expect(errors).toContain("vellum tunnel --provider ngrok");
+    expect(errors).toContain("vellum tunnel --provider tailscale");
+    // Nothing is started and nothing is recorded until the user has chosen.
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+    expect(runTailscaleTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("an explicit --provider tailscale runs with a warning when webhook integrations are configured", async () => {
+    const entry = makeLocalEntry();
+    writeLockfile(entry);
+    const workspaceDir = writeEntryWorkspaceConfig(entry, {
+      telegram: { botUsername: "example_bot" },
+    });
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "tailscale"];
+
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation(
+      (...a: unknown[]) => {
+        warnings.push(a.join(" "));
+      },
+    );
+    try {
+      await runTunnelCapturingLogs();
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    expect(warnings.join("\n")).toContain(
+      "reachable only from your own tailnet",
+    );
+    expect(runTailscaleTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "assistant-1",
+      workspaceDir,
+    });
+  });
+
+  test("a public provider is unaffected by configured webhook integrations", async () => {
+    const entry = makeLocalEntry();
+    writeLockfile(entry);
+    const workspaceDir = writeEntryWorkspaceConfig(entry, {
+      telegram: { botUsername: "example_bot" },
+    });
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
+
+    await runTunnelCapturingLogs();
+
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "assistant-1",
+      workspaceDir,
+    });
   });
 
   test("missing nginx aborts before any provider spawn", async () => {
