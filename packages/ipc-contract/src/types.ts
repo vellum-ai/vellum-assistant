@@ -817,10 +817,9 @@ export interface CompanionContext {
  * The feature flag key Teach is behind, as the app's window wrote it into
  * settings (`useElectronFeatureFlagBridge`).
  *
- * The constant is still named for the feature's old name, Watch, as are the
- * symbols around it; only what a user reads has been renamed so far
- * (JARVIS-1620). The key itself is user-visible in the LaunchDarkly dashboard,
- * which is why it moved with the copy rather than with the symbols.
+ * The constant's name and the key it holds spell the feature differently: the
+ * symbols around it say Watch, everything a person reads says Teach. A flag key
+ * is one of the things a person reads, in the LaunchDarkly dashboard.
  *
  * Here rather than in either client, because two clients read the same
  * evaluation for two halves of one gate: Electron main reads it to decide
