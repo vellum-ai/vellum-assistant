@@ -305,11 +305,10 @@ describe("fallbackEscalationBridgeFor", () => {
     // failure, so every canned bridge promises contact and none promises
     // success. There is no language-agnostic way to assert that, so this is
     // a regression guard rather than a proof: each language lists the
-    // completion-conditional phrasings ("when it's done", "wenn es fertig
-    // ist") that an earlier revision of this table used and that a rewrite
-    // is most likely to reach for again. A language may only be added to
-    // the bridge table once it has an entry here, which forces the question
-    // to be asked for the new copy too.
+    // completion-conditional phrasings a rewrite is most likely to reach
+    // for. A language may only be added to the bridge table once it has an
+    // entry here, which forces the question to be asked for the new copy
+    // too.
     const completionPhrasings: Readonly<Record<string, readonly string[]>> = {
       en: ["when it's done", "when it's sent", "once it's done"],
       es: ["cuando esté listo", "cuando termine", "cuando lo tenga"],
