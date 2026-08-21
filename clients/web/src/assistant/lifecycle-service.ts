@@ -533,7 +533,7 @@ class AssistantLifecycleService {
    * self-hosted connection (runtime calls belong on the platform
    * now, and we don't want a leftover token attached), sets the
    * id BEFORE the kind flips so the conversation list query and
-   * the unreachable interceptor have a target on first
+   * `daemonUnreachableInterceptor` have a target on first
    * `kind === "active"` render, then transitions.
    */
   private projectActive(result: GetAssistantResult & { ok: true }): void {

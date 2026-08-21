@@ -249,6 +249,11 @@ export interface BusEventMap {
    * so the connecting overlay appears even when the failure lands on an
    * incidental request (a page load, a background refetch) rather than on the
    * SSE stream. The lifecycle service subscribes and kicks its retry probe.
+   *
+   * Distinct from `connectivity.state`, which is the Electron host's fused
+   * view of device and backend health and never fires off Electron. This one
+   * is derived from a response the client actually received, so it reports on
+   * every platform.
    */
   "assistant.unreachable": Record<string, never>;
   /**
