@@ -242,7 +242,6 @@ export function LocalFileEmbed({
       >
         {/* Native download/speed/PiP items are suppressed so the browser hides
             its own overflow menu; ours is the single menu on the embed. */}
-        {/* eslint-disable-next-line local/no-untranslated-strings -- HTML media controlsList tokens */}
         <video
           ref={videoRef}
           src={url}
@@ -261,7 +260,6 @@ export function LocalFileEmbed({
   if (kind === "audio") {
     return (
       <span className="my-2 flex w-full max-w-md items-center gap-2">
-        {/* eslint-disable-next-line local/no-untranslated-strings -- HTML media controlsList tokens */}
         <audio
           src={url}
           controls
