@@ -17,14 +17,13 @@ export const slackTransport: ChannelTransport = {
   channel: "slack",
 
   async deliver(ctx, payload) {
-    const { chatId, text, attachments, blocks } = payload;
+    const { chatId, text, attachments } = payload;
     const threadTs = ctx.params.threadTs;
 
     let sentTs: string | undefined;
     if (text) {
       const result = await sendSlackReply(chatId, text, {
         threadTs,
-        blocks,
         approval: payload.approval,
         useBlocks: payload.useBlocks,
         audience: payload.audience,

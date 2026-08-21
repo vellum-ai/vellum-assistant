@@ -183,8 +183,6 @@ export type MessageAudience = z.infer<typeof MessageAudienceSchema>;
 export const ChannelReplyPayloadSchema = z.object({
   chatId: z.string(),
   text: z.string().optional(),
-  /** Pre-formatted Block Kit blocks for Slack delivery. */
-  blocks: z.array(z.custom<KnownBlock>()).optional(),
   assistantId: z.string().optional(),
   attachments: z.array(AttachmentMetadataSchema).optional(),
   approval: ApprovalUIMetadataSchema.optional(),
