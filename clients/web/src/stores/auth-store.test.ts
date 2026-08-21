@@ -1791,6 +1791,43 @@ describe("iOS widget snapshot on session end", () => {
     expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
   });
 
+  test("an exhausted gateway prime drops the widget snapshot", async () => {
+    // Boot ends the authenticated session after the startup-retry budget is
+    // spent, so the previous session's titles must not survive on the Home
+    // Screen while the app shows the recovery controls.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockPrimeError = new Error("Gateway token request failed: 401");
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("the exhausted gateway prime leaves the platform probe unsettled", async () => {
+    // The snapshot drop must not drag the rest of the `sessionEnded()`
+    // transition along: writing `platformSession: "absent"` here would settle
+    // the probe on a value the follow-up probe is about to replace.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockPrimeError = new Error("Gateway token request failed: 401");
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({ platformSession: "unknown" });
+
+    const gates: Array<() => void> = [];
+    getSessionGates = gates;
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().platformSession).toBe("unknown");
+
+    gates[0]?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
   test("an inconclusive probe keeps the session and the widget snapshot", async () => {
     // Offline resume (LUM-2412): the session never ended, so blanking the
     // widgets would be a regression, not a cleanup.

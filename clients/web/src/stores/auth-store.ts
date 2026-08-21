@@ -240,10 +240,24 @@ const sessionEnded = (): Partial<AuthState> => ({
  * to the login screen, and on the logout path that can end in a hard
  * navigation that tears the page down before a detached bridge call would
  * reach the shell.
+ *
+ * `keepPlatformSession` omits the `platformSession: "absent"` half of the
+ * transition for the one caller that ends the session with a platform probe
+ * still in flight. Writing `"absent"` there would settle
+ * {@link isPlatformSessionSettled} on a value the probe is about to replace,
+ * and consumers that gate on the settle (the billing tab rewrite,
+ * `usePlatformGate`) would act on it. The snapshot drop is unconditional.
  */
-async function endSession(set: AuthSet): Promise<void> {
+async function endSession(
+  set: AuthSet,
+  options?: { keepPlatformSession?: boolean },
+): Promise<void> {
   await clearWidgetSnapshot();
-  set(sessionEnded());
+  set(
+    options?.keepPlatformSession
+      ? { sessionStatus: "unauthenticated", user: null }
+      : sessionEnded(),
+  );
 }
 
 /**
@@ -902,7 +916,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       } catch {
         // Gateway prime failed: settle to unauthenticated but leave
         // `platformSession` for the follow-up probe to resolve.
-        set({ sessionStatus: "unauthenticated", user: null });
+        await endSession(set, { keepPlatformSession: true });
       }
       probePlatformSessionIfReachable(set);
       return;
