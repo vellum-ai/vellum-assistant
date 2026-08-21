@@ -71,6 +71,15 @@
     "unsupportedDescription": "Notification settings are unavailable in this app version.",
     "unsupportedLabel": "Unavailable"
   },
+  "appIconCard": {
+    "description": "Alternate icons ship with the app, and iOS confirms every swap with an alert of its own.",
+    "match": "Match avatar",
+    "reset": "Use default",
+    "statusDefault": "Your home screen shows the default Vellum icon.",
+    "statusMatched": "Your home screen icon matches your avatar.",
+    "statusStale": "Your home screen icon is from an earlier avatar.",
+    "title": "App Icon"
+  },
   "assistantBackups": {
     "columnCreated": "Created",
     "columnReady": "Ready",

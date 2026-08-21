@@ -120,6 +120,9 @@ describe("useAssistantAvatar", () => {
     // traits present + no image ⇒ ChatAvatar renders AnimatedAvatar.
     expect(result.current.components).toEqual(components);
     expect(result.current.customImageUrl).toBeNull();
+    // The manifest itself travels with the derived fields, for consumers that
+    // need `kind` rather than just traits.
+    expect(result.current.state).toEqual(characterState);
     expect(fetchCharacterComponents).toHaveBeenCalledTimes(1);
     expect(fetchAvatarState).toHaveBeenCalledTimes(1);
     expect(fetchAvatarImageUrl).not.toHaveBeenCalled();
@@ -140,6 +143,7 @@ describe("useAssistantAvatar", () => {
     // image present + no traits ⇒ ChatAvatar renders the static circle.
     expect(result.current.components).toEqual(components);
     expect(result.current.traits).toBeNull();
+    expect(result.current.state).toEqual(imageState);
     expect(fetchCharacterComponents).toHaveBeenCalledTimes(1);
     expect(fetchAvatarState).toHaveBeenCalledTimes(1);
     expect(fetchAvatarImageUrl).toHaveBeenCalledTimes(1);
@@ -157,6 +161,7 @@ describe("useAssistantAvatar", () => {
     // both null ⇒ ChatAvatar falls back to default components / "V".
     expect(result.current.traits).toBeNull();
     expect(result.current.customImageUrl).toBeNull();
+    expect(result.current.state).toEqual(noneState);
     expect(fetchCharacterComponents).toHaveBeenCalledTimes(1);
     expect(fetchAvatarState).toHaveBeenCalledTimes(1);
     expect(fetchAvatarImageUrl).not.toHaveBeenCalled();
@@ -302,6 +307,14 @@ describe("useAssistantAvatar", () => {
 
     // Legacy path: no image ⇒ read traits sidecar, never touch `/avatar/state`.
     expect(result.current.customImageUrl).toBeNull();
+    // The file precedence is restated as a manifest, with the two fields the
+    // sidecars cannot answer left null.
+    expect(result.current.state).toEqual({
+      kind: "character",
+      traits,
+      source: null,
+      image: null,
+    });
     expect(fetchAvatarImageUrl).toHaveBeenCalledTimes(1);
     expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
     expect(fetchAvatarState).not.toHaveBeenCalled();
@@ -321,6 +334,12 @@ describe("useAssistantAvatar", () => {
 
     // A custom image exists ⇒ traits are intentionally not fetched.
     expect(result.current.traits).toBeNull();
+    expect(result.current.state).toEqual({
+      kind: "image",
+      traits: null,
+      source: null,
+      image: null,
+    });
     expect(fetchCharacterTraits).not.toHaveBeenCalled();
     expect(fetchAvatarState).not.toHaveBeenCalled();
   });

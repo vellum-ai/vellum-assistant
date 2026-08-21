@@ -1,0 +1,85 @@
+/**
+ * Settings entry point for the iOS home-screen icon.
+ *
+ * The prompt asks once per avatar and takes no for an answer; this card is
+ * where a user who said no, or who changed their mind later, goes. It is
+ * therefore the only surface that ignores the decline memory, and the only way
+ * back to the default icon: nothing in this feature resets an icon on its own,
+ * so an avatar switched to an uploaded image leaves the old icon in place
+ * until someone presses Reset here.
+ *
+ * Draws nothing at all off native iOS, with the `ios-avatar-app-icon` flag
+ * off, or on a build that ships no alternate icons.
+ */
+import { useState } from "react";
+
+import { DetailCard } from "@/components/detail-card";
+import { useAppIconSync } from "@/hooks/use-app-icon-sync";
+import { useTranslation } from "@/i18n";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { Button } from "@vellumai/design-library/components/button";
+
+export function AppIconCard() {
+  const { t } = useTranslation("settings");
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const { enabled, currentIcon, targetIcon, canOffer, apply, reset } =
+    useAppIconSync(assistantId);
+  const [pending, setPending] = useState(false);
+
+  if (!enabled) {
+    return null;
+  }
+
+  // An alternate icon is applied while the avatar maps to none: the avatar is
+  // an uploaded image now, or gone. Only this card can undo that.
+  const canReset = currentIcon !== null && targetIcon === null;
+
+  const status =
+    currentIcon === null
+      ? t("appIconCard.statusDefault")
+      : currentIcon === targetIcon
+        ? t("appIconCard.statusMatched")
+        : t("appIconCard.statusStale");
+
+  const run = async (action: () => Promise<void>) => {
+    setPending(true);
+    try {
+      await action();
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <DetailCard title={t("appIconCard.title")}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1">
+          <div className="text-body-medium-default text-[var(--content-default)]">
+            {status}
+          </div>
+          <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
+            {t("appIconCard.description")}
+          </p>
+        </div>
+        {canOffer ? (
+          <Button
+            variant="outlined"
+            disabled={pending}
+            onClick={() => void run(apply)}
+          >
+            {t("appIconCard.match")}
+          </Button>
+        ) : null}
+        {canReset ? (
+          <Button
+            variant="outlined"
+            disabled={pending}
+            onClick={() => void run(reset)}
+          >
+            {t("appIconCard.reset")}
+          </Button>
+        ) : null}
+      </div>
+    </DetailCard>
+  );
+}
