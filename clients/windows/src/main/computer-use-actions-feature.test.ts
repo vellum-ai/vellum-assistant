@@ -17,6 +17,7 @@ const { DesktopCapabilityRegistry } =
   await import("@vellumai/electron-desktop/capability-registry");
 const {
   COMPUTER_USE_ACTION_EXECUTORS,
+  createWindowsHostAppControlExecutor,
   createWindowsHostCuExecutor,
   default: computerUseActionsFeature,
   protectComputerUseCapture,
@@ -24,12 +25,56 @@ const {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-test("provides the host_cu executor through the capability registry", () => {
+test("provides native input executors through the capability registry", () => {
   const registry = new DesktopCapabilityRegistry();
   computerUseActionsFeature.install(registry);
   const provided = registry.require(COMPUTER_USE_ACTION_EXECUTORS);
   expect(typeof provided.host_cu.handleRequest).toBe("function");
+  expect(typeof provided.host_app_control.handleRequest).toBe("function");
   expect(typeof provided.teardown).toBe("function");
+});
+
+test("forwards app-control requests to the native helper", async () => {
+  let seen: { method: string; params: unknown } | null = null;
+  const executor = createWindowsHostAppControlExecutor({
+    helper: {
+      call: async (method, params) => {
+        seen = { method, params };
+        return {
+          state: "running",
+          windowBounds: { x: -20, y: 10, width: 800, height: 600 },
+        };
+      },
+    },
+  });
+  const postAppControlResult = mock(async (_payload: unknown) => true);
+
+  executor.handleRequest(
+    {
+      type: "host_app_control_request",
+      requestId: "req-app-1",
+      conversationId: "conv-1",
+      toolName: "app_control_observe",
+      input: { tool: "observe", app: "notepad" },
+    } satisfies HostProxySseMessage,
+    { postAppControlResult } as unknown as HostProxyPoster,
+  );
+  await tick();
+
+  expect(seen).toMatchObject({
+    method: "appControl.perform",
+    params: {
+      requestId: "req-app-1",
+      conversationId: "conv-1",
+      toolName: "app_control_observe",
+      input: { tool: "observe", app: "notepad" },
+    },
+  });
+  expect(postAppControlResult).toHaveBeenCalledWith({
+    requestId: "req-app-1",
+    state: "running",
+    windowBounds: { x: -20, y: 10, width: 800, height: 600 },
+  });
 });
 
 test("forwards cu requests to cu.perform and posts the result", async () => {

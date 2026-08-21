@@ -53,6 +53,7 @@ await Vellum.WindowsHelper.Tests.InputControllerTests.RunAsync();
 await TextInsertionTests.RunAsync();
 await NotificationServiceTests.RunAsync();
 await Vellum.WindowsHelper.Tests.WindowsCuObservationSourceTests.RunAsync();
+await Vellum.WindowsHelper.Tests.AppControlTests.RunAsync();
 
 static void Assert(bool condition)
 {

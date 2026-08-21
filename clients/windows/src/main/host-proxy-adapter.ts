@@ -22,9 +22,8 @@ export type WindowsHostProxySources = Omit<
 > & {
   getClientId: () => string;
   /**
-   * Computer-use executors contributed by the `computer-use-actions` capability
-   * module. Absent when the native helper feature is not installed, in which
-   * case `host_cu` is reported as unavailable to the daemon.
+   * Native input executors contributed by the `computer-use-actions`
+   * capability module. Absent when the native helper feature is not installed.
    */
   computerUseExecutors?: ComputerUseActionExecutors;
 };
@@ -34,30 +33,38 @@ export const createWindowsHostProxyRuntime = (
 ): HostProxyRuntime => {
   const { getClientId, computerUseExecutors, ...runtimeSources } = sources;
   const browserExecutor = new HostBrowserExecutor();
+  const executors = {
+    host_bash: hostBashExecutor,
+    host_file: hostFileExecutor,
+    host_transfer: hostTransferExecutor,
+    host_browser: browserExecutor,
+    host_ui_snapshot: createHostUiSnapshotExecutor({
+      resolveRendererBase: () => getRendererBase(app.isPackaged),
+    }),
+    ...(computerUseExecutors
+      ? {
+          host_cu: computerUseExecutors.host_cu,
+        }
+      : {}),
+  };
   const clientHeaders = createHostProxyClientHeaders({
     getClientId,
     getMachineName: hostname,
     interfaceId: "windows",
   });
+  const sseClientHeaders = () => ({
+    ...clientHeaders.sseClientHeaders(),
+    "X-Vellum-Host-Capabilities": Object.keys(executors).join(","),
+  });
   return {
     ...runtimeSources,
     ...clientHeaders,
+    sseClientHeaders,
     sseFallbackClientHeaders: () => ({
-      ...clientHeaders.sseClientHeaders(),
+      ...sseClientHeaders(),
       "X-Vellum-Interface-Id": "macos",
     }),
-    executors: {
-      host_bash: hostBashExecutor,
-      host_file: hostFileExecutor,
-      host_transfer: hostTransferExecutor,
-      host_browser: browserExecutor,
-      host_ui_snapshot: createHostUiSnapshotExecutor({
-        resolveRendererBase: () => getRendererBase(app.isPackaged),
-      }),
-      ...(computerUseExecutors
-        ? { host_cu: computerUseExecutors.host_cu }
-        : {}),
-    },
+    executors,
     teardownExecutors: () => {
       browserExecutor.destroy();
       computerUseExecutors?.teardown();

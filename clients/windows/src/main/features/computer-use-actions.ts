@@ -14,6 +14,7 @@ import {
   type CapabilityModule,
   type DesktopCapabilityRegistry,
 } from "@vellumai/electron-desktop/capability-registry";
+import { createAppControlHelperProxyExecutor } from "@vellumai/electron-desktop/host-proxy/app-control-executor";
 import { createCuHelperProxyExecutor } from "@vellumai/electron-desktop/host-proxy/cu-executor";
 import type { CuHelperClient } from "@vellumai/electron-desktop/host-proxy/helper-proxy-executor";
 import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
@@ -23,6 +24,7 @@ import log from "../logger";
 
 export interface ComputerUseActionExecutors {
   host_cu: HostProxyExecutor;
+  host_app_control: HostProxyExecutor;
   teardown: () => void;
 }
 
@@ -137,11 +139,22 @@ export const createWindowsHostCuExecutor = (
   });
 };
 
+export const createWindowsHostAppControlExecutor = (
+  deps: WindowsCuExecutorDeps = {},
+): HostProxyExecutor => {
+  const { helper } = deps;
+  return createAppControlHelperProxyExecutor({
+    logger: log,
+    resolveHelper: helper ? () => helper : getProtectedSharedCuHelper,
+  });
+};
+
 const computerUseActionsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "computer-use-actions",
   install: (capabilities) => {
     capabilities.provide(COMPUTER_USE_ACTION_EXECUTORS, {
       host_cu: createWindowsHostCuExecutor(),
+      host_app_control: createWindowsHostAppControlExecutor(),
       teardown: shutdownSharedCuHelper,
     });
   },

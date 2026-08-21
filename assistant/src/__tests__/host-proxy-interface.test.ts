@@ -50,7 +50,7 @@ describe("supportsHostProxy (runtime)", () => {
     expect(supportsHostProxy("macos", "host_browser")).toBe(true);
   });
 
-  test("capability form withholds unimplemented Windows app control", () => {
+  test("capability form withholds Windows app control", () => {
     expect(supportsHostProxy("windows", "host_bash")).toBe(true);
     expect(supportsHostProxy("windows", "host_file")).toBe(true);
     expect(supportsHostProxy("windows", "host_cu")).toBe(true);
