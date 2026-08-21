@@ -7,10 +7,10 @@ import {
 } from "@/domains/account/social-auth";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
 import { getSession } from "@/lib/auth/allauth-client";
+import { hasOnboardedAssistant } from "@/domains/onboarding/onboarded-assistant";
 import { resolveSignupCheckoutDestination } from "@/lib/billing/post-auth-checkout";
-import { buildNavigationState } from "@/lib/navigation/build-state";
-import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { isPlatformLocal, startLoopbackAuth } from "@/lib/auth/loopback-auth";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { isLocalClient } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import { setMenuPlatformSession } from "@/runtime/menu";
@@ -286,9 +286,8 @@ export function getSessionTokenFromCookies(): string | null {
 /**
  * Post-auth destination for the native (Capacitor/Electron) flows. Delegates
  * the signup checkout-stash + destination decision to the shared
- * `resolvePostAuth` path: a first-run signup routes through consent (privacy)
- * first, stashing any pricing-CTA checkout package so the consent screen
- * resumes checkout afterward. An already-onboarded assistant skips privacy and
+ * `resolveSignupCheckoutDestination`. A first-run signup routes through
+ * consent (privacy) first. An already-onboarded assistant skips privacy and
  * research. A login keeps its `returnTo` unless that target is the first-run
  * funnel and the assistant is already onboarded.
  */
@@ -297,23 +296,24 @@ export function resolveNativePostAuthDestination(
   returnTo: string | null | undefined,
 ): string | null {
   const isSignup = intent === "signup";
-  const state = buildNavigationState();
-  const decision = resolveNavigation(state, {
-    kind: "post-auth",
-    authIntent: isSignup ? "signup" : "login",
-    returnTo: returnTo ?? null,
-    fallback: routes.assistant,
+  const alreadyOnboarded = hasOnboardedAssistant(
+    useResolvedAssistantsStore.getState().assistants,
+  );
+  if (alreadyOnboarded) {
+    const skipTarget = isFirstRunOnboardingReturnTo(returnTo)
+      ? routes.assistant
+      : (returnTo ?? (isSignup ? routes.assistant : null));
+    resolveSignupCheckoutDestination({
+      intent: "login",
+      returnTo: skipTarget ?? "",
+    });
+    return skipTarget;
+  }
+  const destination = resolveSignupCheckoutDestination({
+    intent: isSignup ? "signup" : "login",
+    returnTo: returnTo ?? "",
   });
-  if (isSignup) {
-    return decision.action === "redirect" ? decision.to : routes.assistant;
-  }
-  // A login keeps its raw `returnTo` — the callers below sanitize and apply
-  // the fallback — unless that target is first-run privacy/research and the
-  // assistant is already onboarded.
-  if (state.alreadyOnboarded && isFirstRunOnboardingReturnTo(returnTo)) {
-    return decision.action === "redirect" ? decision.to : routes.assistant;
-  }
-  return returnTo ?? null;
+  return isSignup ? destination : (returnTo ?? null);
 }
 
 function isFirstRunOnboardingReturnTo(
