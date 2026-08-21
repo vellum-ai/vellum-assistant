@@ -1,14 +1,19 @@
 /**
- * CRUD and atomic consume for scoped approval grants.
+ * CRUD, atomic consume, and peek for scoped approval grants.
  *
- * Grants authorise exactly one tool execution.  Two scope modes exist:
- *   - `request_id`      — grant is bound to a specific pending request
- *   - `tool_signature`  — grant is bound to a tool name + input digest
+ * Scope modes:
+ *   - `request_id`         grant is bound to a specific pending request
+ *   - `tool_signature`     grant is bound to a tool name + input digest
+ *   - `conversation_tool`  standing grant bound to a conversation + tool name
+ *
+ * `request_id` and `tool_signature` authorise exactly one tool execution
+ * (CAS: active -> consumed). `conversation_tool` is peeked and left active
+ * so later matching invocations in that conversation can reuse it.
  *
  * Invariants:
- *   - At most one successful consume per grant (CAS: active -> consumed).
+ *   - At most one successful consume per consumable grant.
  *   - Matching requires all non-null scope fields to match exactly.
- *   - Expired and revoked grants cannot be consumed.
+ *   - Expired and revoked grants cannot be consumed or peeked.
  */
 
 import { and, eq, sql } from "drizzle-orm";
@@ -25,7 +30,7 @@ const log = getLogger("scoped-approval-grants");
 // Types
 // ---------------------------------------------------------------------------
 
-export type ScopeMode = "request_id" | "tool_signature";
+export type ScopeMode = "request_id" | "tool_signature" | "conversation_tool";
 export type GrantStatus = "active" | "consumed" | "expired" | "revoked";
 
 export interface ScopedApprovalGrant {
@@ -541,11 +546,197 @@ export function revokeScopedApprovalGrantsForContext(
   return count;
 }
 
-// @internal — exposed for tests and the approval-primitive wrapper only.
+// ---------------------------------------------------------------------------
+// Peek conversation_tool (does not consume)
+// ---------------------------------------------------------------------------
+
+export interface PeekConversationToolGrantParams {
+  toolName: string;
+  conversationId: string;
+  requesterExternalUserId?: string;
+  now?: number;
+}
+
+/**
+ * Look up an active conversation_tool grant without changing its status.
+ *
+ * conversationId and toolName must match exactly. A grant with a null
+ * requester matches any caller; a grant with a requester matches only
+ * that requester. When both a specific and a wildcard grant match,
+ * the specific grant is preferred.
+ */
+function peekConversationToolGrant(
+  params: PeekConversationToolGrantParams,
+): ScopedApprovalGrant | null {
+  const db = getDb();
+  const currentTime = params.now ?? Date.now();
+
+  const conditions = [
+    eq(scopedApprovalGrants.scopeMode, "conversation_tool"),
+    eq(scopedApprovalGrants.status, "active"),
+    eq(scopedApprovalGrants.toolName, params.toolName),
+    eq(scopedApprovalGrants.conversationId, params.conversationId),
+    sql`${scopedApprovalGrants.expiresAt} > ${currentTime}`,
+  ];
+
+  if (params.requesterExternalUserId !== undefined) {
+    conditions.push(
+      sql`(${scopedApprovalGrants.requesterExternalUserId} IS NULL OR ${scopedApprovalGrants.requesterExternalUserId} = ${params.requesterExternalUserId})`,
+    );
+  } else {
+    conditions.push(
+      sql`${scopedApprovalGrants.requesterExternalUserId} IS NULL`,
+    );
+  }
+
+  const specificityOrder = sql`(CASE WHEN ${scopedApprovalGrants.requesterExternalUserId} IS NOT NULL THEN 1 ELSE 0 END) DESC`;
+
+  const row = db
+    .select()
+    .from(scopedApprovalGrants)
+    .where(and(...conditions))
+    .orderBy(specificityOrder)
+    .limit(1)
+    .get();
+
+  if (!row) {
+    return null;
+  }
+
+  log.info(
+    {
+      event: "scoped_grant_peek_hit",
+      grantId: row.id,
+      scopeMode: "conversation_tool",
+      toolName: params.toolName,
+      conversationId: params.conversationId,
+    },
+    "Active conversation_tool grant peeked",
+  );
+
+  return rowToGrant(row);
+}
+
+/**
+ * True when any active conversation_tool grant exists for this
+ * conversation and tool, regardless of requester.
+ */
+function hasActiveConversationToolGrant(params: {
+  toolName: string;
+  conversationId: string;
+  now?: number;
+}): boolean {
+  const db = getDb();
+  const currentTime = params.now ?? Date.now();
+  const row = db
+    .select({ id: scopedApprovalGrants.id })
+    .from(scopedApprovalGrants)
+    .where(
+      and(
+        eq(scopedApprovalGrants.scopeMode, "conversation_tool"),
+        eq(scopedApprovalGrants.status, "active"),
+        eq(scopedApprovalGrants.toolName, params.toolName),
+        eq(scopedApprovalGrants.conversationId, params.conversationId),
+        sql`${scopedApprovalGrants.expiresAt} > ${currentTime}`,
+      ),
+    )
+    .limit(1)
+    .get();
+  return row !== undefined;
+}
+
+/**
+ * Find an exact active conversation_tool grant for upsert dedupe.
+ * requesterExternalUserId null matches only wildcard grants.
+ */
+function findActiveConversationToolGrant(params: {
+  toolName: string;
+  conversationId: string;
+  requesterExternalUserId: string | null;
+  now?: number;
+}): ScopedApprovalGrant | null {
+  const db = getDb();
+  const currentTime = params.now ?? Date.now();
+  const requesterCondition =
+    params.requesterExternalUserId === null
+      ? sql`${scopedApprovalGrants.requesterExternalUserId} IS NULL`
+      : eq(
+          scopedApprovalGrants.requesterExternalUserId,
+          params.requesterExternalUserId,
+        );
+
+  const row = db
+    .select()
+    .from(scopedApprovalGrants)
+    .where(
+      and(
+        eq(scopedApprovalGrants.scopeMode, "conversation_tool"),
+        eq(scopedApprovalGrants.status, "active"),
+        eq(scopedApprovalGrants.toolName, params.toolName),
+        eq(scopedApprovalGrants.conversationId, params.conversationId),
+        requesterCondition,
+        sql`${scopedApprovalGrants.expiresAt} > ${currentTime}`,
+      ),
+    )
+    .limit(1)
+    .get();
+
+  return row ? rowToGrant(row) : null;
+}
+
+/**
+ * Revoke active conversation_tool grants for a conversation and tool.
+ * Returns the number of grants revoked.
+ */
+function revokeConversationToolGrants(
+  conversationId: string,
+  toolName: string,
+  now?: number,
+): number {
+  const db = getDb();
+  const currentTime = now ?? Date.now();
+
+  db.update(scopedApprovalGrants)
+    .set({
+      status: "revoked",
+      updatedAt: currentTime,
+    })
+    .where(
+      and(
+        eq(scopedApprovalGrants.status, "active"),
+        eq(scopedApprovalGrants.scopeMode, "conversation_tool"),
+        eq(scopedApprovalGrants.conversationId, conversationId),
+        eq(scopedApprovalGrants.toolName, toolName),
+      ),
+    )
+    .run();
+
+  const count = rawChanges();
+  if (count > 0) {
+    log.info(
+      {
+        event: "scoped_grant_revoked",
+        count,
+        scopeMode: "conversation_tool",
+        conversationId,
+        toolName,
+      },
+      `Revoked ${count} conversation_tool grant(s)`,
+    );
+  }
+
+  return count;
+}
+
+// @internal. Exposed for tests and the approval-primitive wrapper only.
 // Do not import these from production code outside this package; use the
 // approval-primitive API instead.
 export const _internal = {
   createScopedApprovalGrant,
   consumeScopedApprovalGrantByRequestId,
   consumeScopedApprovalGrantByToolSignature,
+  peekConversationToolGrant,
+  findActiveConversationToolGrant,
+  hasActiveConversationToolGrant,
+  revokeConversationToolGrants,
 };

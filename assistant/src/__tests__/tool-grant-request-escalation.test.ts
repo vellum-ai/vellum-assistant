@@ -650,4 +650,81 @@ describe("inline wait-and-resume", () => {
     });
     expect(requests.length).toBe(0);
   });
+
+  test("approving bash mints a standing conversation_tool grant", async () => {
+    const req = seedGrantRequest("sha256:standing");
+
+    const result = await applyGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      actorContext: guardianActor(),
+    });
+    expect(result.applied).toBe(true);
+
+    const rows = getDb().select().from(scopedApprovalGrants).all();
+    expect(
+      rows.some(
+        (row) =>
+          row.scopeMode === "conversation_tool" &&
+          row.toolName === "bash" &&
+          row.conversationId === "conv-1" &&
+          row.status === "active",
+      ),
+    ).toBe(true);
+    expect(
+      rows.some(
+        (row) =>
+          row.scopeMode === "tool_signature" &&
+          row.inputDigest === "sha256:standing",
+      ),
+    ).toBe(true);
+  });
+
+  test("standing grant lets a later medium bash proceed without a new card", async () => {
+    const laterHandler = new ToolApprovalHandler({
+      inlineGrantWait: TEST_INLINE_WAIT_CONFIG,
+    });
+    const req = seedGrantRequest("sha256:first-cmd");
+    await applyGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      actorContext: guardianActor(),
+    });
+
+    const result = await laterHandler.checkPreExecutionGates(
+      "bash",
+      { command: "find /workspace -name sales.csv" },
+      makeContext({ requestId: "req-later" }),
+      "medium",
+      Date.now(),
+    );
+    expect(result.allowed).toBe(true);
+
+    const pending = await sim.module.listGuardianRequestsOrEmpty({
+      kind: "tool_grant_request",
+      status: "pending",
+    });
+    expect(pending.length).toBe(0);
+  });
+
+  test("standing grant does not skip high-risk bash", async () => {
+    const laterHandler = new ToolApprovalHandler({
+      inlineGrantWait: TEST_INLINE_WAIT_CONFIG,
+    });
+    const req = seedGrantRequest("sha256:first-cmd");
+    await applyGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      actorContext: guardianActor(),
+    });
+
+    const result = await laterHandler.checkPreExecutionGates(
+      "bash",
+      { command: "rm -rf /workspace" },
+      makeContext({ requestId: "req-high" }),
+      "high",
+      Date.now(),
+    );
+    expect(result.allowed).toBe(false);
+  });
 });

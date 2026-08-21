@@ -487,6 +487,25 @@ export function resolveSensitiveToolDecision(input: {
 const CODE_EXECUTION_TOOLS: ReadonlySet<string> = new Set(["bash"]);
 
 /**
+ * A conversation_tool grant covers sandbox bash for a trusted contact
+ * when the classified risk is not high. High-risk bash and host execution
+ * still escalate.
+ */
+function isStandingWorkspaceCommandGrantHonored(params: {
+  toolName: string;
+  executionTarget: ExecutionTarget;
+  trustClass: ToolContext["trustClass"];
+  riskLevel: string;
+}): boolean {
+  return (
+    params.toolName === "bash" &&
+    params.executionTarget === "sandbox" &&
+    params.trustClass === "trusted_contact" &&
+    params.riskLevel !== "high"
+  );
+}
+
+/**
  * Whether an invocation reaches the private network — localhost, which is the
  * daemon's own HTTP surface, the gateway, and whatever else listens on the
  * guardian's machine. Keyed on the input rather than the tool, because the
@@ -954,18 +973,41 @@ export class ToolApprovalHandler {
       );
 
       if (grantResult.ok) {
-        log.info(
-          {
+        if (
+          grantResult.grant.scopeMode === "conversation_tool" &&
+          !isStandingWorkspaceCommandGrantHonored({
             toolName: name,
-            conversationId: context.conversationId,
-            trustClass: context.trustClass,
             executionTarget,
-            grantId: grantResult.grant.id,
-          },
-          "Scoped grant consumed - allowing untrusted actor tool invocation",
-        );
+            trustClass: context.trustClass,
+            riskLevel,
+          })
+        ) {
+          log.info(
+            {
+              toolName: name,
+              conversationId: context.conversationId,
+              trustClass: context.trustClass,
+              executionTarget,
+              riskLevel,
+              grantId: grantResult.grant.id,
+            },
+            "Standing conversation_tool grant does not cover this invocation",
+          );
+        } else {
+          log.info(
+            {
+              toolName: name,
+              conversationId: context.conversationId,
+              trustClass: context.trustClass,
+              executionTarget,
+              grantId: grantResult.grant.id,
+              scopeMode: grantResult.grant.scopeMode,
+            },
+            "Scoped grant consumed - allowing untrusted actor tool invocation",
+          );
 
-        return { allowed: true, tool, grantConsumed: true, parsedInput };
+          return { allowed: true, tool, grantConsumed: true, parsedInput };
+        }
       }
 
       // Treat abort as a cancellation - not a grant denial. This matches

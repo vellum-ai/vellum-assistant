@@ -7906,6 +7906,76 @@ paths:
                   - removedCount
                   - conversationId
                 additionalProperties: false
+  /v1/conversations/{id}/workspace-commands:
+    get:
+      operationId: conversations_by_id_workspacecommands_get
+      summary: Get workspace commands for contacts
+      description: Whether trusted contacts may run workspace shell commands in this conversation without a per-command approval.
+      tags:
+        - conversations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  enabled:
+                    type: boolean
+                required:
+                  - conversationId
+                  - enabled
+                additionalProperties: false
+    put:
+      operationId: conversations_by_id_workspacecommands_put
+      summary: Set workspace commands for contacts
+      description:
+        Enable or disable standing workspace shell access for trusted contacts in this conversation. High-risk
+        commands still require approval.
+      tags:
+        - conversations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  enabled:
+                    type: boolean
+                required:
+                  - conversationId
+                  - enabled
+                additionalProperties: false
   /v1/conversations/archive/bulk:
     post:
       operationId: conversations_archive_bulk_post
@@ -8223,6 +8293,82 @@ paths:
                   - channelId
                   - threadTs
                   - source
+                additionalProperties: false
+  /v1/conversations/cli/workspace-commands/get:
+    post:
+      operationId: conversations_cli_workspacecommands_get_post
+      summary: Get workspace commands for contacts (CLI)
+      description: Look up standing workspace-command access by conversation ID, Slack channel, or Slack user.
+      tags:
+        - conversations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                slackChannelId:
+                  type: string
+                slackUserId:
+                  type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  enabled:
+                    type: boolean
+                required:
+                  - conversationId
+                  - enabled
+                additionalProperties: false
+  /v1/conversations/cli/workspace-commands/set:
+    post:
+      operationId: conversations_cli_workspacecommands_set_post
+      summary: Set workspace commands for contacts (CLI)
+      description: Enable or disable standing workspace-command access by conversation ID, Slack channel, or Slack user.
+      tags:
+        - conversations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                slackChannelId:
+                  type: string
+                slackUserId:
+                  type: string
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  enabled:
+                    type: boolean
+                required:
+                  - conversationId
+                  - enabled
                 additionalProperties: false
   /v1/conversations/fork:
     post:

@@ -547,3 +547,145 @@ describe("tool-approval-digest", () => {
     expect(d1).toBe(d2);
   });
 });
+
+describe("scoped-approval-grants / conversation_tool scope", () => {
+  beforeEach(() => clearTables());
+
+  const {
+    peekConversationToolGrant,
+    findActiveConversationToolGrant,
+    hasActiveConversationToolGrant,
+    revokeConversationToolGrants,
+  } = _internal;
+
+  test("peek matches an active grant and does not consume it", () => {
+    const grant = createScopedApprovalGrant(
+      grantParams({
+        scopeMode: "conversation_tool",
+        toolName: "bash",
+        conversationId: "conv-xyz",
+      }),
+    );
+
+    const first = peekConversationToolGrant({
+      toolName: "bash",
+      conversationId: "conv-xyz",
+    });
+    expect(first?.id).toBe(grant.id);
+    expect(first?.status).toBe("active");
+
+    const second = peekConversationToolGrant({
+      toolName: "bash",
+      conversationId: "conv-xyz",
+    });
+    expect(second?.id).toBe(grant.id);
+    expect(second?.status).toBe("active");
+  });
+
+  test("peek prefers a requester-specific grant over a wildcard", () => {
+    const wildcard = createScopedApprovalGrant(
+      grantParams({
+        scopeMode: "conversation_tool",
+        toolName: "bash",
+        conversationId: "conv-xyz",
+      }),
+    );
+    const specific = createScopedApprovalGrant(
+      grantParams({
+        scopeMode: "conversation_tool",
+        toolName: "bash",
+        conversationId: "conv-xyz",
+        requesterExternalUserId: "user-123",
+      }),
+    );
+
+    const peeked = peekConversationToolGrant({
+      toolName: "bash",
+      conversationId: "conv-xyz",
+      requesterExternalUserId: "user-123",
+    });
+    expect(peeked?.id).toBe(specific.id);
+    expect(wildcard.id).not.toBe(specific.id);
+  });
+
+  test("peek with a requester still matches a wildcard grant", () => {
+    const grant = createScopedApprovalGrant(
+      grantParams({
+        scopeMode: "conversation_tool",
+        toolName: "bash",
+        conversationId: "conv-xyz",
+      }),
+    );
+
+    const peeked = peekConversationToolGrant({
+      toolName: "bash",
+      conversationId: "conv-xyz",
+      requesterExternalUserId: "user-123",
+    });
+    expect(peeked?.id).toBe(grant.id);
+  });
+
+  test("peek does not match a different conversation or tool", () => {
+    createScopedApprovalGrant(
+      grantParams({
+        scopeMode: "conversation_tool",
+        toolName: "bash",
+        conversationId: "conv-xyz",
+      }),
+    );
+
+    expect(
+      peekConversationToolGrant({
+        toolName: "bash",
+        conversationId: "conv-other",
+      }),
+    ).toBeNull();
+    expect(
+      peekConversationToolGrant({
+        toolName: "host_bash",
+        conversationId: "conv-xyz",
+      }),
+    ).toBeNull();
+  });
+
+  test("revokeConversationToolGrants revokes only conversation_tool rows", () => {
+    createScopedApprovalGrant(
+      grantParams({
+        scopeMode: "conversation_tool",
+        toolName: "bash",
+        conversationId: "conv-xyz",
+      }),
+    );
+    createScopedApprovalGrant(
+      grantParams({
+        scopeMode: "tool_signature",
+        toolName: "bash",
+        inputDigest: "sha256:keep",
+        conversationId: "conv-xyz",
+      }),
+    );
+
+    expect(revokeConversationToolGrants("conv-xyz", "bash")).toBe(1);
+    expect(
+      hasActiveConversationToolGrant({
+        toolName: "bash",
+        conversationId: "conv-xyz",
+      }),
+    ).toBe(false);
+    expect(
+      findActiveConversationToolGrant({
+        toolName: "bash",
+        conversationId: "conv-xyz",
+        requesterExternalUserId: null,
+      }),
+    ).toBeNull();
+
+    const leftover = consumeScopedApprovalGrantByToolSignature({
+      toolName: "bash",
+      inputDigest: "sha256:keep",
+      consumingRequestId: "c1",
+      conversationId: "conv-xyz",
+    });
+    expect(leftover.ok).toBe(true);
+  });
+});

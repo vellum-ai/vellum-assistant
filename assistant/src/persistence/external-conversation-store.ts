@@ -340,6 +340,26 @@ export function deleteBindingByChannelChatThread(
 }
 
 /**
+ * List bindings for a channel identity (source channel + external user id).
+ */
+export function listBindingsByExternalUser(
+  sourceChannel: string,
+  externalUserId: string,
+): ExternalConversationBinding[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(externalConversationBindings)
+    .where(
+      and(
+        eq(externalConversationBindings.sourceChannel, sourceChannel),
+        eq(externalConversationBindings.externalUserId, externalUserId),
+      ),
+    )
+    .all();
+}
+
+/**
  * Get bindings for multiple conversation IDs at once.
  * Returns a map of conversationId -> binding for efficient lookup.
  */

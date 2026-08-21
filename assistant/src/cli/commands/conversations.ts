@@ -494,6 +494,122 @@ export function registerConversationsCommand(program: Command): void {
         );
 
       // -------------------------------------------------------------------
+      // workspace-commands
+      // -------------------------------------------------------------------
+
+      const workspaceCommands = subcommand(conversations, "workspace-commands");
+
+      const runWorkspaceCommands = async (
+        action: "get" | "allow" | "deny",
+        conversationIdArg: string | undefined,
+        opts: { slackChannel?: string; slackUser?: string; json?: boolean },
+      ): Promise<void> => {
+        const conversationId = tryResolveConversationId({
+          explicit: conversationIdArg,
+        });
+        const slackChannelId = opts.slackChannel?.trim();
+        const slackUserId = opts.slackUser?.trim();
+        const provided = [conversationId, slackChannelId, slackUserId].filter(
+          Boolean,
+        );
+        if (provided.length !== 1) {
+          const message =
+            "Provide exactly one of a conversation ID, --slack-channel, or --slack-user. Run 'assistant conversations list' to find IDs.";
+          if (opts.json) {
+            log.info(JSON.stringify({ ok: false, error: message }));
+          } else {
+            log.error(`Error: ${message}`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        type WorkspaceCommandsResult = {
+          conversationId: string;
+          enabled: boolean;
+        };
+
+        const body: Record<string, unknown> = {};
+        if (conversationId) {
+          body.conversationId = conversationId;
+        }
+        if (slackChannelId) {
+          body.slackChannelId = slackChannelId;
+        }
+        if (slackUserId) {
+          body.slackUserId = slackUserId;
+        }
+
+        let result: {
+          ok: boolean;
+          result?: WorkspaceCommandsResult;
+          error?: string;
+        };
+        if (action === "get") {
+          result = await cliIpcCall<WorkspaceCommandsResult>(
+            "conversation_workspace_commands_get_cli",
+            { body },
+          );
+        } else {
+          result = await cliIpcCall<WorkspaceCommandsResult>(
+            "conversation_workspace_commands_set_cli",
+            { body: { ...body, enabled: action === "allow" } },
+          );
+        }
+
+        if (!result.ok) {
+          if (opts.json) {
+            log.info(
+              JSON.stringify({
+                ok: false,
+                error: result.error ?? "Workspace commands update failed",
+              }),
+            );
+            process.exitCode = exitCodeFromIpcResult(result);
+            return;
+          }
+          return exitFromIpcResult(result);
+        }
+
+        const payload = result.result!;
+        if (opts.json) {
+          log.info(JSON.stringify({ ok: true, ...payload }));
+          return;
+        }
+        const state = payload.enabled ? "allowed" : "denied";
+        log.info(
+          `Workspace commands for trusted contacts are ${state} on conversation ${payload.conversationId}.`,
+        );
+      };
+
+      subcommand(workspaceCommands, "get").action(
+        async (
+          conversationIdArg: string | undefined,
+          opts: { slackChannel?: string; slackUser?: string; json?: boolean },
+        ) => {
+          await runWorkspaceCommands("get", conversationIdArg, opts);
+        },
+      );
+
+      subcommand(workspaceCommands, "allow").action(
+        async (
+          conversationIdArg: string | undefined,
+          opts: { slackChannel?: string; slackUser?: string; json?: boolean },
+        ) => {
+          await runWorkspaceCommands("allow", conversationIdArg, opts);
+        },
+      );
+
+      subcommand(workspaceCommands, "deny").action(
+        async (
+          conversationIdArg: string | undefined,
+          opts: { slackChannel?: string; slackUser?: string; json?: boolean },
+        ) => {
+          await runWorkspaceCommands("deny", conversationIdArg, opts);
+        },
+      );
+
+      // -------------------------------------------------------------------
       // clear
       // -------------------------------------------------------------------
 

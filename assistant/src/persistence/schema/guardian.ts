@@ -4,7 +4,7 @@ export const scopedApprovalGrants = sqliteTable(
   "scoped_approval_grants",
   {
     id: text("id").primaryKey(),
-    scopeMode: text("scope_mode").notNull(), // 'request_id' | 'tool_signature'
+    scopeMode: text("scope_mode").notNull(), // 'request_id' | 'tool_signature' | 'conversation_tool'
     requestId: text("request_id"),
     toolName: text("tool_name"),
     inputDigest: text("input_digest"),

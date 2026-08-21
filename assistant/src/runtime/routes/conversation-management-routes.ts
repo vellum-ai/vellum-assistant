@@ -23,6 +23,7 @@
 import { v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
+import { disableConversationWorkspaceCommands } from "../../approvals/conversation-tool-grant.js";
 import { isUserCancellation } from "../../daemon/conversation-error.js";
 import { touchConversation } from "../../daemon/conversation-evictor.js";
 import {
@@ -517,6 +518,7 @@ async function handleDeleteConversation({
   // In-memory teardown only: `deleteConversation` drops the durable subagent
   // rows inside its own transaction.
   destroyActiveConversation(resolvedId, { keepSubagentRecords: true });
+  disableConversationWorkspaceCommands(resolvedId);
   const deleted = deleteConversation(resolvedId);
   for (const segId of deleted.segmentIds) {
     enqueueMemoryJob("delete_qdrant_vectors", {
