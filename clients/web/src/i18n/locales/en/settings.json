@@ -1529,6 +1529,9 @@
     "makeDefault": "Make Default",
     "managedByVellum": "Managed by Vellum",
     "openProfileAriaLabel": "Open profile {displayName}",
+    "configIssueModelUnknown": "This profile's model is not available from its provider.",
+    "configIssueNoInputRoom": "This profile's max output tokens leave no room for input in the model's context window.",
+    "configIssueOverOutputCap": "This profile's max output tokens exceed what its model supports.",
     "providerUnavailableDefault": "This profile's provider is not available.",
     "providerUnavailableFixable": "{message} Click to fix.",
     "view": "View"

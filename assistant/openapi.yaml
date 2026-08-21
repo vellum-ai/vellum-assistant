@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.4
+  version: 0.11.5
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -5133,6 +5133,8 @@ paths:
                 provider_connection:
                   type: string
                   minLength: 1
+                allowUnlisted:
+                  type: boolean
                 status:
                   anyOf:
                     - $ref: "#/components/schemas/ProfileStatus"
@@ -34609,6 +34611,10 @@ components:
             - type: string
               minLength: 1
             - type: "null"
+        allowUnlisted:
+          anyOf:
+            - type: boolean
+            - type: "null"
         status:
           anyOf:
             - anyOf:
@@ -35381,6 +35387,8 @@ components:
         provider_connection:
           type: string
           minLength: 1
+        allowUnlisted:
+          type: boolean
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
@@ -35657,6 +35665,8 @@ components:
           anyOf:
             - $ref: "#/components/schemas/ProfileConnectionAvailability"
             - type: "null"
+        config_issue:
+          $ref: "#/components/schemas/InferenceProfileConfigIssue"
       required:
         - name
         - label
@@ -35684,6 +35694,21 @@ components:
           type: string
       required:
         - status
+      additionalProperties: false
+    InferenceProfileConfigIssue:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - model_unknown
+            - over_output_cap
+            - no_input_room
+        message:
+          type: string
+      required:
+        - code
+        - message
       additionalProperties: false
     InferenceProfileWriteResult:
       type: object
@@ -35725,6 +35750,8 @@ components:
           anyOf:
             - $ref: "#/components/schemas/ProfileConnectionAvailability"
             - type: "null"
+        config_issue:
+          $ref: "#/components/schemas/InferenceProfileConfigIssue"
       required:
         - name
         - entry
