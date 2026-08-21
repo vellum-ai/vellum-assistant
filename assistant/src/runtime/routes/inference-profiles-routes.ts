@@ -35,6 +35,7 @@ import {
 } from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
 import {
+  catalogProviderForProfile,
   resolveEntryProviderKind,
   writableProfileProviderIssue,
 } from "../../providers/connection-resolution.js";
@@ -53,7 +54,6 @@ import {
   getModelDisplayName,
   isModelInCatalog,
 } from "../../providers/model-catalog.js";
-import { getManagedUpstream } from "../../providers/vellum-model-routing.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   commitConfigWrite,
@@ -404,16 +404,7 @@ function assertSaneMaxTokens(
   if (maxTokens === undefined) {
     return;
   }
-  // Routing identities are judged against their concrete upstream's catalog
-  // entry: chatgpt serves the OpenAI catalog, and a vellum profile stores the
-  // bare native model id (validateModel rejects encoded routing strings), so
-  // the managed upstream owns its limits. An unroutable model yields no
-  // upstream and stays unjudged.
-  const catalogProvider = ROUTING_IDENTITY_PROVIDERS.has(provider)
-    ? provider === "chatgpt"
-      ? "openai"
-      : getManagedUpstream(model)
-    : (resolveEntryProviderKind(provider, model) ?? provider);
+  const catalogProvider = catalogProviderForProfile(provider, model);
   if (catalogProvider === null) {
     return;
   }

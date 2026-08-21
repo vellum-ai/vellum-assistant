@@ -1,4 +1,5 @@
 import { getDb } from "../persistence/db-connection.js";
+import { catalogProviderForProfile } from "../providers/connection-resolution.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import { getConnection } from "../providers/inference/connections.js";
 import {
@@ -115,7 +116,14 @@ export function completeCustomProfile(
     completed.provider !== undefined &&
     completed.model !== undefined
   ) {
-    const cap = catalogMaxOutputTokens(completed.provider, completed.model);
+    const catalogProvider = catalogProviderForProfile(
+      completed.provider,
+      completed.model,
+    );
+    const cap =
+      catalogProvider !== null
+        ? catalogMaxOutputTokens(catalogProvider, completed.model)
+        : undefined;
     if (cap !== undefined && completed.maxTokens > cap) {
       completed.maxTokens = cap;
     }
