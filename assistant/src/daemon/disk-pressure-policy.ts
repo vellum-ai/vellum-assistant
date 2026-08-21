@@ -57,7 +57,13 @@ const BACKGROUND_SOURCES = new Set([
   "schedule",
   "task",
 ]);
-const LOCAL_OWNER_INTERFACES = new Set(["macos", "web", "vellum", "cli"]);
+const LOCAL_OWNER_INTERFACES = new Set([
+  "macos",
+  "windows",
+  "web",
+  "vellum",
+  "cli",
+]);
 
 export function classifyDiskPressureTurnPolicy(
   status: DiskPressureStatus,
