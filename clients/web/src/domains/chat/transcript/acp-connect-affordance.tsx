@@ -10,6 +10,7 @@ import {
   useConnectClaude,
   type UseConnectClaudeResult,
 } from "@/hooks/use-connect-claude";
+import { useTranslation } from "@/i18n";
 import { useSupportsAcpConnect } from "@/lib/backwards-compat/use-supports-acp-connect";
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import { isElectron } from "@/runtime/is-electron";
@@ -168,9 +169,10 @@ function BrandIcon() {
 }
 
 function Title() {
+  const { t } = useTranslation("chat");
   return (
     <div className="text-title-small text-[var(--content-strong)]">
-      Connect Claude Code
+      {t("acpConnectAffordance.title")}
     </div>
   );
 }
@@ -187,19 +189,20 @@ export function OneStepCard({
   connection: UseConnectClaudeResult;
 }) {
   const { phase, error, connect } = connection;
+  const { t } = useTranslation("chat");
 
   const subtitle =
     phase === "error"
-      ? (error ?? "Connecting Claude failed. Please try again.")
+      ? (error ?? t("acpConnectAffordance.errorFallback"))
       : phase === "starting"
-        ? "Starting sign-in..."
+        ? t("acpConnectAffordance.subtitleStarting")
         : phase === "awaiting_capture" || phase === "awaiting_paste"
-          ? "Waiting for Claude sign-in..."
+          ? t("acpConnectAffordance.subtitleWaiting")
           : phase === "exchanging"
-            ? "Completing sign-in..."
+            ? t("acpConnectAffordance.subtitleExchanging")
             : phase === "connected"
-              ? "Claude Code connected, continuing..."
-              : "Use your Claude Code subscription";
+              ? t("acpConnectAffordance.subtitleConnected")
+              : t("acpConnectAffordance.subtitleIdle");
 
   const subtitleColor =
     phase === "error"
@@ -230,7 +233,7 @@ export function OneStepCard({
 
       {canConnect ? (
         <Button variant="primary" onClick={() => void connect()}>
-          Connect
+          {t("acpConnectAffordance.connectButton")}
         </Button>
       ) : busy ? (
         <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--content-tertiary)]" />
@@ -255,24 +258,25 @@ export function TwoStepCard({
   onPastedCodeChange: (value: string) => void;
 }) {
   const { phase, error, connect, submitPastedCode } = connection;
+  const { t } = useTranslation("chat");
 
   // A failed exchange (bad/expired code, 400) returns to `awaiting_paste` with
   // an error set; surface it in the subtitle so Save doesn't look like a no-op.
   // The input keeps its value for a retry.
   const subtitle =
     phase === "error"
-      ? (error ?? "Connecting Claude failed. Please try again.")
+      ? (error ?? t("acpConnectAffordance.errorFallback"))
       : phase === "starting"
-        ? "Starting sign-in..."
+        ? t("acpConnectAffordance.subtitleStarting")
         : phase === "awaiting_capture"
-          ? "Waiting for Claude sign-in..."
+          ? t("acpConnectAffordance.subtitleWaiting")
           : phase === "exchanging"
-            ? "Completing sign-in..."
+            ? t("acpConnectAffordance.subtitleExchanging")
             : phase === "awaiting_paste"
-              ? (error ?? "Paste the key from the tab that opened")
+              ? (error ?? t("acpConnectAffordance.subtitlePaste"))
               : phase === "connected"
-                ? "Claude Code connected, continuing..."
-                : "Use your Claude Code subscription";
+                ? t("acpConnectAffordance.subtitleConnected")
+                : t("acpConnectAffordance.subtitleIdle");
 
   const subtitleColor =
     phase === "error" || (phase === "awaiting_paste" && error)
@@ -303,7 +307,7 @@ export function TwoStepCard({
 
         {canConnect ? (
           <Button variant="primary" onClick={() => void connect()}>
-            Connect
+            {t("acpConnectAffordance.connectButton")}
           </Button>
         ) : busy ? (
           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--content-tertiary)]" />
@@ -319,7 +323,7 @@ export function TwoStepCard({
               type="password"
               value={pastedCode}
               onChange={(e) => onPastedCodeChange(e.target.value)}
-              placeholder="Paste your key"
+              placeholder={t("acpConnectAffordance.pastePlaceholder")}
               fullWidth
             />
           </div>
@@ -328,7 +332,7 @@ export function TwoStepCard({
             disabled={!pastedCode.trim()}
             onClick={() => void submitPastedCode(pastedCode)}
           >
-            Save
+            {t("acpConnectAffordance.saveButton")}
           </Button>
         </div>
       ) : null}

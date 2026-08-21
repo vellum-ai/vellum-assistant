@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { t } from "@/i18n";
 import { openUrlInNewTab } from "@/runtime/browser";
 import {
   exchangeConnectClaude,
@@ -92,14 +93,12 @@ export function useConnectClaude(assistantId: string): UseConnectClaudeResult {
           return;
         }
         if (result.status === "error") {
-          setError(
-            result.error ?? "Connecting Claude failed. Please try again.",
-          );
+          setError(result.error ?? t("useConnectClaude.failed"));
           setPhase("error");
           return;
         }
       }
-      setError("Timed out waiting for Claude to connect. Please try again.");
+      setError(t("useConnectClaude.timedOut"));
       setPhase("error");
     },
     [assistantId, isStale],
@@ -118,7 +117,7 @@ export function useConnectClaude(assistantId: string): UseConnectClaudeResult {
       if (isStale(flowId)) {
         return;
       }
-      setError("Couldn't start Connect Claude. Please try again.");
+      setError(t("useConnectClaude.startFailed"));
       setPhase("error");
       return;
     }
@@ -140,9 +139,7 @@ export function useConnectClaude(assistantId: string): UseConnectClaudeResult {
       return;
     }
     if (!opened) {
-      setError(
-        "Your browser blocked the sign-in tab. Allow pop-ups for this site, then click Connect again.",
-      );
+      setError(t("useConnectClaude.popupBlocked"));
       setPhase("error");
       return;
     }
@@ -162,12 +159,12 @@ export function useConnectClaude(assistantId: string): UseConnectClaudeResult {
     async (pasted: string) => {
       const trimmed = pasted.trim();
       if (!trimmed) {
-        setError("Paste the code shown on the Claude page.");
+        setError(t("useConnectClaude.pasteEmpty"));
         return;
       }
       const state = stateRef.current;
       if (!state) {
-        setError("Start the Connect Claude flow first.");
+        setError(t("useConnectClaude.notStarted"));
         return;
       }
       const flowId = flowIdRef.current;
@@ -181,7 +178,7 @@ export function useConnectClaude(assistantId: string): UseConnectClaudeResult {
         if (isStale(flowId)) {
           return;
         }
-        setError("Check the pasted key and try again.");
+        setError(t("useConnectClaude.exchangeFailed"));
         setPhase("awaiting_paste");
         return;
       }

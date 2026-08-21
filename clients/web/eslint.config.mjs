@@ -191,6 +191,8 @@ const authBoundaryAllowedPaths = [
  */
 const i18nEnforcedPaths = [
   "src/components/companion-intro.tsx",
+  "src/domains/chat/transcript/acp-connect-affordance.tsx",
+  "src/hooks/use-connect-claude.ts",
   "src/components/not-found.tsx",
   "src/components/section-actions-button.tsx",
   "src/domains/chat/components/allow-options-menu.tsx",
