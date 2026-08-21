@@ -19,6 +19,11 @@
   "sectionActionsButton": {
     "ariaLabel": "Acciones de {name}"
   },
+  "sttProviderForm": {
+    "windowsNativeDisplayName": "Dictado nativo de Windows",
+    "windowsNativeSubtitle": "Reconocimiento de voz integrado de Windows, ejecutado localmente mediante el asistente nativo de Windows. Funciona sin conexión y no necesita una clave de API.",
+    "windowsNativeSetupWarning": "Requiere un paquete de voz de Windows: abre Configuración > Hora e idioma > Idioma y región, selecciona Opciones de idioma para tu idioma e instala Voz."
+  },
   "windowsMenuBar": {
     "file": "Archivo",
     "view": "Ver",

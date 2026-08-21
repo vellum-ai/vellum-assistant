@@ -106,6 +106,7 @@ const { SpeechToTextCard } = await import(
   "@/domains/settings/ai/speech-to-text-card"
 );
 const { LS_STT_PROVIDER } = await import("@/utils/local-settings-keys");
+const { changeLocale } = await import("@/i18n");
 
 function renderCard() {
   const queryClient = new QueryClient({
@@ -148,7 +149,8 @@ function selectOption(label: string): void {
 }
 
 describe("SpeechToTextCard — macOS Native Dictation option", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await changeLocale("en");
     localStorage.clear();
     nativeDictationSupported = false;
     electronHostOS = "macos";
@@ -204,6 +206,19 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     selectOption("Windows Native Dictation");
     expect(screen.getByText(/Windows speech language pack/)).toBeTruthy();
     expect(screen.queryByText(/System Settings/)).toBeNull();
+  });
+
+  test("Windows native provider metadata follows the active locale", async () => {
+    nativeDictationSupported = true;
+    electronHostOS = "windows";
+    await changeLocale("es");
+    renderCard();
+
+    openProviderSelect();
+    expect(visibleOptions()).toContain("Dictado nativo de Windows");
+
+    selectOption("Dictado nativo de Windows");
+    expect(screen.getByText(/Requiere un paquete de voz de Windows/)).toBeTruthy();
   });
 
   test("selecting Deepgram and saving provisions the daemon (CES key + services.stt)", async () => {

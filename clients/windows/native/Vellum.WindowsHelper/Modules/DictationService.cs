@@ -66,7 +66,7 @@ public interface IDictationEngine : IDisposable
 
     void Start();
     void Append(byte[] pcm);
-    void Finish();
+    void Finish(TimeSpan completionTimeout);
     void Cancel();
 }
 
@@ -78,6 +78,11 @@ public sealed class DictationSessionManager(
     Func<DictationEngineRequest, IDictationEngine> engineFactory,
     Action<string, object> notify)
 {
+    private static readonly TimeSpan StreamingCompletionTimeout =
+        TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan TranscriptionCompletionGrace =
+        TimeSpan.FromSeconds(3);
+
     private readonly object _gate = new();
     private IDictationEngine? _engine;
     private int _generation;
@@ -91,7 +96,7 @@ public sealed class DictationSessionManager(
             if (!enable)
             {
                 // Graceful stop: let recognition drain into `finalized`.
-                _engine?.Finish();
+                _engine?.Finish(StreamingCompletionTimeout);
                 _engine = null;
                 return new { enabled = false };
             }
@@ -208,7 +213,7 @@ public sealed class DictationSessionManager(
             {
                 engine.Start();
                 engine.Append(pcm);
-                engine.Finish();
+                engine.Finish(TranscriptionCompletionTimeout(pcm.Length, sampleRate));
             }
             catch (Exception err)
             {
@@ -243,6 +248,16 @@ public sealed class DictationSessionManager(
     private void NotifyStartFailure(string message) =>
         notify("dictation.error",
             new { message, onDevice = true, willRetryServer = false });
+
+    internal static TimeSpan TranscriptionCompletionTimeout(
+        int pcmByteLength,
+        int sampleRate)
+    {
+        var bytesPerSecond = Math.Max(sampleRate, 1) * (double)sizeof(short);
+        return TimeSpan.FromSeconds(
+            pcmByteLength / bytesPerSecond) +
+            TranscriptionCompletionGrace;
+    }
 
     private void IfCurrent(int generation, Action action)
     {
@@ -368,7 +383,7 @@ internal sealed class SystemSpeechEngine : IDictationEngine
 
     public void Append(byte[] pcm) => _pushStream?.Push(pcm);
 
-    public void Finish()
+    public void Finish(TimeSpan completionTimeout)
     {
         lock (_gate)
         {
@@ -377,7 +392,7 @@ internal sealed class SystemSpeechEngine : IDictationEngine
         _pushStream?.Complete();
         _engine.RecognizeAsyncStop();
         // Guard against a recognizer that never completes after stop.
-        _ = Task.Delay(TimeSpan.FromSeconds(3)).ContinueWith(_ => Complete(null));
+        _ = Task.Delay(completionTimeout).ContinueWith(_ => Complete(null));
     }
 
     public void Cancel()

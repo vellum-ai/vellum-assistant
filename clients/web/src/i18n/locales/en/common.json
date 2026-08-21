@@ -19,6 +19,11 @@
   "sectionActionsButton": {
     "ariaLabel": "{name} actions"
   },
+  "sttProviderForm": {
+    "windowsNativeDisplayName": "Windows Native Dictation",
+    "windowsNativeSubtitle": "Windows on-device speech recognition, running locally through the Windows helper. Works offline and needs no API key.",
+    "windowsNativeSetupWarning": "Requires a Windows speech language pack: open Settings > Time & language > Language & region, choose your language's Language options, then install Speech."
+  },
   "windowsMenuBar": {
     "file": "File",
     "view": "View",

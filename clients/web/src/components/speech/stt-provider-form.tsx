@@ -11,6 +11,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
 import { useDraftOverride } from "@/hooks/use-draft-override";
+import { useTranslation } from "@/i18n";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isNativeDictationSupported } from "@/runtime/native-dictation-partials";
 import { detectElectronHostOS } from "@/runtime/platform-detection";
@@ -117,13 +118,18 @@ export function SttProviderForm({
   const assistantId = assistantIdProp ?? activeAssistantId;
   const isOrgReady = useIsOrgReady();
   const queryClient = useQueryClient();
-  // Capability is fixed for the renderer's lifetime, so compute the offered
-  // list once because host OS and preload capabilities do not change while
-  // the renderer is running.
-  const [providers] = useState(() =>
-    sttProvidersForHostOS(detectElectronHostOS()).filter(
-      (p) => !p.requiresNativeDictation || isNativeDictationSupported(),
-    ),
+  const { t } = useTranslation();
+  const providers = useMemo(
+    () =>
+      sttProvidersForHostOS(detectElectronHostOS(), {
+        displayName: t("sttProviderForm.windowsNativeDisplayName"),
+        subtitle: t("sttProviderForm.windowsNativeSubtitle"),
+        setupWarning: t("sttProviderForm.windowsNativeSetupWarning"),
+      }).filter(
+        (provider) =>
+          !provider.requiresNativeDictation || isNativeDictationSupported(),
+      ),
+    [t],
   );
   const defaultProviderId = DEFAULT_PROVIDER_ID;
 

@@ -149,11 +149,21 @@ async function startAudioPump(
   }
 }
 
-const TRANSCRIBED_TIMEOUT_MS = 8000;
+const MIN_TRANSCRIBED_TIMEOUT_MS = 8000;
+const TRANSCRIBED_TIMEOUT_GRACE_MS = 5000;
+
+function transcribedTimeoutMs(pcmByteLength: number): number {
+  const pcmDurationMs =
+    (pcmByteLength / (PUSH_SAMPLE_RATE * Int16Array.BYTES_PER_ELEMENT)) * 1000;
+  return Math.max(
+    MIN_TRANSCRIBED_TIMEOUT_MS,
+    pcmDurationMs + TRANSCRIBED_TIMEOUT_GRACE_MS,
+  );
+}
 
 /**
- * One-shot Apple Speech recognition of a complete recording — the offline
- * transcript authority. Streaming partials race the pump warmup and
+ * One-shot native speech recognition of a complete recording, used as the
+ * offline transcript authority. Streaming partials race the pump warmup and
  * recognition latency on short dictations; the recorded blob contains
  * every millisecond, so recognizing it whole does not. Resolves `null`
  * when unavailable (off Electron, old shell, decode failure, denied).
@@ -193,7 +203,7 @@ export async function transcribeNativeAudioBlob(
     }
     const text = await new Promise<string | null>((resolve) => {
       resolveText = resolve;
-      setTimeout(() => resolve(null), TRANSCRIBED_TIMEOUT_MS);
+      setTimeout(() => resolve(null), transcribedTimeoutMs(pcm.byteLength));
     });
     // Length only — transcript content must never be logged.
     console.info(

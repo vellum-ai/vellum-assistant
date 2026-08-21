@@ -130,6 +130,12 @@ export interface STTProvider {
   credentialsGuide?: ProviderCredentialsGuide;
 }
 
+interface NativeSttProviderCopy {
+  displayName: string;
+  subtitle: string;
+  setupWarning: string;
+}
+
 /**
  * Stable id for native desktop recognition. The macOS-prefixed value is kept
  * for persisted settings compatibility. Native recognition never calls
@@ -182,25 +188,20 @@ export const STT_PROVIDERS: readonly STTProvider[] = [
   },
 ];
 
-const WINDOWS_NATIVE_STT_PROVIDER: STTProvider = {
-  id: MACOS_NATIVE_STT_PROVIDER_ID,
-  displayName: "Windows Native Dictation",
-  subtitle:
-    "Windows on-device speech recognition, running locally through the Windows helper. Works offline and needs no API key.",
-  requiresNativeDictation: true,
-  setupWarning:
-    "Requires a Windows speech language pack: open Settings > Time & language > Language & region, choose your language's Language options, then install Speech.",
-};
-
 export function sttProvidersForHostOS(
   hostOS: ElectronHostOS | null,
+  windowsCopy: NativeSttProviderCopy,
 ): readonly STTProvider[] {
   if (hostOS !== "windows") {
     return STT_PROVIDERS;
   }
   return STT_PROVIDERS.map((provider) =>
     provider.id === MACOS_NATIVE_STT_PROVIDER_ID
-      ? WINDOWS_NATIVE_STT_PROVIDER
+      ? {
+          id: MACOS_NATIVE_STT_PROVIDER_ID,
+          requiresNativeDictation: true,
+          ...windowsCopy,
+        }
       : provider,
   );
 }

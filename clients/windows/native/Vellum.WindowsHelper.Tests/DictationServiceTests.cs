@@ -31,7 +31,7 @@ public static class DictationServiceTests
 
         public void Append(byte[] pcm) => Chunks.Add(pcm);
 
-        public void Finish()
+        public void Finish(TimeSpan _)
         {
             Finished = true;
             if (FinalizeOnFinish)
@@ -147,6 +147,12 @@ public static class DictationServiceTests
 
         Assert(Json(manager.Transcribe("not-base64", 16000))
             .Contains("invalid audio", StringComparison.Ordinal));
+
+        // The completion guard includes the submitted recording duration so
+        // a long pushed buffer can drain before the fallback finalizes it.
+        var oneMinutePcm = new byte[16000 * sizeof(short) * 60];
+        Assert(DictationSessionManager.TranscriptionCompletionTimeout(
+            oneMinutePcm.Length, 16000) == TimeSpan.FromSeconds(63));
 
         Console.WriteLine("Dictation tests passed");
     }
