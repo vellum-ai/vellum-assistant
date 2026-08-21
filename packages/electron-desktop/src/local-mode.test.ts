@@ -1182,6 +1182,44 @@ describe("vellum:localMode:guardianToken handler", () => {
     expect(await pending).toEqual({ ok: true, accessToken: "refreshed-token" });
   });
 
+  test("a labeled CLI refresh 503 is an unreachable gateway, not a spent token", async () => {
+    writeToken("asst-g", { accessTokenExpiresAt: PAST });
+
+    const pending = guardianToken("asst-g");
+    await tick();
+    lastChild.stderr.emit(
+      "data",
+      Buffer.from(
+        `VELLUM_REFRESH_ERROR=${JSON.stringify({ status: 503, error: "Assistant gateway is unreachable" })}\n`,
+      ),
+    );
+    lastChild.emit("close", 1);
+
+    expect(await pending).toEqual({
+      ok: false,
+      status: 503,
+      error: "Assistant gateway is unreachable",
+    });
+  });
+
+  test("an unlabeled CLI refresh failure is a 503, not a 401", async () => {
+    writeToken("asst-g", { accessTokenExpiresAt: PAST });
+
+    const pending = guardianToken("asst-g");
+    await tick();
+    lastChild.stderr.emit(
+      "data",
+      Buffer.from("Failed to refresh guardian token.\n"),
+    );
+    lastChild.emit("close", 1);
+
+    expect(await pending).toEqual({
+      ok: false,
+      status: 503,
+      error: "Failed to refresh guardian token",
+    });
+  });
+
   test("deduplicates concurrent refreshes for the same credential", async () => {
     writeToken("asst-g", { accessTokenExpiresAt: PAST });
 

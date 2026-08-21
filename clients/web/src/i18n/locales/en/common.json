@@ -2,6 +2,29 @@
   "addCreditsModal": {
     "configureAutoReload": "Configure Auto-Reload"
   },
+  "companionIntro": {
+    "ariaLabel": "Introducing your companion",
+    "meet": {
+      "title": "This is me",
+      "titleNamed": "I’m {name}",
+      "body": "I stay on your desktop, even when Vellum isn’t visible."
+    },
+    "talk": {
+      "title": "Talk",
+      "body": "Start a voice conversation."
+    },
+    "type": {
+      "title": "Type",
+      "body": "Send a message from here and read the reply here too."
+    },
+    "menu": {
+      "title": "Right-click me",
+      "body": "That’s where you hide me or change my size."
+    },
+    "skip": "Skip",
+    "next": "Next",
+    "done": "Got it"
+  },
   "notFound": {
     "badge": "Error 404",
     "title": "Page not found",

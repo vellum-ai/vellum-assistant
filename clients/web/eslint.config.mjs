@@ -190,6 +190,7 @@ const authBoundaryAllowedPaths = [
  * noise, which is how these rules die.
  */
 const i18nEnforcedPaths = [
+  "src/components/companion-intro.tsx",
   "src/components/not-found.tsx",
   "src/components/section-actions-button.tsx",
   "src/domains/chat/components/allow-options-menu.tsx",
@@ -219,7 +220,13 @@ const i18nEnforcedPaths = [
   "src/domains/settings/billing/**/*.{ts,tsx}",
   "src/domains/settings/pages/**/*.{ts,tsx}",
   "src/domains/settings/mcp/**/*.{ts,tsx}",
+  "src/domains/settings/credentials/**/*.{ts,tsx}",
+  "src/domains/settings/security/**/*.{ts,tsx}",
+  "src/domains/settings/keyboard-shortcuts/**/*.{ts,tsx}",
   "src/domains/settings/pair-device/**/*.{ts,tsx}",
+  "src/domains/settings/teleport/**/*.{ts,tsx}",
+  "src/domains/settings/components/**/*.{ts,tsx}",
+  "src/domains/settings/hooks/**/*.{ts,tsx}",
 ];
 
 const eslintConfig = defineConfig([

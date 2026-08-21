@@ -1,4 +1,4 @@
-import type OpenAI from "openai";
+import OpenAI from "openai";
 
 import type { ProviderErrorReason } from "../../util/errors.js";
 import {
@@ -238,7 +238,21 @@ export function normalizeOpenAIAPIError(
   if (rawBody) {
     out.rawBody = rawBody;
   }
-  out.reason = deriveReason(out, error.status);
+  // Transport failures never reached the server, so there is no status or
+  // body for deriveReason to read; the SDK's error class is the only signal.
+  // APIUserAbortError (caller cancellation, inner stream deadline) is a
+  // sibling class, not a subclass, so it deliberately does NOT match here:
+  // classifying it as a transient network error would make the retry loop
+  // re-run 30-minute deadline failures. Guarded because test doubles of the
+  // openai module may not define the class.
+  const connectionErrorClass = OpenAI.APIConnectionError as
+    | typeof OpenAI.APIConnectionError
+    | undefined;
+  out.reason =
+    typeof connectionErrorClass === "function" &&
+    error instanceof connectionErrorClass
+      ? "network_error"
+      : deriveReason(out, error.status);
   return out;
 }
 

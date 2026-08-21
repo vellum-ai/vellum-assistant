@@ -709,8 +709,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         if (toolChoice !== undefined) {
           const thinkingOn = isThinkingEnabledOnWire(params);
           const skipAutoDefault = thinkingOn && toolChoice === "auto";
-          const skipAllChoices =
-            thinkingOn && this.omitToolChoiceWhenReasoning;
+          const skipAllChoices = thinkingOn && this.omitToolChoiceWhenReasoning;
           if (!skipAutoDefault && !skipAllChoices) {
             params.tool_choice = toolChoice;
           }
@@ -1147,7 +1146,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
           );
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);
+        // `cause` keeps the SDK error's errno-bearing chain reachable for
+        // network-shape classification (`isRetryableNetworkError` walks it).
         const errorOptions: {
+          cause?: unknown;
           retryAfterMs?: number;
           abortReason?: unknown;
           apiErrorCode?: string;
@@ -1156,7 +1158,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           requestId?: string;
           rawBody?: string;
           reason?: ProviderErrorReason;
-        } = {};
+        } = { cause: error };
         if (retryAfterMs !== undefined) {
           errorOptions.retryAfterMs = retryAfterMs;
         }
@@ -1185,7 +1187,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           formattedMessage,
           this.name,
           error.status,
-          Object.keys(errorOptions).length > 0 ? errorOptions : undefined,
+          errorOptions,
         );
       }
       throw new ProviderError(

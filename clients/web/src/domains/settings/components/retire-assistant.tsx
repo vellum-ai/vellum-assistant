@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 
 import { retireAssistant } from "@/assistant/retire-service";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -11,6 +12,7 @@ interface RetireAssistantProps {
 }
 
 export function RetireAssistant({ assistantId }: RetireAssistantProps) {
+  const { t } = useTranslation("settings");
   const navigate = useNavigate();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isPending, setIsPending] = useState(false);
@@ -35,7 +37,7 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
         onClick={() => setConfirmOpen(true)}
         className="shrink-0"
       >
-        Retire Assistant
+        {t("retireAssistant.button")}
       </Button>
       <RetireConfirmDialog
         open={confirmOpen}

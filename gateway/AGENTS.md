@@ -117,6 +117,43 @@ Organize gateway code **by concern, not by technical layer** — group by what c
 
 The `slack/` module is the worked example of this shape.
 
+## Long-Lived Channel Transports Own Their Liveness
+
+A channel that holds a persistent socket (Discord Gateway, Slack Socket Mode)
+must be able to conclude on its own that its connection is dead, and recover,
+without waiting for a close event. A half-open socket, the shape a NAT rebind
+or a vanished peer leaves behind, reports itself `OPEN` indefinitely and fires
+nothing at all: no message, no error, no close. Recovery that waits to be told
+never runs.
+
+Three things are required, and a transport missing any one of them has a
+silent multi-hour outage in it:
+
+- **A liveness signal the transport generates itself.** Inbound quiet proves
+  nothing, because a quiet workspace and a dead socket are indistinguishable.
+  Discord rides its protocol heartbeat and tracks the ACK
+  (`discord/heartbeat.ts`). Slack Socket Mode has no application-level
+  heartbeat, so it probes the transport directly with a WebSocket ping frame
+  and requires a pong (`slack/socket-liveness.ts`). Prefer a probe you send
+  over a timeout you wait out.
+- **A bound on the pre-established window.** A handshake that stalls produces
+  neither `open` nor `close`, so it falls outside any watchdog that arms on a
+  live connection. See `HELLO_DEADLINE_MS` (Discord) and
+  `CONNECT_DEADLINE_MS` (Slack).
+- **Teardown that does not wait on a close event.** Recovery closes the dead
+  socket and proceeds on a timer whether or not the close ever lands. See
+  `killAndRecover` (Discord) and `forceReconnect` (Slack).
+
+Derive every threshold from something measured, and record the derivation in
+the constant's docstring. A number chosen to feel safe against expected
+traffic will be wrong: Socket Mode connections were assumed to rotate about
+hourly, and were then observed rotating several hours apart, which is exactly
+the kind of assumption an inbound-silence threshold would have been built on.
+
+The process-wide `SleepWakeDetector` is not a substitute for any of this. It
+fires only when the whole process was suspended, so it misses every connection
+that dies while the gateway is healthy and logging normally.
+
 ## Channel Trust Classification & Admission Policy
 
 The gateway owns per-channel `AdmissionPolicy` storage (`gateway/src/db/admission-policy-store.ts`, HTTP in `gateway/src/http/routes/channel-admission-policy.ts`) and attaches the floor to every forwarded inbound via `sourceMetadata.admissionPolicy`. The runtime (`assistant/src/runtime/routes/inbound-stages/admission-policy.ts`) emits `admitted: true | false` based on `TRUST_CLASS_RANK[trustClass] >= ADMISSION_FLOOR[policy]`.

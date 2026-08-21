@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { setConfig } from "../__tests__/helpers/set-config.js";
 import { getConfig } from "../config/loader.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { providerConnections } from "../persistence/schema/inference.js";
 import type { ModelProfileInfo } from "./types.js";
+
+// Entry-name translation reads provider_connections rows through the real DB.
+await initializeDb();
 
 // ─── Fixture config ─────────────────────────────────────────────────────────
 
@@ -208,6 +214,82 @@ describe("doesSupportVision with a BYO default provider", () => {
       { provider: "anthropic" },
     );
     expect(doesSupportVision(profile("custom-text"))).toBe(false);
+  });
+});
+
+describe("doesSupportVision with connection entry-name providers", () => {
+  function seedConnection(opts: { name: string; provider: string }): void {
+    const now = Date.now();
+    getDb()
+      .insert(providerConnections)
+      .values({
+        name: opts.name,
+        provider: opts.provider,
+        auth: JSON.stringify({
+          type: "api_key",
+          credential: `${opts.provider}/api_key`,
+        }),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  beforeEach(() => {
+    getDb().delete(providerConnections).run();
+  });
+
+  test("judges an entry-name profile by its row's vendor (vision-capable)", () => {
+    seedConnection({ name: "openrouter-personal", provider: "openrouter" });
+    setMockConfig({
+      "personal-opus": {
+        provider: "openrouter-personal",
+        model: "anthropic/claude-opus-4.6",
+      },
+    });
+    expect(doesSupportVision(profile("personal-opus"))).toBe(true);
+  });
+
+  test("judges an entry-name profile by its row's vendor (text-only)", () => {
+    seedConnection({ name: "openrouter-personal", provider: "openrouter" });
+    setMockConfig({
+      "personal-deepseek": {
+        provider: "openrouter-personal",
+        model: "deepseek/deepseek-v4-pro",
+      },
+    });
+    expect(doesSupportVision(profile("personal-deepseek"))).toBe(false);
+  });
+
+  test("an entry name naming no row fails safe to false", () => {
+    setMockConfig({
+      dangling: {
+        provider: "ghost-connection",
+        model: "anthropic/claude-opus-4.6",
+      },
+    });
+    expect(doesSupportVision(profile("dangling"))).toBe(false);
+  });
+
+  test("mix arms with entry-name providers translate the same way", () => {
+    seedConnection({ name: "openrouter-personal", provider: "openrouter" });
+    setMockConfig({
+      "mix-profile": {
+        mix: [
+          { profile: "personal-deepseek", weight: 0.5 },
+          { profile: "personal-opus", weight: 0.5 },
+        ],
+      },
+      "personal-deepseek": {
+        provider: "openrouter-personal",
+        model: "deepseek/deepseek-v4-pro",
+      },
+      "personal-opus": {
+        provider: "openrouter-personal",
+        model: "anthropic/claude-opus-4.6",
+      },
+    });
+    expect(doesSupportVision(profile("mix-profile"))).toBe(true);
   });
 });
 

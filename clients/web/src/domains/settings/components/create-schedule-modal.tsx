@@ -14,6 +14,7 @@ import {
   type ScheduleFrequency,
   WEEKDAYS,
 } from "@/domains/settings/utils/cron-builder";
+import { useTranslation } from "@/i18n";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { cn } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
@@ -31,13 +32,6 @@ import {
 // ---------------------------------------------------------------------------
 // Static option lists for the cadence builder
 // ---------------------------------------------------------------------------
-
-const FREQUENCY_ITEMS: SegmentControlItem<ScheduleFrequency>[] = [
-  { value: "hourly", label: "Hourly" },
-  { value: "daily", label: "Daily" },
-  { value: "weekly", label: "Weekly" },
-  { value: "monthly", label: "Monthly" },
-];
 
 const HOUR12_OPTIONS: SelectOption<string>[] = Array.from(
   { length: 12 },
@@ -61,18 +55,6 @@ const MINUTE_OPTIONS: SelectOption<string>[] = Array.from(
 // Only days that exist in every month (1–28) plus an explicit "Last day", so a
 // monthly schedule never silently skips short months. The 29th–31st (which skip
 // February etc.) remain available through the Advanced cron field.
-const DAY_OF_MONTH_OPTIONS: SelectOption<string>[] = [
-  ...Array.from({ length: 28 }, (_, i) => {
-    const day = i + 1;
-    return { value: String(day), label: formatOrdinal(day) };
-  }),
-  { value: "last", label: "Last day" },
-];
-
-const PERIOD_ITEMS: SegmentControlItem<"AM" | "PM">[] = [
-  { value: "AM", label: "AM" },
-  { value: "PM", label: "PM" },
-];
 
 function to24Hour(hour12: number, period: "AM" | "PM"): number {
   const base = hour12 % 12;
@@ -147,6 +129,7 @@ function CreateScheduleModalInner({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { t } = useTranslation("settings");
   const timezone = useEffectiveTimezone();
 
   const [name, setName] = useState("");
@@ -172,8 +155,10 @@ function CreateScheduleModalInner({
     if (mode === "simple") {
       return describeCadence(cadence);
     }
-    return trimmedRaw ? trimmedRaw : "Enter a cron expression to continue.";
-  }, [mode, cadence, trimmedRaw]);
+    return trimmedRaw
+      ? trimmedRaw
+      : t("createScheduleModal.cronContinuePrompt");
+  }, [mode, cadence, trimmedRaw, t]);
 
   const timezoneLabel = useMemo(() => describeTimezone(timezone), [timezone]);
 
@@ -207,7 +192,9 @@ function CreateScheduleModalInner({
       onCreated();
     } catch (err) {
       setSubmitError(
-        err instanceof Error ? err.message : "Failed to create schedule.",
+        err instanceof Error
+          ? err.message
+          : t("createScheduleModal.createFailed"),
       );
       setSubmitting(false);
     }
@@ -223,10 +210,9 @@ function CreateScheduleModalInner({
   return (
     <Modal.Content size="md">
       <Modal.Header>
-        <Modal.Title>Create schedule</Modal.Title>
+        <Modal.Title>{t("createScheduleModal.title")}</Modal.Title>
         <Modal.Description>
-          Schedule a recurring instruction for your assistant. Runs in execute
-          mode — the message is delivered to the assistant on each fire.
+          {t("createScheduleModal.description")}
         </Modal.Description>
       </Modal.Header>
 
@@ -234,8 +220,8 @@ function CreateScheduleModalInner({
         <Modal.Body>
           <div className="flex flex-col gap-5">
             <Input
-              label="Name"
-              placeholder="Morning briefing"
+              label={t("createScheduleModal.nameLabel")}
+              placeholder={t("createScheduleModal.namePlaceholder")}
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -244,8 +230,8 @@ function CreateScheduleModalInner({
             />
 
             <Textarea
-              label="Description"
-              placeholder="What is this schedule for?"
+              label={t("createScheduleModal.descriptionLabel")}
+              placeholder={t("createScheduleModal.descriptionPlaceholder")}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               required
@@ -253,7 +239,7 @@ function CreateScheduleModalInner({
               rows={2}
             />
 
-            <Field label="Repeat">
+            <Field label={t("createScheduleModal.repeatLabel")}>
               {mode === "simple" ? (
                 <CadenceBuilder cadence={cadence} onChange={setCadence} />
               ) : (
@@ -277,13 +263,13 @@ function CreateScheduleModalInner({
                 onClick={switchToAdvanced}
                 className="self-start text-body-small-default text-[var(--content-tertiary)] underline-offset-2 transition-colors hover:text-[var(--content-default)] hover:underline"
               >
-                Advanced — write a cron expression
+                {t("createScheduleModal.advancedCron")}
               </button>
             ) : null}
 
             <Textarea
-              label="Message"
-              placeholder="What should the assistant do on each fire?"
+              label={t("createScheduleModal.messageLabel")}
+              placeholder={t("createScheduleModal.messagePlaceholder")}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               required
@@ -301,10 +287,12 @@ function CreateScheduleModalInner({
 
         <Modal.Footer>
           <Button variant="outlined" onClick={onClose} type="button">
-            Cancel
+            {t("createScheduleModal.cancel")}
           </Button>
           <Button variant="primary" type="submit" disabled={!canSubmit}>
-            {submitting ? "Creating…" : "Create schedule"}
+            {submitting
+              ? t("createScheduleModal.creating")
+              : t("createScheduleModal.create")}
           </Button>
         </Modal.Footer>
       </form>
@@ -323,31 +311,46 @@ function CadenceBuilder({
   cadence: Cadence;
   onChange: (next: Cadence) => void;
 }) {
+  const { t } = useTranslation("settings");
+  const frequencyItems: SegmentControlItem<ScheduleFrequency>[] = [
+    { value: "hourly", label: t("createScheduleModal.frequencyHourly") },
+    { value: "daily", label: t("createScheduleModal.frequencyDaily") },
+    { value: "weekly", label: t("createScheduleModal.frequencyWeekly") },
+    { value: "monthly", label: t("createScheduleModal.frequencyMonthly") },
+  ];
+  const dayOfMonthOptions: SelectOption<string>[] = [
+    ...Array.from({ length: 28 }, (_, i) => {
+      const day = i + 1;
+      return { value: String(day), label: formatOrdinal(day) };
+    }),
+    { value: "last", label: t("createScheduleModal.lastDay") },
+  ];
+
   return (
     <div className="flex flex-col gap-3">
       <SegmentControl
-        items={FREQUENCY_ITEMS}
+        items={frequencyItems}
         value={cadence.frequency}
         onChange={(frequency) => onChange({ ...cadence, frequency })}
-        ariaLabel="How often the schedule runs"
+        ariaLabel={t("createScheduleModal.frequencyAriaLabel")}
       />
 
       {cadence.frequency === "hourly" ? (
-        <SubField label="At minute">
+        <SubField label={t("createScheduleModal.atMinute")}>
           <Select
             options={MINUTE_OPTIONS}
             value={String(cadence.minute).padStart(2, "0")}
             onChange={(value) =>
               onChange({ ...cadence, minute: Number(value) })
             }
-            aria-label="Minute"
+            aria-label={t("createScheduleModal.minuteAriaLabel")}
             className="w-24"
           />
         </SubField>
       ) : null}
 
       {cadence.frequency === "weekly" ? (
-        <SubField label="On these days">
+        <SubField label={t("createScheduleModal.onTheseDays")}>
           <WeekdayPicker
             value={cadence.weekdays}
             onChange={(weekdays) => onChange({ ...cadence, weekdays })}
@@ -356,9 +359,9 @@ function CadenceBuilder({
       ) : null}
 
       {cadence.frequency === "monthly" ? (
-        <SubField label="On day">
+        <SubField label={t("createScheduleModal.onDay")}>
           <Select
-            options={DAY_OF_MONTH_OPTIONS}
+            options={dayOfMonthOptions}
             value={
               cadence.dayOfMonth === "last"
                 ? "last"
@@ -370,14 +373,14 @@ function CadenceBuilder({
                 dayOfMonth: value === "last" ? "last" : Number(value),
               })
             }
-            aria-label="Day of month"
+            aria-label={t("createScheduleModal.dayOfMonthAriaLabel")}
             className="w-32"
           />
         </SubField>
       ) : null}
 
       {cadence.frequency !== "hourly" ? (
-        <SubField label="At time">
+        <SubField label={t("createScheduleModal.atTime")}>
           <TimeFields
             hour24={cadence.hour24}
             minute={cadence.minute}
@@ -400,8 +403,13 @@ function TimeFields({
   minute: number;
   onChange: (hour24: number, minute: number) => void;
 }) {
+  const { t } = useTranslation("settings");
   const period: "AM" | "PM" = hour24 < 12 ? "AM" : "PM";
   const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  const periodItems: SegmentControlItem<"AM" | "PM">[] = [
+    { value: "AM", label: t("createScheduleModal.periodAm") },
+    { value: "PM", label: t("createScheduleModal.periodPm") },
+  ];
 
   return (
     <div className="flex items-center gap-2">
@@ -409,7 +417,7 @@ function TimeFields({
         options={HOUR12_OPTIONS}
         value={String(hour12)}
         onChange={(value) => onChange(to24Hour(Number(value), period), minute)}
-        aria-label="Hour"
+        aria-label={t("createScheduleModal.hourAriaLabel")}
         className="w-[72px]"
       />
       <span className="text-body-medium-default text-[var(--content-tertiary)]">
@@ -419,17 +427,17 @@ function TimeFields({
         options={MINUTE_OPTIONS}
         value={String(minute).padStart(2, "0")}
         onChange={(value) => onChange(hour24, Number(value))}
-        aria-label="Minute"
+        aria-label={t("createScheduleModal.minuteAriaLabel")}
         className="w-[72px]"
       />
       <div className="w-[112px]">
         <SegmentControl
-          items={PERIOD_ITEMS}
+          items={periodItems}
           value={period}
           onChange={(nextPeriod) =>
             onChange(to24Hour(hour12, nextPeriod), minute)
           }
-          ariaLabel="AM or PM"
+          ariaLabel={t("createScheduleModal.periodAriaLabel")}
         />
       </div>
     </div>
@@ -498,6 +506,7 @@ function AdvancedCron({
   onChange: (next: string) => void;
   onUseSimple: () => void;
 }) {
+  const { t } = useTranslation("settings");
   return (
     <div className="flex flex-col gap-2">
       <Input
@@ -506,15 +515,15 @@ function AdvancedCron({
         onChange={(e) => onChange(e.target.value)}
         fullWidth
         className="font-mono"
-        aria-label="Cron expression"
-        helperText="Standard 5-field cron (minute hour day month weekday). RRULE expressions are also accepted."
+        aria-label={t("createScheduleModal.cronAriaLabel")}
+        helperText={t("createScheduleModal.cronHelper")}
       />
       <button
         type="button"
         onClick={onUseSimple}
         className="self-start text-body-small-default text-[var(--content-tertiary)] underline-offset-2 transition-colors hover:text-[var(--content-default)] hover:underline"
       >
-        ← Back to the simple builder
+        {t("createScheduleModal.backToSimple")}
       </button>
     </div>
   );
@@ -555,6 +564,7 @@ function ScheduleSummary({
   mono: boolean;
   timezoneLabel: string;
 }) {
+  const { t } = useTranslation("settings");
   return (
     <div className="flex items-start gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] px-3.5 py-3">
       <Clock
@@ -571,7 +581,7 @@ function ScheduleSummary({
           {summary}
         </p>
         <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
-          Times use your timezone — {timezoneLabel}.
+          {t("createScheduleModal.timezoneNote", { timezone: timezoneLabel })}
         </p>
       </div>
     </div>

@@ -392,7 +392,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-20T22:40:25.000Z"
+      "updatedAt": "2026-08-20T22:55:26.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -747,6 +747,8 @@
             "User wants to build, scaffold, or author a Vellum plugin",
             "User wants to edit, update, or push changes to an existing plugin's GitHub repo",
             "User wants to package skills, hooks, or tools into an installable plugin",
+            "User wants to ship MCP servers as part of a plugin (mcp.json)",
+            "User wants a plugin to receive public webhooks or become a channel (channels/ingress.json)",
             "User wants to extend their assistant with a new capability shipped as a plugin",
             "User wants to publish a plugin to the Vellum marketplace catalog",
             "User asks how to ship or distribute extensions for Vellum"
@@ -759,7 +761,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-20T18:51:19.000Z"
+      "updatedAt": "2026-08-21T15:31:03.000Z"
     },
     {
       "id": "public-ingress",

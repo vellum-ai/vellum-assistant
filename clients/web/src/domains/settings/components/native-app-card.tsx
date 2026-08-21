@@ -7,12 +7,14 @@ import {
   writeNativeAppDownloaded,
   type NativeAppPlatform,
 } from "@/hooks/use-native-app-nudge";
+import { useTranslation } from "@/i18n";
 import {
   useIsAndroidWeb,
   useIsIOSWeb,
 } from "@/runtime/platform-detection";
 
 export function NativeAppCard() {
+  const { t } = useTranslation("settings");
   const isIOSWeb = useIsIOSWeb();
   const isAndroidWeb = useIsAndroidWeb();
   const platform: NativeAppPlatform | null = isIOSWeb
@@ -28,15 +30,15 @@ export function NativeAppCard() {
 
   return (
     <NudgeSettingsCard
-      title={`Get the ${promotion.appName} App`}
-      subtitle={`The Vellum ${promotion.appName} app gives you a native experience.`}
+      title={t("nativeAppCard.title", { appName: promotion.appName })}
+      subtitle={t("nativeAppCard.subtitle", { appName: promotion.appName })}
       benefits={[
-        { icon: Bell, text: "Push notifications" },
-        { icon: Fingerprint, text: "Biometric login" },
-        { icon: Vibrate, text: "Native haptics" },
-        { icon: Smartphone, text: "Home screen access" },
+        { icon: Bell, text: t("nativeAppCard.benefitPush") },
+        { icon: Fingerprint, text: t("nativeAppCard.benefitBiometric") },
+        { icon: Vibrate, text: t("nativeAppCard.benefitHaptics") },
+        { icon: Smartphone, text: t("nativeAppCard.benefitHomeScreen") },
       ]}
-      ctaLabel="Download"
+      ctaLabel={t("nativeAppCard.download")}
       ctaLeftIcon={<Smartphone size={16} />}
       onAction={() => {
         writeNativeAppDownloaded(promotion.platform);

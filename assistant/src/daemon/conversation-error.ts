@@ -645,13 +645,17 @@ function reasonToClassification(
       return contextTooLargeClassification();
     case "vision_unsupported":
       return visionNotSupportedClassification();
+    // Two producers share this reason: SDK transport failures that never got
+    // a response (OpenAI APIConnectionError), and Gemini responses whose empty
+    // body reveals a proxy/egress filter intercepting the request. The copy
+    // must stay broad enough for both.
     case "network_error":
       return {
         code: "PROVIDER_NETWORK",
         userMessage:
-          "The provider returned an empty response with no body — this typically indicates a network proxy or egress filter intercepting the request, not a genuine provider error. Check your network configuration.",
+          "The request could not reach the provider: the connection failed before a real response arrived. Check that the endpoint is reachable and that no proxy or egress filter is intercepting the request, then try again.",
         retryable: true,
-        errorCategory: "provider_network_proxy_intercepted",
+        errorCategory: "provider_network_error",
       };
     case "model_not_found":
       return {

@@ -24,6 +24,12 @@ export async function handleLogout(navigate: NavigateFunction): Promise<void> {
 
     await setMenuPlatformSession(false);
     await useAuthStore.getState().logout();
+    // The same teardown the hosted path does below, and for the companion
+    // surface it is not cosmetic: the published name is what tells main there
+    // is an assistant to draw, so a name left standing keeps a floating pill
+    // on the desktop of someone who has signed out of it.
+    setAssistantName("");
+    clearCompanionWorking();
     navigate(getOnboardingEntrypoint());
   } else {
     await useAuthStore.getState().logout();

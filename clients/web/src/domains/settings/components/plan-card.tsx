@@ -78,13 +78,14 @@ export interface PlanCardProps {
 }
 
 function PlanHeading() {
+  const { t } = useTranslation("settings");
   return (
     <Typography
       as="h2"
       variant="title-medium"
       className="text-[var(--content-emphasised)]"
     >
-      Plan
+      {t("planCard.heading")}
     </Typography>
   );
 }
@@ -183,7 +184,7 @@ function RecommendedUpgrade({
     } else {
       // no_op: the sub is already on this package, so there's nothing to
       // provision — just dismiss the confirm.
-      toast.success("You're already on this plan.");
+      toast.success(t("planCard.alreadyOnPlanToast"));
     }
   };
 
@@ -240,7 +241,7 @@ function RecommendedUpgrade({
       toast.error(
         extractMutationError(
           error,
-          "Failed to start the upgrade checkout. Please try again.",
+          t("planCard.checkoutFailedToast"),
         ),
       );
     } finally {
@@ -267,8 +268,8 @@ function RecommendedUpgrade({
       : null;
   const ctaLabel =
     delta != null && delta > 0
-      ? `Power Up for +${formatDollars(delta)}/month`
-      : "Power Up";
+      ? t("planCard.powerUpFor", { amount: formatDollars(delta) })
+      : t("planCard.powerUp");
 
   return (
     <>
@@ -284,7 +285,7 @@ function RecommendedUpgrade({
               <Sparkles className="text-[var(--credits-accent)]" aria-hidden />
             }
           >
-            Next Plan
+            {t("planCard.nextPlan")}
           </Tag>
         }
         specs={packageSpecs(
@@ -392,7 +393,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
         <div className="mt-4 flex items-center gap-2 text-[var(--content-tertiary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
           <Typography as="span" variant="body-small-default">
-            Loading plan...
+            {t("planCard.loading")}
           </Typography>
         </div>
       </Card>
@@ -410,7 +411,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     !plans ||
     !currentPlan
   ) {
-    return <Notice tone="error">Failed to load plan.</Notice>;
+    return <Notice tone="error">{t("planCard.loadError")}</Notice>;
   }
 
   const planName =
@@ -486,7 +487,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     ? 0
     : (currentPackage?.total_price_cents ?? null);
   const priceLabel = isFreePlan
-    ? "Free Forever"
+    ? t("planCard.freeForever")
     : currentPackage
       ? priceLabelFromCents(currentPackage.total_price_cents)
       : null;
@@ -541,8 +542,9 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
                 className="leading-snug text-[var(--content-tertiary)]"
                 data-testid="plan-card-renews"
               >
-                Monthly Payment &bull; Your subscription will auto renew on{" "}
-                {formatGraceDate(subscription.current_period_end!)}.
+                {t("planCard.renewsOn", {
+                  date: formatGraceDate(subscription.current_period_end!),
+                })}
               </Typography>
             )}
             {showCancellation && (
@@ -552,7 +554,9 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
                 className="leading-snug text-[var(--system-mid-strong)]"
                 data-testid="plan-card-cancels"
               >
-                Your plan ends on {formatGraceDate(cancelDate!)}.
+                {t("planCard.endsOn", {
+                  date: formatGraceDate(cancelDate!),
+                })}
               </Typography>
             )}
           </div>
@@ -564,7 +568,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             data-testid="plan-card-plans-button"
             className="shrink-0"
           >
-            View All Plans
+            {t("planCard.viewAllPlans")}
           </Button>
         </div>
         <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
@@ -573,7 +577,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             tierKey={currentTier}
             name={planName}
             nameTestId="plan-card-name"
-            tag={<Tag tone="info">Current</Tag>}
+            tag={<Tag tone="info">{t("planCard.current")}</Tag>}
             specs={currentSpecs}
             specsWrap={obscureCredits}
             footer={currentFooter}

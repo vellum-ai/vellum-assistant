@@ -25,7 +25,7 @@ export const slackTransport: ChannelTransport = {
       const result = await sendSlackReply(chatId, text, {
         threadTs,
         approval: payload.approval,
-        useBlocks: payload.useBlocks,
+        useBlocks: payload.renderRichly,
         audience: payload.audience,
       });
       sentTs = result.ts;
@@ -57,7 +57,7 @@ export const slackTransport: ChannelTransport = {
       target.chatId,
       target.messageId,
       target.text,
-      { blocks: target.blocks, useBlocks: target.useBlocks },
+      { blocks: target.blocks, useBlocks: target.renderRichly },
     );
     return { ok: true, ts: result.ts };
   },

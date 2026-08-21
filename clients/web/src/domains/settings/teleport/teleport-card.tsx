@@ -11,6 +11,7 @@
 import { CheckCircle2, Loader2 } from "lucide-react";
 
 import { DetailCard } from "@/components/detail-card";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -20,6 +21,7 @@ import { destinationDescription, destinationLabel } from "./teleport-types";
 import { useTeleport } from "./use-teleport";
 
 export function TeleportCard() {
+  const { t } = useTranslation("settings");
   const teleport = useTeleport();
   const { destination, phase } = teleport;
 
@@ -31,8 +33,8 @@ export function TeleportCard() {
 
   return (
     <DetailCard
-      title="Teleport"
-      subtitle="Move your assistant to a different hosting environment."
+      title={t("teleportCard.title")}
+      subtitle={t("teleportCard.subtitle")}
     >
       {phase.kind === "idle" && (
         <div className="flex flex-col gap-2">
@@ -62,7 +64,7 @@ export function TeleportCard() {
           {phase.progress != null && (
             <ProgressBar
               value={phase.progress}
-              aria-label="Teleport progress"
+              aria-label={t("teleportCard.progressAriaLabel")}
               className="max-w-[240px]"
             />
           )}
@@ -73,14 +75,14 @@ export function TeleportCard() {
         <Notice
           tone="success"
           icon={<CheckCircle2 className="h-4 w-4" />}
-          title="Transfer complete — verify your new assistant is working."
+          title={t("teleportCard.verifyTitle")}
           actions={
             <div className="flex gap-2">
               <Button variant="primary" onClick={teleport.confirmAndSwitch}>
-                Confirm &amp; Switch
+                {t("teleportCard.confirmAndSwitch")}
               </Button>
               <Button variant="outlined" onClick={teleport.cancelTeleport}>
-                Cancel
+                {t("teleportCard.cancel")}
               </Button>
             </div>
           }
@@ -93,7 +95,7 @@ export function TeleportCard() {
           title={phase.error}
           actions={
             <Button variant="outlined" onClick={teleport.reset}>
-              Try Again
+              {t("teleportCard.tryAgain")}
             </Button>
           }
         />
@@ -102,8 +104,8 @@ export function TeleportCard() {
       <ConfirmDialog
         open={teleport.confirmOpen}
         title={destinationLabel(destination)}
-        message="Your data will be copied to the new environment. The current assistant will remain available until you confirm the new one works."
-        confirmLabel="Teleport"
+        message={t("teleportCard.confirmMessage")}
+        confirmLabel={t("teleportCard.confirmLabel")}
         onConfirm={teleport.confirm}
         onCancel={teleport.cancelConfirm}
       />

@@ -96,12 +96,12 @@ function clickOption(label: string): void {
 
 describe("formatBundleOptionLabel", () => {
   test("formats whole-dollar tiers", () => {
-    expect(formatBundleOptionLabel(TIERS[2]!)).toBe("50 credits — $50/mo");
+    expect(formatBundleOptionLabel(TIERS[2]!)).toBe("50 credits - $50/mo");
   });
 
   test("formats sub-dollar cents with two decimals", () => {
     expect(formatBundleOptionLabel({ ...TIERS[0]!, price_cents: 1050 })).toBe(
-      "10 credits — $10.50/mo",
+      "10 credits - $10.50/mo",
     );
   });
 });
@@ -118,12 +118,12 @@ describe("CreditBundlePicker", () => {
     openSelect();
 
     expect(optionLabels()).toEqual([
-      "No credit bundle — $0/mo",
-      "10 credits — $10/mo",
-      "25 credits — $25/mo",
-      "50 credits — $50/mo",
-      "100 credits — $100/mo",
-      "200 credits — $200/mo",
+      "No credit bundle - $0/mo",
+      "10 credits - $10/mo",
+      "25 credits - $25/mo",
+      "50 credits - $50/mo",
+      "100 credits - $100/mo",
+      "200 credits - $200/mo",
     ]);
   });
 
@@ -137,7 +137,7 @@ describe("CreditBundlePicker", () => {
       />,
     );
     openSelect();
-    clickOption("50 credits — $50/mo");
+    clickOption("50 credits - $50/mo");
 
     expect(onCreditTierChange).toHaveBeenCalledTimes(1);
     expect(onCreditTierChange.mock.calls[0]?.[0]).toBe("credits_50");
@@ -153,7 +153,7 @@ describe("CreditBundlePicker", () => {
       />,
     );
     openSelect();
-    clickOption("No credit bundle — $0/mo");
+    clickOption("No credit bundle - $0/mo");
 
     expect(onCreditTierChange).toHaveBeenCalledTimes(1);
     expect(onCreditTierChange.mock.calls[0]?.[0]).toBeNull();

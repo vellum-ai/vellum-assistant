@@ -246,6 +246,12 @@ const RETRYABLE_PROVIDER_ERROR_REASONS = new Set<ProviderErrorReason>([
   "rate_limited",
   "overloaded",
   "server_error",
+  // Transport failures that never reached the server (SDK connection
+  // errors, Gemini proxy interception). Deadline and cancellation shapes
+  // never carry this reason — they surface as reason-less aborts and
+  // short-circuit in isRetryableError before the reason check — so a
+  // 30-minute stream deadline failure is never retried through it.
+  "network_error",
 ]);
 
 function isRetryableStreamError(error: unknown): boolean {

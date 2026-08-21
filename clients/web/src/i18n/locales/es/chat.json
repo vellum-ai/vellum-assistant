@@ -248,7 +248,7 @@
     "title": "Acciones de {name}"
   },
   "inspectPage": {
-    "accessDenied": "El inspector está disponible para el personal de Vellum o cuando la marca de desarrollador settings-developer-nav está habilitada.",
+    "accessDenied": "El inspector está disponible cuando la marca Internal Thread Actions está habilitada.",
     "allMessages": "Todos los mensajes",
     "back": "Volver",
     "backToConversationAria": "Volver a la conversación",

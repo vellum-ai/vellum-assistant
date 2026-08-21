@@ -1,6 +1,7 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
 
 import { useThemePreference } from "@/hooks/use-theme-preference";
+import { useTranslation } from "@/i18n";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { type ThemePreference } from "@/utils/theme-preferences";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
@@ -12,30 +13,31 @@ import { SegmentControl } from "@vellumai/design-library/components/segment-cont
  * sidebar `ThemeToggle`, so the two surfaces stay in sync.
  */
 export function ThemePicker() {
+  const { t } = useTranslation("settings");
   const velvet = useClientFeatureFlagStore.use.velvet();
   const { theme, setThemePreference } = useThemePreference();
 
   const themeItems = [
     {
       value: "system" as const,
-      label: "System",
+      label: t("themePicker.system"),
       icon: <Monitor className="h-4 w-4" />,
     },
     {
       value: "light" as const,
-      label: "Light",
+      label: t("themePicker.light"),
       icon: <Sun className="h-4 w-4" />,
     },
     {
       value: "dark" as const,
-      label: "Dark",
+      label: t("themePicker.dark"),
       icon: <Moon className="h-4 w-4" />,
     },
     ...(velvet
       ? [
           {
             value: "velvet" as const,
-            label: "Velvet",
+            label: t("themePicker.velvet"),
             icon: <Heart className="h-4 w-4" />,
           },
         ]
@@ -45,11 +47,11 @@ export function ThemePicker() {
   return (
     <section>
       <h3 className="text-title-small text-[var(--content-emphasised)]">
-        Theme
+        {t("themePicker.title")}
       </h3>
       <div className="mt-2 max-w-[360px]">
         <SegmentControl<ThemePreference>
-          ariaLabel="Theme"
+          ariaLabel={t("themePicker.ariaLabel")}
           value={theme}
           onChange={setThemePreference}
           items={themeItems}

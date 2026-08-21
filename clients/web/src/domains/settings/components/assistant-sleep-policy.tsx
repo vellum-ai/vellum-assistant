@@ -7,47 +7,66 @@ import {
   assistantsSleepPolicyDetailReadQueryKey,
   useAssistantsSleepPolicyDetailPartialUpdateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
 
-const PRESET_OPTIONS: ReadonlyArray<{
-  label: string;
-  seconds: number;
-  devOnly?: boolean;
-}> = [
-  { label: "Never", seconds: 0 },
-  { label: "5 min", seconds: 300, devOnly: true },
-  { label: "10 min", seconds: 600, devOnly: true },
-  { label: "1 hour", seconds: 3600 },
-  { label: "3 hours", seconds: 10800 },
-  { label: "1 day", seconds: 86400 },
-  { label: "3 days", seconds: 259200 },
-  { label: "7 days", seconds: 604800 },
-  { label: "14 days", seconds: 1209600 },
-  { label: "30 days", seconds: 2592000 },
-];
+const PRESET_SECONDS = [
+  0, 300, 600, 3600, 10800, 86400, 259200, 604800, 1209600, 2592000,
+] as const;
 
-function formatDuration(seconds: number): string {
+const DEV_ONLY_SECONDS = new Set([300, 600]);
+
+type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
+
+function formatDuration(seconds: number, t: SettingsTranslate): string {
   if (seconds === 0) {
-    return "Never (sleep disabled)";
+    return t("assistantSleepPolicy.neverSleep");
   }
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
   if (days > 0 && hours > 0) {
-    return `${days}d ${hours}h`;
+    return t("assistantSleepPolicy.daysHours", { days, hours });
   }
   if (days > 0) {
-    return `${days} day${days !== 1 ? "s" : ""}`;
+    return t("assistantSleepPolicy.days", { days });
   }
   if (hours > 0) {
-    return `${hours} hour${hours !== 1 ? "s" : ""}`;
+    return t("assistantSleepPolicy.hours", { hours });
   }
   const minutes = Math.floor(seconds / 60);
   if (minutes > 0) {
-    return `${minutes} minute${minutes !== 1 ? "s" : ""}`;
+    return t("assistantSleepPolicy.minutes", { minutes });
   }
-  return `${seconds}s`;
+  return t("assistantSleepPolicy.seconds", { seconds });
+}
+
+function presetLabel(seconds: number, t: SettingsTranslate): string {
+  switch (seconds) {
+    case 0:
+      return t("assistantSleepPolicy.presetNever");
+    case 300:
+      return t("assistantSleepPolicy.preset5Min");
+    case 600:
+      return t("assistantSleepPolicy.preset10Min");
+    case 3600:
+      return t("assistantSleepPolicy.preset1Hour");
+    case 10800:
+      return t("assistantSleepPolicy.preset3Hours");
+    case 86400:
+      return t("assistantSleepPolicy.preset1Day");
+    case 259200:
+      return t("assistantSleepPolicy.preset3Days");
+    case 604800:
+      return t("assistantSleepPolicy.preset7Days");
+    case 1209600:
+      return t("assistantSleepPolicy.preset14Days");
+    case 2592000:
+      return t("assistantSleepPolicy.preset30Days");
+    default:
+      return formatDuration(seconds, t);
+  }
 }
 
 interface AssistantSleepPolicyProps {
@@ -57,10 +76,14 @@ interface AssistantSleepPolicyProps {
 export function AssistantSleepPolicy({
   assistantId,
 }: AssistantSleepPolicyProps) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
   const visibleOptions = useMemo(
-    () => PRESET_OPTIONS.filter((opt) => !opt.devOnly || isNonProduction),
+    () =>
+      PRESET_SECONDS.filter(
+        (seconds) => !DEV_ONLY_SECONDS.has(seconds) || isNonProduction,
+      ),
     [isNonProduction],
   );
 
@@ -82,7 +105,7 @@ export function AssistantSleepPolicy({
 
   const policyUpdate = useAssistantsSleepPolicyDetailPartialUpdateMutation({
     onSuccess: () => {
-      toast.success("Sleep policy saved.");
+      toast.success(t("assistantSleepPolicy.savedToast"));
       setLocalTimeout(null);
       queryClient.invalidateQueries({
         queryKey: assistantsSleepPolicyDetailReadQueryKey({
@@ -91,7 +114,7 @@ export function AssistantSleepPolicy({
       });
     },
     onError: () => {
-      toast.error("Failed to save sleep policy. Please try again.");
+      toast.error(t("assistantSleepPolicy.saveErrorToast"));
     },
   });
 
@@ -99,7 +122,7 @@ export function AssistantSleepPolicy({
     return (
       <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading sleep settings...
+        {t("assistantSleepPolicy.loading")}
       </div>
     );
   }
@@ -107,7 +130,7 @@ export function AssistantSleepPolicy({
   if (policyError) {
     return (
       <p className="text-body-medium-lighter text-[var(--system-negative-strong)]">
-        Failed to load sleep policy. Refresh the page to try again.
+        {t("assistantSleepPolicy.loadError")}
       </p>
     );
   }
@@ -116,26 +139,27 @@ export function AssistantSleepPolicy({
     <div className="space-y-4">
       <div>
         <label className="block text-body-medium-default text-[var(--content-default)]">
-          Idle timeout
+          {t("assistantSleepPolicy.idleTimeout")}
         </label>
         <p className="text-body-small-default text-[var(--content-tertiary)]">
-          How long the assistant can be idle before it is put to sleep.
-          &quot;Never&quot; disables idle sleep entirely.
+          {t("assistantSleepPolicy.idleTimeoutDescription")}
         </p>
         <div className="mt-2 flex flex-wrap gap-2">
-          {visibleOptions.map((opt) => (
+          {visibleOptions.map((seconds) => (
             <Button
-              key={opt.seconds}
+              key={seconds}
               variant="outlined"
-              active={idleTimeoutSeconds === opt.seconds}
-              onClick={() => setLocalTimeout(opt.seconds)}
+              active={idleTimeoutSeconds === seconds}
+              onClick={() => setLocalTimeout(seconds)}
             >
-              {opt.label}
+              {presetLabel(seconds, t)}
             </Button>
           ))}
         </div>
         <p className="mt-2 text-body-small-default text-[var(--content-tertiary)]">
-          Current: {formatDuration(idleTimeoutSeconds)}
+          {t("assistantSleepPolicy.current", {
+            duration: formatDuration(idleTimeoutSeconds, t),
+          })}
         </p>
       </div>
 
@@ -156,14 +180,14 @@ export function AssistantSleepPolicy({
             }
             disabled={policyUpdate.isPending}
           >
-            Save
+            {t("assistantSleepPolicy.save")}
           </Button>
           <Button
             variant="outlined"
             onClick={() => setLocalTimeout(null)}
             disabled={policyUpdate.isPending}
           >
-            Cancel
+            {t("assistantSleepPolicy.cancel")}
           </Button>
         </div>
       )}
