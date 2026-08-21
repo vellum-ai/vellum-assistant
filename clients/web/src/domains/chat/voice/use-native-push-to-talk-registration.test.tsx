@@ -142,6 +142,46 @@ test("retries a prior chord after a failed binding change", async () => {
   expect(registrations[2]).toEqual(CTRL_PTT_ACTIVATOR);
 });
 
+test("re-applies a binding the host reports lost", async () => {
+  const registrations: unknown[] = [];
+  let registrationListener = (_active: boolean): void => undefined;
+  window.vellum = {
+    platform: "electron",
+    helper: {
+      hotkey: {
+        setPushToTalk: async (activator: PushToTalkActivator | null) => {
+          registrations.push(activator);
+          return { ok: true, enabled: activator !== null };
+        },
+        onEvent: () => () => undefined,
+        onRegistrationChange: (listener: (active: boolean) => void) => {
+          registrationListener = listener;
+          return () => {
+            registrationListener = () => undefined;
+          };
+        },
+      },
+    },
+  } as unknown as typeof window.vellum;
+  localStorage.setItem(
+    LS_PTT_ACTIVATION_KEY,
+    serializeActivator(CTRL_PTT_ACTIVATOR),
+  );
+  renderHook(() => useNativePushToTalkRegistration());
+  await waitFor(() => expect(registrations).toHaveLength(1));
+
+  registrationListener(false);
+  expect(isConfigurablePushToTalkActive()).toBe(false);
+
+  // Re-saving the same binding is enough; it no longer counts as applied.
+  setLocalSetting(
+    LS_PTT_ACTIVATION_KEY,
+    serializeActivator(CTRL_PTT_ACTIVATOR),
+  );
+  await waitFor(() => expect(registrations).toHaveLength(2));
+  expect(isConfigurablePushToTalkActive()).toBe(true);
+});
+
 test("registers the latest binding after an in-flight failure", async () => {
   const registrations: Array<PushToTalkActivator | null> = [];
   let rejectOption = (): void => undefined;

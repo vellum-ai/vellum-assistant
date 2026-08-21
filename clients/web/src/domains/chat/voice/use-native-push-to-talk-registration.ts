@@ -70,8 +70,15 @@ export function useNativePushToTalkRegistration(): void {
     const unsubscribeSetting = pushToTalkActivation.subscribe(
       updateDesiredRegistration,
     );
+    // The host restores a binding itself across helper restarts; a binding it
+    // reports lost is forgotten here so the next setting write re-applies it.
     const unsubscribeRegistration = subscribeToPushToTalkRegistration(
-      setConfigurablePushToTalkActive,
+      (active) => {
+        if (!active) {
+          appliedKey = null;
+        }
+        setConfigurablePushToTalkActive(active);
+      },
     );
 
     return () => {

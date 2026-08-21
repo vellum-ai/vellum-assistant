@@ -13,7 +13,9 @@ import {
   supportsConfigurablePushToTalk,
   type HotkeyEvent,
 } from "@/runtime/hotkey";
+import { getAudioContextCtor } from "@/domains/chat/voice/audio-context";
 import { setPushToTalkHoldActive } from "@/domains/chat/voice/push-to-talk-hold";
+import { playBlip } from "@/lib/sounds/blip";
 
 /**
  * Imperative handle (subset of `VoiceInputButtonHandle`) that the hook drives.
@@ -53,54 +55,19 @@ function isEditableTarget(target: EventTarget | null): boolean {
 /** Minimum hold duration before a single-input PTT binding activates. */
 const PTT_HOLD_DELAY_MS = 100;
 
-/**
- * Play a short activation blip via the Web Audio API to provide audible
- * feedback when PTT recording starts. Standalone helper to avoid coupling
- * with `SoundManager`.
- *
- * 880 Hz sine tone, 200 ms duration, 0.25 peak gain. These are the same as
- * `SoundManager.playFallbackBlip`.
- */
+/** Audible feedback when recording starts; a throwaway context per blip. */
 function playActivationBlip(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
   try {
-    const AudioContextCtor =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
+    const AudioContextCtor = getAudioContextCtor();
     if (!AudioContextCtor) {
       return;
     }
-
     const ctx = new AudioContextCtor();
-    if (ctx.state === "suspended") {
-      void ctx.resume();
-    }
-
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(880, ctx.currentTime);
-
-    const peak = 0.25;
-    gain.gain.setValueAtTime(0, ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(peak, ctx.currentTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
-
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-    oscillator.start();
-    oscillator.stop(ctx.currentTime + 0.2);
-
-    // Close the context after playback to avoid leaking resources.
-    oscillator.onended = () => {
+    playBlip(ctx).onended = () => {
       void ctx.close();
     };
   } catch {
-    // Autoplay can be blocked until the user interacts with the page; a
-    // failed blip is non-fatal.
+    // Autoplay can be blocked until the user interacts with the page.
   }
 }
 
@@ -299,13 +266,14 @@ export function usePushToTalk(
       readActivator();
     });
     const unsubscribeNative = subscribeToHotkeyEvents(handleNativeHotkey);
+    // Native capture taking over ends a DOM hold; native capture dropping
+    // (helper restart, binding revoked) ends a native hold, since its up
+    // event may never arrive.
     const unsubscribeRegistration = subscribeToConfigurablePushToTalk(
       (active) => {
-        if (!active) {
-          return;
-        }
         cancelHold();
-        if (activeRef.current && activeOriginRef.current === "dom") {
+        const orphaned = active ? "dom" : "native";
+        if (activeRef.current && activeOriginRef.current === orphaned) {
           stopActiveTarget();
         }
       },
