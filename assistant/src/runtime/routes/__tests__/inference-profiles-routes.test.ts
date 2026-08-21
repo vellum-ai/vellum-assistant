@@ -625,6 +625,11 @@ describe("collectProfileReferences", () => {
           source: "user",
           mix: [{ profile: "my-fast", weight: 1 }],
         },
+        "my-primary": {
+          source: "user",
+          provider: "anthropic",
+          fallbackProfile: "my-fast",
+        },
       },
     };
     expect(collectProfileReferences(llm, "my-fast").sort()).toEqual(
@@ -633,6 +638,7 @@ describe("collectProfileReferences", () => {
         "llm.advisorProfile",
         "llm.callSites.memoryExtraction",
         "llm.profiles.my-mix.mix",
+        "llm.profiles.my-primary.fallbackProfile",
       ].sort(),
     );
   });
@@ -674,6 +680,22 @@ describe("DELETE inference/profiles/:name reference guard", () => {
     await expect(
       call("inference_profiles_delete", { pathParams: { name: "my-fast" } }),
     ).rejects.toThrow(/llm\.profiles\.my-mix\.mix/);
+  });
+
+  test("rejects deletion referenced by another profile's fallbackProfile", async () => {
+    setConfig("llm", {
+      profiles: {
+        "my-fast": { source: "user", provider: "anthropic" },
+        "my-primary": {
+          source: "user",
+          provider: "anthropic",
+          fallbackProfile: "my-fast",
+        },
+      },
+    });
+    await expect(
+      call("inference_profiles_delete", { pathParams: { name: "my-fast" } }),
+    ).rejects.toThrow(/llm\.profiles\.my-primary\.fallbackProfile/);
   });
 
   test("rejects deletion referenced by a call site", async () => {

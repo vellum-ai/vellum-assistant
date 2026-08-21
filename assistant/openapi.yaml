@@ -14914,8 +14914,8 @@ paths:
           description: Profile not found
         "409":
           description:
-            Profile is still referenced by activeProfile, advisorProfile, a call site, a default-tier override, or a
-            mix arm
+            Profile is still referenced by activeProfile, advisorProfile, a call site, a default-tier override, a mix
+            arm, or another profile's fallbackProfile
     get:
       operationId: inference_profiles_by_name_get
       summary: Get an effective inference profile

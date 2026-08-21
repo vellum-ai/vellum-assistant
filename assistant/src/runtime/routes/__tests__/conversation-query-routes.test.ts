@@ -836,6 +836,127 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     seedRawConfig();
   });
 
+  describe("fallbackProfile cross-profile validation", () => {
+    beforeEach(() => {
+      const llm = rawConfigFixture.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      };
+      llm.profiles.backup = {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+      };
+      llm.profiles.chained = {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        fallbackProfile: "backup",
+      };
+      llm.profiles.blend = {
+        mix: [
+          { profile: "custom", weight: 1 },
+          { profile: "backup", weight: 1 },
+        ],
+      };
+      seedRawConfig();
+    });
+
+    test("persists a valid fallbackProfile pointer", async () => {
+      const result = await replaceProfileRoute.handler({
+        pathParams: { name: "custom" },
+        body: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          fallbackProfile: "backup",
+        },
+      });
+      expect(result).toEqual({ ok: true });
+      expect(persistedProfile("custom").fallbackProfile).toBe("backup");
+    });
+
+    test("rejects a dangling fallbackProfile pointer without writing", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "custom" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "ghost",
+          },
+        }),
+      ).rejects.toThrow(/fallbackProfile "ghost" which is not defined/);
+      expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+      // Guard rejects before commitConfigWrite fires any side effects.
+      expect(initializeProvidersCalls).toBe(0);
+    });
+
+    test("rejects a self-referential fallbackProfile", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "custom" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "custom",
+          },
+        }),
+      ).rejects.toThrow(/cannot declare itself as its fallbackProfile/);
+    });
+
+    test("rejects a fallbackProfile pointing at a mix profile", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "custom" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "blend",
+          },
+        }),
+      ).rejects.toThrow(/which is a mix profile/);
+    });
+
+    test("rejects a fallbackProfile whose target declares its own fallback (chain)", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "custom" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "chained",
+          },
+        }),
+      ).rejects.toThrow(/chains are not allowed/);
+    });
+
+    test("rejects adding a fallbackProfile to a profile that is itself a fallback target (chain)", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "backup" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "custom",
+          },
+        }),
+      ).rejects.toThrow(
+        /"chained" already declares profile "backup" as its fallbackProfile/,
+      );
+    });
+
+    test("rejects converting a fallback target into a mix profile", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "backup" },
+          body: {
+            mix: [
+              { profile: "custom", weight: 1 },
+              { profile: "chained", weight: 1 },
+            ],
+          },
+        }),
+      ).rejects.toThrow(/cannot become a mix/);
+    });
+  });
+
   test("owns contextWindow maxInputTokens while preserving non-UI profile leaves", async () => {
     const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },

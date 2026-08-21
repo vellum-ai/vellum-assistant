@@ -1808,6 +1808,59 @@ async function handleReplaceInferenceProfile({
         );
       }
     });
+    // A fallback target must stay a standard profile: converting one to a
+    // mix would leave another profile's fallbackProfile pointing at a mix,
+    // which `LLMSchema.superRefine` rejects on the next full reparse.
+    for (const [otherName, other] of Object.entries(existingProfiles)) {
+      if (otherName !== name && other?.fallbackProfile === name) {
+        throw new BadRequestError(
+          `Profile "${otherName}" declares profile "${name}" as its fallbackProfile; a fallback must be a standard profile, so "${name}" cannot become a mix.`,
+        );
+      }
+    }
+  }
+
+  // `fallbackProfile` references another profile by name. As with `mix`, the
+  // cross-profile integrity rules `LLMSchema.superRefine` enforces on
+  // full-config load (target exists, no self-reference, target is not a mix,
+  // single hop) must be checked here against the live profile set; otherwise
+  // a dangling or chained pointer would persist and break the next full
+  // config reparse.
+  if (parsed.data.fallbackProfile != null) {
+    const fallback = parsed.data.fallbackProfile;
+    if (fallback === name) {
+      throw new BadRequestError(
+        `Profile "${name}" cannot declare itself as its fallbackProfile.`,
+      );
+    }
+    const { llm: parsedLlm } = getConfig();
+    const existingProfiles = getEffectiveProfilesForProvider(
+      parsedLlm.profiles,
+      parsedLlm.defaultProvider ?? null,
+    );
+    const target = existingProfiles[fallback];
+    if (target == null) {
+      throw new BadRequestError(
+        `Profile "${name}" declares fallbackProfile "${fallback}" which is not defined.`,
+      );
+    }
+    if (target.mix != null) {
+      throw new BadRequestError(
+        `Profile "${name}" declares fallbackProfile "${fallback}" which is a mix profile; a fallback must be a standard profile.`,
+      );
+    }
+    if (target.fallbackProfile != null) {
+      throw new BadRequestError(
+        `Profile "${name}" declares fallbackProfile "${fallback}" which sets its own fallbackProfile; fallback is a single hop, chains are not allowed.`,
+      );
+    }
+    for (const [otherName, other] of Object.entries(existingProfiles)) {
+      if (otherName !== name && other?.fallbackProfile === name) {
+        throw new BadRequestError(
+          `Profile "${otherName}" already declares profile "${name}" as its fallbackProfile; fallback is a single hop, chains are not allowed.`,
+        );
+      }
+    }
   }
 
   // When the UI sends provider but no provider_connection, derive the connection

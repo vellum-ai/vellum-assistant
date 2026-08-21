@@ -338,8 +338,9 @@ function fragmentFromBody(
 
 /**
  * Enumerate every live reference to profile `name` in the raw `llm` config
- * block: `activeProfile`, `advisorProfile`, each `callSites.<id>.profile`, and
- * every mix arm (`profiles.<mix>.mix[].profile`). Deleting a profile while any
+ * block: `activeProfile`, `advisorProfile`, each `callSites.<id>.profile`,
+ * every mix arm (`profiles.<mix>.mix[].profile`), and every fallback pointer
+ * (`profiles.<p>.fallbackProfile`). Deleting a profile while any
  * of these point at it would leave a dangling reference that `LLMSchema`'s
  * superRefine rejects on the next load — silently resetting the user's chat
  * model or call-site pins. The delete handler rejects instead.
@@ -369,12 +370,16 @@ export function collectProfileReferences(
   const profiles = asPlainObject(llm.profiles);
   if (profiles) {
     for (const [profileName, profileEntry] of Object.entries(profiles)) {
-      const mix = asPlainObject(profileEntry)?.mix;
+      const entry = asPlainObject(profileEntry);
+      const mix = entry?.mix;
       if (
         Array.isArray(mix) &&
         mix.some((arm) => asPlainObject(arm)?.profile === name)
       ) {
         refs.push(`llm.profiles.${profileName}.mix`);
+      }
+      if (entry?.fallbackProfile === name) {
+        refs.push(`llm.profiles.${profileName}.fallbackProfile`);
       }
     }
   }
@@ -903,7 +908,7 @@ export const ROUTES: RouteDefinition[] = [
       "404": { description: "Profile not found" },
       "409": {
         description:
-          "Profile is still referenced by activeProfile, advisorProfile, a call site, a default-tier override, or a mix arm",
+          "Profile is still referenced by activeProfile, advisorProfile, a call site, a default-tier override, a mix arm, or another profile's fallbackProfile",
       },
     },
     handler: handleDeleteProfile,

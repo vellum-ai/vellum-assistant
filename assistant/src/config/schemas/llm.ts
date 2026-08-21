@@ -627,7 +627,8 @@ export const ProfileEntry = LLMConfigFragment.extend({
    * fails with an outage-type error (retries exhausted, invalid managed
    * credential, unknown model). Single hop: the referenced profile must
    * not declare its own fallbackProfile. Managed (`vellum`) profiles
-   * only — BYOK installs may hold no credential for the backup provider.
+   * only, since BYOK installs may hold no credential for the backup
+   * provider.
    */
   fallbackProfile: z.string().min(1).optional(),
 });
@@ -846,7 +847,7 @@ export const LLMSchema = z
     // `LLMSchema.superRefine` enforces that (a) the referenced profile exists,
     // (b) a profile does not fall back to itself, (c) the referenced profile
     // is not a mix (a fallback must be a directly dispatchable route), and
-    // (d) the referenced profile does not itself set `fallbackProfile` —
+    // (d) the referenced profile does not itself set `fallbackProfile`:
     // fallback is a single hop in v1, never a chain. A mix profile setting
     // `fallbackProfile` at all is rejected by the mix validation above
     // (MIX_DISALLOWED_CONFIG_KEYS).
@@ -878,16 +879,16 @@ export const LLMSchema = z
         ctx.addIssue({
           code: "custom",
           path: ["profiles", name, "fallbackProfile"],
-          message: `Profile "${name}" declares fallbackProfile "${fallback}" which is a mix profile — a fallback must be a standard profile.`,
+          message: `Profile "${name}" declares fallbackProfile "${fallback}" which is a mix profile; a fallback must be a standard profile.`,
         });
         continue;
       }
-      // (d) Single hop only — the target must not declare its own fallback.
+      // (d) Single hop only: the target must not declare its own fallback.
       if (config.profiles?.[fallback]?.fallbackProfile != null) {
         ctx.addIssue({
           code: "custom",
           path: ["profiles", name, "fallbackProfile"],
-          message: `Profile "${name}" declares fallbackProfile "${fallback}" which sets its own fallbackProfile — fallback is a single hop, chains are not allowed.`,
+          message: `Profile "${name}" declares fallbackProfile "${fallback}" which sets its own fallbackProfile; fallback is a single hop, chains are not allowed.`,
         });
       }
     }

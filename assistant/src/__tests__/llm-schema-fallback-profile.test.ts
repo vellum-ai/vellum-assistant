@@ -153,7 +153,7 @@ describe("LLMSchema fallbackProfile", () => {
 
   test("z.toJSONSchema still generates for LLMSchema (config docs/routes)", () => {
     // Same options as handleGetConfigSchema in
-    // runtime/routes/conversation-query-routes.ts — the field must not
+    // runtime/routes/conversation-query-routes.ts. The field must not
     // introduce any callback-bearing zod construct that breaks generation.
     const json = z.toJSONSchema(LLMSchema, {
       unrepresentable: "any",
