@@ -333,7 +333,9 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   be installed first: `bun install --filter=@vellumai/assistant`.
   `pr-ios.yaml` and `ci-main-ios.yaml` run that same check right after their
   install step, and both watch `assistant/src/avatar/**`, so a catalog edit
-  without a regeneration fails CI.
+  without a regeneration fails CI. Rasterizing 540 icons costs about 2 minutes
+  locally and about 19 on a `macos-15` runner, which is why both jobs allow 45
+  minutes.
 - All three app targets ship the catalog: it rides along in the
   `AppEnvironment` source sweep the way `Assets.xcassets` does, and each
   target's `Config/App*.xcconfig` includes `AvatarIcons.xcconfig`. Every

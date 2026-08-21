@@ -64,13 +64,15 @@ const PNG_COLOR_TYPE_OFFSET = 25;
 const MIN_ICON_BYTES = 4096;
 
 /**
- * Rasterizing the committed set takes minutes, well past the 5s default, and
- * CI runners are several times slower than a laptop.
+ * Rasterizing all 540 icons takes about 2 minutes on an M-series laptop and
+ * about 17 on a `macos-15` runner, so this is a backstop rather than a target.
+ * Generation is synchronous, which bun cannot interrupt, so a run past this
+ * still finishes and then reports the test failed.
  */
-const GENERATION_TIMEOUT_MS = 600_000;
+const GENERATION_TIMEOUT_MS = 2_400_000;
 
-/** The determinism check reruns a 24-set slice, which costs seconds. */
-const PILOT_GENERATION_TIMEOUT_MS = 120_000;
+/** The determinism check reruns a 24-set slice: seconds locally, 90s on CI. */
+const PILOT_GENERATION_TIMEOUT_MS = 600_000;
 
 interface GeneratedCatalog {
   iconsDir: string;
