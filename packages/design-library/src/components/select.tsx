@@ -462,14 +462,6 @@ export function Select<T extends string>({
               if (!option.sticky) {
                 return row;
               }
-              // The pinned band carries the opaque fill rather than the row
-              // itself, so the row's translucent highlight tint composites
-              // over the band instead of replacing it: the rows the band
-              // floats over read as scrolled under it rather than bleeding
-              // through a highlighted row. The rule along the top uses
-              // `--border-element` rather than `--field-border`, which is
-              // transparent in the dark and velvet themes and would leave the
-              // row indistinguishable from an ordinary last row.
               return (
                 <RadixSelect.Group
                   key={tokenFor(option.value)}
