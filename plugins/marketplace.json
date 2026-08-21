@@ -219,9 +219,9 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/imessage",
-        "ref": "cf65266908f370a4efe266d0cb4fd953efc13c05"
+        "ref": "069a8375e2a6ed069550866114a653218864bc91"
       },
-      "description": "iMessage and SMS channel for the Vellum assistant, backed by a Photon or Comms by Osis line.",
+      "description": "iMessage and SMS channel for the Vellum assistant, backed by a Photon line.",
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/imessage",
       "license": "MIT",
