@@ -1,16 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  slackChannelChatType,
-  slackConversationType,
-} from "../slack/message-normalizer.js";
+import { slackConversationVisibility } from "../slack/message-normalizer.js";
 import { telegramConversationType } from "../telegram/normalize.js";
+import { pluginConversationType } from "./plugin-inbound.js";
 
 /**
- * The permission matrix's conversation-type axis, mapped by each channel that
- * can answer it. There is no shared mapper any more: only the sending channel
- * knows what its own surfaces mean, so the axis is asserted per channel and
- * swept across all of them here.
+ * The permission matrix's conversation-type axis, answered by each channel that
+ * can answer it. There is no shared mapper: only the sending channel knows what
+ * its own surfaces mean, so the axis is asserted per channel and swept across
+ * all of them here.
  */
 describe("conversation type, per channel", () => {
   test("every DM-capable channel's own word for a DM lands on the axis", () => {
@@ -20,8 +18,9 @@ describe("conversation type, per channel", () => {
     // and it does nothing. Stated as a sweep so a DM-capable channel added
     // without its mapping fails here rather than in someone's workspace.
     const dmByChannel: Record<string, string | undefined> = {
-      slack: slackConversationType("im"),
+      slack: slackConversationVisibility("D0DIRECT", "im"),
       telegram: telegramConversationType("private"),
+      plugin: pluginConversationType("dm"),
     };
     for (const [channel, resolved] of Object.entries(dmByChannel)) {
       expect(`${channel}:${resolved}`).toBe(`${channel}:dm`);
@@ -29,13 +28,25 @@ describe("conversation type, per channel", () => {
   });
 
   test("Slack tells a public room from a private one", () => {
-    // The change this file exists for. `channel` used to mean every non-DM, so
-    // it could not be mapped at all and the public tier never matched. Slack
-    // names a private channel `group`, and the normalizer now forwards that,
-    // so both tiers resolve.
-    expect(slackConversationType("channel")).toBe("public");
-    expect(slackConversationType("group")).toBe("private");
-    expect(slackConversationType("mpim")).toBe("private");
+    // The change this file exists for. Every non-DM used to arrive as one word,
+    // so it could not be mapped and the public tier never matched.
+    expect(slackConversationVisibility("C0PUBLIC", "channel")).toBe("public");
+    expect(slackConversationVisibility("G0PRIVATE", "group")).toBe("private");
+    expect(slackConversationVisibility("C0GROUPDM", "mpim")).toBe("private");
+  });
+
+  test("a private channel with no channel_type is still private", () => {
+    // Slack omits the type on thread replies, edits and deletes. Without the
+    // prefix, a threaded message in a private channel would read as public and
+    // a permissive rule would reach a private room. This is the assertion that
+    // fails if the fallback is ever simplified away.
+    expect(slackConversationVisibility("G0PRIVATE", undefined)).toBe("private");
+    expect(slackConversationVisibility("D0DIRECT", undefined)).toBe("dm");
+    expect(slackConversationVisibility("C0PUBLIC", undefined)).toBe("public");
+  });
+
+  test("nothing to go on resolves to nothing", () => {
+    expect(slackConversationVisibility(undefined, undefined)).toBeUndefined();
   });
 
   test("Telegram closed groups are private, and a broadcast is neither", () => {
@@ -47,40 +58,17 @@ describe("conversation type, per channel", () => {
     expect(telegramConversationType("channel")).toBeUndefined();
   });
 
-  test("an unknown or absent surface is never reported public", () => {
-    // The safe direction. Absent means nobody proved the visibility, and a
-    // permissive public cell must not reach a room on a guess.
+  test("a plugin's shared room is not assumed public", () => {
+    // Plugins report one word for every shared room, which proves nothing about
+    // who can read it.
+    expect(pluginConversationType("channel")).toBeUndefined();
+    expect(pluginConversationType(undefined)).toBeUndefined();
+  });
+
+  test("an unknown surface is never reported public", () => {
     for (const value of [undefined, "", "wat"]) {
-      expect(slackConversationType(value as never)).toBeUndefined();
       expect(telegramConversationType(value)).toBeUndefined();
+      expect(pluginConversationType(value)).toBeUndefined();
     }
-  });
-});
-
-describe("slackChannelChatType, the uncertain direction", () => {
-  test("an explicit type is authoritative in both directions", () => {
-    expect(slackChannelChatType("C123", "channel")).toBe("channel");
-    expect(slackChannelChatType("G123", "group")).toBe("group");
-    // The explicit type wins over the prefix rather than being second-guessed.
-    expect(slackChannelChatType("G123", "channel")).toBe("channel");
-  });
-
-  test("a private channel with no type is still private", () => {
-    // Slack omits `channel_type` on thread replies, edits and deletes. Without
-    // the prefix fallback, a threaded message in a private channel would report
-    // as public and a permissive public rule would reach a private room. This
-    // is the assertion that fails if the fallback is ever simplified away.
-    expect(slackChannelChatType("G0PRIVATE", undefined)).toBe("group");
-  });
-
-  test("a public channel with no type reads public", () => {
-    expect(slackChannelChatType("C0PUBLIC", undefined)).toBe("channel");
-  });
-
-  test("no signal at all does not invent a private room", () => {
-    // Nothing to go on resolves to `channel`, which `slackConversationType`
-    // then maps to `public`. That is only sound because multi-person IMs reach
-    // their own normalizer and never this path.
-    expect(slackChannelChatType(undefined, undefined)).toBe("channel");
   });
 });

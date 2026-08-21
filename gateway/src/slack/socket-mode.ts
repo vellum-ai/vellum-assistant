@@ -1699,12 +1699,14 @@ export class SlackSocketModeClient {
         eventId,
         this.config.gatewayConfig,
         renderContext,
+        this.config.botToken,
       );
     } else if (isMessageDeleted) {
       normalized = normalizeSlackMessageDelete(
         event,
         eventId,
         this.config.gatewayConfig,
+        this.config.botToken,
       );
     } else if (isActiveThreadReply) {
       normalized = normalizeSlackChannelMessage(

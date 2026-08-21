@@ -1,5 +1,5 @@
 import { isSlackDmChannel } from "./channel.js";
-import { slackChannelChatType } from "./message-normalizer.js";
+import { slackConversationVisibility } from "./message-normalizer.js";
 import {
   slackMessageChangedEventSchema,
   slackMessageDeletedEventSchema,
@@ -32,6 +32,7 @@ export function normalizeSlackMessageEdit(
   eventId: string,
   config: GatewayConfig,
   renderContext?: SlackTextRenderContext,
+  botToken?: string,
 ): NormalizedSlackEvent | null {
   const parsed = slackMessageChangedEventSchema.safeParse(event);
   if (!parsed.success) return null;
@@ -80,9 +81,15 @@ export function normalizeSlackMessageEdit(
         updateId: eventId,
         // The original message's ts lets the runtime identify which message was edited
         messageId: edited.ts,
-        ...(isDm
-          ? {}
-          : { chatType: slackChannelChatType(channel, changed.channel_type) }),
+        ...(isDm ? {} : { chatType: "channel" as const }),
+        ...(() => {
+          const conversationType = slackConversationVisibility(
+            channel,
+            changed.channel_type,
+            botToken,
+          );
+          return conversationType ? { conversationType } : {};
+        })(),
         ...(edited.thread_ts ? { threadId: edited.thread_ts } : {}),
       },
       raw: rawEvent,
@@ -117,6 +124,7 @@ export function normalizeSlackMessageDelete(
   event: unknown,
   eventId: string,
   config: GatewayConfig,
+  botToken?: string,
 ): NormalizedSlackEvent | null {
   const parsed = slackMessageDeletedEventSchema.safeParse(event);
   if (!parsed.success) return null;
@@ -159,9 +167,15 @@ export function normalizeSlackMessageDelete(
         // Original message's ts — the lookup key the daemon uses to find
         // the stored row to mark deleted.
         messageId: deleted.deleted_ts,
-        ...(isDm
-          ? {}
-          : { chatType: slackChannelChatType(channel, deleted.channel_type) }),
+        ...(isDm ? {} : { chatType: "channel" as const }),
+        ...(() => {
+          const conversationType = slackConversationVisibility(
+            channel,
+            deleted.channel_type,
+            botToken,
+          );
+          return conversationType ? { conversationType } : {};
+        })(),
         ...(previousThreadTs ? { threadId: previousThreadTs } : {}),
       },
       raw: rawEvent,
