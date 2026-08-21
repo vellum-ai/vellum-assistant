@@ -145,6 +145,16 @@ export interface CompanionIntroProps {
   /** The assistant's avatar colour, for the progress dots. */
   accentHex?: string;
   /**
+   * The assistant's own name, for the first beat.
+   *
+   * The creature introduces itself by name because it has one, and the surface
+   * is the one place it appears without the app around it to say whose it is.
+   * Undefined until the app's window has published a name, which is a real
+   * state on a cold launch, and the beat falls back to naming no one rather
+   * than to a gap in the sentence.
+   */
+  assistantName?: string;
+  /**
    * The card's own element, for the host to hit-test the pointer against.
    *
    * The companion's window is click-through except where it is told otherwise,
@@ -162,6 +172,7 @@ export function CompanionIntro({
   growth = "right",
   cardGrowth = "up",
   accentHex,
+  assistantName,
   cardRef,
   onAdvance,
 }: CompanionIntroProps) {
@@ -213,7 +224,14 @@ export function CompanionIntro({
       }}
     >
       <p className="text-[13px] leading-tight font-medium text-white">
-        {t(copy.title)}
+        {/* The first beat is the introduction proper, so it is the one that
+            says the name. Two keys rather than one with an empty argument: a
+            sentence built around a name that is not there reads as a bug, and
+            the unnamed version is a different sentence rather than the same one
+            with a hole in it. */}
+        {beat === "meet" && assistantName !== undefined
+          ? t("companionIntro.meet.titleNamed", { name: assistantName })
+          : t(copy.title)}
       </p>
       <p className="text-[12px] leading-[1.45] text-white/70">{t(copy.body)}</p>
       <div className="flex items-center justify-between pt-0.5">
