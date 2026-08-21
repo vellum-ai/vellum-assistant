@@ -48,6 +48,7 @@ import {
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
+  collectFallbackProfileIssues,
   DefaultProviderSchema,
   LLMConfigBase,
   LLMConfigFragment,
@@ -240,6 +241,13 @@ function replaceInferenceProfileConfig(
   const nextProfile: Record<string, unknown> = { ...existingProfile };
   for (const key of INFERENCE_PROFILE_UI_KEYS) {
     delete nextProfile[key];
+  }
+  // Converting a profile to a mix is an explicit replacement: a mix carries
+  // no model route of its own to fall back from, so an existing
+  // `fallbackProfile` pointer is dropped rather than preserved alongside
+  // `mix` (a combination `LLMSchema` rejects on the next full reload).
+  if (fragment.mix != null) {
+    delete nextProfile.fallbackProfile;
   }
   const fragmentTopLevel = { ...fragment };
   delete fragmentTopLevel.contextWindow;
@@ -1399,6 +1407,26 @@ function assertRoutableIdentityEntries(
   }
 }
 
+/**
+ * Reject writes that would persist an invalid `fallbackProfile` graph.
+ * `LLMSchema.superRefine` enforces the cross-profile fallback rules only on
+ * a full-config parse; the write paths (PATCH deep-merge, SET, the profile
+ * routes) save raw config without one, so a self-reference, dangling
+ * target, mix target, or chain would reach disk and be stripped on the next
+ * reload, silently disabling the configured fallback. Checked
+ * unconditionally rather than scoped to pointers this write changes:
+ * removing a target profile invalidates a pointer the write never touched,
+ * and clearing the pointer (write `null`) through these same routes remains
+ * the repair path for a hand-edited config.
+ */
+function assertValidFallbackProfileGraph(raw: Record<string, unknown>): void {
+  const profiles = readPlainObject(readPlainObject(raw.llm)?.profiles);
+  const issues = collectFallbackProfileIssues(profiles ?? undefined);
+  if (issues.length > 0) {
+    throw new BadRequestError(issues.map((issue) => issue.message).join(" "));
+  }
+}
+
 export async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
@@ -1411,6 +1439,7 @@ export async function commitConfigWrite(
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
   assertRoutableIdentityEntries(preWrite, raw);
+  assertValidFallbackProfileGraph(raw);
 
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write
@@ -1808,6 +1837,59 @@ async function handleReplaceInferenceProfile({
         );
       }
     });
+    // A fallback target must stay a standard profile: converting one to a
+    // mix would leave another profile's fallbackProfile pointing at a mix,
+    // which `LLMSchema.superRefine` rejects on the next full reparse.
+    for (const [otherName, other] of Object.entries(existingProfiles)) {
+      if (otherName !== name && other?.fallbackProfile === name) {
+        throw new BadRequestError(
+          `Profile "${otherName}" declares profile "${name}" as its fallbackProfile; a fallback must be a standard profile, so "${name}" cannot become a mix.`,
+        );
+      }
+    }
+  }
+
+  // `fallbackProfile` references another profile by name. As with `mix`, the
+  // cross-profile integrity rules `LLMSchema.superRefine` enforces on
+  // full-config load (target exists, no self-reference, target is not a mix,
+  // single hop) must be checked here against the live profile set; otherwise
+  // a dangling or chained pointer would persist and break the next full
+  // config reparse.
+  if (parsed.data.fallbackProfile != null) {
+    const fallback = parsed.data.fallbackProfile;
+    if (fallback === name) {
+      throw new BadRequestError(
+        `Profile "${name}" cannot declare itself as its fallbackProfile.`,
+      );
+    }
+    const { llm: parsedLlm } = getConfig();
+    const existingProfiles = getEffectiveProfilesForProvider(
+      parsedLlm.profiles,
+      parsedLlm.defaultProvider ?? null,
+    );
+    const target = existingProfiles[fallback];
+    if (target == null) {
+      throw new BadRequestError(
+        `Profile "${name}" declares fallbackProfile "${fallback}" which is not defined.`,
+      );
+    }
+    if (target.mix != null) {
+      throw new BadRequestError(
+        `Profile "${name}" declares fallbackProfile "${fallback}" which is a mix profile; a fallback must be a standard profile.`,
+      );
+    }
+    if (target.fallbackProfile != null) {
+      throw new BadRequestError(
+        `Profile "${name}" declares fallbackProfile "${fallback}" which sets its own fallbackProfile; fallback is a single hop, chains are not allowed.`,
+      );
+    }
+    for (const [otherName, other] of Object.entries(existingProfiles)) {
+      if (otherName !== name && other?.fallbackProfile === name) {
+        throw new BadRequestError(
+          `Profile "${otherName}" already declares profile "${name}" as its fallbackProfile; fallback is a single hop, chains are not allowed.`,
+        );
+      }
+    }
   }
 
   // When the UI sends provider but no provider_connection, derive the connection

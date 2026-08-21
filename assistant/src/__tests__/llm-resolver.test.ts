@@ -303,6 +303,27 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.effort).toBe("high");
   });
 
+  test("a winning profile's fallbackProfile metadata never leaks into the resolved config", () => {
+    const llm = LLMSchema.parse({
+      profiles: {
+        primary: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          fallbackProfile: "backup",
+        },
+        backup: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      },
+      callSites: {
+        memoryExtraction: { profile: "primary" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.model).toBe("claude-opus-4-7");
+    // `fallbackProfile` is ProfileEntry-only metadata, absent from
+    // `LLMConfigBase`; the resolved config must not carry the key at all.
+    expect(Object.hasOwn(resolved, "fallbackProfile")).toBe(false);
+  });
+
   test("topP defaults to null when no profile or override sets it", () => {
     const llm = LLMSchema.parse({});
     const resolved = resolveCallSiteConfig("mainAgent", llm);

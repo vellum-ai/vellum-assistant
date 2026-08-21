@@ -5152,6 +5152,9 @@ paths:
                     required:
                       - profile
                       - weight
+                fallbackProfile:
+                  type: string
+                  minLength: 1
       responses:
         "200":
           description: Successful response
@@ -14911,8 +14914,8 @@ paths:
           description: Profile not found
         "409":
           description:
-            Profile is still referenced by activeProfile, advisorProfile, a call site, a default-tier override, or a
-            mix arm
+            Profile is still referenced by activeProfile, advisorProfile, a call site, a default-tier override, a mix
+            arm, or another profile's fallbackProfile
     get:
       operationId: inference_profiles_by_name_get
       summary: Get an effective inference profile
@@ -34632,6 +34635,11 @@ components:
                   - profile
                   - weight
             - type: "null"
+        fallbackProfile:
+          anyOf:
+            - type: string
+              minLength: 1
+            - type: "null"
       additionalProperties: {}
     ProfileStatus:
       type: string
@@ -35401,6 +35409,9 @@ components:
               - profile
               - weight
             additionalProperties: false
+        fallbackProfile:
+          type: string
+          minLength: 1
         supportsVision:
           type: boolean
         invariant:

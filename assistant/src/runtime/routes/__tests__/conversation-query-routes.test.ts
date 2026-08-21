@@ -51,7 +51,7 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
 }));
 
 import { getConfig, loadRawConfig } from "../../../config/loader.js";
-import { LLMConfigBase } from "../../../config/schemas/llm.js";
+import { LLMConfigBase, LLMSchema } from "../../../config/schemas/llm.js";
 import type { ConversationCreateType } from "../../../persistence/conversation-types.js";
 import {
   getDb,
@@ -836,6 +836,153 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     seedRawConfig();
   });
 
+  describe("fallbackProfile cross-profile validation", () => {
+    beforeEach(() => {
+      const llm = rawConfigFixture.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      };
+      llm.profiles.backup = {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+      };
+      llm.profiles.chained = {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        fallbackProfile: "backup",
+      };
+      llm.profiles.blend = {
+        mix: [
+          { profile: "custom", weight: 1 },
+          { profile: "backup", weight: 1 },
+        ],
+      };
+      seedRawConfig();
+    });
+
+    test("persists a valid fallbackProfile pointer", async () => {
+      const result = await replaceProfileRoute.handler({
+        pathParams: { name: "custom" },
+        body: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          fallbackProfile: "backup",
+        },
+      });
+      expect(result).toEqual({ ok: true });
+      expect(persistedProfile("custom").fallbackProfile).toBe("backup");
+    });
+
+    test("rejects a dangling fallbackProfile pointer without writing", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "custom" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "ghost",
+          },
+        }),
+      ).rejects.toThrow(/fallbackProfile "ghost" which is not defined/);
+      expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+      // Guard rejects before commitConfigWrite fires any side effects.
+      expect(initializeProvidersCalls).toBe(0);
+    });
+
+    test("rejects a self-referential fallbackProfile", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "custom" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "custom",
+          },
+        }),
+      ).rejects.toThrow(/cannot declare itself as its fallbackProfile/);
+    });
+
+    test("rejects a fallbackProfile pointing at a mix profile", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "custom" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "blend",
+          },
+        }),
+      ).rejects.toThrow(/which is a mix profile/);
+    });
+
+    test("rejects a fallbackProfile whose target declares its own fallback (chain)", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "custom" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "chained",
+          },
+        }),
+      ).rejects.toThrow(/chains are not allowed/);
+    });
+
+    test("rejects adding a fallbackProfile to a profile that is itself a fallback target (chain)", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "backup" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "custom",
+          },
+        }),
+      ).rejects.toThrow(
+        /"chained" already declares profile "backup" as its fallbackProfile/,
+      );
+    });
+
+    test("rejects converting a fallback target into a mix profile", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "backup" },
+          body: {
+            mix: [
+              { profile: "custom", weight: 1 },
+              { profile: "chained", weight: 1 },
+            ],
+          },
+        }),
+      ).rejects.toThrow(/cannot become a mix/);
+    });
+
+    test("clears the profile's own fallbackProfile when converting it to a mix", async () => {
+      // "chained" declares fallbackProfile "backup". Replacing it with a mix
+      // body is an explicit replacement, so the pointer must be dropped: a
+      // persisted entry carrying both `mix` and `fallbackProfile` would be
+      // rejected and stripped on the next full config reload.
+      const result = await replaceProfileRoute.handler({
+        pathParams: { name: "chained" },
+        body: {
+          mix: [
+            { profile: "custom", weight: 1 },
+            { profile: "backup", weight: 1 },
+          ],
+        },
+      });
+      expect(result).toEqual({ ok: true });
+      const saved = persistedProfile("chained");
+      expect(saved.mix).toEqual([
+        { profile: "custom", weight: 1 },
+        { profile: "backup", weight: 1 },
+      ]);
+      expect("fallbackProfile" in saved).toBe(false);
+      // The persisted llm subtree reloads cleanly under the full schema
+      // parse, so the loader will not strip or salvage anything.
+      expect(LLMSchema.safeParse(loadRawConfig().llm).success).toBe(true);
+    });
+  });
+
   test("owns contextWindow maxInputTokens while preserving non-UI profile leaves", async () => {
     const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
@@ -1239,6 +1386,96 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       expect(initializeProvidersCalls).toBe(1);
       expect(clearEmbeddingBackendCacheCalls).toBe(1);
     });
+  });
+});
+
+describe("PATCH /v1/config fallbackProfile cross-profile validation", () => {
+  const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
+
+  beforeEach(() => {
+    initializeProvidersCalls = 0;
+    clearEmbeddingBackendCacheCalls = 0;
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          custom: { provider: "anthropic", model: "claude-sonnet-4-6" },
+          backup: { provider: "anthropic", model: "claude-sonnet-4-6" },
+          chained: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "backup",
+          },
+          blend: {
+            mix: [
+              { profile: "custom", weight: 1 },
+              { profile: "backup", weight: 1 },
+            ],
+          },
+        },
+      },
+    };
+    seedRawConfig();
+  });
+
+  test("persists a valid fallbackProfile through the generic patch route", async () => {
+    await patchRoute.handler({
+      body: { llm: { profiles: { custom: { fallbackProfile: "backup" } } } },
+    });
+    expect(persistedProfile("custom").fallbackProfile).toBe("backup");
+  });
+
+  test("rejects a self-referential fallbackProfile without writing", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { custom: { fallbackProfile: "custom" } } } },
+      }),
+    ).rejects.toThrow(/cannot declare itself as its fallbackProfile/);
+    expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+    // Rejection fires before commitConfigWrite runs any post-write side
+    // effects.
+    expect(initializeProvidersCalls).toBe(0);
+  });
+
+  test("rejects a dangling fallbackProfile without writing", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { custom: { fallbackProfile: "ghost" } } } },
+      }),
+    ).rejects.toThrow(/fallbackProfile "ghost" which is not defined/);
+    expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+    expect(initializeProvidersCalls).toBe(0);
+  });
+
+  test("rejects a fallbackProfile pointing at a mix profile without writing", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { custom: { fallbackProfile: "blend" } } } },
+      }),
+    ).rejects.toThrow(/which is a mix profile/);
+    expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+    expect(initializeProvidersCalls).toBe(0);
+  });
+
+  test("rejects a fallbackProfile chain without writing", async () => {
+    await expect(
+      patchRoute.handler({
+        body: {
+          llm: { profiles: { custom: { fallbackProfile: "chained" } } },
+        },
+      }),
+    ).rejects.toThrow(/chains are not allowed/);
+    expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+    expect(initializeProvidersCalls).toBe(0);
+  });
+
+  test("rejects adding a fallbackProfile to a mix profile without writing", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { blend: { fallbackProfile: "backup" } } } },
+      }),
+    ).rejects.toThrow(/Mix profile "blend" cannot also set "fallbackProfile"/);
+    expect(persistedProfile("blend").fallbackProfile).toBeUndefined();
+    expect(initializeProvidersCalls).toBe(0);
   });
 });
 
