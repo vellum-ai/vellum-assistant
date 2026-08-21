@@ -1,10 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   attachConfirmationToToolCall,
   extractWirePendingAcpConnect,
   extractWirePendingConfirmation,
   extractWirePendingQuestion,
+  formatVoiceError,
   hasAssistantMessage,
   isConversationScopedStreamEvent,
   shouldClearFirstMessageGateOnConversationChange,
@@ -31,7 +32,37 @@ function assistantWithToolCalls(
   return { id, role: "assistant", toolCalls };
 }
 
+afterEach(() => {
+  delete (window as unknown as { vellum?: unknown }).vellum;
+});
+
 describe("chat utilities", () => {
+  describe("formatVoiceError", () => {
+    test("names the Windows client in native dictation errors", () => {
+      (
+        window as unknown as {
+          vellum?: { platform: "electron"; hostOS: "windows" };
+        }
+      ).vellum = { platform: "electron", hostOS: "windows" };
+
+      expect(formatVoiceError("native-stt-no-transcript")).toBe(
+        "Windows Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again.",
+      );
+    });
+
+    test("names the macOS client in native dictation errors", () => {
+      (
+        window as unknown as {
+          vellum?: { platform: "electron"; hostOS: "macos" };
+        }
+      ).vellum = { platform: "electron", hostOS: "macos" };
+
+      expect(formatVoiceError("native-stt-no-transcript")).toBe(
+        "macOS Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again.",
+      );
+    });
+  });
+
   describe("isConversationScopedStreamEvent", () => {
     const scoped = (type: string) =>
       isConversationScopedStreamEvent({ type } as AssistantEvent);

@@ -42,6 +42,11 @@
   "sectionActionsButton": {
     "ariaLabel": "{name} actions"
   },
+  "sttProviderForm": {
+    "windowsNativeDisplayName": "Windows Native Dictation",
+    "windowsNativeSubtitle": "Windows on-device speech recognition, running locally through the Windows helper. Works offline and needs no API key.",
+    "windowsNativeSetupWarning": "Requires Basic speech recognition for your Windows display language: open Settings > Time & language > Language & region, select the three dots next to the display language, choose Language options, then under Language features download Basic speech recognition."
+  },
   "useConnectClaude": {
     "failed": "Connecting Claude failed. Please try again.",
     "timedOut": "Timed out waiting for Claude to connect. Please try again.",

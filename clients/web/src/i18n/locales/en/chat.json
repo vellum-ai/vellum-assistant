@@ -643,5 +643,8 @@
   "useSendMessage": {
     "commandFailed": "Couldn't run that command. Please try again.",
     "doctorUnavailable": "The Doctor isn't available on this assistant."
+  },
+  "voiceErrors": {
+    "nativeSttNoTranscript": "{clientName} Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again."
   }
 }

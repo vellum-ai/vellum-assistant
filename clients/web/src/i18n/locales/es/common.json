@@ -42,6 +42,11 @@
   "sectionActionsButton": {
     "ariaLabel": "Acciones de {name}"
   },
+  "sttProviderForm": {
+    "windowsNativeDisplayName": "Dictado nativo de Windows",
+    "windowsNativeSubtitle": "Reconocimiento de voz integrado de Windows, ejecutado localmente mediante el asistente nativo de Windows. Funciona sin conexión y no necesita una clave de API.",
+    "windowsNativeSetupWarning": "Requiere Reconocimiento de voz básico para el idioma de visualización de Windows: abre Configuración > Hora e idioma > Idioma y región, selecciona los tres puntos junto al idioma de visualización, elige Opciones de idioma y, en Características de idioma, descarga Reconocimiento de voz básico."
+  },
   "useConnectClaude": {
     "failed": "No se pudo conectar Claude. Inténtalo de nuevo.",
     "timedOut": "Se agotó el tiempo de espera para conectar Claude. Inténtalo de nuevo.",

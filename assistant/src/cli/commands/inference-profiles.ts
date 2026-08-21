@@ -28,6 +28,8 @@ interface ProfileSummary {
   source: "managed" | "user";
   provider_connection?: string;
   availability: { status: string; message?: string } | null;
+  /** Static problem with the stored entry itself; absent when it checks out. */
+  config_issue?: { code: string; message: string };
 }
 
 interface ProfileWriteResult {
@@ -178,7 +180,16 @@ export function attachProfilesSubcommand(inference: Command): void {
       return;
     }
     renderTable(
-      ["NAME", "LABEL", "PROVIDER", "MODEL", "STATUS", "SOURCE", "AVAIL"],
+      [
+        "NAME",
+        "LABEL",
+        "PROVIDER",
+        "MODEL",
+        "STATUS",
+        "SOURCE",
+        "AVAIL",
+        "CONFIG",
+      ],
       rows.map((p) => [
         p.name,
         p.label ?? "-",
@@ -187,6 +198,7 @@ export function attachProfilesSubcommand(inference: Command): void {
         p.status,
         p.source,
         p.availability ? p.availability.status : "-",
+        p.config_issue ? p.config_issue.code : "ok",
       ]),
     );
   });
@@ -198,6 +210,7 @@ export function attachProfilesSubcommand(inference: Command): void {
         name: string;
         entry: Record<string, unknown>;
         availability: { status: string; message?: string } | null;
+        config_issue?: { code: string; message: string };
       }>("inference_profiles_get", { pathParams: { name } });
       if (!ipcResult.ok) {
         writeCliError(ipcResult.error ?? "Unknown error", opts.json);
@@ -217,6 +230,10 @@ export function attachProfilesSubcommand(inference: Command): void {
         if (result.availability.message) {
           writeLine(`    ${result.availability.message}`);
         }
+      }
+      if (result.config_issue) {
+        writeLine(`  config: ${result.config_issue.code}`);
+        writeLine(`    ${result.config_issue.message}`);
       }
     },
   );

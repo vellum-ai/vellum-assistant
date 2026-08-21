@@ -643,5 +643,8 @@
   "useSendMessage": {
     "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",
     "doctorUnavailable": "El Doctor no está disponible en este asistente."
+  },
+  "voiceErrors": {
+    "nativeSttNoTranscript": "El dictado nativo de {clientName} no devolvió una transcripción. Revisa el reconocimiento de voz nativo en los ajustes del sistema e inténtalo de nuevo."
   }
 }
