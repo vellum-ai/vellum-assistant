@@ -58,6 +58,13 @@ function parseArgs(): TunnelArgs {
       );
       console.log("");
       console.log(
+        "The default tailscale provider is reachable only from your own tailnet.",
+      );
+      console.log(
+        "Public webhook ingress needs --provider ngrok or --provider cloudflare.",
+      );
+      console.log("");
+      console.log(
         "The tunnel always fronts the local nginx edge, which is started automatically.",
       );
       console.log(
@@ -100,7 +107,7 @@ function parseArgs(): TunnelArgs {
         "               No Cloudflare account required for quick tunnels.",
       );
       console.log(
-        "  tailscale    Tailscale serve (default) — install: brew install tailscale, then `tailscale up`",
+        "  tailscale    Tailscale serve (default). Install: brew install tailscale, then `tailscale up`",
       );
       console.log(
         "               Reachable only from your own tailnet (private; LetsEncrypt cert).",
