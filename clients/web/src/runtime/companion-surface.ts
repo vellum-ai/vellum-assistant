@@ -186,3 +186,14 @@ export function advanceCompanionIntro(action: CompanionIntroAction): void {
 export function showCompanionContextMenu(): void {
   bridge()?.showContextMenu?.();
 }
+
+/**
+ * Hand a link from the card to the host, which opens it in the browser.
+ *
+ * The surface's window denies every navigation and every `window.open`, so an
+ * anchor cannot follow itself and the shared `openExternalUrl` helper has
+ * nothing to work with here. Main validates the scheme on the far side.
+ */
+export function openCompanionLink(url: string): void {
+  bridge()?.openLink?.(url);
+}

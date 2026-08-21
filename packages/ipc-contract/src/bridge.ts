@@ -452,6 +452,15 @@ export interface VellumBridge {
      * describe the surface differently.
      */
     showContextMenu(): void;
+    /**
+     * Open a link from the card in the user's browser.
+     *
+     * The surface's window denies every navigation and every `window.open`, so
+     * an anchor cannot follow itself: the URL is handed to main, which is the
+     * side allowed to open anything. Main validates the scheme, since a URL
+     * arriving over IPC is untrusted whatever drew the anchor.
+     */
+    openLink(url: string): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

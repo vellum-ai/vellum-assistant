@@ -532,6 +532,9 @@ const bridge: VellumBridge = {
     showContextMenu: (): void => {
       ipcRenderer.send("vellum:companion:contextMenu");
     },
+    openLink: (url: string): void => {
+      ipcRenderer.send("vellum:companion:openLink", url);
+    },
   },
   popout: {
     open: (conversationId: string): Promise<void> =>

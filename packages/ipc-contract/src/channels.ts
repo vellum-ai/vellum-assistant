@@ -171,6 +171,7 @@ export const COMPANION_SUBMIT = "vellum:companion:submit";
 export const COMPANION_SET_CONTEXT = "vellum:companion:setContext";
 export const COMPANION_ADVANCE_INTRO = "vellum:companion:advanceIntro";
 export const COMPANION_CONTEXT_MENU = "vellum:companion:contextMenu";
+export const COMPANION_OPEN_LINK = "vellum:companion:openLink";
 
 // Popout
 export const POPOUT_OPEN = "vellum:popout:open";

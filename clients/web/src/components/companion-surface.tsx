@@ -27,6 +27,8 @@ import type {
 
 import { MarkdownMessage } from "@vellumai/design-library";
 
+import { openCompanionLink } from "@/runtime/companion-surface";
+
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
@@ -650,6 +652,43 @@ export function CompanionSurface({
  * reply that scrolled out of sight as it was written would be unreadable
  * exactly when it mattered.
  */
+/**
+ * The card's links.
+ *
+ * The companion's window is created with a `deny-all` navigation policy, so an
+ * ordinary `target="_blank"` anchor is refused by the window-open handler and
+ * the press does nothing at all. The URL goes to the host instead, which opens
+ * it in the user's browser where a link from a floating panel belongs.
+ */
+function CompanionLink({
+  href,
+  children,
+}: {
+  href?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      className="underline decoration-white/30 underline-offset-2 hover:decoration-white/60"
+      onClick={(event) => {
+        event.preventDefault();
+        if (href !== undefined) {
+          openCompanionLink(href);
+        }
+      }}
+      // A press on a link is not a grab, the way a press on a control is not.
+      onMouseDown={(event) => {
+        event.stopPropagation();
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+const linkComponent = CompanionLink;
+
 function RecentTurns({ turns }: { turns: CompanionTurn[] }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -705,8 +744,20 @@ function RecentTurns({ turns }: { turns: CompanionTurn[] }) {
               // inline media, none of which a floating panel can do anything
               // with. The type scale is pinned down to the card's own 12px,
               // since the primitive is authored for a full-width transcript.
-              <div className="companion-markdown min-w-0 text-[12px] leading-[1.45] text-white/85">
-                <MarkdownMessage content={turn.text} />
+              // **`data-theme="dark"` is not a preference here, it is a
+              // statement of fact.** The surface paints its own near-black
+              // body in every theme, and the design library resolves its
+              // content tokens from the nearest `[data-theme]`. Left to the
+              // host's theme, a light-mode user gets `--content-default` at
+              // #24292E on a #17181b card, which is prose they cannot read.
+              <div
+                data-theme="dark"
+                className="companion-markdown min-w-0 text-[12px] leading-[1.45] text-white/85"
+              >
+                <MarkdownMessage
+                  content={turn.text}
+                  linkComponent={linkComponent}
+                />
               </div>
             )}
           </div>

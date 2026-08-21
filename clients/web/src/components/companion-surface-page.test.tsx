@@ -66,6 +66,7 @@ mock.module("@/runtime/companion-surface", () => ({
   setCompanionContext: () => undefined,
   advanceCompanionIntro: advanceIntroMock,
   showCompanionContextMenu: contextMenuMock,
+  openCompanionLink: () => undefined,
 }));
 
 mock.module("@/runtime/desktop-voice-activity", () => ({
@@ -472,6 +473,33 @@ describe("the companion's own menu", () => {
    * window: the surface would follow the pointer afterwards with no button
    * held, which is the stuck-drag bug with a different trigger.
    */
+  /**
+   * The card carries a composer and selectable prose, and the host's own text
+   * menu is the only way to copy either. Replacing it with "Small / Medium /
+   * Large" would take Cut, Copy, Paste and the spelling suggestions away.
+   */
+  test("leaves the native text menu alone inside the composer", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const pill = await pinPill(container);
+
+    // Open the composer, which is what puts a field on the card.
+    const type = Array.from(pill.querySelectorAll("button")).find(
+      (button) => button.getAttribute("aria-label") === "Type",
+    );
+    fireEvent.click(type as HTMLElement);
+    const field = await waitFor(() => {
+      const found = container.querySelector("input");
+      if (!found) {
+        throw new Error("Expected the composer field to render");
+      }
+      return found;
+    });
+
+    fireEvent.contextMenu(field);
+
+    expect(contextMenuMock).not.toHaveBeenCalled();
+  });
+
   test("a right-press does not start a drag", async () => {
     const { container } = render(<CompanionSurfacePage />);
     const pill = await pinPill(container);

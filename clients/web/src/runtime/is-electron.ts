@@ -352,6 +352,7 @@ declare global {
         setContext?(context: CompanionContext): void;
         advanceIntro?(action: CompanionIntroAction): void;
         showContextMenu?(): void;
+        openLink?(url: string): void;
       };
     };
   }

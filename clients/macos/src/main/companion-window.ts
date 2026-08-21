@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, screen } from "electron";
+import { BrowserWindow, Menu, screen, shell } from "electron";
 import { z } from "zod";
 
 import {
@@ -782,6 +782,32 @@ export const installCompanionWindow = (): void => {
     menu.popup({ window: win });
   });
 
+  /**
+   * A link pressed on the card.
+   *
+   * The surface's window is created `deny-all`, which refuses every top-level
+   * navigation and every `window.open`, so an anchor in a reply cannot follow
+   * itself and a press would otherwise do nothing at all. Main is the side
+   * allowed to open things, so the URL comes here.
+   *
+   * **Only http and https.** The string arrives over IPC and is drawn from
+   * model output, so it is untrusted twice over: `file:` would open anything
+   * on disk the user can read, and a custom scheme would hand the press to
+   * whichever application claims it.
+   */
+  on("vellum:companion:openLink", z.tuple([z.string()]), ([url]) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return;
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return;
+    }
+    void shell.openExternal(parsed.toString());
+  });
+
   on("vellum:companion:activate", z.tuple([]), () => {
     void ensureMainWindowVisible().then(() => {
       dispatchToMain({ kind: "currentConversation" });
@@ -957,7 +983,12 @@ const closeCompanionWindow = (): void => {
 export const setCompanionSurfaceVisible = (visible: boolean): void => {
   writeCompanionHidden(!visible);
   if (visible) {
-    openCompanionWindow();
+    // Through the same decision every other path uses, never straight to
+    // `openCompanionWindow`. The tray item survives a sign-out, so a user who
+    // had the surface hidden and then signed out could otherwise tick it and
+    // get a blank disc floating over a signed-out app: the one state the
+    // assistant gate exists to prevent, reached around the side.
+    syncCompanionSurface();
     return;
   }
   // Putting the surface away mid-introduction is an answer to it. Recorded, so

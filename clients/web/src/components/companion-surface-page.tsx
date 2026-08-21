@@ -452,6 +452,20 @@ export function CompanionSurfacePage() {
             draggedRef.current = false;
           }}
           onSurfaceContextMenu={(event) => {
+            // **Text keeps its own menu.** A right-click in the composer, or
+            // on a reply the user has selected, wants Cut/Copy/Paste and the
+            // spelling suggestions the host already provides. Swallowing that
+            // to offer "Small / Medium / Large" would take away the only way
+            // to copy something off this card.
+            const target = event.target as HTMLElement | null;
+            const onEditable =
+              target?.closest("input, textarea, [contenteditable='true']") !==
+              null;
+            const onSelection =
+              (window.getSelection()?.toString().trim().length ?? 0) > 0;
+            if (onEditable || onSelection) {
+              return;
+            }
             event.preventDefault();
             // Main pops the menu at the pointer, so the window has to still be
             // clickable when it does. It is: the pointer is on the pill, which
