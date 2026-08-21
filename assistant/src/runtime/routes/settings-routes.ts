@@ -6,11 +6,7 @@
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
-import {
-  INGRESS_ASSISTANT_ID_KEY,
-  INGRESS_LAST_TUNNEL_KEY,
-  normalizePublicBaseUrl,
-} from "@vellumai/service-contracts/ingress";
+import { normalizePublicBaseUrl } from "@vellumai/service-contracts/ingress";
 import { z } from "zod";
 
 import { setImage } from "../../avatar/avatar-store.js";
@@ -29,6 +25,7 @@ import {
 } from "../../daemon/conversation-tool-setup.js";
 import {
   computeGatewayTarget,
+  dropTunnelRecordsForNewUrl,
   getIngressConfigResult,
 } from "../../daemon/handlers/config-ingress.js";
 import { normalizeActivationKey } from "../../daemon/handlers/config-voice.js";
@@ -842,12 +839,12 @@ function handleGetPlatformConfig() {
 function handleUpdatePlatformConfig({ body = {} }: RouteHandlerArgs) {
   try {
     const { baseUrl: rawBaseUrl } = body as { baseUrl?: string };
-    const value = (rawBaseUrl ?? "").trim().replace(/\/+$/, "");
+    const value = normalizePublicBaseUrl(rawBaseUrl);
     const raw = loadRawConfig();
     const platform = (raw?.platform ?? {}) as Record<string, unknown>;
-    platform.baseUrl = value || undefined;
+    platform.baseUrl = value;
     saveRawConfig({ ...raw, platform });
-    return { baseUrl: value, success: true };
+    return { baseUrl: value ?? "", success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to update platform config");
@@ -868,13 +865,7 @@ function handleUpdateIngressConfig({ body = {} }: RouteHandlerArgs) {
     const value = normalizePublicBaseUrl(rawUrl);
     const raw = loadRawConfig();
     const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-    if (value !== normalizePublicBaseUrl(ingress.publicBaseUrl)) {
-      // Both records describe the address being replaced, so keeping them
-      // makes the status route call a legitimate retarget `foreign` and name
-      // a tunnel that never fronted the new address.
-      delete ingress[INGRESS_ASSISTANT_ID_KEY];
-      delete ingress[INGRESS_LAST_TUNNEL_KEY];
-    }
+    dropTunnelRecordsForNewUrl(ingress, value);
     ingress.publicBaseUrl = value;
     if (enabled !== undefined) {
       ingress.enabled = enabled;

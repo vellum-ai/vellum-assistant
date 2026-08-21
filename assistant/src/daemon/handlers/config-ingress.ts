@@ -2,6 +2,7 @@ import {
   INGRESS_ASSISTANT_ID_KEY,
   INGRESS_LAST_TUNNEL_KEY,
   type LastTunnelRecord,
+  normalizePublicBaseUrl,
   parseLastTunnelRecord,
   parseRecordedAssistantId,
 } from "@vellumai/service-contracts/ingress";
@@ -19,6 +20,7 @@ import {
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
   type IngressConfig,
+  isPublicIngressDisabled,
 } from "../../inbound/public-ingress-urls.js";
 import { isPlainObject } from "../../util/object.js";
 import { log } from "./shared.js";
@@ -55,6 +57,51 @@ export function loadRecordedAssistantId(): string | null {
   );
 }
 
+/** Key under `ingress` naming the component that owns `publicBaseUrl`. */
+const INGRESS_MANAGED_BY_KEY = "publicBaseUrlManagedBy";
+
+/** Value that key carries when a self-hosted gateway's Velay tunnel owns it. */
+const VELAY_MANAGED_BY = "velay";
+
+/**
+ * True when Velay owns `ingress.publicBaseUrl`.
+ *
+ * A gateway started with `VELAY_BASE_URL` writes the URL when its tunnel comes
+ * up, clears it when the tunnel drops, and reconnects on its own
+ * (`gateway/src/velay/client.ts`). Readers must not offer the user a tunnel
+ * command for an ingress they do not own.
+ */
+export function isVelayManagedIngress(): boolean {
+  return readIngressSection()[INGRESS_MANAGED_BY_KEY] === VELAY_MANAGED_BY;
+}
+
+/**
+ * Drop `ingress.assistantId` and `ingress.lastTunnel` from `ingress` when
+ * `nextPublicBaseUrl` replaces a different address, mutating it in place.
+ *
+ * Both records describe the address being replaced, so keeping them makes the
+ * status route call a legitimate retarget `foreign` and name a tunnel that
+ * never fronted the new address. Every writer of `ingress.publicBaseUrl` owes
+ * this cleanup, so it lives here rather than in each of them. An absent
+ * `ingress` section carries no records to drop.
+ */
+export function dropTunnelRecordsForNewUrl(
+  ingress: Record<string, unknown> | undefined,
+  nextPublicBaseUrl: unknown,
+): void {
+  if (!ingress) {
+    return;
+  }
+  if (
+    normalizePublicBaseUrl(nextPublicBaseUrl) ===
+    normalizePublicBaseUrl(ingress.publicBaseUrl)
+  ) {
+    return;
+  }
+  delete ingress[INGRESS_ASSISTANT_ID_KEY];
+  delete ingress[INGRESS_LAST_TUNNEL_KEY];
+}
+
 /**
  * Read the current ingress config from the raw workspace config file.
  * Extracted so it can be called from both the daemon message handler
@@ -62,6 +109,7 @@ export function loadRecordedAssistantId(): string | null {
  */
 export function getIngressConfigResult(): {
   enabled: boolean;
+  explicitlyDisabled: boolean;
   publicBaseUrl: string;
   localGatewayTarget: string;
   managedCallbacks: boolean;
@@ -77,6 +125,7 @@ export function getIngressConfigResult(): {
     if (assistantId) {
       return {
         enabled: true,
+        explicitlyDisabled: false,
         publicBaseUrl: `${platformBase}/gateway/callbacks/${assistantId}`,
         localGatewayTarget: computeGatewayTarget(),
         managedCallbacks: true,
@@ -90,9 +139,13 @@ export function getIngressConfigResult(): {
   // value whose type contradicts this function's return type.
   const publicBaseUrl =
     typeof ingress.publicBaseUrl === "string" ? ingress.publicBaseUrl : "";
-  const enabled = ingress.enabled === true;
+  const enabled =
+    typeof ingress.enabled === "boolean" ? ingress.enabled : undefined;
   return {
-    enabled,
+    enabled: enabled === true,
+    // `enabled` is opt-out across the assistant, so an unset flag is not off:
+    // callers asking whether ingress is live read this, not `!enabled`.
+    explicitlyDisabled: isPublicIngressDisabled({ ingress: { enabled } }),
     publicBaseUrl,
     localGatewayTarget: computeGatewayTarget(),
     managedCallbacks: false,

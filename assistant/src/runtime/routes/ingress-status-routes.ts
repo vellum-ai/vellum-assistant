@@ -10,12 +10,17 @@
  *
  * Platform-hosted assistants receive webhooks through platform callback
  * routing and never run `vellum tunnel`, so they report `unconfigured`
- * rather than a tunnel state they cannot act on.
+ * rather than a tunnel state they cannot act on. A self-hosted gateway whose
+ * Velay tunnel owns the URL is the same story one layer down: it is still
+ * probed while a URL is published, but it is never handed a tunnel command,
+ * because the gateway publishes and restores that URL itself.
  */
+import { normalizePublicBaseUrl } from "@vellumai/service-contracts/ingress";
 import { z } from "zod";
 
 import {
   getIngressConfigResult,
+  isVelayManagedIngress,
   loadLastTunnelRecord,
   loadRecordedAssistantId,
 } from "../../daemon/handlers/config-ingress.js";
@@ -45,7 +50,7 @@ const IngressStatusResponseSchema = z.object({
     .object({ provider: z.string(), publicBaseUrl: z.string() })
     .optional()
     .describe(
-      "The tunnel to restart. Set whenever one is recorded and the URL is not serving this assistant: stopped, unreachable, and foreign.",
+      "The tunnel to restart. Set on stopped whenever one is recorded, and on unreachable and foreign when the recorded tunnel fronted the configured URL.",
     ),
   servingAssistantName: z
     .string()
@@ -72,20 +77,29 @@ async function handleIngressStatus(): Promise<IngressStatusResponse> {
     return { state: "unconfigured" };
   }
 
-  // Carried by every state the user has to act on, so the client can name the
-  // command that brings the tunnel back.
-  const lastTunnel = loadLastTunnelRecord();
-  const restartHint = lastTunnel ? { lastTunnel } : {};
+  // A Velay-managed URL belongs to the gateway, which writes it, clears it,
+  // and reconnects on its own, so there is no tunnel for the user to restart.
+  const lastTunnel = isVelayManagedIngress() ? null : loadLastTunnelRecord();
 
   const publicBaseUrl = config.publicBaseUrl.trim();
   if (!publicBaseUrl && !lastTunnel) {
     return { state: "unconfigured" };
   }
-  // The URL survives the enabled toggle, so probing while ingress is off would
-  // report a tunnel the user switched off as healthy.
-  if (!publicBaseUrl || !config.enabled) {
-    return { state: "stopped", ...restartHint };
+  // The URL survives the enabled toggle, so probing while ingress is opted out
+  // would report a tunnel the user switched off as healthy. An unset flag is
+  // not an opt-out: a bring-your-own-HTTPS front sets only the URL.
+  if (!publicBaseUrl || config.explicitlyDisabled) {
+    return { state: "stopped", ...(lastTunnel ? { lastTunnel } : {}) };
   }
+
+  // A record left over from an address that is no longer configured names a
+  // tunnel that never fronted this one, so it is no help in getting back.
+  const restartHint =
+    lastTunnel &&
+    normalizePublicBaseUrl(lastTunnel.publicBaseUrl) ===
+      normalizePublicBaseUrl(publicBaseUrl)
+      ? { lastTunnel }
+      : {};
 
   // Omitted when unrecorded so the probe skips the identity check entirely
   // rather than reading every served id as a mismatch.
@@ -131,7 +145,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Get ingress tunnel status",
     description:
-      "Probe the configured public ingress URL and report whether a tunnel is serving this assistant. `unconfigured` means no tunnel has ever been recorded (or the assistant is platform-hosted, which never uses one), `stopped` means a tunnel ran before and is not running now (ingress is switched off, or its URL is gone), `healthy` means the URL answers and fronts this assistant, `unreachable` means it does not answer, and `foreign` means it answers for a different assistant. `lastTunnel` names the tunnel to restart on every state but `healthy` and `unconfigured`.",
+      "Probe the configured public ingress URL and report whether a tunnel is serving this assistant. `unconfigured` means no tunnel has ever been recorded (or the ingress is managed for this assistant, as it is when platform-hosted or fronted by a Velay tunnel), `stopped` means a tunnel ran before and is not running now (ingress is explicitly switched off, or its URL is gone), `healthy` means the URL answers and fronts this assistant, `unreachable` means it does not answer, and `foreign` means it answers for a different assistant. `lastTunnel` names the tunnel to restart, on the states where a recorded one applies to the configured URL.",
     tags: ["config"],
     handler: handleIngressStatus,
     responseBody: IngressStatusResponseSchema,
