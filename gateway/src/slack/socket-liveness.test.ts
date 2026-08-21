@@ -183,6 +183,39 @@ describe("SlackSocketLiveness", () => {
     liveness.stop();
   });
 
+  test("lastPongAt records the most recent proof of liveness", () => {
+    const { clock, ping, liveness } = makeWatchdog();
+    liveness.start({ ping });
+
+    expect(liveness.lastPongAt).toBeUndefined();
+
+    clock.advance(DEFAULT_PROBE_INTERVAL_MS);
+    liveness.notePong();
+    const first = liveness.lastPongAt;
+    expect(first).toBe(DEFAULT_PROBE_INTERVAL_MS);
+
+    clock.advance(DEFAULT_PROBE_INTERVAL_MS);
+    liveness.notePong();
+    expect(liveness.lastPongAt).toBe(DEFAULT_PROBE_INTERVAL_MS * 2);
+
+    liveness.stop();
+  });
+
+  test("a new generation does not inherit the previous socket's proof", () => {
+    // Reporting the old socket's timestamp against a fresh connection would
+    // claim liveness that the new socket has not demonstrated.
+    const { clock, ping, liveness } = makeWatchdog();
+    liveness.start({ ping });
+    clock.advance(DEFAULT_PROBE_INTERVAL_MS);
+    liveness.notePong();
+    expect(liveness.lastPongAt).toBeDefined();
+
+    liveness.start({ ping });
+    expect(liveness.lastPongAt).toBeUndefined();
+
+    liveness.stop();
+  });
+
   test("stop() cancels every outstanding timer", () => {
     const { clock, deaths, ping, liveness } = makeWatchdog();
     liveness.start({ ping });

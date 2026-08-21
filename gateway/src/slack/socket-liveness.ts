@@ -94,6 +94,7 @@ export class SlackSocketLiveness {
   private cancelProbeTimer: CancelTimer | null = null;
   private cancelDeadlineTimer: CancelTimer | null = null;
   private probeSentAt: number | undefined;
+  private lastPongTimestamp: number | undefined;
 
   constructor(private readonly options: SlackSocketLivenessOptions) {
     this.schedule = options.schedule ?? defaultSchedule;
@@ -123,12 +124,26 @@ export class SlackSocketLiveness {
    * mismatching can keep this watchdog from firing on one.
    */
   notePong(): void {
+    this.lastPongTimestamp = this.now();
     if (this.probeSentAt !== undefined) {
       this.options.onRoundTrip?.(this.now() - this.probeSentAt);
       this.probeSentAt = undefined;
     }
     this.cancelDeadlineTimer?.();
     this.cancelDeadlineTimer = null;
+  }
+
+  /**
+   * When this socket last proved it was alive, or undefined if it has not yet.
+   *
+   * Describes the current generation only, so a fresh connection reports
+   * undefined until its first probe is answered rather than inheriting the
+   * previous socket's answer. Readers must therefore treat absence as "not
+   * proven yet", never as "proven dead": the first probe is a full interval
+   * away, so every reconnect has a window where this is legitimately empty.
+   */
+  get lastPongAt(): number | undefined {
+    return this.lastPongTimestamp;
   }
 
   /** Drop all timers and forget the socket. Idempotent. */
@@ -138,6 +153,7 @@ export class SlackSocketLiveness {
     this.cancelDeadlineTimer?.();
     this.cancelDeadlineTimer = null;
     this.probeSentAt = undefined;
+    this.lastPongTimestamp = undefined;
     this.socket = null;
   }
 

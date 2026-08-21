@@ -36,6 +36,7 @@ export class HeartbeatMonitor {
   private intervalMs: number | undefined;
   private awaitingAck = false;
   private lastBeatAt: number | undefined;
+  private lastAckTimestamp: number | undefined;
 
   /** `random` and `now` are injectable so tests can pin jitter and time. */
   constructor(
@@ -102,6 +103,18 @@ export class HeartbeatMonitor {
   /** Record op 11 HEARTBEAT_ACK, closing the ACK window. */
   noteAck(): void {
     this.awaitingAck = false;
+    this.lastAckTimestamp = this.now();
+  }
+
+  /**
+   * When this connection last proved it was alive, or undefined if it has not
+   * yet. Discord's proof is an op 11 ACK, where a transport-level client's
+   * would be a pong; the meaning is the same and so is the caveat, that a
+   * connection which has not yet completed a beat is unproven rather than
+   * dead.
+   */
+  get lastAckAt(): number | undefined {
+    return this.lastAckTimestamp;
   }
 
   /**
@@ -114,5 +127,6 @@ export class HeartbeatMonitor {
     this.intervalMs = undefined;
     this.awaitingAck = false;
     this.lastBeatAt = undefined;
+    this.lastAckTimestamp = undefined;
   }
 }

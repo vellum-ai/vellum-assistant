@@ -29,6 +29,22 @@ mock.module("./channel-invite-transports/whatsapp.js", () => ({
   resolveWhatsAppDisplayNumber: () => undefined,
 }));
 
+type SocketHealth = {
+  channel: string;
+  status: "connected" | "disconnected" | "not_configured" | "unsupported";
+  lastLivenessAt?: number;
+};
+let socketHealth: SocketHealth | Error;
+
+mock.module("../channels/gateway-channel-socket-health.js", () => ({
+  readChannelSocketHealth: async () => {
+    if (socketHealth instanceof Error) {
+      throw socketHealth;
+    }
+    return socketHealth;
+  },
+}));
+
 const originalFetch = globalThis.fetch;
 let fetchCalls: Array<{ url: string; init?: RequestInit }>;
 let fetchHandler: (
@@ -42,6 +58,7 @@ beforeEach(() => {
   setConfig("slack", {});
   fetchCalls = [];
   fetchHandler = () => ({ ok: true, body: { ok: true } });
+  socketHealth = { channel: "slack", status: "connected" };
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     fetchCalls.push({ url, init });
@@ -293,5 +310,89 @@ describe("slack scope-grant check", () => {
     )!;
 
     expect(scopeCheck.passed).toBe(true);
+  });
+});
+
+describe("slack remote probe (socket delivery)", () => {
+  /**
+   * The outage this check exists for: every credential signal green, the
+   * socket open at the layer below and delivering nothing. Before this check
+   * the probe reported Slack healthy for eleven and a half hours.
+   */
+  test("fails on a dead socket even while auth.test passes", async () => {
+    mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
+    setConfig("slack", { teamId: "T123" });
+    fetchHandler = () => ({
+      ok: true,
+      body: { ok: true, team_id: "T123", team: "acme", user: "apollobot" },
+    });
+    socketHealth = { channel: "slack", status: "disconnected" };
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const remote = snapshot.remoteChecks ?? [];
+    const authTest = remote.find((c) => c.name === "auth_test")!;
+    const delivery = remote.find((c) => c.name === "socket_delivery")!;
+
+    expect(authTest.passed).toBe(true);
+    expect(delivery.passed).toBe(false);
+    expect(delivery.indeterminate).toBeFalsy();
+    expect(delivery.message).toMatch(/not reaching this assistant/i);
+  });
+
+  test("passes on a live socket and reports the last keepalive", async () => {
+    socketHealth = {
+      channel: "slack",
+      status: "connected",
+      lastLivenessAt: Date.parse("2026-08-21T17:00:00.000Z"),
+    };
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const delivery = snapshot.remoteChecks!.find(
+      (c) => c.name === "socket_delivery",
+    )!;
+
+    expect(delivery.passed).toBe(true);
+    expect(delivery.message).toContain("2026-08-21T17:00:00.000Z");
+  });
+
+  test("a freshly opened socket passes before its first keepalive", async () => {
+    // The first probe is a full interval after open, so requiring a keepalive
+    // would report every healthy reconnect as broken.
+    socketHealth = { channel: "slack", status: "connected" };
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const delivery = snapshot.remoteChecks!.find(
+      (c) => c.name === "socket_delivery",
+    )!;
+
+    expect(delivery.passed).toBe(true);
+    expect(delivery.message).toMatch(/no keepalive answered yet/i);
+  });
+
+  test("an unconfigured channel is indeterminate, not broken", async () => {
+    socketHealth = { channel: "slack", status: "not_configured" };
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const delivery = snapshot.remoteChecks!.find(
+      (c) => c.name === "socket_delivery",
+    )!;
+
+    expect(delivery.indeterminate).toBe(true);
+    expect(delivery.passed).toBe(true);
+  });
+
+  test("an unreachable gateway is indeterminate, not an outage", async () => {
+    // A gateway we cannot reach is a fact about the gateway. Rendering it as
+    // "Slack is disconnected" would invent an outage.
+    socketHealth = new Error("gateway socket refused");
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const delivery = snapshot.remoteChecks!.find(
+      (c) => c.name === "socket_delivery",
+    )!;
+
+    expect(delivery.indeterminate).toBe(true);
+    expect(delivery.passed).toBe(true);
+    expect(delivery.message).toMatch(/could not reach the gateway/i);
   });
 });

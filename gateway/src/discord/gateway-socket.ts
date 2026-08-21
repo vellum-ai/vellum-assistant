@@ -205,6 +205,25 @@ export class DiscordGatewayClient {
   }
 
   /**
+   * Whether this client currently holds a live Gateway connection.
+   *
+   * Reported in the same shape as the other socket channels so a reader does
+   * not need to know which protocol proved it. Discord's proof of liveness is
+   * an op 11 ACK rather than a pong, and `connected` is trustworthy for the
+   * same reason it is there: the ACK watchdog bounds how long a dead
+   * connection can keep claiming to be open.
+   */
+  getConnectionHealth(): {
+    connected: boolean;
+    lastLivenessAt: number | undefined;
+  } {
+    return {
+      connected: this.ws !== null,
+      lastLivenessAt: this.heartbeat.lastAckAt,
+    };
+  }
+
+  /**
    * Deliberate teardown. Closes with 1000 — the session is intentionally
    * finished, so the taxonomy is never consulted.
    */
