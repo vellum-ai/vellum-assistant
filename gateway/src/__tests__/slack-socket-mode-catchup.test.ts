@@ -24,7 +24,8 @@ mock.module("../fetch.js", () => ({
 }));
 
 const { SlackSocketModeClient } = await import("../slack/socket-mode.js");
-const { clearUserInfoCache } = await import("../slack/user-directory.js");
+const { clearUserInfoCache, clearChannelInfoCache, clearInFlightFetches } =
+  await import("../slack/user-directory.js");
 import type { SlackSocketModeConfig } from "../slack/socket-mode.js";
 
 type CatchupHarness = {
@@ -54,11 +55,6 @@ function makeConfig(): GatewayConfig {
       {
         type: "conversation_id",
         key: "CROUTED01",
-        assistantId: "ast-slack",
-      },
-      {
-        type: "conversation_id",
-        key: "GPRIVATE01",
         assistantId: "ast-slack",
       },
     ],
@@ -163,6 +159,12 @@ function makeHistoryResponse(messages: unknown[]): Response {
 
 beforeEach(() => {
   clearUserInfoCache();
+  // The channel-kind cache outlives a test otherwise, so one test's failed
+  // `conversations.info` leaves an unresolved marker the next test reads
+  // instead of its own mock. Kind is now a permission input, which makes that
+  // leak the difference between resolving a room and declining to.
+  clearChannelInfoCache();
+  clearInFlightFetches();
   fetchMock = mock(async () => makeHistoryResponse([]));
 });
 
@@ -1098,6 +1100,11 @@ describe("catch-up preserves room visibility", () => {
     const client = createHarness(store, (event) => emitted.push(event));
     const ws = makeOpenSocket();
     client.ws = ws;
+    // Scoped to this test: a routed private room. Adding it to the shared
+    // config would make every replay test fetch a second channel.
+    client.config.gatewayConfig.routingEntries = [
+      { type: "conversation_id", key: "GPRIVATE01", assistantId: "ast-slack" },
+    ];
 
     store.setLastSeenTsIfGreater("1700000000.000000");
 
