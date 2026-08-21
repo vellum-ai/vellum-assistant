@@ -48,6 +48,7 @@ import {
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
+  collectFallbackProfileIssues,
   DefaultProviderSchema,
   LLMConfigBase,
   LLMConfigFragment,
@@ -240,6 +241,13 @@ function replaceInferenceProfileConfig(
   const nextProfile: Record<string, unknown> = { ...existingProfile };
   for (const key of INFERENCE_PROFILE_UI_KEYS) {
     delete nextProfile[key];
+  }
+  // Converting a profile to a mix is an explicit replacement: a mix carries
+  // no model route of its own to fall back from, so an existing
+  // `fallbackProfile` pointer is dropped rather than preserved alongside
+  // `mix` (a combination `LLMSchema` rejects on the next full reload).
+  if (fragment.mix != null) {
+    delete nextProfile.fallbackProfile;
   }
   const fragmentTopLevel = { ...fragment };
   delete fragmentTopLevel.contextWindow;
@@ -1399,6 +1407,26 @@ function assertRoutableIdentityEntries(
   }
 }
 
+/**
+ * Reject writes that would persist an invalid `fallbackProfile` graph.
+ * `LLMSchema.superRefine` enforces the cross-profile fallback rules only on
+ * a full-config parse; the write paths (PATCH deep-merge, SET, the profile
+ * routes) save raw config without one, so a self-reference, dangling
+ * target, mix target, or chain would reach disk and be stripped on the next
+ * reload, silently disabling the configured fallback. Checked
+ * unconditionally rather than scoped to pointers this write changes:
+ * removing a target profile invalidates a pointer the write never touched,
+ * and clearing the pointer (write `null`) through these same routes remains
+ * the repair path for a hand-edited config.
+ */
+function assertValidFallbackProfileGraph(raw: Record<string, unknown>): void {
+  const profiles = readPlainObject(readPlainObject(raw.llm)?.profiles);
+  const issues = collectFallbackProfileIssues(profiles ?? undefined);
+  if (issues.length > 0) {
+    throw new BadRequestError(issues.map((issue) => issue.message).join(" "));
+  }
+}
+
 export async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
@@ -1411,6 +1439,7 @@ export async function commitConfigWrite(
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
   assertRoutableIdentityEntries(preWrite, raw);
+  assertValidFallbackProfileGraph(raw);
 
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write
