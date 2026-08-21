@@ -42,6 +42,12 @@ import {
   normalizeSlackReactionRemoved,
 } from "./reaction-normalizer.js";
 import { enrichNormalizedActor } from "./actor.js";
+import { SlackSocketLiveness } from "./socket-liveness.js";
+import {
+  defaultSchedule,
+  type CancelTimer,
+  type ScheduleFn,
+} from "../util/schedule.js";
 import type {
   SlackAppMentionEvent,
   SlackChannelMessageEvent,
@@ -137,6 +143,20 @@ const IDENTITY_RETRY_INTERVAL_MS = 60_000;
 const SLACK_RESOLVE_TIMEOUT_MS = 3_000;
 
 /**
+ * How long a fresh socket may sit between construction and `open` before it
+ * is treated as dead.
+ *
+ * The liveness watchdog only arms once a connection is established, so a
+ * handshake that stalls falls outside it: no `open`, no `close`, and no
+ * frames to time out on. That is the same unrecoverable shape as a half-open
+ * established socket, and it needs its own bound. Slack's edge completes the
+ * upgrade in well under a second, so 30s is far outside normal variance while
+ * still recovering in a fraction of the time the old code took (which was
+ * never).
+ */
+export const CONNECT_DEADLINE_MS = 30_000;
+
+/**
  * Reconnect catch-up bounds.
  *
  * `MAX_LOOKBACK_MS` caps how far back we'll ask Slack for missed messages.
@@ -157,6 +177,61 @@ const CATCHUP_CONCURRENCY = 4;
 const SLACK_MUTE_COMMANDS = new Set(["detach", "mute"]);
 
 export type SlackThreadMode = "mention_only" | "mention_then_thread";
+
+/**
+ * The slice of a WebSocket this client drives, satisfiable by a fake.
+ *
+ * `ping()` and the `"pong"` event are real on Bun's client WebSocket but
+ * absent from `bun-types`, which declares ping/pong only on
+ * `ServerWebSocket`. That is a typings gap, not a runtime one. Naming the
+ * surface we actually use confines the gap to the single cast in
+ * {@link defaultCreateSocket} instead of scattering one across every
+ * listener, and it is what makes the connection lifecycle testable against a
+ * fake socket.
+ */
+export interface SlackSocketLike {
+  readonly readyState: number;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+  ping(): void;
+  addEventListener(
+    type: "open" | "pong",
+    listener: () => void,
+    options?: { once?: boolean },
+  ): void;
+  addEventListener(
+    type: "message",
+    listener: (event: { data: unknown }) => void,
+    options?: { once?: boolean },
+  ): void;
+  addEventListener(
+    type: "close",
+    listener: (event: { code?: number; reason?: string }) => void,
+    options?: { once?: boolean },
+  ): void;
+  addEventListener(
+    type: "error",
+    listener: (event: unknown) => void,
+    options?: { once?: boolean },
+  ): void;
+}
+
+const defaultCreateSocket = (url: string): SlackSocketLike =>
+  // See SlackSocketLike: bun-types omits ping/pong on the client WebSocket
+  // even though Bun implements both, so the structural match cannot be
+  // checked here.
+  new WebSocket(url) as unknown as SlackSocketLike;
+
+/**
+ * Injectable collaborators. Production supplies none of these; tests replace
+ * the socket and the clock so the connection lifecycle can be driven without
+ * real time or a real Slack connection.
+ */
+export type SlackSocketModeDeps = {
+  createSocket?: (url: string) => SlackSocketLike;
+  schedule?: ScheduleFn;
+  now?: () => number;
+};
 
 export type SlackSocketModeConfig = {
   appToken: string;
@@ -235,8 +310,12 @@ function isSlackMuteCommand(text: string, botUserId?: string): boolean {
 export class SlackSocketModeClient {
   private config: SlackSocketModeConfig;
   private onEvent: (event: NormalizedSlackEvent) => void;
-  private ws: WebSocket | null = null;
+  private ws: SlackSocketLike | null = null;
   private connecting = false;
+  private readonly createSocket: (url: string) => SlackSocketLike;
+  private readonly schedule: ScheduleFn;
+  private readonly liveness: SlackSocketLiveness;
+  private cancelConnectDeadline: CancelTimer | null = null;
   private running = false;
   private readonly backoff = new ExponentialBackoff({
     baseDelayMs: BASE_BACKOFF_MS,
@@ -257,10 +336,33 @@ export class SlackSocketModeClient {
   constructor(
     config: SlackSocketModeConfig,
     onEvent: (event: NormalizedSlackEvent) => void,
+    deps: SlackSocketModeDeps = {},
   ) {
     this.config = config;
     this.onEvent = onEvent;
     this.store = new SlackStore();
+    this.createSocket = deps.createSocket ?? defaultCreateSocket;
+    this.schedule = deps.schedule ?? defaultSchedule;
+    this.liveness = new SlackSocketLiveness({
+      schedule: this.schedule,
+      now: deps.now,
+      onRoundTrip: (roundTripMs) => {
+        // The pong deadline is derived from Slack's own SDK defaults rather
+        // than from our traffic. Logging the real round trip is what lets
+        // that constant be re-derived from this deployment's measurements.
+        log.debug({ roundTripMs }, "Slack Socket Mode ping round trip");
+      },
+      onDead: (reason) => {
+        log.warn(
+          { reason },
+          "Slack Socket Mode connection is not answering pings, reconnecting",
+        );
+        // Not scheduleReconnect: a socket that fails a liveness probe may
+        // never emit a close event, so recovery must tear it down rather
+        // than wait to be told.
+        this.forceReconnect("liveness probe failed", { resetBackoff: false });
+      },
+    });
   }
 
   async start(): Promise<void> {
@@ -482,6 +584,9 @@ export class SlackSocketModeClient {
     this.running = false;
     this.connecting = false;
     this.stopDedupCleanup();
+    this.liveness.stop();
+    this.cancelConnectDeadline?.();
+    this.cancelConnectDeadline = null;
     if (this.identityRetryTimer) {
       clearTimeout(this.identityRetryTimer);
       this.identityRetryTimer = null;
@@ -501,25 +606,44 @@ export class SlackSocketModeClient {
   }
 
   /**
-   * Force-close the current WebSocket and reconnect immediately.
-   * Used by the sleep/wake detector to recover from half-open connections
-   * that survive system sleep.
+   * Force-close the current WebSocket and reconnect.
+   *
+   * This is the recovery path for a connection that cannot be trusted to
+   * announce its own death: the sleep/wake detector's half-open sockets, a
+   * failed liveness probe, and a handshake that never completed. All three
+   * share the property that no close event may ever arrive, so recovery
+   * tears the socket down rather than waiting to be told.
    *
    * Waits for the old socket to fully close before connecting a new one
    * to prevent overlapping connections where stale message events could
    * be ACKed on the wrong socket.
+   *
+   * `resetBackoff` distinguishes the causes. A wake means the network just
+   * came back and the next attempt should be immediate. A liveness or
+   * connect-deadline failure carries no such news, so it leaves the backoff
+   * to escalate: if the connection is flapping, each cycle already costs a
+   * detection window, and resetting would pin retries at that floor.
    */
-  forceReconnect(): void {
+  forceReconnect(
+    reason = "sleep/wake recovery",
+    options: { resetBackoff?: boolean } = {},
+  ): void {
     if (!this.running) return;
 
-    log.info("Force-reconnecting Slack Socket Mode (sleep/wake recovery)");
+    log.info({ reason }, "Force-reconnecting Slack Socket Mode");
+
+    this.liveness.stop();
+    this.cancelConnectDeadline?.();
+    this.cancelConnectDeadline = null;
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
 
-    this.backoff.reset();
+    if (options.resetBackoff ?? true) {
+      this.backoff.reset();
+    }
 
     const oldWs = this.ws;
     this.ws = null;
@@ -566,7 +690,7 @@ export class SlackSocketModeClient {
 
     oldWs.addEventListener("close", proceed, { once: true });
 
-    setTimeout(() => {
+    this.schedule(() => {
       if (!settled) {
         log.warn(
           "Old Slack socket did not close within timeout, proceeding with reconnect",
@@ -974,13 +1098,33 @@ export class SlackSocketModeClient {
     log.info("Connecting to Slack Socket Mode");
 
     try {
-      const ws = new WebSocket(wsUrl);
+      const ws = this.createSocket(wsUrl);
       this.ws = ws;
       this.connecting = false;
+
+      // A handshake that stalls produces neither `open` nor `close`, so the
+      // liveness watchdog (which only arms on `open`) never gets to see it.
+      // Bound that window explicitly; see CONNECT_DEADLINE_MS.
+      this.cancelConnectDeadline?.();
+      this.cancelConnectDeadline = this.schedule(() => {
+        this.cancelConnectDeadline = null;
+        if (this.ws !== ws) return;
+        log.warn(
+          "Slack Socket Mode socket did not open within the deadline, reconnecting",
+        );
+        this.forceReconnect("connect deadline exceeded", {
+          resetBackoff: false,
+        });
+      }, CONNECT_DEADLINE_MS);
 
       ws.addEventListener("open", () => {
         log.info("Slack Socket Mode connected");
         this.backoff.reset();
+        this.cancelConnectDeadline?.();
+        this.cancelConnectDeadline = null;
+        // Socket Mode has no application heartbeat, so liveness rides on the
+        // transport's ping/pong. See socket-liveness.ts.
+        this.liveness.start(ws);
         // Retry bot identity resolution on every reconnect so a transient
         // auth.test failure at startup is self-healing. Once resolved, the
         // check in resolveBotIdentity short-circuits immediately (no await
@@ -1004,6 +1148,10 @@ export class SlackSocketModeClient {
           });
       });
 
+      ws.addEventListener("pong", () => {
+        this.liveness.notePong();
+      });
+
       ws.addEventListener("message", (messageEvent) => {
         // Slack Socket Mode delivers text frames; ignore any non-string frame
         // rather than casting untrusted WebSocket data to `string`.
@@ -1024,6 +1172,9 @@ export class SlackSocketModeClient {
         // so a stale close event should be ignored.
         if (this.ws === ws) {
           this.ws = null;
+          this.liveness.stop();
+          this.cancelConnectDeadline?.();
+          this.cancelConnectDeadline = null;
           this.scheduleReconnect();
         }
       });
@@ -1038,6 +1189,9 @@ export class SlackSocketModeClient {
       log.error({ err }, "Failed to create WebSocket connection");
       this.ws = null;
       this.connecting = false;
+      this.cancelConnectDeadline?.();
+      this.cancelConnectDeadline = null;
+      this.liveness.stop();
       this.scheduleReconnect();
     }
   }
@@ -1072,7 +1226,7 @@ export class SlackSocketModeClient {
     return data.url;
   }
 
-  private handleMessage(raw: string, originWs: WebSocket): void {
+  private handleMessage(raw: string, originWs: SlackSocketLike): void {
     const envelope = parseSlackEnvelope(raw);
     if (!envelope) {
       log.warn("Received non-JSON or malformed Socket Mode message");
@@ -1652,7 +1806,7 @@ export class SlackSocketModeClient {
    * (`triggerSlackThreadBackfillIfNeeded`, `tryBackfillSlackDmIfCold`)
    * will hydrate context once the next live event arrives.
    */
-  private async replayMissedEvents(ownerWs: WebSocket): Promise<void> {
+  private async replayMissedEvents(ownerWs: SlackSocketLike): Promise<void> {
     // Bail if a fresh forceReconnect has replaced the active socket
     // before the async work began. Without this gate, a stale generation
     // could fan out catch-up traffic that races with the new connection.
@@ -1718,6 +1872,12 @@ export class SlackSocketModeClient {
     );
 
     let recovered = 0;
+    // `fetchChannelHistorySince` / `fetchThreadRepliesSince` report a failed
+    // call as an empty message list, so without counting `ok` a total API
+    // failure and a genuinely empty window produce the identical
+    // `recovered: 0` line. Carrying the count into the completion log is what
+    // makes "nothing was missed" distinguishable from "nothing was fetched".
+    let failedFetches = 0;
     const abort = new CatchupAbortSignal();
 
     // Channel/DM history fan-out. We use conversations.history rather than
@@ -1735,6 +1895,7 @@ export class SlackSocketModeClient {
           abort,
         });
         if (this.ws !== ownerWs) return;
+        if (!result.ok) failedFetches++;
         for (const msg of sortMessagesAscendingByTs(result.messages)) {
           if (this.injectReplayMessage(channel, msg, botUserId)) recovered++;
         }
@@ -1753,6 +1914,7 @@ export class SlackSocketModeClient {
           abort,
         });
         if (this.ws !== ownerWs) return;
+        if (!result.ok) failedFetches++;
         for (const msg of sortMessagesAscendingByTs(result.messages)) {
           // conversations.replies always returns the thread parent as the
           // first element regardless of `oldest` / `inclusive` — see
@@ -1777,7 +1939,17 @@ export class SlackSocketModeClient {
       log.warn({ err }, "Slack reconnect catch-up encountered an error");
     }
 
-    log.info({ recovered, oldest }, "Slack reconnect catch-up complete");
+    if (failedFetches > 0) {
+      log.warn(
+        { failedFetches, recovered },
+        "Slack reconnect catch-up could not read every scoped conversation; " +
+          "messages in the failed ones were not recovered",
+      );
+    }
+    log.info(
+      { recovered, oldest, failedFetches },
+      "Slack reconnect catch-up complete",
+    );
   }
 
   /**
@@ -2100,6 +2272,7 @@ function sortMessagesAscendingByTs<T extends { ts?: string }>(
 export function createSlackSocketModeClient(
   config: SlackSocketModeConfig,
   onEvent: (event: NormalizedSlackEvent) => void,
+  deps?: SlackSocketModeDeps,
 ): SlackSocketModeClient {
-  return new SlackSocketModeClient(config, onEvent);
+  return new SlackSocketModeClient(config, onEvent, deps);
 }
