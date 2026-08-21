@@ -7,6 +7,55 @@
   "aiProviderPicker": {
     "defaultEntryMeta": "Predeterminado"
   },
+  "androidNotificationSettingsCard": {
+    "checkingDescription": "Comprobando el acceso a notificaciones de este dispositivo.",
+    "checkingLabel": "Comprobando",
+    "deniedDescription": "Las notificaciones están desactivadas en los ajustes de Android.",
+    "deniedLabel": "Desactivadas",
+    "grantedDescription": "Las notificaciones están permitidas en este dispositivo.",
+    "grantedLabel": "Activadas",
+    "openSettings": "Abrir ajustes",
+    "promptDescription": "Activa las notificaciones en los ajustes de Android para recibir alertas.",
+    "promptLabel": "No activadas",
+    "title": "Notificaciones push",
+    "unsupportedDescription": "Los ajustes de notificaciones no están disponibles en esta versión de la app.",
+    "unsupportedLabel": "No disponible"
+  },
+  "assistantUpgrades": {
+    "alreadyOnVersion": "Ya estás en esta versión.",
+    "confirmPreviewMessage": "¿Actualizar a la versión de vista previa {version}? El asistente no estará disponible por un momento durante la actualización.",
+    "confirmPreviewTitle": "Actualizar versión de vista previa",
+    "confirmRollbackMessage": "¿Volver a la versión {version}? El asistente no estará disponible por un momento.",
+    "confirmRollbackTitle": "Revertir asistente",
+    "confirmUpdateMessage": "¿Actualizar a la versión {version}? El asistente no estará disponible por un momento durante la actualización.",
+    "confirmUpdateTitle": "Actualizar asistente",
+    "current": "Actual",
+    "currentSuffix": "(actual)",
+    "latest": "más reciente",
+    "latestSuffix": "(más reciente)",
+    "loading": "Cargando...",
+    "noReleases": "No hay versiones disponibles",
+    "previewRelease": "Versión de vista previa",
+    "rollback": "Revertir",
+    "rollbackTo": "Revertir a",
+    "rollingBack": "Revirtiendo...",
+    "selected": "Seleccionada",
+    "successRolledBack": "Se revirtió correctamente a la versión {version}.",
+    "successUpdated": "Se actualizó correctamente a la versión {version}.",
+    "toastRollbackComplete": "Reversión completa. Tu asistente está en buen estado.",
+    "toastRollbackFailed": "No se pudo iniciar la reversión. Inténtalo de nuevo.",
+    "toastRollbackInitiated": "Reversión a {version} iniciada.",
+    "toastUpdateComplete": "Actualización completa. Tu asistente está en buen estado.",
+    "toastUpdateFailed": "No se pudo iniciar la actualización. Inténtalo de nuevo.",
+    "toastUpdateInitiated": "Actualización a {version} iniciada.",
+    "unknown": "desconocida",
+    "update": "Actualizar",
+    "updatePreview": "Actualizar vista previa",
+    "updateTo": "Actualizar a",
+    "updateToVersion": "Actualizar a {version}",
+    "updating": "Actualizando...",
+    "usingPreviewReleases": "Usando versiones de vista previa. <stableLink>Volver a Estable</stableLink>"
+  },
   "autoTopUpCard": {
     "connectCardBanner": "La recarga automática requiere vincular una tarjeta de crédito.",
     "disableError": "No se pudo desactivar la recarga automática. Inténtalo de nuevo.",
@@ -202,6 +251,14 @@
     "subtitleOwn": "Guardadas cifradas en la bóveda de credenciales de tu asistente. Revela un valor bajo demanda, o reemplázalo o elimínalo en cualquier momento.",
     "title": "Credenciales"
   },
+  "creditBundlePicker": {
+    "ariaLabel": "Paquete de créditos",
+    "label": "Paquete de créditos",
+    "noBundleOption": "Sin paquete de créditos - {price}",
+    "optionLabel": "{label} - {price}",
+    "placeholder": "Selecciona un paquete de créditos",
+    "tooltip": "Una asignación mensual de créditos añadida a tu suscripción del Plan Pro"
+  },
   "customPlanModal": {
     "cancel": "Cancelar",
     "comparedToPrevious": "{delta} en comparación con el anterior ({previous})",
@@ -236,12 +293,53 @@
     "requiredNote": "Se requiere un límite diario de créditos mientras la recarga automática está activada.",
     "toggleLabel": "Límite diario de créditos"
   },
+  "deleteAccountSection": {
+    "confirmLabel": "Eliminar cuenta",
+    "confirmMessage": "Esto eliminará permanentemente tu cuenta y todos los datos asociados. Esta acción no se puede deshacer.",
+    "confirmTitle": "Eliminar cuenta",
+    "deleteMyAccount": "Eliminar mi cuenta",
+    "description": "Elimina permanentemente tu cuenta y todos los datos asociados.",
+    "platformLoginNotice": "Inicia sesión en la plataforma de Vellum para eliminar tu cuenta.",
+    "title": "Eliminar cuenta",
+    "toastFailed": "No se pudo solicitar la eliminación de la cuenta. Inténtalo de nuevo.",
+    "toastRequested": "Eliminación de cuenta solicitada. Se cerrará tu sesión en breve."
+  },
   "developerPage": {
     "sectionsAriaLabel": "Secciones de desarrollador",
     "tabFeatureFlags": "Indicadores de funciones",
     "tabLifecycle": "Ciclo de vida del asistente",
     "tabMemory": "Memoria",
     "tabSentry": "Pruebas de Sentry"
+  },
+  "doctorChatBlocks": {
+    "allowOnce": "Permitir una vez",
+    "alwaysAllow": "Permitir siempre",
+    "backUp": "Hacer copia",
+    "backupPromptBody": "El doctor está a punto de ejecutar <toolCode>{toolName}</toolCode>. ¿Quieres hacer una copia de seguridad de tu espacio de trabajo primero?",
+    "backupPromptTitle": "¿Crear una copia de seguridad antes de modificar?",
+    "completedStep": "Se completó 1 paso",
+    "confirmationRequired": "Confirmación requerida",
+    "copyAria": "Copiar al portapapeles",
+    "copyAriaCopied": "Copiado",
+    "copyError": "No se pudo copiar el mensaje.",
+    "copyTitle": "Copiar",
+    "copyTitleCopied": "¡Copiado!",
+    "deny": "Denegar",
+    "failedStep": "Falló 1 paso",
+    "feedbackBody": "Puedes enviarlo con registros mientras el Doctor sigue buscando una solución o alternativa aquí.",
+    "feedbackTitle": "Esto parece comentarios para el equipo de Vellum.",
+    "gladSolved": "¡Me alegra que esté resuelto!",
+    "hideDetails": "Ocultar detalles",
+    "notSolved": "No resuelto",
+    "notSolvedAria": "No, mi problema no está resuelto",
+    "output": "Salida",
+    "runningStep": "Ejecutando 1 paso",
+    "shareFeedback": "Compartir comentarios",
+    "showDetails": "Mostrar detalles",
+    "skip": "Omitir",
+    "solvedAria": "Sí, mi problema está resuelto",
+    "technicalDetails": "Detalles técnicos",
+    "toolLabel": "Herramienta:"
   },
   "domainStep": {
     "continue": "Continuar",
@@ -371,6 +469,11 @@
     "updatesLoginNotice": "Inicia sesión en la plataforma Vellum para administrar las actualizaciones de software.",
     "versionSubtitle": "Administra la versión de software de tu asistente y las actualizaciones.",
     "versionTitle": "Versión"
+  },
+  "gracePeriodBanner": {
+    "body": "Conservarás las funciones Pro hasta entonces.",
+    "reactivate": "Reactivar",
+    "title": "Tu plan Pro terminará el {date}."
   },
   "imageGenerationCard": {
     "activeModelLabel": "Modelo activo",
@@ -580,6 +683,26 @@
     "tokenOverhead": "Sobrecarga total estimada de tokens: ~{count} tokens",
     "toolEstimatedTokens": "~{count}"
   },
+  "mediaEmbedsCard": {
+    "add": "Añadir",
+    "addDomainLabel": "Añadir dominio",
+    "addDomainPlaceholder": "Añadir dominio (p. ej. example.com)",
+    "allowlist": "Lista de dominios de video permitidos",
+    "autoToggle": "Incrustaciones de medios automáticas",
+    "domainCount": "{count, plural, one {# dominio} other {# dominios}}",
+    "removeDomainAria": "Eliminar {domain}",
+    "resetDefaults": "Restablecer valores predeterminados",
+    "subtitle": "Incrusta automáticamente imágenes, videos y otros medios compartidos en los mensajes del chat.",
+    "title": "Incrustaciones de medios"
+  },
+  "memoryRetrospectiveToggle": {
+    "ariaLabel": "Activar retrospectivas de memoria",
+    "description": "Permite que tu asistente vuelva a leer conversaciones recientes en segundo plano y guarde lo que se le escapó en el momento. Pausar esto mantiene el resto de la memoria en funcionamiento.",
+    "title": "Retrospectivas",
+    "toastEnabled": "Retrospectivas de memoria activadas.",
+    "toastFailed": "No se pudieron actualizar las retrospectivas de memoria.",
+    "toastPaused": "Retrospectivas de memoria en pausa."
+  },
   "notificationsPage": {
     "description": "Administra cómo Vellum te notifica en este dispositivo Android.",
     "title": "Notificaciones"
@@ -661,6 +784,13 @@
     "thisMachine": "Este equipo",
     "title": "Dispositivos vinculados ({count})"
   },
+  "paymentMethodRow": {
+    "endingIn": "Termina en {last4}",
+    "remove": "Eliminar",
+    "removing": "Eliminando…",
+    "savedCard": "Tarjeta guardada",
+    "updateCard": "Actualizar tarjeta"
+  },
   "paymentMethodsCard": {
     "addButton": "Añadir método de pago",
     "empty": "No hay ningún método de pago guardado. Añade uno para usar la recarga automática.",
@@ -690,6 +820,25 @@
     "usageBalanceResets": "Se restablece el {date}",
     "usageBalanceTitle": "Saldo de uso",
     "usageChip": "Uso de {name}, se restablece cada mes"
+  },
+  "planCardContent": {
+    "baseFee": "{amount} de tarifa base",
+    "baseTagline": "Todo lo que necesitas para un asistente capaz",
+    "creditsNotIncluded": "*Créditos no incluidos",
+    "current": "Actual",
+    "currentlyPrice": "Actualmente {price}",
+    "downgradeToBase": "Bajar a Base",
+    "forever": "Para siempre",
+    "free": "Gratis",
+    "fromPrice": "Desde {price}",
+    "keepPlan": "Conservar tu plan",
+    "loadingPlan": "Cargando tu plan...",
+    "planEndsOn": "Tu plan termina el {date}",
+    "pricingUnavailable": "Precio del plan actual no disponible",
+    "proTagline": "Más funciones, más cómputo, más almacenamiento",
+    "subscriptionChangeTitle": "Tu suscripción del Plan Pro cambiará de {from} a {to}.",
+    "updatePlan": "Actualizar plan",
+    "upgradeToPro": "Mejorar a Pro"
   },
   "planColumnCard": {
     "currentPlan": "Plan actual",
@@ -949,6 +1098,46 @@
     "waitingCaptionLong": "Seguimos trabajando. Esto puede tardar uno o dos minutos.",
     "waitingCaptionShort": "Esto puede tardar unos segundos."
   },
+  "recentRunsCard": {
+    "emptyDefault": "Aún no hay ejecuciones.",
+    "error": "Error",
+    "loadMore": "Cargar más",
+    "loadingMore": "Cargando…",
+    "missed": "Omitida",
+    "output": "Salida",
+    "runAtAria": "Ejecución a las {time}",
+    "skipped": "Saltada",
+    "title": "Ejecuciones recientes"
+  },
+  "referralContent": {
+    "copied": "¡Copiado!",
+    "copyError": "No se pudo copiar el enlace de referido.",
+    "copySuccess": "¡Copiado al portapapeles!",
+    "creditsEarned": "Créditos ganados",
+    "friendsReferred": "Amigos referidos",
+    "gatedNotice": "Ahora mismo no estás ganando créditos por referidos. Compra créditos o mejora a Pro para empezar a ganar - tu enlace de invitación sigue funcionando mientras tanto.",
+    "loadError": "No se pudo cargar la información de referidos.",
+    "loading": "Cargando...",
+    "shareLink": "Compartir enlace",
+    "subtitleDefault": "Comparte Vellum con amigos y gana créditos por cada registro.",
+    "subtitleGated": "Invita amigos a Vellum. Empezarás a ganar créditos por referidos cuando hayas comprado créditos o mejorado a Pro.",
+    "subtitleWithAmounts": "Comparte Vellum con amigos - cada uno ganará {creditAmount} créditos cuando se registren, hasta {earningCap} en total."
+  },
+  "referralModal": {
+    "title": "Gana créditos gratis"
+  },
+  "riskToleranceSettings": {
+    "advanced": "Avanzado",
+    "backgroundDescription": "Cuando tu asistente actúa sin ti: tareas programadas, trabajos en segundo plano y disparadores externos.",
+    "backgroundTitle": "Segundo plano",
+    "conversationsDescription": "Cuando chateas directamente con tu asistente.",
+    "conversationsTitle": "Conversaciones",
+    "description": "Controla qué acciones puede realizar tu asistente sin preguntar primero. Cada acción se clasifica por nivel de riesgo: tu nivel de acceso determina qué niveles se aprueban automáticamente. Las reglas de confianza afinan esto para acciones concretas subiendo o bajando su riesgo.",
+    "headlessDescription": "Cuando se dispara externamente sin un cliente interactivo.",
+    "headlessTitle": "Sin interfaz",
+    "loadError": "No se pudieron cargar los ajustes de umbral. Comprueba tu conexión y vuelve a cargar.",
+    "title": "Acceso del asistente"
+  },
   "sharedUi": {
     "checkingDomain": "Comprobando dominio…",
     "domainVerified": "Dominio verificado",
@@ -1025,6 +1214,40 @@
     "subtitle": "Configura cómo habla tu asistente",
     "title": "Texto a voz"
   },
+  "tierPicker": {
+    "machineAriaLabel": "Nivel de máquina",
+    "machineLabel": "Máquina",
+    "machineOption": "{label} {priceLabel}",
+    "machinePlaceholder": "Selecciona un nivel de máquina",
+    "machineTooltip": "Determina la CPU y la memoria asignadas a tu asistente",
+    "priceAddon": "+{price}",
+    "priceCurrent": "({price}, actual)",
+    "storageAriaLabel": "Nivel de almacenamiento",
+    "storageLabel": "Almacenamiento",
+    "storageOption": "{gib} GB {priceLabel}",
+    "storagePlaceholder": "Selecciona un nivel de almacenamiento",
+    "storageTooltip": "Espacio de disco persistente para los archivos y datos de tu asistente"
+  },
+  "trustRulesModal": {
+    "cancel": "Cancelar",
+    "defaultTag": "Predeterminada",
+    "delete": "Eliminar",
+    "deleteErrorFallback": "No se pudo eliminar la regla de confianza.",
+    "deleteMessage": "¿Eliminar la regla de riesgo {risk} para {tool} que coincide con \"{pattern}\"?",
+    "deleteRuleAria": "Eliminar regla de {tool}",
+    "deleteTitle": "¿Eliminar regla de confianza?",
+    "done": "Listo",
+    "editRuleAria": "Editar regla de {tool}",
+    "empty": "Aún no hay reglas de confianza. Se crean cuando clasificas acciones desde los avisos de permiso.",
+    "loadErrorFallback": "No se pudieron cargar las reglas de confianza.",
+    "loading": "Cargando…",
+    "modifiedTag": "Modificada",
+    "riskHigh": "Alto",
+    "riskLow": "Bajo",
+    "riskMedium": "Medio",
+    "showAllDefaults": "Mostrar todos los valores predeterminados",
+    "title": "Reglas de confianza"
+  },
   "twoFactorSection": {
     "addAuthenticatorApp": "Añadir aplicación de autenticación",
     "addedOn": " · Añadido {date}",
@@ -1038,6 +1261,37 @@
     "removeDialogTitle": "Eliminar aplicación de autenticación",
     "toastRemoveFailed": "No se pudo eliminar la aplicación de autenticación. Vuelve a intentarlo.",
     "toastRemoved": "Aplicación de autenticación eliminada."
+  },
+  "updateWindowModal": {
+    "description": "Configura cuándo se aplican las actualizaciones automáticas.",
+    "title": "Ventana de actualización"
+  },
+  "updateWindowPolicy": {
+    "automaticUpdates": "Actualizaciones automáticas",
+    "automaticUpdatesHelper": "Actualizar automáticamente durante una ventana de tiempo configurada",
+    "daily": "Diaria",
+    "dayFri": "Vie",
+    "dayMon": "Lun",
+    "daySat": "Sáb",
+    "daySun": "Dom",
+    "dayThu": "Jue",
+    "dayTue": "Mar",
+    "dayWed": "Mié",
+    "daysOfMonth": "Día(s) del mes",
+    "daysOfMonthHelper": "Números de día separados por comas (1-31)",
+    "daysOfMonthPlaceholder": "p. ej. 1, 15",
+    "daysOfWeek": "Día(s) de la semana",
+    "frequency": "Frecuencia",
+    "loadError": "No se pudo cargar la política de ventana de actualización. Actualiza la página para intentarlo de nuevo.",
+    "loading": "Cargando ajustes de la ventana de actualización...",
+    "monthly": "Mensual",
+    "savePolicy": "Guardar política",
+    "to": "a",
+    "toastSaveFailed": "No se pudo guardar la política. Inténtalo de nuevo.",
+    "toastSaved": "Política de actualización automática guardada.",
+    "updateWindow": "Ventana de actualización",
+    "updateWindowWithTz": "Ventana de actualización ({tz})",
+    "weekly": "Semanal"
   },
   "upgradeCancelPage": {
     "billingUnavailable": "La facturación no está disponible para el estado actual del asistente.",

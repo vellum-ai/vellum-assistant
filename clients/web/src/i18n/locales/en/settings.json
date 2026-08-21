@@ -7,6 +7,55 @@
   "aiProviderPicker": {
     "defaultEntryMeta": "Default"
   },
+  "androidNotificationSettingsCard": {
+    "checkingDescription": "Checking notification access for this device.",
+    "checkingLabel": "Checking",
+    "deniedDescription": "Notifications are turned off in Android settings.",
+    "deniedLabel": "Off",
+    "grantedDescription": "Notifications are allowed on this device.",
+    "grantedLabel": "On",
+    "openSettings": "Open settings",
+    "promptDescription": "Turn on notifications in Android settings to receive alerts.",
+    "promptLabel": "Not enabled",
+    "title": "Push notifications",
+    "unsupportedDescription": "Notification settings are unavailable in this app version.",
+    "unsupportedLabel": "Unavailable"
+  },
+  "assistantUpgrades": {
+    "alreadyOnVersion": "You are already on this version.",
+    "confirmPreviewMessage": "Update to preview version {version}? The assistant will be briefly unavailable during the update.",
+    "confirmPreviewTitle": "Update preview release",
+    "confirmRollbackMessage": "Rollback to version {version}? The assistant will be briefly unavailable.",
+    "confirmRollbackTitle": "Rollback assistant",
+    "confirmUpdateMessage": "Update to version {version}? The assistant will be briefly unavailable during the update.",
+    "confirmUpdateTitle": "Update assistant",
+    "current": "Current",
+    "currentSuffix": "(current)",
+    "latest": "latest",
+    "latestSuffix": "(latest)",
+    "loading": "Loading...",
+    "noReleases": "No releases available",
+    "previewRelease": "Preview release",
+    "rollback": "Rollback",
+    "rollbackTo": "Rollback to",
+    "rollingBack": "Rolling back...",
+    "selected": "Selected",
+    "successRolledBack": "Successfully rolled back to version {version}.",
+    "successUpdated": "Successfully updated to version {version}.",
+    "toastRollbackComplete": "Rollback complete. Your assistant is healthy.",
+    "toastRollbackFailed": "Failed to trigger rollback. Please try again.",
+    "toastRollbackInitiated": "Rollback to {version} initiated.",
+    "toastUpdateComplete": "Update complete. Your assistant is healthy.",
+    "toastUpdateFailed": "Failed to trigger update. Please try again.",
+    "toastUpdateInitiated": "Update to {version} initiated.",
+    "unknown": "unknown",
+    "update": "Update",
+    "updatePreview": "Update preview",
+    "updateTo": "Update to",
+    "updateToVersion": "Update to {version}",
+    "updating": "Updating...",
+    "usingPreviewReleases": "Using Preview releases. <stableLink>Switch back to Stable</stableLink>"
+  },
   "autoTopUpCard": {
     "connectCardBanner": "Auto-reload requires you to connect a credit card.",
     "disableError": "Failed to disable auto-reload. Please try again.",
@@ -202,6 +251,14 @@
     "subtitleOwn": "Stored encrypted in your assistant's credential vault. Reveal a value on demand, or replace or delete it at any time.",
     "title": "Credentials"
   },
+  "creditBundlePicker": {
+    "ariaLabel": "Credit bundle",
+    "label": "Credit bundle",
+    "noBundleOption": "No credit bundle - {price}",
+    "optionLabel": "{label} - {price}",
+    "placeholder": "Select a credit bundle",
+    "tooltip": "A monthly allotment of credits added to your Pro Plan subscription"
+  },
   "customPlanModal": {
     "cancel": "Cancel",
     "comparedToPrevious": "{delta} compared to previous ({previous})",
@@ -236,12 +293,53 @@
     "requiredNote": "A daily credit limit is required while auto-reload is enabled.",
     "toggleLabel": "Daily Credit Limit"
   },
+  "deleteAccountSection": {
+    "confirmLabel": "Delete Account",
+    "confirmMessage": "This will permanently delete your account and all associated data. This action cannot be undone.",
+    "confirmTitle": "Delete Account",
+    "deleteMyAccount": "Delete My Account",
+    "description": "Permanently delete your account and all associated data.",
+    "platformLoginNotice": "Log in to the Vellum platform to delete your account.",
+    "title": "Delete Account",
+    "toastFailed": "Failed to request account deletion. Please try again.",
+    "toastRequested": "Account deletion requested. You will be logged out shortly."
+  },
   "developerPage": {
     "sectionsAriaLabel": "Developer sections",
     "tabFeatureFlags": "Feature Flags",
     "tabLifecycle": "Assistant Lifecycle",
     "tabMemory": "Memory",
     "tabSentry": "Sentry Testing"
+  },
+  "doctorChatBlocks": {
+    "allowOnce": "Allow once",
+    "alwaysAllow": "Always Allow",
+    "backUp": "Back up",
+    "backupPromptBody": "The doctor is about to run <toolCode>{toolName}</toolCode>. Would you like to back up your workspace first?",
+    "backupPromptTitle": "Create a backup before modifying?",
+    "completedStep": "Completed 1 step",
+    "confirmationRequired": "Confirmation required",
+    "copyAria": "Copy to clipboard",
+    "copyAriaCopied": "Copied",
+    "copyError": "Couldn't copy the message.",
+    "copyTitle": "Copy",
+    "copyTitleCopied": "Copied!",
+    "deny": "Deny",
+    "failedStep": "Failed 1 step",
+    "feedbackBody": "You can send it with logs while the Doctor keeps looking for a fix or workaround here.",
+    "feedbackTitle": "This sounds like feedback for the Vellum team.",
+    "gladSolved": "Glad it's solved!",
+    "hideDetails": "Hide details",
+    "notSolved": "Not solved",
+    "notSolvedAria": "No, my problem is not solved",
+    "output": "Output",
+    "runningStep": "Running 1 step",
+    "shareFeedback": "Share Feedback",
+    "showDetails": "Show details",
+    "skip": "Skip",
+    "solvedAria": "Yes, my problem is solved",
+    "technicalDetails": "Technical Details",
+    "toolLabel": "Tool:"
   },
   "domainStep": {
     "continue": "Continue",
@@ -371,6 +469,11 @@
     "updatesLoginNotice": "Log in to the Vellum platform to manage software updates.",
     "versionSubtitle": "Manage your assistant's software version and updates.",
     "versionTitle": "Version"
+  },
+  "gracePeriodBanner": {
+    "body": "You'll keep Pro features until then.",
+    "reactivate": "Reactivate",
+    "title": "Your Pro plan will end on {date}."
   },
   "imageGenerationCard": {
     "activeModelLabel": "Active Model",
@@ -580,6 +683,26 @@
     "tokenOverhead": "Total estimated token overhead: ~{count} tokens",
     "toolEstimatedTokens": "~{count}"
   },
+  "mediaEmbedsCard": {
+    "add": "Add",
+    "addDomainLabel": "Add Domain",
+    "addDomainPlaceholder": "Add domain (e.g. example.com)",
+    "allowlist": "Video Domain Allowlist",
+    "autoToggle": "Auto Media Embeds",
+    "domainCount": "{count, plural, one {# domain} other {# domains}}",
+    "removeDomainAria": "Remove {domain}",
+    "resetDefaults": "Reset to Defaults",
+    "subtitle": "Automatically embed images, videos, and other media shared in chat messages.",
+    "title": "Media Embeds"
+  },
+  "memoryRetrospectiveToggle": {
+    "ariaLabel": "Enable memory retrospectives",
+    "description": "Let your assistant re-read recent conversations in the background and save what it missed in the moment. Pausing this keeps the rest of memory working.",
+    "title": "Retrospectives",
+    "toastEnabled": "Memory retrospectives enabled.",
+    "toastFailed": "Failed to update memory retrospectives.",
+    "toastPaused": "Memory retrospectives paused."
+  },
   "notificationsPage": {
     "description": "Manage how Vellum notifies you on this Android device.",
     "title": "Notifications"
@@ -661,6 +784,13 @@
     "thisMachine": "This machine",
     "title": "Paired devices ({count})"
   },
+  "paymentMethodRow": {
+    "endingIn": "Ending in {last4}",
+    "remove": "Remove",
+    "removing": "Removing…",
+    "savedCard": "Saved card",
+    "updateCard": "Update Card"
+  },
   "paymentMethodsCard": {
     "addButton": "Add Payment Method",
     "empty": "No payment method on file. Add one to use auto-reload.",
@@ -690,6 +820,25 @@
     "usageBalanceResets": "Resets {date}",
     "usageBalanceTitle": "Usage Balance",
     "usageChip": "{name} usage, reset monthly"
+  },
+  "planCardContent": {
+    "baseFee": "{amount} base fee",
+    "baseTagline": "All you need for a capable assistant",
+    "creditsNotIncluded": "*Credits not included",
+    "current": "Current",
+    "currentlyPrice": "Currently {price}",
+    "downgradeToBase": "Downgrade to Base",
+    "forever": "Forever",
+    "free": "Free",
+    "fromPrice": "From {price}",
+    "keepPlan": "Keep your Plan",
+    "loadingPlan": "Loading your plan...",
+    "planEndsOn": "Your plan ends on {date}",
+    "pricingUnavailable": "Current plan pricing unavailable",
+    "proTagline": "More features, more compute, more storage",
+    "subscriptionChangeTitle": "Your Pro Plan subscription will change from {from} to {to}.",
+    "updatePlan": "Update Plan",
+    "upgradeToPro": "Upgrade to Pro"
   },
   "planColumnCard": {
     "currentPlan": "Current Plan",
@@ -949,6 +1098,46 @@
     "waitingCaptionLong": "Still working. This can take a minute or two.",
     "waitingCaptionShort": "This might take a couple seconds."
   },
+  "recentRunsCard": {
+    "emptyDefault": "No runs yet.",
+    "error": "Error",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…",
+    "missed": "Missed",
+    "output": "Output",
+    "runAtAria": "Run at {time}",
+    "skipped": "Skipped",
+    "title": "Recent runs"
+  },
+  "referralContent": {
+    "copied": "Copied!",
+    "copyError": "Couldn't copy the referral link.",
+    "copySuccess": "Copied to clipboard!",
+    "creditsEarned": "Credits Earned",
+    "friendsReferred": "Friends Referred",
+    "gatedNotice": "You're not currently earning referral credits. Buy credits or upgrade to Pro to start earning - your invite link still works in the meantime.",
+    "loadError": "Failed to load referral information.",
+    "loading": "Loading...",
+    "shareLink": "Share Link",
+    "subtitleDefault": "Share Vellum with friends and earn credits for every signup.",
+    "subtitleGated": "Invite friends to Vellum. You'll start earning referral credits once you've purchased credits or upgraded to Pro.",
+    "subtitleWithAmounts": "Share Vellum with friends - you'll each earn {creditAmount} credits when they sign up, up to {earningCap} total."
+  },
+  "referralModal": {
+    "title": "Earn Free Credits"
+  },
+  "riskToleranceSettings": {
+    "advanced": "Advanced",
+    "backgroundDescription": "When your assistant acts without you - scheduled tasks, background jobs, and external triggers.",
+    "backgroundTitle": "Background",
+    "conversationsDescription": "When you're chatting with your assistant directly.",
+    "conversationsTitle": "Conversations",
+    "description": "Control which actions your assistant can take without asking first. Each action is classified by risk level - your access level determines which levels auto-approve. Trust Rules fine-tune this for specific actions by raising or lowering their risk.",
+    "headlessDescription": "When triggered externally with no interactive client.",
+    "headlessTitle": "Headless",
+    "loadError": "Could not load threshold settings. Check your connection and reload.",
+    "title": "Assistant Access"
+  },
   "sharedUi": {
     "checkingDomain": "Checking domain…",
     "domainVerified": "Domain verified",
@@ -1025,6 +1214,40 @@
     "subtitle": "Configure how your assistant speaks",
     "title": "Text-to-Speech"
   },
+  "tierPicker": {
+    "machineAriaLabel": "Machine tier",
+    "machineLabel": "Machine",
+    "machineOption": "{label} {priceLabel}",
+    "machinePlaceholder": "Select a machine tier",
+    "machineTooltip": "Determines the CPU and memory allocated to your assistant",
+    "priceAddon": "+{price}",
+    "priceCurrent": "({price}, current)",
+    "storageAriaLabel": "Storage tier",
+    "storageLabel": "Storage",
+    "storageOption": "{gib} GB {priceLabel}",
+    "storagePlaceholder": "Select a storage tier",
+    "storageTooltip": "Persistent disk space for your assistant's files and data"
+  },
+  "trustRulesModal": {
+    "cancel": "Cancel",
+    "defaultTag": "Default",
+    "delete": "Delete",
+    "deleteErrorFallback": "Failed to delete trust rule.",
+    "deleteMessage": "Remove the {risk}-risk rule for {tool} matching \"{pattern}\"?",
+    "deleteRuleAria": "Delete {tool} rule",
+    "deleteTitle": "Delete Trust Rule?",
+    "done": "Done",
+    "editRuleAria": "Edit {tool} rule",
+    "empty": "No trust rules yet. Rules are created when you classify actions from permission prompts.",
+    "loadErrorFallback": "Failed to load trust rules.",
+    "loading": "Loading…",
+    "modifiedTag": "Modified",
+    "riskHigh": "High",
+    "riskLow": "Low",
+    "riskMedium": "Medium",
+    "showAllDefaults": "Show all defaults",
+    "title": "Trust Rules"
+  },
   "twoFactorSection": {
     "addAuthenticatorApp": "Add authenticator app",
     "addedOn": " · Added {date}",
@@ -1038,6 +1261,37 @@
     "removeDialogTitle": "Remove authenticator app",
     "toastRemoveFailed": "Failed to remove the authenticator app. Please try again.",
     "toastRemoved": "Authenticator app removed."
+  },
+  "updateWindowModal": {
+    "description": "Configure when automatic updates are applied.",
+    "title": "Update Window"
+  },
+  "updateWindowPolicy": {
+    "automaticUpdates": "Automatic updates",
+    "automaticUpdatesHelper": "Update automatically during a configured time window",
+    "daily": "Daily",
+    "dayFri": "Fri",
+    "dayMon": "Mon",
+    "daySat": "Sat",
+    "daySun": "Sun",
+    "dayThu": "Thu",
+    "dayTue": "Tue",
+    "dayWed": "Wed",
+    "daysOfMonth": "Day(s) of month",
+    "daysOfMonthHelper": "Comma-separated day numbers (1-31)",
+    "daysOfMonthPlaceholder": "e.g. 1, 15",
+    "daysOfWeek": "Day(s) of week",
+    "frequency": "Frequency",
+    "loadError": "Failed to load update window policy. Refresh the page to try again.",
+    "loading": "Loading update window settings...",
+    "monthly": "Monthly",
+    "savePolicy": "Save policy",
+    "to": "to",
+    "toastSaveFailed": "Failed to save policy. Please try again.",
+    "toastSaved": "Auto-update policy saved.",
+    "updateWindow": "Update window",
+    "updateWindowWithTz": "Update window ({tz})",
+    "weekly": "Weekly"
   },
   "upgradeCancelPage": {
     "billingUnavailable": "Billing isn't available for the current assistant state.",
