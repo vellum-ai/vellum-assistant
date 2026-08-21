@@ -30,9 +30,42 @@
  * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover
  */
 
-import { useCallback, useSyncExternalStore } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
 export const HOVER_ABSENT_MEDIA_QUERY = "(hover: none)";
+
+const HoverCapabilityOverrideContext = createContext<boolean | null>(null);
+
+export interface HoverCapabilityOverrideProps {
+  /** What {@link useHoverCapable} answers inside this subtree. */
+  hoverCapable: boolean;
+  children: ReactNode;
+}
+
+/**
+ * Subtree-scoped answer for {@link useHoverCapable}, for a story or a test
+ * that shows the no-hover presentation. Scoped through context rather than a
+ * swapped `matchMedia` because that global is sampled by everything mounted
+ * alongside: on a Storybook autodocs page every canvas renders together, and
+ * a global swap makes the ordinary stories misrepresent the browser they are
+ * actually in. Production code reads the device and does not mount this.
+ */
+export function HoverCapabilityOverride({
+  hoverCapable,
+  children,
+}: HoverCapabilityOverrideProps) {
+  return (
+    <HoverCapabilityOverrideContext.Provider value={hoverCapable}>
+      {children}
+    </HoverCapabilityOverrideContext.Provider>
+  );
+}
 
 /**
  * Whether the device's primary input can hover (see
@@ -46,6 +79,8 @@ export const HOVER_ABSENT_MEDIA_QUERY = "(hover: none)";
  * answers the same way.
  */
 export function useHoverCapable(): boolean {
+  const override = useContext(HoverCapabilityOverrideContext);
+
   const subscribe = useCallback((onChange: () => void) => {
     const query = window.matchMedia(HOVER_ABSENT_MEDIA_QUERY);
     query.addEventListener("change", onChange);
@@ -57,5 +92,6 @@ export function useHoverCapable(): boolean {
     [],
   );
 
-  return useSyncExternalStore(subscribe, getSnapshot, () => true);
+  const capable = useSyncExternalStore(subscribe, getSnapshot, () => true);
+  return override ?? capable;
 }
