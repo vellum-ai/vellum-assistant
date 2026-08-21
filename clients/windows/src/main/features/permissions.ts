@@ -174,7 +174,7 @@ class WindowsPermissionsService {
     if (NOT_APPLICABLE_KINDS.has(kind)) {
       return "not-applicable";
     }
-    if (kind === "microphone" || kind === "screen") {
+    if (kind === "microphone") {
       return mapMediaStatus(systemPreferences.getMediaAccessStatus(kind));
     }
     return "unknown";

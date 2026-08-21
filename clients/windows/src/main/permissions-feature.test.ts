@@ -29,7 +29,7 @@ mock.module("electron", () => ({
   },
   BrowserWindow: { getAllWindows: () => [], getFocusedWindow: () => null },
   shell: { openExternal },
-  systemPreferences: { getMediaAccessStatus: () => "unknown" },
+  systemPreferences: { getMediaAccessStatus: () => "granted" },
 }));
 mock.module("./ipc.client", () => ({
   handle: (channel: string, _schema: unknown, handler: Handler) => {
