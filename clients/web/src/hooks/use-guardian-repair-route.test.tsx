@@ -7,16 +7,16 @@ mock.module("react-router", () => ({
   useNavigate: () => navigateMock,
 }));
 
-import { notifyGatewayRepairRequired } from "@/assistant/gateway-repair-bus";
-import { useGatewayRepairRoute } from "@/hooks/use-gateway-repair-route";
+import { useGuardianRepairRoute } from "@/hooks/use-guardian-repair-route";
+import { publish } from "@/lib/event-bus";
 import { routes } from "@/utils/routes";
 
 function Harness() {
-  useGatewayRepairRoute();
+  useGuardianRepairRoute();
   return null;
 }
 
-describe("useGatewayRepairRoute", () => {
+describe("useGuardianRepairRoute", () => {
   beforeEach(() => {
     navigateMock.mockClear();
   });
@@ -28,7 +28,7 @@ describe("useGatewayRepairRoute", () => {
   test("routes to the chooser when a guardian repair is required", () => {
     render(<Harness />);
 
-    notifyGatewayRepairRequired();
+    publish("gateway.guardian-repair-required", {});
 
     expect(navigateMock).toHaveBeenCalledTimes(1);
     expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
@@ -43,7 +43,7 @@ describe("useGatewayRepairRoute", () => {
      */
     render(<Harness />);
 
-    notifyGatewayRepairRequired();
+    publish("gateway.guardian-repair-required", {});
 
     const [target] = navigateMock.mock.calls[0] as [string];
     expect(target).not.toContain("noAutoSkip");
@@ -53,7 +53,7 @@ describe("useGatewayRepairRoute", () => {
     const { unmount } = render(<Harness />);
     unmount();
 
-    notifyGatewayRepairRequired();
+    publish("gateway.guardian-repair-required", {});
 
     expect(navigateMock).not.toHaveBeenCalled();
   });

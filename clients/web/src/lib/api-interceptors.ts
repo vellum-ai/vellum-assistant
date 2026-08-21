@@ -27,7 +27,6 @@
  *
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#interceptors
  */
-import { notifyGatewayRepairRequired } from "@/assistant/gateway-repair-bus";
 import {
   UNREACHABLE_STATUS_CODES,
   notifyAssistantUnreachable,
@@ -51,6 +50,7 @@ import {
   primeLocalGatewayConnectionWithRepair,
 } from "@/lib/local-mode";
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
+import { publish } from "@/lib/event-bus";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
   getSelfHostedActorToken,
@@ -526,10 +526,11 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * A local session has its own dead end: a mint the gateway still answers
  * with 401 after the wake, which only a guardian re-provision clears and
  * this path must never run silently. That drops the rejected token and
- * announces on {@link notifyGatewayRepairRequired}, whose app-root
- * subscriber routes to the chooser and its repair dialog. Recovery is
- * latched off for the rest of the page lifecycle, so the health poll that
- * discovered the 401 stops re-entering a repair that cannot succeed.
+ * publishes `gateway.guardian-repair-required`, whose app-root subscriber
+ * routes to the chooser and its repair dialog. Recovery is latched off for
+ * as long as the connection slot holds the bearer it gave up on, so the
+ * health poll stops re-entering a repair that cannot succeed, and the
+ * reconnect that follows a completed repair re-arms it.
  *
  * A sessionStorage cooldown spaces the attempts, and a sessionStorage
  * attempt budget stops them. The cooldown alone only paces a gateway
@@ -558,11 +559,28 @@ const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
 const GW_401_COOLDOWN_MS = 600_000;
 const GW_401_MAX_ATTEMPTS = 3;
 
-// In-memory latch for a recovery that has run out of moves: the
-// remote-gateway reload, or the local hand-off to the chooser's guardian
-// repair. Once either fires, all subsequent 401s in the same page lifecycle
-// are no-ops. Resets naturally on reload.
-let gw401RecoveryAbandoned = false;
+// In-memory latch for the remote-gateway reload: once the reload fires,
+// all subsequent 401s in the same page lifecycle are no-ops. Resets
+// naturally on reload.
+let gw401ReloadFired = false;
+
+// The connection-slot bearer a guardian repair was handed off for. Recovery
+// stays off while the slot still holds it, since re-running against the same
+// rejected credential cannot succeed. Keyed by the token rather than latched
+// outright because the local path never reloads: a completed repair reconnects
+// within the same page lifecycle, and the fresh bearer it seeds re-arms
+// recovery for whatever rejects that one later.
+let gw401AbandonedFor: { token: string | null } | null = null;
+
+function isGw401RecoveryAbandoned(): boolean {
+  if (gw401ReloadFired) {
+    return true;
+  }
+  return (
+    gw401AbandonedFor !== null &&
+    gw401AbandonedFor.token === getSelfHostedActorToken()
+  );
+}
 
 // Single-flight slot: a burst of concurrent 401s (a resume refetch, say)
 // funds one in-place recovery; every caller awaits the same attempt and
@@ -572,7 +590,8 @@ let gw401RecoveryInFlight: Promise<boolean> | null = null;
 
 /** @internal Exposed for test teardown only. */
 export function resetGw401RecoveryState(): void {
-  gw401RecoveryAbandoned = false;
+  gw401ReloadFired = false;
+  gw401AbandonedFor = null;
   gw401RecoveryInFlight = null;
 }
 
@@ -585,7 +604,7 @@ async function recoverRemoteGatewaySessionInPlace(): Promise<boolean> {
   // The refresh cookie is rejected too: nothing in the renderer can revive
   // this session, so boot into the pairing flow.
   recordLifecycleDiagnostic("gw_401_recovery", { outcome: "reload" });
-  gw401RecoveryAbandoned = true;
+  gw401ReloadFired = true;
   clearGatewayToken();
   window.location.reload();
   return false;
@@ -614,10 +633,12 @@ async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
     recordLifecycleDiagnostic("gw_401_recovery", { outcome: "recovered" });
     return true;
   } catch (err) {
+    const stillRecoveringForSelection =
+      (getSelectedAssistant()?.assistantId ?? null) === recoveringFor;
     if (
       getSelfHostedIngressUrl() === null &&
       previous.url !== null &&
-      (getSelectedAssistant()?.assistantId ?? null) === recoveringFor
+      stillRecoveringForSelection
     ) {
       setSelfHostedConnection(previous);
     }
@@ -627,16 +648,20 @@ async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
     // rejected token so the reconnect mints one rather than replaying a token
     // whose local expiry still looks fine, and hand the session to the
     // chooser, which owns the re-provision.
-    const repairRequired = isRepairableGatewayTokenError(err);
-    if (repairRequired) {
-      gw401RecoveryAbandoned = true;
-      clearGatewayToken();
-    }
-    const outcome = repairRequired ? "repair_required" : "failed";
+    //
+    // A selection that moved while the wake and its retries ran makes this the
+    // verdict on an assistant nobody is connected to any more, so it says
+    // nothing about the one that is: clearing the shared gateway token or
+    // routing to the chooser would act on a session this never touched.
+    const repairRequired =
+      isRepairableGatewayTokenError(err) && stillRecoveringForSelection;
+    const outcome = repairRequired ? "guardian_repair" : "failed";
     recordLifecycleDiagnostic("gw_401_recovery", { outcome });
     captureError(err, { context: "gw_401_recovery", tags: { outcome } });
     if (repairRequired) {
-      notifyGatewayRepairRequired();
+      clearGatewayToken();
+      gw401AbandonedFor = { token: getSelfHostedActorToken() };
+      publish("gateway.guardian-repair-required", {});
     }
     return false;
   }
@@ -726,7 +751,7 @@ export async function localGatewayAuthRecoveryInterceptor(
   if (response.status !== 401) {
     return response;
   }
-  if (gw401RecoveryAbandoned) {
+  if (isGw401RecoveryAbandoned()) {
     return response;
   }
 
