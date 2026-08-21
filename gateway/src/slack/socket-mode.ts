@@ -2028,8 +2028,9 @@ export class SlackSocketModeClient {
     const mentionsBot = msg.text?.includes(`<@${botUserId}>`) ?? false;
     // `conversations.history`/`replies` carry no `channel_type`, so classify
     // DMs by the conversation ID prefix and group DMs from the observed-kind
-    // cache. The `"channel"` fallback below is therefore a guess, which is why
-    // `recordSlackChannelKind` refuses to learn from that value.
+    // cache. Anything else is unproven and stays unstamped rather than being
+    // guessed, so no consumer can mistake a replay's inference for something
+    // Slack said.
     const isDm = isSlackDmChannel(channel);
     const isGroupDm = !isDm && this.isGroupDmChannel(channel);
     // Slack only emits `app_mention` in non-DM channels, even when the bot is
@@ -2052,7 +2053,19 @@ export class SlackSocketModeClient {
       ts: msg.ts,
       thread_ts: msg.thread_ts,
       channel,
-      channel_type: isDm ? "im" : isGroupDm ? "mpim" : "channel",
+      // Only the proven types are stamped. `"channel"` would be a guess, and a
+      // guess must not read as proof: `slackConversationVisibility` treats an
+      // explicit `channel_type` as authoritative, so synthesizing one here
+      // would stamp a recovered private-channel message as public and skip the
+      // authoritative lookup that would have corrected it. Omitting it leaves
+      // the same signals a live thread reply has, which is a `G` prefix for a
+      // private room and a resolved lookup for an ambiguous `C`. This is the
+      // same reason `recordSlackChannelKind` refuses to learn from the value.
+      ...(isDm
+        ? { channel_type: "im" }
+        : isGroupDm
+          ? { channel_type: "mpim" }
+          : {}),
       team: msg.team,
       ...(msg.subtype ? { subtype: msg.subtype } : {}),
       ...(msg.files ? { files: msg.files } : {}),
