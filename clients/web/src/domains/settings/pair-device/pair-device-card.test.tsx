@@ -297,14 +297,16 @@ describe("PairDeviceCard", () => {
     // Helper text explains the prefilled address came from `vellum tunnel`.
     expect(screen.getByText(/comes from/)).toBeTruthy();
     // A recorded tunnel URL suppresses the no-tunnel empty state.
-    expect(screen.queryByText("No tunnel detected")).toBeNull();
+    expect(screen.queryByText("Open a tunnel first")).toBeNull();
   });
 
   test("shows honest no-tunnel guidance when no ingress URL and no stored value", () => {
     render(<PairDeviceCard />);
 
-    expect(screen.getByText("No tunnel detected")).toBeTruthy();
-    expect(screen.getByText(/vellum tunnel --provider tailscale/)).toBeTruthy();
+    expect(screen.getByText("Open a tunnel first")).toBeTruthy();
+    expect(screen.getByText("vellum tunnel --provider tailscale")).toBeTruthy();
+    expect(screen.getByText(/Paste it into Public URL below/)).toBeTruthy();
+    expect(screen.getByText("vellum tunnel --help")).toBeTruthy();
     // The manual field stays available beneath the guidance.
     expect(screen.getByLabelText("Public URL")).toBeTruthy();
     expect(
