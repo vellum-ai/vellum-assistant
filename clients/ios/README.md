@@ -313,7 +313,12 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   `avatar-<body>-<eye>-<color>`. Each set is a single opaque 1024×1024
   `icon.png` covering every idiom: a background rect tinted from the trait
   color with the composed character centered on top. App icons may not be
-  transparent, so the background is baked into the pixels.
+  transparent, so the background is baked into the pixels and the file is
+  encoded as PNG color type 2 (RGB, no alpha channel at all). App Store
+  validation rejects an app icon that carries an alpha channel (ITMS-90717),
+  and that only surfaces at TestFlight upload, so the generator asserts every
+  pixel is opaque and drops the channel rather than shipping a fully opaque
+  RGBA image.
 - The catalog and `Config/AvatarIcons.xcconfig`
   (`ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES`) are generated
   output produced from the avatar component library (`assistant/src/avatar/`)

@@ -39,6 +39,15 @@ const PNG_SIGNATURE = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 ]);
 
+/**
+ * IHDR color type 2: three 8-bit channels and no alpha channel. App Store
+ * validation rejects an app icon that carries one (ITMS-90717).
+ */
+const PNG_COLOR_TYPE_RGB = 2;
+
+/** Offset of the color type byte in the IHDR chunk of any PNG. */
+const PNG_COLOR_TYPE_OFFSET = 25;
+
 /** A 1024x1024 icon is tens of KB; anything far smaller is a broken render. */
 const MIN_ICON_BYTES = 4096;
 
@@ -187,6 +196,20 @@ describe("generateAvatarIcons", () => {
         const png = readFileSync(join(iconsDir, setName, "icon.png"));
         expect(pngDimensions(png)).toEqual({ width: 1024, height: 1024 });
         expect(png.byteLength).toBeGreaterThan(MIN_ICON_BYTES);
+      }
+    },
+    GENERATION_TIMEOUT_MS,
+  );
+
+  test(
+    "writes every icon without an alpha channel",
+    () => {
+      const { iconsDir } = catalog();
+      for (const setName of iconSetNames(iconsDir)) {
+        const png = readFileSync(join(iconsDir, setName, "icon.png"));
+        expect(png.subarray(0, PNG_SIGNATURE.length)).toEqual(PNG_SIGNATURE);
+        expect(png.subarray(12, 16).toString("ascii")).toBe("IHDR");
+        expect(png[PNG_COLOR_TYPE_OFFSET]).toBe(PNG_COLOR_TYPE_RGB);
       }
     },
     GENERATION_TIMEOUT_MS,

@@ -21,7 +21,10 @@
  * Each entry is a classic `.appiconset` holding a single opaque 1024x1024 PNG:
  * a background rect tinted from the trait color, with the composed character
  * centered on top. App icons may not be transparent, which is why the
- * background is baked into the pixels rather than left to the catalog.
+ * background is baked into the pixels rather than left to the catalog, and why
+ * the icons are written as color type 2 (RGB) PNGs with no alpha channel at
+ * all. App Store validation rejects an app icon that carries one
+ * (ITMS-90717), a failure that would otherwise only surface at upload time.
  */
 
 import {
@@ -33,6 +36,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
+import { deflateSync } from "node:zlib";
 
 import { getCharacterComponents } from "../../../assistant/src/avatar/character-components.js";
 import { renderCharacterPng } from "../../../assistant/src/avatar/png-renderer.js";
@@ -71,6 +75,21 @@ const CHARACTER_CANVAS_FRACTION = 0.7;
 const BACKGROUND_WHITE_BLEND = 0.65;
 
 const ICON_IMAGE_NAME = "icon.png";
+
+/** Bytes every PNG opens with. */
+const PNG_SIGNATURE = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+
+/** IHDR color type 2: three 8-bit channels and no alpha channel. */
+const PNG_COLOR_TYPE_RGB = 2;
+
+/**
+ * Deflate level for the icon IDAT, pinned so regenerating an unchanged catalog
+ * stays byte-identical. Level 9 also happens to be the one level where Bun and
+ * Node emit the same bytes.
+ */
+const PNG_DEFLATE_LEVEL = 9;
 
 /** Provenance block every `Contents.json` in an asset catalog carries. */
 const CATALOG_INFO = { author: "xcode", version: 1 };
@@ -285,17 +304,120 @@ function iconCellSvg(
   );
 }
 
-function rasterize(body: string, width: number, height: number): Buffer {
+function renderSvg(body: string, width: number, height: number) {
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
     `width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${body}</svg>`;
   const Resvg = getResvg();
-  const rendered = new Resvg(svg, { fitTo: { mode: "width", value: width } });
-  return Buffer.from(rendered.render().asPng());
+  return new Resvg(svg, { fitTo: { mode: "width", value: width } }).render();
+}
+
+function rasterize(body: string, width: number, height: number): Buffer {
+  return Buffer.from(renderSvg(body, width, height).asPng());
+}
+
+/**
+ * Rasterizes to a PNG with no alpha channel at all. `asPng()` always writes
+ * RGBA, and App Store validation rejects app icons carrying an alpha channel
+ * (ITMS-90717), a failure that only surfaces at TestFlight upload.
+ */
+function rasterizeOpaqueRgb(
+  body: string,
+  width: number,
+  height: number,
+): Buffer {
+  const rendered = renderSvg(body, width, height);
+  return encodeOpaqueRgbPng(rendered.pixels, rendered.width, rendered.height);
 }
 
 function renderIconPng(traits: AvatarIconTraits, hex: string): Buffer {
-  return rasterize(iconCellSvg(traits, hex, 0, 0, ICON_PX), ICON_PX, ICON_PX);
+  return rasterizeOpaqueRgb(
+    iconCellSvg(traits, hex, 0, 0, ICON_PX),
+    ICON_PX,
+    ICON_PX,
+  );
+}
+
+const CRC_TABLE = buildCrcTable();
+
+function buildCrcTable(): Uint32Array {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    table[index] = value >>> 0;
+  }
+  return table;
+}
+
+/** The CRC-32 every PNG chunk carries, over its type bytes plus its payload. */
+function crc32(bytes: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = CRC_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, payload: Buffer): Buffer {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(payload.byteLength);
+  const typed = Buffer.concat([Buffer.from(type, "ascii"), payload]);
+  const checksum = Buffer.alloc(4);
+  checksum.writeUInt32BE(crc32(typed));
+  return Buffer.concat([length, typed, checksum]);
+}
+
+/**
+ * Encodes an RGBA pixel buffer as a color type 2 PNG, dropping the alpha byte
+ * per pixel. Throws on any translucent pixel rather than flattening it: the
+ * icons are drawn on an opaque background rect, so a translucent pixel means
+ * the composition regressed and the dropped alpha would change what ships.
+ */
+function encodeOpaqueRgbPng(
+  rgba: Buffer,
+  width: number,
+  height: number,
+): Buffer {
+  const rowBytes = width * 3;
+  // Each scanline is a filter-type byte (0, None) followed by its pixels.
+  const raw = Buffer.alloc(height * (1 + rowBytes));
+  let target = 0;
+  for (let y = 0; y < height; y += 1) {
+    raw[target] = 0;
+    target += 1;
+    for (let x = 0; x < width; x += 1) {
+      const source = (y * width + x) * 4;
+      const alpha = rgba[source + 3]!;
+      if (alpha !== 0xff) {
+        throw new Error(
+          `Pixel (${x}, ${y}) is translucent (alpha ${alpha}). App icons must be fully opaque.`,
+        );
+      }
+      raw[target] = rgba[source]!;
+      raw[target + 1] = rgba[source + 1]!;
+      raw[target + 2] = rgba[source + 2]!;
+      target += 3;
+    }
+  }
+
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8; // Bit depth.
+  header[9] = PNG_COLOR_TYPE_RGB;
+  header[10] = 0; // Deflate compression, the only method PNG defines.
+  header[11] = 0; // Adaptive filtering, the only method PNG defines.
+  header[12] = 0; // No interlacing.
+
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", deflateSync(raw, { level: PNG_DEFLATE_LEVEL })),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 /**
