@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { resolveBuildCommitSha } from "./build-metadata";
+import { findPackageDir } from "./package-runtime-packages";
 
 interface RuntimeTarget {
   readonly name: string;
@@ -60,6 +61,13 @@ const assistantDefines = {
   "process.env.APP_VERSION": JSON.stringify(assistantVersion),
   "process.env.COMMIT_SHA": JSON.stringify(commitSha),
 };
+const assistantExternals = [
+  "chromium-bidi/*",
+  "sharp",
+  "@img/*",
+  "detect-libc",
+  "semver",
+] as const;
 const targets: readonly RuntimeTarget[] = [
   {
     name: "vellum.exe",
@@ -69,13 +77,13 @@ const targets: readonly RuntimeTarget[] = [
   {
     name: "assistant.exe",
     entry: "assistant/src/windows-compiled-entry.ts",
-    externals: ["chromium-bidi/*"],
+    externals: assistantExternals,
     defines: assistantDefines,
   },
   {
     name: "vellum-daemon.exe",
     entry: "assistant/src/daemon/windows-compiled-entry.ts",
-    externals: ["chromium-bidi/*"],
+    externals: assistantExternals,
     defines: assistantDefines,
   },
   {
@@ -101,7 +109,7 @@ const targets: readonly RuntimeTarget[] = [
   {
     name: "vellum-worker.exe",
     entry: "assistant/src/windows-compiled-worker-entry.ts",
-    externals: ["chromium-bidi/*"],
+    externals: assistantExternals,
     defines: assistantDefines,
   },
   {
@@ -139,6 +147,47 @@ for (const { name, entry, externals, defines } of targets) {
     throw new Error(`Failed to compile ${name} (exit ${build.status}).`);
   }
 }
+
+const nativeSharpPackage = `@img/sharp-win32-${targetArch}`;
+const assistantPackageDir = path.join(repoRoot, "assistant");
+const sharpPackageDir = findPackageDir("sharp", assistantPackageDir);
+const runtimePackages = [
+  {
+    packageName: "sharp",
+    resolveSpecifier: "sharp",
+    basedir: assistantPackageDir,
+  },
+  {
+    packageName: "@img/colour",
+    resolveSpecifier: "@img/colour",
+    basedir: sharpPackageDir,
+  },
+  {
+    packageName: nativeSharpPackage,
+    resolveSpecifier: `${nativeSharpPackage}/sharp.node`,
+    basedir: sharpPackageDir,
+  },
+  {
+    packageName: "detect-libc",
+    resolveSpecifier: "detect-libc",
+    basedir: sharpPackageDir,
+  },
+  {
+    packageName: "semver",
+    resolveSpecifier: "semver",
+    basedir: sharpPackageDir,
+  },
+] as const;
+const runtimeNodeModules = path.join(outputDir, "node_modules");
+mkdirSync(runtimeNodeModules, { recursive: true });
+for (const { packageName, resolveSpecifier, basedir } of runtimePackages) {
+  cpSync(
+    findPackageDir(resolveSpecifier, basedir),
+    path.join(runtimeNodeModules, ...packageName.split("/")),
+    { recursive: true },
+  );
+}
+
 const versionCheck = spawnSync(
   path.join(outputDir, "assistant.exe"),
   ["--version"],

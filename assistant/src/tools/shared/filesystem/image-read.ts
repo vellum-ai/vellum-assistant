@@ -76,7 +76,7 @@ async function buildImageToolResult(
   }
 
   // Detect actual format from magic bytes - never trust the file extension
-  // alone, since sips converts to JPEG and files can be misnamed.
+  // alone, since conversion produces JPEG and files can be misnamed.
   const detectedType = detectMediaType(buffer);
   if (!detectedType) {
     return {
