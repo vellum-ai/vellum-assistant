@@ -5,7 +5,8 @@ For error handling conventions (throw vs result objects vs null), see [docs/erro
 Subdirectory-scoped rules live in local AGENTS.md files throughout `src/`, some
 of them nested several levels down. Read the one nearest the code you are
 changing plus any above it, and follow the nearest where two disagree.
-`git ls-files 'assistant/src/**/AGENTS.md'` lists them.
+`git ls-files ':(top)assistant/src/**/AGENTS.md'` lists them from anywhere in
+the tree.
 
 ## Adding new environment variables
 
