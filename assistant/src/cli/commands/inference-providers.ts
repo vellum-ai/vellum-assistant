@@ -467,11 +467,9 @@ function attachLoginChatgptSubcommand(providers: Command): void {
           {
             openUrl: (url) => {
               openInHostBrowser(url);
-              if (!opts.json) {
-                process.stdout.write(
-                  `If the browser did not open, visit:\n${url}\n`,
-                );
-              }
+              const fallbackMessage = `If the browser did not open, visit:\n${url}\n`;
+              const output = opts.json ? process.stderr : process.stdout;
+              output.write(fallbackMessage);
             },
           },
           {

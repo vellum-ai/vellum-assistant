@@ -91,13 +91,19 @@ afterEach(() => {
 
 async function run(
   args: string[],
-): Promise<{ stdout: string; exitCode: number }> {
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const originalWrite = process.stdout.write.bind(process.stdout);
+  const originalErrorWrite = process.stderr.write.bind(process.stderr);
   const chunks: string[] = [];
+  const errorChunks: string[] = [];
   process.stdout.write = ((chunk: unknown) => {
     chunks.push(typeof chunk === "string" ? chunk : String(chunk));
     return true;
   }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: unknown) => {
+    errorChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
 
   const prevExit = process.exitCode;
   process.exitCode = 0;
@@ -112,11 +118,13 @@ async function run(
     // swallow commander exits
   } finally {
     process.stdout.write = originalWrite;
+    process.stderr.write = originalErrorWrite;
   }
   const stdout = chunks.join("");
+  const stderr = errorChunks.join("");
   const exitCode = (process.exitCode as number) ?? 0;
   process.exitCode = prevExit;
-  return { stdout, exitCode };
+  return { stdout, stderr, exitCode };
 }
 
 describe("providers create — derived auth", () => {
@@ -519,10 +527,18 @@ describe("deprecated providers connections alias", () => {
 });
 
 describe("providers login-chatgpt", () => {
-  test("delivers the authorization URL through the host browser signal", async () => {
-    const { exitCode } = await run(["providers", "login-chatgpt", "--json"]);
+  test("delivers the authorization URL through the host browser signal and stderr", async () => {
+    const { stdout, stderr, exitCode } = await run([
+      "providers",
+      "login-chatgpt",
+      "--json",
+    ]);
 
     expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({ ok: true });
+    expect(stderr).toContain(
+      "https://auth.openai.com/oauth/authorize?state=test",
+    );
     expect(openedUrls).toEqual([
       "https://auth.openai.com/oauth/authorize?state=test",
     ]);
