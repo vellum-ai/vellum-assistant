@@ -795,8 +795,7 @@ describe("channel-reply-delivery", () => {
       chatId: "chat-live",
       attachments,
       assistantId: undefined,
-      ephemeral: undefined,
-      user: undefined,
+      audience: undefined,
     });
     // Attachments post as new messages, so nothing is edited on this path.
     expect(editCalls).toHaveLength(0);
