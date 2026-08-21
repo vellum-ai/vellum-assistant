@@ -13,6 +13,7 @@
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
   mkdtempSync,
   readFileSync,
@@ -32,8 +33,19 @@ import {
   type IconSetScope,
 } from "../generate-avatar-icons.js";
 
-/** Scope of the catalog checked into the repo. Widening it is a code change. */
-const COMMITTED_SCOPE: IconSetScope = "pilot";
+/** Scope of the catalog checked into the repo. Narrowing it is a code change. */
+const COMMITTED_SCOPE: IconSetScope = "full";
+
+/** Every body shape x eye style x color the avatar component library defines. */
+const COMMITTED_ICON_COUNT = 10 * 9 * 6;
+
+/**
+ * Scope of the determinism check. Byte-for-byte stability is a property of the
+ * encoder rather than of the set size, so rerunning a 24-set slice proves it
+ * for a fraction of the runtime. The drift guard below still pins every
+ * committed icon, and needs only one fresh generation to do it.
+ */
+const DETERMINISM_SCOPE: IconSetScope = "pilot";
 
 const PNG_SIGNATURE = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -52,10 +64,15 @@ const PNG_COLOR_TYPE_OFFSET = 25;
 const MIN_ICON_BYTES = 4096;
 
 /**
- * Rasterizing the committed set takes seconds, well past the 5s default, and
- * CI runners are slower than a laptop.
+ * Rasterizing all 540 icons takes about 2 minutes on an M-series laptop and
+ * about 17 on a `macos-15` runner, so this is a backstop rather than a target.
+ * Generation is synchronous, which bun cannot interrupt, so a run past this
+ * still finishes and then reports the test failed.
  */
-const GENERATION_TIMEOUT_MS = 120_000;
+const GENERATION_TIMEOUT_MS = 2_400_000;
+
+/** The determinism check reruns a 24-set slice: seconds locally, 90s on CI. */
+const PILOT_GENERATION_TIMEOUT_MS = 600_000;
 
 interface GeneratedCatalog {
   iconsDir: string;
@@ -76,26 +93,27 @@ function makeTempDir(): string {
   return dir;
 }
 
-function generateInto(dir: string): GeneratedCatalog {
+function generateInto(dir: string, scope: IconSetScope): GeneratedCatalog {
   const iconsDir = join(dir, "AvatarIcons.xcassets");
   const xcconfigPath = join(dir, "AvatarIcons.xcconfig");
-  generateAvatarIcons({ iconsDir, xcconfigPath, scope: COMMITTED_SCOPE });
+  generateAvatarIcons({ iconsDir, xcconfigPath, scope });
   return { iconsDir, xcconfigPath };
 }
 
 let shared: GeneratedCatalog | undefined;
 
-/** One generation shared by every read-only assertion, since each costs seconds. */
+/** One generation shared by every read-only assertion, since each costs minutes. */
 function catalog(): GeneratedCatalog {
   if (!shared) {
-    shared = generateInto(makeTempDir());
+    shared = generateInto(makeTempDir(), COMMITTED_SCOPE);
   }
   return shared;
 }
 
 /**
- * Relative path to base64 contents, so two trees can be diffed byte for byte
- * whether the file is JSON or a PNG.
+ * Relative path to content digest, so two trees can be diffed byte for byte
+ * whether the file is JSON or a PNG. Digests rather than the bytes themselves
+ * because a mismatch across 540 icons has to print a diff someone can read.
  */
 function snapshotTree(dir: string): Map<string, string> {
   const files = new Map<string, string>();
@@ -103,7 +121,10 @@ function snapshotTree(dir: string): Map<string, string> {
     const relativePath = String(entry);
     const absolutePath = join(dir, relativePath);
     if (statSync(absolutePath).isFile()) {
-      files.set(relativePath, readFileSync(absolutePath).toString("base64"));
+      files.set(
+        relativePath,
+        createHash("sha256").update(readFileSync(absolutePath)).digest("hex"),
+      );
     }
   }
   return files;
@@ -149,8 +170,10 @@ describe("generateAvatarIcons", () => {
   test(
     "writes an icon set for each trait combination",
     () => {
-      // The pilot scope: 2 body shapes x 2 eye styles x 6 colors.
-      expect(iconSetNames(catalog().iconsDir)).toHaveLength(2 * 2 * 6);
+      // The full scope: 10 body shapes x 9 eye styles x 6 colors.
+      expect(iconSetNames(catalog().iconsDir)).toHaveLength(
+        COMMITTED_ICON_COUNT,
+      );
     },
     GENERATION_TIMEOUT_MS,
   );
@@ -233,19 +256,32 @@ describe("generateAvatarIcons", () => {
     "is deterministic across reruns",
     () => {
       const dir = makeTempDir();
-      const { iconsDir, xcconfigPath } = generateInto(dir);
+      const { iconsDir, xcconfigPath } = generateInto(dir, DETERMINISM_SCOPE);
       const first = snapshotTree(iconsDir);
       const firstXcconfig = readFileSync(xcconfigPath, "utf8");
 
-      generateInto(dir);
+      generateInto(dir, DETERMINISM_SCOPE);
       expect(snapshotTree(iconsDir)).toEqual(first);
       expect(readFileSync(xcconfigPath, "utf8")).toBe(firstXcconfig);
     },
-    GENERATION_TIMEOUT_MS,
+    PILOT_GENERATION_TIMEOUT_MS,
   );
 });
 
 describe("committed catalog", () => {
+  /**
+   * Counts the checked-in tree on its own, so a commit that dropped icon sets
+   * reports the count rather than a 540-entry digest diff.
+   */
+  test("holds every icon set and nothing else", () => {
+    const setNames = iconSetNames(AVATAR_ICONS_DIR);
+    expect(setNames).toHaveLength(COMMITTED_ICON_COUNT);
+    expect(readdirSync(AVATAR_ICONS_DIR).sort()).toEqual([
+      "Contents.json",
+      ...setNames,
+    ]);
+  });
+
   test(
     "matches a fresh generation",
     () => {

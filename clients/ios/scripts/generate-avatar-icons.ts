@@ -6,7 +6,7 @@
  * Run from anywhere in the repo:
  *
  *   bun clients/ios/scripts/generate-avatar-icons.ts
- *   bun clients/ios/scripts/generate-avatar-icons.ts --full
+ *   bun clients/ios/scripts/generate-avatar-icons.ts --pilot
  *   bun clients/ios/scripts/generate-avatar-icons.ts --contact-sheet /tmp/avatar-icons.png
  *
  * Rasterizing the icons needs the native `@resvg/resvg-js` binding, so the
@@ -95,8 +95,9 @@ const PNG_DEFLATE_LEVEL = 9;
 const CATALOG_INFO = { author: "xcode", version: 1 };
 
 /**
- * The pilot set covers both face-placement paths: `blob` uses its body's own
- * face center, `ghost` is remapped through `faceCenterOverrides`.
+ * `--pilot` narrows a local run to a 24-set slice, which rasterizes in seconds
+ * instead of minutes. It covers both face-placement paths: `blob` uses its
+ * body's own face center, `ghost` is remapped through `faceCenterOverrides`.
  */
 const PILOT_BODY_SHAPES = ["blob", "ghost"];
 const PILOT_EYE_STYLES = ["grumpy", "gentle"];
@@ -482,7 +483,8 @@ function totalBytes(dir: string): number {
 }
 
 function main(argv: string[]): void {
-  const scope: IconSetScope = argv.includes("--full") ? "full" : "pilot";
+  // Full is the committed state, so a bare run reproduces what is checked in.
+  const scope: IconSetScope = argv.includes("--pilot") ? "pilot" : "full";
   const contactSheetPath = parseContactSheetPath(argv);
 
   const names = generateAvatarIcons({
