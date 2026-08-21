@@ -11,6 +11,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import {
+  clearSubmissionFailure,
   reportSubmissionFailure,
   stillOwnsSubmission,
 } from "@/domains/chat/prompt-submission";
@@ -38,24 +39,27 @@ import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
  *
  * Bails entirely when a newer prompt has taken over: clearing there would
  * reopen the double-submit guard and erase a real failure the user needs to
- * see. See {@link stillOwnsQuestionState}.
+ * see. See {@link stillOwnsSubmission}.
  */
 function clearStaleQuestion(requestId: string): void {
   if (!stillOwnsSubmission("question", requestId)) {
     return;
   }
   useInteractionStore.getState().dismissQuestionIfMatches(requestId);
+  // Before the release, which is what the clear's own door reads. Retiring
+  // this prompt first is what lets the door open when nothing replaced it.
+  clearSubmissionFailure("question", requestId);
   useInteractionStore.getState().releaseSubmission("question", requestId);
-  useChatSessionStore.getState().setError(null);
 }
 
 /**
  * Submit the user's answers to a pending question prompt.
  *
- * A new SSE-driven `question_request` can arrive mid-flight and take over the
- * shared submitting/error state, so every path that resumes after the POST
- * checks {@link stillOwnsQuestionState} before writing to it. Everything before
- * the POST runs synchronously, so ownership cannot change there.
+ * A new SSE-driven `question_request` can arrive mid-flight and be answered
+ * while this one is still on the wire, so every path that resumes after the
+ * POST goes through the doors in `prompt-submission.ts` before writing shared
+ * state. Everything before the POST runs synchronously, so ownership cannot
+ * change there.
  */
 export async function handleQuestionResponse(
   responses: QuestionResponseEntry[],

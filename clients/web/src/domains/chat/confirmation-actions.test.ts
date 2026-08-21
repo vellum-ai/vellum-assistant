@@ -49,6 +49,26 @@ const { useChatSessionStore } =
 const { useStreamStore } = await import("@/domains/chat/stream-store");
 const { useRuleEditorStore } = await import("@/domains/chat/rule-editor-store");
 
+/**
+ * Every requestId whose `releaseSubmission` call actually moved the slot.
+ *
+ * Recorded from the caller's own id rather than from the slot's outgoing
+ * value: an unscoped release by a stale request and a correct release by the
+ * holder both take the same value out, so only the caller distinguishes them.
+ */
+const releasedBy: string[] = [];
+
+const realReleaseSubmission = useInteractionStore.getState().releaseSubmission;
+useInteractionStore.setState({
+  releaseSubmission: (kind, requestId) => {
+    const before = useInteractionStore.getState().submittingByKind[kind];
+    realReleaseSubmission(kind, requestId);
+    if (useInteractionStore.getState().submittingByKind[kind] !== before) {
+      releasedBy.push(requestId);
+    }
+  },
+});
+
 function seedPendingConfirmation(requestId: string): void {
   useStreamStore.getState().setStreamContext({
     assistantId: "ast-1",
@@ -64,6 +84,7 @@ function seedPendingConfirmation(requestId: string): void {
 
 beforeEach(() => {
   submitConfirmationCalls.length = 0;
+  releasedBy.length = 0;
   submitConfirmationResult = { ok: true };
   submitGate = null;
   useInteractionStore.getState().resetAll();
@@ -151,10 +172,16 @@ describe("handleConfirmationSubmit: a resume that no longer owns the slot", () =
     first.release();
     second.release();
 
-    // THEN it must not have taken the slot back or released it. Asserted after
-    // both settle, below.
     return Promise.all([first.inFlight, second.inFlight]).then(() => {
       expect(submitConfirmationCalls).toHaveLength(2);
+      // The older resume must neither take the slot back nor free it. Both
+      // requests succeed here, so the slot ends up released by its own holder
+      // — the assertion that matters is that `cr-new` is the one that did it,
+      // which a call count cannot show.
+      expect(releasedBy).toEqual(["cr-new"]);
+      expect(
+        useInteractionStore.getState().submittingByKind.confirmation,
+      ).toBeNull();
     });
   });
 

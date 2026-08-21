@@ -52,7 +52,7 @@ function cleanupAfterConfirmationDecision(
   useInteractionStore
     .getState()
     .dismissConfirmationIfMatches(snapshot.requestId);
-  releaseInlineAnchor(mappedToolCallId);
+  useInteractionStore.getState().releaseInlineAnchorIfMatches(mappedToolCallId);
   const convKey = useConversationStore.getState().activeConversationId;
   if (convKey) {
     useConversationStore.getState().removeAttentionConversationId(convKey);
@@ -116,19 +116,6 @@ function cleanupAfterConfirmationDecision(
 }
 
 /**
- * Drop the inline anchor, but only when it is the one this decision's own tool
- * call put there. Unscoped, it would unpin a different chip's card.
- */
-function releaseInlineAnchor(toolCallId: string | undefined): void {
-  if (
-    toolCallId &&
-    useInteractionStore.getState().inlineConfirmationToolCallId === toolCallId
-  ) {
-    useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-  }
-}
-
-/**
  * Clear a confirmation prompt the daemon has already discarded.
  *
  * A confirmation POST comes back 404 ("No pending interaction found for this
@@ -144,11 +131,14 @@ function releaseInlineAnchor(toolCallId: string | undefined): void {
  * stranded. No decision is stamped on the tool call — none was applied; the
  * transcript already reflects the tool call's own outcome.
  */
-function clearStaleConfirmation(snapshot: PendingConfirmationState): void {
+function clearStaleConfirmation(
+  snapshot: PendingConfirmationState,
+  mappedToolCallId: string | undefined,
+): void {
   useInteractionStore
     .getState()
     .dismissConfirmationIfMatches(snapshot.requestId);
-  useInteractionStore.getState().setInlineConfirmationToolCallId(null);
+  useInteractionStore.getState().releaseInlineAnchorIfMatches(mappedToolCallId);
   const convKey = useConversationStore.getState().activeConversationId;
   if (convKey) {
     useConversationStore.getState().removeAttentionConversationId(convKey);
@@ -157,7 +147,8 @@ function clearStaleConfirmation(snapshot: PendingConfirmationState): void {
     clearConfirmationByRequestId(prev, snapshot.requestId),
   );
   useChatSessionStore.getState().deleteConfirmationToolCall(snapshot.requestId);
-  useChatSessionStore.getState().setError(null);
+  // Before the release below, which is what the clear's own door reads.
+  clearSubmissionFailure("confirmation", snapshot.requestId);
   useInteractionStore
     .getState()
     .releaseSubmission("confirmation", snapshot.requestId);
@@ -236,7 +227,7 @@ export async function handleConfirmationSubmit(
       if (result.status === 404) {
         // Pending interaction already gone server-side — retire the stale
         // prompt instead of stranding the user on an un-actionable card.
-        clearStaleConfirmation(snapshot);
+        clearStaleConfirmation(snapshot, mappedToolCallId);
         return;
       }
       reportSubmissionFailure("confirmation", snapshot.requestId, result.error);
@@ -292,6 +283,10 @@ export async function handleAllowAndCreateRule(
   useInteractionStore
     .getState()
     .claimSubmission("confirmation", snapshot.requestId);
+  // Same entry clear as every other submit path: the prompt is on screen and
+  // the claim is synchronous, so a banner still up here is this prompt's own
+  // stale one.
+  useChatSessionStore.getState().setError(null);
 
   const mappedToolCallId =
     toolCall?.id ??
@@ -351,7 +346,9 @@ export async function handleAllowAndCreateRule(
       useInteractionStore
         .getState()
         .releaseSubmission("confirmation", snapshot.requestId);
-      releaseInlineAnchor(mappedToolCallId);
+      useInteractionStore
+        .getState()
+        .releaseInlineAnchorIfMatches(mappedToolCallId);
       patchTranscriptMessages((prev: DisplayMessage[]) =>
         clearConfirmationByRequestId(prev, snapshot.requestId),
       );
@@ -374,7 +371,9 @@ export async function handleAllowAndCreateRule(
     useInteractionStore
       .getState()
       .releaseSubmission("confirmation", snapshot.requestId);
-    releaseInlineAnchor(mappedToolCallId);
+    useInteractionStore
+      .getState()
+      .releaseInlineAnchorIfMatches(mappedToolCallId);
     patchTranscriptMessages((prev: DisplayMessage[]) =>
       clearConfirmationByRequestId(prev, snapshot.requestId),
     );

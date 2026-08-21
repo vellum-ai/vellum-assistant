@@ -142,6 +142,12 @@ export interface InteractionActions {
     patch: Partial<PendingConfirmationState>,
   ) => void;
   setInlineConfirmationToolCallId: (toolCallId: string | null) => void;
+  /**
+   * Unpin the inline card, but only when `toolCallId` is the anchor currently
+   * held. A decision, a stale-prompt retire, and a resolved broadcast all end
+   * one confirmation, and each must leave a different chip's card pinned.
+   */
+  releaseInlineAnchorIfMatches: (toolCallId: string | undefined) => void;
 
   // Contact request
   showContactRequest: (payload: PendingContactRequestState) => void;
@@ -304,6 +310,13 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
 
   setInlineConfirmationToolCallId: (toolCallId) =>
     set({ inlineConfirmationToolCallId: toolCallId }),
+
+  releaseInlineAnchorIfMatches: (toolCallId) => {
+    if (!toolCallId || get().inlineConfirmationToolCallId !== toolCallId) {
+      return;
+    }
+    set({ inlineConfirmationToolCallId: null });
+  },
 
   // ----- Contact request -----
   showContactRequest: (payload) =>
