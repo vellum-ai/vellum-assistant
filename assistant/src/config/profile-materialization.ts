@@ -2,6 +2,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import { getConnection } from "../providers/inference/connections.js";
 import {
+  catalogMaxOutputTokens,
   getCatalogProviderForModel,
   isModelInCatalog,
 } from "../providers/model-catalog.js";
@@ -97,6 +98,26 @@ export function completeCustomProfile(
     const implied = getCatalogProviderForModel(profile.model);
     if (implied !== undefined) {
       completed.provider = implied as ProfileEntry["provider"];
+    }
+  }
+
+  // A FILLED maxTokens expresses no user preference, so it is clamped to the
+  // model's catalog output cap — an over-cap fill (e.g. 64000 onto a
+  // 4096-cap model) would make every request fail upstream. Runs after the
+  // provider implication above so the cap is read from the provider the
+  // profile actually dispatches with. An explicit profile value is never
+  // touched, and models the catalog does not know keep the default (the
+  // save-time probe covers those). Mirrors `clampMaxTokensToModelCap` for
+  // the code-owned default profiles.
+  if (
+    profile.maxTokens === undefined &&
+    completed.maxTokens !== undefined &&
+    completed.provider !== undefined &&
+    completed.model !== undefined
+  ) {
+    const cap = catalogMaxOutputTokens(completed.provider, completed.model);
+    if (cap !== undefined && completed.maxTokens > cap) {
+      completed.maxTokens = cap;
     }
   }
 

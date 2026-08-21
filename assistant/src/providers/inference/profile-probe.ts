@@ -207,6 +207,20 @@ export async function probeInferenceProfile(
         message: checkMessage({ blame: "provider", detail, connection }),
       };
     }
+    // Final billing gate on the route dispatch ACTUALLY resolved: a profile
+    // without a binding gets its row auto-selected inside
+    // getConfiguredProvider, so only the stamped attribution names the row
+    // this request would sign with.
+    const route = providerInstance.routeAttribution;
+    if (route?.isManagedRoute) {
+      return null;
+    }
+    const routedRow = route?.connectionName
+      ? getConnection(getDb(), route.connectionName)
+      : null;
+    if (routedRow?.auth.type === "platform") {
+      return null;
+    }
     await providerInstance.sendMessage(
       [userMessage("Reply with only the word OK.")],
       {
