@@ -741,7 +741,7 @@ describe("vellum wake — tunnel edge restore", () => {
       expect.stringContaining("brew install nginx"),
     );
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("vellum nginx-ingress up"),
+      expect.stringContaining("Run `vellum tunnel` to rebuild the edge."),
     );
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7830,

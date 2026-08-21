@@ -66,8 +66,8 @@ terminates TLS and makes the edge reachable from your devices.
 > **One assistant at a time.** The tunnel URL and pairing
 > all belong to a _specific_ assistant. With several local assistants, point
 > every step at the same one. `vellum ps` lists them and marks the active one
-> with `*`. `pair`, `tunnel`, and `nginx-ingress` take an assistant name as
-> their first argument (e.g. `vellum tunnel my-assistant`).
+> with `*`. `pair` and `tunnel` take an assistant name as their first
+> argument (e.g. `vellum tunnel my-assistant`).
 
 ## 2. The web app ships with the CLI
 
@@ -118,12 +118,11 @@ the gateway. nginx must be installed (see
 [Before you start](#before-you-start)); without it the command fails with
 install instructions. The edge listen port defaults to `7840`; override it
 with the `VELLUM_NGINX_INGRESS_PORT` environment variable if it clashes with
-something else. To inspect or stop the edge later:
-
-```bash
-vellum nginx-ingress status   # is the edge running, in which mode, and where
-vellum nginx-ingress down     # stop the edge
-```
+something else. The edge runs in the background and outlives the tunnel:
+Ctrl+C on `vellum tunnel` leaves it listening, and `vellum sleep` stops it
+along with the rest of the assistant. Its config and log live under the
+assistant's workspace at `data/ingress/nginx.conf` and
+`data/logs/nginx-ingress.log` if you need to inspect what it is serving.
 
 The tunnel records the public URL in your workspace config
 (`ingress.publicBaseUrl`), so channel integrations (Telegram, Twilio, …) can
@@ -142,26 +141,6 @@ automatically.
 you want to connect (with Tailscale connected on it). You should get the
 assistant's sign-in page. If it doesn't load, stop and fix this before
 pairing — a broken HTTPS front is the most common reason later steps fail.
-
-<details>
-<summary>Manual Tailscale fallback (no <code>vellum tunnel</code> needed)</summary>
-
-Tailscale can serve the edge directly. Start the edge yourself, then serve
-it (this works on any recent Tailscale install):
-
-```bash
-vellum nginx-ingress up
-tailscale serve --bg 7840
-tailscale serve status   # prints your https://<host>.<tailnet>.ts.net URL
-```
-
-That URL fronts the nginx edge over your tailnet with automatic HTTPS. Use it
-as the `--url` value in [Step 4](#4-pair-your-devices). To let channel
-integrations use it as well, run `vellum tunnel --provider tailscale` instead,
-which manages the edge itself and also writes the URL to
-`ingress.publicBaseUrl`.
-
-</details>
 
 <details>
 <summary>Public alternatives: ngrok / Cloudflare quick tunnels</summary>

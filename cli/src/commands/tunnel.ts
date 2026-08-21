@@ -10,6 +10,7 @@ import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
 import {
   getDefaultWorkspaceDir,
+  parseGatewayPortFromEntryUrls,
   saveNgrokDomain,
 } from "../lib/ingress-config.js";
 import {
@@ -20,7 +21,6 @@ import {
 import { runNgrokTunnel } from "../lib/ngrok";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
-import { parseGatewayPortFromEntryUrls } from "./nginx-ingress.js";
 
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
 type TunnelProvider = (typeof VALID_PROVIDERS)[number];
@@ -199,8 +199,7 @@ function isLocalContainerEntry(entry: AssistantEntry): boolean {
  * their own gateway port and instance workspace. Local container entries
  * (docker, apple-container) run locally without host resources: their gateway
  * port comes from localUrl/runtimeUrl and their ingress state lives in the
- * default workspace, matching the `vellum nginx-ingress` resolution for the
- * same topology.
+ * default workspace.
  */
 function toLocalTunnelTarget(entry: AssistantEntry): LocalTunnelTarget | null {
   if (entry.resources) {

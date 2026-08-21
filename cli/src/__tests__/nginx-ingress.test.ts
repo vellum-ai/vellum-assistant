@@ -1728,7 +1728,7 @@ describe("ensureTunnelEdge", () => {
     await expect(promise).rejects.toThrow(
       "still serving an outdated remote web config",
     );
-    await expect(promise).rejects.toThrow("vellum nginx-ingress down");
+    await expect(promise).rejects.toThrow("even with SIGKILL");
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
@@ -1749,7 +1749,7 @@ describe("ensureTunnelEdge", () => {
     await expect(promise).rejects.toThrow(
       "still running in webhooks-only mode and could not be restarted in web app mode",
     );
-    await expect(promise).rejects.toThrow("vellum nginx-ingress down");
+    await expect(promise).rejects.toThrow("even with SIGKILL");
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
@@ -1775,7 +1775,7 @@ describe("ensureTunnelEdge", () => {
     await expect(promise).rejects.toThrow(
       "still proxying gateway port 7900 and could not be restarted against port 7830",
     );
-    await expect(promise).rejects.toThrow("vellum nginx-ingress down");
+    await expect(promise).rejects.toThrow("even with SIGKILL");
     expect(spawnMock).not.toHaveBeenCalled();
   });
 

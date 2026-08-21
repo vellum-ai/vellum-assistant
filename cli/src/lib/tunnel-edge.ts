@@ -16,7 +16,8 @@ import { hasWebhookIntegrations, maybeStartNgrokTunnel } from "./ngrok.js";
  */
 function wantsWebIngress(config: Record<string, unknown>): boolean {
   const ingress = config.ingress as
-    { enabled?: unknown; publicBaseUrl?: unknown } | undefined;
+    | { enabled?: unknown; publicBaseUrl?: unknown }
+    | undefined;
   return (
     ingress?.enabled === true &&
     typeof ingress.publicBaseUrl === "string" &&
@@ -46,7 +47,7 @@ function wantsTunnelEdge(workspaceDir: string): boolean {
  * gateway port is reused without the `remoteWebConfigHash` comparison
  * `startRemoteWebIngress` performs; injected-config drift (a renamed
  * assistant, a changed hub URL) is repaired by the next explicit
- * `vellum tunnel` or `vellum nginx-ingress up`, not by background wakes.
+ * `vellum tunnel`, not by background wakes.
  * A recorded webhooks-only edge is never reused: it goes through
  * `ensureTunnelEdge` so the wake upgrades it to the SPA edge.
  * Edge failures warn
@@ -89,7 +90,7 @@ export async function restoreTunnelEdgeAndAutoTunnel(
         console.warn(
           `   Could not restore the tunnel edge: ${
             err instanceof Error ? err.message : String(err)
-          } Bring it up manually with \`vellum nginx-ingress up\`.`,
+          } Webhooks still work, but the web app is not being served. Run \`vellum tunnel\` to rebuild the edge.`,
         );
       }
     }
