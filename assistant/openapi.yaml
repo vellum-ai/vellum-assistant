@@ -35657,6 +35657,8 @@ components:
           anyOf:
             - $ref: "#/components/schemas/ProfileConnectionAvailability"
             - type: "null"
+        config_issue:
+          $ref: "#/components/schemas/InferenceProfileConfigIssue"
       required:
         - name
         - label
@@ -35684,6 +35686,20 @@ components:
           type: string
       required:
         - status
+      additionalProperties: false
+    InferenceProfileConfigIssue:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - model_unknown
+            - max_tokens_invalid
+        message:
+          type: string
+      required:
+        - code
+        - message
       additionalProperties: false
     InferenceProfileWriteResult:
       type: object
@@ -35725,6 +35741,8 @@ components:
           anyOf:
             - $ref: "#/components/schemas/ProfileConnectionAvailability"
             - type: "null"
+        config_issue:
+          $ref: "#/components/schemas/InferenceProfileConfigIssue"
       required:
         - name
         - entry

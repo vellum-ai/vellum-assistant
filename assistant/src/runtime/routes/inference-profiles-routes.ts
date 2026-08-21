@@ -87,6 +87,18 @@ const availabilitySchema = z
   })
   .meta({ id: "ProfileConnectionAvailability" });
 
+/**
+ * Static config problem with the stored entry itself (unknown model,
+ * impossible token budget), distinct from `availability` which judges the
+ * connection and credential behind it. Absent when the config checks out.
+ */
+const profileConfigIssueSchema = z
+  .object({
+    code: z.enum(["model_unknown", "max_tokens_invalid"]),
+    message: z.string(),
+  })
+  .meta({ id: "InferenceProfileConfigIssue" });
+
 const profileSummarySchema = z
   .object({
     name: z.string(),
@@ -98,6 +110,7 @@ const profileSummarySchema = z
     provider_connection: z.string().optional(),
     /** Null when the profile has no provider to judge (e.g. mix profiles). */
     availability: availabilitySchema.nullable(),
+    config_issue: profileConfigIssueSchema.optional(),
   })
   .meta({ id: "InferenceProfileSummary" });
 
@@ -106,6 +119,7 @@ const profileDetailSchema = z
     name: z.string(),
     entry: z.record(z.string(), z.unknown()),
     availability: availabilitySchema.nullable(),
+    config_issue: profileConfigIssueSchema.optional(),
   })
   .meta({ id: "InferenceProfileDetail" });
 
@@ -180,59 +194,123 @@ function assertValidProvider(provider: string): void {
  * (never throws) when `allowUnlisted`; throws otherwise for an uncataloged
  * model. An uncataloged model always warns, whether or not it is allowed.
  */
+/**
+ * Why a (provider, model, connection) triple cannot be vouched for, or null.
+ * The same reach checks dispatch applies: routing identities against their
+ * routing table, entry names against their row's dispatchable kind, vendor
+ * ids against the catalog, with the named connection's advertised model list
+ * authoritative for models the code-owned catalog doesn't know (a custom
+ * endpoint declares its own models at connection-create time).
+ */
+function modelReachIssue(
+  provider: string,
+  model: string,
+  connectionName?: string,
+): { identity: boolean; catalogProvider: string; message: string } | null {
+  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+    const issue = routingIdentityModelIssue(provider, model);
+    return issue
+      ? { identity: true, catalogProvider: provider, message: issue }
+      : null;
+  }
+  const entryKind = resolveEntryProviderKind(provider, model);
+  const catalogProvider = entryKind ?? provider;
+  if (isModelInCatalog(catalogProvider, model)) {
+    return null;
+  }
+  const modelListConnection =
+    connectionName ?? (entryKind !== null ? provider : undefined);
+  if (modelListConnection) {
+    const connection = getConnection(getDb(), modelListConnection);
+    if (connection?.models?.some((m) => m.id === model)) {
+      return null;
+    }
+  }
+  return {
+    identity: false,
+    catalogProvider,
+    message: `Model "${model}" is not in the catalog for provider "${catalogProvider}".`,
+  };
+}
+
 function validateModel(
   provider: string,
   model: string,
   allowUnlisted: boolean,
   connectionName?: string,
 ): string[] {
-  // Routing identities key no catalog entries; they validate against their
-  // route's actual reach — the same checks dispatch applies per-request.
-  // allowUnlisted deliberately does not apply: the routing table ships in
-  // this build, so an unroutable pair fails every request, and the schema
-  // strips it on the next config read.
-  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
-    const issue = routingIdentityModelIssue(provider, model);
-    if (issue) {
-      throw new BadRequestError(
-        `${issue} Pick a model this route serves, or a concrete provider.`,
-      );
-    }
+  const issue = modelReachIssue(provider, model, connectionName);
+  if (!issue) {
     return [];
   }
-  // An entry-name provider validates against its row's dispatchable kind,
-  // the same translation dispatch uses; the entry itself also serves as the
-  // model-list connection for custom endpoints below.
-  const entryKind = resolveEntryProviderKind(provider, model);
-  const catalogProvider = entryKind ?? provider;
-  if (isModelInCatalog(catalogProvider, model)) {
-    return [];
-  }
-  // The named connection's advertised model list is authoritative for models
-  // the code-owned catalog doesn't know — a custom (openai-compatible)
-  // endpoint declares its own models at connection-create time.
-  const modelListConnection =
-    connectionName ?? (entryKind !== null ? provider : undefined);
-  if (modelListConnection) {
-    const connection = getConnection(getDb(), modelListConnection);
-    if (connection?.models?.some((m) => m.id === model)) {
-      return [];
-    }
+  // allowUnlisted deliberately does not apply to routing identities: the
+  // routing table ships in this build, so an unroutable pair fails every
+  // request, and the schema strips it on the next config read.
+  if (issue.identity) {
+    throw new BadRequestError(
+      `${issue.message} Pick a model this route serves, or a concrete provider.`,
+    );
   }
   if (!allowUnlisted) {
     const remedy =
-      catalogProvider === "openai-compatible"
+      issue.catalogProvider === "openai-compatible"
         ? `Pass allowUnlisted to create it anyway, or declare the model on the connection ` +
           `("assistant inference providers update <name> --model ${model}").`
         : `Pass allowUnlisted to create it anyway, or run ` +
           `"assistant inference models list --provider ${provider}" to see valid ids.`;
-    throw new BadRequestError(
-      `Model "${model}" is not in the catalog for provider "${catalogProvider}". ${remedy}`,
-    );
+    throw new BadRequestError(`${issue.message} ${remedy}`);
   }
-  return [
-    `Model "${model}" is not in the catalog for provider "${catalogProvider}"; created anyway (allowUnlisted).`,
-  ];
+  return [`${issue.message} Created anyway (allowUnlisted).`];
+}
+
+/**
+ * Static config verdict for a stored profile: the model-reach and
+ * token-budget judgments the write routes enforce, recomputed over the
+ * entry so rows that predate validation (or were written through the
+ * generic config escape hatch) surface their problem in listings. Cheap
+ * and offline; the live probe covers what only a request can prove. Mix
+ * arms are judged on their own rows, and managed bodies are code-owned.
+ */
+function profileConfigIssue(
+  record: Record<string, unknown>,
+): { code: "model_unknown" | "max_tokens_invalid"; message: string } | null {
+  if (record.mix != null || record.source === "managed") {
+    return null;
+  }
+  const provider =
+    typeof record.provider === "string" ? record.provider : undefined;
+  const model = typeof record.model === "string" ? record.model : undefined;
+  if (!provider || !model) {
+    // A missing provider/model is availability's `incomplete` verdict.
+    return null;
+  }
+  const reach = modelReachIssue(
+    provider,
+    model,
+    typeof record.provider_connection === "string"
+      ? record.provider_connection
+      : undefined,
+  );
+  if (reach) {
+    return { code: "model_unknown", message: reach.message };
+  }
+  if (typeof record.maxTokens === "number") {
+    const catalogProvider = catalogProviderForProfile(provider, model);
+    if (catalogProvider !== null) {
+      const budget = validateInferenceProfileConfig({
+        maxTokens: record.maxTokens,
+        modelMaxOutputTokens: catalogMaxOutputTokens(catalogProvider, model),
+        modelContextWindowTokens: catalogContextWindowTokens(
+          catalogProvider,
+          model,
+        ),
+      });
+      if (budget) {
+        return { code: "max_tokens_invalid", message: budget.message };
+      }
+    }
+  }
+  return null;
 }
 
 function assertConnectionExists(name: string): void {
@@ -434,6 +512,7 @@ async function handleListProfiles() {
   const profiles = await Promise.all(
     Object.entries(effective).map(async ([name, entry]) => {
       const record = entry as Record<string, unknown>;
+      const configIssue = profileConfigIssue(record);
       return {
         name,
         label: typeof record.label === "string" ? record.label : null,
@@ -445,6 +524,7 @@ async function handleListProfiles() {
           ? { provider_connection: record.provider_connection }
           : {}),
         availability: await computeProfileAvailability(record),
+        ...(configIssue ? { config_issue: configIssue } : {}),
       };
     }),
   );
@@ -466,10 +546,12 @@ async function handleGetProfile({ pathParams = {} }: RouteHandlerArgs) {
     throw new NotFoundError(`Profile "${name}" not found.`);
   }
   const record = entry as Record<string, unknown>;
+  const configIssue = profileConfigIssue(record);
   return {
     name,
     entry: record,
     availability: await computeProfileAvailability(record),
+    ...(configIssue ? { config_issue: configIssue } : {}),
   };
 }
 
