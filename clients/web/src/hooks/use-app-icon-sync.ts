@@ -38,10 +38,13 @@ export interface AppIconSync {
   targetIcon: string | null;
   /** True when the shell bundles `targetIcon` and it is not already applied. */
   canOffer: boolean;
-  /** Apply `targetIcon`. User-initiated only. */
-  apply: () => Promise<void>;
-  /** Restore the default icon. User-initiated only. */
-  reset: () => Promise<void>;
+  /**
+   * Apply `targetIcon`. User-initiated only. Resolves true only when the home
+   * screen actually changed, so callers can keep their action on screen.
+   */
+  apply: () => Promise<boolean>;
+  /** Restore the default icon. User-initiated only. Resolves as `apply` does. */
+  reset: () => Promise<boolean>;
 }
 
 export function useAppIconSync(assistantId: string | null): AppIconSync {
@@ -76,20 +79,26 @@ export function useAppIconSync(assistantId: string | null): AppIconSync {
   const { target, availableMatch } = resolveAppIconTarget(state, iconState);
   const canOffer = availableMatch && target !== iconState.current;
 
+  // iOS can refuse a swap, and the caller has UI riding on the answer, so the
+  // shell's verdict is handed back rather than swallowed. The refresh runs
+  // either way: a refusal still has to leave the snapshot telling the truth
+  // about what is on the home screen.
   const apply = useCallback(async () => {
     if (!enabled || !availableMatch || target === null) {
-      return;
+      return false;
     }
-    await setAppIcon(target);
+    const applied = await setAppIcon(target);
     await refresh();
+    return applied;
   }, [enabled, availableMatch, target, refresh]);
 
   const reset = useCallback(async () => {
     if (!enabled) {
-      return;
+      return false;
     }
-    await setAppIcon(null);
+    const restored = await setAppIcon(null);
     await refresh();
+    return restored;
   }, [enabled, refresh]);
 
   return {

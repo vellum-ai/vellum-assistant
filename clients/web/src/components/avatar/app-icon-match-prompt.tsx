@@ -14,6 +14,10 @@
  * name forever, so the answer holds for that avatar but a different avatar is
  * a new question. And a name is offered at most once per app session, so a
  * query refetch or a route change cannot re-ask what is already on screen.
+ *
+ * Both guards spend the question, so only an answered question spends them. An
+ * Apply iOS refuses leaves the home screen untouched, so the dialog stays up
+ * with the failure named on it and the name goes back to the session.
  */
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
@@ -71,6 +75,8 @@ export function AppIconMatchPrompt({ assistantId }: AppIconMatchPromptProps) {
   const onboardingActive = onSetupRoute || focusedOnboarding || tourActive;
 
   const [offer, setOffer] = useState<string | null>(null);
+  const [applyFailed, setApplyFailed] = useState(false);
+  const [pending, setPending] = useState(false);
 
   // An offer is about one icon name, so it only survives while that name is
   // still the answer. Onboarding taking the screen, the avatar becoming one we
@@ -79,6 +85,7 @@ export function AppIconMatchPrompt({ assistantId }: AppIconMatchPromptProps) {
   useEffect(() => {
     if (!canOffer || targetIcon === null || onboardingActive) {
       setOffer(null);
+      setApplyFailed(false);
       return;
     }
     if (offer === targetIcon) {
@@ -86,19 +93,40 @@ export function AppIconMatchPrompt({ assistantId }: AppIconMatchPromptProps) {
     }
     if (offeredThisSession.has(targetIcon) || isDeclined(targetIcon)) {
       setOffer(null);
+      setApplyFailed(false);
       return;
     }
     offeredThisSession.add(targetIcon);
     setOffer(targetIcon);
+    setApplyFailed(false);
   }, [canOffer, targetIcon, onboardingActive, offer]);
 
   if (!enabled) {
     return null;
   }
 
-  const handleApply = () => {
-    setOffer(null);
-    void apply();
+  const handleApply = async () => {
+    const name = offer;
+    if (name === null || pending) {
+      return;
+    }
+    setPending(true);
+    setApplyFailed(false);
+    try {
+      if (await apply()) {
+        // An earlier refusal in this same dialog handed the name back to the
+        // session, so a landed swap has to take it again.
+        offeredThisSession.add(name);
+        setOffer(null);
+        return;
+      }
+      // Nothing changed on the home screen, so nothing was answered: give the
+      // name back to the session and keep the dialog up to be tried again.
+      offeredThisSession.delete(name);
+      setApplyFailed(true);
+    } finally {
+      setPending(false);
+    }
   };
 
   const handleDismiss = () => {
@@ -138,12 +166,24 @@ export function AppIconMatchPrompt({ assistantId }: AppIconMatchPromptProps) {
           <Modal.Description>
             {t("appIconMatchPrompt.message")}
           </Modal.Description>
+          {applyFailed ? (
+            <p
+              role="alert"
+              className="mt-3 text-body-small-default text-[color:var(--content-negative)]"
+            >
+              {t("appIconMatchPrompt.error")}
+            </p>
+          ) : null}
         </Modal.Body>
         <Modal.Footer>
           <Button variant="outlined" onClick={handleDismiss}>
             {t("appIconMatchPrompt.notNow")}
           </Button>
-          <Button variant="primary" onClick={handleApply}>
+          <Button
+            variant="primary"
+            disabled={pending}
+            onClick={() => void handleApply()}
+          >
             {t("appIconMatchPrompt.apply")}
           </Button>
         </Modal.Footer>

@@ -1,7 +1,8 @@
 /**
  * The settings card is the user-initiated half of the feature: it ignores the
  * prompt's decline memory, and it is the only way back to the default icon, so
- * Reset stays reachable for as long as one of our icons is applied.
+ * Reset stays reachable for as long as one of our icons is applied, and a swap
+ * iOS refuses is reported rather than swallowed.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -41,9 +42,16 @@ let iconState: AppIconState = {
   available: [ICON],
 };
 
+/** What the shell answers the next swap with: iOS is free to refuse one. */
+let swapSucceeds = true;
+
 const getAppIconState = mock(async () => iconState);
-// Mirrors the shell: a successful swap changes what the next read reports.
+// Mirrors the shell: a successful swap changes what the next read reports, and
+// a refused one leaves the home screen exactly as it was.
 const setAppIcon = mock(async (name: string | null) => {
+  if (!swapSucceeds) {
+    return false;
+  }
   iconState = { ...iconState, current: name };
   return true;
 });
@@ -72,10 +80,15 @@ const { useClientFeatureFlagStore } =
 const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
 
-function buttonByText(text: string): HTMLElement | undefined {
-  return Array.from(document.querySelectorAll<HTMLElement>("button")).find(
-    (element) => element.textContent?.trim() === text,
-  );
+function buttonByText(text: string): HTMLButtonElement | undefined {
+  return Array.from(
+    document.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((element) => element.textContent?.trim() === text);
+}
+
+function alertText(): string | null {
+  const alert = document.querySelector<HTMLElement>('[role="alert"]');
+  return alert?.textContent?.trim() ?? null;
 }
 
 async function renderCard() {
@@ -89,6 +102,7 @@ async function renderCard() {
 beforeEach(() => {
   avatarState = CHARACTER;
   nativeIOS = true;
+  swapSucceeds = true;
   iconState = { supported: true, current: null, available: [ICON] };
   localStorage.clear();
   useAppIconStore.setState({ snapshot: APP_ICON_UNSUPPORTED });
@@ -179,6 +193,56 @@ describe("AppIconCard", () => {
       expect(setAppIcon).toHaveBeenCalledTimes(1);
     });
     expect(setAppIcon.mock.calls[0]?.[0]).toBeNull();
+  });
+
+  test("names a refused match and leaves the buttons live", async () => {
+    swapSucceeds = false;
+    await renderCard();
+    await waitFor(() => {
+      expect(buttonByText("Match avatar")).toBeDefined();
+    });
+
+    act(() => {
+      buttonByText("Match avatar")?.click();
+    });
+
+    await waitFor(() => {
+      expect(alertText()).toBe(
+        "iOS did not change your home screen icon. You can try again.",
+      );
+    });
+    expect(buttonByText("Match avatar")?.disabled).toBe(false);
+
+    // The next press lands, and the error goes with it.
+    swapSucceeds = true;
+    act(() => {
+      buttonByText("Match avatar")?.click();
+    });
+
+    await waitFor(() => {
+      expect(buttonByText("Use default")).toBeDefined();
+    });
+    expect(alertText()).toBeNull();
+  });
+
+  test("names a refused reset and keeps the icon reported as applied", async () => {
+    iconState = { supported: true, current: ICON, available: [ICON] };
+    swapSucceeds = false;
+    await renderCard();
+    await waitFor(() => {
+      expect(buttonByText("Use default")).toBeDefined();
+    });
+
+    act(() => {
+      buttonByText("Use default")?.click();
+    });
+
+    await waitFor(() => {
+      expect(alertText()).toBe(
+        "iOS did not change your home screen icon. You can try again.",
+      );
+    });
+    expect(buttonByText("Use default")?.disabled).toBe(false);
   });
 
   test("offers reset beside match while a stale icon of ours is applied", async () => {

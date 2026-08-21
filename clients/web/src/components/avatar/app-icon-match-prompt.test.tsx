@@ -3,7 +3,8 @@
  * it must stay quiet: a non-character avatar, a build without the bundle, the
  * flag off, onboarding on screen, a name already declined, and a name already
  * asked about this session. An offer already on screen has to go quiet on the
- * same terms, so the tests below also take the question away mid-display.
+ * same terms, so the tests below also take the question away mid-display, and
+ * a swap iOS refuses has to leave the question exactly where it was.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -73,8 +74,11 @@ let iconState: AppIconState = {
   available: [ICON, OTHER_ICON],
 };
 
+/** What the shell answers the next swap with: iOS is free to refuse one. */
+let swapSucceeds = true;
+
 const getAppIconState = mock(async () => iconState);
-const setAppIcon = mock(async (_name: string | null) => true);
+const setAppIcon = mock(async (_name: string | null) => swapSucceeds);
 
 mock.module("@/runtime/app-icon", () => ({ getAppIconState, setAppIcon }));
 mock.module("@/runtime/platform-detection", () => ({
@@ -129,6 +133,11 @@ function dialogTitle(): string | null {
   return title?.textContent?.trim() ?? null;
 }
 
+function alertText(): string | null {
+  const alert = document.querySelector<HTMLElement>('[role="alert"]');
+  return alert?.textContent?.trim() ?? null;
+}
+
 function clickByText(text: string) {
   const button = Array.from(
     document.querySelectorAll<HTMLElement>("button"),
@@ -159,6 +168,7 @@ async function expectNoPrompt() {
 beforeEach(() => {
   avatarState = CHARACTER;
   nativeIOS = true;
+  swapSucceeds = true;
   iconState = { supported: true, current: null, available: [ICON, OTHER_ICON] };
   localStorage.clear();
   __resetAppIconOfferSession();
@@ -198,6 +208,52 @@ describe("AppIconMatchPrompt", () => {
     // Accepting is not declining: closing the dialog from the Apply path must
     // not write the decline the dismiss path writes.
     expect(localStorage.getItem(`vellum:appIcon:declined:${ICON}`)).toBeNull();
+  });
+
+  test("keeps the dialog up and retryable when iOS refuses the swap", async () => {
+    swapSucceeds = false;
+    renderPrompt();
+    await expectPrompt();
+
+    clickByText("Apply");
+
+    await waitFor(() => {
+      expect(alertText()).toBe(
+        "iOS did not change your home screen icon. You can try again.",
+      );
+    });
+    // The home screen never changed, so the question is still on screen and
+    // the refusal is neither an acceptance nor a decline.
+    expect(dialogTitle()).toBe("Match your app icon to your avatar?");
+    expect(localStorage.getItem(`vellum:appIcon:declined:${ICON}`)).toBeNull();
+
+    swapSucceeds = true;
+    clickByText("Apply");
+
+    await waitFor(() => {
+      expect(setAppIcon).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(dialogTitle()).toBeNull();
+    });
+  });
+
+  test("a refused apply leaves the name askable again this session", async () => {
+    swapSucceeds = false;
+    renderPrompt();
+    await expectPrompt();
+
+    clickByText("Apply");
+    await waitFor(() => {
+      expect(alertText()).not.toBeNull();
+    });
+
+    // A refusal spends nothing, so the same session gets to ask again.
+    cleanup();
+    renderPrompt();
+
+    await expectPrompt();
+    expect(alertText()).toBeNull();
   });
 
   test("offers again when the avatar changes on another device", async () => {

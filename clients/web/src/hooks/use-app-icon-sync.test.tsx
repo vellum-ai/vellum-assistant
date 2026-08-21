@@ -50,8 +50,11 @@ let iconState: AppIconState = {
   available: [ICON],
 };
 
+/** What the shell answers the next swap with: iOS is free to refuse one. */
+let swapSucceeds = true;
+
 const getAppIconState = mock(async () => iconState);
-const setAppIcon = mock(async (_name: string | null) => true);
+const setAppIcon = mock(async (_name: string | null) => swapSucceeds);
 
 mock.module("@/runtime/app-icon", () => ({ getAppIconState, setAppIcon }));
 mock.module("@/runtime/platform-detection", () => ({
@@ -86,6 +89,7 @@ async function renderSync() {
 beforeEach(() => {
   avatarState = CHARACTER;
   nativeIOS = true;
+  swapSucceeds = true;
   iconState = { supported: true, current: null, available: [ICON] };
   useAppIconStore.setState({ snapshot: APP_ICON_UNSUPPORTED });
   useClientFeatureFlagStore.setState({ iosAvatarAppIcon: true });
@@ -197,10 +201,12 @@ describe("useAppIconSync", () => {
     getAppIconState.mockClear();
     iconState = { supported: true, current: ICON, available: [ICON] };
 
+    let applied: boolean | undefined;
     await act(async () => {
-      await result.current.apply();
+      applied = await result.current.apply();
     });
 
+    expect(applied).toBe(true);
     expect(setAppIcon).toHaveBeenCalledTimes(1);
     expect(setAppIcon.mock.calls[0]?.[0]).toBe(ICON);
     expect(getAppIconState).toHaveBeenCalled();
@@ -216,12 +222,52 @@ describe("useAppIconSync", () => {
       expect(result.current.currentIcon).toBe(ICON);
     });
 
+    let restored: boolean | undefined;
     await act(async () => {
-      await result.current.reset();
+      restored = await result.current.reset();
     });
 
+    expect(restored).toBe(true);
     expect(setAppIcon).toHaveBeenCalledTimes(1);
     expect(setAppIcon.mock.calls[0]?.[0]).toBeNull();
+  });
+
+  test("apply hands back a refusal and leaves the snapshot truthful", async () => {
+    swapSucceeds = false;
+    const { result } = await renderSync();
+    await waitFor(() => {
+      expect(result.current.canOffer).toBe(true);
+    });
+    getAppIconState.mockClear();
+
+    let applied: boolean | undefined;
+    await act(async () => {
+      applied = await result.current.apply();
+    });
+
+    expect(applied).toBe(false);
+    // Nothing changed on the home screen, so the shell is re-read anyway and
+    // the offer is still standing.
+    expect(getAppIconState).toHaveBeenCalled();
+    expect(result.current.currentIcon).toBeNull();
+    expect(result.current.canOffer).toBe(true);
+  });
+
+  test("reset hands back a refusal and leaves the icon applied", async () => {
+    swapSucceeds = false;
+    iconState = { supported: true, current: ICON, available: [ICON] };
+    const { result } = await renderSync();
+    await waitFor(() => {
+      expect(result.current.currentIcon).toBe(ICON);
+    });
+
+    let restored: boolean | undefined;
+    await act(async () => {
+      restored = await result.current.reset();
+    });
+
+    expect(restored).toBe(false);
+    expect(result.current.currentIcon).toBe(ICON);
   });
 
   test("apply is inert when nothing is offerable", async () => {
@@ -231,10 +277,12 @@ describe("useAppIconSync", () => {
       expect(result.current.enabled).toBe(true);
     });
 
+    let applied: boolean | undefined;
     await act(async () => {
-      await result.current.apply();
+      applied = await result.current.apply();
     });
 
+    expect(applied).toBe(false);
     expect(setAppIcon).not.toHaveBeenCalled();
   });
 

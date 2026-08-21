@@ -26,6 +26,7 @@ export function AppIconCard() {
   const { enabled, currentIcon, targetIcon, canOffer, apply, reset } =
     useAppIconSync(assistantId);
   const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   if (!enabled) {
     return null;
@@ -44,10 +45,12 @@ export function AppIconCard() {
         ? t("appIconCard.statusMatched")
         : t("appIconCard.statusStale");
 
-  const run = async (action: () => Promise<void>) => {
+  // iOS can refuse a swap. The buttons come back either way, since a refused
+  // swap leaves exactly the icon the user was trying to change still applied.
+  const run = async (action: () => Promise<boolean>) => {
     setPending(true);
     try {
-      await action();
+      setFailed(!(await action()));
     } finally {
       setPending(false);
     }
@@ -63,6 +66,14 @@ export function AppIconCard() {
           <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
             {t("appIconCard.description")}
           </p>
+          {failed ? (
+            <p
+              role="alert"
+              className="mt-1 text-body-small-default text-[color:var(--content-negative)]"
+            >
+              {t("appIconCard.error")}
+            </p>
+          ) : null}
         </div>
         {canOffer || canReset ? (
           <div className="flex flex-wrap gap-2">

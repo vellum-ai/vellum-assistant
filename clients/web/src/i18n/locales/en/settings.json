@@ -73,6 +73,7 @@
   },
   "appIconCard": {
     "description": "Alternate icons ship with the app, and iOS confirms every swap with an alert of its own.",
+    "error": "iOS did not change your home screen icon. You can try again.",
     "match": "Match avatar",
     "reset": "Use default",
     "statusDefault": "Your home screen shows the default Vellum icon.",
