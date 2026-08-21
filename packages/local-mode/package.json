@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@vellumai/environments": "file:../environments",
-    "nanoid": "5.1.7",
+    "nanoid": "5.1.16",
     "zod": "4.3.6"
   },
   "devDependencies": {
