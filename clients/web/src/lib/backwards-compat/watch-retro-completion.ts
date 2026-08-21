@@ -29,27 +29,23 @@
  * announcement arrives on that assistant's event stream, and a version fetched
  * for the outgoing assistant must not authorize a wait on the incoming one's.
  *
- * MIN_VERSION is a dev floor rather than a predicted release number, per the
- * guidance in `docs/BACKWARDS_COMPAT.md`. It names the commit that added the
- * event and the runtime dispatch behind it (`b796564`, 2026-08-20 22:15 UTC) on
- * top of the then-current base `0.11.4`. Every later release satisfies it
- * without anyone having to guess a number, and dev builds cut after that commit
- * light up.
+ * MIN_VERSION is the watch stream's own floor, imported rather than stamped
+ * again. The route and this event landed on `main` in the same merge
+ * (#41133), so there is no build that serves a session and cannot announce
+ * its retrospective, and a second constant would only be a second thing to
+ * keep in step.
  *
- * The same caveat `watch-sessions.ts` carries applies here and for the same
- * reason: the commit landed on the `learning-by-watching` feature branch, and
- * dev builds are cut from `main`, so a build taken from `main` between that
- * instant and the branch merging carries the floor's timestamp without the
- * event. The comparison keys on that timestamp rather than on the sha, so a
- * squash restamping the commit does not move the floor. That window is internal
- * dogfood builds only, and it degrades to the pre-gate behavior: the wait opens,
- * nothing settles it, and the give-up timer returns the surface to resting.
- * Re-stamp this to the main-merge commit if the branch sits unmerged.
+ * This stays its own gate rather than folding into that one because the two
+ * answer different questions, and a caller reading `supportsWatchRetroCompletion`
+ * at the stop edge should not have to know they currently share a number. If
+ * the announcement ever moves to a later build, stamp this from the commit
+ * that moves it and the two part ways without touching a call site.
  */
 
 import { assistantScopedSupports } from "@/lib/backwards-compat/utils";
+import { MIN_VERSION as WATCH_STREAM_MIN_VERSION } from "@/lib/backwards-compat/watch-sessions";
 
-export const MIN_VERSION = "0.11.4-dev.202608202215.b796564";
+export const MIN_VERSION = WATCH_STREAM_MIN_VERSION;
 
 /**
  * Whether `assistantId` announces a finished watch retrospective.

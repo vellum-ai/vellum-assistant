@@ -27,14 +27,11 @@
  * then-current base `0.11.4`. Every later release satisfies it without anyone
  * having to guess a number, and dev builds cut after that commit light up.
  *
- * One caveat worth knowing if this reads as too low: the commit it names
- * landed on the `learning-by-watching` feature branch, and dev builds are cut
- * from `main`. A dev build taken from `main` between that instant and the
- * feature branch merging carries the floor's timestamp but not the route.
- * That window is internal dogfood builds only, and it degrades to the
- * pre-gate behavior rather than to something worse: the refused upgrade
- * closes the socket, `teardown` runs, and the flag falls back to false.
- * Re-stamp this to the main-merge commit if the branch sits unmerged.
+ * It names the merge of the feature branch into `main` (#41133), not the
+ * commit that first wrote the route. Those differ, and the merge is the one
+ * that matters: dev builds are cut from `main`, so a build carrying a
+ * timestamp from the feature branch would satisfy a floor for code `main` did
+ * not yet have. Every dev build after this instant has the route.
  */
 
 import {
@@ -42,7 +39,7 @@ import {
   whenAssistantVersionKnownFor,
 } from "@/lib/backwards-compat/utils";
 
-export const MIN_VERSION = "0.11.4-dev.202608192348.7a51a0f";
+export const MIN_VERSION = "0.11.4-dev.202608212020.70f2864";
 
 /**
  * Whether `assistantId` is new enough to serve `/v1/watch/stream`.
