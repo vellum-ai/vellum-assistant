@@ -33,33 +33,39 @@ export const createWindowsHostProxyRuntime = (
 ): HostProxyRuntime => {
   const { getClientId, computerUseExecutors, ...runtimeSources } = sources;
   const browserExecutor = new HostBrowserExecutor();
+  const executors = {
+    host_bash: hostBashExecutor,
+    host_file: hostFileExecutor,
+    host_transfer: hostTransferExecutor,
+    host_browser: browserExecutor,
+    host_ui_snapshot: createHostUiSnapshotExecutor({
+      resolveRendererBase: () => getRendererBase(app.isPackaged),
+    }),
+    ...(computerUseExecutors
+      ? {
+          host_cu: computerUseExecutors.host_cu,
+          host_app_control: computerUseExecutors.host_app_control,
+        }
+      : {}),
+  };
   const clientHeaders = createHostProxyClientHeaders({
     getClientId,
     getMachineName: hostname,
     interfaceId: "windows",
   });
+  const sseClientHeaders = () => ({
+    ...clientHeaders.sseClientHeaders(),
+    "X-Vellum-Host-Capabilities": Object.keys(executors).join(","),
+  });
   return {
     ...runtimeSources,
     ...clientHeaders,
+    sseClientHeaders,
     sseFallbackClientHeaders: () => ({
-      ...clientHeaders.sseClientHeaders(),
+      ...sseClientHeaders(),
       "X-Vellum-Interface-Id": "macos",
     }),
-    executors: {
-      host_bash: hostBashExecutor,
-      host_file: hostFileExecutor,
-      host_transfer: hostTransferExecutor,
-      host_browser: browserExecutor,
-      host_ui_snapshot: createHostUiSnapshotExecutor({
-        resolveRendererBase: () => getRendererBase(app.isPackaged),
-      }),
-      ...(computerUseExecutors
-        ? {
-            host_cu: computerUseExecutors.host_cu,
-            host_app_control: computerUseExecutors.host_app_control,
-          }
-        : {}),
-    },
+    executors,
     teardownExecutors: () => {
       browserExecutor.destroy();
       computerUseExecutors?.teardown();

@@ -13,6 +13,39 @@ public sealed record AppWindow(nint Handle, string State, PixelRect? Bounds);
 
 public sealed record AppResolution(AppTarget? Target, string? Error = null);
 
+public static class AppTargetSelector
+{
+    public static AppResolution Resolve(
+        string app,
+        IReadOnlyList<AppTarget> candidates,
+        IReadOnlySet<int> visibleWindowProcessIds,
+        int foregroundProcessId)
+    {
+        if (candidates.Count == 0)
+        {
+            return new AppResolution(null);
+        }
+        var windowed = candidates
+            .Where(target => visibleWindowProcessIds.Contains(target.ProcessId))
+            .ToList();
+        if (windowed.Count == 0)
+        {
+            return new AppResolution(null, $"{app} is running but has no visible top-level window");
+        }
+        if (windowed.Count == 1)
+        {
+            return new AppResolution(windowed[0]);
+        }
+        var foregroundTarget = windowed.SingleOrDefault(
+            target => target.ProcessId == foregroundProcessId);
+        return foregroundTarget is not null
+            ? new AppResolution(foregroundTarget)
+            : new AppResolution(
+                null,
+                $"Multiple running windows match {app}; focus the intended window and retry");
+    }
+}
+
 public interface IAppControlHost
 {
     AppResolution ResolveRunning(string app);
@@ -52,21 +85,7 @@ public sealed class AppControlSessionStore(
         lock (_gate)
         {
             EvictExpired();
-            if (_sessions.Keys.Any(id => id != conversationId))
-            {
-                throw new InvalidOperationException(
-                    "Another conversation owns the native app-control session");
-            }
             _sessions[conversationId] = new AppControlSession(app, target, _clock());
-        }
-    }
-
-    public bool IsAvailable(string conversationId)
-    {
-        lock (_gate)
-        {
-            EvictExpired();
-            return _sessions.Count == 0 || _sessions.ContainsKey(conversationId);
         }
     }
 
@@ -223,13 +242,6 @@ public sealed class AppControl : IRpcModule
         string requestId, string conversationId, string app, JsonElement input,
         CancellationToken cancellationToken)
     {
-        if (!_sessions.IsAvailable(conversationId))
-        {
-            return Result(
-                requestId,
-                "missing",
-                error: "Another conversation owns the native app-control session");
-        }
         var resolution = _host.ResolveRunning(app);
         var launched = false;
         if (resolution.Target is null && resolution.Error is null)
@@ -596,20 +608,10 @@ public sealed class WindowsAppControlHost : IAppControlHost
             .Where(target => target is not null)
             .Cast<AppTarget>()
             .ToList();
-        if (candidates.Count == 0)
-        {
-            return new AppResolution(null);
-        }
-        if (candidates.Count == 1)
-        {
-            return new AppResolution(candidates[0]);
-        }
         var foreground = AppControlNativeMethods.GetForegroundWindow();
         _ = AppControlNativeMethods.GetWindowThreadProcessId(foreground, out var foregroundPid);
-        var foregroundTarget = candidates.SingleOrDefault(target => target.ProcessId == foregroundPid);
-        return foregroundTarget is not null
-            ? new AppResolution(foregroundTarget)
-            : new AppResolution(null, $"Multiple running processes match {app}; focus the intended window and retry");
+        var visibleWindowProcessIds = EnumerateVisibleWindowProcessIds();
+        return AppTargetSelector.Resolve(app, candidates, visibleWindowProcessIds, foregroundPid);
     }
 
     public async Task<AppResolution> LaunchAsync(
@@ -961,8 +963,7 @@ public sealed class WindowsAppControlHost : IAppControlHost
         _ = AppControlNativeMethods.EnumWindows((handle, _parameter) =>
         {
             _ = AppControlNativeMethods.GetWindowThreadProcessId(handle, out var owner);
-            if (owner == processId && AppControlNativeMethods.IsWindowVisible(handle) &&
-                AppControlNativeMethods.GetWindow(handle, 4) == 0)
+            if (owner == processId && IsVisibleTopLevelWindow(handle))
             {
                 windows.Add(handle);
             }
@@ -970,6 +971,25 @@ public sealed class WindowsAppControlHost : IAppControlHost
         }, 0);
         return windows;
     }
+
+    private static IReadOnlySet<int> EnumerateVisibleWindowProcessIds()
+    {
+        var processIds = new HashSet<int>();
+        _ = AppControlNativeMethods.EnumWindows((handle, _parameter) =>
+        {
+            if (IsVisibleTopLevelWindow(handle))
+            {
+                _ = AppControlNativeMethods.GetWindowThreadProcessId(handle, out var owner);
+                _ = processIds.Add(owner);
+            }
+            return true;
+        }, 0);
+        return processIds;
+    }
+
+    private static bool IsVisibleTopLevelWindow(nint handle) =>
+        AppControlNativeMethods.IsWindowVisible(handle) &&
+        AppControlNativeMethods.GetWindow(handle, 4) == 0;
 
     private static bool OwnsWindow(AppTarget target, nint handle)
     {

@@ -66,6 +66,29 @@ const ALL_CAPABILITIES: HostProxyCapability[] = [
   "host_ui_snapshot",
 ];
 
+const resolveClientCapabilities = (
+  interfaceId: NonNullable<ReturnType<typeof parseInterfaceId>>,
+  declaredHeader: string | undefined,
+): HostProxyCapability[] => {
+  const supported = ALL_CAPABILITIES.filter((capability) =>
+    supportsHostProxy(interfaceId, capability),
+  );
+  if (declaredHeader == null) {
+    // Windows host_app_control requires an explicit executor declaration
+    // because its native module may be absent.
+    return interfaceId === "windows"
+      ? supported.filter((capability) => capability !== "host_app_control")
+      : supported;
+  }
+  const declared = new Set(
+    declaredHeader
+      .split(",")
+      .map((capability) => capability.trim())
+      .filter(Boolean),
+  );
+  return supported.filter((capability) => declared.has(capability));
+};
+
 /**
  * Resolution of the event-loop delay histogram, per
  * https://nodejs.org/api/perf_hooks.html#perf_hooksmonitoreventloopdelayoptions.
@@ -250,6 +273,7 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
  * Headers (optional):
  *   X-Vellum-Client-Id    -- stable per-install UUID identifying this client.
  *   X-Vellum-Interface-Id -- interface type (e.g. "macos", "ios", "web").
+ *   X-Vellum-Host-Capabilities -- comma-separated installed host executors.
  *
  *   When both are present, the subscriber is registered as a client in the
  *   event hub with metadata (interfaceId, capabilities). The hub handles
@@ -303,11 +327,15 @@ export function handleSubscribeAssistantEvents(
   const rawClientId = headers?.["x-vellum-client-id"];
   const rawInterfaceId = headers?.["x-vellum-interface-id"];
   const rawMachineName = headers?.["x-vellum-machine-name"];
+  const rawHostCapabilities = headers?.["x-vellum-host-capabilities"];
   const rawActorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   const clientId = rawClientId?.trim() || null;
   const interfaceId = clientId
     ? parseInterfaceId(rawInterfaceId?.trim())
     : null;
+  const clientCapabilities = interfaceId
+    ? resolveClientCapabilities(interfaceId, rawHostCapabilities)
+    : [];
   // Verified by RuntimeHttpServer and forwarded by the http-adapter from the
   // bearer token's AuthContext. May be absent for legacy / service-token
   // connections that have no principal. See `resolveActorPrincipalId` for the
@@ -436,9 +464,7 @@ export function handleSubscribeAssistantEvents(
             type: "client" as const,
             clientId,
             interfaceId,
-            capabilities: ALL_CAPABILITIES.filter((cap) =>
-              supportsHostProxy(interfaceId, cap),
-            ),
+            capabilities: clientCapabilities,
             machineName: rawMachineName?.trim() || undefined,
             actorPrincipalId,
           })
@@ -513,9 +539,7 @@ export function handleSubscribeAssistantEvents(
                   type: "client",
                   clientId,
                   interfaceId,
-                  capabilities: ALL_CAPABILITIES.filter((cap) =>
-                    supportsHostProxy(interfaceId, cap),
-                  ),
+                  capabilities: clientCapabilities,
                 }
               : { type: "process" };
           const window = getReplayWindow(
@@ -634,15 +658,19 @@ function handleEventsTail({
   const interfaceId = clientId
     ? parseInterfaceId(headers?.["x-vellum-interface-id"]?.trim())
     : null;
+  const clientCapabilities = interfaceId
+    ? resolveClientCapabilities(
+        interfaceId,
+        headers?.["x-vellum-host-capabilities"],
+      )
+    : [];
   const subscriber: ReplaySubscriber | undefined =
     clientId && interfaceId
       ? {
           type: "client",
           clientId,
           interfaceId,
-          capabilities: ALL_CAPABILITIES.filter((cap) =>
-            supportsHostProxy(interfaceId, cap),
-          ),
+          capabilities: clientCapabilities,
         }
       : undefined;
 

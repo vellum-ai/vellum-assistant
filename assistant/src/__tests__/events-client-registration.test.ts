@@ -63,6 +63,8 @@ describe("events client registration", () => {
         headers: {
           "x-vellum-client-id": "test-windows-001",
           "x-vellum-interface-id": "windows",
+          "x-vellum-host-capabilities":
+            "host_bash,host_file,host_cu,host_app_control,host_browser,host_ui_snapshot,host_transfer",
         },
         abortSignal: ac.signal,
       },
@@ -79,6 +81,52 @@ describe("events client registration", () => {
       "host_browser",
       "host_ui_snapshot",
     ]);
+
+    ac.abort();
+  });
+
+  test("limits Windows registration to installed host executors", () => {
+    const ac = new AbortController();
+    const hub = new AssistantEventHub();
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "test-windows-minimal",
+          "x-vellum-interface-id": "windows",
+          "x-vellum-host-capabilities": "host_bash,host_file,unknown",
+        },
+        abortSignal: ac.signal,
+      },
+      { hub },
+    );
+
+    expect(hub.getClientById("test-windows-minimal")?.capabilities).toEqual([
+      "host_bash",
+      "host_file",
+    ]);
+
+    ac.abort();
+  });
+
+  test("does not advertise undeclared Windows app control", () => {
+    const ac = new AbortController();
+    const hub = new AssistantEventHub();
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "test-windows-legacy",
+          "x-vellum-interface-id": "windows",
+        },
+        abortSignal: ac.signal,
+      },
+      { hub },
+    );
+
+    expect(
+      hub.getClientById("test-windows-legacy")?.capabilities,
+    ).not.toContain("host_app_control");
 
     ac.abort();
   });

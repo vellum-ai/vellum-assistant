@@ -24,6 +24,9 @@ test("creates a Windows runtime with only the committed portable executors", () 
     "X-Vellum-Client-Id": "client-123",
     "X-Vellum-Interface-Id": "windows",
   });
+  expect(
+    runtime.sseClientHeaders()["X-Vellum-Host-Capabilities"]?.split(","),
+  ).not.toContain("host_app_control");
   expect(runtime.sseFallbackClientHeaders?.()).toMatchObject({
     "X-Vellum-Client-Id": "client-123",
     "X-Vellum-Interface-Id": "macos",
@@ -73,6 +76,9 @@ test("adds native input executors when the capability is installed", () => {
   ]);
   expect(runtime.executors.host_cu).toBe(host_cu);
   expect(runtime.executors.host_app_control).toBe(host_app_control);
+  expect(
+    runtime.sseClientHeaders()["X-Vellum-Host-Capabilities"]?.split(","),
+  ).toContain("host_app_control");
   runtime.teardownExecutors?.();
   expect(didTeardown).toBe(true);
 });

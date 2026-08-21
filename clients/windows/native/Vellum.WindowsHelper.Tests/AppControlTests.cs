@@ -11,6 +11,7 @@ public static class AppControlTests
         await TestForegroundGateAsync();
         await TestCoordinatesAsync();
         await TestSequenceOwnershipAsync();
+        TestTargetSelection();
         TestSessionExpiry();
         Console.WriteLine("App control tests passed");
     }
@@ -33,10 +34,9 @@ public static class AppControlTests
 
         var competingStart = await InvokeAsync(
             module, "conv-other", "app_control_start", "{\"tool\":\"start\",\"app\":\"notepad\"}");
-        CheckContains(
-            competingStart,
-            "Another conversation owns",
-            "the native session mirrors the daemon's single-owner lock");
+        Check(
+            competingStart.GetValueOrDefault("state") as string == "running",
+            "native sessions stay scoped without duplicating daemon ownership");
 
         var wrongApp = await InvokeAsync(
             module, "conv-1", "app_control_press", "{\"tool\":\"press\",\"app\":\"calculator\",\"key\":\"a\"}");
@@ -129,6 +129,31 @@ public static class AppControlTests
         Check(store.Get("conv", "NOTEPAD")?.Target == target, "session app matching is case-insensitive");
         now = now.AddSeconds(11);
         Check(store.Get("conv", "notepad") is null, "idle sessions expire");
+    }
+
+    private static void TestTargetSelection()
+    {
+        var browser = new AppTarget(100, "browser", 1);
+        var renderer = new AppTarget(101, "browser", 2);
+        var gpu = new AppTarget(102, "browser", 3);
+        var candidates = new[] { browser, renderer, gpu };
+
+        var selected = AppTargetSelector.Resolve(
+            "browser", candidates, new HashSet<int> { browser.ProcessId }, renderer.ProcessId);
+        Check(selected.Target == browser, "the process with a visible window wins over child processes");
+
+        var focused = AppTargetSelector.Resolve(
+            "browser",
+            candidates,
+            new HashSet<int> { browser.ProcessId, renderer.ProcessId },
+            renderer.ProcessId);
+        Check(focused.Target == renderer, "foreground ownership disambiguates multiple app windows");
+
+        var headless = AppTargetSelector.Resolve(
+            "browser", candidates, new HashSet<int>(), browser.ProcessId);
+        Check(
+            headless.Error?.Contains("no visible top-level window", StringComparison.Ordinal) == true,
+            "headless processes are not selected or relaunched");
     }
 
     private static async Task<Dictionary<string, object?>> InvokeAsync(
