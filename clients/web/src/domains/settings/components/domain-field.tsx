@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { useTranslation } from "@/i18n";
+
 interface DomainFieldProps {
   subdomain: string;
   onSubdomainChange: (value: string) => void;
@@ -25,6 +27,7 @@ export function DomainField({
   locked,
   lockedMessage,
 }: DomainFieldProps) {
+  const { t } = useTranslation("settings");
   const borderClass = error
     ? "border-[var(--system-negative-strong)]"
     : "border-[var(--field-border)] focus-within:border-[var(--border-active)]";
@@ -44,7 +47,7 @@ export function DomainField({
           readOnly={locked}
           autoFocus={autoFocus}
           placeholder={subdomainPlaceholder}
-          aria-label="Subdomain"
+          aria-label={t("domainField.subdomainAriaLabel")}
           aria-invalid={!!error}
           className={`h-full min-w-0 flex-1 bg-transparent ${prefix ? "pl-1.5" : "pl-3"} pr-1 text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none disabled:cursor-not-allowed disabled:opacity-60`}
         />

@@ -13,7 +13,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useResumeDailyLimit } from "@/hooks/use-daily-limit-skip";
 import { useScrollToAnchor } from "@/hooks/use-scroll-to-anchor";
-import { useTranslation } from "@/i18n";
+import { t, useTranslation } from "@/i18n";
 import { dailyResetTimePhrase } from "@/utils/daily-reset-time";
 import { formatUsd } from "@/utils/format-usd";
 import { Button } from "@vellumai/design-library/components/button";
@@ -38,16 +38,16 @@ export const DAILY_CREDIT_LIMIT_ANCHOR_ID = "daily-credit-limit";
 export function validateDailyLimit(raw: string): string | undefined {
   const trimmed = raw.trim();
   if (trimmed === "") {
-    return "Enter a daily limit";
+    return t("settings:dailyCreditLimitCard.errorEmpty");
   }
   const n = parseFloat(trimmed);
   if (!Number.isFinite(n) || n < 1) {
-    return "Must be at least $1";
+    return t("settings:dailyCreditLimitCard.errorMin");
   }
   // Reject more than two decimal places (backend requires exactly two; we pad
   // on save, but can't silently round away cents the user typed).
   if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
-    return "Use at most two decimal places";
+    return t("settings:dailyCreditLimitCard.errorDecimals");
   }
   return undefined;
 }
@@ -101,7 +101,7 @@ export function DailyCreditLimitCard() {
     return (
       <div data-testid="daily-credit-limit-card">
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          Loading…
+          {t("dailyCreditLimitCard.loading")}
         </p>
       </div>
     );
@@ -110,7 +110,7 @@ export function DailyCreditLimitCard() {
     return (
       <div data-testid="daily-credit-limit-card">
         <Notice tone="error">
-          Failed to load daily credit limit settings.
+          {t("dailyCreditLimitCard.loadError")}
         </Notice>
       </div>
     );
@@ -212,7 +212,7 @@ export function DailyCreditLimitCard() {
   const saveError =
     serverLimitError ??
     (updateMutation.isError
-      ? "Failed to save daily credit limit. Please try again."
+      ? t("dailyCreditLimitCard.saveError")
       : undefined);
   const visibleError = touched ? clientError : undefined;
 
@@ -250,8 +250,10 @@ export function DailyCreditLimitCard() {
                   type="number"
                   step="0.01"
                   min="1"
-                  label="Stop spending Vellum credits after"
-                  helperText={`Resets daily at ${resetPhrase}.`}
+                  label={t("dailyCreditLimitCard.inputLabel")}
+                  helperText={t("dailyCreditLimitCard.helperText", {
+                    time: resetPhrase,
+                  })}
                   placeholder="0.00"
                   value={value}
                   onChange={onChange}
@@ -272,7 +274,7 @@ export function DailyCreditLimitCard() {
                   disabled={updateMutation.isPending}
                   data-testid="daily-credit-limit-save-button"
                 >
-                  Save
+                  {t("dailyCreditLimitCard.save")}
                 </Button>
               </div>
             </div>
@@ -282,8 +284,10 @@ export function DailyCreditLimitCard() {
                 className="text-body-small-default text-[var(--content-tertiary)]"
                 data-testid="daily-credit-limit-progress"
               >
-                {formatUsd(dailySpend)} of{" "}
-                {formatUsd(config.daily_credit_limit_usd)} spent today
+                {t("dailyCreditLimitCard.progress", {
+                  spent: formatUsd(dailySpend),
+                  limit: formatUsd(config.daily_credit_limit_usd),
+                })}
               </p>
             )}
 
@@ -300,18 +304,20 @@ export function DailyCreditLimitCard() {
                       disabled={resumeMutation.isPending}
                       data-testid="daily-credit-limit-resume-button"
                     >
-                      Resume now
+                      {t("dailyCreditLimitCard.resumeNow")}
                     </Button>
                   }
                 >
-                  Skipped for today. This limit resumes at {resetPhrase}.
+                  {t("dailyCreditLimitCard.skippedNotice", {
+                    time: resetPhrase,
+                  })}
                 </Notice>
                 {resumeMutation.isError && (
                   <Notice
                     tone="error"
                     data-testid="daily-credit-limit-resume-error"
                   >
-                    Failed to resume the daily credit limit. Please try again.
+                    {t("dailyCreditLimitCard.resumeError")}
                   </Notice>
                 )}
               </>
@@ -319,8 +325,9 @@ export function DailyCreditLimitCard() {
 
             {limitReached && (
               <Notice tone="warning" data-testid="daily-credit-limit-reached">
-                Today&apos;s Vellum credit spend has reached this limit.
-                Generation resumes at {resetPhrase} or when you raise the limit.
+                {t("dailyCreditLimitCard.reachedNotice", {
+                  time: resetPhrase,
+                })}
               </Notice>
             )}
           </>
