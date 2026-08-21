@@ -10,9 +10,9 @@ class FakeChild extends EventEmitter {
 }
 
 let lastChild: FakeChild;
-const spawnArgs: Array<[string, string[], { stdio?: unknown }]> = [];
+const spawnArgs: Array<[string, string[], { stdio?: unknown; windowsHide?: boolean }]> = [];
 const spawnMock = mock(
-  (command: string, args: string[], options: { stdio?: unknown }) => {
+  (command: string, args: string[], options: { stdio?: unknown; windowsHide?: boolean }) => {
     spawnArgs.push([command, args, options]);
     lastChild = new FakeChild();
     return lastChild;
