@@ -66,8 +66,8 @@ export const UNSENDABLE_IMAGE_NOTE =
  * bytes untouched. An unsendable image that can be resized is rewritten to
  * its resized form (downscaled when oversized, upscaled to the minimum floor
  * when undersized); one that cannot be resized on this host (resize is a
- * no-op, e.g. `sips` is absent off macOS or the format is unsupported) is
- * replaced with a text note.
+ * no-op because the encoder cannot decode the format) is replaced with a text
+ * note.
  *
  * Shared by the in-memory recovery transform and the durable persist pass so
  * both apply the identical rule. Persisting the resized form is what lets a

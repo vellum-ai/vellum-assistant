@@ -1,4 +1,11 @@
-import { copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -60,6 +67,13 @@ const assistantDefines = {
   "process.env.APP_VERSION": JSON.stringify(assistantVersion),
   "process.env.COMMIT_SHA": JSON.stringify(commitSha),
 };
+const assistantExternals = [
+  "chromium-bidi/*",
+  "sharp",
+  "@img/*",
+  "detect-libc",
+  "semver",
+] as const;
 const targets: readonly RuntimeTarget[] = [
   {
     name: "vellum.exe",
@@ -69,13 +83,13 @@ const targets: readonly RuntimeTarget[] = [
   {
     name: "assistant.exe",
     entry: "assistant/src/windows-compiled-entry.ts",
-    externals: ["chromium-bidi/*"],
+    externals: assistantExternals,
     defines: assistantDefines,
   },
   {
     name: "vellum-daemon.exe",
     entry: "assistant/src/daemon/windows-compiled-entry.ts",
-    externals: ["chromium-bidi/*"],
+    externals: assistantExternals,
     defines: assistantDefines,
   },
   {
@@ -101,7 +115,7 @@ const targets: readonly RuntimeTarget[] = [
   {
     name: "vellum-worker.exe",
     entry: "assistant/src/windows-compiled-worker-entry.ts",
-    externals: ["chromium-bidi/*"],
+    externals: assistantExternals,
     defines: assistantDefines,
   },
   {
@@ -139,6 +153,38 @@ for (const { name, entry, externals, defines } of targets) {
     throw new Error(`Failed to compile ${name} (exit ${build.status}).`);
   }
 }
+
+function findPackageDir(specifier: string): string {
+  let current = path.dirname(Bun.resolveSync(specifier, repoRoot));
+  for (;;) {
+    if (existsSync(path.join(current, "package.json"))) {
+      return realpathSync(current);
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      throw new Error(`Could not locate package directory for ${specifier}.`);
+    }
+    current = parent;
+  }
+}
+
+const runtimePackages = [
+  "sharp",
+  "@img/colour",
+  `@img/sharp-win32-${targetArch}`,
+  "detect-libc",
+  "semver",
+] as const;
+const runtimeNodeModules = path.join(outputDir, "node_modules");
+mkdirSync(runtimeNodeModules, { recursive: true });
+for (const specifier of runtimePackages) {
+  cpSync(
+    findPackageDir(specifier),
+    path.join(runtimeNodeModules, ...specifier.split("/")),
+    { recursive: true },
+  );
+}
+
 const versionCheck = spawnSync(
   path.join(outputDir, "assistant.exe"),
   ["--version"],

@@ -11,7 +11,7 @@
 
 import { existsSync, rmSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { ensureCompilerTools } from "./compiler-tools.js";
@@ -469,7 +469,7 @@ export async function runCompile(
   const cacheNodeModules = join(getCacheDir(), "node_modules");
   const nodePath = [preactParent, cacheNodeModules]
     .filter((p) => existsSync(p))
-    .join(":");
+    .join(delimiter);
 
   // Shell out to esbuild CLI
   const args = [

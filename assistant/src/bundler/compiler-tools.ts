@@ -16,7 +16,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { arch, platform } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -42,6 +42,37 @@ interface VersionManifest {
   platform: string;
   arch: string;
   installedAt: string;
+}
+
+interface EsbuildPlatform {
+  packageName: string;
+  binaryPathParts: string[];
+}
+
+export function resolveEsbuildPlatform(
+  os: NodeJS.Platform,
+  cpu: string,
+): EsbuildPlatform {
+  if (cpu !== "arm64" && cpu !== "x64") {
+    throw new Error(`Unsupported esbuild architecture: ${cpu}`);
+  }
+  if (os === "darwin" || os === "linux") {
+    return {
+      packageName: `${os}-${cpu}`,
+      binaryPathParts: ["bin", "esbuild"],
+    };
+  }
+  if (os === "win32") {
+    return {
+      packageName: `win32-${cpu}`,
+      binaryPathParts: ["esbuild.exe"],
+    };
+  }
+  throw new Error(`Unsupported esbuild platform: ${os}`);
+}
+
+function installedEsbuildName(os: NodeJS.Platform): string {
+  return os === "win32" ? "esbuild.exe" : "esbuild";
 }
 
 function getToolsDir(): string {
@@ -171,8 +202,11 @@ function isReady(baseDir: string): boolean {
   if (!manifest || manifest.toolsVersion !== TOOLS_VERSION) {
     return false;
   }
+  if (manifest.platform !== platform() || manifest.arch !== arch()) {
+    return false;
+  }
   return (
-    existsSync(join(baseDir, "bin", "esbuild")) &&
+    existsSync(join(baseDir, "bin", installedEsbuildName(platform()))) &&
     existsSync(join(baseDir, "node_modules", "preact"))
   );
 }
@@ -193,7 +227,7 @@ export async function ensureCompilerTools(): Promise<CompilerTools> {
   }
 
   return {
-    esbuildBin: join(baseDir, "bin", "esbuild"),
+    esbuildBin: join(baseDir, "bin", installedEsbuildName(platform())),
     preactDir: join(baseDir, "node_modules", "preact"),
   };
 }
@@ -247,22 +281,17 @@ async function install(baseDir: string): Promise<void> {
   mkdirSync(tmpDir, { recursive: true });
 
   try {
-    // Determine esbuild platform package name
-    const esbuildPlatform =
-      os === "darwin"
-        ? cpu === "arm64"
-          ? "darwin-arm64"
-          : "darwin-x64"
-        : cpu === "arm64"
-          ? "linux-arm64"
-          : "linux-x64";
+    const esbuildPlatform = resolveEsbuildPlatform(os, cpu);
 
     // Download esbuild binary + preact in parallel
     await Promise.all([
       downloadAndExtract(
-        `@esbuild/${esbuildPlatform}`,
+        `@esbuild/${esbuildPlatform.packageName}`,
         ESBUILD_VERSION,
-        npmTarballUrl(`@esbuild/${esbuildPlatform}`, ESBUILD_VERSION),
+        npmTarballUrl(
+          `@esbuild/${esbuildPlatform.packageName}`,
+          ESBUILD_VERSION,
+        ),
         join(tmpDir, "esbuild-pkg"),
       ),
       downloadAndExtract(
@@ -274,12 +303,19 @@ async function install(baseDir: string): Promise<void> {
     ]);
 
     // Move esbuild binary to bin/
-    const esbuildBinSrc = join(tmpDir, "esbuild-pkg", "bin", "esbuild");
+    const esbuildBinSrc = join(
+      tmpDir,
+      "esbuild-pkg",
+      ...esbuildPlatform.binaryPathParts,
+    );
     const binDir = join(tmpDir, "bin");
     mkdirSync(binDir, { recursive: true });
     const { renameSync } = await import("node:fs");
-    renameSync(esbuildBinSrc, join(binDir, "esbuild"));
-    chmodSync(join(binDir, "esbuild"), 0o755);
+    const esbuildBin = join(binDir, installedEsbuildName(os));
+    renameSync(esbuildBinSrc, esbuildBin);
+    if (os !== "win32") {
+      chmodSync(esbuildBin, 0o755);
+    }
     rmSync(join(tmpDir, "esbuild-pkg"), { recursive: true, force: true });
 
     // Write version manifest
@@ -299,7 +335,7 @@ async function install(baseDir: string): Promise<void> {
     // Atomic swap: clear old install, move new files in
     const { readdirSync } = await import("node:fs");
     for (const entry of readdirSync(baseDir)) {
-      if (entry.startsWith(".") || entry === tmpDir.split("/").pop()) {
+      if (entry.startsWith(".") || entry === basename(tmpDir)) {
         continue;
       }
       rmSync(join(baseDir, entry), { recursive: true, force: true });
